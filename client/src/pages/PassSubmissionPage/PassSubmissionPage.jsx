@@ -26,6 +26,8 @@ const PassSubmissionPage = () => {
     early: '',
     late: '',
     isNoHold: false,
+    is12k: false,
+    is16k: false
   };
 
   const { t } = useTranslation()
@@ -38,6 +40,7 @@ const PassSubmissionPage = () => {
   const [isValidSpeed, setIsValidSpeed] = useState(true)
   const [isFormValid, setIsFormValid] = useState(false);
   const [isFormValidDisplay, setIsFormValidDisplay] = useState({});
+  const [IsUDiff, setIsUDiff] = useState(false)
 
   const [showMessage, setShowMessage] = useState(false)
   const [success, setSuccess] = useState(false);
@@ -85,7 +88,7 @@ const PassSubmissionPage = () => {
       displayValidationRes[field] = submitAttempt ? validationResult[field] : true;
     }
     
-    console.log(validationResult["videoLink"], videoDetail)
+    //console.log(validationResult["videoLink"], videoDetail)
     setIsValidFeelingRating(frValid);
     setIsValidSpeed(speedValid); // Update validation state
     setIsFormValidDisplay(displayValidationRes); // Set the validity object
@@ -102,6 +105,14 @@ const PassSubmissionPage = () => {
       updateAccuracy(form);
       updateScore(form);
     }
+
+    if(level){
+      setIsUDiff(level["pguDiffNum"] >= 21);
+    }
+    if(!form.levelId){
+      setIsUDiff(false)
+    }
+    
   }, [level]);
 
   useEffect(() => {
@@ -138,7 +149,7 @@ const PassSubmissionPage = () => {
 
   useEffect(() => {
     const { videoLink } = form;
-    console.log(videoLink);
+    //console.log(videoLink);
     
     getVideoDetails(videoLink).then((res) => {
       setVideoDetail(
@@ -159,7 +170,12 @@ const PassSubmissionPage = () => {
   
     // Determine the value based on whether the input is a checkbox
     const inputValue = type === 'checkbox' ? checked : value;
-  
+    if (name === "is16k"){
+      form.is12k=false
+    }
+    if (name === "is12k"){
+      form.is16k=false
+    }
   
     // Update the form state
     setForm((prev) => ({
@@ -217,7 +233,7 @@ const PassSubmissionPage = () => {
     }
 };
 
- const googleForm = new FormManager("pass")
+ const submissionForm = new FormManager("pass")
   const handleSubmit = (e) => {
     e.preventDefault();
     setShowMessage(true)
@@ -237,23 +253,25 @@ const PassSubmissionPage = () => {
 
     setSubmission(true)
     setError(null);
-    googleForm.setDetail('id', form.levelId)
-    googleForm.setDetail('*/Speed Trial', form.speed >= 1? "" : form.speed)
-    googleForm.setDetail('Passer', form.leaderboardName)
-    googleForm.setDetail('Feeling Difficulty', form.feelingRating)
-    googleForm.setDetail('Title', videoDetail.title)
-    googleForm.setDetail('*/Raw Video ID', form.videoLink)
-    googleForm.setDetail('*/Raw Time (GMT)', videoDetail.timestamp)
-    googleForm.setDetail('Early!!', form.tooEarly)
-    googleForm.setDetail('Early!', form.early)
-    googleForm.setDetail('EPerfect!', form.ePerfect)
-    googleForm.setDetail('Perfect!', form.perfect)
-    googleForm.setDetail('LPerfect!', form.lPerfect)
-    googleForm.setDetail('Late!', form.late)
-    googleForm.setDetail('Late!!', "0")
-    googleForm.setDetail('NHT', form.isNoHold)
+    submissionForm.setDetail('id', form.levelId)
+    submissionForm.setDetail('*/Speed Trial', form.speed >= 1? "" : form.speed)
+    submissionForm.setDetail('Passer', form.leaderboardName)
+    submissionForm.setDetail('Feeling Difficulty', form.feelingRating)
+    submissionForm.setDetail('Title', videoDetail.title)
+    submissionForm.setDetail('*/Raw Video ID', form.videoLink)
+    submissionForm.setDetail('*/Raw Time (GMT)', videoDetail.timestamp)
+    submissionForm.setDetail('Early!!', form.tooEarly)
+    submissionForm.setDetail('Early!', form.early)
+    submissionForm.setDetail('EPerfect!', form.ePerfect)
+    submissionForm.setDetail('Perfect!', form.perfect)
+    submissionForm.setDetail('LPerfect!', form.lPerfect)
+    submissionForm.setDetail('Late!', form.late)
+    submissionForm.setDetail('Late!!', "0")
+    submissionForm.setDetail('NHT', form.isNoHold)
+    submissionForm.setDetail("12K", IsUDiff && form.is12k)
+    submissionForm.setDetail("test16k", IsUDiff && form.is16k)
 
-    googleForm.submit(user.access_token)
+    submissionForm.submit(user.access_token)
   .then(result => {
     if (result === "ok") {
       setSuccess(true);
@@ -449,43 +467,97 @@ const PassSubmissionPage = () => {
       
       
       <div className="info-input">
-            <input
-              type="text"
-              placeholder={t("passSubmission.submInfo.speed")}
-              name="speed"
-              value={form.speed}
-              onChange={handleInputChange}
-              style={{ 
-                borderColor: isFormValidDisplay.speed ? "" : "red",
-                backgroundColor: isValidSpeed? "transparent" : "#faa"}}
-            />
-
-      <div style={{ display: 'flex', justifyContent: "center", gap: "10px"}}>
-        <input
-          type="text"
-          placeholder={t("passSubmission.submInfo.feelDiff")}
-          name="feelingRating"
-          value={form.feelingRating}
-          onChange={handleInputChange}
-          style={{ 
-            borderColor: isFormValidDisplay.feelingRating ? "" : "red",
-            backgroundColor: !isValidFeelingRating ? "yellow" : ""
-          }} 
-        />
+              <input
+                type="text"
+                placeholder={t("passSubmission.submInfo.speed")}
+                name="speed"
+                value={form.speed}
+                onChange={handleInputChange}
+                style={{ 
+                  borderColor: isFormValidDisplay.speed ? "" : "red",
+                  backgroundColor: isValidSpeed? "transparent" : "#faa"}}
+              />
+  
+        <div style={{ display: 'flex', justifyContent: "center", gap: "10px"}}>
+          <input
+            type="text"
+            placeholder={t("passSubmission.submInfo.feelDiff")}
+            name="feelingRating"
+            value={form.feelingRating}
+            onChange={handleInputChange}
+            style={{ 
+              borderColor: isFormValidDisplay.feelingRating ? "" : "red",
+              backgroundColor: !isValidFeelingRating ? "yellow" : ""
+            }} 
+          />
           <div className="tooltip-container">
-          <span style={{
-              color: 'red',
-              visibility: `${!isValidFeelingRating? '' : 'hidden'}`
-            }}>?</span>
-          <span className="tooltip" 
-                style={{
-                  visibility: `${!isValidFeelingRating? '' : 'hidden'}`,
-                 bottom: "115%",
-                  right: "-15%"}}>{t("passSubmission.tooltip")}</span>
+            <span style={{
+                color: 'red',
+                visibility: `${!isValidFeelingRating? '' : 'hidden'}`
+              }}>?</span>
+            <span className="tooltip" 
+                  style={{
+                    visibility: `${!isValidFeelingRating? '' : 'hidden'}`,
+                   bottom: "115%",
+                    right: "-15%"}}>{t("passSubmission.tooltip")}</span>
+          </div>
         </div>
       </div>
+      <div
+      className={`info-input-container ${IsUDiff ? 'expand' : ''}`}
+      style={{ justifyContent: 'end', marginRight: '2.5rem' }}
+    >
+          <div className="tooltip-container keycount-checkbox">
+            <input
+              type="checkbox"
+              value={form.is12k}
+              onChange={handleInputChange}
+              name="is12k"
+              checked={form.is12k}
+            />
+            <span
+              style={{
+                margin: '0 15px 0 10px',
+                position: 'relative',
+              }}
+            >
+              {t('passSubmission.submInfo.is12k')}
+            </span>
+            <span
+              className="tooltip"
+              style={{
+                bottom: '110%'
+              }}
+            >
+              {t('passSubmission.12kTooltip')}
+            </span>
           </div>
-
+          <div className="tooltip-container keycount-checkbox">
+            <input
+              type="checkbox"
+              value={form.is16k}
+              onChange={handleInputChange}
+              name="is16k"
+              checked={form.is16k}
+            />
+            <span
+              style={{
+                margin: '0 15px 0 10px',
+                position: 'relative',
+              }}
+            >
+              {t('passSubmission.submInfo.is16k')}
+            </span>
+            <span
+              className="tooltip"
+              style={{
+                bottom: '110%'
+              }}
+            >
+              {t('passSubmission.16kTooltip')}
+            </span>
+          </div>
+    </div>
           <div className="accuracy" style={{backgroundColor: "#222", color: "#fff"}}>
             <div className="top">
               <div className="each-accuracy">

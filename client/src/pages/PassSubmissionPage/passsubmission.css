@@ -116,10 +116,33 @@
 
 .pass-submission-page form .info .info-input > * {
   flex: 1 1 150px; /* Flex-grow, flex-shrink, and base size (width of 150px) */
-  min-width: 150px; /* Minimum width to avoid shrinking too small */
+  min-width: 100px; /* Minimum width to avoid shrinking too small */
   max-width: 200px; /* Maximum width to control expansion */
   height: 40px; /* Fixed height */
   box-sizing: border-box; /* To include padding and borders in width/height calculation */
+}
+.pass-submission-page form .info .info-input-container {
+  overflow: hidden;
+  max-height: 0; /* Collapsed height */
+  transition: max-height 0.4s ease; /* Transition for smooth sliding */
+  display: flex;
+  margin-top: 1rem;
+  padding-right: 1.5rem;
+  flex-direction: row;
+}
+
+.pass-submission-page form .info .info-input-container.expand {
+  overflow:visible;
+  max-height: 200px; /* Set a maximum value, or use a value that comfortably fits the content */
+}
+
+
+.pass-submission-page form .info .info-input .keycount-checkbox {
+  max-width: 130px;
+}
+
+.pass-submission-page form .info .info-input .keycount-checkbox .tooltip{
+  right: -15%;
 }
 
 .pass-submission-page form .info .info-input input {
