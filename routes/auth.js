@@ -1,0 +1,121 @@
+import express from 'express';
+import { verifyAccessToken } from '../utils/authHelpers.js';
+
+
+
+const router = express.Router();
+
+
+  
+// CURRENTLY NOT IN USE
+router.post('/google-auth', async (req, res) => {
+    const { code } = req.body; // Extract code object from request body
+    
+    //console.log("request body: ", req.body);
+    
+    if (!code || !code.access_token) {
+      return res.status(400).json({ error: 'No access token provided' });
+    }
+  
+    const access_token = code.access_token; // Get the access token
+  
+    try {
+      const tokenInfo = await verifyAccessToken(access_token); // Validate token
+  
+      if (!tokenInfo) {
+        return res.status(401).json({ error: 'Invalid access token' });
+      }
+  
+      // Fetch the user info if token is valid
+      const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      });
+  
+      if (!userInfoResponse.ok) {
+        return res.status(401).json({ error: 'Failed to fetch user info' });
+      }
+  
+      const userInfo = await userInfoResponse.json();
+      //console.log("userInfo", userInfo);
+      
+      // Token is valid, return the token info and user profile
+      res.json({
+        valid: true,
+        tokenInfo,
+        profile: userInfo,
+      });
+    } catch (error) {
+      console.error('Error verifying token:', error);
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+  
+  
+  router.post('/discord-auth', async (req, res) => {
+    const { code } = req.body; // Get the authorization code from request body
+  
+    if (!code) {
+        return res.status(400).json({ error: 'Authorization code is required' });
+    }
+  
+    try {
+        const requestBody = new URLSearchParams({
+            client_id: process.env.CLIENT_ID,
+            client_secret: process.env.CLIENT_SECRET,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: `${process.env.CLIENT_URL}/callback`, // Adjust this as needed
+        }).toString();
+  
+        //console.log('Request Body:', requestBody); // Log request body
+  
+        const tokenResponseData = await fetch('https://discord.com/api/oauth2/token', {
+            method: 'POST',
+            body: requestBody,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+            },
+        });
+  
+        if (!tokenResponseData.ok) {
+            const errorText = await tokenResponseData.text(); // Get error details
+            console.error('Error Response:', errorText);
+            return res.status(500).json({ error: 'Failed to exchange code for token', details: errorText });
+        }
+  
+        const oauthData = await tokenResponseData.json(); // Parse the token response
+        //console.log('OAuth Data:', oauthData);
+  
+        // Send back the token data to the client
+        return res.status(200).json({
+            access_token: oauthData.access_token,
+            refresh_token: oauthData.refresh_token,
+            expires_in: oauthData.expires_in,
+            scope: oauthData.scope,
+            token_type: oauthData.token_type,
+        });
+  
+    } catch (error) {
+        console.error('Error during token exchange:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+  
+  
+  // Token checking endpoint
+  router.post('/check-token', async (req, res) => {
+    const { accessToken } = req.body;
+  
+    const tokenInfo = await verifyAccessToken(accessToken); // Validate token
+  
+    if (tokenInfo) {
+      return res.json({ valid: true, profile: tokenInfo });
+    } else {
+      return res.status(401).json({ valid: false, error: 'Invalid or expired token' });
+    }
+  });
+  
+  export default router;
+  
