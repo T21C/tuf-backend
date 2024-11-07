@@ -1,5 +1,6 @@
 {
   "watch": ["src/"],
   "ext": ".ts,.json",
-  "ignore": ["node_modules/", "*.test.ts", "players/", "cache/"]
+  "ignore": ["node_modules/", "*.test.ts", "players/", "cache/"],
+  "exec": "node --import=tsimp/import"
 } 

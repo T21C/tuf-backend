@@ -2,15 +2,16 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "build/index.js",
   "type": "module",
   "engines": {
     "node": ">=18.19.0"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js",
-    "dev": "nodemon ts-node src/index.ts",
+    "start": "node --import=tsimp/import src/index.ts",
+    "start:prod": "node build/index.js",
+    "dev": "nodemon src/index.ts",
     "lint": "gts lint",
     "clean": "gts clean",
     "compile": "tsc",
@@ -31,7 +32,6 @@
     "express": "^4.21.0",
     "mongoose": "^8.8.0",
     "node-fetch": "^3.3.2",
-    "ts-node": "^10.9.2",
     "uint8array-extras": "^1.4.0"
   },
   "devDependencies": {
@@ -40,6 +40,7 @@
     "@types/node": "^22.7.5",
     "gts": "^6.0.2",
     "nodemon": "^3.1.7",
+    "tsimp": "^2.0.12",
     "typescript": "^5.6.3"
   }
 }

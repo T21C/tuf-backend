@@ -131,13 +131,19 @@ dist
 
 #enc
 .env
-/players
-/player.json
-/passes.json
-/charts.json
-/clearlist.json
-/playerlist.json
-/pfpList.json
-/rankList.json
-/cache
-/__pycache__
+players/
+player.json
+passes.json
+charts.json
+clearlist.json
+playerlist.json
+pfpList.json
+rankList.json
+cache/
+__pycache__/
+
+# ts builds
+build/
+
+# tsimp
+.tsimp/
