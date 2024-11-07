@@ -22,7 +22,7 @@ router.get('/image', async (req, res) => {
     }
 
     res.set('Content-Type', contentType);
-    response.data.pipe(res);
+    return response.data.pipe(res);
   } catch (error) {
     console.error('Error fetching image:', error);
     res.status(500).send('Error fetching image.');
@@ -41,10 +41,10 @@ router.get('/bilibili', async (req, res) => {
       return res.status(response.status).json(data);
     }
 
-    res.json(data);
+    return res.json(data);
   } catch (error) {
     console.error('Error fetching data:', error);
-    res.status(500).json({error: 'Internal Server Error'});
+    return res.status(500).json({error: 'Internal Server Error'});
   }
 });
 

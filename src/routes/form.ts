@@ -131,7 +131,7 @@ router.post('/form-submit', async (req, res) => {
     return res.json({success: true, message: 'Form submitted successfully'});
   } catch (error) {
     console.error('Error forwarding form submission:', error);
-    res.status(500).json({error: 'Internal Server Error'});
+    return res.status(500).json({error: 'Internal Server Error'});
   }
 });
 

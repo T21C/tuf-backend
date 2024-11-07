@@ -5,7 +5,7 @@ import {validSortOptions} from '../config/constants.js';
 
 const router = express.Router();
 
-router.get('/', async (req, res) => {
+router.get('/', (req, res) => {
   const {
     sortBy = 'rankedScore',
     order = 'desc',
@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
   });
 
   // Send the sorted data as response
-  res.json(responseData);
+  return res.json(responseData);
 });
 
 export default router;
