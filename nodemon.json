@@ -1,5 +1,5 @@
 {
-  "watch": ["server/"],
-  "ext": ".js,.json",
-  "ignore": ["node_modules/", "*.test.js", "players/", "cache/"]
+  "watch": ["src/"],
+  "ext": ".ts,.json",
+  "ignore": ["node_modules/", "*.test.ts", "players/", "cache/"]
 } 

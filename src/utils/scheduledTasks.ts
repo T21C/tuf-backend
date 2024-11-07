@@ -1,4 +1,4 @@
-import { updateData, syncJsonToSheet } from '../utils/updateHelpers.js';
+import {updateData, syncJsonToSheet} from '../utils/updateHelpers.js';
 
 export const startScheduledTasks = () => {
   // Update data every 10 minutes

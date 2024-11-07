@@ -5,9 +5,9 @@ dotenv.config();
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URI, {
+    await mongoose.connect(process.env.MONGODB_URI!, {
       ssl: true,
-      tlsAllowInvalidCertificates: true
+      tlsAllowInvalidCertificates: true,
     });
     console.log('MongoDB connected successfully');
   } catch (error) {
@@ -15,4 +15,4 @@ const connectDB = async () => {
   }
 };
 
-export default connectDB; 
+export default connectDB;
