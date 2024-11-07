@@ -35,4 +35,4 @@ dist-ssr
 /pfpList.json
 /rankList.json
 /cache
-/__pycache__
+/parser_module/__pycache__

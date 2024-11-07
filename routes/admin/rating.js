@@ -1,8 +1,8 @@
 import express from 'express';
-import { verifyAccessToken } from '../utils/authHelpers.js';
-import { raterList } from '../config/constants.js';
-import { readJsonFile, writeJsonFile } from '../utils/fileHandlers.js';
-import { PATHS } from '../config/constants.js';
+import { verifyAccessToken } from '../../utils/authHelpers.js';
+import { raterList } from '../../config/constants.js';
+import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers.js';
+import { PATHS } from '../../config/constants.js';
 import fs from 'fs';
 
 

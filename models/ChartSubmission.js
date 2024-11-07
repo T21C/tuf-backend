@@ -40,6 +40,15 @@ const chartSubmissionSchema = new mongoose.Schema({
   submitter: {
     discordUsername: { type: String },
     email: { type: String }
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'declined'],
+    default: 'pending'
+  },
+  toRate: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
