@@ -1,12 +1,12 @@
-import express, {Request, Response} from 'express';
+import express, {Request, Response, Router} from 'express';
 import {verifyAccessToken} from '../utils/authHelpers.js';
 import {raterList} from '../config/constants.js';
 import {readJsonFile, writeJsonFile} from '../utils/fileHandlers.js';
 import {PATHS} from '../config/constants.js';
 import fs from 'fs';
-import {fetchRatings} from '../utils/updateHelpers.js';
+import { fetchRatings } from '../utils/updateHelpers.js';
 
-const router = express.Router();
+const router: Router = express.Router();
 
 router.get('/rating', async (req: Request, res: Response) => {
   try {

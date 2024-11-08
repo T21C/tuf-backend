@@ -1,11 +1,11 @@
-import express from 'express';
+import express, {Request, Response, Router} from 'express';
 import {loadPfpList, readJsonFile} from '../utils/fileHandlers.js';
 import {PATHS} from '../config/constants.js';
 import {validSortOptions} from '../config/constants.js';
 
-const router = express.Router();
+const router: Router = express.Router();
 
-router.get('/', (req, res) => {
+router.get('/', (req: Request, res: Response) => {
   const {
     sortBy = 'rankedScore',
     order = 'desc',

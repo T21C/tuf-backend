@@ -4,10 +4,10 @@ import dotenv from 'dotenv';
 import adminRoutes from './routes/admin';
 import leaderboardRoutes from './routes/leaderboard';
 import playerRoutes from './routes/player';
-import authRoutes from './routes/auth';
-import mediaRoutes from './routes/media';
-import formRoutes from './routes/form';
-import connectDB from './config/db';
+import authRoutes from './routes/auth.js';
+import mediaRoutes from './routes/media.js';
+import formRoutes from './routes/form.js';
+import connectDB from './config/db.js';
 
 dotenv.config();
 
@@ -18,15 +18,18 @@ connectDB();
 
 app.use(cors());
 
-app.use(express());
-app.use(express.urlencoded({extended: true}));
 
-app.use('/api/admin', adminRoutes);
-app.use('/api/form', formRoutes);
-app.use('/api/leaderboard', leaderboardRoutes);
-app.use('/api/player', playerRoutes);
-app.use('/api/auth', authRoutes);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use('/v2/admin', adminRoutes);
+app.use('/v2/form', formRoutes);
+app.use('/v2/leaderboard', leaderboardRoutes);
+app.use('/v2/player', playerRoutes);
+app.use('/v2/auth', authRoutes);
 app.use('/media', mediaRoutes);
+
+
 
 app.listen(port, () => {
   console.log(`Server running on ${process.env.OWN_URL}`);

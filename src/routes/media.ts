@@ -1,13 +1,13 @@
-import express from 'express';
+import express, {Request, Response, Router} from 'express';
 import fetch from 'node-fetch';
 import {loadPfpList} from '../utils/fileHandlers.js';
 import {PATHS} from '../config/constants.js';
 import {decodeFromBase32} from '../utils/encodingHelpers.js';
 import axios from 'axios';
 
-const router = express.Router();
+const router: Router = express.Router();
 
-router.get('/image', async (req, res) => {
+router.get('/image', async (req: Request, res: Response) => {
   const imageUrl = req.query.url;
   try {
     if (!imageUrl || typeof imageUrl !== 'string') {
@@ -29,7 +29,7 @@ router.get('/image', async (req, res) => {
   }
 });
 
-router.get('/bilibili', async (req, res) => {
+router.get('/bilibili', async (req: Request, res: Response) => {
   const bvid = req.query.bvid;
   const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
 
@@ -48,7 +48,7 @@ router.get('/bilibili', async (req, res) => {
   }
 });
 
-router.get('/pfp', async (req, res) => {
+router.get('/pfp', async (req: Request, res: Response) => {
   const player = req.query.player as string;
   const pfpList = loadPfpList();
   res.json(pfpList[player]);

@@ -1,4 +1,4 @@
-import express from 'express';
+import express, {Request, Response, Router} from 'express';
 import {loadPfpList, readJsonFile} from '../utils/fileHandlers.js';
 import {PATHS} from '../config/constants.js';
 import {decodeFromBase32} from '../utils/encodingHelpers.js';
@@ -11,9 +11,9 @@ import fs from 'fs';
 import path from 'path';
 import {exec} from 'child_process';
 
-const router = express.Router();
+const router: Router = express.Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   const {player = 'V0W4N'} = req.query;
   const plrPath = path.join(PATHS.playerFolder, `${player}.json`);
   const pfpList = loadPfpList();

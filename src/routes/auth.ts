@@ -1,12 +1,12 @@
-import express from 'express';
+import express, {Request, Response, Router} from 'express';
 import {verifyAccessToken} from '../utils/authHelpers.js';
 import axios from 'axios';
 import {type RESTPostOAuth2AccessTokenResult} from 'discord-api-types/v10';
 
-const router = express.Router();
+const router: Router = express.Router();
 
 // CURRENTLY NOT IN USE
-router.post('/google-auth', async (req, res) => {
+router.post('/google-auth', async (req: Request, res: Response) => {
   const {code} = req.body; // Extract code object from request body
 
   //console.log("request body: ", req.body);
@@ -53,7 +53,7 @@ router.post('/google-auth', async (req, res) => {
   }
 });
 
-router.post('/discord-auth', async (req, res) => {
+router.post('/discord-auth', async (req: Request, res: Response) => {
   const {code} = req.body; // Get the authorization code from request body
 
   if (!code) {
@@ -107,7 +107,7 @@ router.post('/discord-auth', async (req, res) => {
 });
 
 // Token checking endpoint
-router.post('/check-token', async (req, res) => {
+router.post('/check-token', async (req: Request, res: Response) => {
   const {accessToken} = req.body;
 
   const tokenInfo = await verifyAccessToken(accessToken); // Validate token

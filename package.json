@@ -32,6 +32,7 @@
     "express": "^4.21.0",
     "mongoose": "^8.8.0",
     "node-fetch": "^3.3.2",
+    "pnpm": "^9.12.3",
     "uint8array-extras": "^1.4.0"
   },
   "devDependencies": {
