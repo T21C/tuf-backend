@@ -6,6 +6,7 @@ import {
   updateTimestamp,
   levelUpdateTime,
   updateTimeList,
+  getPlayer,
 } from '../utils/updateHelpers.js';
 import fs from 'fs';
 import path from 'path';
@@ -31,28 +32,7 @@ router.get('/', async (req: Request, res: Response) => {
     });
   });
 
-  const getPlayer = () => {
-    console.log('decoded', decodeFromBase32(player as string));
-    return new Promise((resolve, reject) => {
-      exec(
-        `python ./parser_module/executable.py player "${decodeFromBase32(player as string)}" --output="${plrPath}" --showCharts --useSaved`,
-        (error, stdout, stderr) => {
-          if (error) {
-            console.error(`Error executing for all_players: ${error.message}`);
-            reject(error);
-            return;
-          }
-          if (stderr) {
-            console.error(`Script stderr: ${stderr}`);
-            reject(new Error(stderr));
-            return;
-          }
-          console.log(`Script output: ${stdout}`);
-          resolve(stdout);
-        },
-      );
-    });
-  };
+  
 
   try {
     //console.log(updateTimeList);
@@ -61,7 +41,7 @@ router.get('/', async (req: Request, res: Response) => {
       !updateTimeList[player as string] ||
       updateTimeList[player as string] < levelUpdateTime
     ) {
-      await getPlayer();
+      await getPlayer(player as string, plrPath);
       updateTimestamp(player as string);
       console.log(
         'updating',

@@ -4,9 +4,36 @@ import {exec} from 'child_process';
 import {loadPfpList, savePfpList} from './fileHandlers.js';
 import {getPfpUrl} from './pfpResolver.js';
 import axios from 'axios';
+import { decodeFromBase32 } from './encodingHelpers.js';
 
 export let levelUpdateTime = 0; // Initialize with 0 or another default value
 export const updateTimeList: Record<string, number> = {};
+
+const parserPath = './src/parser_module/executable.py';
+
+export const getPlayer = (player: string, plrPath: string) => {
+  console.log('decoded', decodeFromBase32(player));
+  return new Promise((resolve, reject) => {
+    exec(
+      `python ${parserPath} player "${decodeFromBase32(player)}" --output="${plrPath}" --showCharts --useSaved`,
+      (error, stdout, stderr) => {
+        if (error) {
+          console.error(`Error executing for all_players: ${error.message}`);
+          reject(error);
+          return;
+        }
+        if (stderr) {
+          console.error(`Script stderr: ${stderr}`);
+          reject(new Error(stderr));
+          return;
+        }
+        console.log(`Script output: ${stdout}`);
+        resolve(stdout);
+      },
+    );
+  });
+};
+
 
 export const updateRanks = () => {
   console.log('updating ranks');
@@ -51,7 +78,7 @@ export const updateData = () => {
   //fetchRatings()
   console.log('starting execution');
   exec(
-    `python ./parser_module/executable.py all_players --output=${PATHS.playerlistJson} --reverse`,
+    `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse`,
     async (error, stdout, stderr) => {
       if (error) {
         console.error(`Error executing for all_players: ${error.message}`);
@@ -68,7 +95,7 @@ export const updateData = () => {
       if (!EXCLUDE_CLEARLIST) {
         console.log('starting all_clears');
         exec(
-          `python ./parser_module/executable.py all_clears --output=${PATHS.clearlistJson} --useSaved`,
+          `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved`,
           (error, stdout, stderr) => {
             if (error) {
               console.error(
