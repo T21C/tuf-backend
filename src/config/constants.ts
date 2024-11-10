@@ -7,6 +7,8 @@ export const PATHS = {
   ratingListJson: 'cache/ratingList.json',
 };
 
+export const SUPER_ADMINS = ["teo_72", "v0w4n"];
+
 export const raterList = [
   'tw3n',
   'crabbonike',
