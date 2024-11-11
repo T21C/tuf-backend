@@ -1,18 +1,18 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import adminRoutes from './routes/admin';
+import adminRoutes from './routes/admin/index';
 import leaderboardRoutes from './routes/leaderboard';
 import playerRoutes from './routes/player';
-import authRoutes from './routes/auth.js';
-import mediaRoutes from './routes/media.js';
-import formRoutes from './routes/form.js';
-import connectDB from './config/db.js';
+import authRoutes from './routes/auth';
+import mediaRoutes from './routes/media';
+import formRoutes from './routes/form';
+import connectDB from './config/db';
 
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3002;
 
 connectDB();
 
@@ -27,7 +27,7 @@ app.use('/v2/form', formRoutes);
 app.use('/v2/leaderboard', leaderboardRoutes);
 app.use('/v2/player', playerRoutes);
 app.use('/v2/auth', authRoutes);
-app.use('/media', mediaRoutes);
+app.use('/v2/media', mediaRoutes);
 
 
 
