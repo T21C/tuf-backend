@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 const ratingSchema = new mongoose.Schema({
-  id: {
+  ID: {
     type: Number,
     required: true,
     unique: true
@@ -18,74 +18,42 @@ const ratingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  charter: {
+  rawVideoLink: {
     type: String,
     required: true
   },
-  vfxer: {
+  rawDLLink: {
     type: String,
-    default: ""
-  },
-  team: {
-    type: String,
-    default: ""
-  },
-  diff: {
-    type: Number,
     required: true
   },
-  legacyDiff: {
-    type: Number,
-    required: true
-  },
-  pguDiff: {
-    type: String,
-    default: ""
-  },
-  pguDiffNum: {
-    type: Number,
-    required: true
-  },
-  newDiff: {
+  currentDiff: {
     type: Number,
     default: 0
   },
-  pdnDiff: {
-    type: Number,
-    required: true
-  },
-  realDiff: {
+  lowDiff: {
     type: Number,
     default: 0
   },
-  baseScore: {
+  rerateNum: {
     type: Number,
     default: 0
   },
-  isCleared: {
-    type: Boolean,
-    default: false
-  },
-  clears: {
-    type: Number,
-    default: 0
-  },
-  vidLink: {
-    type: String,
-    required: true
-  },
-  dlLink: {
-    type: String,
-    required: true
-  },
-  workshopLink: {
+  requesterFR: {
     type: String,
     default: ""
   },
-  publicComments: {
+  average: {
+    type: Number,
+    default: 0
+  },
+  comments: {
     type: String,
     default: ""
+  },
+  ratings: {
+    type: Object,
+    default: {}
   }
 });
 
-export const Rating = mongoose.model('Rating', ratingSchema); 
+export const Rating = mongoose.model('Rating', ratingSchema, 'ratings'); 

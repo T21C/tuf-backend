@@ -2,6 +2,7 @@ import express, {Request, Response, Router} from 'express';
 const router: Router = express.Router();
 import Submission from '../../models/ChartSubmission';
 import Level from '../../models/Level';
+import { Rating } from '../../models/Rating';
 
 // Now use relative paths (without /v2/admin)
 router.get('/pending', async (req: Request, res: Response) => {
@@ -35,31 +36,30 @@ router.put('/:id/:action', async (req: Request, res: Response) => {
         charter: submission.charter,
         vfxer: submission.vfxer || "",
         team: submission.team || "",
-        diff: parseFloat(submission.diff) || 0,
-        legacyDiff: parseFloat(submission.diff) || 0,
-        pguDiff: "",
-        pguDiffNum: parseFloat(submission.diff) || 0,
-        newDiff: 0,
-        pdnDiff: parseFloat(submission.diff) || 0,
-        realDiff: 0,
-        baseScore: 0,
-        isCleared: false,
-        clears: 0,
         vidLink: submission.videoLink,
         dlLink: submission.directDL,
         workshopLink: submission.wsLink || "",
-        publicComments: "",
         toRate: true
       });
 
-      await newLevel.save();
+      const newRating = new Rating({
+        ID: nextId,
+        song: submission.song,
+        artist: submission.artist,
+        creator: submission.charter,
+        rawVideoLink: submission.videoLink,
+        rawDLLink: submission.directDL,
+        requesterFR: submission.diff,
+      });
+
+      await Promise.all([newLevel.save(), newRating.save()]);
 
       await Submission.findByIdAndUpdate(id, {
         status: 'approved',
         toRate: true
       });
 
-      return res.json({ message: 'Submission approved and level created successfully' });
+      return res.json({ message: 'Submission approved, level and rating created successfully' });
     } else if (action === 'decline') {
       await Submission.findByIdAndUpdate(id, {
         status: 'declined'
