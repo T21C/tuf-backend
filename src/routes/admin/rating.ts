@@ -5,7 +5,11 @@ import { Rating } from '../../models/Rating';
 
 const router: Router = express.Router();
 
-router.get("/rating", async (req: Request, res: Response) => {
+router.get("/raters", async (req: Request, res: Response) => {
+  return res.json(raterList);
+}); 
+
+router.get("/", async (req: Request, res: Response) => {
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader) {
@@ -28,7 +32,7 @@ router.get("/rating", async (req: Request, res: Response) => {
     }
 });
   
-router.put("/rating", async (req: Request, res: Response) => {
+router.put("/", async (req: Request, res: Response) => {
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader) {
