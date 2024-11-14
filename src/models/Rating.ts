@@ -27,24 +27,24 @@ const ratingSchema = new mongoose.Schema({
     required: true
   },
   currentDiff: {
-    type: Number,
-    default: 0
+    type: String,
+    default: "0"
   },
   lowDiff: {
-    type: Number,
-    default: 0
+    type: Boolean,
+    default: false
   },
   rerateNum: {
-    type: Number,
-    default: 0
+    type: String,
+    default: "0"
   },
   requesterFR: {
     type: String,
     default: ""
   },
   average: {
-    type: Number,
-    default: 0
+    type: String,
+    default: "0"
   },
   comments: {
     type: String,
