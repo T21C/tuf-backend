@@ -45,3 +45,6 @@ export  function formatScore(score: number) {
     }).format(score);
   }
   
+export function escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }

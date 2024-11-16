@@ -7,6 +7,7 @@ import playerRoutes from './routes/player';
 import authRoutes from './routes/auth';
 import mediaRoutes from './routes/media';
 import formRoutes from './routes/form';
+import databaseRoutes from './routes/database/index';
 import connectDB from './config/db';
 
 dotenv.config();
@@ -28,7 +29,7 @@ app.use('/v2/leaderboard', leaderboardRoutes);
 app.use('/v2/player', playerRoutes);
 app.use('/v2/auth', authRoutes);
 app.use('/v2/media', mediaRoutes);
-
+app.use('/v2/data', databaseRoutes);
 
 
 app.listen(port, () => {

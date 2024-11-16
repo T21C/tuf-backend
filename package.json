@@ -2,16 +2,16 @@
   "name": "server",
   "version": "1.0.0",
   "description": "",
-  "main": "build/index.js",
+  "main": "build/app.js",
   "type": "module",
   "engines": {
     "node": ">=18.19.0"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node --import=tsimp/import src/index.ts",
-    "start:prod": "node build/index.js",
-    "dev": "nodemon src/index.ts",
+    "start": "node --import=tsimp/import src/app.ts",
+    "start:prod": "node build/app.js",
+    "dev": "nodemon src/app.ts",
     "lint": "gts lint",
     "clean": "gts clean",
     "compile": "tsc",

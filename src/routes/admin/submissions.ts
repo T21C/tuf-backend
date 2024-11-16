@@ -6,7 +6,7 @@ import Level from '../../models/Level';
 import Pass from '../../models/Pass';
 import { Rating } from '../../models/Rating';
 import { calcAcc } from '../../misc/CalcAcc';
-import { getScoreV2 } from '../../misc/CalcScore';
+import { getScoreV2 } from '../../misc/CalcScore'; 
 
 // Define interfaces for the data structure
 interface PassData {
