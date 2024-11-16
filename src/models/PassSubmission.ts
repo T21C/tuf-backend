@@ -1,10 +1,45 @@
-import mongoose from 'mongoose';
+import mongoose, { Schema, Document } from 'mongoose';
+import { IJudgements } from './Judgements';
+// Nested interfaces for complex objects
 
-const submissionSchema = new mongoose.Schema(
+
+export interface IFlags {
+  is12k: boolean;
+  isNHT: boolean;
+  is16k: boolean;
+}
+
+export interface ISubmitter {
+  discordUsername: string;
+  email: string;
+}
+
+// Main interface extending Document
+export interface IPassSubmission extends Document {
+  levelId: string;
+  speed: number;
+  passer: string;
+  feelingDifficulty: string;
+  title: string;
+  rawVideoId: string;
+  rawTime: Date;
+  judgements: IJudgements;
+  flags: IFlags;
+  submitter: ISubmitter;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const passSubmissionSchema = new Schema<IPassSubmission>(
   {
-    speedTrial: {
-      type: Boolean,
+    levelId: {
+      type: String,
       required: true,
+    },
+    speed: {
+      type: Number,
+      default: 1,
     },
     passer: {
       type: String,
@@ -27,23 +62,29 @@ const submissionSchema = new mongoose.Schema(
       required: true,
     },
     judgements: {
-      earlyDouble: {type: Number, default: 0}, // Early!!
-      earlySingle: {type: Number, default: 0}, // Early!
-      ePerfect: {type: Number, default: 0}, // EPerfect!
-      perfect: {type: Number, default: 0}, // Perfect!
-      lPerfect: {type: Number, default: 0}, // LPerfect!
-      lateSingle: {type: Number, default: 0}, // Late!
-      lateDouble: {type: Number, default: 0}, // Late!!
+      earlyDouble: { type: Number, default: 0 },
+      earlySingle: { type: Number, default: 0 },
+      ePerfect: { type: Number, default: 0 },
+      perfect: { type: Number, default: 0 },
+      lPerfect: { type: Number, default: 0 },
+      lateSingle: { type: Number, default: 0 },
+      lateDouble: { type: Number, default: 0 },
     },
     flags: {
-      is12k: {type: Boolean, default: false},
-      isNHT: {type: Boolean, default: false},
-      is16k: {type: Boolean, default: false},
-      isLegacy: {type: Boolean, default: false},
+      is12k: { type: Boolean, default: false },
+      isNHT: { type: Boolean, default: false },
+      is16k: { type: Boolean, default: false },
+      isLegacy: { type: Boolean, default: false },
+    },
+
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'declined'],
+      default: 'pending'
     },
     submitter: {
-      discordUsername: {type: String},
-      email: {type: String},
+      discordUsername: { type: String },
+      email: { type: String },
     },
   },
   {
@@ -52,9 +93,9 @@ const submissionSchema = new mongoose.Schema(
 );
 
 // Add any indexes you might need
-submissionSchema.index({passer: 1});
-submissionSchema.index({rawVideoId: 1});
+passSubmissionSchema.index({passer: 1});
+passSubmissionSchema.index({rawVideoId: 1});
 
-const PassSubmission = mongoose.model('PassSubmission', submissionSchema);
+const PassSubmission = mongoose.model<IPassSubmission>('PassSubmission', passSubmissionSchema);
 
 export default PassSubmission;

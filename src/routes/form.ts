@@ -54,28 +54,30 @@ router.post('/form-submit', async (req: Request, res: Response) => {
             });
         } 
         
+        console.log(req.body);
         // Handle pass submissions separately
         if (formType === 'pass') {
             const formData = {
-                speedTrial: !!req.body['*/Speed Trial'],
-                passer: req.body['Passer'],
-                feelingDifficulty: req.body['Feeling Difficulty'],
-                title: req.body['Title'],
-                rawVideoId: req.body['*/Raw Video ID'],
-                rawTime: new Date(req.body['*/Raw Time (GMT)']),
+                levelId: req.body['levelId'],
+                speedTrial: !!req.body['speedTrial'],
+                passer: req.body['passer'],
+                feelingDifficulty: req.body['feelingDifficulty'],
+                title: req.body['title'],
+                rawVideoId: req.body['rawVideoId'],
+                rawTime: new Date(req.body['rawTime']),
                 judgements: {
-                    earlyDouble: parseInt(req.body['Early!!'] || 0),
-                    earlySingle: parseInt(req.body['Early!'] || 0),
-                    ePerfect: parseInt(req.body['EPerfect!'] || 0),
-                    perfect: parseInt(req.body['Perfect!'] || 0),
-                    lPerfect: parseInt(req.body['LPerfect!'] || 0),
-                    lateSingle: parseInt(req.body['Late!'] || 0),
-                    lateDouble: parseInt(req.body['Late!!'] || 0)
+                    earlyDouble: parseInt(req.body['earlyDouble'] || 0),
+                    earlySingle: parseInt(req.body['earlySingle'] || 0),
+                    ePerfect: parseInt(req.body['ePerfect'] || 0),
+                    perfect: parseInt(req.body['perfect'] || 0),
+                    lPerfect: parseInt(req.body['lPerfect'] || 0),
+                    lateSingle: parseInt(req.body['lateSingle'] || 0),
+                    lateDouble: parseInt(req.body['lateDouble'] || 0)
                 },
                 flags: {
-                    is12k: req.body['12K'],
-                    isNHT: req.body['NHT'],
-                    test16k: req.body['test16k']
+                    is12k: req.body['is12k'],
+                    isNHT: req.body['isNHT'],
+                    is16k: req.body['is16k']
                 },
                 submitter: {
                     discordUsername: tokenInfo.username,
