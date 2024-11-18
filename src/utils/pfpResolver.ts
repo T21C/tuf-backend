@@ -27,7 +27,7 @@ async function getBilibiliVideoDetails(url: string) {
     }
 
     const data = resp.data;
-    const pfpUrl = `${process.env.OWN_URL}/media/image?url=${encodeURIComponent(
+    const pfpUrl = `${process.env.OWN_URL}/v2/media/image?url=${encodeURIComponent(
       data.owner.face,
     )}`;
 

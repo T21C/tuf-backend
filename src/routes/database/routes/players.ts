@@ -2,16 +2,41 @@ import { Request, Response, Router } from 'express';
 import { escapeRegExp } from '../../../misc/Utility';
 import { PATHS } from '../../../config/constants';
 import { readJsonFile } from '../../../utils/fileHandlers';
+import { decodeFromBase32 } from '../../../utils/encodingHelpers';
 
 const playersCache = readJsonFile(PATHS.playersJson);
+const fullPlayerList = readJsonFile(PATHS.playerlistJson);
+const rankList = readJsonFile(PATHS.rankListJson);
+const pfpList = readJsonFile(PATHS.pfpListJson);
 
 // Helper function to apply query conditions
 const applyQueryConditions = (player: any, query: any) => {
-  if (query.query) {
-    const queryRegex = new RegExp(escapeRegExp(query.query), 'i');
-    return queryRegex.test(player.name);
+  try {
+    // Handle base32 encoded player name
+    if (query.player) {
+      const decodedName = decodeFromBase32(query.player);
+      const nameRegex = new RegExp(escapeRegExp(decodedName), 'i');
+      console.log("player.name", player.player)
+      return nameRegex.test(player.player);
+    }
+    
+    // Handle regular name query (unencoded)
+    if (query.name) {
+      const nameRegex = new RegExp(escapeRegExp(query.name), 'i');
+      return nameRegex.test(player.player);
+    }
+    
+    // Handle general query (keep for backward compatibility)
+    if (query.query) {
+      const queryRegex = new RegExp(escapeRegExp(query.query), 'i');
+      return queryRegex.test(player.player);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in query conditions:', error);
+    return false; // Skip invalid queries
   }
-  return true;
 };
 
 const router: Router = Router();
@@ -34,6 +59,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     const totalTime = performance.now() - routeStart;
     console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
+    
+    results.forEach((player: any) => {
+      player.pfp = pfpList[player.player];
+    }); 
 
     return res.json({ count, results });
   } catch (error) {
@@ -43,6 +72,15 @@ router.get('/', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error)
     });
   }
+});
+
+router.get('/:player', async (req: Request, res: Response) => {
+  const player = req.params.player;
+  const decodedName = decodeFromBase32(player);
+  const playerData = fullPlayerList.find((p: any) => p.player === decodedName);
+  playerData.ranks = rankList[decodedName];
+  playerData.pfp = pfpList[decodedName];
+  return res.json(playerData);
 });
 
 export default router;

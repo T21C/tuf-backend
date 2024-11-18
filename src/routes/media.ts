@@ -14,18 +14,19 @@ router.get('/image', async (req: Request, res: Response) => {
       return res.status(400).send('Invalid image URL');
     }
 
-    const response = await axios.get(imageUrl);
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer'
+    });
+
     const contentType = response.headers['content-type'];
-
-    if (response.status !== 200) {
-      return res.status(response.status).send('Failed to fetch image.');
-    }
-
     res.set('Content-Type', contentType);
-    return response.data.pipe(res);
+
+    return res.send(response.data);
+
   } catch (error) {
     console.error('Error fetching image:', error);
     res.status(500).send('Error fetching image.');
+    return
   }
 });
 

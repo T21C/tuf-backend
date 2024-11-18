@@ -4,7 +4,7 @@ import { PATHS } from '../../../config/constants';
 import { readJsonFile } from '../../../utils/fileHandlers';
 
 const passesCache = readJsonFile(PATHS.passesJson);
-
+const playersCache = readJsonFile(PATHS.playersJson);
 // Helper function for sorting
 const getSortOptions = (sort?: string) => {
   switch (sort) {
@@ -20,8 +20,8 @@ const getSortOptions = (sort?: string) => {
 
 // Helper function to apply query conditions
 const applyQueryConditions = (pass: any, query: any) => {
-  // Level ID filter
-  if (query.levelId && pass.levelId !== query.levelId) {
+  // Level ID filter - Convert both to strings for comparison
+  if (query.levelId && String(pass.levelId) !== String(query.levelId)) {
     return false;
   }
 
@@ -36,6 +36,16 @@ const applyQueryConditions = (pass: any, query: any) => {
   return true;
 };
 
+// Helper function to enrich pass data with player info
+const enrichPassData = async (pass: any, playersCache: any[]) => {
+  const playerInfo = playersCache.find(p => p.name === pass.player);
+  return {
+    ...pass,
+    country: playerInfo?.country || null,
+    isBanned: playerInfo?.isBanned || false,
+  };
+};
+
 const router: Router = Router();
 
 // Main endpoint that handles both findAll and findByQuery
@@ -45,45 +55,37 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Filter passes based on query conditions
     let results = passesCache.filter((pass: any) => applyQueryConditions(pass, req.query));
-    const count = results.length;
+    
+    // Enrich with player data
+    results = await Promise.all(
+      results.map((pass: any) => enrichPassData(pass, playersCache))
+    );
+
+    // Filter out banned players
+    results = results.filter((pass: any) => !pass.isBanned);
 
     // Apply sorting
     const { field, order } = getSortOptions(req.query.sort as string);
-    
-    if (['DATE_ASC', 'DATE_DESC'].includes(req.query.sort as string)) {
-      // Date sorting needs special handling
-      results.sort((a: any, b: any) => {
-        const dateA = Date.parse(a.vidUploadTime);
-        const dateB = Date.parse(b.vidUploadTime);
-        return order === 1 ? dateA - dateB : dateB - dateA;
-      });
-    } else {
-      // Regular field sorting
-      results.sort((a: any, b: any) => {
-        return order === 1 
-          ? (a[field] > b[field] ? 1 : -1)
-          : (a[field] < b[field] ? 1 : -1);
-      });
-    }
+    results.sort((a: any, b: any) => {
+      if (field === 'vidUploadTime') {
+        return order * (Date.parse(b.vidUploadTime) - Date.parse(a.vidUploadTime));
+      }
+      return order * (a[field] > b[field] ? 1 : -1);
+    });
 
-    // Handle pagination if needed
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const limit = req.query.limit ? Number(req.query.limit) : undefined;
-    
-    if (limit !== undefined) {
+    const count = results.length;
+
+    // Handle pagination
+    const offset = Number(req.query.offset) || 0;
+    const limit = Number(req.query.limit) || undefined;
+    if (limit) {
       results = results.slice(offset, offset + limit);
     }
-
-    const totalTime = performance.now() - routeStart;
-    console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
 
     return res.json({ count, results });
   } catch (error) {
     console.error('Error fetching passes:', error);
-    return res.status(500).json({ 
-      error: 'Failed to fetch passes',
-      details: error instanceof Error ? error.message : String(error)
-    });
+    return res.status(500).json({ error: 'Failed to fetch passes' });
   }
 });
 
