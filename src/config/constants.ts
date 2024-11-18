@@ -5,6 +5,9 @@ export const PATHS = {
   rankListJson: 'cache/rankList.json',
   playerFolder: 'cache/players',
   ratingListJson: 'cache/ratingList.json',
+  chartsJson: './cache/charts.json',
+  playersJson: './cache/players.json',
+  passesJson: './cache/passes.json',
 };
 
 export const SUPER_ADMINS = ["teo_72", "v0w4n"];

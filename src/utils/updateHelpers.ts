@@ -5,6 +5,9 @@ import {loadPfpList, savePfpList} from './fileHandlers.js';
 import {getPfpUrl} from './pfpResolver.js';
 import axios from 'axios';
 import { decodeFromBase32 } from './encodingHelpers.js';
+import Level from '../models/Level.js';
+import Player from '../models/Player.js';
+import Pass from '../models/Pass.js';
 
 export let levelUpdateTime = 0; // Initialize with 0 or another default value
 export const updateTimeList: Record<string, number> = {};
@@ -74,11 +77,16 @@ export const updateRanks = () => {
   writeJsonFile(PATHS.rankListJson, rankPositions);
 };
 
-export const updateData = () => {
-  //fetchRatings()
+export const updateData = async () => {
   console.log('starting execution');
+  await Promise.all([
+    updateRanks(),
+    fetchPfps(),
+    updateCache()
+  ]);
+  
   exec(
-    `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse`,
+    `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse --useSaved`,
     async (error, stdout, stderr) => {
       if (error) {
         console.error(`Error executing for all_players: ${error.message}`);
@@ -89,9 +97,9 @@ export const updateData = () => {
         return;
       }
       console.log(`Script output:\n${stdout}`);
-      levelUpdateTime = Date.now();
-      updateRanks();
-      await fetchPfps();
+      
+
+
       if (!EXCLUDE_CLEARLIST) {
         console.log('starting all_clears');
         exec(
@@ -187,5 +195,28 @@ export const syncJsonToSheet = async () => {
     console.log('Sync completed:', result.message);
   } catch (error) {
     console.error('Error syncing to Google Sheet:', error);
+  }
+};
+
+export const updateCache = async () => {
+  try {
+    console.log('Updating cache...');
+    
+    // Fetch data from MongoDB
+    const chartsData = await Level.find({}).lean();
+    const playersData = await Player.find({}).lean();
+    const passesData = await Pass.find({}).lean();
+
+    // Save to cache files
+    writeJsonFile(PATHS.chartsJson, chartsData);
+    writeJsonFile(PATHS.playersJson, playersData);
+    writeJsonFile(PATHS.passesJson, passesData);
+    
+    levelUpdateTime = Date.now();
+    updateTimeList['cache'] = Date.now();
+    
+    console.log('Cache updated successfully');
+  } catch (error) {
+    console.error('Error updating cache:', error);
   }
 };

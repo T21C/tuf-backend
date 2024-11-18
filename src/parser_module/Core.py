@@ -281,17 +281,9 @@ class DataScraper:
         self.pguSort = {"P": 1,
                         "G": 2,
                         "U": 3}
-        self.AsyncReq = AsyncRequest(baseUrl, links)
-        if refresh:
-            self.getAsyncData()
-            return
-        try:
-            if not refresh:
-                self.readCharts(chartPath)
-                self.readPasses(passPath)
-                self.readPlayers(playerPath)
-        except:
-            self.getAsyncData()
+        self.readCharts(chartPath)
+        self.readPasses(passPath)
+        self.readPlayers(playerPath)
 
     def getAsyncData(self):
         functions = [self.getCharts, self.getPasses, self.getPlayers]
@@ -300,24 +292,25 @@ class DataScraper:
             f[0](self.AsyncReq.responses[f[1]])
 
     def readCharts(self, path):
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             file = json.load(f)
-            self.charts = file["results"]
-            self.chartsCount = file["count"]
+            # Create a dictionary with 'id' as the key and the rest of the object as the value
+            self.charts = {chart['id']: chart for chart in file}
+            self.chartsCount = len(file)
 
     def readPasses(self, path):
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             file = json.load(f)
-            self.passes = file["results"]
-            self.passesCount = file["count"]
+            self.passes = file
+            self.passesCount = len(file)
 
     def readPlayers(self, path):
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             self.players = json.load(f)
 
     def getCharts(self, res):
-        self.charts = json.loads(res.content)["results"]
-        self.chartsCount = json.loads(res.content)["count"]
+        self.charts = list(reversed(json.loads(res.content)))
+        self.chartsCount = len(json.loads(res.content))
         with open(self.chartPath, "w+") as f:
             json.dump(json.loads(res.content), f)
 

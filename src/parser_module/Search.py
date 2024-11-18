@@ -6,7 +6,7 @@ from time import perf_counter
 
 chartPathDef = "cache/charts.json"
 passPathDef = "cache/passes.json"
-playerPathDef = "cache/player.json"
+playerPathDef = "cache/players.json"
 useSavedDef = 1
 
 # uses custom-made result objects defined within Core.py
@@ -100,7 +100,7 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
 
 
 
-def searchByPlayer(playerName: str, chartPath=chartPathDef , passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, data=None, TwvKOnly=False, ppOnly=False, showCharts=True) \
+def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, data=None, TwvKOnly=False, ppOnly=False, showCharts=True) \
         -> dict:
     util = Utils()
     directCall = False
@@ -108,16 +108,16 @@ def searchByPlayer(playerName: str, chartPath=chartPathDef , passPath=passPathDe
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
 
-    if playerName not in data.players.keys():
-        print("Player not found!")
-        return {}
-    if data.players[playerName]["isBanned"]:
-        print("Player is banned!")
-        return {}
+    #if playerName not in [player["name"] for player in data.players]:
+    #    print("Player not found!")
+    #    return {}
+    #if data.players[playerName]["isBanned"]:
+    #    print("Player is banned!")
+    #    return {}
 
     playerPasses = []
     for Pass in data.passes:
-        if Pass["player"] == playerName:
+        if Pass["player"] == player["name"]:
             playerPasses.append(Pass)
 
     Scores = []
@@ -128,33 +128,9 @@ def searchByPlayer(playerName: str, chartPath=chartPathDef , passPath=passPathDe
     top12kDiff = ["P", 1]
     for Pass in playerPasses:
         chartId = Pass["levelId"]
-        prevIdTemp = -9999
-        prevId = -9999
-        if not chartId:
+        if chartId not in data.charts:
             continue
-        chartPos = chartId
-        idOffset = 0
-        if chartId >= data.chartsCount:
-            chart = data.charts[-1]
-            chartPos = data.chartsCount - 1
-        else:
-            chart = data.charts[chartPos + idOffset]
-        badFlag = False
-        while 1:
-            if chart["id"] == prevId:
-                badFlag = True
-                break
-            if chart["id"] == chartId:
-                break
-            elif chart["id"] < chartId:
-                idOffset += 1
-            else:
-                idOffset -= 1
-            prevId = prevIdTemp
-            prevIdTemp = chart["id"]
-            chart = data.charts[chartPos + idOffset]
-        if badFlag:
-            continue
+        chart = data.charts[chartId]
         isWorldsFirst = checkWorldsFirst(Pass, data)
         if isWorldsFirst:
             firstPasses += 1
@@ -228,7 +204,7 @@ def searchByPlayer(playerName: str, chartPath=chartPathDef , passPath=passPathDe
     else:
         avgAcc = 0
     Player = PlayerObj().updateParams({
-            "player":playerName,
+            "player":player["name"],
             "rankedScore":rankedScore,
             "generalScore": general,
             "ppScore": ppScore,
@@ -240,7 +216,7 @@ def searchByPlayer(playerName: str, chartPath=chartPathDef , passPath=passPathDe
             "WFPasses": firstPasses,
             "topDiff": topDiff,
             "top12kDiff": top12kDiff,
-            "country": data.players[playerName]["country"]})
+            "country": player["country"]})
     if showCharts:
         Player.addScores(scoresNew)
     return Player.get()
@@ -267,15 +243,14 @@ def searchAllPlayers(chartPath=chartPathDef , passPath=passPathDef, playerPath=p
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
 
-    playerNameList = data.players.keys()
     playerLeaderboard = []
     i = 0
-    n = len(playerNameList)
+    n = len(data.players)
     print("Players checked:")
-    for player in playerNameList:
+    for player in data.players:
         i += 1
         print("\r",round(i / n * 100,3), "%          ", end="", flush=True)
-        if data.players[player]["isBanned"]:
+        if player["isBanned"]:
             continue
         search = searchByPlayer(player, chartPath, passPath, playerPath,True, data, TwvKOnly)
         if search["avgXacc"]:
