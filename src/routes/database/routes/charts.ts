@@ -4,9 +4,9 @@ import Level from '../../../models/Level';
 import shuffleSeed from 'shuffle-seed';
 import { SortOrder } from 'mongoose';
 import { PATHS } from '../../../config/constants';
-import { readJsonFile } from '../../../utils/fileHandlers';
+import { readJsonFile, writeJsonFile } from '../../../utils/fileHandlers';
 
-const chartsCache = readJsonFile(PATHS.chartsJson);
+let chartsCache = readJsonFile(PATHS.chartsJson);
 
 const timeOperation = async (name: string, operation: () => Promise<any>) => {
   const start = performance.now();
@@ -138,6 +138,49 @@ router.get('/:id', async (req: Request, res: Response) => {
     console.error('Error fetching chart:', error);
     return res.status(500).json({ 
       error: 'Failed to fetch chart',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// PUT endpoint
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const routeStart = performance.now();
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // Update in database
+    const updatedChart = await Level.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedChart) {
+      return res.status(404).json({ error: 'Chart not found' });
+    }
+
+    // Update in cache
+    const chartIndex = chartsCache.findIndex((chart: any) => chart._id.toString() === id);
+    if (chartIndex !== -1) {
+      chartsCache[chartIndex] = {
+        ...chartsCache[chartIndex],
+        ...updateData
+      };
+
+      // Write updated cache to file
+      await writeJsonFile(PATHS.chartsJson, chartsCache);
+    }
+
+    const totalTime = performance.now() - routeStart;
+    console.log(`[PERF] Total update time: ${totalTime.toFixed(2)}ms`);
+
+    return res.json(updatedChart);
+  } catch (error) {
+    console.error('Error updating chart:', error);
+    return res.status(500).json({ 
+      error: 'Failed to update chart',
       details: error instanceof Error ? error.message : String(error)
     });
   }

@@ -122,8 +122,6 @@ export const updateData = async () => {
     },
   );
 };
-const intervalMilliseconds = 600000; // every 10 minutes
-setInterval(updateData, intervalMilliseconds);
 
 export const fetchPfps = async () => {
   const playerlist = readJsonFile(PATHS.playerlistJson);
@@ -166,36 +164,6 @@ export const fetchRatings = async () => {
 
 export const updateTimestamp = (name: string) => {
   updateTimeList[name] = Date.now();
-};
-
-export const syncJsonToSheet = async () => {
-  try {
-    console.log('Starting sync to Google Sheet...');
-
-    // Read current ratings
-    const ratingList = readJsonFile(PATHS.ratingListJson);
-
-    console.log(
-      'sending ',
-      JSON.stringify({
-        ratings: ratingList,
-        timestamp: new Date().toISOString(),
-      }),
-    );
-    const response = await axios.post(process.env.RATING_SCRIPT_URL!, {
-      ratings: ratingList,
-      timestamp: new Date().toISOString(),
-    });
-
-    if (response.status !== 200) {
-      throw new Error('Failed to sync with spreadsheet');
-    }
-
-    const result = response.data;
-    console.log('Sync completed:', result.message);
-  } catch (error) {
-    console.error('Error syncing to Google Sheet:', error);
-  }
 };
 
 export const updateCache = async () => {
