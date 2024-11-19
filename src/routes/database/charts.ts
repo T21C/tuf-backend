@@ -5,6 +5,7 @@ import shuffleSeed from 'shuffle-seed';
 import { SortOrder } from 'mongoose';
 import { PATHS } from '../../config/constants';
 import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers';
+import { Rating } from '../../models/Rating';
 
 let chartsCache = readJsonFile(PATHS.chartsJson);
 
@@ -220,6 +221,26 @@ router.put('/:id', async (req: Request, res: Response) => {
 
     if (!updatedChart) {
       return res.status(404).json({ error: 'Chart not found' });
+    }
+
+    // Handle Rating entry based on toRate flag
+    if (updateData.toRate) {
+      // Create or update rating
+      await Rating.findOneAndUpdate(
+        { ID: updatedChart.id },
+        {
+          ID: updatedChart.id,
+          song: updatedChart.song,
+          artist: updatedChart.artist,
+          creator: updatedChart.charter,
+          rawVideoLink: updatedChart.vidLink,
+          rawDLLink: updatedChart.dlLink,
+        },
+        { upsert: true }
+      );
+    } else {
+      // Remove rating if it exists
+      await Rating.deleteOne({ ID: updatedChart.id });
     }
 
     // Update in cache
