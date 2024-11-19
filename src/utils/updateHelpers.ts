@@ -75,17 +75,14 @@ export const updateRanks = () => {
     });
   });
   writeJsonFile(PATHS.rankListJson, rankPositions);
+  console.log('ranks updated');
 };
 
 export const updateData = async () => {
   console.log('starting execution');
-  await Promise.all([
-    updateRanks(),
-    fetchPfps(),
-    updateCache()
-  ]);
+  await updateCache()
   
-  exec(
+  await exec(
     `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse --useSaved`,
     async (error, stdout, stderr) => {
       if (error) {
@@ -99,6 +96,8 @@ export const updateData = async () => {
       console.log(`Script output:\n${stdout}`);
       
 
+      updateRanks(),
+      fetchPfps()
 
       if (!EXCLUDE_CLEARLIST) {
         console.log('starting all_clears');
@@ -121,6 +120,7 @@ export const updateData = async () => {
       }
     },
   );
+
 };
 
 export const fetchPfps = async () => {
@@ -153,14 +153,10 @@ export const fetchPfps = async () => {
     }
   }
   savePfpList(pfpListTemp);
+  console.log('pfp list updated');
   //console.log("new list:", pfpListTemp)
 };
 
-export const fetchRatings = async () => {
-  const response = await axios.get(process.env.RATING_SCRIPT_URL!);
-  const ratingList = response.data;
-  writeJsonFile(PATHS.ratingListJson, ratingList);
-};
 
 export const updateTimestamp = (name: string) => {
   updateTimeList[name] = Date.now();

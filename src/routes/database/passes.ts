@@ -1,7 +1,7 @@
 import { Request, Response, Router } from 'express';
-import { escapeRegExp } from '../../../misc/Utility';
-import { PATHS } from '../../../config/constants';
-import { readJsonFile } from '../../../utils/fileHandlers';
+import { escapeRegExp } from '../../misc/Utility';
+import { PATHS } from '../../config/constants';
+import { readJsonFile } from '../../utils/fileHandlers';
 
 const passesCache = readJsonFile(PATHS.passesJson);
 const playersCache = readJsonFile(PATHS.playersJson);

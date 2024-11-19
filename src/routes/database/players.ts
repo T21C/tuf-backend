@@ -1,8 +1,8 @@
 import { Request, Response, Router } from 'express';
-import { escapeRegExp } from '../../../misc/Utility';
-import { PATHS } from '../../../config/constants';
-import { readJsonFile } from '../../../utils/fileHandlers';
-import { decodeFromBase32 } from '../../../utils/encodingHelpers';
+import { PATHS } from '../../config/constants';  
+import { readJsonFile } from '../../utils/fileHandlers';
+import { decodeFromBase32 } from '../../utils/encodingHelpers';
+import { escapeRegExp } from '../../misc/Utility';
 
 const playersCache = readJsonFile(PATHS.playersJson);
 const fullPlayerList = readJsonFile(PATHS.playerlistJson);

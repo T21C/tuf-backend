@@ -16,6 +16,7 @@ export interface ILevel extends Document {
   pdnDiff: number;
   realDiff: number;
   baseScore: number;
+  baseScoreDiff: string;
   isCleared: boolean;
   clears: number;
   vidLink: string;
@@ -41,6 +42,7 @@ const LevelSchema = new Schema<ILevel>({
   pdnDiff: { type: Number, default: 0 },
   realDiff: { type: Number, default: 0 },
   baseScore: { type: Number, default: 0 },
+  baseScoreDiff: { type: String, default: "" },
   isCleared: { type: Boolean, default: false },
   clears: { type: Number, default: 0 },
   vidLink: { type: String, default: "" },

@@ -1,7 +1,7 @@
 import express, {Router} from 'express';
-import chartsRoutes from './routes/charts';
-import playersRoute from './routes/players';
-import passesRoute from './routes/passes';
+import chartsRoutes from './charts';
+import playersRoute from './players';
+import passesRoute from './passes';
 // Import other admin routes here
 
 const router: Router = express.Router();
