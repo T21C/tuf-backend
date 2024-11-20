@@ -1,10 +1,13 @@
 import { Request, Response, Router } from 'express';
 import { escapeRegExp } from '../../misc/Utility';
 import { PATHS } from '../../config/constants';
-import { readJsonFile } from '../../utils/fileHandlers';
+import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers';
+import { updateCache } from '../../utils/updateHelpers';
+import Pass from '../../models/Pass';
 
 const passesCache = readJsonFile(PATHS.passesJson);
 const playersCache = readJsonFile(PATHS.playersJson);
+const clearListCache = readJsonFile(PATHS.clearlistJson);
 // Helper function for sorting
 const getSortOptions = (sort?: string) => {
   switch (sort) {
@@ -54,11 +57,11 @@ router.get('/', async (req: Request, res: Response) => {
     const routeStart = performance.now();
 
     // Filter passes based on query conditions
-    let results = passesCache.filter((pass: any) => applyQueryConditions(pass, req.query));
+    let results = clearListCache.filter((pass: any) => applyQueryConditions(pass, req.query));
     
     // Enrich with player data
     results = await Promise.all(
-      results.map((pass: any) => enrichPassData(pass, playersCache))
+      results.map((pass: any) => enrichPassData(pass, clearListCache))
     );
 
     // Filter out banned players
@@ -86,6 +89,75 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching passes:', error);
     return res.status(500).json({ error: 'Failed to fetch passes' });
+  }
+});
+
+interface PassUpdateData {
+  player: string;
+  song: string;
+  artist: string;
+  score: number;
+  pguDiff: string;
+  Xacc: number;
+  speed: number | null;
+  isWorldsFirst: boolean;
+  vidLink: string;
+  date: string;
+  is12K: boolean;
+  isNoHold: boolean;
+  judgements: number[];
+  pdnDiff: number;
+  chartId: number;
+  passId: number;
+  baseScore: number;
+}
+
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updateData: PassUpdateData = req.body;
+
+    // Update in database
+    const updatedPass = await Pass.findOneAndUpdate(
+      { id: parseInt(id) },
+      {
+        player: updateData.player,
+        speed: updateData.speed,
+        vidTitle: updateData.song, // Assuming this mapping
+        vidLink: updateData.vidLink,
+        vidUploadTime: updateData.date,
+        is12k: updateData.is12K,
+        isNHT: updateData.isNoHold,
+        judgements: updateData.judgements,
+        accuracy: updateData.Xacc,
+        scoreV2: updateData.score
+      },
+      { new: true }
+    );
+
+    if (!updatedPass) {
+      return res.status(404).json({ error: 'Pass not found' });
+    }
+
+    // Update clearListCache
+    const passIndex = clearListCache.findIndex((pass: any) => pass.passId === parseInt(id));
+    if (passIndex !== -1) {
+      clearListCache[passIndex] = {
+        ...clearListCache[passIndex],
+        ...updateData
+      };
+      await writeJsonFile(PATHS.clearlistJson, clearListCache);
+    }
+
+
+    return res.json({
+      message: 'Pass updated successfully',
+      pass: updatedPass
+    });
+
+  } catch (error) {
+    console.error('Error updating pass:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

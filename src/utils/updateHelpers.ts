@@ -80,8 +80,9 @@ export const updateRanks = () => {
 
 export const updateData = async () => {
   console.log('starting execution');
-  await updateCache()
+  //await updateCache()
   
+
   await exec(
     `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse --useSaved`,
     async (error, stdout, stderr) => {
@@ -95,29 +96,25 @@ export const updateData = async () => {
       }
       console.log(`Script output:\n${stdout}`);
       
-
+      exec(
+        `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved --reverse`,
+        (error, stdout, stderr) => {
+          if (error) {
+            console.error(
+              `Error executing script for all_clears: ${error.message}`,
+            );
+            return;
+          }
+          if (stderr) {
+            console.error(`Clear list stderr: ${stderr}`);
+            return;
+          }
+          console.log(`Clear list output: ${stdout}`);
+        },
+      );
       updateRanks(),
       fetchPfps()
-
-      if (!EXCLUDE_CLEARLIST) {
-        console.log('starting all_clears');
-        exec(
-          `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved`,
-          (error, stdout, stderr) => {
-            if (error) {
-              console.error(
-                `Error executing script for all_clears: ${error.message}`,
-              );
-              return;
-            }
-            if (stderr) {
-              console.error(`Script stderr: ${stderr}`);
-              return;
-            }
-            console.log(`Script output: ${stdout}`);
-          },
-        );
-      }
+        
     },
   );
 

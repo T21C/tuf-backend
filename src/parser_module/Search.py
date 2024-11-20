@@ -7,6 +7,7 @@ from time import perf_counter
 chartPathDef = "cache/charts.json"
 passPathDef = "cache/passes.json"
 playerPathDef = "cache/players.json"
+leaderboardPathDef = "cache/playerlist.json"
 useSavedDef = 1
 
 # uses custom-made result objects defined within Core.py
@@ -273,7 +274,8 @@ def searchAllClears(chartPath=chartPathDef , passPath=passPathDef, playerPath=pl
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
 
-    leaderboard = list(searchAllPlayers(data=data, disableCharts=False))
+    with open(leaderboardPathDef, "r") as f:
+        leaderboard = json.load(f)
     Clears = []
     i = 0
     n = len(leaderboard)
@@ -281,8 +283,6 @@ def searchAllClears(chartPath=chartPathDef , passPath=passPathDef, playerPath=pl
     for player in leaderboard:
         i += 1
         print("\r",round(i / n * 100,3), "%                   ", end="", flush=True)
-        if data.players[player['player']]["isBanned"]:
-            continue
         allClears = player["allScores"]
         for clear in allClears:
             if clear["score"] >= minScore and (not TwvKOnly or clear["is12K"]):
