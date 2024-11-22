@@ -80,7 +80,7 @@ export const updateRanks = () => {
 
 export const updateData = async () => {
   console.log('starting execution');
-  //await updateCache()
+  await updateCache()
   
 
   await exec(

@@ -4,10 +4,27 @@ import { PATHS } from '../../config/constants';
 import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers';
 import { updateCache } from '../../utils/updateHelpers';
 import Pass from '../../models/Pass';
+import { getScoreV2 } from '../../misc/CalcScore';
+import { calcAcc } from '../../misc/CalcAcc';
+import { IJudgements } from '../../models/Judgements';
 
-const passesCache = readJsonFile(PATHS.passesJson);
-const playersCache = readJsonFile(PATHS.playersJson);
-const clearListCache = readJsonFile(PATHS.clearlistJson);
+let passesCache = readJsonFile(PATHS.passesJson);
+let playersCache = readJsonFile(PATHS.playersJson);
+let clearListCache = readJsonFile(PATHS.clearlistJson);
+let pfpCache = readJsonFile(PATHS.pfpListJson);
+
+
+
+
+const reloadCache = () => {
+  passesCache = readJsonFile(PATHS.passesJson);
+  playersCache = readJsonFile(PATHS.playersJson);
+  clearListCache = readJsonFile(PATHS.clearlistJson);
+  pfpCache = readJsonFile(PATHS.pfpListJson);
+}
+// Reload cache every minute
+setInterval(reloadCache, 1000 * 60);
+
 // Helper function for sorting
 const getSortOptions = (sort?: string) => {
   switch (sort) {
@@ -24,7 +41,7 @@ const getSortOptions = (sort?: string) => {
 // Helper function to apply query conditions
 const applyQueryConditions = (pass: any, query: any) => {
   // Level ID filter - Convert both to strings for comparison
-  if (query.levelId && String(pass.levelId) !== String(query.levelId)) {
+  if (query.chartId && String(pass.chartId) !== String(query.chartId)) {
     return false;
   }
 
@@ -46,22 +63,34 @@ const enrichPassData = async (pass: any, playersCache: any[]) => {
     ...pass,
     country: playerInfo?.country || null,
     isBanned: playerInfo?.isBanned || false,
+    pfp: pfpCache[playerInfo?.name] || null
   };
 };
 
 const router: Router = Router();
+
+router.get('/level/:chartId', async (req: Request, res: Response) => {
+  const { chartId } = req.params;
+  console.log(chartId)
+  const passes = clearListCache.filter((pass: any) => pass.chartId === parseInt(chartId));    
+  const enrichedPasses = await Promise.all(
+    passes.map((pass: any) => enrichPassData(pass, playersCache))
+  );
+  return res.json(enrichedPasses);
+});
 
 // Main endpoint that handles both findAll and findByQuery
 router.get('/', async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
 
+    console.log(req.query, req.body)
     // Filter passes based on query conditions
     let results = clearListCache.filter((pass: any) => applyQueryConditions(pass, req.query));
     
     // Enrich with player data
     results = await Promise.all(
-      results.map((pass: any) => enrichPassData(pass, clearListCache))
+      results.map((pass: any) => enrichPassData(pass, playersCache))
     );
 
     // Filter out banned players
@@ -92,63 +121,100 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-interface PassUpdateData {
-  player: string;
-  song: string;
-  artist: string;
-  score: number;
-  pguDiff: string;
-  Xacc: number;
-  speed: number | null;
-  isWorldsFirst: boolean;
-  vidLink: string;
-  date: string;
-  is12K: boolean;
-  isNoHold: boolean;
-  judgements: number[];
-  pdnDiff: number;
-  chartId: number;
-  passId: number;
-  baseScore: number;
-}
-
-router.put('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
+  console.log('GET request received for pass:', req.params.id);
   try {
     const { id } = req.params;
-    const updateData: PassUpdateData = req.body;
+    const pass = passesCache.find((pass: any) => pass.id === parseInt(id));
+    if (!pass) {
+      return res.status(404).json({ error: 'Pass not found' });
+    }
+    return res.json(pass);
+  } catch (error) {
+    console.error('Error fetching pass:', error);
+    return res.status(500).json({ error: 'Failed to fetch pass' });
+  }
+});
+
+
+router.put('/:id', async (req: Request, res: Response) => {
+  console.log('PUT/PATCH request received for pass:', req.params.id);
+  try {
+    const { id } = req.params;
+
+    console.log(req.body)
+    // Convert array to IJudgements object
+    const judgementObj: IJudgements = req.body['judgements'];
+
+    console.log(judgementObj)
+    // Calculate score and accuracy from judgements
+    const calculatedScore = getScoreV2({
+      speed: req.body['speedTrial'],
+      judgements: judgementObj,
+      isNoHoldTap: req.body['isNHT']
+    }, { baseScore: req.body['baseScore'] });
+
+    const calculatedAcc = calcAcc(judgementObj);
+
+    // Verify calculations match submitted values
+
 
     // Update in database
+
+    const formData = {
+      levelId: req.body['levelId'],
+      speed: !!req.body['speed'],
+      passer: req.body['passer'],
+      feelingRating: req.body['feelingRating'],
+      title: req.body['title'],
+      rawVideoId: req.body['rawVideoId'],
+      rawTime: new Date(req.body['videoDetails']['timestamp']),
+      judgements: req.body['judgements'],
+      flags: {
+          is12k: req.body['is12k'],
+          isNHT: req.body['isNHT'],
+          is16k: req.body['is16k']
+      }
+    }
+
+    const passUpdateData = {
+      id: id,
+      levelId: formData.levelId,
+      speed: formData.speed,
+      player: formData.passer,
+      feelingRating: formData.feelingRating,
+      vidTitle: formData.title,
+      vidLink: formData.rawVideoId,
+      vidUploadTime: formData.rawTime,
+      is12k: formData.flags.is12k,
+      is16k: formData.flags.is16k,
+      isNoHoldTap: formData.flags.isNHT,
+      accuracy: calculatedAcc,
+      scoreV2: calculatedScore,
+      judgements: [
+        formData.judgements.earlyDouble,
+        formData.judgements.earlySingle,
+        formData.judgements.ePerfect,
+        formData.judgements.perfect,
+        formData.judgements.lPerfect,
+        formData.judgements.lateSingle,
+        formData.judgements.lateDouble
+      ]
+    }
+
     const updatedPass = await Pass.findOneAndUpdate(
       { id: parseInt(id) },
-      {
-        player: updateData.player,
-        speed: updateData.speed,
-        vidTitle: updateData.song, // Assuming this mapping
-        vidLink: updateData.vidLink,
-        vidUploadTime: updateData.date,
-        is12k: updateData.is12K,
-        isNHT: updateData.isNoHold,
-        judgements: updateData.judgements,
-        accuracy: updateData.Xacc,
-        scoreV2: updateData.score
-      },
+      passUpdateData,
       { new: true }
     );
 
+    console.log(updatedPass)
     if (!updatedPass) {
       return res.status(404).json({ error: 'Pass not found' });
     }
 
-    // Update clearListCache
-    const passIndex = clearListCache.findIndex((pass: any) => pass.passId === parseInt(id));
-    if (passIndex !== -1) {
-      clearListCache[passIndex] = {
-        ...clearListCache[passIndex],
-        ...updateData
-      };
-      await writeJsonFile(PATHS.clearlistJson, clearListCache);
-    }
-
+    // Clear cache to force refresh
+    reloadCache();
 
     return res.json({
       message: 'Pass updated successfully',

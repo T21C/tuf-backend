@@ -55,31 +55,44 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
     Scores = []
     for Pass in validPasses:
         try:
-            date = datetime.strptime(Pass["vidUploadTime"].split("Z")[0], "%Y-%m-%dT%H:%M:%S")
-        except:
+            date_str = Pass["vidUploadTime"].split(".")[0]
+            date = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
+        except Exception as e:
+            print(f"Error parsing date: {Pass['vidUploadTime']}, using today. Error: {e}")
             date = datetime.today()
-        if not Pass["speed"]:
-            speed = 1.0
-        else:
-            speed = Pass["speed"]
+            
+        # Convert judgements array to object structure
+        judgements_array = [
+            Pass["judgements"]["earlyDouble"],
+            Pass["judgements"]["earlySingle"],
+            Pass["judgements"]["ePerfect"],
+            Pass["judgements"]["perfect"],
+            Pass["judgements"]["lPerfect"],
+            Pass["judgements"]["lateSingle"],
+            Pass["judgements"]["lateDouble"]
+        ]
+        
         Scores.append(ResultObj().updateParams({
-                            "player": Pass["player"],
-                            "song": chart["song"],
-                            "artist": chart["artist"],
-                            "score": util.getScoreV2(Pass, chart),
-                            "pguDiff": chart["pguDiff"],
-                            "Xacc": util.getXacc(Pass["judgements"]),
-                            "speed": speed,
-                            "isWorldsFirst": False,
-                            "vidLink": Pass["vidLink"],
-                            "date": date,
-                            "is12K": Pass["is12K"],
-                            "isNoHold": Pass["isNoHoldTap"],
-                            "judgements": Pass["judgements"],
-                            "pdnDiff": chart["pdnDiff"],
-                            "chartId": chart["id"],
-                            "passId": Pass["id"],
-                       }))
+            "player": Pass["player"],
+            "song": chart["song"],
+            "artist": chart["artist"],
+            "score": util.getScoreV2(Pass, chart),
+            "pguDiff": chart["pguDiff"],
+            "Xacc": util.getXacc(judgements_array),
+            "speed": Pass["speed"] or 1.0,
+            "isWorldsFirst": False,
+            "vidLink": Pass["vidLink"],
+            "feelingRating": Pass["feelingRating"],
+            "date": date,
+            "is12K": Pass["is12K"],
+            "is16K": Pass.get("is16K", False),
+            "isNoHold": Pass["isNoHoldTap"],
+            "judgements": judgements_array,
+            "pdnDiff": chart["pdnDiff"],
+            "chartId": chart["id"],
+            "passId": Pass["id"],
+            "baseScore": chart["baseScore"]
+        }))
     Scores = list(reversed(sorted(Scores, key=lambda x: (x["score"]))))
     datedScores = sorted(Scores, key=lambda x: (x["date"]))
     datedScores[0]["isWorldsFirst"] = True
@@ -136,9 +149,11 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
         if isWorldsFirst:
             firstPasses += 1
         try:
-            date = datetime.strptime(Pass["vidUploadTime"].split("Z")[0], "%Y-%m-%dT%H:%M:%S")
-        except:
-            date = datetime(2022, 1, 1) #placeholder time
+            date_str = Pass["vidUploadTime"].split(".")[0]
+            date = datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S")
+        except Exception as e:
+            print(f"Error parsing date: {Pass['vidUploadTime']}, using fallback. Error: {e}")
+            date = datetime(2022, 1, 1)
         if not Pass["speed"]:
             speed = 1.0
         else:
@@ -153,8 +168,10 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
                             "speed": speed,
                             "isWorldsFirst": isWorldsFirst,
                             "vidLink": Pass["vidLink"],
+                            "feelingRating": Pass["feelingRating"],
                             "date": date,
                             "is12K": Pass["is12K"],
+                            "is16K": Pass["is16K"],
                             "isNoHold": Pass["isNoHoldTap"],
                             "judgements": Pass["judgements"],
                             "pdnDiff": chart["pdnDiff"],

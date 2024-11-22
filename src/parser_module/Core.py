@@ -65,8 +65,10 @@ class ResultObj:
                        "speed": 1.0,
                        "isWorldsFirst": False,
                        "vidLink": "",
+                       "feelingRating": "",
                        "date": None,
                        "is12K": False,
+                       "is16K": False,
                        "isNoHold": False,
                        "judgements": [],
                        "pdnDiff": 0,
@@ -138,14 +140,39 @@ class Utils:
         else:
             return 1 - endDeduc / 100
 
-    def getXacc(self, inp):
-        if not all([type(i) == int for i in inp]):
+    def getXacc(self, judgements):
+        # Check if input is a dict with proper judgement names
+        if isinstance(judgements, dict):
+            j = judgements
+            try:
+                total = (
+                    j['perfect'] +
+                    (j['ePerfect'] + j['lPerfect']) * 0.75 +
+                    (j['earlySingle'] + j['lateSingle']) * 0.4 +
+                    (j['earlyDouble'] + j['lateDouble']) * 0.2
+                )
+                count = sum([
+                    j['perfect'],
+                    j['ePerfect'],
+                    j['lPerfect'],
+                    j['earlySingle'],
+                    j['lateSingle'],
+                    j['earlyDouble'],
+                    j['lateDouble']
+                ])
+                return total / count if count > 0 else 0.95
+            except (KeyError, TypeError, ZeroDivisionError):
+                return 0.95
+        
+        # Fallback for array input
+        if not all([isinstance(i, int) for i in judgements]):
             return 0.95
-        return ((inp[3] +
-                 (inp[2] + inp[4]) * 0.75 +
-                 (inp[1] + inp[5]) * 0.4 +
-                 (inp[0] + inp[6]) * 0.2)
-                / sum(inp))
+        
+        return ((judgements[3] +  # perfect
+                 (judgements[2] + judgements[4]) * 0.75 +  # ePerfect + lPerfect
+                 (judgements[1] + judgements[5]) * 0.4 +  # earlySingle + lateSingle
+                 (judgements[0] + judgements[6]) * 0.2)  # earlyDouble + lateDouble
+                / sum(judgements))
 
     def getXaccMtp(self, inp):
         xacc = self.getXacc(inp)
@@ -210,7 +237,17 @@ class Utils:
     def getScore(self, passData, chartData):
         speed = passData['speed']
         legacyDiff = chartData['diff']
-        inputs = passData['judgements']
+        judgements = passData['judgements']
+        # Convert judgements object to array for calculations
+        inputs = [
+            judgements['earlyDouble'],
+            judgements['earlySingle'],
+            judgements['ePerfect'],
+            judgements['perfect'],
+            judgements['lPerfect'],
+            judgements['lateSingle'],
+            judgements['lateDouble']
+        ]
         base = chartData['baseScore']
         xaccMtp = self.getXaccMtp(inputs)
         if legacyDiff == 64:

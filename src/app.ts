@@ -11,6 +11,7 @@ import databaseRoutes from './routes/database/index';
 import connectDB from './config/db';
 import { startScheduledTasks } from './utils/scheduledTasks';
 import { updateData } from './utils/updateHelpers';
+import reloadDatabase from './utils/reloadDatabase';
 
 dotenv.config();
 
@@ -34,7 +35,8 @@ app.use('/v2/media', mediaRoutes);
 app.use('/v2/data', databaseRoutes);
 
 
-app.listen(port, () => {
+app.listen(port, async () => {
+  //await reloadDatabase();
   updateData();
   startScheduledTasks();
   console.log(`Server running on ${process.env.OWN_URL}`);

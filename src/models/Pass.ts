@@ -11,6 +11,7 @@ export interface IPass extends Document {
   vidLink: string;
   vidUploadTime: Date;
   is12K: boolean;
+  is16K: boolean;
   isNoHoldTap: boolean;
   isLegacyPass: boolean;
   judgements: IJudgements;
@@ -53,6 +54,10 @@ const passSchema = new Schema<IPass>({
     required: true 
   },
   is12K: { 
+    type: Boolean, 
+    default: false 
+  },
+  is16K: { 
     type: Boolean, 
     default: false 
   },
