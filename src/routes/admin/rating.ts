@@ -86,4 +86,10 @@ router.put("/", async (req: Request, res: Response) => {
     }
 });
 
+router.delete("/", async (req: Request, res: Response) => {
+  const { id } = req.body;
+  await Rating.findByIdAndDelete(id);
+  return res.json({ success: true });
+});
+
 export default router;

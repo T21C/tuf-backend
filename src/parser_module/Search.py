@@ -35,7 +35,7 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
         data = initData(chartPath, passPath, playerPath, useSaved)
 
     idOffset = 0
-    initChartId = chartId
+    initChartId = min(chartId, len(data.charts)-1)
     if chartId >= data.chartsCount:
         chartId = data.chartsCount-1
     if chartId <= 0:

@@ -85,6 +85,7 @@ async function reloadDatabase() {
     // Process and insert levels
     const levelDocs = Array.isArray(levels) ? levels.map(level => ({
       ...level,
+      baseScoreDiff: level.baseScore || 0,
       toRate: false
     })) : [];
     

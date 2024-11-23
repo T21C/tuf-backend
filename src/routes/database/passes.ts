@@ -2,7 +2,7 @@ import { Request, Response, Router } from 'express';
 import { escapeRegExp } from '../../misc/Utility';
 import { PATHS } from '../../config/constants';
 import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers';
-import { updateCache } from '../../utils/updateHelpers';
+import { getPassesReloadCooldown, reloadPasses } from '../../utils/updateHelpers';
 import Pass from '../../models/Pass';
 import { getScoreV2 } from '../../misc/CalcScore';
 import { calcAcc } from '../../misc/CalcAcc';
@@ -125,7 +125,11 @@ router.get('/:id', async (req: Request, res: Response) => {
   console.log('GET request received for pass:', req.params.id);
   try {
     const { id } = req.params;
+    console.log("passCache", passesCache.slice(0,2));
+    
     const pass = passesCache.find((pass: any) => pass.id === parseInt(id));
+    console.log(pass);
+    
     if (!pass) {
       return res.status(404).json({ error: 'Pass not found' });
     }
@@ -191,15 +195,15 @@ router.put('/:id', async (req: Request, res: Response) => {
       isNoHoldTap: formData.flags.isNHT,
       accuracy: calculatedAcc,
       scoreV2: calculatedScore,
-      judgements: [
-        formData.judgements.earlyDouble,
-        formData.judgements.earlySingle,
-        formData.judgements.ePerfect,
-        formData.judgements.perfect,
-        formData.judgements.lPerfect,
-        formData.judgements.lateSingle,
-        formData.judgements.lateDouble
-      ]
+      judgements: {
+        earlyDouble: formData.judgements.earlyDouble,
+        earlySingle: formData.judgements.earlySingle,
+        ePerfect: formData.judgements.ePerfect,
+        perfect: formData.judgements.perfect,
+        lPerfect: formData.judgements.lPerfect,
+        lateSingle: formData.judgements.lateSingle,
+        lateDouble: formData.judgements.lateDouble
+      }
     }
 
     const updatedPass = await Pass.findOneAndUpdate(
@@ -208,17 +212,37 @@ router.put('/:id', async (req: Request, res: Response) => {
       { new: true }
     );
 
-    console.log(updatedPass)
     if (!updatedPass) {
       return res.status(404).json({ error: 'Pass not found' });
     }
 
-    // Clear cache to force refresh
-    reloadCache();
+    // Update the cache immediately
+    passesCache = passesCache.map((pass: any) => 
+      pass.id === parseInt(id) ? updatedPass.toObject() : pass
+    );
+    
+    // Write to cache file
+    await writeJsonFile(PATHS.passesJson, passesCache);
+
+    // Trigger pass reload with cooldown check
+    const cooldown = getPassesReloadCooldown();
+    if (cooldown === 0) {
+      try {
+        await reloadPasses();
+        // Reload all caches after passes are updated
+        passesCache = readJsonFile(PATHS.passesJson);
+        clearListCache = readJsonFile(PATHS.clearlistJson);
+      } catch (error) {
+        console.error('Error reloading caches:', error);
+      }
+    } else {
+      console.log(`Cache reload skipped (cooldown: ${Math.ceil(cooldown / 1000)}s)`);
+    }
 
     return res.json({
       message: 'Pass updated successfully',
-      pass: updatedPass
+      pass: updatedPass,
+      cacheReloaded: cooldown === 0
     });
 
   } catch (error) {

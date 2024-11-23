@@ -14,6 +14,9 @@ export const updateTimeList: Record<string, number> = {};
 
 const parserPath = './src/parser_module/executable.py';
 
+const RELOAD_COOLDOWN = 30000; // 30 seconds in milliseconds
+let lastPassesReloadTime = 0;
+
 export const getPlayer = (player: string, plrPath: string) => {
   console.log('decoded', decodeFromBase32(player));
   return new Promise((resolve, reject) => {
@@ -78,6 +81,44 @@ export const updateRanks = () => {
   console.log('ranks updated');
 };
 
+
+export const reloadPasses = async () => {
+  const currentTime = Date.now();
+  
+  // Check if enough time has passed since last reload
+  if (currentTime - lastPassesReloadTime < RELOAD_COOLDOWN) {
+    console.log(`Skipping passes reload - cooldown active. Please wait ${Math.ceil((RELOAD_COOLDOWN - (currentTime - lastPassesReloadTime)) / 1000)} seconds.`);
+    return;
+  }
+
+  console.log('reloading passes');
+  lastPassesReloadTime = currentTime;
+
+  exec(
+    `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved --reverse`,
+    (error, stdout, stderr) => {
+      if (error) {
+        console.error(
+          `Error executing script for all_clears: ${error.message}`,
+        );
+        return;
+      }
+      if (stderr) {
+        console.error(`Clear list stderr: ${stderr}`);
+        return;
+      }
+      console.log(`Clear list output: ${stdout}`);
+    },
+  );
+  console.log('passes reloaded');
+  updateTimeList['passes'] = currentTime;
+};
+
+export const getPassesReloadCooldown = (): number => {
+  const timeLeft = RELOAD_COOLDOWN - (Date.now() - lastPassesReloadTime);
+  return Math.max(0, timeLeft);
+};
+
 export const updateData = async () => {
   console.log('starting execution');
   await updateCache()
@@ -96,22 +137,7 @@ export const updateData = async () => {
       }
       console.log(`Script output:\n${stdout}`);
       
-      exec(
-        `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved --reverse`,
-        (error, stdout, stderr) => {
-          if (error) {
-            console.error(
-              `Error executing script for all_clears: ${error.message}`,
-            );
-            return;
-          }
-          if (stderr) {
-            console.error(`Clear list stderr: ${stderr}`);
-            return;
-          }
-          console.log(`Clear list output: ${stdout}`);
-        },
-      );
+      reloadPasses();
       updateRanks(),
       fetchPfps()
         

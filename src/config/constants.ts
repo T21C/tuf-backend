@@ -46,6 +46,8 @@ export const raterList = [
   'gomnyang_',
   'harim._.00',
   'h4ryma7ch_',
+  'changhyeon_7492',
+  "reefter",
 ];
 
 export const emailBanList = [

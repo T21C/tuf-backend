@@ -99,8 +99,10 @@ router.get('/', async (req: Request, res: Response) => {
     const count = results.length;
 
     // Handle pagination
+    console.log(req.query);
     const offset = req.query.offset ? Number(req.query.offset) : 0;
     const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    console.log(offset, limit);
     const paginatedResults = results.slice(offset, limit ? offset + limit : undefined);
 
     const totalTime = performance.now() - routeStart;
