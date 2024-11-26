@@ -1,8 +1,8 @@
 import axios from 'axios';
-import mongoose from 'mongoose';
 import Level from '../models/Level';
 import Pass from '../models/Pass';
 import Player from '../models/Player';
+import xlsx from 'xlsx';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -59,6 +59,37 @@ async function fetchData<T>(endpoint: string): Promise<T> {
   return response.data;
 }
 
+async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
+  try {
+    const workbook = xlsx.readFile('./cache/passes.xlsx');
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const rawData = xlsx.utils.sheet_to_json(worksheet);
+    
+    // Create a Map of id -> feelingRating
+    const feelingRatings = new Map<number, string>();
+    
+    rawData.forEach((row: any) => {
+      const id = parseInt(row['Pid']);
+      const rating = row['Feeling Difficulty']?.toString() || "";
+      if (id != 0 && !isNaN(id) && rating != "") {
+        console.log(`Rating for ${id}: ${rating}`);
+        console.log(typeof rating);
+        if (rating.toLowerCase() == "u14") {
+          console.log(`Setting rating for ${id} to u14`);
+        }
+        feelingRatings.set(id, rating);
+      }
+    });
+
+    console.log(`Loaded ${feelingRatings.size} feeling ratings from XLSX`);
+    return feelingRatings;
+  } catch (error) {
+    console.error('Error reading feeling ratings from XLSX:', error);
+    throw error;
+  }
+}
+
 async function reloadDatabase() {
   try {
     console.log('Starting database reload...');
@@ -71,7 +102,10 @@ async function reloadDatabase() {
     ]);
     console.log('Cleared existing collections');
 
-    // Fetch and validate levels
+    // Load feeling ratings from XLSX first
+    const feelingRatings = await readFeelingRatingsFromXlsx();
+
+    // Fetch and process levels
     const levelsResponse = await fetchData<RawLevel[]>('/levels');
     const levels = Array.isArray(levelsResponse) ? levelsResponse : 
                   (levelsResponse as any).results || [];
@@ -96,53 +130,56 @@ async function reloadDatabase() {
       console.log(`Inserted ${levelDocs.length} levels`);
     }
 
-    // Fetch and validate passes
+    // Fetch and process passes
     const passesResponse = await fetchData<{ count: number, results: RawPass[] }>('/passes');
-    const passes = passesResponse.results || [];
+    const passes = passesResponse.results;
     
     console.log('Passes data structure:', {
-      count: passesResponse.count,
-      resultsLength: passes.length,
+      count: passes.length,
       firstItem: passes[0]
     });
 
+    // Enrich passes with feeling ratings
+    const enrichedPasses = passes.map(pass => ({
+      ...pass,
+      feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating
+    }));
+
     // Process and insert passes
-    const passDocs = passes.map(pass => {
-      // Ensure all judgement values exist with fallbacks to 0
-      const judgementArray = pass.judgements || [0, 0, 0, 0, 0, 0, 0];
-      
-      return {
-        id: pass.id,
-        levelId: pass.levelId,
-        speed: pass.speed,
-        player: pass.player,
-        feelingRating: pass.feelingRating || '',
-        vidTitle: pass.vidTitle,
-        vidLink: pass.vidLink,
-        vidUploadTime: new Date(pass.vidUploadTime),
-        is12K: pass.is12K || false,
-        is16K: false,
-        isNoHoldTap: pass.isNoHoldTap || false,
-        isLegacyPass: pass.isLegacyPass || false,
-        accuracy: pass.accuracy,
-        scoreV2: pass.scoreV2,
-        judgements: {
-          earlyDouble: judgementArray[0] || 0,
-          earlySingle: judgementArray[1] || 0,
-          ePerfect: judgementArray[2] || 0,
-          perfect: judgementArray[3] || 0,
-          lPerfect: judgementArray[4] || 0,
-          lateSingle: judgementArray[5] || 0,
-          lateDouble: judgementArray[6] || 0
-        }
-      };
-    });
+    const passDocs = enrichedPasses.map(pass => ({
+      id: pass.id,
+      levelId: pass.levelId,
+      speed: pass.speed,
+      player: pass.player,
+      feelingRating: pass.feelingRating,
+      vidTitle: pass.vidTitle,
+      vidLink: pass.vidLink,
+      vidUploadTime: new Date(pass.vidUploadTime),
+      is12K: pass.is12K,
+      is16K: false,
+      isNoHoldTap: pass.isNoHoldTap,
+      isLegacyPass: pass.isLegacyPass,
+      accuracy: pass.accuracy,
+      scoreV2: pass.scoreV2,
+      judgements: {
+        earlyDouble: pass.judgements[0],
+        earlySingle: pass.judgements[1],
+        ePerfect: pass.judgements[2],
+        perfect: pass.judgements[3],
+        lPerfect: pass.judgements[4],
+        lateSingle: pass.judgements[5],
+        lateDouble: pass.judgements[6]
+      }
+    }));
 
     if (passDocs.length === 0) {
       console.warn('No passes to insert');
     } else {
-      // Log the first pass doc for debugging
-      console.log('Sample pass document:', passDocs[0]);
+      console.log('Sample enriched pass:', {
+        id: passDocs[0].id,
+        originalRating: passes[0].feelingRating,
+        enrichedRating: passDocs[0].feelingRating
+      });
       
       try {
         await Pass.insertMany(passDocs, { ordered: false });

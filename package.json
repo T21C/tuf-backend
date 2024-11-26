@@ -34,7 +34,8 @@
     "node-fetch": "^3.3.2",
     "pnpm": "^9.12.3",
     "shuffle-seed": "^1.1.6",
-    "uint8array-extras": "^1.4.0"
+    "uint8array-extras": "^1.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
