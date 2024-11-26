@@ -14,7 +14,6 @@ async function getBilibiliVideoDetails(url: string) {
   }
 
   const apiUrl = `${process.env.OWN_URL}/v2/media/bilibili?bvid=${videoId}`;
-  console.log('apiUrl', apiUrl);
   try {
     const response = await axios.get(apiUrl).catch((error: AxiosError) => {
       throw new Error(`HTTP error! Status: ${error.status}`);

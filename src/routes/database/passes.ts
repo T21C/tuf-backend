@@ -41,7 +41,6 @@ const getSortOptions = (sort?: string) => {
 
 // Helper function to apply query conditions
 const applyQueryConditions = (pass: any, query: any) => {
-  // Level ID filter - Convert both to strings for comparison
   if (query.chartId && String(pass.chartId) !== String(query.chartId)) {
     return false;
   }
@@ -54,6 +53,50 @@ const applyQueryConditions = (pass: any, query: any) => {
     }
   }
 
+
+/*
+  {
+    player: 'nnuura',
+    song: 'Bismuth',
+    artist: 'Ludicin',
+    score: 1028.9125322422733,
+    pguDiff: 'G20',
+    Xacc: 0.9922886297376092,
+    speed: 1,
+    isWorldsFirst: false,
+    vidLink: 'https://www.youtube.com/watch?v=E9we4XcFAYs',
+    feelingRating: 'U1',
+    date: '2024-05-17T07:04:09',
+    is12K: false,
+    is16K: false,
+    isNoHold: false,
+    judgements: {
+      earlyDouble: 6,
+      earlySingle: 6,
+      ePerfect: 14,
+      perfect: 3364,
+      lPerfect: 27,
+      lateSingle: 13,
+      lateDouble: 0
+    },
+    pdnDiff: 20.95,
+    chartId: 3860,
+    passId: 9067,
+    baseScore: 400
+  }
+*/
+  if (query.query) {
+    const queryRegex = new RegExp(escapeRegExp(query.query), 'i');
+    if (!queryRegex.test(pass.player)   &&
+        !queryRegex.test(pass.song)     &&
+        !queryRegex.test(pass.artist)   &&
+        !queryRegex.test(pass.pguDiff)  &&
+        !queryRegex.test(pass.chartId)  &&
+        !queryRegex.test(pass.passId)
+      ) {
+      return false;
+    }
+  }
   return true;
 };
 
@@ -109,13 +152,13 @@ router.get('/', async (req: Request, res: Response) => {
     const count = results.length;
 
     // Handle pagination
-    const offset = Number(req.query.offset) || 0;
-    const limit = Number(req.query.limit) || undefined;
-    if (limit) {
-      results = results.slice(offset, offset + limit);
-    }
+    const offset = req.query.offset ? Number(req.query.offset) : 0;
+    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    const paginatedResults = results.slice(offset, limit ? offset + limit : undefined);
+    const totalTime = performance.now() - routeStart;
+    console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
 
-    return res.json({ count, results });
+    return res.json({ count, results: paginatedResults });
   } catch (error) {
     console.error('Error fetching passes:', error);
     return res.status(500).json({ error: 'Failed to fetch passes' });

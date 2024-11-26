@@ -10,8 +10,6 @@ const router: Router = express.Router();
 router.post('/google-auth', async (req: Request, res: Response) => {
   const {code} = req.body; // Extract code object from request body
 
-  //console.log("request body: ", req.body);
-
   if (!code || !code.access_token) {
     return res.status(400).json({error: 'No access token provided'});
   }
