@@ -1,5 +1,5 @@
 import {readJsonFile, writeJsonFile} from './fileHandlers.js';
-import {PATHS, EXCLUDE_CLEARLIST} from '../config/constants.js';
+import {PATHS} from '../config/constants.js';
 import {exec} from 'child_process';
 import {loadPfpList, savePfpList} from './fileHandlers.js';
 import {getPfpUrl} from './pfpResolver.js';

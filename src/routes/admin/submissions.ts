@@ -7,6 +7,7 @@ import Pass from '../../models/Pass';
 import { Rating } from '../../models/Rating';
 import { calcAcc } from '../../misc/CalcAcc';
 import { getScoreV2 } from '../../misc/CalcScore'; 
+import { Auth } from '../../middleware/auth';
 
 // Define interfaces for the data structure
 interface PassData {
@@ -46,7 +47,7 @@ router.get('/passes/pending', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/charts/:id/:action', async (req: Request, res: Response) => {
+router.put('/charts/:id/:action', Auth.superAdmin(), async (req: Request, res: Response) => {
   const { id, action } = req.params;
   
   try {
@@ -107,7 +108,7 @@ router.put('/charts/:id/:action', async (req: Request, res: Response) => {
 });
 
 
-router.put('/passes/:id/:action', async (req: Request, res: Response) => {
+router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: Response) => {
   const { id, action } = req.params;
   
   try {

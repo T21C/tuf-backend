@@ -48,7 +48,7 @@ export const raterList = [
   'h4ryma7ch_',
   'changhyeon_7492',
   "reefter",
-];
+].concat(SUPER_ADMINS);
 
 export const emailBanList = [
   'bannedUser@example.com',
@@ -69,4 +69,3 @@ export const validSortOptions = [
   'player',
 ];
 
-export const EXCLUDE_CLEARLIST = true;

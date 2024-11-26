@@ -7,6 +7,7 @@ import Pass from '../../models/Pass';
 import { getScoreV2 } from '../../misc/CalcScore';
 import { calcAcc } from '../../misc/CalcAcc';
 import { IJudgements } from '../../models/Judgements';
+import { Auth } from '../../middleware/auth';
 
 let passesCache = readJsonFile(PATHS.passesJson);
 let playersCache = readJsonFile(PATHS.playersJson);
@@ -141,7 +142,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   console.log('PUT/PATCH request received for pass:', req.params.id);
   try {
     const { id } = req.params;
