@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import adminRoutes from './routes/admin/index';
 import leaderboardRoutes from './routes/leaderboard';
 import playerRoutes from './routes/player';
@@ -12,11 +14,35 @@ import connectDB from './config/db';
 import { startScheduledTasks } from './utils/scheduledTasks';
 import { updateData } from './utils/updateHelpers';
 import reloadDatabase from './utils/reloadDatabase';
+import { setIO } from './utils/socket';
 
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const port = process.env.PORT || 3002;
+
+// Create Socket.IO instance
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
+
+setIO(io);
+
+// Socket connection handler
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+
+  socket.on('disconnect', (reason) => {
+    console.log('Client disconnected:', socket.id, 'Reason:', reason);
+  });
+});
 
 connectDB();
 
@@ -35,8 +61,8 @@ app.use('/v2/media', mediaRoutes);
 app.use('/v2/data', databaseRoutes);
 
 
-app.listen(port, async () => {
-  //await reloadDatabase();
+httpServer.listen(port, async () => {
+  await reloadDatabase();
   updateData();
   startScheduledTasks();
   console.log(`Server running on ${process.env.OWN_URL}`);

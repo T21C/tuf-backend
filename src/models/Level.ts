@@ -24,6 +24,8 @@ export interface ILevel extends Document {
   workshopLink: string;
   publicComments: string;
   toRate: boolean;
+  rerateReason: string;
+  rerateNum: string;
 }
 
 const LevelSchema = new Schema<ILevel>({
@@ -49,7 +51,9 @@ const LevelSchema = new Schema<ILevel>({
   dlLink: { type: String, default: "" },
   workshopLink: { type: String, default: "" },
   publicComments: { type: String, default: "" },
-  toRate: { type: Boolean, default: false }
+  toRate: { type: Boolean, default: false },
+  rerateReason: { type: String, default: "" },
+  rerateNum: { type: String, default: "" }
 });
 
 export default mongoose.model<ILevel>('Level', LevelSchema); 

@@ -9,6 +9,7 @@ import { Rating } from '../../models/Rating';
 import { calculateBaseScore } from '../../utils/ratingUtils';
 import { calculatePguDiffNum } from '../../utils/ratingUtils';
 import { Auth } from '../../middleware/auth';
+import { getIO } from '../../utils/socket';
 
 let chartsCache = readJsonFile(PATHS.chartsJson);
 
@@ -122,12 +123,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
-    
-    const item = await Level.findOne({
-      $or: [
-        { id: req.params.id }
-      ]
-    });
+    const item = chartsCache.find((chart: any) => chart.id === parseInt(req.params.id));
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
@@ -171,6 +167,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Chart not found' });
     }
 
+    const io = getIO();
+    io.emit('ratingsUpdated');
     // Handle Rating entry based on toRate flag
     if (updateData.toRate) {
       // Create or update rating
@@ -178,11 +176,13 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         { ID: updatedChart.id },
         {
           ID: updatedChart.id,
-          song: updatedChart.song,
-          artist: updatedChart.artist,
-          creator: updatedChart.charter,
-          rawVideoLink: updatedChart.vidLink,
-          rawDLLink: updatedChart.dlLink,
+          song: updatedChart.song || "",
+          artist: updatedChart.artist || "",
+          creator: updatedChart.charter || "",
+          rawVideoLink: updatedChart.vidLink || "",
+          rawDLLink: updatedChart.dlLink || "",
+          rerateReason: updatedChart.rerateReason || "",
+          rerateNum: updatedChart.rerateNum || ""
         },
         { upsert: true }
       );

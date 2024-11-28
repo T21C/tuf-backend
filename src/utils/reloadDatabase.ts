@@ -2,6 +2,7 @@ import axios from 'axios';
 import Level from '../models/Level';
 import Pass from '../models/Pass';
 import Player from '../models/Player';
+import { Rating } from '../models/Rating';
 import xlsx from 'xlsx';
 
 const BE_API = 'http://be.t21c.kro.kr';
@@ -55,7 +56,7 @@ interface RawPlayer {
 
 async function fetchData<T>(endpoint: string): Promise<T> {
   const response = await axios.get(`${BE_API}${endpoint}`);
-  console.log(`Response from ${endpoint}:`, typeof response.data, response.data);
+  //console.log(`Response from ${endpoint}:`, typeof response.data, response.data);
   return response.data;
 }
 
@@ -73,11 +74,6 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
       const id = parseInt(row['Pid']);
       const rating = row['Feeling Difficulty']?.toString() || "";
       if (id != 0 && !isNaN(id) && rating != "") {
-        console.log(`Rating for ${id}: ${rating}`);
-        console.log(typeof rating);
-        if (rating.toLowerCase() == "u14") {
-          console.log(`Setting rating for ${id} to u14`);
-        }
         feelingRatings.set(id, rating);
       }
     });
@@ -98,7 +94,8 @@ async function reloadDatabase() {
     await Promise.all([
       Level.deleteMany({}),
       Pass.deleteMany({}),
-      Player.deleteMany({})
+      Player.deleteMany({}),
+      Rating.deleteMany({})
     ]);
     console.log('Cleared existing collections');
 
@@ -110,11 +107,11 @@ async function reloadDatabase() {
     const levels = Array.isArray(levelsResponse) ? levelsResponse : 
                   (levelsResponse as any).results || [];
     
-    console.log('Levels data structure:', {
+    /*console.log('Levels data structure:', {
       isArray: Array.isArray(levels),
       length: levels.length,
       firstItem: levels[0]
-    });
+    });*/
 
     // Process and insert levels
     const levelDocs = Array.isArray(levels) ? levels.map(level => ({
@@ -134,10 +131,10 @@ async function reloadDatabase() {
     const passesResponse = await fetchData<{ count: number, results: RawPass[] }>('/passes');
     const passes = passesResponse.results;
     
-    console.log('Passes data structure:', {
+    /*console.log('Passes data structure:', {
       count: passes.length,
       firstItem: passes[0]
-    });
+    });*/
 
     // Enrich passes with feeling ratings
     const enrichedPasses = passes.map(pass => ({
@@ -175,11 +172,11 @@ async function reloadDatabase() {
     if (passDocs.length === 0) {
       console.warn('No passes to insert');
     } else {
-      console.log('Sample enriched pass:', {
+      /*console.log('Sample enriched pass:', {
         id: passDocs[0].id,
         originalRating: passes[0].feelingRating,
         enrichedRating: passDocs[0].feelingRating
-      });
+      });*/
       
       try {
         await Pass.insertMany(passDocs, { ordered: false });
@@ -198,11 +195,11 @@ async function reloadDatabase() {
     const players = Array.isArray(playersResponse) ? playersResponse : 
                    (playersResponse as any).results || [];
     
-    console.log('Players data structure:', {
+    /*console.log('Players data structure:', {
       isArray: Array.isArray(players),
       length: players.length,
       firstItem: players[0]
-    });
+    });*/
 
     // Process and validate player data
     const playerDocs = players.map((player: any) => ({

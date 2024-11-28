@@ -8,23 +8,23 @@ const ratingSchema = new mongoose.Schema({
   },
   song: {
     type: String,
-    required: true
+    default: "" 
   },
   artist: {
     type: String,
-    required: true
+    default: ""
   },
   creator: {
     type: String,
-    required: true
+    default: ""
   },
   rawVideoLink: {
     type: String,
-    required: true
+    default: ""
   },
   rawDLLink: {
     type: String,
-    required: true
+    default: ""
   },
   currentDiff: {
     type: String,
@@ -36,7 +36,7 @@ const ratingSchema = new mongoose.Schema({
   },
   rerateNum: {
     type: String,
-    default: "0"
+    default: ""
   },
   requesterFR: {
     type: String,
@@ -50,10 +50,16 @@ const ratingSchema = new mongoose.Schema({
     type: String,
     default: ""
   },
+  rerateReason: {
+    type: String,
+    default: ""
+  },
   ratings: {
     type: Object,
     default: {}
   }
+}, {
+  timestamps: true // Adds createdAt and updatedAt fields 
 });
 
 export const Rating = mongoose.model('Rating', ratingSchema, 'ratings'); 

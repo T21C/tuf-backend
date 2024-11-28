@@ -5,6 +5,7 @@ import { Rating } from '../../models/Rating';
 import { calculateAverageRating } from '../../utils/ratingUtils';
 import { Auth } from '../../middleware/auth';
 import { IUser } from '../../types/express';
+import { getIO } from '../../utils/socket';
 
 const router: Router = express.Router();
 
@@ -12,20 +13,8 @@ router.get("/raters", async (req: Request, res: Response) => {
   return res.json(raterList);
 }); 
 
-router.get("/", async (req: Request, res: Response) => {
+router.get("/", Auth.rater(), async (req: Request, res: Response) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        return res.status(401).json({ error: 'Authorization token required' });
-      }
-  
-      const accessToken = authHeader.split(' ')[1];
-      const tokenInfo = await verifyAccessToken(accessToken);
-  
-      if (!tokenInfo || !raterList.includes(tokenInfo.username)) {
-        return res.status(403).json({ error: 'Unauthorized access' });
-      }
-  
       const ratings = await Rating.find({}).sort({ ID: 1 });
       return res.json(ratings);
       
@@ -66,6 +55,10 @@ router.put("/", Auth.rater(), async (req: Request, res: Response) => {
         }
       }
       
+      // Emit the event using the socket utility
+      const io = getIO();
+      io.emit('ratingsUpdated');
+
       return res.json({ 
         success: true, 
         message: `Ratings updated successfully by ${userInfo.username}` 
