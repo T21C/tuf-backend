@@ -55,4 +55,27 @@ router.get('/pfp', async (req: Request, res: Response) => {
   res.json(pfpList[player]);
 });
 
+router.get('/github-asset', async (req: Request, res: Response) => {
+  const assetPath = req.query.path;
+  try {
+    if (!assetPath || typeof assetPath !== 'string') {
+      return res.status(400).send('Invalid asset path');
+    }
+
+    const githubUrl = `https://raw.githubusercontent.com/T21C/T21C-assets/main/${assetPath}`;
+    const response = await axios.get(githubUrl, {
+      responseType: 'arraybuffer'
+    });
+
+    const contentType = response.headers['content-type'];
+    res.set('Content-Type', contentType);
+    return res.send(response.data);
+
+  } catch (error) {
+    console.error('Error fetching GitHub asset:', error);
+    res.status(500).send('Error fetching asset.');
+    return;
+  }
+});
+
 export default router;

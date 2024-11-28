@@ -132,6 +132,12 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       const accuracy = calcAcc(passData.judgements, true);
       const score = getScoreV2(passData, { diff: 0, baseScore: 1000 }); // Add chart data as needed
 
+      // Increment the clear count for the level
+      await Level.findOneAndUpdate(
+        { id: submission.levelId },
+        { $inc: { clears: 1 } }
+      );
+
       const newPass = new Pass({
         id: nextId,
         levelId: submission.levelId,

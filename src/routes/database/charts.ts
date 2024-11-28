@@ -10,8 +10,7 @@ import { calculateBaseScore } from '../../utils/ratingUtils';
 import { calculatePguDiffNum } from '../../utils/ratingUtils';
 import { Auth } from '../../middleware/auth';
 import { getIO } from '../../utils/socket';
-
-let chartsCache = readJsonFile(PATHS.chartsJson);
+import { Cache } from '../../utils/cacheManager';
 
 const timeOperation = async (name: string, operation: () => Promise<any>) => {
   const start = performance.now();
@@ -69,7 +68,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (req.query.sort === 'RANDOM') {
       // Apply the filter conditions
-      const results = chartsCache.filter((chart: any) => applyQueryConditions(chart, req.query));
+      const results = Cache.get('charts').filter((chart: any) => applyQueryConditions(chart, req.query));
       
       const seed = req.query.seed ? Number(req.query.seed) : 
         Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
@@ -87,7 +86,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     // Apply the filter conditions and sorting
-    let results = chartsCache.filter((chart: any) => applyQueryConditions(chart, req.query));
+    let results = Cache.get('charts').filter((chart: any) => applyQueryConditions(chart, req.query));
     
     // Apply sorting
     const sortOptions = getSortOptions(req);
@@ -123,7 +122,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
-    const item = chartsCache.find((chart: any) => chart.id === parseInt(req.params.id));
+    const item = Cache.get('charts').find((chart: any) => chart.id === parseInt(req.params.id));
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
@@ -190,17 +189,15 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // Remove rating if it exists
       await Rating.deleteOne({ ID: updatedChart.id });
     }
-
+    const cache = Cache.get('charts');
     // Update in cache
-    const chartIndex = chartsCache.findIndex((chart: any) => chart._id.toString() === id);
+    const chartIndex = cache.findIndex((chart: any) => chart._id.toString() === id);
     if (chartIndex !== -1) {
-      chartsCache[chartIndex] = {
-        ...chartsCache[chartIndex],
+      cache[chartIndex] = {
+        ...cache[chartIndex],
         ...updateData
       };
-
-      // Write updated cache to file
-      await writeJsonFile(PATHS.chartsJson, chartsCache);
+      Cache.set('charts', cache);
     }
 
     const totalTime = performance.now() - routeStart;

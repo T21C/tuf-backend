@@ -62,7 +62,7 @@ app.use('/v2/data', databaseRoutes);
 
 
 httpServer.listen(port, async () => {
-  await reloadDatabase();
+  //await reloadDatabase();
   updateData();
   startScheduledTasks();
   console.log(`Server running on ${process.env.OWN_URL}`);

@@ -8,25 +8,11 @@ import { getScoreV2 } from '../../misc/CalcScore';
 import { calcAcc } from '../../misc/CalcAcc';
 import { IJudgements } from '../../models/Judgements';
 import { Auth } from '../../middleware/auth';
+import Level from '../../models/Level';
+import { Cache } from '../../utils/cacheManager';
 
-let passesCache = readJsonFile(PATHS.passesJson);
-let playersCache = readJsonFile(PATHS.playersJson);
-let clearListCache = readJsonFile(PATHS.clearlistJson);
-let pfpCache = readJsonFile(PATHS.pfpListJson);
+const router: Router = Router();
 
-
-
-
-const reloadCache = () => {
-  passesCache = readJsonFile(PATHS.passesJson);
-  playersCache = readJsonFile(PATHS.playersJson);
-  clearListCache = readJsonFile(PATHS.clearlistJson);
-  pfpCache = readJsonFile(PATHS.pfpListJson);
-}
-// Reload cache every minute
-setInterval(reloadCache, 1000 * 60);
-
-// Helper function for sorting
 const getSortOptions = (sort?: string) => {
   switch (sort) {
     case 'SCORE_ASC': return { field: 'scoreV2', order: 1 };
@@ -107,18 +93,18 @@ const enrichPassData = async (pass: any, playersCache: any[]) => {
     ...pass,
     country: playerInfo?.country || null,
     isBanned: playerInfo?.isBanned || false,
-    pfp: pfpCache[playerInfo?.name] || null
+    pfp: Cache.get('pfpList')[playerInfo?.name] || null
   };
 };
 
-const router: Router = Router();
 
 router.get('/level/:chartId', async (req: Request, res: Response) => {
   const { chartId } = req.params;
   console.log(chartId)
-  const passes = clearListCache.filter((pass: any) => pass.chartId === parseInt(chartId));    
+  const passes = Cache.get('passes').filter((pass: any) => pass.chartId === parseInt(chartId));    
+  console.log(passes)
   const enrichedPasses = await Promise.all(
-    passes.map((pass: any) => enrichPassData(pass, playersCache))
+    passes.map((pass: any) => enrichPassData(pass, Cache.get('players')))
   );
   return res.json(enrichedPasses);
 });
@@ -130,11 +116,11 @@ router.get('/', async (req: Request, res: Response) => {
 
     console.log(req.query, req.body)
     // Filter passes based on query conditions
-    let results = clearListCache.filter((pass: any) => applyQueryConditions(pass, req.query));
+    let results = Cache.get('clearList').filter((pass: any) => applyQueryConditions(pass, req.query));
     
     // Enrich with player data
     results = await Promise.all(
-      results.map((pass: any) => enrichPassData(pass, playersCache))
+      results.map((pass: any) => enrichPassData(pass, Cache.get('players')))
     );
 
     // Filter out banned players
@@ -169,9 +155,9 @@ router.get('/:id', async (req: Request, res: Response) => {
   console.log('GET request received for pass:', req.params.id);
   try {
     const { id } = req.params;
-    console.log("passCache", passesCache.slice(0,2));
+    console.log("passCache", Cache.get('passes').slice(0,2));
     
-    const pass = passesCache.find((pass: any) => pass.id === parseInt(id));
+    const pass = Cache.get('passes').find((pass: any) => pass.id === parseInt(id));
     console.log(pass);
     
     if (!pass) {
@@ -186,15 +172,67 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
-  console.log('PUT/PATCH request received for pass:', req.params.id);
   try {
     const { id } = req.params;
+    
+    // Get the original pass to check if level changed
+    const originalPass = await Pass.findOne({ id: parseInt(id) });
+    const newLevelId = req.body['levelId'];
 
-    console.log(req.body)
+    // If level ID changed, update both old and new level clear counts
+    if (originalPass && originalPass.levelId !== newLevelId) {
+      // Verify both levels exist first
+      const [oldLevel, newLevel] = await Promise.all([
+        Level.findOne({ id: originalPass.levelId }),
+        Level.findOne({ id: newLevelId })
+      ]);
+
+      if (!oldLevel || !newLevel) {
+        return res.status(400).json({ 
+          error: 'Invalid level IDs',
+          oldLevelExists: !!oldLevel,
+          newLevelExists: !!newLevel
+        });
+      }
+
+      // Update levels in database
+      const [updatedOldLevel, updatedNewLevel] = await Promise.all([
+        Level.findOneAndUpdate(
+          { id: originalPass.levelId },
+          { $inc: { clears: -1 } },
+          { new: true }
+        ),
+        Level.findOneAndUpdate(
+          { id: newLevelId },
+          { $inc: { clears: 1 } },
+          { new: true }
+        )
+      ]).catch(error => {
+        console.error('Error updating level clear counts:', error);
+        throw new Error('Failed to update level clear counts');
+      });
+
+      // Update levels in cache
+      const levelsCache = Cache.get('charts');
+      const updatedLevelsCache = levelsCache.map((level: any) => {
+        if (level.id === originalPass.levelId) {
+          return updatedOldLevel ? updatedOldLevel.toObject() : level;
+        }
+        if (level.id === newLevelId) {
+          return updatedNewLevel ? updatedNewLevel.toObject() : level;
+        }
+        return level;
+      });
+
+      await Cache.set('charts', updatedLevelsCache);
+    }
+
+    console.log('PUT/PATCH request received for pass:', req.params.id);
+    //console.log(req.body)
     // Convert array to IJudgements object
     const judgementObj: IJudgements = req.body['judgements'];
 
-    console.log(judgementObj)
+    //console.log(judgementObj)
     // Calculate score and accuracy from judgements
     const calculatedScore = getScoreV2({
       speed: req.body['speedTrial'],
@@ -261,12 +299,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     }
 
     // Update the cache immediately
-    passesCache = passesCache.map((pass: any) => 
+    const passesCache = Cache.get('passes');
+    const updatedPassesCache = passesCache.map((pass: any) => 
       pass.id === parseInt(id) ? updatedPass.toObject() : pass
     );
     
-    // Write to cache file
-    await writeJsonFile(PATHS.passesJson, passesCache);
+    await Cache.set('passes', updatedPassesCache);
 
     // Trigger pass reload with cooldown check
     const cooldown = getPassesReloadCooldown();
@@ -274,8 +312,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       try {
         await reloadPasses();
         // Reload all caches after passes are updated
-        passesCache = readJsonFile(PATHS.passesJson);
-        clearListCache = readJsonFile(PATHS.clearlistJson);
+        Cache.reloadAll();
       } catch (error) {
         console.error('Error reloading caches:', error);
       }
