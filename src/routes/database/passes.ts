@@ -100,9 +100,7 @@ const enrichPassData = async (pass: any, playersCache: any[]) => {
 
 router.get('/level/:chartId', async (req: Request, res: Response) => {
   const { chartId } = req.params;
-  console.log(chartId)
-  const passes = Cache.get('passes').filter((pass: any) => pass.chartId === parseInt(chartId));    
-  console.log(passes)
+  const passes = Cache.get('passes').filter((pass: any) => pass.levelId === parseInt(chartId));    
   const enrichedPasses = await Promise.all(
     passes.map((pass: any) => enrichPassData(pass, Cache.get('players')))
   );
@@ -155,10 +153,9 @@ router.get('/:id', async (req: Request, res: Response) => {
   console.log('GET request received for pass:', req.params.id);
   try {
     const { id } = req.params;
-    console.log("passCache", Cache.get('passes').slice(0,2));
     
     const pass = Cache.get('passes').find((pass: any) => pass.id === parseInt(id));
-    console.log(pass);
+
     
     if (!pass) {
       return res.status(404).json({ error: 'Pass not found' });
@@ -227,7 +224,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       await Cache.set('charts', updatedLevelsCache);
     }
 
-    console.log('PUT/PATCH request received for pass:', req.params.id);
+    console.log('PUT/PATCH request received for pass:', id);
+    
     //console.log(req.body)
     // Convert array to IJudgements object
     const judgementObj: IJudgements = req.body['judgements'];
@@ -246,11 +244,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
 
     // Update in database
-
+    console.log(req.body)
     const formData = {
       levelId: req.body['levelId'],
-      speed: !!req.body['speed'],
-      passer: req.body['passer'],
+      speed: req.body['speed'],
+      passer: req.body['leaderboardName'],
       feelingRating: req.body['feelingRating'],
       title: req.body['title'],
       rawVideoId: req.body['rawVideoId'],
@@ -258,10 +256,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       judgements: req.body['judgements'],
       flags: {
           is12k: req.body['is12k'],
-          isNHT: req.body['isNHT'],
+          isNHT: req.body['isNoHold'],
           is16k: req.body['is16k']
       }
     }
+
+    console.log("formData", formData)
 
     const passUpdateData = {
       id: id,
@@ -272,8 +272,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       vidTitle: formData.title,
       vidLink: formData.rawVideoId,
       vidUploadTime: formData.rawTime,
-      is12k: formData.flags.is12k,
-      is16k: formData.flags.is16k,
+      is12K: formData.flags.is12k,
+      is16K: formData.flags.is16k,
       isNoHoldTap: formData.flags.isNHT,
       accuracy: calculatedAcc,
       scoreV2: calculatedScore,
@@ -298,12 +298,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Pass not found' });
     }
 
+    console.log("updatedPass", updatedPass)
     // Update the cache immediately
-    const passesCache = Cache.get('passes');
+    const passesCache = await Cache.get('passes');
     const updatedPassesCache = passesCache.map((pass: any) => 
       pass.id === parseInt(id) ? updatedPass.toObject() : pass
     );
     
+    console.log("updatedPassesCache", updatedPassesCache.filter((pass: any) => pass.id === parseInt(id)))
     await Cache.set('passes', updatedPassesCache);
 
     // Trigger pass reload with cooldown check
@@ -312,7 +314,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       try {
         await reloadPasses();
         // Reload all caches after passes are updated
-        Cache.reloadAll();
       } catch (error) {
         console.error('Error reloading caches:', error);
       }
