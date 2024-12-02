@@ -14,26 +14,25 @@ export const updateTimeList: Record<string, number> = {};
 
 const parserPath = './src/parser_module/executable.py';
 
-const RELOAD_COOLDOWN = 30000; // 30 seconds in milliseconds
+const RELOAD_COOLDOWN = 3000; // 30 seconds in milliseconds
 let lastPassesReloadTime = 0;
 
 export const getPlayer = (player: string, plrPath: string) => {
-  console.log('decoded', decodeFromBase32(player));
   return new Promise((resolve, reject) => {
     exec(
       `python ${parserPath} player "${decodeFromBase32(player)}" --output="${plrPath}" --showCharts --useSaved`,
       (error, stdout, stderr) => {
         if (error) {
-          console.error(`Error executing for all_players: ${error.message}`);
+          console.error(`[UPDATE] Error executing for player: ${error.message}`);
           reject(error);
           return;
         }
         if (stderr) {
-          console.error(`Script stderr: ${stderr}`);
+          console.error(`[UPDATE] Script stderr: ${stderr}`);
           reject(new Error(stderr));
           return;
         }
-        console.log(`Script output: ${stdout}`);
+        console.log(`[UPDATE] Script output: ${stdout}`);
         resolve(stdout);
       },
     );
@@ -42,7 +41,6 @@ export const getPlayer = (player: string, plrPath: string) => {
 
 
 export const updateRanks = () => {
-  console.log('updating ranks');
   const players = readJsonFile(PATHS.playerlistJson);
   // Example list of player objects
   // Parameters to sort by
@@ -78,7 +76,7 @@ export const updateRanks = () => {
     });
   });
   writeJsonFile(PATHS.rankListJson, rankPositions);
-  console.log('ranks updated');
+  console.log("[UPDATE] Ranks updated");
 };
 
 
@@ -87,11 +85,10 @@ export const reloadPasses = async () => {
   
   // Check if enough time has passed since last reload
   if (currentTime - lastPassesReloadTime < RELOAD_COOLDOWN) {
-    console.log(`Skipping passes reload - cooldown active. Please wait ${Math.ceil((RELOAD_COOLDOWN - (currentTime - lastPassesReloadTime)) / 1000)} seconds.`);
+    console.log(`[UPDATE] Skipping passes reload - cooldown active. Please wait ${Math.ceil((RELOAD_COOLDOWN - (currentTime - lastPassesReloadTime)) / 1000)} seconds.`);
     return;
   }
 
-  console.log('reloading passes');
   lastPassesReloadTime = currentTime;
 
   exec(
@@ -99,18 +96,17 @@ export const reloadPasses = async () => {
     (error, stdout, stderr) => {
       if (error) {
         console.error(
-          `Error executing script for all_clears: ${error.message}`,
+          `[UPDATE] Error executing script for all_clears: ${error.message}`,
         );
         return;
       }
       if (stderr) {
-        console.error(`Clear list stderr: ${stderr}`);
+        console.error(`[UPDATE] Clear list stderr: ${stderr}`);
         return;
       }
-      console.log(`Clear list output: ${stdout}`);
+      console.log("[UPDATE] Passes updated");
     },
   );
-  console.log('passes reloaded');
   updateTimeList['passes'] = currentTime;
 };
 
@@ -119,10 +115,10 @@ export const getPassesReloadCooldown = (): number => {
   return Math.max(0, timeLeft);
 };
 
-export const updateData = async () => {
-  console.log('starting execution');
-  await updateCache()
-  
+export const updateData = async (cacheUpdate: boolean = true) => {
+  if (cacheUpdate) {
+    await updateCache()
+  }
 
   await exec(
     `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse --useSaved`,
@@ -135,7 +131,7 @@ export const updateData = async () => {
         console.error(`Script stderr: ${stderr}`);
         return;
       }
-      console.log(`Script output:\n${stdout}`);
+      console.log("[UPDATE] Leaderboard updated");
       
       reloadPasses();
       updateRanks(),
@@ -176,7 +172,7 @@ export const fetchPfps = async () => {
     }
   }
   savePfpList(pfpListTemp);
-  console.log('pfp list updated');
+  console.log("[UPDATE] Pfp list updated");
   //console.log("new list:", pfpListTemp)
 };
 
@@ -187,7 +183,6 @@ export const updateTimestamp = (name: string) => {
 
 export const updateCache = async () => {
   try {
-    console.log('Updating cache...');
     
     // Fetch data from MongoDB
     const chartsData = await Level.find({}).lean();
@@ -202,7 +197,7 @@ export const updateCache = async () => {
     levelUpdateTime = Date.now();
     updateTimeList['cache'] = Date.now();
     
-    console.log('Cache updated successfully');
+    console.log("[UPDATE] Cache updated successfully");
   } catch (error) {
     console.error('Error updating cache:', error);
   }

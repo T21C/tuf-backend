@@ -3,7 +3,6 @@ import { IJudgements } from '../models/Judgements';
 
 export function calcAcc (inp: IJudgements, raw=false)
     {
-        console.log("inp", inp)
         const result = (inp.perfect +
             (inp.ePerfect + inp.lPerfect) * 0.75 +
             (inp.earlySingle + inp.lateSingle) * 0.4 +

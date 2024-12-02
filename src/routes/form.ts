@@ -22,8 +22,9 @@ router.post('/form-submit', async (req: Request, res: Response) => {
             return res.status(403).json({ error: 'User is banned' });
         }
       
+        console.log(req.headers);
+        
         const formType = req.headers['x-form-type'];
-        console.log(tokenInfo);
         
         if (formType === 'chart') {
             const formData = {

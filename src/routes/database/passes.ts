@@ -333,4 +333,53 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
+// Add this new DELETE endpoint after the PUT endpoint
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Get the pass before deletion to update level clear count
+    const pass = await Pass.findOne({ id: parseInt(id) });
+    
+    if (!pass) {
+      return res.status(404).json({ error: 'Pass not found' });
+    }
+
+    // Update level clear count
+    await Level.findOneAndUpdate(
+      { id: pass.levelId },
+      { $inc: { clears: -1 } }
+    );
+
+    // Delete the pass
+    await Pass.findOneAndDelete({ id: parseInt(id) });
+
+    // Update caches
+    const passesCache = Cache.get('passes');
+    const updatedPassesCache = passesCache.filter((p: any) => p.id !== parseInt(id));
+    await Cache.set('passes', updatedPassesCache);
+
+    // Update level in cache
+    const levelsCache = Cache.get('charts');
+    const updatedLevelsCache = levelsCache.map((level: any) => {
+      if (level.id === pass.levelId) {
+        return { ...level, clears: level.clears - 1 };
+      }
+      return level;
+    });
+    await Cache.set('charts', updatedLevelsCache);
+
+    // Trigger pass reload
+    const cooldown = getPassesReloadCooldown();
+    if (cooldown === 0) {
+      await reloadPasses();
+    }
+
+    return res.json({ message: 'Pass deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting pass:', error);
+    return res.status(500).json({ error: 'Failed to delete pass' });
+  }
+});
+
 export default router;

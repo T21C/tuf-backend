@@ -1,16 +1,14 @@
 import { Request, Response, Router } from 'express';
-import { escapeRegExp } from '../../misc/Utility';
 import Level from '../../models/Level';
 import shuffleSeed from 'shuffle-seed';
 import { SortOrder } from 'mongoose';
-import { PATHS } from '../../config/constants';
-import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers';
 import { Rating } from '../../models/Rating';
 import { calculateBaseScore } from '../../utils/ratingUtils';
 import { calculatePguDiffNum } from '../../utils/ratingUtils';
 import { Auth } from '../../middleware/auth';
 import { getIO } from '../../utils/socket';
 import { Cache } from '../../utils/cacheManager';
+import { reloadPasses, updateData } from '../../utils/updateHelpers';
 
 const timeOperation = async (name: string, operation: () => Promise<any>) => {
   const start = performance.now();
@@ -146,30 +144,34 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
     const { id } = req.params;
-    const updateData = req.body;
+    const updateChartData = req.body;
 
-    // Calculate pguDiffNum
-    updateData.pguDiffNum = calculatePguDiffNum(updateData.pguDiff);
-    updateData.baseScoreDiff = updateData.baseScoreDiff.toString();
-    const parsedBaseScore = Number(updateData.baseScoreDiff);
-    updateData.baseScore = !isNaN(parsedBaseScore) && parsedBaseScore > 0 
+    // Calculate pguDiffNum and baseScore
+    updateChartData.pguDiffNum = calculatePguDiffNum(updateChartData.pguDiff);
+    updateChartData.baseScoreDiff = updateChartData.baseScoreDiff.toString();
+    const parsedBaseScore = Number(updateChartData.baseScoreDiff);
+    updateChartData.baseScore = !isNaN(parsedBaseScore) && parsedBaseScore > 0 
       ? parsedBaseScore 
-      : calculateBaseScore(calculatePguDiffNum(updateData.baseScoreDiff));
-    // Update in database
+      : calculateBaseScore(calculatePguDiffNum(updateChartData.baseScoreDiff));
+
+    // Update chart in database
     const updatedChart = await Level.findByIdAndUpdate(
       id,
-      updateData,
+      updateChartData,
       { new: true, runValidators: true }
     );
 
     if (!updatedChart) {
       return res.status(404).json({ error: 'Chart not found' });
     }
-
+    // Update charts cache
+    const chartsCache = Cache.get('charts');
+    const chartIndex = chartsCache.findIndex((chart: any) => chart._id.toString() === id);
+    
     const io = getIO();
     io.emit('ratingsUpdated');
     // Handle Rating entry based on toRate flag
-    if (updateData.toRate) {
+    if (updateChartData.toRate) {
       // Create or update rating
       await Rating.findOneAndUpdate(
         { ID: updatedChart.id },
@@ -189,17 +191,17 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // Remove rating if it exists
       await Rating.deleteOne({ ID: updatedChart.id });
     }
-    const cache = Cache.get('charts');
     // Update in cache
-    const chartIndex = cache.findIndex((chart: any) => chart._id.toString() === id);
     if (chartIndex !== -1) {
-      cache[chartIndex] = {
-        ...cache[chartIndex],
-        ...updateData
+      chartsCache[chartIndex] = {
+        ...chartsCache[chartIndex],
+        ...updateChartData
       };
-      Cache.set('charts', cache);
+      await Cache.set('charts', chartsCache);
     }
-
+    updateData(false).then(async () => {
+      Cache.reloadAll();
+    });
     const totalTime = performance.now() - routeStart;
     console.log(`[PERF] Total update time: ${totalTime.toFixed(2)}ms`);
 
@@ -208,6 +210,44 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     console.error('Error updating chart:', error);
     return res.status(500).json({ 
       error: 'Failed to update chart',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// DELETE endpoint
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const routeStart = performance.now();
+    const { id } = req.params;
+
+    // Delete from database
+    const deletedChart = await Level.findByIdAndDelete(id);
+
+    if (!deletedChart) {
+      return res.status(404).json({ error: 'Chart not found' });
+    }
+
+    const io = getIO();
+    io.emit('ratingsUpdated');
+
+    // Remove rating if it exists
+    await Rating.deleteOne({ ID: deletedChart.id });
+
+    // Update cache
+    const cache = Cache.get('charts');
+    const updatedCache = cache.filter((chart: any) => chart._id.toString() !== id);
+    await Cache.set('charts', updatedCache);
+    updateData(false)
+
+    const totalTime = performance.now() - routeStart;
+    console.log(`[PERF] Total delete time: ${totalTime.toFixed(2)}ms`);
+
+    return res.json({ message: 'Chart deleted successfully', deletedChart });
+  } catch (error) {
+    console.error('Error deleting chart:', error);
+    return res.status(500).json({ 
+      error: 'Failed to delete chart',
       details: error instanceof Error ? error.message : String(error)
     });
   }
