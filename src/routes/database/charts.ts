@@ -20,10 +20,15 @@ const timeOperation = async (name: string, operation: () => Promise<any>) => {
 
 // New function to apply query conditions to cached data
 const applyQueryConditions = (chart: any, query: any) => {
-  // Handle deleted charts first
-  if (!query.showDeleted && chart.isDeleted) {
+  // Handle deleted charts based on deletedFilter
+  const deletedFilter = query.deletedFilter || 'hide';
+  if (deletedFilter === 'hide' && chart.isDeleted) {
     return false;
   }
+  if (deletedFilter === 'only' && !chart.isDeleted) {
+    return false;
+  }
+  // 'show' will display both deleted and non-deleted charts
 
   // Text search conditions
   if (query.query) {
@@ -221,7 +226,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // DELETE endpoint
-router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id/soft-delete', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
     const { id } = req.params;
@@ -272,7 +277,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
 });
 
 // Add new RESTORE endpoint
-router.post('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
     const { id } = req.params;

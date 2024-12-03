@@ -28,10 +28,15 @@ const getSortOptions = (sort?: string) => {
 
 // Helper function to apply query conditions
 const applyQueryConditions = (pass: any, query: any) => {
-  // Handle deleted passes
-  if (!query.showDeleted && pass.isDeleted) {
+  // Handle deleted passes based on deletedFilter
+  const deletedFilter = query.deletedFilter || 'hide';
+  if (deletedFilter === 'hide' && pass.isDeleted) {
     return false;
   }
+  if (deletedFilter === 'only' && !pass.isDeleted) {
+    return false;
+  }
+  // 'show' will display both deleted and non-deleted passes
   
   if (query.chartId && String(pass.chartId) !== String(query.chartId)) {
     return false;
@@ -309,7 +314,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // Modify DELETE endpoint to implement soft delete
-router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id/soft-delete', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
@@ -357,13 +362,15 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
     // Update all caches atomically
     await Promise.all([
       Cache.set('passes', updatedPassesCache),
+      Cache.set('clearList', updatedClearListCache),
       Cache.set('charts', updatedLevelsCache)
     ]);
 
     // Notify clients
     const io = getIO();
     io.emit('passesUpdated');
-    updateData(false)
+    updateData(false);
+
     return res.json({ 
       message: 'Pass soft deleted successfully',
       pass: updatedPass 
@@ -375,7 +382,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
 });
 
 // Add new RESTORE endpoint
-router.post('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
@@ -431,7 +438,7 @@ router.post('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respons
     const io = getIO();
     io.emit('passesUpdated');
 
-    updateData(false)
+    updateData(false);
     return res.json({ 
       message: 'Pass restored successfully',
       pass: restoredPass 

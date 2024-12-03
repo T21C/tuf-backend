@@ -26,6 +26,7 @@ export interface ILevel extends Document {
   toRate: boolean;
   rerateReason: string;
   rerateNum: string;
+  isDeleted: boolean;
 }
 
 const LevelSchema = new Schema<ILevel>({
@@ -53,7 +54,8 @@ const LevelSchema = new Schema<ILevel>({
   publicComments: { type: String, default: "" },
   toRate: { type: Boolean, default: false },
   rerateReason: { type: String, default: "" },
-  rerateNum: { type: String, default: "" }
+  rerateNum: { type: String, default: "" },
+  isDeleted: { type: Boolean, default: false }
 });
 
 export default mongoose.model<ILevel>('Level', LevelSchema); 

@@ -17,6 +17,7 @@ export interface IPass extends Document {
   judgements: IJudgements;
   accuracy: number;
   scoreV2: number;
+  isDeleted: boolean;
 }
 
 const passSchema = new Schema<IPass>({
@@ -85,6 +86,10 @@ const passSchema = new Schema<IPass>({
   scoreV2: { 
     type: Number, 
     required: true 
+  },
+  isDeleted: { 
+    type: Boolean, 
+    default: false 
   }
 });
 
