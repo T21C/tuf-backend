@@ -34,24 +34,22 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
 
-    idOffset = 0
-    initChartId = min(chartId, len(data.charts)-1)
-    if chartId >= data.chartsCount:
-        chartId = data.chartsCount-1
-    if chartId <= 0:
-        chartId = 1
-    chart = data.charts[chartId-idOffset]
-    while chart["id"] > chartId:
-        idOffset += 1
-        try:
-            chart = data.charts[chartId-idOffset]
-        except:
-            print("Chart ID not found!")
-            return []
-    validPasses = [Pass for Pass in data.passes
-                   if Pass["levelId"] == initChartId]
+    # Get chart directly from dictionary
+    chart = data.charts.get(str(chartId))
+    if not chart or chart.get("isDeleted", False):
+        print(f"Chart ID {chartId} not found or deleted!")
+        return []
+
+    # Find passes for this chart
+    validPasses = [
+        Pass for Pass in data.passes
+        if Pass["levelId"] == chartId 
+        and not Pass.get("isDeleted", False)
+    ]
+
     if not validPasses:
         return []
+
     Scores = []
     for Pass in validPasses:
         try:
@@ -131,7 +129,12 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
 
     playerPasses = []
     for Pass in data.passes:
-        if Pass["player"] == player["name"]:
+        chart = data.charts.get(str(Pass["levelId"]))
+        # Skip deleted passes and passes for deleted charts
+        if (Pass["player"] == player["name"] 
+            and not Pass.get("isDeleted", False)
+            and chart is not None
+            and not chart.get("isDeleted", False)):
             playerPasses.append(Pass)
 
     Scores = []
@@ -243,6 +246,13 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
 WFLookup = {}
 def checkWorldsFirst(Pass, data):
     level_id = Pass["levelId"]
+    
+    # Get chart directly from dictionary
+    chart = data.charts.get(str(level_id))
+    
+    # Skip if chart doesn't exist or is deleted
+    if not chart or chart.get("isDeleted", False) or Pass.get("isDeleted", False):
+        return False
 
     if level_id not in WFLookup:
         WFLookup[level_id] = searchByChart(level_id, data=data, getDates=True)
@@ -302,7 +312,14 @@ def searchAllClears(chartPath=chartPathDef , passPath=passPathDef, playerPath=pl
         print("\r",round(i / n * 100,3), "%                   ", end="", flush=True)
         allClears = player["allScores"]
         for clear in allClears:
-            if clear["score"] >= minScore and (not TwvKOnly or clear["is12K"]):
+            # Get chart directly from dictionary
+            chart = data.charts.get(str(clear.get("chartId")))
+            # Skip deleted passes and passes for deleted charts
+            if (clear["score"] >= minScore 
+                and (not TwvKOnly or clear["is12K"])
+                and not clear.get("isDeleted", False)
+                and chart is not None
+                and not chart.get("isDeleted", False)):
                 Result = ResultObj().updateParams({"player": player["player"]})
                 Result.updateParams(clear)
                 Clears.append(Result)

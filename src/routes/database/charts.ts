@@ -20,6 +20,11 @@ const timeOperation = async (name: string, operation: () => Promise<any>) => {
 
 // New function to apply query conditions to cached data
 const applyQueryConditions = (chart: any, query: any) => {
+  // Handle deleted charts first
+  if (!query.showDeleted && chart.isDeleted) {
+    return false;
+  }
+
   // Text search conditions
   if (query.query) {
     const searchTerm = query.query.toString().toLowerCase();
@@ -221,33 +226,93 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
     const routeStart = performance.now();
     const { id } = req.params;
 
-    // Delete from database
-    const deletedChart = await Level.findByIdAndDelete(id);
+    // Soft delete in database
+    const updatedChart = await Level.findByIdAndUpdate(
+      id,
+      { isDeleted: true },
+      { new: true }
+    );
 
-    if (!deletedChart) {
+    if (!updatedChart) {
       return res.status(404).json({ error: 'Chart not found' });
     }
 
+    // Emit socket update
     const io = getIO();
     io.emit('ratingsUpdated');
 
     // Remove rating if it exists
-    await Rating.deleteOne({ ID: deletedChart.id });
+    await Rating.deleteOne({ ID: updatedChart.id });
 
-    // Update cache
-    const cache = Cache.get('charts');
-    const updatedCache = cache.filter((chart: any) => chart._id.toString() !== id);
+    // Update cache with soft deleted status
+    const chartsCache = Cache.get('charts');
+    const updatedCache = chartsCache.map((chart: any) => 
+      chart._id.toString() === id ? { ...chart, isDeleted: true } : chart
+    );
+    
     await Cache.set('charts', updatedCache);
-    updateData(false)
+    
+    // Update related data
+    await updateData(false);
 
     const totalTime = performance.now() - routeStart;
-    console.log(`[PERF] Total delete time: ${totalTime.toFixed(2)}ms`);
+    console.log(`[PERF] Total soft delete time: ${totalTime.toFixed(2)}ms`);
 
-    return res.json({ message: 'Chart deleted successfully', deletedChart });
+    return res.json({ 
+      message: 'Chart soft deleted successfully', 
+      deletedChart: updatedChart 
+    });
   } catch (error) {
-    console.error('Error deleting chart:', error);
+    console.error('Error soft deleting chart:', error);
     return res.status(500).json({ 
-      error: 'Failed to delete chart',
+      error: 'Failed to soft delete chart',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Add new RESTORE endpoint
+router.post('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const routeStart = performance.now();
+    const { id } = req.params;
+
+    // Restore in database
+    const restoredChart = await Level.findByIdAndUpdate(
+      id,
+      { isDeleted: false },
+      { new: true }
+    );
+
+    if (!restoredChart) {
+      return res.status(404).json({ error: 'Chart not found' });
+    }
+
+    // Update cache
+    const chartsCache = Cache.get('charts');
+    const updatedCache = chartsCache.map((chart: any) => 
+      chart._id.toString() === id ? { ...chart, isDeleted: false } : chart
+    );
+    
+    await Cache.set('charts', updatedCache);
+    
+    // Update related data
+    await updateData(false);
+
+    const io = getIO();
+    io.emit('ratingsUpdated');
+
+    const totalTime = performance.now() - routeStart;
+    console.log(`[PERF] Total restore time: ${totalTime.toFixed(2)}ms`);
+
+    return res.json({ 
+      message: 'Chart restored successfully', 
+      restoredChart 
+    });
+  } catch (error) {
+    console.error('Error restoring chart:', error);
+    return res.status(500).json({ 
+      error: 'Failed to restore chart',
       details: error instanceof Error ? error.message : String(error)
     });
   }

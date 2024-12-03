@@ -2,14 +2,15 @@ import { Request, Response, Router } from 'express';
 import { escapeRegExp } from '../../misc/Utility';
 import { PATHS } from '../../config/constants';
 import { readJsonFile, writeJsonFile } from '../../utils/fileHandlers';
-import { getPassesReloadCooldown, reloadPasses } from '../../utils/updateHelpers';
-import Pass from '../../models/Pass';
+import { getPassesReloadCooldown, reloadPasses, updateData } from '../../utils/updateHelpers';
+import Pass, { IPass } from '../../models/Pass';
 import { getScoreV2 } from '../../misc/CalcScore';
 import { calcAcc } from '../../misc/CalcAcc';
 import { IJudgements } from '../../models/Judgements';
 import { Auth } from '../../middleware/auth';
-import Level from '../../models/Level';
+import Level, { ILevel } from '../../models/Level';
 import { Cache } from '../../utils/cacheManager';
+import { getIO } from '../../utils/socket';
 
 const router: Router = Router();
 
@@ -27,6 +28,11 @@ const getSortOptions = (sort?: string) => {
 
 // Helper function to apply query conditions
 const applyQueryConditions = (pass: any, query: any) => {
+  // Handle deleted passes
+  if (!query.showDeleted && pass.isDeleted) {
+    return false;
+  }
+  
   if (query.chartId && String(pass.chartId) !== String(query.chartId)) {
     return false;
   }
@@ -39,38 +45,6 @@ const applyQueryConditions = (pass: any, query: any) => {
     }
   }
 
-
-/*
-  {
-    player: 'nnuura',
-    song: 'Bismuth',
-    artist: 'Ludicin',
-    score: 1028.9125322422733,
-    pguDiff: 'G20',
-    Xacc: 0.9922886297376092,
-    speed: 1,
-    isWorldsFirst: false,
-    vidLink: 'https://www.youtube.com/watch?v=E9we4XcFAYs',
-    feelingRating: 'U1',
-    date: '2024-05-17T07:04:09',
-    is12K: false,
-    is16K: false,
-    isNoHold: false,
-    judgements: {
-      earlyDouble: 6,
-      earlySingle: 6,
-      ePerfect: 14,
-      perfect: 3364,
-      lPerfect: 27,
-      lateSingle: 13,
-      lateDouble: 0
-    },
-    pdnDiff: 20.95,
-    chartId: 3860,
-    passId: 9067,
-    baseScore: 400
-  }
-*/
   if (query.query) {
     const queryRegex = new RegExp(escapeRegExp(query.query), 'i');
     if (!queryRegex.test(pass.player)   &&
@@ -301,30 +275,31 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     console.log("updatedPass", updatedPass)
     // Update the cache immediately
     const passesCache = await Cache.get('passes');
+    const clearListCache = await Cache.get('clearList');
+
+    // Update both caches
     const updatedPassesCache = passesCache.map((pass: any) => 
       pass.id === parseInt(id) ? updatedPass.toObject() : pass
     );
-    
-    console.log("updatedPassesCache", updatedPassesCache.filter((pass: any) => pass.id === parseInt(id)))
-    await Cache.set('passes', updatedPassesCache);
+    const updatedClearListCache = clearListCache.map((pass: any) => 
+      pass.id === parseInt(id) ? updatedPass.toObject() : pass
+    );
 
-    // Trigger pass reload with cooldown check
-    const cooldown = getPassesReloadCooldown();
-    if (cooldown === 0) {
-      try {
-        await reloadPasses();
-        // Reload all caches after passes are updated
-      } catch (error) {
-        console.error('Error reloading caches:', error);
-      }
-    } else {
-      console.log(`Cache reload skipped (cooldown: ${Math.ceil(cooldown / 1000)}s)`);
-    }
+    await Promise.all([
+      Cache.set('passes', updatedPassesCache),
+      Cache.set('clearList', updatedClearListCache)
+    ]);
+
+    // Optional: Emit socket update to notify clients
+    const io = getIO();
+    io.emit('passesUpdated');
+
+    // The existing updateData call
+    updateData(false)
 
     return res.json({
       message: 'Pass updated successfully',
-      pass: updatedPass,
-      cacheReloaded: cooldown === 0
+      pass: updatedPass
     });
 
   } catch (error) {
@@ -333,17 +308,24 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-// Add this new DELETE endpoint after the PUT endpoint
+// Modify DELETE endpoint to implement soft delete
 router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    // Get the pass before deletion to update level clear count
+    // Get the pass before soft deletion
     const pass = await Pass.findOne({ id: parseInt(id) });
     
     if (!pass) {
       return res.status(404).json({ error: 'Pass not found' });
     }
+
+    // Soft delete the pass
+    const updatedPass = await Pass.findOneAndUpdate(
+      { id: parseInt(id) },
+      { isDeleted: true },
+      { new: true }
+    );
 
     // Update level clear count
     await Level.findOneAndUpdate(
@@ -351,34 +333,112 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
       { $inc: { clears: -1 } }
     );
 
-    // Delete the pass
-    await Pass.findOneAndDelete({ id: parseInt(id) });
-
     // Update caches
     const passesCache = Cache.get('passes');
-    const updatedPassesCache = passesCache.filter((p: any) => p.id !== parseInt(id));
-    await Cache.set('passes', updatedPassesCache);
-
-    // Update level in cache
+    const clearListCache = Cache.get('clearList');
     const levelsCache = Cache.get('charts');
-    const updatedLevelsCache = levelsCache.map((level: any) => {
+
+    // Update both pass caches with soft delete status
+    const updatedPassesCache = passesCache.map((p: IPass) => 
+      p.id === parseInt(id) ? { ...p, isDeleted: true } : p
+    );
+    const updatedClearListCache = clearListCache.map((p: IPass) => 
+      p.id === parseInt(id) ? { ...p, isDeleted: true } : p
+    );
+
+    // Update level cache
+    const updatedLevelsCache = levelsCache.map((level: ILevel) => {
       if (level.id === pass.levelId) {
         return { ...level, clears: level.clears - 1 };
       }
       return level;
     });
-    await Cache.set('charts', updatedLevelsCache);
 
-    // Trigger pass reload
-    const cooldown = getPassesReloadCooldown();
-    if (cooldown === 0) {
-      await reloadPasses();
+    // Update all caches atomically
+    await Promise.all([
+      Cache.set('passes', updatedPassesCache),
+      Cache.set('charts', updatedLevelsCache)
+    ]);
+
+    // Notify clients
+    const io = getIO();
+    io.emit('passesUpdated');
+    updateData(false)
+    return res.json({ 
+      message: 'Pass soft deleted successfully',
+      pass: updatedPass 
+    });
+  } catch (error) {
+    console.error('Error soft deleting pass:', error);
+    return res.status(500).json({ error: 'Failed to soft delete pass' });
+  }
+});
+
+// Add new RESTORE endpoint
+router.post('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Get the pass before restoration
+    const pass = await Pass.findOne({ id: parseInt(id) });
+    
+    if (!pass) {
+      return res.status(404).json({ error: 'Pass not found' });
     }
 
-    return res.json({ message: 'Pass deleted successfully' });
+    // Restore the pass
+    const restoredPass = await Pass.findOneAndUpdate(
+      { id: parseInt(id) },
+      { isDeleted: false },
+      { new: true }
+    );
+
+    // Update level clear count
+    await Level.findOneAndUpdate(
+      { id: pass.levelId },
+      { $inc: { clears: 1 } }
+    );
+
+    // Update caches
+    const passesCache = Cache.get('passes');
+    const clearListCache = Cache.get('clearList');
+    const levelsCache = Cache.get('charts');
+
+    // Update both pass caches with restored status
+    const updatedPassesCache = passesCache.map((p: IPass) => 
+      p.id === parseInt(id) ? { ...p, isDeleted: false } : p
+    );
+    const updatedClearListCache = clearListCache.map((p: IPass) => 
+      p.id === parseInt(id) ? { ...p, isDeleted: false } : p
+    );
+
+    // Update level cache
+    const updatedLevelsCache = levelsCache.map((level: ILevel) => {
+      if (level.id === pass.levelId) {
+        return { ...level, clears: level.clears + 1 };
+      }
+      return level;
+    });
+
+    // Update all caches atomically
+    await Promise.all([
+      Cache.set('passes', updatedPassesCache),
+      Cache.set('clearList', updatedClearListCache),
+      Cache.set('charts', updatedLevelsCache)
+    ]);
+
+    // Notify clients
+    const io = getIO();
+    io.emit('passesUpdated');
+
+    updateData(false)
+    return res.json({ 
+      message: 'Pass restored successfully',
+      pass: restoredPass 
+    });
   } catch (error) {
-    console.error('Error deleting pass:', error);
-    return res.status(500).json({ error: 'Failed to delete pass' });
+    console.error('Error restoring pass:', error);
+    return res.status(500).json({ error: 'Failed to restore pass' });
   }
 });
 

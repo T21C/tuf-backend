@@ -8,6 +8,7 @@ import { decodeFromBase32 } from './encodingHelpers.js';
 import Level from '../models/Level.js';
 import Player from '../models/Player.js';
 import Pass from '../models/Pass.js';
+import { Cache } from './cacheManager.js';
 
 export let levelUpdateTime = 0; // Initialize with 0 or another default value
 export const updateTimeList: Record<string, number> = {};
@@ -91,8 +92,8 @@ export const reloadPasses = async () => {
 
   lastPassesReloadTime = currentTime;
 
-  exec(
-    `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved --reverse`,
+  await exec(
+    `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved`,
     (error, stdout, stderr) => {
       if (error) {
         console.error(
@@ -105,6 +106,7 @@ export const reloadPasses = async () => {
         return;
       }
       console.log("[UPDATE] Passes updated");
+      Cache.reloadAll();
     },
   );
   updateTimeList['passes'] = currentTime;
@@ -133,10 +135,9 @@ export const updateData = async (cacheUpdate: boolean = true) => {
       }
       console.log("[UPDATE] Leaderboard updated");
       
-      reloadPasses();
       updateRanks(),
       fetchPfps()
-        
+      await reloadPasses();
     },
   );
 
