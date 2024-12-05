@@ -1,7 +1,7 @@
 import axios from 'axios';
 import Level from '../models/Level';
 import Pass from '../models/Pass';
-import Player from '../models/Player';
+import Player, { IPlayer } from '../models/Player';
 import { Rating } from '../models/Rating';
 import xlsx from 'xlsx';
 
@@ -106,12 +106,6 @@ async function reloadDatabase() {
     const levelsResponse = await fetchData<RawLevel[]>('/levels');
     const levels = Array.isArray(levelsResponse) ? levelsResponse : 
                   (levelsResponse as any).results || [];
-    
-    /*console.log('Levels data structure:', {
-      isArray: Array.isArray(levels),
-      length: levels.length,
-      firstItem: levels[0]
-    });*/
 
     // Process and insert levels
     const levelDocs = Array.isArray(levels) ? levels.map(level => ({
@@ -127,27 +121,65 @@ async function reloadDatabase() {
       console.log(`Inserted ${levelDocs.length} levels`);
     }
 
+    // Fetch and process players first
+    const playersResponse = await fetchData<RawPlayer[]>('/players');
+    const players = Array.isArray(playersResponse) ? playersResponse : 
+                   (playersResponse as any).results || [];
+
+    // Create a map to store player name to ID mappings
+    const playerNameToId = new Map<string, number>();
+    
+    // Process and validate player data, assigning incremental IDs
+    const playerDocs = players
+      .filter((player: RawPlayer) => player.name)
+      .map((player: RawPlayer, index: number) => {
+        const playerId = index + 1; // Generate sequential IDs starting from 1
+        playerNameToId.set(player.name, playerId);
+        return {
+          id: playerId,
+          name: player.name,
+          country: player.country || 'XX',
+          isBanned: player.isBanned || false
+        };
+      });
+
+    if (playerDocs.length === 0) {
+      console.warn('No players to insert');
+    } else {
+      await Player.insertMany(playerDocs);
+      console.log(`Inserted ${playerDocs.length} players with generated IDs`);
+    }
+
+    // Log playerNameToId map for debugging
+    console.log('Player Name to ID Map:', playerNameToId);
+
     // Fetch and process passes
     const passesResponse = await fetchData<{ count: number, results: RawPass[] }>('/passes');
     const passes = passesResponse.results;
-    
-    /*console.log('Passes data structure:', {
-      count: passes.length,
-      firstItem: passes[0]
-    });*/
 
-    // Enrich passes with feeling ratings
-    const enrichedPasses = passes.map(pass => ({
-      ...pass,
-      feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating
-    }));
+    // Enrich passes with feeling ratings and convert player names to IDs
+    const enrichedPasses = passes.map(pass => {
+      const playerId = playerNameToId.get(pass.player);
+      if (playerId === undefined) {
+        console.warn(`No ID found for player: ${pass.player}`);
+      }
+      return {
+        ...pass,
+        feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
+        playerId  // Add playerId while keeping the original player name
+      };
+    }).filter(pass => pass.playerId !== undefined); // Filter out passes with invalid player IDs
+
+    // Log enrichedPasses for debugging
+    console.log('Enriched Passes:', enrichedPasses);
 
     // Process and insert passes
     const passDocs = enrichedPasses.map(pass => ({
       id: pass.id,
       levelId: pass.levelId,
       speed: pass.speed,
-      player: pass.player,
+      player: pass.player,    // Keep the player name
+      playerId: pass.playerId, // And include the playerId
       feelingRating: pass.feelingRating,
       vidTitle: pass.vidTitle,
       vidLink: pass.vidLink,
@@ -172,62 +204,31 @@ async function reloadDatabase() {
     if (passDocs.length === 0) {
       console.warn('No passes to insert');
     } else {
-      /*console.log('Sample enriched pass:', {
-        id: passDocs[0].id,
-        originalRating: passes[0].feelingRating,
-        enrichedRating: passDocs[0].feelingRating
-      });*/
-      
-      try {
-        await Pass.insertMany(passDocs, { ordered: false });
-        console.log(`Inserted ${passDocs.length} passes`);
-      } catch (error) {
-        console.error('Error inserting passes:', error);
-        if ((error as any).writeErrors) {
-          console.error('First write error:', (error as any).writeErrors[0]);
-        }
-        throw error;
-      }
+      await Pass.insertMany(passDocs, { ordered: false });
+      console.log(`Inserted ${passDocs.length} passes with player IDs`);
     }
 
-    // Fetch and validate players
-    const playersResponse = await fetchData<RawPlayer[]>('/players');
-    const players = Array.isArray(playersResponse) ? playersResponse : 
-                   (playersResponse as any).results || [];
-    
-    /*console.log('Players data structure:', {
-      isArray: Array.isArray(players),
-      length: players.length,
-      firstItem: players[0]
-    });*/
+    // Recount clear counts for each level
+    const nonBannedPlayerIds = new Set(
+      playerDocs
+        .filter((player: IPlayer) => !player.isBanned)
+        .map((player: IPlayer) => player.id)
+    );
 
-    // Process and validate player data
-    const playerDocs = players.map((player: any) => ({
-      name: player.name || '',
-      country: player.country || 'XX', // Default country code if missing
-      isBanned: player.isBanned || false
-    })).filter((player: any) => player.name); // Filter out players without names
+    const clearCounts = new Map<number, number>();
 
-    if (playerDocs.length === 0) {
-      console.warn('No players to insert');
-    } else {
-      // Log sample player for debugging
-      console.log('Sample player document:', playerDocs[0]);
-      
-      try {
-        await Player.insertMany(playerDocs, { 
-          ordered: false,
-        });
-        console.log(`Inserted ${playerDocs.length} players`);
-      } catch (error) {
-        console.error('Error inserting players:', error);
-        if ((error as any).writeErrors) {
-          console.error('First write error:', (error as any).writeErrors[0]);
-        }
-        throw error;
+    passDocs.forEach(pass => {
+      if (nonBannedPlayerIds.has(pass.playerId)) {
+        clearCounts.set(pass.levelId, (clearCounts.get(pass.levelId) || 0) + 1);
       }
+    });
+
+    // Update levels with new clear counts
+    for (const [levelId, clears] of clearCounts.entries()) {
+      await Level.updateOne({ id: levelId }, { $set: { clears } });
     }
 
+    console.log('Recounted clear counts for all levels');
     console.log('Database reload completed successfully');
   } catch (error) {
     console.error('Error reloading database:', error);

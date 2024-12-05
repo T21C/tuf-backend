@@ -22,7 +22,7 @@ const getSortOptions = (sort?: string) => {
     case 'XACC_DESC': return { field: 'accuracy', order: -1 };
     case 'DATE_ASC': return { field: 'vidUploadTime', order: 1 };
     case 'DATE_DESC': return { field: 'vidUploadTime', order: -1 };
-    default: return { field: 'vidUploadTime', order: -1 }; // Default sort
+    default: return { field: 'scoreV2', order: 1 }; // Default sort
   }
 };
 
@@ -79,11 +79,20 @@ const enrichPassData = async (pass: any, playersCache: any[]) => {
 
 router.get('/level/:chartId', async (req: Request, res: Response) => {
   const { chartId } = req.params;
-  const passes = Cache.get('passes').filter((pass: any) => pass.levelId === parseInt(chartId));    
-  const enrichedPasses = await Promise.all(
-    passes.map((pass: any) => enrichPassData(pass, Cache.get('players')))
-  );
-  return res.json(enrichedPasses);
+  try{  
+    const players = Cache.get('players')
+    const bannedPlayers = players.filter((player: any) => player.isBanned).map((player: any) => player.name);
+ 
+    const passes = Cache.get('passes').filter(
+      (pass: any) => pass.levelId === parseInt(chartId) && !pass.isDeleted && !bannedPlayers.includes(pass.player));    
+      const enrichedPasses = await Promise.all(
+      passes.map((pass: any) => enrichPassData(pass, players))
+    );  
+    return res.json(enrichedPasses);
+  } catch (error) {
+    console.error('Error fetching passes:', error);
+    return res.status(500).json({ error: 'Failed to fetch passes' });
+  }
 });
 
 // Main endpoint that handles both findAll and findByQuery

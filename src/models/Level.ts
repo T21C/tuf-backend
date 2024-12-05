@@ -30,7 +30,7 @@ export interface ILevel extends Document {
 }
 
 const LevelSchema = new Schema<ILevel>({
-  id: { type: Number, required: true },
+  id: { type: Number, required: true, unique: true, index: true },
   song: { type: String, default: "" },
   artist: { type: String, default: "" },
   creator: { type: String, default: "" },

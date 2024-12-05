@@ -15,6 +15,7 @@ pwr = 0.7
 class PlayerObj:
     def __init__(self):
         self.params = {"player": "",
+                       "playerId": 0,
                        "rankedScore": 0,
                        "generalScore": 0,
                        "ppScore": 0,
@@ -57,6 +58,7 @@ class PlayerObj:
 class ResultObj:
     def __init__(self):
         self.params = {"player": "",
+                       "playerId": 0,
                        "song": "",
                        "artist": "",
                        "score": "",
@@ -74,7 +76,8 @@ class ResultObj:
                        "pdnDiff": 0,
                        "chartId": 0,
                        "passId": 0,
-                       "baseScore": 0
+                       "baseScore": 0,
+                       "isDeleted": False
                        }
 
     def updateParams(self, inp: dict):

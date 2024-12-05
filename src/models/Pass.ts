@@ -6,6 +6,7 @@ export interface IPass extends Document {
   levelId: number;
   speed: number | null;
   player: string;
+  playerId: number;
   feelingRating: string;
   vidTitle: string;
   vidLink: string;
@@ -37,6 +38,12 @@ const passSchema = new Schema<IPass>({
   player: { 
     type: String, 
     required: true 
+  },
+  playerId: {
+    type: Number,
+    required: true,
+    index: true,
+    ref: 'Player'
   },
   feelingRating: { 
     type: String, 

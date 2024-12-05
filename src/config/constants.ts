@@ -10,7 +10,7 @@ export const PATHS = {
   passesJson: './cache/passes.json',
 };
 
-export const SUPER_ADMINS = ["teo_72", "v0w4n",   "soulengine"];
+export const SUPER_ADMINS = ["teo_72", "v0w4n",   "soulengine",  "harliefox", "sjk04", "soft.bunner", "dehznik", "willtrm"];
 
 export const raterList = [
   'tw3n',

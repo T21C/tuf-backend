@@ -68,7 +68,7 @@ export const updateRanks = () => {
   // Populate the ranks for each parameter
   sortParameters.forEach(param => {
     // Sort the players based on the current parameter in descending order
-    const sortedPlayers = [...players].sort((a, b) => b[param] - a[param]);
+    const sortedPlayers = [...players].sort((a, b) => b[param] - a[param]).filter((player: any) => !player.isBanned);
 
     // Assign rank positions for each player based on the sorted order
     sortedPlayers.forEach((player, index) => {

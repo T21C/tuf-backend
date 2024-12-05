@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IPlayer extends Document {
+  id: number;
   name: string;
   country: string;
   isBanned: boolean;
@@ -9,6 +10,12 @@ export interface IPlayer extends Document {
 }
 
 const playerSchema = new Schema({
+  id: {
+    type: Number,
+    required: true,
+    unique: true,
+    index: true
+  },
   name: {
     type: String,
     required: true,
@@ -25,7 +32,7 @@ const playerSchema = new Schema({
     index: true
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt fields
+  timestamps: true
 });
 
 export default mongoose.model<IPlayer>('Player', playerSchema);

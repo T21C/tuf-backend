@@ -35,19 +35,19 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
         data = initData(chartPath, passPath, playerPath, useSaved)
 
     # Get chart directly from dictionary
-    chart = data.charts.get(str(chartId))
-    if not chart or chart.get("isDeleted", False):
-        print(f"Chart ID {chartId} not found or deleted!")
+    chart = data.charts.get(chartId)
+    if not chart:
+        print(f"Chart ID {chartId} not found")
         return []
 
     # Find passes for this chart
     validPasses = [
         Pass for Pass in data.passes
         if Pass["levelId"] == chartId 
-        and not Pass.get("isDeleted", False)
     ]
 
     if not validPasses:
+        print(f"No passes found for chart ID {chartId}")
         return []
 
     Scores = []
@@ -72,6 +72,7 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
         
         Scores.append(ResultObj().updateParams({
             "player": Pass["player"],
+            "playerId": Pass["playerId"],
             "song": chart["song"],
             "artist": chart["artist"],
             "score": util.getScoreV2(Pass, chart),
@@ -89,19 +90,20 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
             "pdnDiff": chart["pdnDiff"],
             "chartId": chart["id"],
             "passId": Pass["id"],
-            "baseScore": chart["baseScore"]
+            "baseScore": chart["baseScore"],
+            "isDeleted": Pass["isDeleted"]
         }))
     Scores = list(reversed(sorted(Scores, key=lambda x: (x["score"]))))
     datedScores = sorted(Scores, key=lambda x: (x["date"]))
     datedScores[0]["isWorldsFirst"] = True
     if getDates:
         return datedScores
-    usedNames = []
+    usedIds = []
     validScores = []
     for score in Scores:
-        if score["player"] not in usedNames:
+        if score["playerId"] not in usedIds:
             validScores.append(score.get())
-            usedNames.append(score['player'])
+            usedIds.append(score['playerId'])
 
 
     return validScores
@@ -129,14 +131,10 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
 
     playerPasses = []
     for Pass in data.passes:
-        chart = data.charts.get(str(Pass["levelId"]))
-        # Skip deleted passes and passes for deleted charts
-        if (Pass["player"] == player["name"] 
-            and not Pass.get("isDeleted", False)
-            and chart is not None
-            and not chart.get("isDeleted", False)):
+        chart = data.charts.get(Pass["levelId"])
+        if (Pass["playerId"] == player["id"]
+            and chart is not None):
             playerPasses.append(Pass)
-
     Scores = []
     uPasses = 0
     firstPasses = 0
@@ -163,6 +161,7 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
             speed = Pass["speed"]
         Scores.append(ResultObj().updateParams({
                             "player": Pass["player"],
+                            "playerId": player["id"],
                             "song": chart["song"],
                             "artist": chart["artist"],
                             "score": util.getScoreV2(Pass, chart),
@@ -180,23 +179,24 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
                             "pdnDiff": chart["pdnDiff"],
                             "chartId": chart["id"],
                             "passId": Pass["id"],
-                            "baseScore": chart["baseScore"]
+                            "baseScore": chart["baseScore"],
+                            "isDeleted": Pass["isDeleted"]  
                        }))
         try:
+            if not Pass["isDeleted"]:
+                pgu = chart["pguDiff"][0]
+                num = int(chart["pguDiff"][1:])
+                if data.pguSort[topDiff[0]] < data.pguSort[pgu]:
+                    topDiff[0] = pgu
+                    topDiff[1] = num
+                if data.pguSort[top12kDiff[0]] < data.pguSort[pgu] and Pass["is12K"]:
+                    top12kDiff[0] = pgu
+                    top12kDiff[1] = num
 
-            pgu = chart["pguDiff"][0]
-            num = int(chart["pguDiff"][1:])
-            if data.pguSort[topDiff[0]] < data.pguSort[pgu]:
-                topDiff[0] = pgu
-                topDiff[1] = num
-            if data.pguSort[top12kDiff[0]] < data.pguSort[pgu] and Pass["is12K"]:
-                top12kDiff[0] = pgu
-                top12kDiff[1] = num
-
-            if data.pguSort[topDiff[0]] == data.pguSort[pgu] and int(topDiff[1]) < num:
-                topDiff[1] = num
-            if data.pguSort[top12kDiff[0]] == data.pguSort[pgu] and int(top12kDiff[1]) < num and Pass["is12K"]:
-                top12kDiff[1] = num
+                if data.pguSort[topDiff[0]] == data.pguSort[pgu] and int(topDiff[1]) < num:
+                    topDiff[1] = num
+                if data.pguSort[top12kDiff[0]] == data.pguSort[pgu] and int(top12kDiff[1]) < num and Pass["is12K"]:
+                    top12kDiff[1] = num
         except:
             pass
 
@@ -211,9 +211,9 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
             usedIds.append(Score["chartId"])
             XaccList.append(Score["Xacc"])
 
-
-    rankedScore = util.getRankedScore([Score["score"] for Score in validScores])
-    general,ppScore,wfScore,tvwKScore = util.calculateScores(validScores)
+    notDeletedScores = [Score for Score in validScores if not Score["isDeleted"]]
+    rankedScore = util.getRankedScore([Score["score"] for Score in notDeletedScores])
+    general,ppScore,wfScore,tvwKScore = util.calculateScores(notDeletedScores)
     topDiff = topDiff[0]+str(topDiff[1])
     top12kDiff = top12kDiff[0]+str(top12kDiff[1])
 
@@ -226,6 +226,7 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
         avgAcc = 0
     Player = PlayerObj().updateParams({
             "player":player["name"],
+            "playerId": player["id"],
             "rankedScore":rankedScore,
             "generalScore": general,
             "ppScore": ppScore,
@@ -248,20 +249,19 @@ def checkWorldsFirst(Pass, data):
     level_id = Pass["levelId"]
     
     # Get chart directly from dictionary
-    chart = data.charts.get(str(level_id))
-    
-    # Skip if chart doesn't exist or is deleted
-    if not chart or chart.get("isDeleted", False) or Pass.get("isDeleted", False):
+    chart = data.charts.get(level_id)
+    if not chart:
         return False
 
     if level_id not in WFLookup:
         WFLookup[level_id] = searchByChart(level_id, data=data, getDates=True)
     passes = WFLookup[level_id]
-
-    for p in passes:
-        if p["isWorldsFirst"] and p["passId"] == Pass["id"]:
-            return True
-    return False
+    # Find earliest non-deleted pass
+    valid_passes = [p for p in passes if not p["isDeleted"]]
+    if not valid_passes:
+        return False
+    earliest_pass = valid_passes[0]  # First pass after date sorting
+    return earliest_pass["passId"] == Pass["id"]
 
 
 def searchAllPlayers(chartPath=chartPathDef , passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, sortBy="rankedScore", data=None, disableCharts=True, TwvKOnly=False, reverse=False):
@@ -313,13 +313,10 @@ def searchAllClears(chartPath=chartPathDef , passPath=passPathDef, playerPath=pl
         allClears = player["allScores"]
         for clear in allClears:
             # Get chart directly from dictionary
-            chart = data.charts.get(str(clear.get("chartId")))
+            chart = data.charts.get(clear["chartId"])
             # Skip deleted passes and passes for deleted charts
-            if (clear["score"] >= minScore 
-                and (not TwvKOnly or clear["is12K"])
-                and not clear.get("isDeleted", False)
-                and chart is not None
-                and not chart.get("isDeleted", False)):
+            if ((not TwvKOnly or clear["is12K"])
+                and chart is not None):
                 Result = ResultObj().updateParams({"player": player["player"]})
                 Result.updateParams(clear)
                 Clears.append(Result)

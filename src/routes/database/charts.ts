@@ -46,9 +46,9 @@ const applyQueryConditions = (chart: any, query: any) => {
   if (query.charterQuery && !chart.charter.toLowerCase().includes(query.charterQuery.toString().toLowerCase())) return false;
 
   // Difficulty filters
-  if (query.hideCensored && chart.diff === -2) return false;
-  if (query.hideEpic && chart.diff === 0.9) return false;
-  if (query.hideUnranked && chart.diff === 0) return false;
+  if (query.hideCensored === 'true' && chart.diff === -2) return false;
+  if (query.hideEpic === 'true' && chart.diff === 0.9) return false;
+  if (query.hideUnranked === 'true' && chart.diff == 0) return false;
   
   if (query.minDiff && chart.pguDiffNum < Number(query.minDiff)) return false;
   if (query.maxDiff && chart.pguDiffNum > Number(query.maxDiff)) return false;
@@ -193,7 +193,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           rawVideoLink: updatedChart.vidLink || "",
           rawDLLink: updatedChart.dlLink || "",
           rerateReason: updatedChart.rerateReason || "",
-          rerateNum: updatedChart.rerateNum || ""
+          rerateNum: updatedChart.rerateNum || "",
+          ...(updatedChart.rerateNum ? { requesterFR: "" } : {})
         },
         { upsert: true }
       );
