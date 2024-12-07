@@ -1,61 +1,151 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import { Model, DataTypes } from 'sequelize';
+import sequelize from '../config/db';
+import { ILevel } from '../types/models';
 
-export interface ILevel extends Document {
-  id: number;
-  song: string;
-  artist: string;
-  creator: string;
-  charter: string;
-  vfxer: string;
-  team: string;
-  diff: number;
-  legacyDiff: number;
-  pguDiff: string;
-  pguDiffNum: number;
-  newDiff: number;
-  pdnDiff: number;
-  realDiff: number;
-  baseScore: number;
-  baseScoreDiff: string;
-  isCleared: boolean;
-  clears: number;
-  vidLink: string;
-  dlLink: string;
-  workshopLink: string;
-  publicComments: string;
-  toRate: boolean;
-  rerateReason: string;
-  rerateNum: string;
-  isDeleted: boolean;
+class Level extends Model<ILevel> implements ILevel {
+  public id!: number;
+  public song!: string;
+  public artist!: string;
+  public creator!: string;
+  public charter!: string;
+  public vfxer!: string;
+  public team!: string;
+  public diff!: number;
+  public legacyDiff!: number;
+  public pguDiff!: string;
+  public pguDiffNum!: number;
+  public newDiff!: number;
+  public baseScore!: number;
+  public baseScoreDiff!: string;
+  public isCleared!: boolean;
+  public clears!: number;
+  public vidLink!: string;
+  public dlLink!: string;
+  public workshopLink!: string;
+  public publicComments!: string;
+  public toRate!: boolean;
+  public rerateReason!: string;
+  public rerateNum!: string;
+  public isDeleted!: boolean;
+  public createdAt!: Date;
+  public updatedAt!: Date;
 }
 
-const LevelSchema = new Schema<ILevel>({
-  id: { type: Number, required: true, unique: true, index: true },
-  song: { type: String, default: "" },
-  artist: { type: String, default: "" },
-  creator: { type: String, default: "" },
-  charter: { type: String, default: "" },
-  vfxer: { type: String, default: "" },
-  team: { type: String, default: "" },
-  diff: { type: Number, default: 0 },
-  legacyDiff: { type: Number, default: 0 },
-  pguDiff: { type: String, default: "" },
-  pguDiffNum: { type: Number, default: 0 },
-  newDiff: { type: Number, default: 0 },
-  pdnDiff: { type: Number, default: 0 },
-  realDiff: { type: Number, default: 0 },
-  baseScore: { type: Number, default: 0 },
-  baseScoreDiff: { type: String, default: "" },
-  isCleared: { type: Boolean, default: false },
-  clears: { type: Number, default: 0 },
-  vidLink: { type: String, default: "" },
-  dlLink: { type: String, default: "" },
-  workshopLink: { type: String, default: "" },
-  publicComments: { type: String, default: "" },
-  toRate: { type: Boolean, default: false },
-  rerateReason: { type: String, default: "" },
-  rerateNum: { type: String, default: "" },
-  isDeleted: { type: Boolean, default: false }
+Level.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  song: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  artist: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  creator: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  charter: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  vfxer: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  team: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  diff: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  legacyDiff: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  pguDiff: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  pguDiffNum: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  newDiff: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  baseScore: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  baseScoreDiff: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  isCleared: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true
+  },
+  clears: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  vidLink: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  dlLink: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  workshopLink: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  publicComments: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  toRate: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true
+  },
+  rerateReason: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  rerateNum: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  isDeleted: {
+    type: DataTypes.BOOLEAN,
+    allowNull: true
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  }
+}, {
+  sequelize,
+  tableName: 'levels',
+  indexes: [
+    { fields: [{ name: 'song', length: 255 }] },
+    { fields: [{ name: 'artist', length: 255 }] },
+    { fields: [{ name: 'charter', length: 255 }] },
+    { fields: [{ name: 'diff' }] }
+  ]
 });
 
-export default mongoose.model<ILevel>('Level', LevelSchema); 
+export default Level;

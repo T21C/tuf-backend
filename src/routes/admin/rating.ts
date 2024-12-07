@@ -1,7 +1,8 @@
 import express, {Request, Response, Router} from 'express';
 import { verifyAccessToken } from '../../utils/authHelpers';
 import { raterList } from '../../config/constants';
-import { Rating } from '../../models/Rating';
+import Rating from '../../models/Rating';
+import RatingDetail from '../../models/RatingDetail';
 import { calculateAverageRating } from '../../utils/ratingUtils';
 import { Auth } from '../../middleware/auth';
 import { IUser } from '../../types/express';
@@ -15,7 +16,13 @@ router.get("/raters", async (req: Request, res: Response) => {
 
 router.get("/", Auth.rater(), async (req: Request, res: Response) => {
     try {
-      const ratings = await Rating.find({}).sort({ ID: 1 });
+      const ratings = await Rating.findAll({
+        include: [{
+          model: RatingDetail,
+          attributes: ['username', 'rating', 'comment']
+        }],
+        order: [['levelId', 'ASC']]
+      });
       return res.json(ratings);
       
     } catch (error) {
@@ -30,39 +37,46 @@ router.put("/", Auth.rater(), async (req: Request, res: Response) => {
         const { updates } = req.body;
         if (!updates || !Array.isArray(updates)) {
             return res.status(400).json({ error: 'Updates array is required' });
-          }
-  
-          // Process each update
-        for (const update of updates) {
-            const rating = await Rating.findOne({ ID: update.id });
-              if (rating) {
-              // Initialize or update the ratings object
-              const updatedRatings = {
-                 ...(rating.ratings || {}),  // Spread existing ratings or empty object if none
-                [userInfo.username]: [update.rating, update.comment]  // Add/update current user's rating
-              };
-
-              rating.ratings = updatedRatings;
-              
-              // Calculate new average using the rating utils
-              const averageRating = calculateAverageRating(updatedRatings);
-              console.log(`Average rating: ${averageRating}`);
-              rating.average = averageRating || ''; // Use empty string if null
-          
-              await rating.save();
-        } else {
-          return res.status(404).json({ error: `Rating with ID ${update.id} not found` });
         }
-      }
-      
-      // Emit the event using the socket utility
-      const io = getIO();
-      io.emit('ratingsUpdated');
+  
+        // Process each update
+        for (const update of updates) {
+            let rating = await Rating.findOne({ where: { levelId: update.id } });
+            
+            if (!rating) {
+              // Create new rating if it doesn't exist
+              rating = await Rating.create({ levelId: update.id });
+            }
 
-      return res.json({ 
-        success: true, 
-        message: `Ratings updated successfully by ${userInfo.username}` 
-      });
+            // Update or create rating detail
+            await RatingDetail.upsert({
+              ratingId: rating.levelId,
+              username: userInfo.username,
+              rating: update.rating,
+              comment: update.comment || ''
+            });
+
+            // Get all rating details for this level
+            const ratingDetails = await RatingDetail.findAll({
+              where: { ratingId: rating.levelId }
+            });
+
+            // Calculate new average using the rating details
+            const averageRating = calculateAverageRating(ratingDetails);
+            
+            // Update the main rating record
+            rating.average = averageRating || '';
+            await rating.save();
+        }
+      
+        // Emit the event using the socket utility
+        const io = getIO();
+        io.emit('ratingsUpdated');
+
+        return res.json({ 
+          success: true, 
+          message: `Ratings updated successfully by ${userInfo.username}` 
+        });
   
     } catch (error) {
       console.error('Error updating ratings:', error);
@@ -71,9 +85,17 @@ router.put("/", Auth.rater(), async (req: Request, res: Response) => {
 });
 
 router.delete("/", Auth.superAdmin(), async (req: Request, res: Response) => {
-  const { id } = req.body;
-  await Rating.findByIdAndDelete(id);
-  return res.json({ success: true });
+  try {
+    const { id } = req.body;
+    // Delete rating details first due to foreign key constraint
+    await RatingDetail.destroy({ where: { ratingId: id } });
+    // Then delete the main rating
+    await Rating.destroy({ where: { levelId: id } });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting rating:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
+  }
 });
 
 export default router;

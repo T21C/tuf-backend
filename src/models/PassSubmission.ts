@@ -1,101 +1,166 @@
-import mongoose, { Schema, Document } from 'mongoose';
-import { IJudgements } from './Judgements';
-// Nested interfaces for complex objects
+import { DataTypes } from 'sequelize';
+import sequelize from '../config/db';
+import BaseModel from './BaseModel';
 
-
-export interface IFlags {
-  is12k: boolean;
-  isNHT: boolean;
-  is16k: boolean;
+class PassSubmission extends BaseModel {
+  public levelId!: string;
+  public speed!: number;
+  public passer!: string;
+  public feelingDifficulty!: string;
+  public title!: string;
+  public rawVideoId!: string;
+  public rawTime!: Date;
+  public submitterDiscordUsername!: string;
+  public submitterEmail!: string;
+  public status!: string;
+  public judgements!: any;
+  public flags!: any;
 }
 
-export interface ISubmitter {
-  discordUsername: string;
-  email: string;
-}
-
-// Main interface extending Document
-export interface IPassSubmission extends Document {
-  levelId: string;
-  speed: number;
-  passer: string;
-  feelingDifficulty: string;
-  title: string;
-  rawVideoId: string;
-  rawTime: Date;
-  judgements: IJudgements;
-  flags: IFlags;
-  submitter: ISubmitter;
-  status: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const passSubmissionSchema = new Schema<IPassSubmission>(
-  {
-    levelId: {
-      type: String,
-      required: true,
-    },
-    speed: {
-      type: Number,
-      default: 1,
-    },
-    passer: {
-      type: String,
-      required: true,
-    },
-    feelingDifficulty: {
-      type: String,
-      required: true,
-    },
-    title: {
-      type: String,
-      required: true,
-    },
-    rawVideoId: {
-      type: String,
-      required: true,
-    },
-    rawTime: {
-      type: Date,
-      required: true,
-    },
-    judgements: {
-      earlyDouble: { type: Number, default: 0 },
-      earlySingle: { type: Number, default: 0 },
-      ePerfect: { type: Number, default: 0 },
-      perfect: { type: Number, default: 0 },
-      lPerfect: { type: Number, default: 0 },
-      lateSingle: { type: Number, default: 0 },
-      lateDouble: { type: Number, default: 0 },
-    },
-    flags: {
-      is12k: { type: Boolean, default: false },
-      isNHT: { type: Boolean, default: false },
-      is16k: { type: Boolean, default: false },
-      isLegacy: { type: Boolean, default: false },
-    },
-
-    status: {
-      type: String,
-      enum: ['pending', 'approved', 'declined'],
-      default: 'pending'
-    },
-    submitter: {
-      discordUsername: { type: String },
-      email: { type: String },
-    },
+PassSubmission.init({
+  levelId: {
+    type: DataTypes.STRING,
+    allowNull: false
   },
-  {
-    timestamps: true, // Adds createdAt and updatedAt fields automatically
+  speed: {
+    type: DataTypes.FLOAT,
+    defaultValue: 1
   },
-);
+  passer: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  feelingDifficulty: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  title: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  rawVideoId: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  rawTime: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  submitterDiscordUsername: {
+    type: DataTypes.STRING
+  },
+  submitterEmail: {
+    type: DataTypes.STRING
+  },
+  status: {
+    type: DataTypes.ENUM('pending', 'approved', 'declined'),
+    defaultValue: 'pending'
+  }
+}, {
+  sequelize,
+  tableName: 'pass_submissions',
+  indexes: [
+    { fields: ['passer'] },
+    { fields: ['rawVideoId'] },
+    { fields: ['status'] }
+  ]
+});
 
-// Add any indexes you might need
-passSubmissionSchema.index({passer: 1});
-passSubmissionSchema.index({rawVideoId: 1});
+// Create associated models for complex fields
+class PassSubmissionJudgements extends BaseModel {
+  public passSubmissionId!: number;
+  public earlyDouble!: number;
+  public earlySingle!: number;
+  public ePerfect!: number;
+  public perfect!: number;
+  public lPerfect!: number;
+  public lateSingle!: number;
+  public lateDouble!: number;
+}
 
-const PassSubmission = mongoose.model<IPassSubmission>('PassSubmission', passSubmissionSchema);
+class PassSubmissionFlags extends BaseModel {
+  public passSubmissionId!: number;
+  public is12k!: boolean;
+  public isNHT!: boolean;
+  public is16k!: boolean;
+  public isLegacy!: boolean;
+}
 
-export default PassSubmission;
+// Initialize associated models
+PassSubmissionJudgements.init({
+  passSubmissionId: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    references: {
+      model: PassSubmission,
+      key: 'id'
+    }
+  },
+  earlyDouble: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  earlySingle: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  ePerfect: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  perfect: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  lPerfect: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  lateSingle: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  lateDouble: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  }
+}, {
+  sequelize,
+  tableName: 'pass_submission_judgements'
+});
+
+PassSubmissionFlags.init({
+  passSubmissionId: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    references: {
+      model: PassSubmission,
+      key: 'id'
+    }
+  },
+  is12k: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  isNHT: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  is16k: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  isLegacy: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  }
+}, {
+  sequelize,
+  tableName: 'pass_submission_flags'
+});
+
+// Set up relationships
+PassSubmission.hasOne(PassSubmissionJudgements, { foreignKey: 'passSubmissionId' });
+PassSubmission.hasOne(PassSubmissionFlags, { foreignKey: 'passSubmissionId' });
+
+export { PassSubmission, PassSubmissionJudgements, PassSubmissionFlags };

@@ -38,6 +38,9 @@ importers:
       pnpm:
         specifier: ^9.12.3
         version: 9.13.2
+      sequelize:
+        specifier: ^6.37.5
+        version: 6.37.5(sqlite3@5.1.7)
       shuffle-seed:
         specifier: ^1.1.6
         version: 1.1.6
@@ -4382,7 +4385,6 @@ snapshots:
   '@types/debug@4.1.12':
     dependencies:
       '@types/ms': 0.7.34
-    optional: true
 
   '@types/emscripten@1.39.13': {}
 
@@ -4414,8 +4416,7 @@ snapshots:
 
   '@types/minimist@1.2.5': {}
 
-  '@types/ms@0.7.34':
-    optional: true
+  '@types/ms@0.7.34': {}
 
   '@types/node@22.9.0':
     dependencies:
@@ -4456,8 +4457,7 @@ snapshots:
 
   '@types/treeify@1.0.3': {}
 
-  '@types/validator@13.12.2':
-    optional: true
+  '@types/validator@13.12.2': {}
 
   '@types/webidl-conversions@7.0.3': {}
 
@@ -5319,8 +5319,7 @@ snapshots:
 
   dotenv@16.4.5: {}
 
-  dottie@2.0.6:
-    optional: true
+  dottie@2.0.6: {}
 
   drawille-blessed-contrib@1.0.0: {}
 
@@ -6072,8 +6071,7 @@ snapshots:
   infer-owner@1.0.4:
     optional: true
 
-  inflection@1.13.4:
-    optional: true
+  inflection@1.13.4: {}
 
   inflight@1.0.6:
     dependencies:
@@ -6511,10 +6509,8 @@ snapshots:
   moment-timezone@0.5.46:
     dependencies:
       moment: 2.30.1
-    optional: true
 
-  moment@2.30.1:
-    optional: true
+  moment@2.30.1: {}
 
   mongodb-connection-string-url@3.0.1:
     dependencies:
@@ -6944,8 +6940,7 @@ snapshots:
 
   path-type@4.0.0: {}
 
-  pg-connection-string@2.7.0:
-    optional: true
+  pg-connection-string@2.7.0: {}
 
   picocolors@1.1.1: {}
 
@@ -7151,8 +7146,7 @@ snapshots:
       onetime: 5.1.2
       signal-exit: 3.0.7
 
-  retry-as-promised@7.0.4:
-    optional: true
+  retry-as-promised@7.0.4: {}
 
   retry@0.12.0: {}
 
@@ -7222,8 +7216,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  sequelize-pool@7.1.0:
-    optional: true
+  sequelize-pool@7.1.0: {}
 
   sequelize@6.37.5(sqlite3@5.1.7):
     dependencies:
@@ -7247,7 +7240,6 @@ snapshots:
       sqlite3: 5.1.7
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   serialize-error@7.0.1:
     dependencies:
@@ -7668,8 +7660,7 @@ snapshots:
 
   toml@3.0.0: {}
 
-  toposort-class@1.0.1:
-    optional: true
+  toposort-class@1.0.1: {}
 
   touch@3.1.1: {}
 
@@ -7801,8 +7792,7 @@ snapshots:
 
   uuid@11.0.3: {}
 
-  uuid@8.3.2:
-    optional: true
+  uuid@8.3.2: {}
 
   validate-iri@1.0.1: {}
 
@@ -7813,8 +7803,7 @@ snapshots:
 
   validate-npm-package-name@6.0.0: {}
 
-  validator@13.12.0:
-    optional: true
+  validator@13.12.0: {}
 
   vary@1.1.2: {}
 
@@ -7863,7 +7852,6 @@ snapshots:
   wkx@0.5.0:
     dependencies:
       '@types/node': 22.9.0
-    optional: true
 
   wmf@1.0.2: {}
 

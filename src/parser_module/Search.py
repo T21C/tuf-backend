@@ -3,6 +3,7 @@ import os, sys
 from io import StringIO
 from datetime import datetime
 from time import perf_counter
+import time
 
 chartPathDef = "cache/charts.json"
 passPathDef = "cache/passes.json"
@@ -34,17 +35,27 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
 
-    # Get chart directly from dictionary
+    # Performance monitoring
+    performance_data = {}
+
+    # Measure time for getting chart
+    start_time = time.perf_counter()
     chart = data.charts.get(chartId)
+    end_time = time.perf_counter()
+    performance_data['get_chart'] = end_time - start_time
+
     if not chart:
         print(f"Chart ID {chartId} not found")
         return []
 
-    # Find passes for this chart
+    # Measure time for finding passes
+    start_time = time.perf_counter()
     validPasses = [
         Pass for Pass in data.passes
         if Pass["levelId"] == chartId 
     ]
+    end_time = time.perf_counter()
+    performance_data['find_passes'] = end_time - start_time
 
     if not validPasses:
         print(f"No passes found for chart ID {chartId}")
@@ -93,7 +104,13 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
             "baseScore": chart["baseScore"],
             "isDeleted": Pass["isDeleted"]
         }))
+    
+    # Measure time for sorting scores
+    start_time = time.perf_counter()
     Scores = list(reversed(sorted(Scores, key=lambda x: (x["score"]))))
+    end_time = time.perf_counter()
+    performance_data['sort_scores'] = end_time - start_time
+
     datedScores = sorted(Scores, key=lambda x: (x["date"]))
     datedScores[0]["isWorldsFirst"] = True
     if getDates:
@@ -105,6 +122,8 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
             validScores.append(score.get())
             usedIds.append(score['playerId'])
 
+    # Print performance data
+    print("Performance Data:", performance_data)
 
     return validScores
 
@@ -114,27 +133,39 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
 
 
 
-def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, data=None, TwvKOnly=False, ppOnly=False, showCharts=True) \
-        -> dict:
+def searchByPlayer(player: dict, data=None, TwvKOnly=False, ppOnly=False, showCharts=True) -> (dict, dict):
+    # Performance monitoring
+    performance_data = {
+        'init_data': 0,
+        'find_passes': 0,
+        'process_scores': 0,
+        'sort_scores': 0,
+        'calculate_stats': 0,
+        'wf_check': 0
+    }
+
+    start_time = time.perf_counter()
     util = Utils()
     directCall = False
     if data is None:
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
+    end_time = time.perf_counter()
+    performance_data['init_data'] += end_time - start_time
 
-    #if playerName not in [player["name"] for player in data.players]:
-    #    print("Player not found!")
-    #    return {}
-    #if data.players[playerName]["isBanned"]:
-    #    print("Player is banned!")
-    #    return {}
-
-    playerPasses = []
+    # Use a dictionary to map player IDs to their passes
+    player_passes_dict = {p["playerId"]: [] for p in data.passes}
     for Pass in data.passes:
-        chart = data.charts.get(Pass["levelId"])
-        if (Pass["playerId"] == player["id"]
-            and chart is not None):
-            playerPasses.append(Pass)
+        player_passes_dict[Pass["playerId"]].append(Pass)
+
+    # Retrieve passes for the current player
+    start_time = time.perf_counter()
+    playerPasses = player_passes_dict.get(player["id"], [])
+    end_time = time.perf_counter()
+    performance_data['find_passes'] += end_time - start_time
+
+    # Process scores
+    start_time = time.perf_counter()
     Scores = []
     uPasses = 0
     firstPasses = 0
@@ -146,7 +177,7 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
         if chartId not in data.charts:
             continue
         chart = data.charts[chartId]
-        isWorldsFirst = checkWorldsFirst(Pass, data)
+        isWorldsFirst = Pass["isWorldsFirst"]  # Use precomputed WF status
         if isWorldsFirst:
             firstPasses += 1
         try:
@@ -200,6 +231,11 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
         except:
             pass
 
+    end_time = time.perf_counter()
+    performance_data['process_scores'] += end_time - start_time
+
+    # Sort and filter scores
+    start_time = time.perf_counter()
     Scores = list(reversed(sorted(Scores, key=lambda x: x["score"])))
     usedIds = []
     validScores = []
@@ -210,14 +246,22 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
                 uPasses += 1
             usedIds.append(Score["chartId"])
             XaccList.append(Score["Xacc"])
+    end_time = time.perf_counter()
+    performance_data['sort_scores'] += end_time - start_time
 
+    # Calculate final stats
+    start_time = time.perf_counter()
     notDeletedScores = [Score for Score in validScores if not Score["isDeleted"]]
     rankedScore = util.getRankedScore([Score["score"] for Score in notDeletedScores])
     general,ppScore,wfScore,tvwKScore = util.calculateScores(notDeletedScores)
+
+    # Print performance data
+    
     topDiff = topDiff[0]+str(topDiff[1])
     top12kDiff = top12kDiff[0]+str(top12kDiff[1])
 
     scoresNew = []
+
     for Score in validScores:
         scoresNew.append(Score.get())
     if XaccList:
@@ -241,36 +285,32 @@ def searchByPlayer(player: dict, chartPath=chartPathDef , passPath=passPathDef, 
             "country": player["country"]})
     if showCharts:
         Player.addScores(scoresNew)
-    return Player.get()
+        
+    end_time = time.perf_counter()
+    performance_data['calculate_stats'] += end_time - start_time
+    return Player.get(), performance_data
 
 
-WFLookup = {}
-def checkWorldsFirst(Pass, data):
-    level_id = Pass["levelId"]
-    
-    # Get chart directly from dictionary
-    chart = data.charts.get(level_id)
-    if not chart:
-        return False
+def searchAllPlayers(chartPath=chartPathDef, passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, sortBy="rankedScore", data=None, disableCharts=True, TwvKOnly=False, reverse=False):
+    # Aggregate performance monitoring
+    total_performance = {
+        'init_data': 0,
+        'find_passes': 0,
+        'process_scores': 0,
+        'sort_scores': 0,
+        'calculate_stats': 0,
+        'wf_check': 0,
+        'total_time': 0
+    }
 
-    if level_id not in WFLookup:
-        WFLookup[level_id] = searchByChart(level_id, data=data, getDates=True)
-    passes = WFLookup[level_id]
-    # Find earliest non-deleted pass
-    valid_passes = [p for p in passes if not p["isDeleted"]]
-    if not valid_passes:
-        return False
-    earliest_pass = valid_passes[0]  # First pass after date sorting
-    return earliest_pass["passId"] == Pass["id"]
-
-
-def searchAllPlayers(chartPath=chartPathDef , passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, sortBy="rankedScore", data=None, disableCharts=True, TwvKOnly=False, reverse=False):
+    start_time = time.perf_counter()
     util = Utils()
     directCall = False
     if data is None:
         directCall = True
         data = initData(chartPath, passPath, playerPath, useSaved)
 
+    total_performance['init_data'] += time.perf_counter() - start_time
     playerLeaderboard = []
     i = 0
     n = len(data.players)
@@ -280,18 +320,40 @@ def searchAllPlayers(chartPath=chartPathDef , passPath=passPathDef, playerPath=p
         print("\r",round(i / n * 100,3), "%          ", end="", flush=True)
         if player["isBanned"]:
             continue
-        search = searchByPlayer(player, chartPath, passPath, playerPath,True, data, TwvKOnly)
+        search, perf_data = searchByPlayer(player, data=data, TwvKOnly=TwvKOnly)
         if search["avgXacc"]:
             playerLeaderboard.append(search)
             if disableCharts:
                  playerLeaderboard[-1]["allScores"] = ""
+        
+        # Aggregate performance data
+        for key in perf_data:
+            total_performance[key] += perf_data[key]
+
     print("\n")
+    
+    # Sort leaderboard
+    start_sort_time = time.perf_counter()
     priority = util.allPassSortPriority.copy()
     priority.remove(sortBy)
     sortCriteria = [sortBy] + priority
+    result = sorted(playerLeaderboard, key=lambda x: [x[criteria] for criteria in sortCriteria])
     if reverse:
-        return list(reversed(sorted(playerLeaderboard, key=lambda x: [x[criteria] for criteria in sortCriteria])))
-    return sorted(playerLeaderboard, key=lambda x: [x[criteria] for criteria in sortCriteria])
+        result = list(reversed(result))
+    total_performance['sort_leaderboard'] = time.perf_counter() - start_sort_time
+
+    # Calculate total execution time
+    total_performance['total_time'] = time.perf_counter() - start_time
+
+    # Print performance summary
+    print("\nPerformance Summary:")
+    print(f"Total execution time: {total_performance['total_time']:.2f}s")
+    print("\nTime spent in each subprocess:")
+    for key in total_performance:
+        if key != 'total_time':
+            print(f"{key}: {total_performance[key]:.2f}s ({(total_performance[key]/total_performance['total_time']*100):.1f}%)")
+
+    return result
 
 
 def searchAllClears(chartPath=chartPathDef , passPath=passPathDef, playerPath=playerPathDef, useSaved=useSavedDef, sortBy="score", data=None, minScore=0, TwvKOnly=False, reverse=False):

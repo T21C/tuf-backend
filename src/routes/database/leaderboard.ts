@@ -1,8 +1,13 @@
-import express, {Request, Response, Router} from 'express';
-import {validSortOptions} from '../../config/constants.js';
-import {Cache} from '../../utils/cacheManager.js';
+import { Request, Response, Router } from 'express';
+import { Op } from 'sequelize';
+import { validSortOptions } from '../../config/constants';
+import Player from '../../models/Player';
+import Pass from '../../models/Pass';
+import Level from '../../models/Level';
+import Judgement from '../../models/Judgement';
+import { enrichPlayerData } from '../../utils/PlayerEnricher';
 
-const router: Router = express.Router();
+const router: Router = Router();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -20,24 +25,38 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Get data from cache
-    const leaderboardData = Cache.get('fullPlayerList');
-    const pfpList = Cache.get('pfpList');
-
-    if (!Array.isArray(leaderboardData)) {
-      return res.status(500).json({error: 'Invalid leaderboard data'});
+    // Build where clause based on ban status
+    const whereClause: any = {};
+    if (showBanned === 'only') {
+      whereClause.isBanned = true;
+    } else if (showBanned === 'hide') {
+      whereClause.isBanned = false;
     }
 
-    // Filter players based on showBanned parameter
-    const filteredData = 
-        showBanned === 'only'
-        ? leaderboardData.filter((player: any) => player.isBanned)
-        : showBanned === 'hide'
-          ? leaderboardData.filter((player: any) => !player.isBanned)
-          : leaderboardData;
+    // Get players with their passes and related data
+    const players = await Player.findAll({
+      where: whereClause,
+      include: [{
+        model: Pass,
+        as: 'passes',
+        include: [{
+          model: Level,
+          attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
+        },
+        {
+          model: Judgement,
+          attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
+        }]
+      }]
+    });
 
-    // Sorting logic
-    const sortedData = filteredData.sort((a: any, b: any) => {
+    // Enrich player data with calculated fields
+    let enrichedPlayers = await Promise.all(
+      players.map(player => enrichPlayerData(player))
+    );
+
+    // Sort players based on the requested field
+    enrichedPlayers.sort((a, b) => {
       const valueA = a[sortBy as keyof typeof a];
       const valueB = b[sortBy as keyof typeof b];
 
@@ -52,25 +71,18 @@ router.get('/', async (req: Request, res: Response) => {
       }
     });
 
-    // Map response data
-    const responseData = sortedData.map((player: any) => {
-      const enrichedPlayer = {
-        ...player,
-        pfp: pfpList[player.player] || null
-      };
-
-      if (includeAllScores === 'false' && enrichedPlayer.allScores) {
-        const {allScores, ...rest} = enrichedPlayer;
+    // Remove passes if not requested
+    if (includeAllScores === 'false') {
+      enrichedPlayers = enrichedPlayers.map(player => {
+        const { passes, ...rest } = player;
         return rest;
-      }
-
-      return enrichedPlayer;
-    });
+      });
+    }
 
     const totalTime = performance.now() - routeStart;
     console.log(`[PERF] Total leaderboard route time: ${totalTime.toFixed(2)}ms`);
 
-    return res.json(responseData);
+    return res.json(enrichedPlayers);
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
     return res.status(500).json({ 

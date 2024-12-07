@@ -83,18 +83,18 @@ export const updateRanks = () => {
 
 export const reloadPasses = async () => {
   const currentTime = Date.now();
-  
-  // Check if enough time has passed since last reload
-  if (currentTime - lastPassesReloadTime < RELOAD_COOLDOWN) {
+  try{
+    // Check if enough time has passed since last reload
+    if (currentTime - lastPassesReloadTime < RELOAD_COOLDOWN) {
     console.log(`[UPDATE] Skipping passes reload - cooldown active. Please wait ${Math.ceil((RELOAD_COOLDOWN - (currentTime - lastPassesReloadTime)) / 1000)} seconds.`);
-    return;
-  }
+      return;
+    }
 
-  lastPassesReloadTime = currentTime;
+    lastPassesReloadTime = currentTime;
 
-  await exec(
-    `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved`,
-    (error, stdout, stderr) => {
+    await exec(
+      `python ${parserPath} all_clears --output=${PATHS.clearlistJson} --useSaved`,
+      (error, stdout, stderr) => {
       if (error) {
         console.error(
           `[UPDATE] Error executing script for all_clears: ${error.message}`,
@@ -104,12 +104,15 @@ export const reloadPasses = async () => {
       if (stderr) {
         console.error(`[UPDATE] Clear list stderr: ${stderr}`);
         return;
-      }
-      console.log("[UPDATE] Passes updated");
-      Cache.reloadAll();
-    },
-  );
-  updateTimeList['passes'] = currentTime;
+        }
+        console.log("[UPDATE] Passes updated");
+        Cache.reloadAll();
+      },
+    );
+    updateTimeList['passes'] = currentTime;
+  } catch (error) {
+    console.error(`[UPDATE] Error reloading passes: ${error}`);
+  }
 };
 
 export const getPassesReloadCooldown = (): number => {
@@ -118,29 +121,34 @@ export const getPassesReloadCooldown = (): number => {
 };
 
 export const updateData = async (cacheUpdate: boolean = true) => {
-  if (cacheUpdate) {
-    await updateCache()
+  try {
+    if (cacheUpdate) {
+      await updateCache();
+    }
+
+    exec(
+      `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse --useSaved`,
+      async (error, stdout, stderr) => {
+        if (error) {
+          console.error(`Error executing for all_players: ${error.message}`);
+          return;
+        }
+        if (stderr) {
+          console.error(`Script stderr: ${stderr}`);
+          return;
+        }
+        console.log("[UPDATE] Leaderboard updated");
+        console.log(stdout)
+
+        // Proceed with further operations only after the script execution is complete
+        await updateRanks();
+        await fetchPfps();
+        await reloadPasses();
+      }
+    );
+  } catch (error) {
+    console.error(`[UPDATE] Error updating data: ${error}`);
   }
-
-  await exec(
-    `python ${parserPath} all_players --output=${PATHS.playerlistJson} --reverse --useSaved`,
-    async (error, stdout, stderr) => {
-      if (error) {
-        console.error(`Error executing for all_players: ${error.message}`);
-        return;
-      }
-      if (stderr) {
-        console.error(`Script stderr: ${stderr}`);
-        return;
-      }
-      console.log("[UPDATE] Leaderboard updated");
-      
-      updateRanks(),
-      fetchPfps()
-      await reloadPasses();
-    },
-  );
-
 };
 
 export const fetchPfps = async () => {
@@ -184,20 +192,35 @@ export const updateTimestamp = (name: string) => {
 
 export const updateCache = async () => {
   try {
-    
     // Fetch data from MongoDB
-    const chartsData = await Level.find({}).lean();
-    const playersData = await Player.find({}).lean();
-    const passesData = await Pass.find({}).lean();
+    const chartsData = await Level.findAll();
+    const playersData = await Player.findAll();
+    const passesData = await Pass.findAll();
+
+    // Create a map to store the earliest pass for each chart
+    const earliestPasses: Record<string, any> = {};
+
+    // Determine the earliest pass for each chart
+    passesData.forEach((pass: any) => {
+      const chartId = pass.levelId;
+      if (!earliestPasses[chartId] || new Date(pass.vidUploadTime) < new Date(earliestPasses[chartId].vidUploadTime)) {
+        earliestPasses[chartId] = pass;
+      }
+    });
+
+    // Update each pass with the WF status
+    passesData.forEach((pass) => {
+      pass.isWorldsFirst = pass.id === earliestPasses[pass.levelId].id;
+    });
+
+    // Save updated passes back to the database
+    await Promise.all(passesData.map((pass) => Pass.update(pass, { where: { id: pass.id } })));
 
     // Save to cache files
     writeJsonFile(PATHS.chartsJson, chartsData);
     writeJsonFile(PATHS.playersJson, playersData);
     writeJsonFile(PATHS.passesJson, passesData);
-    
-    levelUpdateTime = Date.now();
-    updateTimeList['cache'] = Date.now();
-    
+
     console.log("[UPDATE] Cache updated successfully");
   } catch (error) {
     console.error('Error updating cache:', error);

@@ -14,6 +14,7 @@ class DateTimeEncoder(json.JSONEncoder):
 def save_to_json(data, filepath):
     with open(filepath, 'w', encoding="utf-8") as json_file:
         json.dump(data, json_file, cls=DateTimeEncoder, indent=4)
+    print("finished writing")
 
 def custom_help():
     help_text = """
@@ -158,6 +159,7 @@ def main():
     if result:
         save_to_json(result, output_file)
         print("saved to", output_file)
+    
 
 if __name__ == "__main__":
     main()

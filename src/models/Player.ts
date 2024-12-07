@@ -1,38 +1,56 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../config/db';
+import { IPlayer } from '../types/models';
+import BaseModel from './BaseModel';
+import Pass from './Pass';
 
-export interface IPlayer extends Document {
-  id: number;
-  name: string;
-  country: string;
-  isBanned: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+class Player extends BaseModel implements IPlayer {
+  declare id: number;
+  declare name: string;
+  declare country: string;
+  declare isBanned: boolean;
+
+  // Virtual fields
+  declare rankedScore?: number;
+  declare generalScore?: number;
+  declare ppScore?: number;
+  declare wfScore?: number;
+  declare score12k?: number;
+  declare avgXacc?: number;
+  declare totalPasses?: number;
+  declare universalPasses?: number;
+  declare WFPasses?: number;
+  declare topDiff?: string;
+  declare top12kDiff?: string;
+
+  // Associations
+  declare passes?: Pass[];
 }
 
-const playerSchema = new Schema({
+Player.init({
   id: {
-    type: Number,
-    required: true,
-    unique: true,
-    index: true
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
   name: {
-    type: String,
-    required: true,
-    index: true
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true
   },
   country: {
-    type: String,
-    required: true,
-    index: true
+    type: DataTypes.STRING(2),
+    allowNull: false
   },
   isBanned: {
-    type: Boolean,
-    default: false,
-    index: true
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   }
 }, {
-  timestamps: true
+  sequelize,
+  tableName: 'players'
 });
 
-export default mongoose.model<IPlayer>('Player', playerSchema);
+Player.hasMany(Pass, { foreignKey: 'playerId', as: 'passes' });
+
+export default Player;

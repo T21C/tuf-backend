@@ -1,103 +1,157 @@
-import mongoose, { Schema, Document } from 'mongoose';
-import { IJudgements } from './Judgements';
+import { DataTypes } from 'sequelize';
+import sequelize from '../config/db';
+import BaseModel from './BaseModel';
+import Level from './Level';
+import Player from './Player';
+import Judgement from './Judgement';
 
-export interface IPass extends Document {
+export interface IPass {
   id: number;
   levelId: number;
   speed: number | null;
-  player: string;
   playerId: number;
-  feelingRating: string;
-  vidTitle: string;
-  vidLink: string;
-  vidUploadTime: Date;
-  is12K: boolean;
-  is16K: boolean;
-  isNoHoldTap: boolean;
-  isLegacyPass: boolean;
-  judgements: IJudgements;
-  accuracy: number;
-  scoreV2: number;
-  isDeleted: boolean;
+  feelingRating: string | null;
+  vidTitle: string | null;
+  vidLink: string | null;
+  vidUploadTime: Date | null;
+  is12K: boolean | null;
+  is16K: boolean | null;
+  isNoHoldTap: boolean | null;
+  isLegacyPass: boolean | null;
+  isWorldsFirst: boolean | null;
+  accuracy: number | null;
+  scoreV2: number | null;
+  isDeleted: boolean | null;
 }
 
-const passSchema = new Schema<IPass>({
-  id: { 
-    type: Number, 
-    required: true, 
-    unique: true 
+class Pass extends BaseModel implements IPass {
+  declare levelId: number;
+  declare speed: number | null;
+  declare playerId: number;
+  declare feelingRating: string | null;
+  declare vidTitle: string | null;
+  declare vidLink: string | null;
+  declare vidUploadTime: Date | null;
+  declare is12K: boolean | null;
+  declare is16K: boolean | null;
+  declare isNoHoldTap: boolean | null;
+  declare isLegacyPass: boolean | null;
+  declare isWorldsFirst: boolean | null;
+  declare accuracy: number | null;
+  declare scoreV2: number | null;
+  declare isDeleted: boolean | null;
+
+  // Associations
+  declare level?: Level;
+  declare player?: Player;
+  declare judgements?: Judgement;
+}
+
+Pass.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
-  levelId: { 
-    type: Number, 
-    required: true 
+  levelId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'levels',
+      key: 'id'
+    }
   },
-  speed: { 
-    type: Number, 
-    default: null 
-  },
-  player: { 
-    type: String, 
-    required: true 
+  speed: {
+    type: DataTypes.FLOAT,
+    allowNull: true
   },
   playerId: {
-    type: Number,
-    required: true,
-    index: true,
-    ref: 'Player'
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'players',
+      key: 'id'
+    }
   },
-  feelingRating: { 
-    type: String, 
-    default: "" 
+  feelingRating: {
+    type: DataTypes.TEXT,
+    allowNull: true
   },
-  vidTitle: { 
-    type: String, 
-    required: true 
+  vidTitle: {
+    type: DataTypes.TEXT,
+    allowNull: true
   },
-  vidLink: { 
-    type: String, 
-    required: true 
+  vidLink: {
+    type: DataTypes.TEXT,
+    allowNull: true
   },
-  vidUploadTime: { 
-    type: Date, 
-    required: true 
+  vidUploadTime: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    get() {
+      const date = this.getDataValue('vidUploadTime');
+      return date instanceof Date && !isNaN(date.getTime()) ? date : null;
+    },
+    set(value: any) {
+      if (!value) {
+        this.setDataValue('vidUploadTime', null);
+        return;
+      }
+      
+      const date = new Date(value);
+      if (date instanceof Date && !isNaN(date.getTime())) {
+        this.setDataValue('vidUploadTime', date);
+      } else {
+        this.setDataValue('vidUploadTime', null);
+      }
+    }
   },
-  is12K: { 
-    type: Boolean, 
-    default: false 
+  is12K: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: true
   },
-  is16K: { 
-    type: Boolean, 
-    default: false 
+  is16K: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: true
   },
-  isNoHoldTap: { 
-    type: Boolean, 
-    default: false 
+  isNoHoldTap: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: true
   },
-  isLegacyPass: { 
-    type: Boolean, 
-    default: false 
+  isLegacyPass: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: true
   },
-  judgements: {
-    earlyDouble: { type: Number, required: true },
-    earlySingle: { type: Number, required: true },
-    ePerfect: { type: Number, required: true },
-    perfect: { type: Number, required: true },
-    lPerfect: { type: Number, required: true },
-    lateSingle: { type: Number, required: true },
-    lateDouble: { type: Number, required: true }
+  isWorldsFirst: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: true
   },
-  accuracy: { 
-    type: Number, 
-    required: true 
+  accuracy: {
+    type: DataTypes.FLOAT,
+    allowNull: true
   },
-  scoreV2: { 
-    type: Number, 
-    required: true 
+  scoreV2: {
+    type: DataTypes.FLOAT,
+    allowNull: true
   },
-  isDeleted: { 
-    type: Boolean, 
-    default: false 
+  isDeleted: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: true
   }
+}, {
+  sequelize,
+  tableName: 'passes',
+  indexes: [
+    { fields: ['levelId'] },
+    { fields: ['playerId'] },
+    { fields: ['vidUploadTime'] }
+  ]
 });
 
-export default mongoose.model<IPass>('Pass', passSchema, 'passes'); 
+export default Pass;

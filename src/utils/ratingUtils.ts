@@ -46,15 +46,15 @@ export function formatRating(numericRating: number): string | null {
     return reversePguMap[numericRating] || null;
 }
 
-export function calculateAverageRating(ratings: RatingsObject): string | null {
-    if (!ratings || Object.keys(ratings).length === 0) return null;
+export function calculateAverageRating(ratings: any[]): string | null {
+    if (!ratings || ratings.length === 0) return null;
 
     // Count occurrences of special ratings
     const specialRatingCounts: SpecialRatingCounts = {};
     const numericRatings: number[] = [];
 
     // Process all ratings
-    Object.values(ratings).forEach(([rating]) => {
+    ratings.forEach(({ rating }) => {
         if (!rating) return;
 
         const parsed = parseRating(rating);

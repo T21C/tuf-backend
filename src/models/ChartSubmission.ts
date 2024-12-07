@@ -1,88 +1,82 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../config/db';
+import BaseModel from './BaseModel';
 
-// Nested interface for submitter
-interface ISubmitter {
-  discordUsername: string;
-  email: string;
+class ChartSubmission extends BaseModel {
+  public artist!: string;
+  public charter!: string;
+  public diff!: string;
+  public song!: string;
+  public team!: string;
+  public vfxer!: string;
+  public videoLink!: string;
+  public directDL!: string;
+  public wsLink!: string;
+  public submitterDiscordUsername!: string;
+  public submitterEmail!: string;
+  public status!: 'pending' | 'approved' | 'declined';
+  public toRate!: boolean;
 }
 
-// Main interface extending Document
-export interface IChartSubmission extends Document {
-  artist: string;
-  charter: string;
-  diff: string;
-  song: string;
-  team: string;
-  vfxer: string;
-  videoLink: string;
-  directDL: string;
-  wsLink: string;
-  submitter: ISubmitter;
-  status: 'pending' | 'approved' | 'declined';
-  toRate: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const chartSubmissionSchema = new Schema<IChartSubmission>(
-  {
-    artist: {
-      type: String,
-      required: true
-    },
-    charter: {
-      type: String,
-      required: true
-    },
-    diff: {
-      type: String,
-      required: true
-    },
-    song: {
-      type: String,
-      required: true
-    },
-    team: {
-      type: String,
-      default: ''
-    },
-    vfxer: {
-      type: String,
-      default: ''
-    },
-    videoLink: {
-      type: String,
-      required: true
-    },
-    directDL: {
-      type: String,
-      required: true
-    },
-    wsLink: {
-      type: String,
-      default: ''
-    },
-    submitter: {
-      discordUsername: { type: String },
-      email: { type: String }
-    },
-    status: {
-      type: String,
-      enum: ['pending', 'approved', 'declined'],
-      default: 'pending'
-    },
-    toRate: {
-      type: Boolean,
-      default: false
-    }
+ChartSubmission.init({
+  artist: {
+    type: DataTypes.STRING,
+    allowNull: false
   },
-  {
-    timestamps: true
+  charter: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  diff: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  song: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  team: {
+    type: DataTypes.STRING,
+    defaultValue: ''
+  },
+  vfxer: {
+    type: DataTypes.STRING,
+    defaultValue: ''
+  },
+  videoLink: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  directDL: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  wsLink: {
+    type: DataTypes.STRING,
+    defaultValue: ''
+  },
+  submitterDiscordUsername: {
+    type: DataTypes.STRING
+  },
+  submitterEmail: {
+    type: DataTypes.STRING
+  },
+  status: {
+    type: DataTypes.ENUM('pending', 'approved', 'declined'),
+    defaultValue: 'pending'
+  },
+  toRate: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   }
-);
+}, {
+  sequelize,
+  tableName: 'chart_submissions',
+  indexes: [
+    { fields: ['charter'] },
+    { fields: ['artist'] },
+    { fields: ['status'] }
+  ]
+});
 
-// Add indexes for common queries
-chartSubmissionSchema.index({ charter: 1 });
-chartSubmissionSchema.index({ artist: 1 });
-
-export default mongoose.model<IChartSubmission>('ChartSubmission', chartSubmissionSchema);
+export default ChartSubmission;

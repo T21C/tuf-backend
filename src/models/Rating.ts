@@ -1,65 +1,58 @@
-import mongoose from 'mongoose';
+import { DataTypes } from 'sequelize';
+import sequelize from '../config/db';
+import BaseModel from './BaseModel';
 
-const ratingSchema = new mongoose.Schema({
-  ID: {
-    type: Number,
-    required: true,
-    unique: true
-  },
-  song: {
-    type: String,
-    default: "" 
-  },
-  artist: {
-    type: String,
-    default: ""
-  },
-  creator: {
-    type: String,
-    default: ""
-  },
-  rawVideoLink: {
-    type: String,
-    default: ""
-  },
-  rawDLLink: {
-    type: String,
-    default: ""
+class Rating extends BaseModel {
+  public levelId!: number;
+  public currentDiff!: string;
+  public lowDiff!: boolean;
+  public rerateNum!: string;
+  public requesterFR!: string;
+  public average!: string;
+  public comments!: string;
+  public rerateReason!: string;
+}
+
+Rating.init({
+  levelId: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    references: {
+      model: 'levels',
+      key: 'id'
+    }
   },
   currentDiff: {
-    type: String,
-    default: "0"
+    type: DataTypes.STRING,
+    defaultValue: '0'
   },
   lowDiff: {
-    type: Boolean,
-    default: false
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   },
   rerateNum: {
-    type: String,
-    default: ""
+    type: DataTypes.STRING,
+    defaultValue: ''
   },
   requesterFR: {
-    type: String,
-    default: ""
+    type: DataTypes.STRING,
+    defaultValue: ''
   },
   average: {
-    type: String,
-    default: "0"
+    type: DataTypes.STRING,
+    defaultValue: '0'
   },
   comments: {
-    type: String,
-    default: ""
+    type: DataTypes.TEXT,
+    defaultValue: ''
   },
   rerateReason: {
-    type: String,
-    default: ""
-  },
-  ratings: {
-    type: Object,
-    default: {}
+    type: DataTypes.TEXT,
+    defaultValue: ''
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt fields 
+  sequelize,
+  tableName: 'ratings'
 });
 
-export const Rating = mongoose.model('Rating', ratingSchema, 'ratings'); 
+export default Rating; 

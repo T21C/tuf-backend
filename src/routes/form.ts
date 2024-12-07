@@ -1,8 +1,8 @@
 import express, {Request, Response, Router} from 'express';
 import { verifyAccessToken } from '../utils/authHelpers.js';
 import { emailBanList } from '../config/constants.js';
-import PassSubmission from '../models/PassSubmission.js';
-import ChartSubmission from '../models/ChartSubmission.js';
+import ChartSubmission from '../models/ChartSubmission';
+import { PassSubmission } from '../models/PassSubmission';
 const router: Router = express.Router();
 
 // Form submission endpoint
@@ -21,78 +21,86 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         if (emailBanList.includes(tokenInfo.email)) {
             return res.status(403).json({ error: 'User is banned' });
         }
-      
-        console.log(req.headers);
         
         const formType = req.headers['x-form-type'];
         
         if (formType === 'chart') {
-            const formData = {
-                artist: req.body['artist'],
-                charter: req.body['charter'],
-                diff: req.body['diff'],
-                song: req.body['song'],
-                team: req.body['team'] || '',  // Using default value if empty
-                vfxer: req.body['vfxer'] || '',
-                videoLink: req.body['videoLink'],
-                directDL: req.body['directDL'],
-                wsLink: req.body['wsLink'] || '',
-                submitter: {
-                    discordUsername: tokenInfo.username,
-                    userId: tokenInfo.id
+            const [submission, created] = await ChartSubmission.findOrCreate({
+                where: {
+                    videoLink: req.body['videoLink']  // Assuming videoLink is unique
                 },
-                status: 'pending',
-                toRate: false
-            };
+                defaults: {
+                    artist: req.body['artist'],
+                    charter: req.body['charter'],
+                    diff: req.body['diff'],
+                    song: req.body['song'],
+                    team: req.body['team'] || '',
+                    vfxer: req.body['vfxer'] || '',
+                    videoLink: req.body['videoLink'],
+                    directDL: req.body['directDL'],
+                    wsLink: req.body['wsLink'] || '',
+                    submitter_discord: tokenInfo.username,
+                    submitter_id: tokenInfo.id,
+                    status: 'pending',
+                    toRate: false
+                }
+            });
 
-            const submission = new ChartSubmission(formData);
-            await submission.save();
+            if (!created) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Chart submission already exists',
+                    submissionId: submission.id
+                });
+            }
 
             return res.json({ 
                 success: true, 
                 message: 'Chart submission saved successfully',
-                submissionId: submission._id 
+                submissionId: submission.id 
             });
         } 
         
-        console.log(req.body);
-        // Handle pass submissions separately
         if (formType === 'pass') {
-            const formData = {
-                levelId: req.body['levelId'],
-                speedTrial: !!req.body['speedTrial'],
-                passer: req.body['passer'],
-                feelingDifficulty: req.body['feelingDifficulty'],
-                title: req.body['title'],
-                rawVideoId: req.body['rawVideoId'],
-                rawTime: new Date(req.body['rawTime']),
-                judgements: {
-                    earlyDouble: parseInt(req.body['earlyDouble'] || 0),
-                    earlySingle: parseInt(req.body['earlySingle'] || 0),
-                    ePerfect: parseInt(req.body['ePerfect'] || 0),
-                    perfect: parseInt(req.body['perfect'] || 0),
-                    lPerfect: parseInt(req.body['lPerfect'] || 0),
-                    lateSingle: parseInt(req.body['lateSingle'] || 0),
-                    lateDouble: parseInt(req.body['lateDouble'] || 0)
+            const [submission, created] = await PassSubmission.findOrCreate({
+                where: {
+                    rawVideoId: req.body['rawVideoId']  // Assuming rawVideoId is unique
                 },
-                flags: {
-                    is12k: req.body['is12k'],
-                    isNHT: req.body['isNHT'],
-                    is16k: req.body['is16k']
-                },
-                submitter: {
-                    discordUsername: tokenInfo.username,
-                    email: tokenInfo.email
+                defaults: {
+                    levelId: req.body['levelId'],
+                    speedTrial: !!req.body['speedTrial'],
+                    passer: req.body['passer'],
+                    feelingDifficulty: req.body['feelingDifficulty'],
+                    title: req.body['title'],
+                    rawVideoId: req.body['rawVideoId'],
+                    rawTime: new Date(req.body['rawTime']),
+                    early_double: parseInt(req.body['earlyDouble'] || '0'),
+                    early_single: parseInt(req.body['earlySingle'] || '0'),
+                    e_perfect: parseInt(req.body['ePerfect'] || '0'),
+                    perfect: parseInt(req.body['perfect'] || '0'),
+                    l_perfect: parseInt(req.body['lPerfect'] || '0'),
+                    late_single: parseInt(req.body['lateSingle'] || '0'),
+                    late_double: parseInt(req.body['lateDouble'] || '0'),
+                    is_12k: req.body['is12k'],
+                    is_nht: req.body['isNHT'],
+                    is_16k: req.body['is16k'],
+                    submitter_discord: tokenInfo.username,
+                    submitter_email: tokenInfo.email
                 }
-            };
+            });
 
-            const submission = new PassSubmission(formData);
-            await submission.save();
+            if (!created) {
+                return res.status(409).json({
+                    success: false,
+                    message: 'Pass submission already exists',
+                    submissionId: submission.id
+                });
+            }
 
             return res.json({ 
                 success: true, 
                 message: 'Pass submission saved successfully',
-                submissionId: submission._id 
+                submissionId: submission.id 
             });
         }
 
