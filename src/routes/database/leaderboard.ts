@@ -38,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
       where: whereClause,
       include: [{
         model: Pass,
-        as: 'passes',
+        as: 'playerPasses',
         include: [{
           model: Level,
           attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
@@ -74,7 +74,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Remove passes if not requested
     if (includeAllScores === 'false') {
       enrichedPlayers = enrichedPlayers.map(player => {
-        const { passes, ...rest } = player;
+        const { playerPasses, ...rest } = player;
         return rest;
       });
     }

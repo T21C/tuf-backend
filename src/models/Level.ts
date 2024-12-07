@@ -1,6 +1,7 @@
 import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/db';
 import { ILevel } from '../types/models';
+import Pass from './Pass';
 
 class Level extends Model<ILevel> implements ILevel {
   public id!: number;
@@ -127,7 +128,8 @@ Level.init({
   },
   isDeleted: {
     type: DataTypes.BOOLEAN,
-    allowNull: true
+    allowNull: false,
+    defaultValue: false
   },
   createdAt: {
     type: DataTypes.DATE,
@@ -147,5 +149,6 @@ Level.init({
     { fields: [{ name: 'diff' }] }
   ]
 });
+
 
 export default Level;

@@ -24,7 +24,7 @@ class Player extends BaseModel implements IPlayer {
   declare top12kDiff?: string;
 
   // Associations
-  declare passes?: Pass[];
+  declare playerPasses?: Pass[];
 }
 
 Player.init({
@@ -50,7 +50,5 @@ Player.init({
   sequelize,
   tableName: 'players'
 });
-
-Player.hasMany(Pass, { foreignKey: 'playerId', as: 'passes' });
 
 export default Player;

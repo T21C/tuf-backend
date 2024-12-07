@@ -31,17 +31,17 @@ const buildWhereClause = (query: any) => {
 
   // Player name filter
   if (query.player) {
-    where['$Player.name$'] = { [Op.like]: `%${escapeRegExp(query.player)}%` };
+    where['$player.name$'] = { [Op.like]: `%${escapeRegExp(query.player)}%` };
   }
 
   // General search
   if (query.query) {
     const searchTerm = escapeRegExp(query.query);
     where[Op.or] = [
-      { '$Player.name$': { [Op.like]: `%${searchTerm}%` } },
-      { '$Level.song$': { [Op.like]: `%${searchTerm}%` } },
-      { '$Level.artist$': { [Op.like]: `%${searchTerm}%` } },
-      { '$Level.pguDiff$': { [Op.like]: `%${searchTerm}%` } },
+      { '$player.name$': { [Op.like]: `%${searchTerm}%` } },
+      { '$level.song$': { [Op.like]: `%${searchTerm}%` } },
+      { '$level.artist$': { [Op.like]: `%${searchTerm}%` } },
+      { '$level.pguDiff$': { [Op.like]: `%${searchTerm}%` } },
       { levelId: { [Op.like]: `%${searchTerm}%` } },
       { id: { [Op.like]: `%${searchTerm}%` } }
     ];
@@ -71,19 +71,22 @@ router.get('/level/:chartId', async (req: Request, res: Response) => {
       where: {
         levelId: parseInt(chartId),
         isDeleted: false,
-        '$Player.isBanned$': false
+        '$player.isBanned$': false
       },
       include: [
         {
           model: Player,
+          as: 'player',
           attributes: ['name', 'country', 'isBanned']
         },
         {
           model: Level,
+          as: 'level',
           attributes: ['song', 'artist', 'pguDiff', 'baseScore']
         },
         {
-          model: Judgement
+          model: Judgement,
+          as: 'judgements'
         }
       ]
     });
@@ -104,15 +107,18 @@ router.get('/', async (req: Request, res: Response) => {
       include: [
         {
           model: Player,
+          as: 'player',
           attributes: ['name', 'country', 'isBanned'],
           where: { isBanned: false }
         },
         {
           model: Level,
+          as: 'level',
           attributes: ['song', 'artist', 'pguDiff', 'baseScore']
         },
         {
-          model: Judgement
+          model: Judgement,
+          as: 'judgements'
         }
       ],
       order: getSortOptions(req.query.sort as string)
@@ -140,14 +146,17 @@ router.get('/:id', async (req: Request, res: Response) => {
       include: [
         {
           model: Player,
+          as: 'player',
           attributes: ['name', 'country', 'isBanned']
         },
         {
           model: Level,
+          as: 'level',
           attributes: ['song', 'artist', 'pguDiff', 'baseScore']
         },
         {
-          model: Judgement
+          model: Judgement,
+          as: 'judgements'
         }
       ]
     });
@@ -170,7 +179,16 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     const { id } = req.params;
     const originalPass = await Pass.findOne({ 
       where: { id: parseInt(id) },
-      include: [Level, Judgement],
+      include: [
+        {
+          model: Level,
+          as: 'level'
+        },
+        {
+          model: Judgement,
+          as: 'judgements'
+        }
+      ],
       transaction
     });
 
@@ -256,7 +274,10 @@ router.patch('/:id/soft-delete', Auth.superAdmin(), async (req: Request, res: Re
     
     const pass = await Pass.findOne({ 
       where: { id: parseInt(id) },
-      include: [Level],
+      include: [{
+        model: Level,
+        as: 'level'
+      }],
       transaction
     });
     
@@ -323,7 +344,10 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
     
     const pass = await Pass.findOne({ 
       where: { id: parseInt(id) },
-      include: [Level],
+      include: [{
+        model: Level,
+        as: 'level'
+      }],
       transaction
     });
     

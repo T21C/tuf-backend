@@ -9,19 +9,22 @@ import RerateSubmission from './RerateSubmission';
 import ChartSubmission from './ChartSubmission';
 import { PassSubmission, PassSubmissionJudgements, PassSubmissionFlags } from './PassSubmission';
 import sequelize from '../config/db';
+import { initializeAssociations } from './associations';
+
+// Initialize all associations
+initializeAssociations();
 
 // Update the relationship definitions
 Rating.hasMany(RatingDetail, {
   foreignKey: 'ratingId',
-  sourceKey: 'levelId'  // Changed from default 'id'
+  sourceKey: 'levelId'
 });
 
 RatingDetail.belongsTo(Rating, {
   foreignKey: 'ratingId',
-  targetKey: 'levelId'  // Changed from default 'id'
+  targetKey: 'levelId'
 });
 
-// Export as a named export
 export const db = {
   sequelize,
   models: {
@@ -39,5 +42,4 @@ export const db = {
   }
 };
 
-// Also provide a default export if needed
 export default db; 

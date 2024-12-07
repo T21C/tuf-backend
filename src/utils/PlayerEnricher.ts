@@ -26,12 +26,12 @@ const PGU_SORT: PGUSort = {
 };
 
 export async function enrichPlayerData(player: any): Promise<IPlayer> {
-  const passes = player.Passes || [];
+  const passes = player.playerPasses || [];
   
   // Calculate scores and stats
   const scores: Score[] = passes.map((pass: any) => {
-    const judgements = pass.Judgement;
-    const level = pass.Level;
+    const judgements = pass.judgements;
+    const level = pass.level;
     
     return {
       score: getScoreV2({
@@ -53,7 +53,7 @@ export async function enrichPlayerData(player: any): Promise<IPlayer> {
   // Calculate player stats
   const validScores = scores.filter(s => !s.isDeleted);
   
-  return {
+  const enrichedPlayer: IPlayer = {
     id: player.id,
     name: player.name,
     country: player.country,
@@ -70,8 +70,11 @@ export async function enrichPlayerData(player: any): Promise<IPlayer> {
     topDiff: calculateTopDiff(passes),
     top12kDiff: calculateTop12KDiff(passes),
     createdAt: player.createdAt,
-    updatedAt: player.updatedAt
+    updatedAt: player.updatedAt,
+    playerPasses: passes
   };
+
+  return enrichedPlayer;
 }
 
 function calculateRankedScore(scores: Score[], top = 20): number {
@@ -111,7 +114,7 @@ function calculateAverageXacc(scores: Score[]): number {
 
 function countUniversalPasses(passes: any[]): number {
   return passes.filter(pass => 
-    !pass.isDeleted && pass.Level?.pguDiff?.startsWith('U')
+    !pass.isDeleted && pass.level?.pguDiff?.startsWith('U')
   ).length;
 }
 
@@ -134,7 +137,7 @@ function calculateDiff(passes: any[], only12k: boolean): string {
   passes
     .filter(pass => !pass.isDeleted && (!only12k || pass.is12K))
     .forEach(pass => {
-      const pguDiff = pass.Level?.pguDiff;
+      const pguDiff = pass.level?.pguDiff;
       if (!pguDiff) return;
 
       const letter = pguDiff[0];

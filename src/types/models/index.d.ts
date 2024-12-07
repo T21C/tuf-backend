@@ -32,6 +32,8 @@ export interface ILevel extends IBaseModel {
   rerateReason: string;
   rerateNum: string;
   isDeleted: boolean;
+  // Associations
+  levelPasses?: IPass[];
 }
 
 // Pass interface
@@ -62,7 +64,7 @@ export interface IPlayer extends IBaseModel {
   name: string;
   country: string;
   isBanned: boolean;
-  // Virtual fields (calculated)
+  // Virtual fields
   rankedScore?: number;
   generalScore?: number;
   ppScore?: number;
@@ -75,7 +77,7 @@ export interface IPlayer extends IBaseModel {
   topDiff?: string;
   top12kDiff?: string;
   // Associations
-  passes?: IPass[];
+  playerPasses?: IPass[];
 }
 
 // Rating interface
