@@ -1,9 +1,17 @@
 // videoDetails.js
 import dotenv from 'dotenv';
-import axios, {type AxiosError} from 'axios';
+import axios, { type AxiosError } from 'axios';
 dotenv.config();
 
-async function getBilibiliVideoDetails(url: string) {
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000; // 1 second
+const ENABLE_FETCHING = false;
+
+
+// Helper function to delay execution
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function getBilibiliVideoDetails(url: string, retryCount = 0): Promise<string | null> {
   const urlRegex =
     /https?:\/\/(www\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)\/?/;
   const match = url.match(urlRegex);
@@ -15,10 +23,7 @@ async function getBilibiliVideoDetails(url: string) {
 
   const apiUrl = `${process.env.OWN_URL}/v2/media/bilibili?bvid=${videoId}`;
   try {
-    const response = await axios.get(apiUrl).catch((error: AxiosError) => {
-      throw new Error(`HTTP error! Status: ${error.status}`);
-    });
-
+    const response = await axios.get(apiUrl);
     const resp = response.data;
 
     if (response.status === -400) {
@@ -32,12 +37,24 @@ async function getBilibiliVideoDetails(url: string) {
 
     return pfpUrl;
   } catch (error) {
-    console.error('Error fetching Bilibili video details:', error);
+    if (error instanceof Error) {
+      // If it's a 502 error and we haven't exceeded retries, try again
+      if (
+        retryCount < MAX_RETRIES && 
+        ((error as any).response?.status === 502 || (error as any).response?.status === 503)
+      ) {
+        console.log(`Retrying Bilibili API call (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+        await delay(RETRY_DELAY * (retryCount + 1)); // Exponential backoff
+        return getBilibiliVideoDetails(url, retryCount + 1);
+      }
+      
+      console.error(`Error fetching Bilibili video details (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error.message);
+    }
     return null;
   }
 }
 
-async function getYouTubeVideoDetails(url: string) {
+async function getYouTubeVideoDetails(url: string): Promise<string | null> {
   const shortUrlRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
   const longUrlRegex = /youtube\.com\/.*[?&]v=([a-zA-Z0-9_-]{11})/;
 
@@ -70,20 +87,29 @@ async function getYouTubeVideoDetails(url: string) {
 
     return channelData.items[0].snippet.thumbnails.default.url;
   } catch (error) {
-    console.error('Error fetching YouTube video details:', error);
+    if (error instanceof Error) {
+      console.error('Error fetching YouTube video details:', error.message);
+    }
     return null;
   }
 }
 
-export async function getPfpUrl(url: string) {
-  if (!url) {
+export async function getPfpUrl(url: string): Promise<string | null> {
+  if (!url || !ENABLE_FETCHING) {
     return null;
   }
 
-  let details = await getYouTubeVideoDetails(url);
-  if (!details) {
-    details = await getBilibiliVideoDetails(url);
+    // Try YouTube first as it doesn't require our server endpoints
+  if (url.includes('youtube.com') || url.includes('youtu.be')) {
+    const details = await getYouTubeVideoDetails(url);
+    if (details) return details;
   }
 
-  return details;
+  // Then try Bilibili if it's a Bilibili URL
+  if (url.includes('bilibili.com')) {
+    const details = await getBilibiliVideoDetails(url);
+    if (details) return details;
+  }
+
+  return null;
 }

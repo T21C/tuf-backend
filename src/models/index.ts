@@ -14,17 +14,6 @@ import { initializeAssociations } from './associations';
 // Initialize all associations
 initializeAssociations();
 
-// Update the relationship definitions
-Rating.hasMany(RatingDetail, {
-  foreignKey: 'ratingId',
-  sourceKey: 'levelId'
-});
-
-RatingDetail.belongsTo(Rating, {
-  foreignKey: 'ratingId',
-  targetKey: 'levelId'
-});
-
 export const db = {
   sequelize,
   models: {

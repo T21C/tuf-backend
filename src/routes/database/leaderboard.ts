@@ -6,6 +6,7 @@ import Pass from '../../models/Pass';
 import Level from '../../models/Level';
 import Judgement from '../../models/Judgement';
 import { enrichPlayerData } from '../../utils/PlayerEnricher';
+import { IPlayer } from '../../types/models';
 
 const router: Router = Router();
 
@@ -41,10 +42,12 @@ router.get('/', async (req: Request, res: Response) => {
         as: 'playerPasses',
         include: [{
           model: Level,
+          as: 'level',
           attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
         },
         {
           model: Judgement,
+          as: 'judgements',
           attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
         }]
       }]
@@ -57,8 +60,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Sort players based on the requested field
     enrichedPlayers.sort((a, b) => {
-      const valueA = a[sortBy as keyof typeof a];
-      const valueB = b[sortBy as keyof typeof b];
+      const valueA = a[sortBy as keyof IPlayer] ?? 0;
+      const valueB = b[sortBy as keyof IPlayer] ?? 0;
 
       if (valueA === undefined || valueB === undefined) {
         return 0;
@@ -73,8 +76,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Remove passes if not requested
     if (includeAllScores === 'false') {
-      enrichedPlayers = enrichedPlayers.map(player => {
-        const { playerPasses, ...rest } = player;
+      enrichedPlayers = enrichedPlayers.map(player => {        
+        const { playerPasses: _playerPasses, ...rest } = player;
         return rest;
       });
     }

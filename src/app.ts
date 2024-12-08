@@ -14,11 +14,14 @@ import { startScheduledTasks } from './utils/scheduledTasks';
 import { updateData } from './utils/updateHelpers';
 import reloadDatabase from './utils/reloadDatabase';
 import { setIO } from './utils/socket';
+import { updateAllPlayerPfps } from './utils/PlayerEnricher';
+import LeaderboardCache from './utils/LeaderboardCache';
 
 dotenv.config();
 
 const app: Express = express(); 
 const httpServer = createServer(app);
+const leaderboardCache = LeaderboardCache.getInstance();
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
@@ -51,11 +54,8 @@ async function startServer() {
 
     // Then initialize if needed
     if (process.env.INIT_DB === 'true') {
-      console.log('Initializing database structure...');
+      console.log('Initializing database...');
       await initializeDatabase();
-
-      console.log('Reloading database...');
-      await reloadDatabase();
     }
 
     // Set up Express middleware
@@ -72,9 +72,24 @@ async function startServer() {
 
     // Start the server
     const port = process.env.PORT || 3002;
-    httpServer.listen(port, () => {
-      console.log(`Server running on ${process.env.OWN_URL}`);
+    await new Promise<void>((resolve) => {
+      httpServer.listen(port, () => {
+        console.log(`Server running on ${process.env.OWN_URL}`);
+        resolve();
+      });
     });
+
+    // Initialize leaderboard cache
+    await leaderboardCache.initialize();
+
+    // Update profile pictures after server is fully initialized
+    console.log('Starting profile picture updates...');
+    try {
+      await updateAllPlayerPfps();
+      console.log('Player profile pictures updated successfully');
+    } catch (pfpError) {
+      console.error('Error updating profile pictures:', pfpError);
+    }
 
   } catch (error) {
     console.error('Failed to start server:', error);

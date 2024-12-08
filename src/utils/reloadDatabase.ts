@@ -1,9 +1,9 @@
 import axios from 'axios';
 import db from '../models/index';
-import { Op } from 'sequelize';
-import xlsx from 'xlsx';
 import { Cache } from './cacheManager';
 import { IPlayer, ILevel } from '../types/models';
+import { updateAllPlayerPfps } from './PlayerEnricher';
+import xlsx from 'xlsx';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -46,6 +46,7 @@ interface RawPass {
   judgements: number[];
   accuracy: number;
   scoreV2: number;
+  isWorldsFirst: boolean;
 }
 
 interface RawPlayer {
@@ -55,8 +56,13 @@ interface RawPlayer {
 }
 
 async function fetchData<T>(endpoint: string): Promise<T> {
-  const response = await axios.get(`${BE_API}${endpoint}`);
-  return response.data;
+  try {
+    const response = await axios.get(`${BE_API}${endpoint}`);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching data from ${endpoint}:`, error);
+    throw error;
+  }
 }
 
 async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
@@ -80,7 +86,7 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
     return feelingRatings;
   } catch (error) {
     console.error('Error reading feeling ratings from XLSX:', error);
-    throw error;
+    return new Map(); // Return empty map on error
   }
 }
 
@@ -100,18 +106,16 @@ async function reloadDatabase() {
     ]);
     console.log('Cleared existing data');
 
-    // Load feeling ratings
-    const feelingRatings = await readFeelingRatingsFromXlsx();
+    // Load data from BE API
+    const [playersResponse, levelsResponse, passesResponse] = await Promise.all([
+      fetchData<RawPlayer[]>('/players'),
+      fetchData<RawLevel[]>('/levels'),
+      fetchData<{ count: number, results: RawPass[] }>('/passes')
+    ]);
 
-    // Fetch and process players
-    const playersResponse = await fetchData<RawPlayer[]>('/players');
+    // Process players
     const players = Array.isArray(playersResponse) ? playersResponse : 
                    (playersResponse as any).results || [];
-
-    // Create player name to ID mapping
-    const playerNameToId = new Map<string, number>();
-    
-    // Process and insert players using db.models
     const playerDocs = players
       .filter((player: RawPlayer) => player.name)
       .map((player: RawPlayer, index: number) => ({
@@ -121,48 +125,106 @@ async function reloadDatabase() {
         isBanned: player.isBanned || false
       }));
 
-    await db.models.Player.bulkCreate(playerDocs, { transaction });
-    playerDocs.forEach((player: IPlayer) => playerNameToId.set(player.name, player.id));
-    console.log(`Inserted ${playerDocs.length} players`);
-
-    // Fetch and process levels
-    const levelsResponse = await fetchData<RawLevel[]>('/levels');
+    // Process levels
     const levels = Array.isArray(levelsResponse) ? levelsResponse : 
                   (levelsResponse as any).results || [];
-
-    // Create level ID mapping
-    const levelIdMapping = new Map<number, number>();
     
-    // Process levels and maintain a mapping of old to new IDs
-    const levelDocs = levels.map((level: RawLevel, index: number) => {
-      const newId = index + 1;
-      levelIdMapping.set(level.id, newId);
-      return {
-        ...level,
-        id: newId,  // Override the id with sequential numbers
-        baseScoreDiff: level.baseScore || 0,
-        toRate: false
-      };
+    // Sort levels by ID to process them in order
+    levels.sort((a: any, b: any) => a.id - b.id);
+    
+    const levelDocs: any[] = [];
+    const levelIdMapping = new Map<number, number>();
+    let nextDbId = 1;
+
+    // Create a placeholder level for gaps
+    const createPlaceholderLevel = (dbId: number) => ({
+      id: dbId,
+      song: 'Placeholder',
+      artist: 'Unknown',
+      creator: 'Unknown',
+      charter: 'Unknown',
+      vfxer: 'Unknown',
+      team: 'Unknown',
+      diff: 0,
+      legacyDiff: 0,
+      pguDiff: 'U',
+      pguDiffNum: 0,
+      newDiff: 0,
+      baseScore: 0,
+      baseScoreDiff: 0,
+      isCleared: false,
+      clears: 0,
+      vidLink: '',
+      dlLink: '',
+      workshopLink: '',
+      publicComments: 'Placeholder for missing level',
+      toRate: false,
+      isDeleted: true
     });
 
-    await db.models.Level.bulkCreate(levelDocs, { transaction });
-    console.log(`Inserted ${levelDocs.length} levels`);
+    // Process each level and fill gaps
+    for (const level of levels) {
+      // Fill any gaps before this level
+      while (nextDbId < level.id) {
+        console.log(`Creating placeholder for missing level ID ${nextDbId}`);
+        const placeholder = createPlaceholderLevel(nextDbId);
+        levelDocs.push(placeholder);
+        levelIdMapping.set(nextDbId, nextDbId);
+        nextDbId++;
+      }
+
+      // Add the actual level
+      const dbId = nextDbId;
+      levelDocs.push({
+        ...level,
+        id: dbId,
+        baseScoreDiff: level.baseScore || 0,
+        toRate: false
+      });
+      levelIdMapping.set(level.id, dbId);
+      nextDbId++;
+    }
+
+    console.log(`Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`);
+
+    // Create ID mappings
+    const playerNameToId = new Map<string, number>(
+      playerDocs.map((p: any) => [p.name, p.id])
+    );
+
+    // Load feeling ratings
+    const feelingRatings = await readFeelingRatingsFromXlsx();
 
     // Process passes and judgements
-    const passesResponse = await fetchData<{ count: number, results: RawPass[] }>('/passes');
     const passes = passesResponse.results;
-
     const passDocs = [];
     const judgementDocs = [];
+
+    // First, organize passes by level to determine world's firsts
+    const levelFirstPasses = new Map<number, { uploadTime: Date, passId: number }>();
+    passes.forEach((pass: RawPass) => {
+      const newLevelId = levelIdMapping.get(pass.levelId);
+      if (typeof newLevelId !== 'number') return;
+
+      const uploadTime = new Date(pass.vidUploadTime);
+      const currentFirst = levelFirstPasses.get(newLevelId);
+      
+      if (!currentFirst || uploadTime < currentFirst.uploadTime) {
+        levelFirstPasses.set(newLevelId, { uploadTime, passId: pass.id });
+      }
+    });
 
     for (const pass of passes) {
       const playerId = playerNameToId.get(pass.player);
       const newLevelId = levelIdMapping.get(pass.levelId);
       
-      if (playerId && newLevelId) {  // Only create pass if we have valid IDs
+      if (playerId && typeof newLevelId === 'number') {
+        // Check if this pass is the world's first for its level
+        const isWorldsFirst = levelFirstPasses.get(newLevelId)?.passId === pass.id;
+
         passDocs.push({
           id: pass.id,
-          levelId: newLevelId,  // Use the mapped level ID
+          levelId: newLevelId,
           playerId: playerId,
           feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
@@ -172,8 +234,10 @@ async function reloadDatabase() {
           is16K: false,
           isNoHoldTap: pass.isNoHoldTap,
           isLegacyPass: pass.isLegacyPass,
+          isWorldsFirst,
           accuracy: pass.accuracy,
-          scoreV2: pass.scoreV2
+          scoreV2: pass.scoreV2,
+          isDeleted: false
         });
 
         judgementDocs.push({
@@ -189,25 +253,24 @@ async function reloadDatabase() {
       }
     }
 
-    await db.models.Pass.bulkCreate(passDocs, { transaction });
-    await db.models.Judgement.bulkCreate(judgementDocs, { transaction });
-    console.log(`Inserted ${passDocs.length} passes with judgements`);
+    // Bulk insert all data
+    await Promise.all([
+      db.models.Player.bulkCreate(playerDocs, { transaction }),
+      db.models.Level.bulkCreate(levelDocs, { transaction }),
+      db.models.Pass.bulkCreate(passDocs, { transaction }),
+      db.models.Judgement.bulkCreate(judgementDocs, { transaction })
+    ]);
 
-    // Update clear counts using new level IDs
+    // Update clear counts
     const clearCounts = new Map<number, number>();
-    const nonBannedPlayerIds = new Set(
-      playerDocs
-        .filter((p: IPlayer) => !p.isBanned)
-        .map((p: IPlayer) => p.id)
-    );
+    const nonBannedPlayerIds = new Set(playerDocs.filter((p: any) => !p.isBanned).map((p: any) => p.id));
 
-    passDocs.forEach(pass => {
+    passDocs.forEach((pass: any) => {
       if (nonBannedPlayerIds.has(pass.playerId)) {
         clearCounts.set(pass.levelId, (clearCounts.get(pass.levelId) || 0) + 1);
       }
     });
 
-    // Update level clear counts
     await Promise.all(
       Array.from(clearCounts.entries()).map(([levelId, clears]) =>
         db.models.Level.update(
@@ -217,16 +280,14 @@ async function reloadDatabase() {
       )
     );
 
+    // Commit transaction first
     await transaction.commit();
     console.log('Database reload completed successfully');
 
-    // Reload cache after successful database update
-    await Cache.reloadAll();
-    console.log('Cache reloaded');
-
+    return true;
   } catch (error) {
     await transaction.rollback();
-    console.error('Error reloading database:', error);
+    console.error('Database reload failed:', error);
     throw error;
   }
 }

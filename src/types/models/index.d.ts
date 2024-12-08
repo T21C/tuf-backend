@@ -61,9 +61,15 @@ export interface IPass extends IBaseModel {
 
 // Player interfaces
 export interface IPlayer extends IBaseModel {
+  id: number;
   name: string;
   country: string;
   isBanned: boolean;
+  pfp?: string | null;
+  playerPasses?: IPass[];
+  createdAt?: Date;
+  updatedAt?: Date;
+
   // Virtual fields
   rankedScore?: number;
   generalScore?: number;
@@ -76,8 +82,6 @@ export interface IPlayer extends IBaseModel {
   WFPasses?: number;
   topDiff?: string;
   top12kDiff?: string;
-  // Associations
-  playerPasses?: IPass[];
 }
 
 // Rating interface

@@ -1,63 +1,44 @@
 import { Request, Response, Router } from 'express';
-import { Op } from 'sequelize';
-import { decodeFromBase32 } from '../../utils/encodingHelpers';
 import Player from '../../models/Player';
 import Pass from '../../models/Pass';
 import Level from '../../models/Level';
 import Judgement from '../../models/Judgement';
 import { enrichPlayerData } from '../../utils/PlayerEnricher';
-import { Cache } from '../../utils/cacheManager';
-import { ILevel, IPass } from '../../types/models';
-import sequelize from '../../config/db';
+import LeaderboardCache from '../../utils/LeaderboardCache';
+import { Auth } from '../../middleware/auth';
+import { Op } from 'sequelize';
 
 const router: Router = Router();
+const leaderboardCache = LeaderboardCache.getInstance();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const routeStart = performance.now();
-
-    // Build where clause based on query params
-    const whereClause: any = {};
-    if (req.query.name) {
-      whereClause.name = { [Op.like]: `%${req.query.name}%` };
-    }
-    if (req.query.player) {
-      const decodedName = decodeFromBase32(req.query.player as string);
-      whereClause.name = { [Op.like]: `%${decodedName}%` };
-    }
-
-    // Get players with their passes and related data
     const players = await Player.findAll({
-      where: whereClause,
       include: [{
         model: Pass,
+        as: 'playerPasses',
         include: [{
           model: Level,
+          as: 'level',
           attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
         },
         {
           model: Judgement,
+          as: 'judgements',
           attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
         }]
       }]
     });
 
-    // Enrich player data with calculated fields
     const enrichedPlayers = await Promise.all(
-      players.map(player => enrichPlayerData(player))
+      players.map(async player => {
+        const enriched = await enrichPlayerData(player);
+        const rankings = leaderboardCache.getAllRanks(player.id);
+        return { ...enriched, rankings };
+      })
     );
 
-    const count = enrichedPlayers.length;
-
-    // Handle pagination
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const limit = req.query.limit ? Number(req.query.limit) : undefined;
-    const results = enrichedPlayers.slice(offset, limit ? offset + limit : undefined);
-
-    const totalTime = performance.now() - routeStart;
-    console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
-
-    return res.json({ count, results });
+    return res.json(enrichedPlayers);
   } catch (error) {
     console.error('Error fetching players:', error);
     return res.status(500).json({ 
@@ -67,20 +48,21 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:player', async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const decodedName = decodeFromBase32(req.params.player);
-    
     const player = await Player.findOne({
-      where: { name: decodedName },
+      where: { id: req.params.id },
       include: [{
         model: Pass,
+        as: 'playerPasses',
         include: [{
           model: Level,
+          as: 'level',
           attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
         },
         {
           model: Judgement,
+          as: 'judgements',
           attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
         }]
       }]
@@ -91,174 +73,99 @@ router.get('/:player', async (req: Request, res: Response) => {
     }
 
     const enrichedPlayer = await enrichPlayerData(player);
-    return res.json(enrichedPlayer);
+    const rankings = leaderboardCache.getAllRanks(player.id);
+    
+    return res.json({
+      ...enrichedPlayer,
+      rankings
+    });
   } catch (error) {
     console.error('Error fetching player:', error);
-    return res.status(500).json({ error: 'Failed to fetch player' });
+    return res.status(500).json({ 
+      error: 'Failed to fetch player',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
-// Endpoint to change a player's country code
-router.put('/:player/country', async (req: Request, res: Response) => {
-  const playerName = req.params.player;
-  const { country } = req.body;
-  console.log(playerName);
-  
+
+// Search for players by name
+router.get('/search/:name', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
-    const [affectedCount, [player]] = await Player.update(
-      { country },
-      { 
-        where: { name: playerName },
-        returning: true
-      }
+    const { name } = req.params;
+    
+    // Find players with their passes and level data in a single query
+    // This uses Sequelize's eager loading with 'include'
+    const players = await Player.findAll({
+      where: {
+        name: {
+          [Op.like]: `%${name}%`
+        }
+      },
+      // Include the passes association
+      include: [{
+        model: Pass,
+        as: 'playerPasses', // This alias must match the one defined in associations.ts
+        required: false,    // Use LEFT JOIN to include players even without passes
+        include: [{
+          model: Level,
+          as: 'level',     // This alias must match the one defined in associations.ts
+          attributes: ['baseScore', 'pguDiff']
+        }]
+      }],
+      limit: 20
+    });
+
+    // Enrich each player with calculated scores
+    const enrichedPlayers = await Promise.all(
+      players.map(async player => {
+        // enrichPlayerData uses the included passes to calculate scores
+        // player.playerPasses is now available because of the include above
+        const enriched = await enrichPlayerData(player);
+        
+        // Return only the fields we need for the search results
+        return {
+          id: enriched.id,
+          name: enriched.name,
+          country: enriched.country,
+          rankedScore: enriched.rankedScore // Keep the original name for frontend compatibility
+        };
+      })
     );
 
-    if (!player) {
-      return res.status(404).json({ error: 'Player not found' });
-    }
+    // Sort by ranked score descending after enrichment
+    enrichedPlayers.sort((a, b) => (b.rankedScore || 0) - (a.rankedScore || 0));
 
-    return res.json({ message: 'Country updated successfully', player });
+    return res.json(enrichedPlayers);
   } catch (error) {
-    console.error('Error updating country:', error);
-    return res.status(500).json({ error: 'Failed to update country' });
+    console.error('Error searching players:', error);
+    return res.status(500).json({ error: error });
   }
 });
 
-// Endpoint to ban/unban a player
-router.put('/:player/ban', async (req: Request, res: Response) => {
-  const playerName = decodeFromBase32(req.params.player);
-  const { isBanned } = req.body;
-
+// Create new player
+router.post('/players', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
-    const [affectedCount, [player]] = await Player.update(
-      { isBanned },
-      { 
-        where: { name: playerName },
-        returning: true
+    const { name, country } = req.body;
+    const [player, created] = await Player.findOrCreate({
+      where: { name },
+      defaults: {
+        name,
+        country,
+        pfp: 'none'
       }
-    );
+    });
 
-    if (!player) {
-      console.log(`Player not found: ${playerName}`);
-      return res.status(404).json({ error: 'Player not found' });
+    if (!created) {
+      return res.status(400).json({ error: 'Player already exists' });
     }
 
-    // Check if the current status is different from the requested status
-    if (player.isBanned === isBanned) {
-      return res.json({
-        message: `Player ${playerName} is already ${isBanned ? 'banned' : 'unbanned'}`,
-        player
-      });
-    }
-
-    // Update the player's ban status
-    player.isBanned = isBanned;
-    await player.save();
-
-    // Update player data in cache
-    const playersCache = Cache.get('players');
-    const playerIndex = playersCache.findIndex((p: any) => p.name === playerName);
-    if (playerIndex !== -1) {
-      playersCache[playerIndex].isBanned = isBanned;
-      await Cache.set('players', playersCache);
-    }
-
-    if (isBanned) {
-      console.log(`Banning player: ${playerName}`);
-      const playerData = Cache.get('fullPlayerList').find((p: any) => p.player === playerName);
-      
-      if (playerData && playerData.allScores) {
-        // Update clearcount for each chart the player has passed
-        for (const score of playerData.allScores) {
-          if (!score.isDeleted) {  // Only count non-deleted scores
-            const level = await Level.findOne({ where: { id: score.chartId } });
-            if (level) {
-              // Ensure clears won't go negative
-              const newClears = Math.max(0, level.clears - 1);
-              const updates: any = { clears: newClears };
-              
-              // If clears becomes 0, set isCleared to false
-              if (newClears === 0) {
-                updates.isCleared = false;
-              }
-              
-              await Level.update(
-                { 
-                  clears: sequelize.literal('clears - 1'),
-                  isCleared: sequelize.literal('CASE WHEN clears - 1 <= 0 THEN false ELSE isCleared END')
-                },
-                { 
-                  where: { id: score.chartId }
-                }
-              );
-
-              // Update the charts cache
-              const chartsCache: ILevel[] = Cache.get('charts');
-              const chartIndex = chartsCache.findIndex((chart: ILevel) => chart.id === score.chartId);
-              if (chartIndex !== -1) {
-                chartsCache[chartIndex].clears = newClears;
-                if (newClears === 0) {
-                  chartsCache[chartIndex].isCleared = false;
-                }
-              }
-              await Cache.set('charts', chartsCache);
-            }
-          }
-        }
-      }
-
-      return res.json({ 
-        message: `Player ${playerName} banned successfully`, 
-        player,
-        clearcountsUpdated: playerData?.allScores?.filter((score: IPass) => !score.isDeleted).length || 0
-      });
-    } else {
-      console.log(`Unbanning player: ${playerName}`);
-      const playerData = Cache.get('fullPlayerList').find((p: any) => p.player === playerName);
-      
-      if (playerData && playerData.allScores) {
-        for (const score of playerData.allScores) {
-          if (!score.isDeleted) {  // Only count non-deleted scores
-            const level = await Level.findOne({ where: { id: score.chartId } });
-            if (level) {
-              const updates: any = { 
-                clears: level.clears + 1,
-                isCleared: true  // Set to true when incrementing clears
-              };
-              
-              await Level.update(
-                { 
-                  clears: sequelize.literal('clears + 1'),
-                  isCleared: true
-                },
-                { 
-                  where: { id: score.chartId }
-                }
-              );
-
-              // Update the charts cache
-              const chartsCache: ILevel[] = Cache.get('charts');
-              const chartIndex = chartsCache.findIndex((chart: ILevel) => chart.id === score.chartId);
-              if (chartIndex !== -1) {
-                chartsCache[chartIndex].clears++;
-                chartsCache[chartIndex].isCleared = true;
-              }
-              await Cache.set('charts', chartsCache);
-            }
-          }
-        }
-      }
-
-      return res.json({ 
-        message: `Player ${playerName} unbanned successfully`, 
-        player
-      });
-    }
-
+    return res.json(player);
   } catch (error) {
-    console.error('Error updating ban status:', error);
-    return res.status(500).json({ error: 'Failed to update ban status' });
+    console.error('Error creating player:', error);
+    return res.status(500).json({ error: error });
   }
 });
+
 
 export default router;

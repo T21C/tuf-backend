@@ -1,6 +1,5 @@
-import { calcAcc } from "../misc/CalcAcc"
-import { arraySum } from "../misc/HelperFns"
-import { IJudgements } from '../models/Judgements';
+import { calcAcc } from "../misc/CalcAcc.js"
+import { arraySum } from "../misc/HelperFns.js"
 
 const gmConst = 315
 const start = 1
@@ -9,7 +8,7 @@ const startDeduc = 10
 const endDeduc = 50
 const pwr = 0.7
 
-const getScoreV2Mtp = (inputs: IJudgements) => {
+const getScoreV2Mtp = (inputs: any) => {
     const misses = inputs.earlyDouble + inputs.earlySingle
     const tiles = arraySum(Object.values(inputs).slice(1))
     if (!misses){
@@ -37,7 +36,7 @@ const getScoreV2Mtp = (inputs: IJudgements) => {
     }
     }
 
-    const getXaccMtp = (inp: IJudgements) => {
+    const getXaccMtp = (inp: any) => {
 
         const xacc = calcAcc(inp, true)
         const xacc_percentage = xacc * 100
@@ -100,14 +99,18 @@ const getScore = (passData: any, chartData: any) => {
 
 export const getScoreV2 = (passData: any, chartData: any) => {
     
+    console.log(passData);
+    console.log(chartData);
     
     const inputs = passData['judgements'];
+    console.log(inputs);
     const scoreOrig = getScore(passData, chartData);
+    console.log(scoreOrig);
     var mtp = getScoreV2Mtp(inputs);
     if (passData['isNoHoldTap']) 
        {
         mtp *= 0.9
     };
-    
+    console.log(scoreOrig * mtp);
     return (scoreOrig * mtp)
 }

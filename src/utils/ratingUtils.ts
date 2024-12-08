@@ -1,6 +1,6 @@
+import RatingDetail from "../models/RatingDetail";
+
 type PguRatingMap = { [key: string]: number };
-type RatingArray = [string, string]; // [rating, comment]
-type RatingsObject = { [username: string]: RatingArray };
 type SpecialRatingCounts = { [rating: string]: number };
 
 // Rating parser utilities
@@ -23,11 +23,11 @@ const specialRatings: Set<string> = new Set([
     'Bus', 'Grande', 'MA', 'MP', '-21', '-2', '0'
 ]);
 
-export function parseRating(rating: string | null): number | string | null {
-    if (!rating) return null;
+export function parseRating(ratingStr: string): number | string | null {
+    if (!ratingStr) return null;
     
     // Convert to uppercase for consistency
-    const upperRating = rating.toUpperCase();
+    const upperRating = ratingStr.toUpperCase();
     
     // Check if it's a PGU rating
     if (pguRatingMap[upperRating]) {
@@ -35,8 +35,8 @@ export function parseRating(rating: string | null): number | string | null {
     }
     
     // Check if it's a special rating
-    if (specialRatings.has(rating)) {
-        return rating;
+    if (specialRatings.has(ratingStr)) {
+        return ratingStr;
     }
     
     return null;
@@ -46,15 +46,16 @@ export function formatRating(numericRating: number): string | null {
     return reversePguMap[numericRating] || null;
 }
 
-export function calculateAverageRating(ratings: any[]): string | null {
-    if (!ratings || ratings.length === 0) return null;
+export function calculateAverageRating(details: RatingDetail[]): string | null {
+    if (!details || details.length === 0) return null;
 
     // Count occurrences of special ratings
     const specialRatingCounts: SpecialRatingCounts = {};
     const numericRatings: number[] = [];
 
     // Process all ratings
-    ratings.forEach(({ rating }) => {
+    details.forEach((detail) => {
+        const rating = detail.dataValues?.rating;
         if (!rating) return;
 
         const parsed = parseRating(rating);
@@ -71,6 +72,8 @@ export function calculateAverageRating(ratings: any[]): string | null {
             return rating;
         }
     }
+
+    // Calculate average of numeric ratings
     if (numericRatings.length > 0) {
         const average = numericRatings.reduce((a, b) => a + b, 0) / numericRatings.length;
         return formatRating(Math.round(average));
@@ -78,7 +81,6 @@ export function calculateAverageRating(ratings: any[]): string | null {
 
     return null;
 }
-
 
 export function calculatePguDiffNum(pguDiff: string): number {
     if (!pguDiff) return 0;

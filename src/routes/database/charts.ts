@@ -9,8 +9,11 @@ import { calculateBaseScore, calculatePguDiffNum } from '../../utils/ratingUtils
 import { Auth } from '../../middleware/auth';
 import { getIO } from '../../utils/socket';
 import sequelize from '../../config/db';
+import LeaderboardCache from '../../utils/LeaderboardCache';
+import RatingDetail from '../../models/RatingDetail';
 
 const router: Router = Router();
+const leaderboardCache = LeaderboardCache.getInstance();
 
 // Helper function to build where clause
 const buildWhereClause = (query: any) => {
@@ -191,8 +194,15 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   
   try {
     const { id } = req.params;
+    const chartId = parseInt(id);
+    
+    if (isNaN(chartId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid chart ID' });
+    }
+
     const chart = await Level.findOne({ 
-      where: { id: parseInt(id) },
+      where: { id: chartId },
       transaction
     });
 
@@ -213,40 +223,85 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       baseScore = calculateBaseScore(req.body.diff);
     }
 
+    // Handle rating creation/deletion if toRate is changing
+    if (typeof req.body.toRate === 'boolean' && req.body.toRate !== chart.toRate) {
+      if (req.body.toRate) {
+        // Create new rating if toRate is being set to true
+        const existingRating = await Rating.findOne({
+          where: { levelId: chartId },
+          transaction
+        });
+
+        if (!existingRating) {
+          await Rating.create({
+            levelId: chartId,
+            currentDiff: '0',
+            lowDiff: false,
+            requesterFR: '',
+            average: ''
+          }, { transaction });
+        }
+      } else {
+        // Delete rating if toRate is being set to false
+        const existingRating = await Rating.findOne({
+          where: { levelId: chartId },
+          transaction
+        });
+
+        if (existingRating) {
+          // Delete rating details first
+          await RatingDetail.destroy({
+            where: { ratingId: existingRating.id },
+            transaction
+          });
+          // Then delete the rating
+          await existingRating.destroy({ transaction });
+        }
+      }
+    }
+
+    // Prepare update data with proper null handling
+    const updateData = {
+      song: req.body.song || null,
+      artist: req.body.artist || null,
+      creator: req.body.creator || null,
+      charter: req.body.charter || null,
+      vfxer: req.body.vfxer || null,
+      team: req.body.team || null,
+      diff: req.body.diff === '' ? undefined : (req.body.diff || chart.diff),
+      legacyDiff: req.body.legacyDiff === '' ? undefined : (req.body.legacyDiff || chart.legacyDiff),
+      pguDiff: req.body.pguDiff || null,
+      pguDiffNum: pguDiffNum || undefined,
+      newDiff: req.body.newDiff === '' ? undefined : (req.body.newDiff || chart.newDiff),
+      baseScore: baseScore || undefined,
+      baseScoreDiff: req.body.baseScoreDiff || null,
+      isCleared: typeof req.body.isCleared === 'boolean' ? req.body.isCleared : chart.isCleared,
+      clears: typeof req.body.clears === 'number' ? req.body.clears : chart.clears,
+      vidLink: req.body.vidLink || null,
+      dlLink: req.body.dlLink || null,
+      workshopLink: req.body.workshopLink || null,
+      publicComments: req.body.publicComments || null,
+      toRate: typeof req.body.toRate === 'boolean' ? req.body.toRate : chart.toRate,
+      rerateReason: req.body.rerateReason || null,
+      rerateNum: req.body.rerateNum || null
+    };
+
     // Update chart
-    const [affectedCount, [updatedChart]] = await Level.update({
-      song: req.body.song,
-      artist: req.body.artist,
-      creator: req.body.creator,
-      charter: req.body.charter,
-      vfxer: req.body.vfxer,
-      team: req.body.team,
-      diff: req.body.diff,
-      legacyDiff: req.body.legacyDiff,
-      pguDiff: req.body.pguDiff,
-      pguDiffNum,
-      newDiff: req.body.newDiff,
-      baseScore,
-      baseScoreDiff: req.body.baseScoreDiff,
-      isCleared: req.body.isCleared,
-      clears: req.body.clears,
-      vidLink: req.body.vidLink,
-      dlLink: req.body.dlLink,
-      workshopLink: req.body.workshopLink,
-      publicComments: req.body.publicComments,
-      toRate: req.body.toRate,
-      rerateReason: req.body.rerateReason,
-      rerateNum: req.body.rerateNum
-    }, {
-      where: { id: parseInt(id) },
-      returning: true,
+    await Level.update(updateData, {
+      where: { id: chartId },
+      transaction
+    });
+
+    // Fetch the updated record
+    const updatedChart = await Level.findOne({
+      where: { id: chartId },
       transaction
     });
 
     await transaction.commit();
 
     const io = getIO();
-    io.emit('chartsUpdated');
+    io.emit('ratingsUpdated');
 
     return res.json({
       message: 'Chart updated successfully',
@@ -289,7 +344,7 @@ router.patch('/:id/soft-delete', Auth.superAdmin(), async (req: Request, res: Re
     await transaction.commit();
 
     const io = getIO();
-    io.emit('chartsUpdated');
+    io.emit('ratingsUpdated');
 
     return res.json({ 
       message: 'Chart soft deleted successfully'
@@ -330,7 +385,7 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
     await transaction.commit();
 
     const io = getIO();
-    io.emit('chartsUpdated');
+    io.emit('ratingsUpdated');
 
     return res.json({ 
       message: 'Chart restored successfully'
@@ -339,6 +394,88 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
     await transaction.rollback();
     console.error('Error restoring chart:', error);
     return res.status(500).json({ error: 'Failed to restore chart' });
+  }
+});
+
+// Toggle rating status for a chart
+router.put('/:id/toRate', async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+
+    // Get the level
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    // Check if rating exists
+    const existingRating = await Rating.findOne({ 
+      where: { levelId },
+      transaction
+    });
+
+    if (existingRating) {
+      // If rating exists, delete all associated details first
+      await RatingDetail.destroy({
+        where: { ratingId: existingRating.id },
+        transaction
+      });
+      
+      // Then delete the rating and update level
+      await existingRating.destroy({ transaction });
+      await Level.update(
+        { toRate: false },
+        { 
+          where: { id: levelId },
+          transaction
+        }
+      );
+
+      await transaction.commit();
+      return res.json({
+        message: 'Rating removed successfully',
+        toRate: false
+      });
+    } else {
+      // Create new rating with default values
+      const newRating = await Rating.create({
+        levelId,
+        currentDiff: '0',
+        lowDiff: false,
+        requesterFR: '',
+        average: ''
+      }, { transaction });
+
+      // Update level to mark for rating
+      await Level.update(
+        { toRate: true },
+        { 
+          where: { id: levelId },
+          transaction
+        }
+      );
+
+      await transaction.commit();
+      return res.json({
+        message: 'Rating created successfully',
+        toRate: true,
+        ratingId: newRating.id
+      });
+    }
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error toggling rating status:', error);
+    return res.status(500).json({
+      error: 'Failed to toggle rating status',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 

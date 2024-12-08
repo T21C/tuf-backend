@@ -3,10 +3,12 @@ import { verifyAccessToken } from '../../utils/authHelpers';
 import { raterList } from '../../config/constants';
 import Rating from '../../models/Rating';
 import RatingDetail from '../../models/RatingDetail';
+import Level from '../../models/Level';
 import { calculateAverageRating } from '../../utils/ratingUtils';
 import { Auth } from '../../middleware/auth';
 import { IUser } from '../../types/express';
 import { getIO } from '../../utils/socket';
+import sequelize from '../../config/db';
 
 const router: Router = express.Router();
 
@@ -17,10 +19,24 @@ router.get("/raters", async (req: Request, res: Response) => {
 router.get("/", Auth.rater(), async (req: Request, res: Response) => {
     try {
       const ratings = await Rating.findAll({
-        include: [{
-          model: RatingDetail,
-          attributes: ['username', 'rating', 'comment']
-        }],
+        include: [
+          {
+            model: RatingDetail,
+            as: 'RatingDetails',
+            attributes: ['username', 'rating', 'comment']
+          },
+          {
+            model: Level,
+            as: 'level',
+            attributes: [
+              'id', 'song', 'artist', 'creator', 'charter', 'vfxer', 'team',
+              'diff', 'legacyDiff', 'pguDiff', 'pguDiffNum', 'newDiff',
+              'baseScore', 'baseScoreDiff', 'isCleared', 'clears',
+              'vidLink', 'dlLink', 'workshopLink', 'publicComments',
+              'toRate', 'rerateReason', 'rerateNum'
+            ]
+          }
+        ],
         order: [['levelId', 'ASC']]
       });
       return res.json(ratings);
@@ -34,49 +50,123 @@ router.get("/", Auth.rater(), async (req: Request, res: Response) => {
 router.put("/", Auth.rater(), async (req: Request, res: Response) => {
       try {
         const userInfo = req.user as IUser;
-        const { updates } = req.body;
+        const updates = req.body.updates;
         if (!updates || !Array.isArray(updates)) {
             return res.status(400).json({ error: 'Updates array is required' });
         }
   
-        // Process each update
-        for (const update of updates) {
-            let rating = await Rating.findOne({ where: { levelId: update.id } });
-            
-            if (!rating) {
-              // Create new rating if it doesn't exist
-              rating = await Rating.create({ levelId: update.id });
-            }
+        const transaction = await sequelize.transaction();
+        const updatedRatings = [];
 
-            // Update or create rating detail
-            await RatingDetail.upsert({
-              ratingId: rating.levelId,
-              username: userInfo.username,
-              rating: update.rating,
-              comment: update.comment || ''
-            });
+        try {
+          // Process each update
+          for (const update of updates) {
+              if (!update.id) {
+                  console.error('Missing id in update:', update);
+                  continue;
+              }
 
-            // Get all rating details for this level
-            const ratingDetails = await RatingDetail.findAll({
-              where: { ratingId: rating.levelId }
-            });
+              // Find existing rating
+              let rating = await Rating.findOne({ 
+                where: { id: update.id },
+                transaction
+              });
+              
+              if (!rating) {
+                // Create new rating if it doesn't exist
+                rating = await Rating.create({ 
+                  id: update.id,
+                  levelId: 0,
+                  currentDiff: '0',
+                  lowDiff: false,
+                  requesterFR: '',
+                  average: ''
+                }, { transaction });
+              }
 
-            // Calculate new average using the rating details
-            const averageRating = calculateAverageRating(ratingDetails);
-            
-            // Update the main rating record
-            rating.average = averageRating || '';
-            await rating.save();
+              // Find existing rating detail
+              const existingDetail = await RatingDetail.findOne({
+                where: {
+                  ratingId: rating.id,
+                  username: userInfo.username
+                },
+                transaction
+              });
+              
+              if (existingDetail) {
+                // Update only rating and comment
+                await existingDetail.update({
+                  rating: update.rating,
+                  comment: update.comment || ''
+                }, { transaction });
+              } else {
+                // Create new rating detail
+                await RatingDetail.create({
+                  ratingId: rating.id,
+                  username: userInfo.username,
+                  rating: update.rating,
+                  comment: update.comment || ''
+                }, { transaction });
+              }
+
+              // Get all rating details for this rating
+              const ratingDetails = await RatingDetail.findAll({
+                where: { ratingId: rating.id },
+                transaction
+              });
+
+              
+              // Calculate new average using the rating details
+              const averageRating = calculateAverageRating(ratingDetails);
+              
+              // Update only the average in the main rating record
+              await rating.update({ average: averageRating || '' }, { transaction });
+              
+              // Get updated rating with details
+              const updatedRating = await Rating.findByPk(rating.id, {
+                include: [
+                  {
+                    model: RatingDetail,
+                    as: 'ratingDetails',
+                    attributes: ['username', 'rating', 'comment']
+                  },
+                  {
+                    model: Level,
+                    as: 'level',
+                    attributes: [
+                      'id', 'song', 'artist', 'creator', 'charter', 'vfxer', 'team',
+                      'diff', 'legacyDiff', 'pguDiff', 'pguDiffNum', 'newDiff',
+                      'baseScore', 'baseScoreDiff', 'isCleared', 'clears',
+                      'vidLink', 'dlLink', 'workshopLink', 'publicComments',
+                      'toRate', 'rerateReason', 'rerateNum'
+                    ]
+                  }
+                ],
+                transaction
+              });
+              
+              if (updatedRating) {
+                updatedRatings.push(updatedRating);
+              }
+              
+          }
+
+          await transaction.commit();
+          
+          // Emit the event using the socket utility
+          const io = getIO();
+          io.emit('ratingsUpdated');
+
+          return res.json({ 
+            success: true, 
+            message: `Ratings updated successfully by ${userInfo.username}`,
+            ratings: updatedRatings
+          });
+
+        } catch (error) {
+          await transaction.rollback();
+          throw error;
         }
-      
-        // Emit the event using the socket utility
-        const io = getIO();
-        io.emit('ratingsUpdated');
-
-        return res.json({ 
-          success: true, 
-          message: `Ratings updated successfully by ${userInfo.username}` 
-        });
   
     } catch (error) {
       console.error('Error updating ratings:', error);
@@ -87,10 +177,20 @@ router.put("/", Auth.rater(), async (req: Request, res: Response) => {
 router.delete("/", Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: 'Id is required' });
+    }
+
+    const rating = await Rating.findOne({ where: { id } });
+    if (!rating) {
+      return res.status(404).json({ error: 'Rating not found' });
+    }
+
     // Delete rating details first due to foreign key constraint
-    await RatingDetail.destroy({ where: { ratingId: id } });
+    await RatingDetail.destroy({ where: { ratingId: rating.id } });
     // Then delete the main rating
-    await Rating.destroy({ where: { levelId: id } });
+    await rating.destroy();
+    
     return res.json({ success: true });
   } catch (error) {
     console.error('Error deleting rating:', error);

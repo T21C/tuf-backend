@@ -1,4 +1,4 @@
-import { DataTypes } from 'sequelize';
+import { DataTypes, HasManyGetAssociationsMixin } from 'sequelize';
 import sequelize from '../config/db';
 import { IPlayer } from '../types/models';
 import BaseModel from './BaseModel';
@@ -9,6 +9,9 @@ class Player extends BaseModel implements IPlayer {
   declare name: string;
   declare country: string;
   declare isBanned: boolean;
+  declare pfp: string | null;
+  declare createdAt: Date;
+  declare updatedAt: Date;
 
   // Virtual fields
   declare rankedScore?: number;
@@ -25,6 +28,7 @@ class Player extends BaseModel implements IPlayer {
 
   // Associations
   declare playerPasses?: Pass[];
+  declare getPlayerPasses: HasManyGetAssociationsMixin<Pass>;
 }
 
 Player.init({
@@ -45,6 +49,10 @@ Player.init({
   isBanned: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  pfp: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   sequelize,

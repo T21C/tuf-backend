@@ -1,7 +1,6 @@
-import { arraySum } from "../misc/HelperFns";
-import { IJudgements } from '../models/Judgements';
+import { arraySum } from "../misc/HelperFns.js";
 
-export function calcAcc (inp: IJudgements, raw=false)
+export function calcAcc (inp: any, raw=false)
     {
         const result = (inp.perfect +
             (inp.ePerfect + inp.lPerfect) * 0.75 +

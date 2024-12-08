@@ -1,23 +1,48 @@
-import { DataTypes } from 'sequelize';
+import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/db';
-import BaseModel from './BaseModel';
 
-class PassSubmission extends BaseModel {
-  public levelId!: string;
-  public speed!: number;
-  public passer!: string;
-  public feelingDifficulty!: string;
-  public title!: string;
-  public rawVideoId!: string;
-  public rawTime!: Date;
-  public submitterDiscordUsername!: string;
-  public submitterEmail!: string;
-  public status!: string;
-  public judgements!: any;
-  public flags!: any;
+interface PassSubmissionAttributes {
+  id: number;
+  levelId: string;
+  speed: number;
+  passer: string;
+  feelingDifficulty: string;
+  title: string;
+  rawVideoId: string;
+  rawTime: Date;
+  submitterDiscordUsername?: string;
+  submitterEmail?: string;
+  status: string;
+  assignedPlayerId?: number;
+}
+
+interface PassSubmissionCreationAttributes extends Omit<PassSubmissionAttributes, 'id'> {}
+
+class PassSubmission extends Model<PassSubmissionAttributes, PassSubmissionCreationAttributes> {
+  declare id: number;
+  declare levelId: string;
+  declare speed: number;
+  declare passer: string;
+  declare feelingDifficulty: string;
+  declare title: string;
+  declare rawVideoId: string;
+  declare rawTime: Date;
+  declare submitterDiscordUsername?: string;
+  declare submitterEmail?: string;
+  declare status: string;
+  declare assignedPlayerId?: number;
+
+  // Virtual fields for associations
+  declare PassSubmissionJudgement?: PassSubmissionJudgements;
+  declare PassSubmissionFlag?: PassSubmissionFlags;
 }
 
 PassSubmission.init({
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
   levelId: {
     type: DataTypes.STRING,
     allowNull: false
@@ -47,14 +72,24 @@ PassSubmission.init({
     allowNull: false
   },
   submitterDiscordUsername: {
-    type: DataTypes.STRING
+    type: DataTypes.STRING,
+    allowNull: true
   },
   submitterEmail: {
-    type: DataTypes.STRING
+    type: DataTypes.STRING,
+    allowNull: true
   },
   status: {
     type: DataTypes.ENUM('pending', 'approved', 'declined'),
     defaultValue: 'pending'
+  },
+  assignedPlayerId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'players',
+      key: 'id'
+    }
   }
 }, {
   sequelize,
@@ -62,28 +97,48 @@ PassSubmission.init({
   indexes: [
     { fields: ['passer'] },
     { fields: ['rawVideoId'] },
-    { fields: ['status'] }
+    { fields: ['status'] },
+    { fields: ['assignedPlayerId'] }
   ]
 });
 
 // Create associated models for complex fields
-class PassSubmissionJudgements extends BaseModel {
-  public passSubmissionId!: number;
-  public earlyDouble!: number;
-  public earlySingle!: number;
-  public ePerfect!: number;
-  public perfect!: number;
-  public lPerfect!: number;
-  public lateSingle!: number;
-  public lateDouble!: number;
+interface PassSubmissionJudgementsAttributes {
+  passSubmissionId: number;
+  earlyDouble: number;
+  earlySingle: number;
+  ePerfect: number;
+  perfect: number;
+  lPerfect: number;
+  lateSingle: number;
+  lateDouble: number;
 }
 
-class PassSubmissionFlags extends BaseModel {
-  public passSubmissionId!: number;
-  public is12k!: boolean;
-  public isNHT!: boolean;
-  public is16k!: boolean;
-  public isLegacy!: boolean;
+class PassSubmissionJudgements extends Model<PassSubmissionJudgementsAttributes> {
+  declare passSubmissionId: number;
+  declare earlyDouble: number;
+  declare earlySingle: number;
+  declare ePerfect: number;
+  declare perfect: number;
+  declare lPerfect: number;
+  declare lateSingle: number;
+  declare lateDouble: number;
+}
+
+interface PassSubmissionFlagsAttributes {
+  passSubmissionId: number;
+  is12k: boolean;
+  isNHT: boolean;
+  is16k: boolean;
+  isLegacy: boolean;
+}
+
+class PassSubmissionFlags extends Model<PassSubmissionFlagsAttributes> {
+  declare passSubmissionId: number;
+  declare is12k: boolean;
+  declare isNHT: boolean;
+  declare is16k: boolean;
+  declare isLegacy: boolean;
 }
 
 // Initialize associated models
@@ -160,7 +215,7 @@ PassSubmissionFlags.init({
 });
 
 // Set up relationships
-PassSubmission.hasOne(PassSubmissionJudgements, { foreignKey: 'passSubmissionId' });
-PassSubmission.hasOne(PassSubmissionFlags, { foreignKey: 'passSubmissionId' });
+PassSubmission.hasOne(PassSubmissionJudgements, { foreignKey: 'passSubmissionId', as: 'PassSubmissionJudgement' });
+PassSubmission.hasOne(PassSubmissionFlags, { foreignKey: 'passSubmissionId', as: 'PassSubmissionFlag' });
 
 export { PassSubmission, PassSubmissionJudgements, PassSubmissionFlags };

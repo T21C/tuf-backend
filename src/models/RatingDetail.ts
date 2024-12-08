@@ -12,9 +12,10 @@ class RatingDetail extends BaseModel {
 RatingDetail.init({
   ratingId: {
     type: DataTypes.INTEGER,
+    allowNull: false,
     references: {
       model: 'ratings',
-      key: 'levelId'
+      key: 'id'
     }
   },
   username: {
