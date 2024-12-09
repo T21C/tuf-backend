@@ -135,7 +135,7 @@ router.put('/charts/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         levelId: newLevel.id,
         currentDiff: '0',
         lowDiff: false,
-        requesterFR: '',
+        requesterFR: submission.diff,
         average: '0'
       });
 
@@ -258,7 +258,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         isLegacyPass: false,
         isWorldsFirst: existingPasses === 0,
         accuracy,
-        scoreV2: scoreV2.toString(),
+        scoreV2,
         isDeleted: false
       });
 

@@ -73,7 +73,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     const enrichedPlayer = await enrichPlayerData(player);
-    const rankings = leaderboardCache.getAllRanks(player.id);
+    const rankings = leaderboardCache.getAllRanks(player.dataValues.id);
     
     return res.json({
       ...enrichedPlayer,
@@ -144,7 +144,7 @@ router.get('/search/:name', Auth.superAdmin(), async (req: Request, res: Respons
 });
 
 // Create new player
-router.post('/players', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { name, country } = req.body;
     const [player, created] = await Player.findOrCreate({
@@ -167,5 +167,50 @@ router.post('/players', Auth.superAdmin(), async (req: Request, res: Response) =
   }
 });
 
+// Update player's country
+router.put('/:id/country', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { country } = req.body;
+
+    if (!country || country.length !== 2) {
+      return res.status(400).json({ error: 'Invalid country code' });
+    }
+
+    const player = await Player.findByPk(id);
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    await player.update({ country });
+    return res.json({ message: 'Player country updated successfully' });
+  } catch (error) {
+    console.error('Error updating player country:', error);
+    return res.status(500).json({ error: error });
+  }
+});
+
+// Update player's ban status
+router.put('/:id/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { isBanned } = req.body;
+
+    if (typeof isBanned !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid ban status' });
+    }
+
+    const player = await Player.findByPk(id);
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    await player.update({ isBanned });
+    return res.json({ message: 'Player ban status updated successfully' });
+  } catch (error) {
+    console.error('Error updating player ban status:', error);
+    return res.status(500).json({ error: error });
+  }
+});
 
 export default router;

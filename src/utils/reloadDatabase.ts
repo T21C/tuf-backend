@@ -4,6 +4,7 @@ import { Cache } from './cacheManager';
 import { IPlayer, ILevel } from '../types/models';
 import { updateAllPlayerPfps } from './PlayerEnricher';
 import xlsx from 'xlsx';
+import { calculateBaseScore } from './ratingUtils';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -90,6 +91,25 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
   }
 }
 
+// Create a reverse mapping of base scores to PGU ratings
+const baseScoreToPguMap = {
+  0.1: 'P1', 0.2: 'P2', 0.3: 'P3', 0.4: 'P4', 0.5: 'P5',
+  0.6: 'P6', 0.7: 'P7', 0.8: 'P8', 0.9: 'P9', 1: 'P10',
+  2: 'P11', 3: 'P12', 5: 'P13', 10: 'P14', 15: 'P15',
+  20: 'P16', 30: 'P17', 45: 'P18', 60: 'P19', 75: 'P20',
+  100: 'G1', 110: 'G2', 120: 'G3', 130: 'G4', 140: 'G5',
+  150: 'G6', 160: 'G7', 170: 'G8', 180: 'G9', 190: 'G10',
+  200: 'G11', 210: 'G12', 220: 'G13', 230: 'G14', 240: 'G15',
+  250: 'G16', 275: 'G17', 300: 'G18', 350: 'G19', 400: 'G20',
+  500: 'U1', 600: 'U2', 700: 'U3', 850: 'U4', 1000: 'U5',
+  1300: 'U6', 1600: 'U7', 1800: 'U8', 2000: 'U9', 2500: 'U10',
+  3000: 'U11', 4000: 'U12', 5000: 'U13', 11000: 'U14'
+};
+
+function getBaseScorePguRating(baseScore: number): string {
+  return baseScoreToPguMap[baseScore as keyof typeof baseScoreToPguMap] || baseScore.toString();
+}
+
 async function reloadDatabase() {
   const transaction = await db.sequelize.transaction();
 
@@ -147,11 +167,11 @@ async function reloadDatabase() {
       team: 'Unknown',
       diff: 0,
       legacyDiff: 0,
-      pguDiff: 'U',
+      pguDiff: '0',
       pguDiffNum: 0,
       newDiff: 0,
       baseScore: 0,
-      baseScoreDiff: 0,
+      baseScoreDiff: '0',
       isCleared: false,
       clears: 0,
       vidLink: '',
@@ -162,26 +182,45 @@ async function reloadDatabase() {
       isDeleted: true
     });
 
-    // Process each level and fill gaps
+    // Process each level
     for (const level of levels) {
-      // Fill any gaps before this level
+      // Fill any gaps with placeholder levels
       while (nextDbId < level.id) {
-        console.log(`Creating placeholder for missing level ID ${nextDbId}`);
-        const placeholder = createPlaceholderLevel(nextDbId);
-        levelDocs.push(placeholder);
+        levelDocs.push(createPlaceholderLevel(nextDbId));
         levelIdMapping.set(nextDbId, nextDbId);
         nextDbId++;
       }
 
-      // Add the actual level
-      const dbId = nextDbId;
-      levelDocs.push({
-        ...level,
-        id: dbId,
-        baseScoreDiff: level.baseScore || 0,
-        toRate: false
-      });
-      levelIdMapping.set(level.id, dbId);
+      // Map the base score to PGU rating if it matches a known value
+      const baseScoreDiff = getBaseScorePguRating(level.baseScore);
+
+      const levelDoc = {
+        id: nextDbId,
+        song: level.song || '',
+        artist: level.artist || '',
+        creator: level.creator || '',
+        charter: level.charter || '',
+        vfxer: level.vfxer || '',
+        team: level.team || '',
+        diff: level.diff || 0,
+        legacyDiff: level.legacyDiff || 0,
+        pguDiff: level.pguDiff || '0',
+        pguDiffNum: level.pguDiffNum || 0,
+        newDiff: level.newDiff || 0,
+        baseScore: level.baseScore || 0,
+        baseScoreDiff: baseScoreDiff || 0,
+        isCleared: level.isCleared || false,
+        clears: level.clears || 0,
+        vidLink: level.vidLink || '',
+        dlLink: level.dlLink || '',
+        workshopLink: level.workshopLink || '',
+        publicComments: level.publicComments || '',
+        toRate: level.toRate || false,
+        isDeleted: level.isDeleted || false
+      };
+
+      levelDocs.push(levelDoc);
+      levelIdMapping.set(level.id, nextDbId);
       nextDbId++;
     }
 

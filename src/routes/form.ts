@@ -35,10 +35,9 @@ router.post('/form-submit', async (req: Request, res: Response) => {
                 videoLink: req.body['videoLink'],
                 directDL: req.body['directDL'],
                 wsLink: req.body['wsLink'] || '',
-                submitter_discord: tokenInfo.username,
-                submitter_id: tokenInfo.id,
-                status: 'pending',
-                toRate: false
+                submitterDiscordUsername: tokenInfo.username,
+                submitterEmail: tokenInfo.email,
+                status: 'pending'
             });
 
             return res.json({ 

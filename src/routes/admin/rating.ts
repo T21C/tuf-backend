@@ -127,7 +127,7 @@ router.put("/", Auth.rater(), async (req: Request, res: Response) => {
                 include: [
                   {
                     model: RatingDetail,
-                    as: 'ratingDetails',
+                    as: 'RatingDetails',
                     attributes: ['username', 'rating', 'comment']
                   },
                   {

@@ -332,6 +332,23 @@ router.patch('/:id/soft-delete', Auth.superAdmin(), async (req: Request, res: Re
       return res.status(404).json({ error: 'Chart not found' });
     }
 
+    // Find and delete associated rating details and rating
+    const rating = await Rating.findOne({
+      where: { levelId: parseInt(id) },
+      transaction
+    });
+
+    if (rating) {
+      // Delete rating details first due to foreign key constraint
+      await RatingDetail.destroy({
+        where: { ratingId: rating.id },
+        transaction
+      });
+
+      // Then delete the rating
+      await rating.destroy({ transaction });
+    }
+
     // Soft delete the chart
     await Level.update(
       { isDeleted: true },
@@ -347,7 +364,7 @@ router.patch('/:id/soft-delete', Auth.superAdmin(), async (req: Request, res: Re
     io.emit('ratingsUpdated');
 
     return res.json({ 
-      message: 'Chart soft deleted successfully'
+      message: 'Chart and associated ratings soft deleted successfully'
     });
   } catch (error) {
     await transaction.rollback();

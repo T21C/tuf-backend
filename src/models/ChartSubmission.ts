@@ -15,7 +15,6 @@ class ChartSubmission extends BaseModel {
   public submitterDiscordUsername!: string;
   public submitterEmail!: string;
   public status!: 'pending' | 'approved' | 'declined';
-  public toRate!: boolean;
 }
 
 ChartSubmission.init({
@@ -64,10 +63,6 @@ ChartSubmission.init({
   status: {
     type: DataTypes.ENUM('pending', 'approved', 'declined'),
     defaultValue: 'pending'
-  },
-  toRate: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
   }
 }, {
   sequelize,

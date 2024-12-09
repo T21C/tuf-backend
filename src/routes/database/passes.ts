@@ -24,6 +24,27 @@ const buildWhereClause = (query: any) => {
     where.isDeleted = true;
   }
 
+  // Add difficulty range filter
+  if (query.lowDiff) {
+    where['$level.legacyDiff$'] = {
+      [Op.gte]: query.lowDiff
+    };
+  }
+  if (query.highDiff) {
+    where['$level.legacyDiff$'] = {
+      ...where['$level.legacyDiff$'],
+      [Op.lte]: query.highDiff
+    };
+  }
+
+  // Add NHT and 12k filters
+  if (query.hideNHT) {
+    where.isNoHoldTap = false;
+  }
+  if (query.hide12k) {
+    where.is12K = false;
+  }
+
   // Chart ID filter
   if (query.chartId) {
     where.levelId = query.chartId;
@@ -211,6 +232,16 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       ]);
     }
 
+    // Get the correct level for score calculation
+    const level = originalPass.levelId !== req.body.levelId ? 
+      await Level.findByPk(req.body.levelId, { transaction }).then(level => level?.dataValues) : 
+      originalPass.level?.dataValues;
+    
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
     // Calculate new accuracy and score
     const judgements = req.body.judgements;
     const accuracy = calcAcc(judgements);
@@ -219,11 +250,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       judgements,
       isNoHoldTap: req.body.isNoHoldTap
     }, { 
-      baseScore: originalPass.level?.baseScore || 0
+      baseScore: level.baseScore || 0
     });
 
     // Update pass
-    const [affectedCount, [updatedPass]] = await Pass.update({
+    await Pass.update({
       levelId: req.body.levelId,
       speed: req.body.speed,
       playerId: req.body.playerId,
@@ -238,13 +269,33 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       scoreV2
     }, {
       where: { id: parseInt(id) },
-      returning: true,
       transaction
     });
 
     // Update judgements
     await Judgement.update(judgements, {
       where: { passId: parseInt(id) },
+      transaction
+    });
+
+    // Fetch the updated pass
+    const updatedPass = await Pass.findOne({
+      where: { id: parseInt(id) },
+      include: [
+        {
+          model: Level,
+          as: 'level'
+        },
+        {
+          model: Judgement,
+          as: 'judgements'
+        },
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['id', 'name', 'country', 'isBanned']
+        }
+      ],
       transaction
     });
 
