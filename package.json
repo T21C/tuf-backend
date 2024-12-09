@@ -18,7 +18,11 @@
     "fix": "gts fix",
     "prepare": "npm.cmd run compile",
     "pretest": "npm.cmd run compile",
-    "posttest": "npm.cmd run lint"
+    "posttest": "npm.cmd run lint",
+    "migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
+    "migrate:create": "sequelize-cli migration:create --name"
   },
   "keywords": [],
   "author": "",
@@ -35,6 +39,7 @@
     "node-fetch": "^3.3.2",
     "pnpm": "^9.12.3",
     "sequelize": "^6.37.5",
+    "sequelize-cli": "^6.6.2",
     "shuffle-seed": "^1.1.6",
     "socket": "^0.14.27",
     "socket.io": "^4.8.1",
