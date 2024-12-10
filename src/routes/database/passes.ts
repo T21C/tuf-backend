@@ -103,6 +103,18 @@ const getSortOptions = (sort?: string): OrderItem[] => {
         ['scoreV2', 'DESC'],  // Secondary sort by highest score
         ['id', 'DESC']        // Tertiary sort by newest first
       ];
+    case 'DIFF_ASC':
+      return [
+        [{ model: Level, as: 'level' }, 'newDiff', 'ASC'],
+        ['scoreV2', 'DESC'],  // Secondary sort by highest score
+        ['id', 'DESC']        // Tertiary sort by newest first
+      ];
+    case 'DIFF_DESC':
+      return [
+        [{ model: Level, as: 'level' }, 'newDiff', 'DESC'],
+        ['scoreV2', 'DESC'],  // Secondary sort by highest score
+        ['id', 'DESC']        // Tertiary sort by newest first
+      ];
     case 'RANDOM':
       return [sequelize.random()];
     default:
@@ -164,7 +176,7 @@ router.get('/', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
-          attributes: ['song', 'artist', 'pguDiff', 'baseScore']
+          attributes: ['song', 'artist', 'pguDiff', 'baseScore', 'newDiff']
         },
         {
           model: Judgement,

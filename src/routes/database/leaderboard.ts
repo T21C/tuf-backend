@@ -14,15 +14,7 @@ router.get('/', async (req: Request, res: Response) => {
       showBanned = 'show'
     } = req.query;
 
-    console.log('[Leaderboard Route] Raw query params:', {
-      sortBy,
-      order,
-      includeAllScores,
-      showBanned
-    });
-
     const includeScores = String(includeAllScores).toLowerCase() === 'true';
-    console.log('[Leaderboard Route] Parsed includeScores:', includeScores);
 
     if (!validSortOptions.includes(sortBy as string)) {
       return res.status(400).json({

@@ -69,3 +69,9 @@ export const validSortOptions = [
   'player',
 ];
 
+export const PGU_SORT = {
+  P: 1,
+  G: 2,
+  U: 3
+};
+export type PguLetter = 'P' | 'G' | 'U';

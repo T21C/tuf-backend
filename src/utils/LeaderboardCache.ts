@@ -28,22 +28,15 @@ class LeaderboardCache {
   }
 
   public async get(sortBy: string = 'rankedScore', order: string = 'desc', includeAllScores: boolean = false): Promise<any[]> {
-    console.log(`[LeaderboardCache] Retrieving leaderboard with params:`, {
-      sortBy,
-      order,
-      includeAllScores
-    });
+
 
     if (this.needsUpdate()) {
       await this.updateCache();
     }
 
     const key = this.getCacheKey(sortBy, order, includeAllScores);
-    console.log(`[LeaderboardCache] Using cache key:`, key);
     
     const result = this.cache.get(key) || [];
-    console.log(`[LeaderboardCache] Retrieved ${result.length} players. First player has passes?`, 
-      result.length > 0 ? Boolean(result[0].passes) : 'No players');
     
     return result;
   }
@@ -86,19 +79,16 @@ class LeaderboardCache {
     return ranks;
   }
 
-  private async initialize() {
-    console.log('Initializing leaderboard cache...');
+  public async initialize() {
     await this.updateCache();
   }
 
   private async updateCache() {
     if (this.isUpdating) {
-      console.log('[LeaderboardCache] Cache update already in progress, skipping...');
       return;
     }
 
     this.isUpdating = true;
-    console.log('[LeaderboardCache] Starting cache update...');
     try {
       const players = await Player.findAll({
         attributes: ['id', 'name', 'country', 'isBanned', 'pfp', 'createdAt', 'updatedAt'],
@@ -126,15 +116,10 @@ class LeaderboardCache {
           }]
         }]
       });
-
-      // Log initial data size
-      console.log(`[LeaderboardCache] Raw players data size: ${JSON.stringify(players).length / 1024 / 1024}MB`);
-
       // Enrich player data with calculated fields
       const enrichedPlayers = await Promise.all(
         players.map(player => enrichPlayerData(player))
       );
-      console.log(`[LeaderboardCache] Enriched players data size: ${JSON.stringify(enrichedPlayers).length / 1024 / 1024}MB`);
 
       // Cache different sorted versions
       const sortOptions = ['rankedScore', 'generalScore', 'ppScore', 'wfScore', 'score12k'];
@@ -162,26 +147,13 @@ class LeaderboardCache {
               : sortedPlayers.map(player => stripPassesFromPlayer(player));
                 
             const key = this.getCacheKey(sortBy, order, includeScores);
-            const cacheSize = JSON.stringify(finalPlayers).length / 1024 / 1024;
-            console.log(`[LeaderboardCache] Cache entry for ${key}:`, {
-              includeScores,
-              size: `${cacheSize.toFixed(2)}MB`,
-              playerCount: finalPlayers.length,
-            });
             
             this.cache.set(key, finalPlayers);
           }
         }
       }
 
-      // Log final cache sizes
-      for (const [key, value] of this.cache.entries()) {
-        const size = JSON.stringify(value).length / 1024 / 1024;
-        console.log(`[LeaderboardCache] Final cache size for ${key}: ${size.toFixed(2)}MB`);
-      }
-
       this.lastUpdate = new Date();
-      console.log('Leaderboard cache updated successfully');
     } catch (error) {
       console.error('Error updating leaderboard cache:', error);
       throw error;

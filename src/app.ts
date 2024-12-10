@@ -81,7 +81,7 @@ async function startServer() {
     // Initialize leaderboard cache
     console.log('Initializing leaderboard cache...');
     try {
-      await leaderboardCache.get(); // This will trigger the initial cache update
+      await leaderboardCache.initialize(); // This will trigger the initial cache update
       console.log('Leaderboard cache initialized successfully');
     } catch (cacheError) {
       console.error('Error initializing leaderboard cache:', cacheError);

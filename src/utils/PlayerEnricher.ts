@@ -7,6 +7,18 @@ import Pass from '../models/Pass';
 import Level from '../models/Level';
 import Judgement from '../models/Judgement';
 import LeaderboardCache from './LeaderboardCache';
+import {
+  calculateRankedScore,
+  calculateGeneralScore,
+  calculatePPScore,
+  calculateWFScore,
+  calculate12KScore,
+  calculateAverageXacc,
+  countUniversalPasses,
+  countWorldsFirstPasses,
+  calculateTopDiff,
+  calculateTop12KDiff
+} from '../misc/PlayerStatsCalculator';
 
 // Rate limiting settings
 const CONCURRENT_BATCH_SIZE = 25; // Process 10 players concurrently
@@ -215,36 +227,13 @@ export async function updateAllPlayerPfps(): Promise<void> {
   }
 }
 
-interface Score {
-  score: number;
-  xacc: number;
-  isWorldsFirst: boolean;
-  is12K: boolean;
-  baseScore: number;
-  isDeleted: boolean;
-  pguDiff?: string;
-}
-
-interface PGUSort {
-  [key: string]: number;
-  P: number;
-  G: number;
-  U: number;
-}
-
-const PGU_SORT: PGUSort = {
-  P: 1,
-  G: 2,
-  U: 3
-};
-
 export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   // Get raw data values from Sequelize instance
   const playerData = player.get({ plain: true });
   const passes = playerData.passes || [];
   
   // Calculate scores and stats
-  const scores: Score[] = passes
+  const scores = passes
     .filter((pass: any) => !pass.isDeleted)
     .map((pass: any) => ({
       score: pass.scoreV2 || 0,
@@ -282,89 +271,4 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   } as IPlayer;
 
   return enrichedPlayer;
-}
-
-function calculateRankedScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .slice(0, 20)
-    .reduce((acc, score, index) => acc + score.score * Math.pow(0.9, index), 0);
-}
-
-function calculateGeneralScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores.reduce((sum, score) => sum + score.score, 0);
-}
-
-function calculatePPScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .filter(score => score.xacc === 1.0)
-    .reduce((sum, score) => sum + score.score, 0);
-}
-
-function calculateWFScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .filter(score => score.isWorldsFirst)
-    .reduce((sum, score) => sum + score.baseScore, 0);
-}
-
-function calculate12KScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .filter(score => score.is12K)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 20)
-    .reduce((acc, score, index) => acc + score.score * Math.pow(0.95, index), 0);
-}
-
-function calculateAverageXacc(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  const topScores = scores
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 20);
-  return topScores.reduce((sum, score) => sum + score.xacc, 0) / topScores.length;
-}
-
-function countUniversalPasses(passes: any[]): number {
-  return passes.filter(pass => 
-    !pass.isDeleted && pass.level?.pguDiff?.startsWith('U')
-  ).length;
-}
-
-function countWorldsFirstPasses(passes: any[]): number {
-  return passes.filter(pass => !pass.isDeleted && pass.isWorldsFirst).length;
-}
-
-function calculateTopDiff(passes: any[]): string {
-  return calculateDiff(passes, false);
-}
-
-function calculateTop12KDiff(passes: any[]): string {
-  return calculateDiff(passes, true);
-}
-
-function calculateDiff(passes: any[], only12k: boolean): string {
-  let topLetter = 'P';
-  let topNumber = 1;
-
-  const validPasses = passes.filter(pass => !pass.isDeleted && (!only12k || pass.is12K));
-  if (validPasses.length === 0) return 'P1';
-
-  validPasses.forEach(pass => {
-    const pguDiff = pass.level?.pguDiff;
-    if (!pguDiff) return;
-
-    const letter = pguDiff[0];
-    const number = parseInt(pguDiff.slice(1));
-
-    if (PGU_SORT[letter] > PGU_SORT[topLetter] || 
-       (PGU_SORT[letter] === PGU_SORT[topLetter] && number > topNumber)) {
-      topLetter = letter;
-      topNumber = number;
-    }
-  });
-
-  return `${topLetter}${topNumber}`;
 }
