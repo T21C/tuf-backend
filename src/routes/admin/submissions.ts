@@ -5,7 +5,7 @@ import { PassSubmission, PassSubmissionJudgements, PassSubmissionFlags } from '.
 import Level from '../../models/Level';
 import Pass from '../../models/Pass';
 import Rating from '../../models/Rating';
-import { calcAcc } from '../../misc/CalcAcc';
+import { calcAcc, IJudgements } from '../../misc/CalcAcc';
 import { getScoreV2 } from '../../misc/CalcScore'; 
 import { Auth } from '../../middleware/auth';
 import sequelize from '../../config/db';
@@ -208,7 +208,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       console.log(level);
 
       // Calculate accuracy and score
-      const judgements: Object = {
+      const judgements: IJudgements = {
         earlyDouble: Number(submission.PassSubmissionJudgement.earlyDouble),
         earlySingle: Number(submission.PassSubmissionJudgement.earlySingle),
         ePerfect: Number(submission.PassSubmissionJudgement.ePerfect),
@@ -264,7 +264,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
 
       // Create judgements
       await Judgement.create({
-        passId: newPass.id,
+        id: newPass.id,
         earlyDouble: submission.PassSubmissionJudgement.earlyDouble,
         earlySingle: submission.PassSubmissionJudgement.earlySingle,
         ePerfect: submission.PassSubmissionJudgement.ePerfect,

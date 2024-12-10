@@ -1,12 +1,6 @@
 import { Request, Response, Router } from 'express';
-import { Op } from 'sequelize';
 import { validSortOptions } from '../../config/constants';
-import Player from '../../models/Player';
-import Pass from '../../models/Pass';
-import Level from '../../models/Level';
-import Judgement from '../../models/Judgement';
-import { enrichPlayerData } from '../../utils/PlayerEnricher';
-import { IPlayer } from '../../types/models';
+import leaderboardCache from '../../utils/LeaderboardCache';
 
 const router: Router = Router();
 
@@ -20,72 +14,40 @@ router.get('/', async (req: Request, res: Response) => {
       showBanned = 'show'
     } = req.query;
 
+    console.log('[Leaderboard Route] Raw query params:', {
+      sortBy,
+      order,
+      includeAllScores,
+      showBanned
+    });
+
+    const includeScores = String(includeAllScores).toLowerCase() === 'true';
+    console.log('[Leaderboard Route] Parsed includeScores:', includeScores);
+
     if (!validSortOptions.includes(sortBy as string)) {
       return res.status(400).json({
         error: `Invalid sortBy option. Valid options are: ${validSortOptions.join(', ')}`,
       });
     }
 
-    // Build where clause based on ban status
-    const whereClause: any = {};
-    if (showBanned === 'only') {
-      whereClause.isBanned = true;
-    } else if (showBanned === 'hide') {
-      whereClause.isBanned = false;
-    }
-
-    // Get players with their passes and related data
-    const players = await Player.findAll({
-      where: whereClause,
-      include: [{
-        model: Pass,
-        as: 'playerPasses',
-        include: [{
-          model: Level,
-          as: 'level',
-          attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-          attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
-        }]
-      }]
-    });
-
-    // Enrich player data with calculated fields
-    let enrichedPlayers = await Promise.all(
-      players.map(player => enrichPlayerData(player))
+    // Get cached leaderboard data
+    let players = await leaderboardCache.get(
+      sortBy as string, 
+      order as string, 
+      includeScores
     );
 
-    // Sort players based on the requested field
-    enrichedPlayers.sort((a, b) => {
-      const valueA = a[sortBy as keyof IPlayer] ?? 0;
-      const valueB = b[sortBy as keyof IPlayer] ?? 0;
-
-      if (valueA === undefined || valueB === undefined) {
-        return 0;
-      }
-
-      if (order === 'asc') {
-        return valueA > valueB ? 1 : -1;
-      } else {
-        return valueA < valueB ? 1 : -1;
-      }
-    });
-
-    // Remove passes if not requested
-    if (includeAllScores === 'false') {
-      enrichedPlayers = enrichedPlayers.map(player => {        
-        const { playerPasses: _playerPasses, ...rest } = player;
-        return rest;
-      });
+    // Filter based on ban status after getting from cache
+    if (showBanned === 'only') {
+      players = players.filter(player => player.isBanned);
+    } else if (showBanned === 'hide') {
+      players = players.filter(player => !player.isBanned);
     }
 
     const totalTime = performance.now() - routeStart;
     console.log(`[PERF] Total leaderboard route time: ${totalTime.toFixed(2)}ms`);
 
-    return res.json(enrichedPlayers);
+    return res.json(players);
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
     return res.status(500).json({ 

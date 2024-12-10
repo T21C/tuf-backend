@@ -1,35 +1,41 @@
-import { Model, DataTypes } from 'sequelize';
+import { Model, DataTypes, Optional } from 'sequelize';
 import sequelize from '../config/db';
 import { ILevel } from '../types/models';
 import Pass from './Pass';
 
-class Level extends Model<ILevel> implements ILevel {
-  public id!: number;
-  public song!: string;
-  public artist!: string;
-  public creator!: string;
-  public charter!: string;
-  public vfxer!: string;
-  public team!: string;
-  public diff!: number;
-  public legacyDiff!: number;
-  public pguDiff!: string;
-  public pguDiffNum!: number;
-  public newDiff!: number;
-  public baseScore!: number;
-  public baseScoreDiff!: string;
-  public isCleared!: boolean;
-  public clears!: number;
-  public vidLink!: string;
-  public dlLink!: string;
-  public workshopLink!: string;
-  public publicComments!: string;
-  public toRate!: boolean;
-  public rerateReason!: string;
-  public rerateNum!: string;
-  public isDeleted!: boolean;
-  public createdAt!: Date;
-  public updatedAt!: Date;
+interface LevelAttributes extends ILevel {}
+interface LevelCreationAttributes extends Optional<LevelAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+
+class Level extends Model<LevelAttributes, LevelCreationAttributes> implements LevelAttributes {
+  declare id: number;
+  declare song: string;
+  declare artist: string;
+  declare creator: string;
+  declare charter: string;
+  declare vfxer: string;
+  declare team: string;
+  declare diff: number;
+  declare legacyDiff: number;
+  declare pguDiff: string;
+  declare pguDiffNum: number;
+  declare newDiff: number;
+  declare baseScore: number;
+  declare baseScoreDiff: string;
+  declare isCleared: boolean;
+  declare clears: number;
+  declare vidLink: string;
+  declare dlLink: string;
+  declare workshopLink: string;
+  declare publicComments: string;
+  declare toRate: boolean;
+  declare rerateReason: string;
+  declare rerateNum: string;
+  declare isDeleted: boolean;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+
+  // Associations
+  declare passes?: Pass[];
 }
 
 Level.init({
@@ -133,11 +139,11 @@ Level.init({
   },
   createdAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: false
   },
   updatedAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: false
   }
 }, {
   sequelize,
@@ -149,6 +155,5 @@ Level.init({
     { fields: [{ name: 'diff' }] }
   ]
 });
-
 
 export default Level;

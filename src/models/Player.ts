@@ -1,10 +1,11 @@
-import { DataTypes, HasManyGetAssociationsMixin } from 'sequelize';
+import { DataTypes, Model, Optional, HasManyGetAssociationsMixin } from 'sequelize';
 import sequelize from '../config/db';
 import { IPlayer } from '../types/models';
-import BaseModel from './BaseModel';
 import Pass from './Pass';
 
-class Player extends BaseModel implements IPlayer {
+interface PlayerCreationAttributes extends Optional<IPlayer, 'id' | 'createdAt' | 'updatedAt'> {}
+
+class Player extends Model<IPlayer, PlayerCreationAttributes> implements IPlayer {
   declare id: number;
   declare name: string;
   declare country: string;
@@ -12,6 +13,10 @@ class Player extends BaseModel implements IPlayer {
   declare pfp: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
+
+  // Associations
+  declare passes?: Pass[];
+  declare getPasses: HasManyGetAssociationsMixin<Pass>;
 
   // Virtual fields
   declare rankedScore?: number;
@@ -22,13 +27,9 @@ class Player extends BaseModel implements IPlayer {
   declare avgXacc?: number;
   declare totalPasses?: number;
   declare universalPasses?: number;
-  declare WFPasses?: number;
+  declare worldsFirstPasses?: number;
   declare topDiff?: string;
   declare top12kDiff?: string;
-
-  // Associations
-  declare playerPasses?: Pass[];
-  declare getPlayerPasses: HasManyGetAssociationsMixin<Pass>;
 }
 
 Player.init({
@@ -53,10 +54,22 @@ Player.init({
   pfp: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    allowNull: false
   }
 }, {
   sequelize,
-  tableName: 'players'
+  tableName: 'players',
+  indexes: [
+    { fields: ['name'] },
+    { fields: ['country'] }
+  ]
 });
 
 export default Player;

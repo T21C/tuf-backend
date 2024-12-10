@@ -1,5 +1,4 @@
-import { calcAcc } from "../misc/CalcAcc.js"
-import { arraySum } from "../misc/HelperFns.js"
+import { calcAcc, IJudgements, sumJudgements, tilecount } from "./CalcAcc.js"
 
 const gmConst = 315
 const start = 1
@@ -8,9 +7,11 @@ const startDeduc = 10
 const endDeduc = 50
 const pwr = 0.7
 
-const getScoreV2Mtp = (inputs: any) => {
-    const misses = inputs.earlyDouble + inputs.earlySingle
-    const tiles = arraySum(Object.values(inputs).slice(1))
+const getScoreV2Mtp = (inputs: IJudgements) => {
+    const misses = inputs.earlyDouble;
+    
+    const tiles = tilecount(inputs);
+
     if (!misses){
         return 1.1
     }
@@ -34,54 +35,52 @@ const getScoreV2Mtp = (inputs: any) => {
     else{
         return 1 - endDeduc / 100
     }
-    }
+}
 
-    const getXaccMtp = (inp: any) => {
+const getXaccMtp = (inp: IJudgements) => {
+    const xacc = calcAcc(inp, true)
+    const xacc_percentage = xacc * 100
 
-        const xacc = calcAcc(inp, true)
-        const xacc_percentage = xacc * 100
-
-        if (xacc_percentage < 95){
-            return 1
-        }
-        if (xacc_percentage < 100){
-            return (-0.027 / (xacc - 1.0054) + 0.513)
-        }
-        if (xacc_percentage == 100){
-            return 10
-        }
+    if (xacc_percentage < 95){
         return 1
     }
+    if (xacc_percentage < 100){
+        return (-0.027 / (xacc - 1.0054) + 0.513)
+    }
+    if (xacc_percentage == 100){
+        return 10
+    }
+    return 1
+}
     
 
-const getSpeedMtp = (SPEED: number, isDesBus=false)=>{
+const getSpeedMtp = (speed: number, isDesBus=false)=>{
     if (isDesBus){
-        if (!SPEED || SPEED == 1)
+        if (!speed || speed == 1)
             return 1
-        else if (SPEED > 1){
-            return Math.max(2 - SPEED, 0)}
+        else if (speed > 1){
+            return Math.max(2 - speed, 0)}
     }
 
-    if (!SPEED || SPEED == 1){
+    if (!speed || speed == 1){
         return 1}
-    if (SPEED < 1){
+    if (speed < 1){
         return 0}
-    if (SPEED < 1.1){
-        return -3.5 * SPEED + 4.5}
-    if (SPEED < 1.5){
+    if (speed < 1.1){
+        return -3.5 * speed + 4.5}
+    if (speed < 1.5){
         return 0.65}
-    if (SPEED < 2){
-        return (0.7 * SPEED) - 0.4}
+    if (speed < 2){
+        return (0.7 * speed) - 0.4}
     return 1
 }
 
 const getScore = (passData: any, chartData: any) => {
-    const speed = passData['speed']
-    const legacyDiff = chartData['diff']
-    const inputs = passData['judgements']
-    const base = chartData['baseScore']
+    const speed = passData.speed
+    const legacyDiff = chartData.diff
+    const inputs = passData.judgements
+    const base = chartData.baseScore
     const xaccMtp = getXaccMtp(inputs)
-
 
     var speedMtp = 0
     var score = 0
@@ -99,18 +98,12 @@ const getScore = (passData: any, chartData: any) => {
 
 export const getScoreV2 = (passData: any, chartData: any) => {
     
-    console.log(passData);
-    console.log(chartData);
-    
-    const inputs = passData['judgements'];
-    console.log(inputs);
+    const inputs: IJudgements = passData.judgements;
     const scoreOrig = getScore(passData, chartData);
-    console.log(scoreOrig);
     var mtp = getScoreV2Mtp(inputs);
-    if (passData['isNoHoldTap']) 
+    if (passData.isNoHoldTap) 
        {
         mtp *= 0.9
     };
-    console.log(scoreOrig * mtp);
     return (scoreOrig * mtp)
 }

@@ -5,6 +5,8 @@ import { IPlayer, ILevel } from '../types/models';
 import { updateAllPlayerPfps } from './PlayerEnricher';
 import xlsx from 'xlsx';
 import { calculateBaseScore } from './ratingUtils';
+import { calcAcc } from '../misc/CalcAcc';
+import { getScoreV2 } from '../misc/CalcScore';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -108,6 +110,20 @@ const baseScoreToPguMap = {
 
 function getBaseScorePguRating(baseScore: number): string {
   return baseScoreToPguMap[baseScore as keyof typeof baseScoreToPguMap] || baseScore.toString();
+}
+
+// Add this helper function for creating placeholder judgements
+function createPlaceholderJudgement(id: number) {
+  return {
+    id,
+    earlyDouble: 0,
+    earlySingle: 0,
+    ePerfect: 0,
+    perfect: 0,
+    lPerfect: 0,
+    lateSingle: 0,
+    lateDouble: 0
+  };
 }
 
 async function reloadDatabase() {
@@ -238,9 +254,10 @@ async function reloadDatabase() {
     const passes = passesResponse.results;
     const passDocs = [];
     const judgementDocs = [];
+    let nextJudgementId = 1;
 
     // First, organize passes by level to determine world's firsts
-    const levelFirstPasses = new Map<number, { uploadTime: Date, passId: number }>();
+    const levelFirstPasses = new Map<number, { uploadTime: Date, id: number }>();
     passes.forEach((pass: RawPass) => {
       const newLevelId = levelIdMapping.get(pass.levelId);
       if (typeof newLevelId !== 'number') return;
@@ -249,22 +266,57 @@ async function reloadDatabase() {
       const currentFirst = levelFirstPasses.get(newLevelId);
       
       if (!currentFirst || uploadTime < currentFirst.uploadTime) {
-        levelFirstPasses.set(newLevelId, { uploadTime, passId: pass.id });
+        levelFirstPasses.set(newLevelId, { uploadTime, id: pass.id });
       }
     });
+
+    // Sort passes by ID to process them in order
+    passes.sort((a, b) => a.id - b.id);
 
     for (const pass of passes) {
       const playerId = playerNameToId.get(pass.player);
       const newLevelId = levelIdMapping.get(pass.levelId);
       
       if (playerId && typeof newLevelId === 'number') {
+        // Fill any gaps with placeholder judgements
+        while (nextJudgementId < pass.id) {
+          judgementDocs.push(createPlaceholderJudgement(nextJudgementId));
+          nextJudgementId++;
+        }
+
+        // Create judgements object
+        const judgements = {
+          id: pass.id,
+          earlyDouble: Number(pass.judgements[0]) || 0,
+          earlySingle: Number(pass.judgements[1]) || 0,
+          ePerfect: Number(pass.judgements[2]) || 0,
+          perfect: Number(pass.judgements[3]) || 0,
+          lPerfect: Number(pass.judgements[4]) || 0,
+          lateSingle: Number(pass.judgements[5]) || 0,
+          lateDouble: Number(pass.judgements[6]) || 0
+        };
+        
+        // Get the level's base score
+        const level = levelDocs.find(l => l.id === newLevelId);
+        
+        // Calculate accuracy and score
+        const accuracy = calcAcc(judgements);
+        const scoreV2 = getScoreV2({
+          speed: pass.speed,
+          judgements,
+          isNoHoldTap: pass.isNoHoldTap
+        }, {
+          baseScore: level?.baseScore || 0
+        });
+        
         // Check if this pass is the world's first for its level
-        const isWorldsFirst = levelFirstPasses.get(newLevelId)?.passId === pass.id;
+        const isWorldsFirst = levelFirstPasses.get(newLevelId)?.id === pass.id;
 
         passDocs.push({
           id: pass.id,
           levelId: newLevelId,
           playerId: playerId,
+          speed: pass.speed || 1,
           feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
           vidLink: pass.vidLink,
@@ -274,31 +326,28 @@ async function reloadDatabase() {
           isNoHoldTap: pass.isNoHoldTap,
           isLegacyPass: pass.isLegacyPass,
           isWorldsFirst,
-          accuracy: pass.accuracy,
-          scoreV2: pass.scoreV2,
+          accuracy,
+          scoreV2,
           isDeleted: false
         });
 
-        judgementDocs.push({
-          passId: pass.id,
-          earlyDouble: Number(pass.judgements[0]) || 0,
-          earlySingle: Number(pass.judgements[1]) || 0,
-          ePerfect: Number(pass.judgements[2]) || 0,
-          perfect: Number(pass.judgements[3]) || 0,
-          lPerfect: Number(pass.judgements[4]) || 0,
-          lateSingle: Number(pass.judgements[5]) || 0,
-          lateDouble: Number(pass.judgements[6]) || 0
-        });
+        judgementDocs.push(judgements);
+        nextJudgementId = pass.id + 1;
       }
     }
 
-    // Bulk insert all data
-    await Promise.all([
-      db.models.Player.bulkCreate(playerDocs, { transaction }),
-      db.models.Level.bulkCreate(levelDocs, { transaction }),
-      db.models.Pass.bulkCreate(passDocs, { transaction }),
-      db.models.Judgement.bulkCreate(judgementDocs, { transaction })
-    ]);
+    // Bulk insert data in the correct order
+    await db.models.Player.bulkCreate(playerDocs, { transaction });
+    await db.models.Level.bulkCreate(levelDocs, { transaction });
+    await db.models.Pass.bulkCreate(passDocs, { transaction });
+    
+    // Create judgements only for existing passes
+    const existingPassIds = passDocs.map(pass => pass.id);
+    const validJudgementDocs = judgementDocs.filter(judgement => 
+      existingPassIds.includes(judgement.id)
+    );
+    
+    await db.models.Judgement.bulkCreate(validJudgementDocs, { transaction });
 
     // Update clear counts
     const clearCounts = new Map<number, number>();

@@ -1,30 +1,15 @@
-import { DataTypes } from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import sequelize from '../config/db';
-import BaseModel from './BaseModel';
+import { IPass } from '../types/models';
 import Level from './Level';
 import Player from './Player';
 import Judgement from './Judgement';
 
-export interface IPass {
-  id: number;
-  levelId: number;
-  speed: number | null;
-  playerId: number;
-  feelingRating: string | null;
-  vidTitle: string | null;
-  vidLink: string | null;
-  vidUploadTime: Date | null;
-  is12K: boolean | null;
-  is16K: boolean | null;
-  isNoHoldTap: boolean | null;
-  isLegacyPass: boolean | null;
-  isWorldsFirst: boolean | null;
-  accuracy: number | null;
-  scoreV2: number | null;
-  isDeleted: boolean | null;
-}
+interface PassAttributes extends IPass {}
+interface PassCreationAttributes extends Optional<PassAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
-class Pass extends BaseModel implements IPass {
+class Pass extends Model<PassAttributes, PassCreationAttributes> implements PassAttributes {
+  declare id: number;
   declare levelId: number;
   declare speed: number | null;
   declare playerId: number;
@@ -40,11 +25,13 @@ class Pass extends BaseModel implements IPass {
   declare accuracy: number | null;
   declare scoreV2: number | null;
   declare isDeleted: boolean | null;
+  declare createdAt: Date;
+  declare updatedAt: Date;
 
   // Associations
   declare level?: Level;
   declare player?: Player;
-  declare judgements?: Judgement;
+  declare judgement?: Judgement;
 }
 
 Pass.init({
@@ -108,27 +95,22 @@ Pass.init({
   },
   is12K: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
     allowNull: true
   },
   is16K: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
     allowNull: true
   },
   isNoHoldTap: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
     allowNull: true
   },
   isLegacyPass: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
     allowNull: true
   },
   isWorldsFirst: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
     allowNull: true
   },
   accuracy: {
@@ -141,8 +123,16 @@ Pass.init({
   },
   isDeleted: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: true
+    allowNull: true,
+    defaultValue: false
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    allowNull: false
   }
 }, {
   sequelize,
@@ -150,7 +140,8 @@ Pass.init({
   indexes: [
     { fields: ['levelId'] },
     { fields: ['playerId'] },
-    { fields: ['vidUploadTime'] }
+    { fields: ['isWorldsFirst'] },
+    { fields: ['isDeleted'] }
   ]
 });
 

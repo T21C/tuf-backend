@@ -15,13 +15,12 @@ import { updateData } from './utils/updateHelpers';
 import reloadDatabase from './utils/reloadDatabase';
 import { setIO } from './utils/socket';
 import { updateAllPlayerPfps } from './utils/PlayerEnricher';
-import LeaderboardCache from './utils/LeaderboardCache';
+import leaderboardCache from './utils/LeaderboardCache';
 
 dotenv.config();
 
 const app: Express = express(); 
 const httpServer = createServer(app);
-const leaderboardCache = LeaderboardCache.getInstance();
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
@@ -80,7 +79,13 @@ async function startServer() {
     });
 
     // Initialize leaderboard cache
-    await leaderboardCache.initialize();
+    console.log('Initializing leaderboard cache...');
+    try {
+      await leaderboardCache.get(); // This will trigger the initial cache update
+      console.log('Leaderboard cache initialized successfully');
+    } catch (cacheError) {
+      console.error('Error initializing leaderboard cache:', cacheError);
+    }
 
     // Update profile pictures after server is fully initialized
     console.log('Starting profile picture updates...');

@@ -9,11 +9,9 @@ import { calculateBaseScore, calculatePguDiffNum } from '../../utils/ratingUtils
 import { Auth } from '../../middleware/auth';
 import { getIO } from '../../utils/socket';
 import sequelize from '../../config/db';
-import LeaderboardCache from '../../utils/LeaderboardCache';
 import RatingDetail from '../../models/RatingDetail';
 
 const router: Router = Router();
-const leaderboardCache = LeaderboardCache.getInstance();
 
 // Helper function to build where clause
 const buildWhereClause = (query: any) => {
@@ -114,7 +112,7 @@ router.get('/', async (req: Request, res: Response) => {
         },
         include: [{
           model: Pass,
-          as: 'levelPasses',
+          as: 'passes',
           include: [{
             model: Player,
             as: 'player'
@@ -134,7 +132,7 @@ router.get('/', async (req: Request, res: Response) => {
       order: getSortOptions(req.query.sort as string) as OrderItem[],
       include: [{
         model: Pass,
-        as: 'levelPasses',
+        as: 'passes',
         include: [{
           model: Player,
           as: 'player'
@@ -166,7 +164,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       where: { id: parseInt(req.params.id) },
       include: [{
         model: Pass,
-        as: 'levelPasses',
+        as: 'passes',
         include: [{
           model: Player,
           as: 'player'

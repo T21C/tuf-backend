@@ -7,6 +7,12 @@ export interface IBaseModel {
   updatedAt: Date;
 }
 
+// Base interface for model attributes (without id for junction tables)
+export interface IBaseModelAttributes {
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // Level interface
 export interface ILevel extends IBaseModel {
   song: string;
@@ -33,7 +39,7 @@ export interface ILevel extends IBaseModel {
   rerateNum: string;
   isDeleted: boolean;
   // Associations
-  levelPasses?: IPass[];
+  passes?: IPass[];
 }
 
 // Pass interface
@@ -55,20 +61,19 @@ export interface IPass extends IBaseModel {
   isDeleted: boolean | null;
   // Associations
   level?: ILevel;
-  judgements?: IJudgement;
   player?: IPlayer;
+  judgement?: IJudgement;
 }
 
-// Player interfaces
+// Player interface
 export interface IPlayer extends IBaseModel {
-  id: number;
   name: string;
   country: string;
   isBanned: boolean;
   pfp?: string | null;
-  playerPasses?: IPass[];
-  createdAt?: Date;
-  updatedAt?: Date;
+  
+  // Associations
+  passes?: IPass[];
 
   // Virtual fields
   rankedScore?: number;
@@ -79,21 +84,18 @@ export interface IPlayer extends IBaseModel {
   avgXacc?: number;
   totalPasses?: number;
   universalPasses?: number;
-  WFPasses?: number;
+  worldsFirstPasses?: number;
   topDiff?: string;
   top12kDiff?: string;
 }
 
 // Rating interface
-export interface IRating extends Omit<IBaseModel, 'id'> {
-  levelId: number;  // Primary key instead of id
+export interface IRating extends IBaseModel {
+  levelId: number;
   currentDiff: string;
   lowDiff: boolean;
-  rerateNum: string;
   requesterFR: string;
   average: string;
-  comments: string;
-  rerateReason: string;
 }
 
 // RatingDetail interface
@@ -103,10 +105,8 @@ export interface IRatingDetail extends IBaseModel {
   rating: string;
   comment: string;
 }
-
-// Judgement interface
 export interface IJudgement extends IBaseModel {
-  passId: number;
+  
   earlyDouble: number;
   earlySingle: number;
   ePerfect: number;
@@ -114,72 +114,6 @@ export interface IJudgement extends IBaseModel {
   lPerfect: number;
   lateSingle: number;
   lateDouble: number;
-}
-
-// RerateSubmission interface
-export interface IRerateSubmission extends IBaseModel {
-  levelId: string;
-  song: string;
-  artists: string;
-  creators: string;
-  videoLink: string;
-  downloadLink: string;
-  originalDiff: string;
-  isLowDiff: boolean;
-  rerateValue: number;
-  requesterFR: string;
-  average: number;
-  comments: string;
-}
-
-// ChartSubmission interface
-export interface IChartSubmission extends IBaseModel {
-  artist: string;
-  charter: string;
-  diff: string;
-  song: string;
-  team: string;
-  vfxer: string;
-  videoLink: string;
-  directDL: string;
-  wsLink: string;
-  submitterDiscordUsername: string;
-  submitterEmail: string;
-  status: 'pending' | 'approved' | 'declined';
-  toRate: boolean;
-}
-
-// PassSubmission interfaces
-export interface IPassSubmission extends IBaseModel {
-  levelId: string;
-  speed: number;
-  passer: string;
-  feelingDifficulty: string;
-  title: string;
-  rawVideoId: string;
-  rawTime: Date;
-  submitterDiscordUsername: string;
-  submitterEmail: string;
-  status: string;
-}
-
-export interface IPassSubmissionJudgements extends IBaseModel {
-  passSubmissionId: number;
-  earlyDouble: number;
-  earlySingle: number;
-  ePerfect: number;
-  perfect: number;
-  lPerfect: number;
-  lateSingle: number;
-  lateDouble: number;
-}
-
-export interface IPassSubmissionFlags extends IBaseModel {
-  passSubmissionId: number;
-  is12k: boolean;
-  isNHT: boolean;
-  is16k: boolean;
-  isLegacy: boolean;
 }
 
 // Model instance types
@@ -189,8 +123,3 @@ export type PlayerInstance = Model<IPlayer>;
 export type RatingInstance = Model<IRating>;
 export type RatingDetailInstance = Model<IRatingDetail>;
 export type JudgementInstance = Model<IJudgement>;
-export type RerateSubmissionInstance = Model<IRerateSubmission>;
-export type ChartSubmissionInstance = Model<IChartSubmission>;
-export type PassSubmissionInstance = Model<IPassSubmission>;
-export type PassSubmissionJudgementsInstance = Model<IPassSubmissionJudgements>;
-export type PassSubmissionFlagsInstance = Model<IPassSubmissionFlags>;

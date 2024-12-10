@@ -32,9 +32,28 @@ class PassSubmission extends Model<PassSubmissionAttributes, PassSubmissionCreat
   declare status: string;
   declare assignedPlayerId?: number;
 
-  // Virtual fields for associations
+  // Associations
   declare PassSubmissionJudgement?: PassSubmissionJudgements;
   declare PassSubmissionFlag?: PassSubmissionFlags;
+}
+
+class PassSubmissionJudgements extends Model {
+  declare passSubmissionId: number;
+  declare earlyDouble: number;
+  declare earlySingle: number;
+  declare ePerfect: number;
+  declare perfect: number;
+  declare lPerfect: number;
+  declare lateSingle: number;
+  declare lateDouble: number;
+}
+
+class PassSubmissionFlags extends Model {
+  declare passSubmissionId: number;
+  declare is12k: boolean;
+  declare isNHT: boolean;
+  declare is16k: boolean;
+  declare isLegacy: boolean;
 }
 
 PassSubmission.init({
@@ -102,52 +121,12 @@ PassSubmission.init({
   ]
 });
 
-// Create associated models for complex fields
-interface PassSubmissionJudgementsAttributes {
-  passSubmissionId: number;
-  earlyDouble: number;
-  earlySingle: number;
-  ePerfect: number;
-  perfect: number;
-  lPerfect: number;
-  lateSingle: number;
-  lateDouble: number;
-}
-
-class PassSubmissionJudgements extends Model<PassSubmissionJudgementsAttributes> {
-  declare passSubmissionId: number;
-  declare earlyDouble: number;
-  declare earlySingle: number;
-  declare ePerfect: number;
-  declare perfect: number;
-  declare lPerfect: number;
-  declare lateSingle: number;
-  declare lateDouble: number;
-}
-
-interface PassSubmissionFlagsAttributes {
-  passSubmissionId: number;
-  is12k: boolean;
-  isNHT: boolean;
-  is16k: boolean;
-  isLegacy: boolean;
-}
-
-class PassSubmissionFlags extends Model<PassSubmissionFlagsAttributes> {
-  declare passSubmissionId: number;
-  declare is12k: boolean;
-  declare isNHT: boolean;
-  declare is16k: boolean;
-  declare isLegacy: boolean;
-}
-
-// Initialize associated models
 PassSubmissionJudgements.init({
   passSubmissionId: {
     type: DataTypes.INTEGER,
     primaryKey: true,
     references: {
-      model: PassSubmission,
+      model: 'pass_submissions',
       key: 'id'
     }
   },
@@ -189,7 +168,7 @@ PassSubmissionFlags.init({
     type: DataTypes.INTEGER,
     primaryKey: true,
     references: {
-      model: PassSubmission,
+      model: 'pass_submissions',
       key: 'id'
     }
   },
@@ -214,8 +193,23 @@ PassSubmissionFlags.init({
   tableName: 'pass_submission_flags'
 });
 
-// Set up relationships
-PassSubmission.hasOne(PassSubmissionJudgements, { foreignKey: 'passSubmissionId', as: 'PassSubmissionJudgement' });
-PassSubmission.hasOne(PassSubmissionFlags, { foreignKey: 'passSubmissionId', as: 'PassSubmissionFlag' });
+// Set up associations after all models are initialized
+PassSubmission.hasOne(PassSubmissionJudgements, {
+  foreignKey: 'passSubmissionId',
+  as: 'judgements'
+});
+
+PassSubmission.hasOne(PassSubmissionFlags, {
+  foreignKey: 'passSubmissionId',
+  as: 'flags'
+});
+
+PassSubmissionJudgements.belongsTo(PassSubmission, {
+  foreignKey: 'passSubmissionId'
+});
+
+PassSubmissionFlags.belongsTo(PassSubmission, {
+  foreignKey: 'passSubmissionId'
+});
 
 export { PassSubmission, PassSubmissionJudgements, PassSubmissionFlags };

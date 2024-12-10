@@ -1,44 +1,19 @@
 import { Request, Response, Router } from 'express';
+import { Op } from 'sequelize';
 import Player from '../../models/Player';
 import Pass from '../../models/Pass';
 import Level from '../../models/Level';
 import Judgement from '../../models/Judgement';
 import { enrichPlayerData } from '../../utils/PlayerEnricher';
-import LeaderboardCache from '../../utils/LeaderboardCache';
-import { Auth } from '../../middleware/auth';
-import { Op } from 'sequelize';
+import leaderboardCache from '../../utils/LeaderboardCache';
 
 const router: Router = Router();
-const leaderboardCache = LeaderboardCache.getInstance();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const players = await Player.findAll({
-      include: [{
-        model: Pass,
-        as: 'playerPasses',
-        include: [{
-          model: Level,
-          as: 'level',
-          attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-          attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
-        }]
-      }]
-    });
-
-    const enrichedPlayers = await Promise.all(
-      players.map(async player => {
-        const enriched = await enrichPlayerData(player);
-        const rankings = leaderboardCache.getAllRanks(player.id);
-        return { ...enriched, rankings };
-      })
-    );
-
-    return res.json(enrichedPlayers);
+    const { includeScores = 'true' } = req.query;
+    const players = await leaderboardCache.get('rankedScore', 'desc', includeScores === 'true');
+    return res.json(players);
   } catch (error) {
     console.error('Error fetching players:', error);
     return res.status(500).json({ 
@@ -50,20 +25,18 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const player = await Player.findOne({
-      where: { id: req.params.id },
+    const { id } = req.params;
+
+    const player = await Player.findByPk(id, {
       include: [{
         model: Pass,
-        as: 'playerPasses',
+        as: 'passes',
         include: [{
           model: Level,
-          as: 'level',
-          attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore']
-        },
-        {
+          as: 'level'
+        }, {
           model: Judgement,
-          as: 'judgements',
-          attributes: ['earlyDouble', 'earlySingle', 'ePerfect', 'perfect', 'lPerfect', 'lateSingle', 'lateDouble']
+          as: 'judgements'
         }]
       }]
     });
@@ -73,12 +46,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 
     const enrichedPlayer = await enrichPlayerData(player);
-    const rankings = leaderboardCache.getAllRanks(player.dataValues.id);
-    
-    return res.json({
-      ...enrichedPlayer,
-      rankings
-    });
+    return res.json({...enrichedPlayer, ranks: await leaderboardCache.getRanks(player.id)});
   } catch (error) {
     console.error('Error fetching player:', error);
     return res.status(500).json({ 
@@ -88,128 +56,39 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-
-// Search for players by name
-router.get('/search/:name', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get('/search/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
-    
-    // Find players with their passes and level data in a single query
-    // This uses Sequelize's eager loading with 'include'
     const players = await Player.findAll({
       where: {
         name: {
           [Op.like]: `%${name}%`
         }
       },
-      // Include the passes association
       include: [{
         model: Pass,
-        as: 'playerPasses', // This alias must match the one defined in associations.ts
-        required: false,    // Use LEFT JOIN to include players even without passes
+        as: 'passes',
         include: [{
           model: Level,
-          as: 'level',     // This alias must match the one defined in associations.ts
-          attributes: ['baseScore', 'pguDiff']
+          as: 'level'
+        }, {
+          model: Judgement,
+          as: 'judgements'
         }]
-      }],
-      limit: 20
+      }]
     });
 
-    // Enrich each player with calculated scores
     const enrichedPlayers = await Promise.all(
-      players.map(async player => {
-        // enrichPlayerData uses the included passes to calculate scores
-        // player.playerPasses is now available because of the include above
-        const enriched = await enrichPlayerData(player);
-        
-        // Return only the fields we need for the search results
-        return {
-          id: enriched.id,
-          name: enriched.name,
-          country: enriched.country,
-          rankedScore: enriched.rankedScore // Keep the original name for frontend compatibility
-        };
-      })
+      players.map(player => enrichPlayerData(player))
     );
-
-    // Sort by ranked score descending after enrichment
-    enrichedPlayers.sort((a, b) => (b.rankedScore || 0) - (a.rankedScore || 0));
 
     return res.json(enrichedPlayers);
   } catch (error) {
     console.error('Error searching players:', error);
-    return res.status(500).json({ error: error });
-  }
-});
-
-// Create new player
-router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) => {
-  try {
-    const { name, country } = req.body;
-    const [player, created] = await Player.findOrCreate({
-      where: { name },
-      defaults: {
-        name,
-        country,
-        pfp: 'none'
-      }
+    return res.status(500).json({ 
+      error: 'Failed to search players',
+      details: error instanceof Error ? error.message : String(error)
     });
-
-    if (!created) {
-      return res.status(400).json({ error: 'Player already exists' });
-    }
-
-    return res.json(player);
-  } catch (error) {
-    console.error('Error creating player:', error);
-    return res.status(500).json({ error: error });
-  }
-});
-
-// Update player's country
-router.put('/:id/country', Auth.superAdmin(), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { country } = req.body;
-
-    if (!country || country.length !== 2) {
-      return res.status(400).json({ error: 'Invalid country code' });
-    }
-
-    const player = await Player.findByPk(id);
-    if (!player) {
-      return res.status(404).json({ error: 'Player not found' });
-    }
-
-    await player.update({ country });
-    return res.json({ message: 'Player country updated successfully' });
-  } catch (error) {
-    console.error('Error updating player country:', error);
-    return res.status(500).json({ error: error });
-  }
-});
-
-// Update player's ban status
-router.put('/:id/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { isBanned } = req.body;
-
-    if (typeof isBanned !== 'boolean') {
-      return res.status(400).json({ error: 'Invalid ban status' });
-    }
-
-    const player = await Player.findByPk(id);
-    if (!player) {
-      return res.status(404).json({ error: 'Player not found' });
-    }
-
-    await player.update({ isBanned });
-    return res.json({ message: 'Player ban status updated successfully' });
-  } catch (error) {
-    console.error('Error updating player ban status:', error);
-    return res.status(500).json({ error: error });
   }
 });
 

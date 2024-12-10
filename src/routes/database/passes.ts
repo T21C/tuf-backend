@@ -37,11 +37,10 @@ const buildWhereClause = (query: any) => {
     };
   }
 
-  // Add NHT and 12k filters
-  if (query.hideNHT) {
-    where.isNoHoldTap = false;
-  }
-  if (query.hide12k) {
+  // Add 12k filter
+  if (query.only12k === 'true' || query.only12k === true) {
+    where.is12K = true;
+  } else {
     where.is12K = false;
   }
 
@@ -74,13 +73,43 @@ const buildWhereClause = (query: any) => {
 // Get sort options
 const getSortOptions = (sort?: string): OrderItem[] => {
   switch (sort) {
-    case 'SCORE_ASC': return [['scoreV2', 'ASC'] as OrderItem];
-    case 'SCORE_DESC': return [['scoreV2', 'DESC'] as OrderItem];
-    case 'XACC_ASC': return [['accuracy', 'ASC'] as OrderItem];
-    case 'XACC_DESC': return [['accuracy', 'DESC'] as OrderItem];
-    case 'DATE_ASC': return [['vidUploadTime', 'ASC'] as OrderItem];
-    case 'DATE_DESC': return [['vidUploadTime', 'DESC'] as OrderItem];
-    default: return [['scoreV2', 'ASC'] as OrderItem];
+    case 'RECENT_ASC':
+      return [
+        ['id', 'ASC']
+      ];
+    case 'RECENT_DESC':
+      return [
+        ['id', 'DESC']
+      ];
+    case 'SCORE_ASC':
+      return [
+        ['scoreV2', 'ASC'],
+        ['id', 'DESC']  // Secondary sort by newest first
+      ];
+    case 'SCORE_DESC':
+      return [
+        ['scoreV2', 'DESC'],
+        ['id', 'DESC']  // Secondary sort by newest first
+      ];
+    case 'XACC_ASC':
+      return [
+        ['accuracy', 'ASC'],
+        ['scoreV2', 'DESC'],  // Secondary sort by highest score
+        ['id', 'DESC']        // Tertiary sort by newest first
+      ];
+    case 'XACC_DESC':
+      return [
+        ['accuracy', 'DESC'],
+        ['scoreV2', 'DESC'],  // Secondary sort by highest score
+        ['id', 'DESC']        // Tertiary sort by newest first
+      ];
+    case 'RANDOM':
+      return [sequelize.random()];
+    default:
+      return [
+        ['scoreV2', 'DESC'],  // Default to highest score
+        ['id', 'DESC']        // Secondary sort by newest first
+      ];
   }
 };
 
@@ -274,7 +303,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Update judgements
     await Judgement.update(judgements, {
-      where: { passId: parseInt(id) },
+      where: { id: parseInt(id) },
       transaction
     });
 
@@ -443,6 +472,43 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
     await transaction.rollback();
     console.error('Error restoring pass:', error);
     return res.status(500).json({ error: 'Failed to restore pass' });
+  }
+});
+
+// Add new route for getting pass by ID as a list
+router.get('/byId/:id', async (req: Request, res: Response) => {
+  try {
+    const pass = await Pass.findOne({
+      where: { 
+        id: parseInt(req.params.id),
+        '$player.isBanned$': false 
+      },
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['name', 'country', 'isBanned']
+        },
+        {
+          model: Level,
+          as: 'level',
+          attributes: ['song', 'artist', 'pguDiff', 'baseScore']
+        },
+        {
+          model: Judgement,
+          as: 'judgements'
+        }
+      ]
+    });
+
+    if (!pass) {
+      return res.json({ count: 0, results: [] });
+    }
+
+    return res.json({ count: 1, results: [pass] });
+  } catch (error) {
+    console.error('Error fetching pass by ID:', error);
+    return res.status(500).json({ error: 'Failed to fetch pass' });
   }
 });
 

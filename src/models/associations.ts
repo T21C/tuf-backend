@@ -6,36 +6,52 @@ import Rating from './Rating';
 import RatingDetail from './RatingDetail';
 
 export function initializeAssociations() {
-  // Pass associations
-  Pass.belongsTo(Level, { 
-    foreignKey: 'levelId', 
-    as: 'level',
+  // Player has many Passes
+  Player.hasMany(Pass, { 
+    foreignKey: 'playerId', 
+    as: 'passes',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });
-  
+
+  // Pass belongs to Player and Level
   Pass.belongsTo(Player, { 
     foreignKey: 'playerId', 
     as: 'player',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });
-  
+
+  Pass.belongsTo(Level, { 
+    foreignKey: 'levelId', 
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  // Pass has one Judgement
   Pass.hasOne(Judgement, { 
-    foreignKey: 'passId', 
+    foreignKey: 'id',
     as: 'judgements',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });
 
-  // Level associations
-  Level.hasMany(Pass, { 
-    foreignKey: 'levelId', 
-    as: 'levelPasses',
+  Judgement.belongsTo(Pass, {
+    foreignKey: 'id',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });
 
+  // Level has many Passes
+  Level.hasMany(Pass, { 
+    foreignKey: 'levelId', 
+    as: 'passes',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  // Level has one Rating
   Level.hasOne(Rating, {
     foreignKey: 'levelId',
     as: 'rating',
@@ -43,7 +59,7 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE'
   });
 
-  // Rating associations
+  // Rating belongs to Level
   Rating.belongsTo(Level, {
     foreignKey: 'levelId',
     as: 'level',
@@ -51,10 +67,11 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE'
   });
 
+  // Rating has many RatingDetails
   Rating.hasMany(RatingDetail, {
     foreignKey: 'ratingId',
     sourceKey: 'id',
-    as: 'RatingDetails',
+    as: 'details',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });
@@ -63,14 +80,6 @@ export function initializeAssociations() {
     foreignKey: 'ratingId',
     targetKey: 'id',
     as: 'parentRating',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
-  });
-
-  // Player associations
-  Player.hasMany(Pass, { 
-    foreignKey: 'playerId', 
-    as: 'playerPasses',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });
