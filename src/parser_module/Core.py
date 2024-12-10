@@ -74,7 +74,7 @@ class ResultObj:
                        "isNoHold": False,
                        "judgements": [],
                        "pdnDiff": 0,
-                       "chartId": 0,
+                       "levelId": 0,
                        "passId": 0,
                        "baseScore": 0,
                        "isDeleted": False
@@ -321,17 +321,17 @@ class DataScraper:
         self.pguSort = {"P": 1,
                         "G": 2,
                         "U": 3}
-        self.readCharts(chartPath)
+        self.readLevels(chartPath)
         self.readPasses(passPath)
         self.readPlayers(playerPath)
 
     def getAsyncData(self):
-        functions = [self.getCharts, self.getPasses, self.getPlayers]
+        functions = [self.getLevels, self.getPasses, self.getPlayers]
         self.AsyncReq.start()
         for f in zip(functions, range(len(functions))):
             f[0](self.AsyncReq.responses[f[1]])
 
-    def readCharts(self, path):
+    def readLevels(self, path):
         with open(path, "r", encoding="utf-8") as f:
             file = json.load(f)
             # Create a dictionary with 'id' as the key and the rest of the object as the value

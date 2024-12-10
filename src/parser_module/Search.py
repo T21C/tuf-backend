@@ -45,7 +45,7 @@ def searchByChart(chartId: int, chartPath=chartPathDef, passPath=passPathDef, pl
     performance_data['get_chart'] = end_time - start_time
 
     if not chart:
-        print(f"Chart ID {chartId} not found")
+        print(f"Level ID {chartId} not found")
         return []
 
     # Measure time for finding passes

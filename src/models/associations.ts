@@ -7,48 +7,48 @@ import RatingDetail from './RatingDetail';
 
 export function initializeAssociations() {
   // Player has many Passes
-  Player.hasMany(Pass, { 
-    foreignKey: 'playerId', 
+  Player.hasMany(Pass, {
+    foreignKey: 'playerId',
     as: 'passes',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   // Pass belongs to Player and Level
-  Pass.belongsTo(Player, { 
-    foreignKey: 'playerId', 
+  Pass.belongsTo(Player, {
+    foreignKey: 'playerId',
     as: 'player',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
-  Pass.belongsTo(Level, { 
-    foreignKey: 'levelId', 
+  Pass.belongsTo(Level, {
+    foreignKey: 'levelId',
     as: 'level',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   // Pass has one Judgement
-  Pass.hasOne(Judgement, { 
+  Pass.hasOne(Judgement, {
     foreignKey: 'id',
     as: 'judgements',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   Judgement.belongsTo(Pass, {
     foreignKey: 'id',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   // Level has many Passes
-  Level.hasMany(Pass, { 
-    foreignKey: 'levelId', 
+  Level.hasMany(Pass, {
+    foreignKey: 'levelId',
     as: 'passes',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   // Level has one Rating
@@ -56,7 +56,7 @@ export function initializeAssociations() {
     foreignKey: 'levelId',
     as: 'rating',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   // Rating belongs to Level
@@ -64,7 +64,7 @@ export function initializeAssociations() {
     foreignKey: 'levelId',
     as: 'level',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   // Rating has many RatingDetails
@@ -73,7 +73,7 @@ export function initializeAssociations() {
     sourceKey: 'id',
     as: 'details',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
 
   RatingDetail.belongsTo(Rating, {
@@ -81,6 +81,6 @@ export function initializeAssociations() {
     targetKey: 'id',
     as: 'parentRating',
     onDelete: 'CASCADE',
-    onUpdate: 'CASCADE'
+    onUpdate: 'CASCADE',
   });
-} 
+}

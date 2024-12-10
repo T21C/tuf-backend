@@ -1,4 +1,4 @@
-import { Model, DataTypes } from 'sequelize';
+import {Model, DataTypes} from 'sequelize';
 import sequelize from '../config/db';
 
 interface PassSubmissionAttributes {
@@ -16,9 +16,12 @@ interface PassSubmissionAttributes {
   assignedPlayerId?: number;
 }
 
-interface PassSubmissionCreationAttributes extends Omit<PassSubmissionAttributes, 'id'> {}
+type PassSubmissionCreationAttributes = Omit<PassSubmissionAttributes, 'id'>;
 
-class PassSubmission extends Model<PassSubmissionAttributes, PassSubmissionCreationAttributes> {
+class PassSubmission extends Model<
+  PassSubmissionAttributes,
+  PassSubmissionCreationAttributes
+> {
   declare id: number;
   declare levelId: string;
   declare speed: number;
@@ -56,160 +59,169 @@ class PassSubmissionFlags extends Model {
   declare isLegacy: boolean;
 }
 
-PassSubmission.init({
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+PassSubmission.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    levelId: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    speed: {
+      type: DataTypes.FLOAT,
+      defaultValue: 1,
+    },
+    passer: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    feelingDifficulty: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    rawVideoId: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    rawTime: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    submitterDiscordUsername: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    submitterEmail: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    status: {
+      type: DataTypes.ENUM('pending', 'approved', 'declined'),
+      defaultValue: 'pending',
+    },
+    assignedPlayerId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'players',
+        key: 'id',
+      },
+    },
   },
-  levelId: {
-    type: DataTypes.STRING,
-    allowNull: false
+  {
+    sequelize,
+    tableName: 'pass_submissions',
+    indexes: [
+      {fields: ['passer']},
+      {fields: ['rawVideoId']},
+      {fields: ['status']},
+      {fields: ['assignedPlayerId']},
+    ],
   },
-  speed: {
-    type: DataTypes.FLOAT,
-    defaultValue: 1
-  },
-  passer: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  feelingDifficulty: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  title: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  rawVideoId: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  rawTime: {
-    type: DataTypes.DATE,
-    allowNull: false
-  },
-  submitterDiscordUsername: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  submitterEmail: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  status: {
-    type: DataTypes.ENUM('pending', 'approved', 'declined'),
-    defaultValue: 'pending'
-  },
-  assignedPlayerId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'players',
-      key: 'id'
-    }
-  }
-}, {
-  sequelize,
-  tableName: 'pass_submissions',
-  indexes: [
-    { fields: ['passer'] },
-    { fields: ['rawVideoId'] },
-    { fields: ['status'] },
-    { fields: ['assignedPlayerId'] }
-  ]
-});
+);
 
-PassSubmissionJudgements.init({
-  passSubmissionId: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: {
-      model: 'pass_submissions',
-      key: 'id'
-    }
+PassSubmissionJudgements.init(
+  {
+    passSubmissionId: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: {
+        model: 'pass_submissions',
+        key: 'id',
+      },
+    },
+    earlyDouble: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    earlySingle: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    ePerfect: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    perfect: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    lPerfect: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    lateSingle: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    lateDouble: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
   },
-  earlyDouble: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
+  {
+    sequelize,
+    tableName: 'pass_submission_judgements',
   },
-  earlySingle: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  ePerfect: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  perfect: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  lPerfect: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  lateSingle: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  lateDouble: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  }
-}, {
-  sequelize,
-  tableName: 'pass_submission_judgements'
-});
+);
 
-PassSubmissionFlags.init({
-  passSubmissionId: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    references: {
-      model: 'pass_submissions',
-      key: 'id'
-    }
+PassSubmissionFlags.init(
+  {
+    passSubmissionId: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      references: {
+        model: 'pass_submissions',
+        key: 'id',
+      },
+    },
+    is12k: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    isNHT: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    is16k: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    isLegacy: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
   },
-  is12k: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
+  {
+    sequelize,
+    tableName: 'pass_submission_flags',
   },
-  isNHT: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  is16k: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  isLegacy: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  }
-}, {
-  sequelize,
-  tableName: 'pass_submission_flags'
-});
+);
 
 // Set up associations after all models are initialized
 PassSubmission.hasOne(PassSubmissionJudgements, {
   foreignKey: 'passSubmissionId',
-  as: 'judgements'
+  as: 'judgements',
 });
 
 PassSubmission.hasOne(PassSubmissionFlags, {
   foreignKey: 'passSubmissionId',
-  as: 'flags'
+  as: 'flags',
 });
 
 PassSubmissionJudgements.belongsTo(PassSubmission, {
-  foreignKey: 'passSubmissionId'
+  foreignKey: 'passSubmissionId',
 });
 
 PassSubmissionFlags.belongsTo(PassSubmission, {
-  foreignKey: 'passSubmissionId'
+  foreignKey: 'passSubmissionId',
 });
 
-export { PassSubmission, PassSubmissionJudgements, PassSubmissionFlags };
+export {PassSubmission, PassSubmissionJudgements, PassSubmissionFlags};

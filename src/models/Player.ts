@@ -1,11 +1,22 @@
-import { DataTypes, Model, Optional, HasManyGetAssociationsMixin } from 'sequelize';
+import {
+  DataTypes,
+  Model,
+  Optional,
+  HasManyGetAssociationsMixin,
+} from 'sequelize';
 import sequelize from '../config/db';
-import { IPlayer } from '../types/models';
+import {IPlayer} from '../types/models';
 import Pass from './Pass';
 
-interface PlayerCreationAttributes extends Optional<IPlayer, 'id' | 'createdAt' | 'updatedAt'> {}
+type PlayerCreationAttributes = Optional<
+  IPlayer,
+  'id' | 'createdAt' | 'updatedAt'
+>;
 
-class Player extends Model<IPlayer, PlayerCreationAttributes> implements IPlayer {
+class Player
+  extends Model<IPlayer, PlayerCreationAttributes>
+  implements IPlayer
+{
   declare id: number;
   declare name: string;
   declare country: string;
@@ -32,44 +43,44 @@ class Player extends Model<IPlayer, PlayerCreationAttributes> implements IPlayer
   declare top12kDiff?: string;
 }
 
-Player.init({
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+Player.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+    },
+    country: {
+      type: DataTypes.STRING(2),
+      allowNull: false,
+    },
+    isBanned: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    pfp: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
   },
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    unique: true
+  {
+    sequelize,
+    tableName: 'players',
+    indexes: [{fields: ['name']}, {fields: ['country']}],
   },
-  country: {
-    type: DataTypes.STRING(2),
-    allowNull: false
-  },
-  isBanned: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  pfp: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  createdAt: {
-    type: DataTypes.DATE,
-    allowNull: false
-  },
-  updatedAt: {
-    type: DataTypes.DATE,
-    allowNull: false
-  }
-}, {
-  sequelize,
-  tableName: 'players',
-  indexes: [
-    { fields: ['name'] },
-    { fields: ['country'] }
-  ]
-});
+);
 
 export default Player;

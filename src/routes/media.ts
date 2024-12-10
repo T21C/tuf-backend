@@ -1,8 +1,6 @@
 import express, {Request, Response, Router} from 'express';
 import fetch from 'node-fetch';
 import {loadPfpList} from '../utils/fileHandlers.js';
-import {PATHS} from '../config/constants.js';
-import {decodeFromBase32} from '../utils/encodingHelpers.js';
 import axios from 'axios';
 
 const router: Router = express.Router();
@@ -15,18 +13,17 @@ router.get('/image', async (req: Request, res: Response) => {
     }
 
     const response = await axios.get(imageUrl, {
-      responseType: 'arraybuffer'
+      responseType: 'arraybuffer',
     });
 
     const contentType = response.headers['content-type'];
     res.set('Content-Type', contentType);
 
     return res.send(response.data);
-
   } catch (error) {
     console.error('Error fetching image:', error);
     res.status(500).send('Error fetching image.');
-    return
+    return;
   }
 });
 
@@ -64,13 +61,12 @@ router.get('/github-asset', async (req: Request, res: Response) => {
 
     const githubUrl = `https://raw.githubusercontent.com/T21C/T21C-assets/main/${assetPath}`;
     const response = await axios.get(githubUrl, {
-      responseType: 'arraybuffer'
+      responseType: 'arraybuffer',
     });
 
     const contentType = response.headers['content-type'];
     res.set('Content-Type', contentType);
     return res.send(response.data);
-
   } catch (error) {
     console.error('Error fetching GitHub asset:', error);
     res.status(500).send('Error fetching asset.');

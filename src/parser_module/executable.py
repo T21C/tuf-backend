@@ -90,7 +90,7 @@ def main():
 
     # Command for search by chart ID
     parserSearchChart = subparsers.add_parser('chart')
-    parserSearchChart.add_argument('chart', type=int, help="Chart ID to search for")
+    parserSearchChart.add_argument('chart', type=int, help="Level ID to search for")
     parserSearchChart.add_argument('--useSaved', action='store_true', help="Use saved data")
     parserSearchChart.add_argument('--output', type=str, help="Optional: specify output JSON file path")
 

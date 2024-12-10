@@ -1,12 +1,18 @@
-import { Model, DataTypes, Optional } from 'sequelize';
+import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import { ILevel } from '../types/models';
+import {ILevel} from '../types/models';
 import Pass from './Pass';
 
-interface LevelAttributes extends ILevel {}
-interface LevelCreationAttributes extends Optional<LevelAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+type LevelAttributes = ILevel;
+type LevelCreationAttributes = Optional<
+  LevelAttributes,
+  'id' | 'createdAt' | 'updatedAt'
+>;
 
-class Level extends Model<LevelAttributes, LevelCreationAttributes> implements LevelAttributes {
+class Level
+  extends Model<LevelAttributes, LevelCreationAttributes>
+  implements LevelAttributes
+{
   declare id: number;
   declare song: string;
   declare artist: string;
@@ -38,122 +44,125 @@ class Level extends Model<LevelAttributes, LevelCreationAttributes> implements L
   declare passes?: Pass[];
 }
 
-Level.init({
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+Level.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    song: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    artist: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    creator: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    charter: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    vfxer: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    team: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    diff: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    legacyDiff: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    pguDiff: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    pguDiffNum: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    newDiff: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    baseScore: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    baseScoreDiff: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    isCleared: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    clears: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    vidLink: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    dlLink: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    workshopLink: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    publicComments: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    toRate: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    rerateReason: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    rerateNum: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
   },
-  song: {
-    type: DataTypes.TEXT,
-    allowNull: true
+  {
+    sequelize,
+    tableName: 'levels',
+    indexes: [
+      {fields: [{name: 'song', length: 255}]},
+      {fields: [{name: 'artist', length: 255}]},
+      {fields: [{name: 'charter', length: 255}]},
+      {fields: [{name: 'diff'}]},
+    ],
   },
-  artist: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  creator: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  charter: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  vfxer: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  team: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  diff: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  legacyDiff: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  pguDiff: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  pguDiffNum: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  newDiff: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  baseScore: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  baseScoreDiff: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  isCleared: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
-  },
-  clears: {
-    type: DataTypes.INTEGER,
-    allowNull: true
-  },
-  vidLink: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  dlLink: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  workshopLink: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  publicComments: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  toRate: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
-  },
-  rerateReason: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  rerateNum: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  isDeleted: {
-    type: DataTypes.BOOLEAN,
-    allowNull: false,
-    defaultValue: false
-  },
-  createdAt: {
-    type: DataTypes.DATE,
-    allowNull: false
-  },
-  updatedAt: {
-    type: DataTypes.DATE,
-    allowNull: false
-  }
-}, {
-  sequelize,
-  tableName: 'levels',
-  indexes: [
-    { fields: [{ name: 'song', length: 255 }] },
-    { fields: [{ name: 'artist', length: 255 }] },
-    { fields: [{ name: 'charter', length: 255 }] },
-    { fields: [{ name: 'diff' }] }
-  ]
-});
+);
 
 export default Level;

@@ -1,4 +1,4 @@
-import { Model } from 'sequelize';
+import {Model} from 'sequelize';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -71,7 +71,7 @@ export interface IPlayer extends IBaseModel {
   country: string;
   isBanned: boolean;
   pfp?: string | null;
-  
+
   // Associations
   passes?: IPass[];
 
@@ -106,7 +106,6 @@ export interface IRatingDetail extends IBaseModel {
   comment: string;
 }
 export interface IJudgement extends IBaseModel {
-  
   earlyDouble: number;
   earlySingle: number;
   ePerfect: number;

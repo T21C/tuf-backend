@@ -1,4 +1,4 @@
-import { Model, DataTypes, Optional } from 'sequelize';
+import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
 
 interface RatingAttributes {
@@ -10,9 +10,12 @@ interface RatingAttributes {
   average: string;
 }
 
-interface RatingCreationAttributes extends Optional<RatingAttributes, 'id'> {}
+type RatingCreationAttributes = Optional<RatingAttributes, 'id'>;
 
-class Rating extends Model<RatingAttributes, RatingCreationAttributes> implements RatingAttributes {
+class Rating
+  extends Model<RatingAttributes, RatingCreationAttributes>
+  implements RatingAttributes
+{
   declare id: number;
   declare levelId: number;
   declare currentDiff: string;
@@ -21,42 +24,43 @@ class Rating extends Model<RatingAttributes, RatingCreationAttributes> implement
   declare average: string;
 }
 
-Rating.init({
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+Rating.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    levelId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'levels',
+        key: 'id',
+      },
+    },
+    currentDiff: {
+      type: DataTypes.STRING,
+      defaultValue: '0',
+    },
+    lowDiff: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    requesterFR: {
+      type: DataTypes.STRING,
+      defaultValue: '',
+    },
+    average: {
+      type: DataTypes.STRING,
+      defaultValue: '0',
+    },
   },
-  levelId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'levels',
-      key: 'id'
-    }
+  {
+    sequelize,
+    tableName: 'ratings',
+    indexes: [{fields: ['levelId'], unique: true}],
   },
-  currentDiff: {
-    type: DataTypes.STRING,
-    defaultValue: '0'
-  },
-  lowDiff: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  requesterFR: {
-    type: DataTypes.STRING,
-    defaultValue: ''
-  },
-  average: {
-    type: DataTypes.STRING,
-    defaultValue: '0'
-  }
-}, {
-  sequelize,
-  tableName: 'ratings',
-  indexes: [
-    { fields: ['levelId'], unique: true }
-  ]
-});
+);
 
-export default Rating; 
+export default Rating;

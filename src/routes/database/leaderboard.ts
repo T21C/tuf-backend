@@ -1,5 +1,5 @@
-import { Request, Response, Router } from 'express';
-import { validSortOptions } from '../../config/constants';
+import {Request, Response, Router} from 'express';
+import {validSortOptions} from '../../config/constants';
 import leaderboardCache from '../../utils/LeaderboardCache';
 
 const router: Router = Router();
@@ -11,7 +11,7 @@ router.get('/', async (req: Request, res: Response) => {
       sortBy = 'rankedScore',
       order = 'desc',
       includeAllScores = 'false',
-      showBanned = 'show'
+      showBanned = 'show',
     } = req.query;
 
     const includeScores = String(includeAllScores).toLowerCase() === 'true';
@@ -24,9 +24,9 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Get cached leaderboard data
     let players = await leaderboardCache.get(
-      sortBy as string, 
-      order as string, 
-      includeScores
+      sortBy as string,
+      order as string,
+      includeScores,
     );
 
     // Filter based on ban status after getting from cache
@@ -37,14 +37,16 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     const totalTime = performance.now() - routeStart;
-    console.log(`[PERF] Total leaderboard route time: ${totalTime.toFixed(2)}ms`);
+    console.log(
+      `[PERF] Total leaderboard route time: ${totalTime.toFixed(2)}ms`,
+    );
 
     return res.json(players);
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to fetch leaderboard',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });

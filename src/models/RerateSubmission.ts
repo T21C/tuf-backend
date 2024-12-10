@@ -1,4 +1,4 @@
-import { DataTypes } from 'sequelize';
+import {DataTypes} from 'sequelize';
 import sequelize from '../config/db';
 import BaseModel from './BaseModel';
 
@@ -17,65 +17,68 @@ class RerateSubmission extends BaseModel {
   public comments!: string;
 }
 
-RerateSubmission.init({
-  levelId: {
-    type: DataTypes.STRING,
-    allowNull: false
+RerateSubmission.init(
+  {
+    levelId: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    song: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    artists: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    creators: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    videoLink: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    downloadLink: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    originalDiff: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    isLowDiff: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    rerateValue: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+    requesterFR: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    average: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+    comments: {
+      type: DataTypes.TEXT,
+      defaultValue: '',
+    },
   },
-  song: {
-    type: DataTypes.STRING,
-    allowNull: false
+  {
+    sequelize,
+    tableName: 'rerate_submissions',
+    indexes: [
+      {fields: ['levelId']},
+      {fields: ['song']},
+      {fields: ['artists']},
+      {fields: ['creators']},
+      {fields: ['requesterFR']},
+    ],
   },
-  artists: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  creators: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  videoLink: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  downloadLink: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  originalDiff: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  isLowDiff: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  rerateValue: {
-    type: DataTypes.FLOAT,
-    allowNull: false
-  },
-  requesterFR: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  average: {
-    type: DataTypes.FLOAT,
-    allowNull: false
-  },
-  comments: {
-    type: DataTypes.TEXT,
-    defaultValue: ''
-  }
-}, {
-  sequelize,
-  tableName: 'rerate_submissions',
-  indexes: [
-    { fields: ['levelId'] },
-    { fields: ['song'] },
-    { fields: ['artists'] },
-    { fields: ['creators'] },
-    { fields: ['requesterFR'] }
-  ]
-});
+);
 
 export default RerateSubmission;

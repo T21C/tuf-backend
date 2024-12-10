@@ -5,12 +5,21 @@ export const PATHS = {
   rankListJson: 'cache/rankList.json',
   playerFolder: 'cache/players',
   ratingListJson: 'cache/ratingList.json',
-  chartsJson: './cache/charts.json',
+  levelsJson: './cache/levels.json',
   playersJson: './cache/players.json',
   passesJson: './cache/passes.json',
 };
 
-export const SUPER_ADMINS = ["teo_72", "v0w4n",   "soulengine",  "harliefox", "sjk04", "soft.bunner", "dehznik", "willtrm"];
+export const SUPER_ADMINS = [
+  'teo_72',
+  'v0w4n',
+  'soulengine',
+  'harliefox',
+  'sjk04',
+  'soft.bunner',
+  'dehznik',
+  'willtrm',
+];
 
 export const raterList = [
   'tw3n',
@@ -47,7 +56,7 @@ export const raterList = [
   'harim._.00',
   'h4ryma7ch_',
   'changhyeon_7492',
-  "reefter",
+  'reefter',
 ].concat(SUPER_ADMINS);
 
 export const emailBanList = [
@@ -72,6 +81,6 @@ export const validSortOptions = [
 export const PGU_SORT = {
   P: 1,
   G: 2,
-  U: 3
+  U: 3,
 };
 export type PguLetter = 'P' | 'G' | 'U';

@@ -1,14 +1,20 @@
-import { DataTypes, Model, Optional } from 'sequelize';
+import {DataTypes, Model, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import { IPass } from '../types/models';
+import {IPass} from '../types/models';
 import Level from './Level';
 import Player from './Player';
 import Judgement from './Judgement';
 
-interface PassAttributes extends IPass {}
-interface PassCreationAttributes extends Optional<PassAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+type PassAttributes = IPass;
+type PassCreationAttributes = Optional<
+  PassAttributes,
+  'id' | 'createdAt' | 'updatedAt'
+>;
 
-class Pass extends Model<PassAttributes, PassCreationAttributes> implements PassAttributes {
+class Pass
+  extends Model<PassAttributes, PassCreationAttributes>
+  implements PassAttributes
+{
   declare id: number;
   declare levelId: number;
   declare speed: number | null;
@@ -34,115 +40,118 @@ class Pass extends Model<PassAttributes, PassCreationAttributes> implements Pass
   declare judgement?: Judgement;
 }
 
-Pass.init({
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  levelId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'levels',
-      key: 'id'
-    }
-  },
-  speed: {
-    type: DataTypes.FLOAT,
-    allowNull: true
-  },
-  playerId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'players',
-      key: 'id'
-    }
-  },
-  feelingRating: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  vidTitle: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  vidLink: {
-    type: DataTypes.TEXT,
-    allowNull: true
-  },
-  vidUploadTime: {
-    type: DataTypes.DATE,
-    allowNull: true,
-    get() {
-      const date = this.getDataValue('vidUploadTime');
-      return date instanceof Date && !isNaN(date.getTime()) ? date : null;
+Pass.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
     },
-    set(value: any) {
-      if (!value) {
-        this.setDataValue('vidUploadTime', null);
-        return;
-      }
-      
-      const date = new Date(value);
-      if (date instanceof Date && !isNaN(date.getTime())) {
-        this.setDataValue('vidUploadTime', date);
-      } else {
-        this.setDataValue('vidUploadTime', null);
-      }
-    }
+    levelId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'levels',
+        key: 'id',
+      },
+    },
+    speed: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    playerId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'players',
+        key: 'id',
+      },
+    },
+    feelingRating: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    vidTitle: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    vidLink: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    vidUploadTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      get() {
+        const date = this.getDataValue('vidUploadTime');
+        return date instanceof Date && !isNaN(date.getTime()) ? date : null;
+      },
+      set(value: any) {
+        if (!value) {
+          this.setDataValue('vidUploadTime', null);
+          return;
+        }
+
+        const date = new Date(value);
+        if (date instanceof Date && !isNaN(date.getTime())) {
+          this.setDataValue('vidUploadTime', date);
+        } else {
+          this.setDataValue('vidUploadTime', null);
+        }
+      },
+    },
+    is12K: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    is16K: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    isNoHoldTap: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    isLegacyPass: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    isWorldsFirst: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+    },
+    accuracy: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    scoreV2: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
   },
-  is12K: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
+  {
+    sequelize,
+    tableName: 'passes',
+    indexes: [
+      {fields: ['levelId']},
+      {fields: ['playerId']},
+      {fields: ['isWorldsFirst']},
+      {fields: ['isDeleted']},
+    ],
   },
-  is16K: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
-  },
-  isNoHoldTap: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
-  },
-  isLegacyPass: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
-  },
-  isWorldsFirst: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true
-  },
-  accuracy: {
-    type: DataTypes.FLOAT,
-    allowNull: true
-  },
-  scoreV2: {
-    type: DataTypes.FLOAT,
-    allowNull: true
-  },
-  isDeleted: {
-    type: DataTypes.BOOLEAN,
-    allowNull: true,
-    defaultValue: false
-  },
-  createdAt: {
-    type: DataTypes.DATE,
-    allowNull: false
-  },
-  updatedAt: {
-    type: DataTypes.DATE,
-    allowNull: false
-  }
-}, {
-  sequelize,
-  tableName: 'passes',
-  indexes: [
-    { fields: ['levelId'] },
-    { fields: ['playerId'] },
-    { fields: ['isWorldsFirst'] },
-    { fields: ['isDeleted'] }
-  ]
-});
+);
 
 export default Pass;

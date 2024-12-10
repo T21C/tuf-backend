@@ -2,7 +2,7 @@ import express, {Request, Response, Router} from 'express';
 import {verifyAccessToken} from '../utils/authHelpers.js';
 import axios from 'axios';
 import {type RESTPostOAuth2AccessTokenResult} from 'discord-api-types/v10';
-import { raterList, SUPER_ADMINS } from '../config/constants.js';
+import {raterList, SUPER_ADMINS} from '../config/constants.js';
 
 const router: Router = express.Router();
 

@@ -1,109 +1,120 @@
-import { calcAcc, IJudgements, sumJudgements, tilecount } from "./CalcAcc.js"
+import {calcAcc, IJudgements, tilecount} from './CalcAcc.js';
 
-const gmConst = 315
-const start = 1
-const end = 50
-const startDeduc = 10
-const endDeduc = 50
-const pwr = 0.7
+const gmConst = 315;
+const start = 1;
+const end = 50;
+const startDeduc = 10;
+const endDeduc = 50;
+const pwr = 0.7;
 
 const getScoreV2Mtp = (inputs: IJudgements) => {
-    const misses = inputs.earlyDouble;
-    
-    const tiles = tilecount(inputs);
+  const misses = inputs.earlyDouble;
 
-    if (!misses){
-        return 1.1
-    }
-    const tp = (start + end) / 2
-    const tpDeduc = (startDeduc + endDeduc) / 2
-    const am = Math.max(0, misses - Math.floor(tiles / gmConst))
-    if (am <= 0){
-        return 1
-    }   
-    else if (am <= start){
-        return 1 - startDeduc / 100
-    }
-    if (am <= tp){
-        let kOne = Math.pow((am - start) / (tp - start), pwr) * (tpDeduc - startDeduc) / 100;
-        return 1 - startDeduc / 100 - kOne
-    }
-    else if (am <= end){
-        let kTwo = Math.pow((end - am) / (end - tp), pwr) * (endDeduc - tpDeduc) / 100;
-        return 1 + kTwo - endDeduc / 100
-    }
-    else{
-        return 1 - endDeduc / 100
-    }
-}
+  const tiles = tilecount(inputs);
+
+  if (!misses) {
+    return 1.1;
+  }
+  const tp = (start + end) / 2;
+  const tpDeduc = (startDeduc + endDeduc) / 2;
+  const am = Math.max(0, misses - Math.floor(tiles / gmConst));
+  if (am === 0) {
+    return 1.1;
+  } else if (am <= start) {
+    return 1 - startDeduc / 100;
+  }
+  if (am <= tp) {
+    const kOne =
+      (Math.pow((am - start) / (tp - start), pwr) * (tpDeduc - startDeduc)) /
+      100;
+    return 1 - startDeduc / 100 - kOne;
+  } else if (am <= end) {
+    const kTwo =
+      (Math.pow((end - am) / (end - tp), pwr) * (endDeduc - tpDeduc)) / 100;
+    return 1 + kTwo - endDeduc / 100;
+  } else {
+    return 1 - endDeduc / 100;
+  }
+};
 
 const getXaccMtp = (inp: IJudgements) => {
-    const xacc = calcAcc(inp, true)
-    const xacc_percentage = xacc * 100
+  const xacc = calcAcc(inp);
+  const xacc_percentage = xacc * 100;
 
-    if (xacc_percentage < 95){
-        return 1
+  if (xacc_percentage < 95) {
+    return 1;
+  }
+  if (xacc_percentage < 100) {
+    return -0.027 / (xacc - 1.0054) + 0.513;
+  }
+  if (xacc_percentage === 100) {
+    return 10;
+  }
+  return 1;
+};
+
+const getSpeedMtp = (speed: number, isDesBus = false) => {
+  if (isDesBus) {
+    if (!speed || speed === 1) return 1;
+    else if (speed > 1) {
+      return Math.max(2 - speed, 0);
     }
-    if (xacc_percentage < 100){
-        return (-0.027 / (xacc - 1.0054) + 0.513)
-    }
-    if (xacc_percentage == 100){
-        return 10
-    }
-    return 1
+  }
+
+  if (!speed || speed === 1) {
+    return 1;
+  }
+  if (speed < 1) {
+    return 0;
+  }
+  if (speed < 1.1) {
+    return -3.5 * speed + 4.5;
+  }
+  if (speed < 1.5) {
+    return 0.65;
+  }
+  if (speed < 2) {
+    return 0.7 * speed - 0.4;
+  }
+  return 1;
+};
+
+const getScore = (passData: PassData, levelData: LevelData) => {
+  const speed = passData.speed;
+  const legacyDiff = levelData.diff;
+  const inputs = passData.judgements;
+  const base = levelData.baseScore;
+  const xaccMtp = getXaccMtp(inputs);
+
+  let speedMtp = 0;
+  let score = 0;
+  if (legacyDiff === 64) {
+    speedMtp = getSpeedMtp(speed, true);
+    score = Math.max(base * xaccMtp * speedMtp, 1);
+  } else {
+    speedMtp = getSpeedMtp(speed);
+    score = base * xaccMtp * speedMtp;
+  }
+  return score;
+};
+
+interface LevelData {
+  baseScore: number;
+  diff?: number;
 }
-    
 
-const getSpeedMtp = (speed: number, isDesBus=false)=>{
-    if (isDesBus){
-        if (!speed || speed == 1)
-            return 1
-        else if (speed > 1){
-            return Math.max(2 - speed, 0)}
-    }
-
-    if (!speed || speed == 1){
-        return 1}
-    if (speed < 1){
-        return 0}
-    if (speed < 1.1){
-        return -3.5 * speed + 4.5}
-    if (speed < 1.5){
-        return 0.65}
-    if (speed < 2){
-        return (0.7 * speed) - 0.4}
-    return 1
+interface PassData {
+  speed: number;
+  judgements: IJudgements;
+  isNoHoldTap: boolean;
 }
 
-const getScore = (passData: any, chartData: any) => {
-    const speed = passData.speed
-    const legacyDiff = chartData.diff
-    const inputs = passData.judgements
-    const base = chartData.baseScore
-    const xaccMtp = getXaccMtp(inputs)
-
-    var speedMtp = 0
-    var score = 0
-    if (legacyDiff == 64){
-        speedMtp = getSpeedMtp(speed, true)
-        score = Math.max(base * xaccMtp * speedMtp, 1)
-    }
-    else {
-        speedMtp = getSpeedMtp(speed)
-        score = base * xaccMtp * speedMtp
-    }
-    return score
-}
-
-
-export const getScoreV2 = (passData: any, chartData: any) => {
-    
-    const inputs: IJudgements = passData.judgements;
-    const scoreOrig = getScore(passData, chartData);
-    var mtp = getScoreV2Mtp(inputs);
-    if (passData.isNoHoldTap) 
-       {
-        mtp *= 0.9
-    };
-    return (scoreOrig * mtp)
+export function getScoreV2(passData: PassData, levelData: LevelData): number {
+  const inputs: IJudgements = passData.judgements;
+  const scoreOrig = getScore(passData, levelData);
+  let mtp = getScoreV2Mtp(inputs);
+  if (passData.isNoHoldTap === true) {
+    mtp *= 0.9;
+  }
+  return scoreOrig * mtp;
 }

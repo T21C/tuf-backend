@@ -1,12 +1,8 @@
 import axios from 'axios';
 import db from '../models/index';
-import { Cache } from './cacheManager';
-import { IPlayer, ILevel } from '../types/models';
-import { updateAllPlayerPfps } from './PlayerEnricher';
 import xlsx from 'xlsx';
-import { calculateBaseScore } from './ratingUtils';
-import { calcAcc } from '../misc/CalcAcc';
-import { getScoreV2 } from '../misc/CalcScore';
+import {calcAcc} from '../misc/CalcAcc';
+import {getScoreV2} from '../misc/CalcScore';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -74,13 +70,13 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rawData = xlsx.utils.sheet_to_json(worksheet);
-    
+
     const feelingRatings = new Map<number, string>();
-    
+
     rawData.forEach((row: any) => {
       const id = parseInt(row['Pid']);
-      const rating = row['Feeling Difficulty']?.toString() || "";
-      if (id != 0 && !isNaN(id) && rating != "") {
+      const rating = row['Feeling Difficulty']?.toString() || '';
+      if (id !== 0 && !isNaN(id) && rating !== '') {
         feelingRatings.set(id, rating);
       }
     });
@@ -95,21 +91,67 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
 
 // Create a reverse mapping of base scores to PGU ratings
 const baseScoreToPguMap = {
-  0.1: 'P1', 0.2: 'P2', 0.3: 'P3', 0.4: 'P4', 0.5: 'P5',
-  0.6: 'P6', 0.7: 'P7', 0.8: 'P8', 0.9: 'P9', 1: 'P10',
-  2: 'P11', 3: 'P12', 5: 'P13', 10: 'P14', 15: 'P15',
-  20: 'P16', 30: 'P17', 45: 'P18', 60: 'P19', 75: 'P20',
-  100: 'G1', 110: 'G2', 120: 'G3', 130: 'G4', 140: 'G5',
-  150: 'G6', 160: 'G7', 170: 'G8', 180: 'G9', 190: 'G10',
-  200: 'G11', 210: 'G12', 220: 'G13', 230: 'G14', 240: 'G15',
-  250: 'G16', 275: 'G17', 300: 'G18', 350: 'G19', 400: 'G20',
-  500: 'U1', 600: 'U2', 700: 'U3', 850: 'U4', 1000: 'U5',
-  1300: 'U6', 1600: 'U7', 1800: 'U8', 2000: 'U9', 2500: 'U10',
-  3000: 'U11', 4000: 'U12', 5000: 'U13', 11000: 'U14'
+  0.1: 'P1',
+  0.2: 'P2',
+  0.3: 'P3',
+  0.4: 'P4',
+  0.5: 'P5',
+  0.6: 'P6',
+  0.7: 'P7',
+  0.8: 'P8',
+  0.9: 'P9',
+  1: 'P10',
+  2: 'P11',
+  3: 'P12',
+  5: 'P13',
+  10: 'P14',
+  15: 'P15',
+  20: 'P16',
+  30: 'P17',
+  45: 'P18',
+  60: 'P19',
+  75: 'P20',
+  100: 'G1',
+  110: 'G2',
+  120: 'G3',
+  130: 'G4',
+  140: 'G5',
+  150: 'G6',
+  160: 'G7',
+  170: 'G8',
+  180: 'G9',
+  190: 'G10',
+  200: 'G11',
+  210: 'G12',
+  220: 'G13',
+  230: 'G14',
+  240: 'G15',
+  250: 'G16',
+  275: 'G17',
+  300: 'G18',
+  350: 'G19',
+  400: 'G20',
+  500: 'U1',
+  600: 'U2',
+  700: 'U3',
+  850: 'U4',
+  1000: 'U5',
+  1300: 'U6',
+  1600: 'U7',
+  1800: 'U8',
+  2000: 'U9',
+  2500: 'U10',
+  3000: 'U11',
+  4000: 'U12',
+  5000: 'U13',
+  11000: 'U14',
 };
 
 function getBaseScorePguRating(baseScore: number): string {
-  return baseScoreToPguMap[baseScore as keyof typeof baseScoreToPguMap] || baseScore.toString();
+  return (
+    baseScoreToPguMap[baseScore as keyof typeof baseScoreToPguMap] ||
+    baseScore.toString()
+  );
 }
 
 // Add this helper function for creating placeholder judgements
@@ -122,7 +164,7 @@ function createPlaceholderJudgement(id: number) {
     perfect: 0,
     lPerfect: 0,
     lateSingle: 0,
-    lateDouble: 0
+    lateDouble: 0,
   };
 }
 
@@ -134,40 +176,44 @@ async function reloadDatabase() {
 
     // Clear existing data
     await Promise.all([
-      db.models.Level.destroy({ where: {}, transaction }),
-      db.models.Pass.destroy({ where: {}, transaction }),
-      db.models.Player.destroy({ where: {}, transaction }),
-      db.models.Rating.destroy({ where: {}, transaction }),
-      db.models.Judgement.destroy({ where: {}, transaction })
+      db.models.Level.destroy({where: {}, transaction}),
+      db.models.Pass.destroy({where: {}, transaction}),
+      db.models.Player.destroy({where: {}, transaction}),
+      db.models.Rating.destroy({where: {}, transaction}),
+      db.models.Judgement.destroy({where: {}, transaction}),
     ]);
     console.log('Cleared existing data');
 
     // Load data from BE API
-    const [playersResponse, levelsResponse, passesResponse] = await Promise.all([
-      fetchData<RawPlayer[]>('/players'),
-      fetchData<RawLevel[]>('/levels'),
-      fetchData<{ count: number, results: RawPass[] }>('/passes')
-    ]);
+    const [playersResponse, levelsResponse, passesResponse] = await Promise.all(
+      [
+        fetchData<RawPlayer[]>('/players'),
+        fetchData<RawLevel[]>('/levels'),
+        fetchData<{count: number; results: RawPass[]}>('/passes'),
+      ],
+    );
 
     // Process players
-    const players = Array.isArray(playersResponse) ? playersResponse : 
-                   (playersResponse as any).results || [];
+    const players = Array.isArray(playersResponse)
+      ? playersResponse
+      : (playersResponse as any).results || [];
     const playerDocs = players
       .filter((player: RawPlayer) => player.name)
       .map((player: RawPlayer, index: number) => ({
         id: index + 1,
         name: player.name,
         country: player.country || 'XX',
-        isBanned: player.isBanned || false
+        isBanned: player.isBanned || false,
       }));
 
     // Process levels
-    const levels = Array.isArray(levelsResponse) ? levelsResponse : 
-                  (levelsResponse as any).results || [];
-    
+    const levels = Array.isArray(levelsResponse)
+      ? levelsResponse
+      : (levelsResponse as any).results || [];
+
     // Sort levels by ID to process them in order
     levels.sort((a: any, b: any) => a.id - b.id);
-    
+
     const levelDocs: any[] = [];
     const levelIdMapping = new Map<number, number>();
     let nextDbId = 1;
@@ -195,7 +241,7 @@ async function reloadDatabase() {
       workshopLink: '',
       publicComments: 'Placeholder for missing level',
       toRate: false,
-      isDeleted: true
+      isDeleted: true,
     });
 
     // Process each level
@@ -232,7 +278,7 @@ async function reloadDatabase() {
         workshopLink: level.workshopLink || '',
         publicComments: level.publicComments || '',
         toRate: level.toRate || false,
-        isDeleted: level.isDeleted || false
+        isDeleted: level.isDeleted || false,
       };
 
       levelDocs.push(levelDoc);
@@ -240,11 +286,13 @@ async function reloadDatabase() {
       nextDbId++;
     }
 
-    console.log(`Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`);
+    console.log(
+      `Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`,
+    );
 
     // Create ID mappings
     const playerNameToId = new Map<string, number>(
-      playerDocs.map((p: any) => [p.name, p.id])
+      playerDocs.map((p: any) => [p.name, p.id]),
     );
 
     // Load feeling ratings
@@ -257,16 +305,16 @@ async function reloadDatabase() {
     let nextJudgementId = 1;
 
     // First, organize passes by level to determine world's firsts
-    const levelFirstPasses = new Map<number, { uploadTime: Date, id: number }>();
+    const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
     passes.forEach((pass: RawPass) => {
       const newLevelId = levelIdMapping.get(pass.levelId);
       if (typeof newLevelId !== 'number') return;
 
       const uploadTime = new Date(pass.vidUploadTime);
       const currentFirst = levelFirstPasses.get(newLevelId);
-      
+
       if (!currentFirst || uploadTime < currentFirst.uploadTime) {
-        levelFirstPasses.set(newLevelId, { uploadTime, id: pass.id });
+        levelFirstPasses.set(newLevelId, {uploadTime, id: pass.id});
       }
     });
 
@@ -276,7 +324,7 @@ async function reloadDatabase() {
     for (const pass of passes) {
       const playerId = playerNameToId.get(pass.player);
       const newLevelId = levelIdMapping.get(pass.levelId);
-      
+
       if (playerId && typeof newLevelId === 'number') {
         // Fill any gaps with placeholder judgements
         while (nextJudgementId < pass.id) {
@@ -293,22 +341,25 @@ async function reloadDatabase() {
           perfect: Number(pass.judgements[3]) || 0,
           lPerfect: Number(pass.judgements[4]) || 0,
           lateSingle: Number(pass.judgements[5]) || 0,
-          lateDouble: Number(pass.judgements[6]) || 0
+          lateDouble: Number(pass.judgements[6]) || 0,
         };
-        
+
         // Get the level's base score
         const level = levelDocs.find(l => l.id === newLevelId);
-        
+
         // Calculate accuracy and score
         const accuracy = calcAcc(judgements);
-        const scoreV2 = getScoreV2({
-          speed: pass.speed,
-          judgements,
-          isNoHoldTap: pass.isNoHoldTap
-        }, {
-          baseScore: level?.baseScore || 0
-        });
-        
+        const scoreV2 = getScoreV2(
+          {
+            speed: pass.speed || 1,
+            judgements,
+            isNoHoldTap: pass.isNoHoldTap,
+          },
+          {
+            baseScore: level?.baseScore || 0,
+          },
+        );
+
         // Check if this pass is the world's first for its level
         const isWorldsFirst = levelFirstPasses.get(newLevelId)?.id === pass.id;
 
@@ -317,7 +368,8 @@ async function reloadDatabase() {
           levelId: newLevelId,
           playerId: playerId,
           speed: pass.speed || 1,
-          feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
+          feelingRating:
+            feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
           vidLink: pass.vidLink,
           vidUploadTime: new Date(pass.vidUploadTime),
@@ -328,7 +380,7 @@ async function reloadDatabase() {
           isWorldsFirst,
           accuracy,
           scoreV2,
-          isDeleted: false
+          isDeleted: false,
         });
 
         judgementDocs.push(judgements);
@@ -337,21 +389,23 @@ async function reloadDatabase() {
     }
 
     // Bulk insert data in the correct order
-    await db.models.Player.bulkCreate(playerDocs, { transaction });
-    await db.models.Level.bulkCreate(levelDocs, { transaction });
-    await db.models.Pass.bulkCreate(passDocs, { transaction });
-    
+    await db.models.Player.bulkCreate(playerDocs, {transaction});
+    await db.models.Level.bulkCreate(levelDocs, {transaction});
+    await db.models.Pass.bulkCreate(passDocs, {transaction});
+
     // Create judgements only for existing passes
     const existingPassIds = passDocs.map(pass => pass.id);
-    const validJudgementDocs = judgementDocs.filter(judgement => 
-      existingPassIds.includes(judgement.id)
+    const validJudgementDocs = judgementDocs.filter(judgement =>
+      existingPassIds.includes(judgement.id),
     );
-    
-    await db.models.Judgement.bulkCreate(validJudgementDocs, { transaction });
+
+    await db.models.Judgement.bulkCreate(validJudgementDocs, {transaction});
 
     // Update clear counts
     const clearCounts = new Map<number, number>();
-    const nonBannedPlayerIds = new Set(playerDocs.filter((p: any) => !p.isBanned).map((p: any) => p.id));
+    const nonBannedPlayerIds = new Set(
+      playerDocs.filter((p: any) => !p.isBanned).map((p: any) => p.id),
+    );
 
     passDocs.forEach((pass: any) => {
       if (nonBannedPlayerIds.has(pass.playerId)) {
@@ -361,11 +415,8 @@ async function reloadDatabase() {
 
     await Promise.all(
       Array.from(clearCounts.entries()).map(([levelId, clears]) =>
-        db.models.Level.update(
-          { clears }, 
-          { where: { id: levelId }, transaction }
-        )
-      )
+        db.models.Level.update({clears}, {where: {id: levelId}, transaction}),
+      ),
     );
 
     // Commit transaction first

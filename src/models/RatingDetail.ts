@@ -1,4 +1,4 @@
-import { DataTypes } from 'sequelize';
+import {DataTypes} from 'sequelize';
 import sequelize from '../config/db';
 import BaseModel from './BaseModel';
 
@@ -9,32 +9,33 @@ class RatingDetail extends BaseModel {
   public comment!: string;
 }
 
-RatingDetail.init({
-  ratingId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'ratings',
-      key: 'id'
-    }
+RatingDetail.init(
+  {
+    ratingId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'ratings',
+        key: 'id',
+      },
+    },
+    username: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    rating: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    comment: {
+      type: DataTypes.TEXT,
+    },
   },
-  username: {
-    type: DataTypes.STRING,
-    allowNull: false
+  {
+    sequelize,
+    tableName: 'rating_details',
+    indexes: [{fields: ['ratingId', 'username'], unique: true}],
   },
-  rating: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  comment: {
-    type: DataTypes.TEXT
-  }
-}, {
-  sequelize,
-  tableName: 'rating_details',
-  indexes: [
-    { fields: ['ratingId', 'username'], unique: true }
-  ]
-});
+);
 
-export default RatingDetail; 
+export default RatingDetail;

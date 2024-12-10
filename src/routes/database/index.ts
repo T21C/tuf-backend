@@ -1,5 +1,5 @@
 import express, {Router} from 'express';
-import chartsRoutes from './charts';
+import levelsRoutes from './levels';
 import playersRoute from './players';
 import passesRoute from './passes';
 import leaderboardRoute from './leaderboard';
@@ -7,7 +7,7 @@ import leaderboardRoute from './leaderboard';
 
 const router: Router = express.Router();
 
-router.use('/charts', chartsRoutes);
+router.use('/levels', levelsRoutes);
 router.use('/players', playersRoute);
 router.use('/passes', passesRoute);
 router.use('/leaderboard', leaderboardRoute);

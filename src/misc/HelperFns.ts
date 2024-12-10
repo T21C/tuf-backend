@@ -1,7 +1,3 @@
-export const arraySum = (arr: any[]) => {
-    return arr.reduce(add, 0);
-}
-
-function add(accumulator: number, a: number) {
-  return accumulator + a;
-}
+export const arraySum = (arr: number[]): number => {
+  return arr.reduce((a, b) => a + b, 0);
+};

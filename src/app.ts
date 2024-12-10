@@ -1,8 +1,8 @@
-import express, { Express } from 'express';
+import express, {Express} from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
+import {createServer} from 'http';
+import {Server} from 'socket.io';
 import adminRoutes from './routes/admin/index';
 import authRoutes from './routes/auth';
 import mediaRoutes from './routes/media';
@@ -10,36 +10,33 @@ import formRoutes from './routes/form';
 import databaseRoutes from './routes/database/index';
 import db from './models/index';
 import initializeDatabase from './utils/initializeDatabase';
-import { startScheduledTasks } from './utils/scheduledTasks';
-import { updateData } from './utils/updateHelpers';
-import reloadDatabase from './utils/reloadDatabase';
-import { setIO } from './utils/socket';
-import { updateAllPlayerPfps } from './utils/PlayerEnricher';
+import {setIO} from './utils/socket';
+import {updateAllPlayerPfps} from './utils/PlayerEnricher';
 import leaderboardCache from './utils/LeaderboardCache';
 
 dotenv.config();
 
-const app: Express = express(); 
+const app: Express = express();
 const httpServer = createServer(app);
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+    credentials: true,
   },
   pingTimeout: 60000,
-  pingInterval: 25000
+  pingInterval: 25000,
 });
 
 setIO(io);
 
 // Socket connection handler
-io.on('connection', (socket) => {
+io.on('connection', socket => {
   console.log('Client connected:', socket.id);
 
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', reason => {
     console.log('Client disconnected:', socket.id, 'Reason:', reason);
   });
 });
@@ -60,7 +57,7 @@ async function startServer() {
     // Set up Express middleware
     app.use(cors());
     app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    app.use(express.urlencoded({extended: true}));
 
     // Set up routes
     app.use('/v2/admin', adminRoutes);
@@ -71,7 +68,7 @@ async function startServer() {
 
     // Start the server
     const port = process.env.PORT || 3002;
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       httpServer.listen(port, () => {
         console.log(`Server running on ${process.env.OWN_URL}`);
         resolve();
@@ -95,24 +92,26 @@ async function startServer() {
     } catch (pfpError) {
       console.error('Error updating profile pictures:', pfpError);
     }
-
   } catch (error) {
     console.error('Failed to start server:', error);
-    process.exit(1);
+    throw error;
   }
 }
 
 // Handle uncaught errors
-process.on('unhandledRejection', (error) => {
+process.on('unhandledRejection', error => {
   console.error('Unhandled rejection:', error);
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   console.error('Uncaught exception:', error);
-  process.exit(1);
+  throw error;
 });
 
 // Start the server
-startServer();
+startServer().catch(error => {
+  console.error('Failed to start server:', error);
+  throw error;
+});
 
 export default app;

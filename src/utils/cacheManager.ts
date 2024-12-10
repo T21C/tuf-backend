@@ -1,14 +1,14 @@
-import { readJsonFile, writeJsonFile } from './fileHandlers';
-import { PATHS } from '../config/constants';
+import {readJsonFile, writeJsonFile} from './fileHandlers';
+import {PATHS} from '../config/constants';
 
 interface CacheStore {
   passes: any[];
   players: any[];
   clearList: any[];
-  pfpList: { [key: string]: string };
-  charts: any[];
+  pfpList: {[key: string]: string};
+  levels: any[];
   fullPlayerList: any[];
-  rankList: { [key: string]: any };
+  rankList: {[key: string]: any};
 }
 
 class CacheManager {
@@ -18,13 +18,19 @@ class CacheManager {
     players: [],
     clearList: [],
     pfpList: {},
-    charts: [],
+    levels: [],
     fullPlayerList: [],
-    rankList: {}
+    rankList: {},
   };
 
   private constructor() {
-    this.reloadAll();
+    this.reloadAll()
+      .then(() => {
+        console.log('[Cache] All caches reloaded');
+      })
+      .catch(error => {
+        console.error('[Cache] Error reloading all caches:', error);
+      });
   }
 
   public static getInstance(): CacheManager {
@@ -53,9 +59,9 @@ class CacheManager {
       players: readJsonFile(PATHS.playersJson),
       clearList: readJsonFile(PATHS.clearlistJson),
       pfpList: readJsonFile(PATHS.pfpListJson),
-      charts: readJsonFile(PATHS.chartsJson),
+      levels: readJsonFile(PATHS.levelsJson),
       fullPlayerList: readJsonFile(PATHS.playerlistJson),
-      rankList: readJsonFile(PATHS.rankListJson)
+      rankList: readJsonFile(PATHS.rankListJson),
     };
     console.log('[Cache] All caches reloaded');
   }
@@ -69,4 +75,4 @@ class CacheManager {
   }
 }
 
-export const Cache = CacheManager.getInstance(); 
+export const Cache = CacheManager.getInstance();

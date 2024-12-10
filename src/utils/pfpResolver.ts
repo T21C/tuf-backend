@@ -1,17 +1,19 @@
 // videoDetails.js
 import dotenv from 'dotenv';
-import axios, { type AxiosError } from 'axios';
+import axios, {type AxiosError} from 'axios';
 dotenv.config();
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 const ENABLE_FETCHING = false;
 
-
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function getBilibiliVideoDetails(url: string, retryCount = 0): Promise<string | null> {
+async function getBilibiliVideoDetails(
+  url: string,
+  retryCount = 0,
+): Promise<string | null> {
   const urlRegex =
     /https?:\/\/(www\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)\/?/;
   const match = url.match(urlRegex);
@@ -40,15 +42,21 @@ async function getBilibiliVideoDetails(url: string, retryCount = 0): Promise<str
     if (error instanceof Error) {
       // If it's a 502 error and we haven't exceeded retries, try again
       if (
-        retryCount < MAX_RETRIES && 
-        ((error as any).response?.status === 502 || (error as any).response?.status === 503)
+        retryCount < MAX_RETRIES &&
+        ((error as any).response?.status === 502 ||
+          (error as any).response?.status === 503)
       ) {
-        console.log(`Retrying Bilibili API call (attempt ${retryCount + 1}/${MAX_RETRIES})...`);
+        console.log(
+          `Retrying Bilibili API call (attempt ${retryCount + 1}/${MAX_RETRIES})...`,
+        );
         await delay(RETRY_DELAY * (retryCount + 1)); // Exponential backoff
         return getBilibiliVideoDetails(url, retryCount + 1);
       }
-      
-      console.error(`Error fetching Bilibili video details (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error.message);
+
+      console.error(
+        `Error fetching Bilibili video details (attempt ${retryCount + 1}/${MAX_RETRIES}):`,
+        error.message,
+      );
     }
     return null;
   }
@@ -99,7 +107,7 @@ export async function getPfpUrl(url: string): Promise<string | null> {
     return null;
   }
 
-    // Try YouTube first as it doesn't require our server endpoints
+  // Try YouTube first as it doesn't require our server endpoints
   if (url.includes('youtube.com') || url.includes('youtu.be')) {
     const details = await getYouTubeVideoDetails(url);
     if (details) return details;
