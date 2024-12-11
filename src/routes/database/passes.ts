@@ -19,7 +19,7 @@ type WhereClause = WhereOptions<PassInterface> & {
   levelId?: number;
   is12K?: boolean;
   '$player.name$'?: {[Op.like]: string};
-  '$level.legacyDiff$'?: {[Op.gte]: number} | {[Op.lte]: number};
+  '$level.diffId$'?: {[Op.gte]: number} | {[Op.lte]: number};
   [Op.or]?: Array<{[key: string]: any}>;
 };
 
@@ -44,13 +44,13 @@ const buildWhereClause = (query: {
 
   // Add difficulty range filter
   if (query.lowDiff) {
-    where['$level.legacyDiff$'] = {
+    where['$level.diffId$'] = {
       [Op.gte]: Number(query.lowDiff),
     };
   }
   if (query.highDiff) {
-    where['$level.legacyDiff$'] = {
-      ...where['$level.legacyDiff$'],
+    where['$level.diffId$'] = {
+      ...where['$level.diffId$'],
       [Op.lte]: Number(query.highDiff),
     };
   }
@@ -79,7 +79,7 @@ const buildWhereClause = (query: {
       {'$player.name$': {[Op.like]: `%${searchTerm}%`}},
       {'$level.song$': {[Op.like]: `%${searchTerm}%`}},
       {'$level.artist$': {[Op.like]: `%${searchTerm}%`}},
-      {'$level.pguDiff$': {[Op.like]: `%${searchTerm}%`}},
+      {'$level.difficulty.name$': {[Op.like]: `%${searchTerm}%`}},
       {levelId: {[Op.like]: `%${searchTerm}%`}},
       {id: {[Op.like]: `%${searchTerm}%`}},
     ];
@@ -119,13 +119,13 @@ const getSortOptions = (sort?: string): OrderItem[] => {
       ];
     case 'DIFF_ASC':
       return [
-        [{model: Level, as: 'level'}, 'newDiff', 'ASC'],
+        [{model: Level, as: 'level'}, 'pguDiffNum', 'ASC'],
         ['scoreV2', 'DESC'], // Secondary sort by highest score
         ['id', 'DESC'], // Tertiary sort by newest first
       ];
     case 'DIFF_DESC':
       return [
-        [{model: Level, as: 'level'}, 'newDiff', 'DESC'],
+        [{model: Level, as: 'level'}, 'pguDiffNum', 'DESC'],
         ['scoreV2', 'DESC'], // Secondary sort by highest score
         ['id', 'DESC'], // Tertiary sort by newest first
       ];
@@ -190,7 +190,7 @@ router.get('/', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
-          attributes: ['song', 'artist', 'pguDiff', 'baseScore', 'newDiff'],
+          attributes: ['song', 'artist', 'pguDiff', 'baseScore', 'pguDiffNum'],
         },
         {
           model: Judgement,

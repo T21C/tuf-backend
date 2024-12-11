@@ -21,13 +21,8 @@ export interface ILevel extends IBaseModel {
   charter: string;
   vfxer: string;
   team: string;
-  diff: number;
-  legacyDiff: number;
-  pguDiff: string;
-  pguDiffNum: number;
-  newDiff: number;
+  diffId: number;
   baseScore: number;
-  baseScoreDiff: string;
   isCleared: boolean;
   clears: number;
   vidLink: string;
@@ -40,6 +35,7 @@ export interface ILevel extends IBaseModel {
   isDeleted: boolean;
   // Associations
   passes?: IPass[];
+  difficulty?: IDifficulty;
 }
 
 // Pass interface
@@ -122,3 +118,13 @@ export type PlayerInstance = Model<IPlayer>;
 export type RatingInstance = Model<IRating>;
 export type RatingDetailInstance = Model<IRatingDetail>;
 export type JudgementInstance = Model<IJudgement>;
+
+// Add a new interface for the ratings reference table
+export interface IDifficulty extends IBaseModel {
+  name: string; // The display name (P1, G1, U1, etc.)
+  baseScore: number;
+  legacy: number;
+  type: 'PGU' | 'SPECIAL'; // To distinguish between PGU and special ratings
+  icon: string; // The icon filename from iconResolver
+  legacy_icon: string | null;
+}

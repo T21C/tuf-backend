@@ -99,8 +99,8 @@ export function calculateAverageRating(details: RatingDetail[]): string | null {
   return null;
 }
 
-export function calculatePguDiffNum(pguDiff: string): number {
-  if (!pguDiff) return 0;
+export function calculatePGUDiffNum(pguDiffNum: string): number {
+  if (!pguDiffNum) return 0;
 
   const difficultyMap: {[key: string]: number} = {
     Unranked: 0,
@@ -113,29 +113,29 @@ export function calculatePguDiffNum(pguDiff: string): number {
     ...Object.fromEntries(
       Array.from({length: 20}, (_, i) => [`U${i + 1}`, i + 41]),
     ),
-    QQ: 61,
-    Q2: 62,
-    Q2p: 63,
-    Q3: 64,
-    Q3p: 65,
-    Q4: 66,
-    MP: -22,
-    Grande: 100,
-    Bus: 101,
-    MA: 102,
+    MP: 61,
+    Grande: 62,
+    MA: 63,
+    Bus: 64,
+    QQ: 80,
+    Q2: 81,
+    Q2p: 82,
+    Q3: 83,
+    Q3p: 84,
+    Q4: 85,
   };
 
   // Convert the array of entries back to an object
   const diffMap = Object.fromEntries(Object.entries(difficultyMap));
 
   // Try to parse as number first
-  const numericValue = Number(pguDiff);
+  const numericValue = Number(pguDiffNum);
   if (!isNaN(numericValue)) {
     return numericValue;
   }
 
   // Look up in difficulty map
-  return diffMap[pguDiff] || 0;
+  return diffMap[pguDiffNum] || 0;
 }
 
 export function calculateBaseScore(value: number): number {

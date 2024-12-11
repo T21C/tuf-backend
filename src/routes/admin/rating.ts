@@ -8,6 +8,7 @@ import {Auth} from '../../middleware/auth';
 import {IUser} from '../../types/express';
 import {getIO} from '../../utils/socket';
 import sequelize from '../../config/db';
+import Difficulty from '../../models/Difficulty';
 
 const router: Router = express.Router();
 
@@ -35,13 +36,8 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
             'charter',
             'vfxer',
             'team',
-            'diff',
-            'legacyDiff',
-            'pguDiff',
-            'pguDiffNum',
-            'newDiff',
+            'diffId',
             'baseScore',
-            'baseScoreDiff',
             'isCleared',
             'clears',
             'vidLink',
@@ -51,6 +47,13 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
             'toRate',
             'rerateReason',
             'rerateNum',
+          ],
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              attributes: ['id', 'name', 'type', 'icon', 'baseScore', 'legacy'],
+            },
           ],
         },
       ],
@@ -165,13 +168,7 @@ router.put('/', Auth.rater(), async (req: Request, res: Response) => {
                 'charter',
                 'vfxer',
                 'team',
-                'diff',
-                'legacyDiff',
-                'pguDiff',
-                'pguDiffNum',
-                'newDiff',
                 'baseScore',
-                'baseScoreDiff',
                 'isCleared',
                 'clears',
                 'vidLink',
@@ -181,6 +178,20 @@ router.put('/', Auth.rater(), async (req: Request, res: Response) => {
                 'toRate',
                 'rerateReason',
                 'rerateNum',
+              ],
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                  attributes: [
+                    'id',
+                    'name',
+                    'type',
+                    'icon',
+                    'baseScore',
+                    'legacy',
+                  ],
+                },
               ],
             },
           ],

@@ -5,11 +5,12 @@ import Pass from '../../models/Pass';
 import Rating from '../../models/Rating';
 import Player from '../../models/Player';
 import Judgement from '../../models/Judgement';
-import {calculateBaseScore, calculatePguDiffNum} from '../../utils/ratingUtils';
+import {calculateBaseScore, calculatePGUDiffNum} from '../../utils/ratingUtils';
 import {Auth} from '../../middleware/auth';
 import {getIO} from '../../utils/socket';
 import sequelize from '../../config/db';
 import RatingDetail from '../../models/RatingDetail';
+import Difficulty from '../../models/Difficulty';
 
 const router: Router = Router();
 
@@ -81,9 +82,9 @@ const getSortOptions = (sort?: string) => {
     case 'RECENT_ASC':
       return [['id', 'ASC']];
     case 'DIFF_DESC':
-      return [['pguDiffNum', 'DESC']];
+      return [['diffId', 'DESC']];
     case 'DIFF_ASC':
-      return [['pguDiffNum', 'ASC']];
+      return [['diffId', 'ASC']];
     default:
       return [['id', 'DESC']];
   }
@@ -138,6 +139,10 @@ router.get('/', async (req: Request, res: Response) => {
               },
             ],
           },
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
         ],
       });
 
@@ -162,6 +167,10 @@ router.get('/', async (req: Request, res: Response) => {
               as: 'judgements',
             },
           ],
+        },
+        {
+          model: Difficulty,
+          as: 'difficulty',
         },
       ],
       offset: req.query.offset ? Number(req.query.offset) : 0,
@@ -200,6 +209,10 @@ router.get('/:id', async (req: Request, res: Response) => {
             },
           ],
         },
+        {
+          model: Difficulty,
+          as: 'difficulty',
+        },
       ],
     });
 
@@ -237,17 +250,15 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // Calculate new pguDiffNum if pguDiff is being updated
-    let pguDiffNum = level.pguDiffNum;
-    if (req.body.pguDiff && req.body.pguDiff !== level.pguDiff) {
-      pguDiffNum = calculatePguDiffNum(req.body.pguDiff);
+    // Calculate new pguDiffNum if pguDiffNum is being updated
+    let pguDiffNum = level.diffId;
+    let baseScore = level.baseScore;
+    if (req.body.diffId && req.body.diffId !== level.diffId) {
+      pguDiffNum = calculatePGUDiffNum(req.body.pguDiff);
+      baseScore = calculateBaseScore(req.body.pguDiffNum);
     }
 
     // Calculate new baseScore if diff is being updated
-    let baseScore = level.baseScore;
-    if (req.body.diff && req.body.diff !== level.diff) {
-      baseScore = calculateBaseScore(req.body.diff);
-    }
 
     // Handle rating creation/deletion if toRate is changing
     if (
@@ -294,37 +305,28 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Prepare update data with proper null handling
     const updateData = {
-      song: req.body.song || null,
-      artist: req.body.artist || null,
-      creator: req.body.creator || null,
-      charter: req.body.charter || null,
-      vfxer: req.body.vfxer || null,
-      team: req.body.team || null,
-      diff: req.body.diff === '' ? undefined : req.body.diff || level.diff,
-      legacyDiff:
-        req.body.legacyDiff === ''
-          ? undefined
-          : req.body.legacyDiff || level.legacyDiff,
-      pguDiff: req.body.pguDiff || null,
-      pguDiffNum: pguDiffNum || undefined,
-      newDiff:
-        req.body.newDiff === '' ? undefined : req.body.newDiff || level.newDiff,
+      song: req.body.song || undefined,
+      artist: req.body.artist || undefined,
+      creator: req.body.creator || undefined,
+      charter: req.body.charter || undefined,
+      vfxer: req.body.vfxer || undefined,
+      team: req.body.team || undefined,
+      diffId: req.body.diffId || undefined,
       baseScore: baseScore || undefined,
-      baseScoreDiff: req.body.baseScoreDiff || null,
       isCleared:
         typeof req.body.isCleared === 'boolean'
           ? req.body.isCleared
           : level.isCleared,
       clears:
         typeof req.body.clears === 'number' ? req.body.clears : level.clears,
-      vidLink: req.body.vidLink || null,
-      dlLink: req.body.dlLink || null,
-      workshopLink: req.body.workshopLink || null,
-      publicComments: req.body.publicComments || null,
+      vidLink: req.body.vidLink || undefined,
+      dlLink: req.body.dlLink || undefined,
+      workshopLink: req.body.workshopLink || undefined,
+      publicComments: req.body.publicComments || undefined,
       toRate:
         typeof req.body.toRate === 'boolean' ? req.body.toRate : level.toRate,
-      rerateReason: req.body.rerateReason || null,
-      rerateNum: req.body.rerateNum || null,
+      rerateReason: req.body.rerateReason || undefined,
+      rerateNum: req.body.rerateNum || undefined,
     };
 
     // Update level

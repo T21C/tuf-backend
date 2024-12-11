@@ -1,6 +1,6 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {IPass} from '../types/models';
+import {ILevel, IPass} from '../types/models';
 import Level from './Level';
 import Player from './Player';
 import Judgement from './Judgement';

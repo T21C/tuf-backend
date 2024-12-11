@@ -3,6 +3,8 @@ import db from '../models/index';
 import xlsx from 'xlsx';
 import {calcAcc} from '../misc/CalcAcc';
 import {getScoreV2} from '../misc/CalcScore';
+import {difficultyMap} from './difficultyMap';
+import {calculatePGUDiffNum} from './ratingUtils';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -14,12 +16,11 @@ interface RawLevel {
   charter: string;
   vfxer: string;
   team: string;
-  diff: number;
   legacyDiff: number;
   pguDiff: string;
   pguDiffNum: number;
-  newDiff: number;
   pdnDiff: number;
+  newDiff: string;
   realDiff: number;
   baseScore: number;
   isCleared: boolean;
@@ -53,6 +54,9 @@ interface RawPlayer {
   country: string;
   isBanned: boolean;
 }
+
+// Add this before the reloadDatabase function
+const levelIdMapping = new Map<number, number>();
 
 async function fetchData<T>(endpoint: string): Promise<T> {
   try {
@@ -147,6 +151,21 @@ const baseScoreToPguMap = {
   11000: 'U14',
 };
 
+const oldDiffToPGUMap = {
+  61: 'QQ',
+  62: 'Q2',
+  63: 'Q2p',
+  64: 'Q3',
+  65: 'Q3p',
+  66: 'Q4',
+  [-2]: '-2',
+  [-21]: '-21',
+  [-22]: '-22',
+  100: 'Grande',
+  101: 'Bus',
+  102: 'MA',
+};
+
 function getBaseScorePguRating(baseScore: number): string {
   return (
     baseScoreToPguMap[baseScore as keyof typeof baseScoreToPguMap] ||
@@ -174,15 +193,24 @@ async function reloadDatabase() {
   try {
     console.log('Starting database reload...');
 
-    // Clear existing data
+    // Clear existing data in correct order (children before parents)
     await Promise.all([
-      db.models.Level.destroy({where: {}, transaction}),
+      db.models.RatingDetail.destroy({ where: {}, transaction }),
+      db.models.Rating.destroy({ where: {}, transaction }),
+      db.models.Judgement.destroy({ where: {}, transaction }),
       db.models.Pass.destroy({where: {}, transaction}),
+      db.models.Level.destroy({where: {}, transaction}),
       db.models.Player.destroy({where: {}, transaction}),
-      db.models.Rating.destroy({where: {}, transaction}),
-      db.models.Judgement.destroy({where: {}, transaction}),
+      db.models.Difficulty.destroy({where: {}, transaction}),
     ]);
+
+    // Clear tables with foreign key dependencies in order
+    
     console.log('Cleared existing data');
+
+    // Populate difficulties table first
+    await db.models.Difficulty.bulkCreate(difficultyMap, { transaction });
+    console.log('Populated difficulties table');
 
     // Load data from BE API
     const [playersResponse, levelsResponse, passesResponse] = await Promise.all(
@@ -211,80 +239,65 @@ async function reloadDatabase() {
       ? levelsResponse
       : (levelsResponse as any).results || [];
 
-    // Sort levels by ID to process them in order
+    // Sort levels by ID and create ID mapping
     levels.sort((a: any, b: any) => a.id - b.id);
-
-    const levelDocs: any[] = [];
-    const levelIdMapping = new Map<number, number>();
-    let nextDbId = 1;
-
-    // Create a placeholder level for gaps
-    const createPlaceholderLevel = (dbId: number) => ({
-      id: dbId,
-      song: 'Placeholder',
-      artist: 'Unknown',
-      creator: 'Unknown',
-      charter: 'Unknown',
-      vfxer: 'Unknown',
-      team: 'Unknown',
-      diff: 0,
-      legacyDiff: 0,
-      pguDiff: '0',
-      pguDiffNum: 0,
-      newDiff: 0,
-      baseScore: 0,
-      baseScoreDiff: '0',
-      isCleared: false,
-      clears: 0,
-      vidLink: '',
-      dlLink: '',
-      workshopLink: '',
-      publicComments: 'Placeholder for missing level',
-      toRate: false,
-      isDeleted: true,
+    levels.forEach((level: RawLevel) => {
+      levelIdMapping.set(level.id, level.id); // Map old ID to new ID
     });
 
-    // Process each level
-    for (const level of levels) {
-      // Fill any gaps with placeholder levels
-      while (nextDbId < level.id) {
-        levelDocs.push(createPlaceholderLevel(nextDbId));
-        levelIdMapping.set(nextDbId, nextDbId);
-        nextDbId++;
+    // Process levels with new difficulty mapping
+    const levelDocs = levels.map((level: RawLevel) => {
+      // Try to map the difficulty
+      let diffId = 0; // Default to unranked
+      
+      if (level.pguDiff) {
+        // First try: Direct match from pguDiff to difficultyMap
+        const directMatch = difficultyMap.find(d => 
+          d.name.toLowerCase() === String(level.pguDiff).toLowerCase() ||
+          d.name.toLowerCase().replace('+', 'p') === String(level.pguDiff).toLowerCase()
+        );
+        
+        if (directMatch) {
+          diffId = directMatch.id;
+        } else {
+          // Second try: Check oldDiffToPGUMap
+          const mappedPGU = oldDiffToPGUMap[level.legacyDiff as keyof typeof oldDiffToPGUMap];
+          if (mappedPGU) {
+            const mappedMatch = difficultyMap.find(d => 
+              d.name.toLowerCase() === String(mappedPGU).toLowerCase() ||
+              d.name.toLowerCase().replace('+', 'p') === String(mappedPGU).toLowerCase()
+            );
+            if (mappedMatch) {
+              diffId = mappedMatch.id;
+            }
+          }
+        }
       }
 
-      // Map the base score to PGU rating if it matches a known value
-      const baseScoreDiff = getBaseScorePguRating(level.baseScore);
+      console.log(`Level ${level.id}: pguDiff=${level.pguDiff}, legacyDiff=${level.legacyDiff} -> diffId=${diffId}`);
 
-      const levelDoc = {
-        id: nextDbId,
+      return {
+        id: level.id,
         song: level.song || '',
         artist: level.artist || '',
         creator: level.creator || '',
         charter: level.charter || '',
         vfxer: level.vfxer || '',
         team: level.team || '',
-        diff: level.diff || 0,
-        legacyDiff: level.legacyDiff || 0,
-        pguDiff: level.pguDiff || '0',
-        pguDiffNum: level.pguDiffNum || 0,
-        newDiff: level.newDiff || 0,
+        diffId,
         baseScore: level.baseScore || 0,
-        baseScoreDiff: baseScoreDiff || 0,
         isCleared: level.isCleared || false,
         clears: level.clears || 0,
         vidLink: level.vidLink || '',
         dlLink: level.dlLink || '',
         workshopLink: level.workshopLink || '',
         publicComments: level.publicComments || '',
-        toRate: level.toRate || false,
-        isDeleted: level.isDeleted || false,
+        toRate: false,
+        rerateReason: '',
+        rerateNum: '',
+        isDeleted: false,
       };
-
-      levelDocs.push(levelDoc);
-      levelIdMapping.set(level.id, nextDbId);
-      nextDbId++;
-    }
+    });
 
     console.log(
       `Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`,
@@ -345,7 +358,7 @@ async function reloadDatabase() {
         };
 
         // Get the level's base score
-        const level = levelDocs.find(l => l.id === newLevelId);
+        const level = levelDocs.find((l: any) => l.id === newLevelId);
 
         // Calculate accuracy and score
         const accuracy = calcAcc(judgements);

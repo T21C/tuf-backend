@@ -12,6 +12,9 @@ interface PassSubmissionAttributes {
   rawTime: Date;
   submitterDiscordUsername?: string;
   submitterEmail?: string;
+  submitterDiscordId?: string;
+  submitterDiscordAvatar?: string;
+  levelDifficultyIcon?: string;
   status: string;
   assignedPlayerId?: number;
 }
@@ -32,6 +35,9 @@ class PassSubmission extends Model<
   declare rawTime: Date;
   declare submitterDiscordUsername?: string;
   declare submitterEmail?: string;
+  declare submitterDiscordId?: string;
+  declare submitterDiscordAvatar?: string;
+  declare levelDifficultyIcon?: string;
   declare status: string;
   declare assignedPlayerId?: number;
 
@@ -98,7 +104,7 @@ PassSubmission.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
-    submitterEmail: {
+    submitterDiscordId: {
       type: DataTypes.STRING,
       allowNull: true,
     },

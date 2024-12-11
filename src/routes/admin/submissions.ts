@@ -14,6 +14,7 @@ import {getScoreV2} from '../../misc/CalcScore';
 import {Auth} from '../../middleware/auth';
 import Player from '../../models/Player';
 import Judgement from '../../models/Judgement';
+import Difficulty from '../../models/Difficulty';
 
 // Define interfaces for the data structure
 interface PassData {
@@ -123,13 +124,8 @@ router.put(
           workshopLink: submission.wsLink,
           toRate: true,
           isDeleted: false,
-          diff: 0,
-          legacyDiff: 0,
-          pguDiff: '',
-          pguDiffNum: 0,
-          newDiff: 0,
+          diffId: 0,
           baseScore: 0,
-          baseScoreDiff: '0',
           isCleared: false,
           clears: 0,
           publicComments: '',
@@ -218,7 +214,15 @@ router.put(
         });
 
         // Get level data for score calculation
-        const levelObj = await Level.findByPk(parseInt(submission.levelId));
+        const levelObj = await Level.findByPk(parseInt(submission.levelId), {
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              attributes: ['id', 'name', 'type', 'icon', 'baseScore', 'legacy'],
+            },
+          ],
+        });
         if (!levelObj) {
           return res.status(404).json({error: 'Level not found'});
         }
@@ -245,8 +249,8 @@ router.put(
             isNoHoldTap: Boolean(submission.PassSubmissionFlag.isNHT),
           },
           {
-            diff: Number(level.legacyDiff) || 0,
-            baseScore: Number(level.baseScore) || 0,
+            diff: Number(level.difficulty?.legacy) || 0,
+            baseScore: Number(level.difficulty?.baseScore) || 0,
           },
         );
 
@@ -256,8 +260,8 @@ router.put(
             speed: submission.speed,
             judgements,
             isNHT: submission.PassSubmissionFlag.isNHT,
-            diff: level.legacyDiff,
-            baseScore: level.baseScore,
+            diff: level.difficulty?.legacy || 0,
+            baseScore: level.difficulty?.baseScore || 0,
           });
           return res.status(400).json({error: 'Invalid score calculation'});
         }

@@ -136,7 +136,7 @@ class LeaderboardCache {
               {
                 model: Level,
                 as: 'level',
-                attributes: ['id', 'song', 'artist', 'pguDiff', 'baseScore'],
+                attributes: ['id', 'song', 'artist', 'diffId', 'baseScore'],
               },
               {
                 model: Judgement,

@@ -60,7 +60,7 @@ export function calculateAverageXacc(scores: Score[]): number {
 
 export function countUniversalPasses(passes: IPass[]): number {
   return passes.filter(
-    pass => !pass.isDeleted && pass.level?.pguDiff?.startsWith('U'),
+    pass => !pass.isDeleted && pass.level?.difficulty?.name?.startsWith('U'),
   ).length;
 }
 
@@ -86,7 +86,7 @@ export function calculateDiff(passes: IPass[], only12k: boolean): string {
   if (validPasses.length === 0) return 'P1';
 
   validPasses.forEach(pass => {
-    const pguDiff = pass.level?.pguDiff;
+    const pguDiff = pass.level?.difficulty?.name;
     if (!pguDiff) return;
 
     const letter = pguDiff[0] as PguLetter;

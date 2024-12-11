@@ -386,7 +386,7 @@ if __name__ == "__main__":
   "legacyDiff": 21.15,
   "pguDiff": "U7",
   "pguDiffNum": 21.15,
-  "newDiff": 47,
+  "pguDiffNum": 47,
   "pdnDiff": 21.15,
   "realDiff": 47,
   "baseScore": 1600,

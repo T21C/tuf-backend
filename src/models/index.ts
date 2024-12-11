@@ -7,6 +7,7 @@ import RatingDetail from './RatingDetail';
 import Judgement from './Judgement';
 import RerateSubmission from './RerateSubmission';
 import LevelSubmission from './LevelSubmission';
+import Difficulty from './Difficulty';
 import {
   PassSubmission,
   PassSubmissionJudgements,
@@ -32,6 +33,7 @@ export const db = {
     PassSubmission,
     PassSubmissionJudgements,
     PassSubmissionFlags,
+    Difficulty,
   },
 };
 

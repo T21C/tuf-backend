@@ -1,7 +1,8 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {ILevel} from '../types/models';
+import {ILevel, IPass} from '../types/models';
 import Pass from './Pass';
+import Difficulty from './Difficulty';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -20,13 +21,8 @@ class Level
   declare charter: string;
   declare vfxer: string;
   declare team: string;
-  declare diff: number;
-  declare legacyDiff: number;
-  declare pguDiff: string;
-  declare pguDiffNum: number;
-  declare newDiff: number;
+  declare diffId: number;
   declare baseScore: number;
-  declare baseScoreDiff: string;
   declare isCleared: boolean;
   declare clears: number;
   declare vidLink: string;
@@ -42,6 +38,7 @@ class Level
 
   // Associations
   declare passes?: Pass[];
+  declare difficulty?: Difficulty;
 }
 
 Level.init(
@@ -75,33 +72,17 @@ Level.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    diff: {
+    diffId: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    legacyDiff: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    pguDiff: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    pguDiffNum: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    newDiff: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
+      allowNull: false,
+      references: {
+        model: 'difficulties',
+        key: 'id'
+      }
     },
     baseScore: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    baseScoreDiff: {
-      type: DataTypes.STRING,
-      allowNull: true,
+      allowNull: false,
     },
     isCleared: {
       type: DataTypes.BOOLEAN,
@@ -160,7 +141,6 @@ Level.init(
       {fields: [{name: 'song', length: 255}]},
       {fields: [{name: 'artist', length: 255}]},
       {fields: [{name: 'charter', length: 255}]},
-      {fields: [{name: 'diff'}]},
     ],
   },
 );

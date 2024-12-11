@@ -232,7 +232,7 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
       is12K: pass.is12K || false,
       baseScore: pass.level?.baseScore || 0,
       isDeleted: pass.isDeleted || false,
-      pguDiff: pass.level?.pguDiff,
+      pguDiff: pass.level?.difficulty?.name,
     }));
 
   // Calculate player stats
