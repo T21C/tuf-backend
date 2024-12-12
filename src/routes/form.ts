@@ -104,9 +104,9 @@ router.post('/form-submit', async (req: Request, res: Response) => {
       // Create flags with proper validation
       const flags = {
         passSubmissionId: submission.id,
-        is12k: Boolean(req.body.is12k),
-        isNHT: Boolean(req.body.isNHT),
-        is16k: Boolean(req.body.is16k),
+        is12k: req.body.is12k === 'true',
+        isNHT: req.body.isNHT === 'true',
+        is16k: req.body.is16k === 'true',
         isLegacy: false, // Default value as per model
       };
 

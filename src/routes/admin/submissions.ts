@@ -78,6 +78,10 @@ router.get(
             as: 'flags',
             required: true,
           },
+          {
+            model: Player,
+            as: 'assignedPlayer',
+          },
         ],
         order: [['createdAt', 'DESC']],
       });

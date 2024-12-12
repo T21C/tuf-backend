@@ -1,5 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
 import sequelize from '../config/db';
+import Player from './Player';
 
 interface PassSubmissionAttributes {
   id: number;
@@ -41,6 +42,7 @@ class PassSubmission extends Model<
   declare assignedPlayerId?: number | null;
 
   // Associations
+  declare assignedPlayer?: Player;
   declare judgements?: PassSubmissionJudgements;
   declare flags?: PassSubmissionFlags;
 }

@@ -92,9 +92,9 @@ const buildWhereClause = (query: {
 const getSortOptions = (sort?: string): OrderItem[] => {
   switch (sort) {
     case 'RECENT_ASC':
-      return [['id', 'ASC']];
+      return [['vidUploadTime', 'ASC']];
     case 'RECENT_DESC':
-      return [['id', 'DESC']];
+      return [['vidUploadTime', 'DESC']];
     case 'SCORE_ASC':
       return [
         ['scoreV2', 'ASC'],
