@@ -156,11 +156,6 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
           attributes: ['name', 'country', 'isBanned'],
         },
         {
-          model: Level,
-          as: 'level',
-          attributes: ['song', 'artist', 'pguDiff', 'baseScore'],
-        },
-        {
           model: Judgement,
           as: 'judgements',
         },
