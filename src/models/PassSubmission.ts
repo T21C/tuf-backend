@@ -14,9 +14,8 @@ interface PassSubmissionAttributes {
   submitterEmail?: string;
   submitterDiscordId?: string;
   submitterDiscordAvatar?: string;
-  levelDifficultyIcon?: string;
   status: string;
-  assignedPlayerId?: number;
+  assignedPlayerId?: number | null;
 }
 
 type PassSubmissionCreationAttributes = Omit<PassSubmissionAttributes, 'id'>;
@@ -39,7 +38,7 @@ class PassSubmission extends Model<
   declare submitterDiscordAvatar?: string;
   declare levelDifficultyIcon?: string;
   declare status: string;
-  declare assignedPlayerId?: number;
+  declare assignedPlayerId?: number | null;
 
   // Associations
   declare judgements?: PassSubmissionJudgements;

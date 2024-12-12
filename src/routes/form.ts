@@ -52,44 +52,75 @@ router.post('/form-submit', async (req: Request, res: Response) => {
     }
 
     if (formType === 'pass') {
+      // Validate required fields
+      const requiredFields = [
+        'rawVideoId',
+        'levelId',
+        'passer',
+        'feelingDifficulty',
+        'title',
+        'rawTime'
+      ];
+
+      for (const field of requiredFields) {
+        if (!req.body[field]) {
+          return res.status(400).json({
+            error: `Missing required field: ${field}`
+          });
+        }
+      }
+
+      // Create the pass submission
       const submission = await PassSubmission.create({
-        rawVideoId: req.body['rawVideoId'],
-        levelId: req.body['levelId'],
-        passer: req.body['passer'],
-        speed: parseFloat(req.body['speed'] || '1'),
-        feelingDifficulty: req.body['feelingDifficulty'],
-        title: req.body['title'],
-        rawTime: new Date(req.body['rawTime']),
+        levelId: req.body.levelId,
+        speed: parseFloat(req.body.speed || '1'),
+        passer: req.body.passer,
+        feelingDifficulty: req.body.feelingDifficulty,
+        title: req.body.title,
+        rawVideoId: req.body.rawVideoId,
+        rawTime: new Date(req.body.rawTime),
         submitterDiscordUsername: tokenInfo.username,
         submitterEmail: tokenInfo.email,
+        submitterDiscordId: tokenInfo.id,
+        submitterDiscordAvatar: tokenInfo.avatar,
         status: 'pending',
+        assignedPlayerId: null, // Will be assigned during review
       });
 
-      // Create associated judgements
-      await PassSubmissionJudgements.create({
+      // Create judgements with proper validation
+      const judgements = {
         passSubmissionId: submission.id,
-        earlyDouble: parseInt(req.body['earlyDouble'] || '0'),
-        earlySingle: parseInt(req.body['earlySingle'] || '0'),
-        ePerfect: parseInt(req.body['ePerfect'] || '0'),
-        perfect: parseInt(req.body['perfect'] || '0'),
-        lPerfect: parseInt(req.body['lPerfect'] || '0'),
-        lateSingle: parseInt(req.body['lateSingle'] || '0'),
-        lateDouble: parseInt(req.body['lateDouble'] || '0'),
-      });
+        earlyDouble: Math.max(0, parseInt(req.body.earlyDouble || '0')),
+        earlySingle: Math.max(0, parseInt(req.body.earlySingle || '0')),
+        ePerfect: Math.max(0, parseInt(req.body.ePerfect || '0')),
+        perfect: Math.max(0, parseInt(req.body.perfect || '0')),
+        lPerfect: Math.max(0, parseInt(req.body.lPerfect || '0')),
+        lateSingle: Math.max(0, parseInt(req.body.lateSingle || '0')),
+        lateDouble: Math.max(0, parseInt(req.body.lateDouble || '0')),
+      };
 
-      // Create associated flags
-      await PassSubmissionFlags.create({
+      await PassSubmissionJudgements.create(judgements);
+
+      // Create flags with proper validation
+      const flags = {
         passSubmissionId: submission.id,
-        is12k: req.body['is12k'] === 'true',
-        isNHT: req.body['isNHT'] === 'true',
-        is16k: req.body['is16k'] === 'true',
-        isLegacy: false,
-      });
+        is12k: Boolean(req.body.is12k),
+        isNHT: Boolean(req.body.isNHT),
+        is16k: Boolean(req.body.is16k),
+        isLegacy: false, // Default value as per model
+      };
+
+      await PassSubmissionFlags.create(flags);
 
       return res.json({
         success: true,
         message: 'Pass submission saved successfully',
         submissionId: submission.id,
+        data: {
+          ...submission.toJSON(),
+          judgements,
+          flags,
+        },
       });
     }
 

@@ -8,6 +8,9 @@ import {calculatePGUDiffNum} from './ratingUtils';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
+// Add this near the top of the file with other imports/declarations
+const feelingRatings = new Map<number, string | number>();
+
 interface RawLevel {
   id: number;
   song: string;
@@ -57,6 +60,9 @@ interface RawPlayer {
 
 // Add this before the reloadDatabase function
 const levelIdMapping = new Map<number, number>();
+
+// Add near other declarations
+const levelFirstPasses = new Map<number, { id: number }>();
 
 async function fetchData<T>(endpoint: string): Promise<T> {
   try {
@@ -187,25 +193,51 @@ function createPlaceholderJudgement(id: number) {
   };
 }
 
+// Add this helper function for creating placeholder levels
+function createPlaceholderLevel(id: number) {
+  return {
+    id,
+    song: 'Placeholder',
+    artist: 'Placeholder',
+    creator: 'Placeholder',
+    charter: 'Placeholder',
+    vfxer: '',
+    team: '',
+    diffId: 0, // Unranked difficulty
+    baseScore: 0,
+    isCleared: false,
+    clears: 0,
+    vidLink: '',
+    dlLink: '',
+    workshopLink: '',
+    publicComments: 'Placeholder level for missing ID',
+    toRate: false,
+    rerateReason: '',
+    rerateNum: '',
+    isDeleted: true,
+  };
+}
+
 async function reloadDatabase() {
   const transaction = await db.sequelize.transaction();
 
   try {
     console.log('Starting database reload...');
+    
+    // Load feeling ratings from XLSX
+    const feelingRatings = await readFeelingRatingsFromXlsx();
 
-    // Clear existing data in correct order (children before parents)
+    // Clear existing data in correct order
     await Promise.all([
       db.models.RatingDetail.destroy({ where: {}, transaction }),
       db.models.Rating.destroy({ where: {}, transaction }),
       db.models.Judgement.destroy({ where: {}, transaction }),
-      db.models.Pass.destroy({where: {}, transaction}),
-      db.models.Level.destroy({where: {}, transaction}),
-      db.models.Player.destroy({where: {}, transaction}),
-      db.models.Difficulty.destroy({where: {}, transaction}),
+      db.models.Pass.destroy({ where: {}, transaction }),
+      db.models.Level.destroy({ where: {}, transaction }),
+      db.models.Player.destroy({ where: {}, transaction }),
+      db.models.Difficulty.destroy({ where: {}, transaction }),
     ]);
 
-    // Clear tables with foreign key dependencies in order
-    
     console.log('Cleared existing data');
 
     // Populate difficulties table first
@@ -213,13 +245,11 @@ async function reloadDatabase() {
     console.log('Populated difficulties table');
 
     // Load data from BE API
-    const [playersResponse, levelsResponse, passesResponse] = await Promise.all(
-      [
-        fetchData<RawPlayer[]>('/players'),
-        fetchData<RawLevel[]>('/levels'),
-        fetchData<{count: number; results: RawPass[]}>('/passes'),
-      ],
-    );
+    const [playersResponse, levelsResponse, passesResponse] = await Promise.all([
+      fetchData<RawPlayer[]>('/players'),
+      fetchData<RawLevel[]>('/levels'),
+      fetchData<{count: number; results: RawPass[]}>('/passes'),
+    ]);
 
     // Process players
     const players = Array.isArray(playersResponse)
@@ -234,49 +264,33 @@ async function reloadDatabase() {
         isBanned: player.isBanned || false,
       }));
 
+    // After processing players
+    const playerNameToId = new Map<string, number>();
+    playerDocs.forEach((player: any) => {
+      playerNameToId.set(player.name, player.id);
+    });
+
     // Process levels
     const levels = Array.isArray(levelsResponse)
       ? levelsResponse
       : (levelsResponse as any).results || [];
 
-    // Sort levels by ID and create ID mapping
+    // Sort levels by ID
     levels.sort((a: any, b: any) => a.id - b.id);
-    levels.forEach((level: RawLevel) => {
-      levelIdMapping.set(level.id, level.id); // Map old ID to new ID
-    });
 
-    // Process levels with new difficulty mapping
-    const levelDocs = levels.map((level: RawLevel) => {
-      // Try to map the difficulty
-      let diffId = 0; // Default to unranked
-      
-      if (level.pguDiff) {
-        // First try: Direct match from pguDiff to difficultyMap
-        const directMatch = difficultyMap.find(d => 
-          d.name.toLowerCase() === String(level.pguDiff).toLowerCase() ||
-          d.name.toLowerCase().replace('+', 'p') === String(level.pguDiff).toLowerCase()
-        );
-        
-        if (directMatch) {
-          diffId = directMatch.id;
-        } else {
-          // Second try: Check oldDiffToPGUMap
-          const mappedPGU = oldDiffToPGUMap[level.legacyDiff as keyof typeof oldDiffToPGUMap];
-          if (mappedPGU) {
-            const mappedMatch = difficultyMap.find(d => 
-              d.name.toLowerCase() === String(mappedPGU).toLowerCase() ||
-              d.name.toLowerCase().replace('+', 'p') === String(mappedPGU).toLowerCase()
-            );
-            if (mappedMatch) {
-              diffId = mappedMatch.id;
-            }
-          }
-        }
+    // Create array for all levels including placeholders
+    const levelDocs = [];
+    let currentId = 1;
+    
+    for (const level of levels) {
+      // Fill gaps with placeholders
+      while (currentId < level.id) {
+        levelDocs.push(createPlaceholderLevel(currentId));
+        currentId++;
       }
 
-      console.log(`Level ${level.id}: pguDiff=${level.pguDiff}, legacyDiff=${level.legacyDiff} -> diffId=${diffId}`);
-
-      return {
+      // Process actual level
+      levelDocs.push({
         id: level.id,
         song: level.song || '',
         artist: level.artist || '',
@@ -284,7 +298,7 @@ async function reloadDatabase() {
         charter: level.charter || '',
         vfxer: level.vfxer || '',
         team: level.team || '',
-        diffId,
+        diffId: level.diffId || 0,
         baseScore: level.baseScore || 0,
         isCleared: level.isCleared || false,
         clears: level.clears || 0,
@@ -296,45 +310,43 @@ async function reloadDatabase() {
         rerateReason: '',
         rerateNum: '',
         isDeleted: false,
-      };
-    });
+      });
+      
+      currentId = level.id + 1;
+      levelIdMapping.set(level.id, level.id);
+    }
 
     console.log(
-      `Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`,
+      `Processed ${levelDocs.length} levels (including ${
+        levelDocs.length - levels.length
+      } placeholders)`,
     );
 
-    // Create ID mappings
-    const playerNameToId = new Map<string, number>(
-      playerDocs.map((p: any) => [p.name, p.id]),
-    );
-
-    // Load feeling ratings
-    const feelingRatings = await readFeelingRatingsFromXlsx();
-
-    // Process passes and judgements
+    // Process passes with placeholders for judgements
     const passes = passesResponse.results;
-    const passDocs = [];
-    const judgementDocs = [];
+    const passDocs: any[] = [];
+    const judgementDocs: any[] = [];
     let nextJudgementId = 1;
-
-    // First, organize passes by level to determine world's firsts
-    const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
-    passes.forEach((pass: RawPass) => {
-      const newLevelId = levelIdMapping.get(pass.levelId);
-      if (typeof newLevelId !== 'number') return;
-
-      const uploadTime = new Date(pass.vidUploadTime);
-      const currentFirst = levelFirstPasses.get(newLevelId);
-
-      if (!currentFirst || uploadTime < currentFirst.uploadTime) {
-        levelFirstPasses.set(newLevelId, {uploadTime, id: pass.id});
-      }
-    });
 
     // Sort passes by ID to process them in order
     passes.sort((a, b) => a.id - b.id);
 
+    // Before processing passes, populate the map with first passes for each level
+    passes.forEach(pass => {
+      const levelId = pass.levelId;
+      if (!levelFirstPasses.has(levelId)) {
+        levelFirstPasses.set(levelId, { id: pass.id });
+      }
+    });
+
     for (const pass of passes) {
+      // Fill gaps with placeholder judgements
+      while (nextJudgementId < pass.id) {
+        judgementDocs.push(createPlaceholderJudgement(nextJudgementId));
+        nextJudgementId++;
+      }
+
+      // Process actual pass and judgement
       const playerId = playerNameToId.get(pass.player);
       const newLevelId = levelIdMapping.get(pass.levelId);
 
@@ -381,8 +393,7 @@ async function reloadDatabase() {
           levelId: newLevelId,
           playerId: playerId,
           speed: pass.speed || 1,
-          feelingRating:
-            feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
+          feelingRating: feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
           vidLink: pass.vidLink,
           vidUploadTime: new Date(pass.vidUploadTime),
@@ -402,17 +413,15 @@ async function reloadDatabase() {
     }
 
     // Bulk insert data in the correct order
-    await db.models.Player.bulkCreate(playerDocs, {transaction});
-    await db.models.Level.bulkCreate(levelDocs, {transaction});
-    await db.models.Pass.bulkCreate(passDocs, {transaction});
+    await db.models.Player.bulkCreate(playerDocs, { transaction });
+    await db.models.Level.bulkCreate(levelDocs, { transaction });
+    await db.models.Pass.bulkCreate(passDocs, { transaction });
 
-    // Create judgements only for existing passes
-    const existingPassIds = passDocs.map(pass => pass.id);
-    const validJudgementDocs = judgementDocs.filter(judgement =>
-      existingPassIds.includes(judgement.id),
-    );
-
-    await db.models.Judgement.bulkCreate(validJudgementDocs, {transaction});
+    // Only after passes are created, create the judgements
+    await db.models.Judgement.bulkCreate(judgementDocs.filter(j => {
+      // Only create judgements for passes that exist
+      return passDocs.some(p => p.id === j.id);
+    }), { transaction });
 
     // Update clear counts
     const clearCounts = new Map<number, number>();
@@ -432,7 +441,6 @@ async function reloadDatabase() {
       ),
     );
 
-    // Commit transaction first
     await transaction.commit();
     console.log('Database reload completed successfully');
 

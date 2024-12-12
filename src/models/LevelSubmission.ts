@@ -13,7 +13,7 @@ class LevelSubmission extends BaseModel {
   public directDL!: string;
   public wsLink!: string;
   public submitterDiscordUsername!: string;
-  public submitterEmail!: string;
+  public submitterUserId!: string;
   public status!: 'pending' | 'approved' | 'declined';
 }
 
@@ -58,7 +58,7 @@ LevelSubmission.init(
     submitterDiscordUsername: {
       type: DataTypes.STRING,
     },
-    submitterEmail: {
+    submitterUserId: {
       type: DataTypes.STRING,
     },
     status: {
