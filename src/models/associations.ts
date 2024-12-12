@@ -5,7 +5,7 @@ import Judgement from './Judgement';
 import Rating from './Rating';
 import RatingDetail from './RatingDetail';
 import Difficulty from './Difficulty';
-import { PassSubmission } from './PassSubmission';
+import {PassSubmission} from './PassSubmission';
 
 export function initializeAssociations() {
   // Player has many Passes
@@ -89,9 +89,8 @@ export function initializeAssociations() {
   // Level belongs to Difficulty
   Level.belongsTo(Difficulty, {
     foreignKey: 'diffId',
-    as: 'difficulty'
+    as: 'difficulty',
   });
-
 
   PassSubmission.belongsTo(Player, {
     foreignKey: 'assignedPlayerId',

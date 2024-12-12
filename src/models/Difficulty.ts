@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
 import sequelize from '../config/db';
-import {IDifficulty} from '../types/models';
+import {IDifficulty} from '../interfaces/models';
 
 class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare id: number;

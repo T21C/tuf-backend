@@ -17,7 +17,7 @@ import leaderboardCache from './utils/LeaderboardCache';
 
 dotenv.config();
 
-const gato = process.env.OWN_URL+'/v2/media/image/soggycat.webp';
+const gato = process.env.OWN_URL + '/v2/media/image/soggycat.webp';
 const app: Express = express();
 const httpServer = createServer(app);
 
@@ -70,7 +70,9 @@ async function startServer() {
     app.use('/v2/data', databaseRoutes);
     app.use('/v2/webhook', webhookRoutes);
     app.get('/', (req, res) => {
-      res.send('<img src="'+gato+'" style="width: 50%; height: 50%;" alt="">');
+      res.send(
+        '<img src="' + gato + '" style="width: 50%; height: 50%;" alt="">',
+      );
     });
 
     // Start the server

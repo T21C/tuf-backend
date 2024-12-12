@@ -83,7 +83,10 @@ const getScore = (passData: PassData, levelData: LevelData) => {
   const speed = passData.speed;
   const legacyDiff = levelData.diff;
   const inputs = passData.judgements;
-  const base = levelData.baseScore;
+  const base =
+    levelData.baseScore !== null
+      ? levelData.baseScore
+      : levelData.difficulty?.baseScore || 0;
   const xaccMtp = getXaccMtp(inputs);
 
   let speedMtp = 0;
@@ -99,8 +102,11 @@ const getScore = (passData: PassData, levelData: LevelData) => {
 };
 
 interface LevelData {
-  baseScore: number;
+  baseScore: number | null;
   diff?: number;
+  difficulty?: {
+    baseScore: number;
+  };
 }
 
 interface PassData {

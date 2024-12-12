@@ -1,4 +1,4 @@
-import {IPass, IPlayer} from '../types/models';
+import {IPass, IPlayer} from '../interfaces/models';
 import Player from '../models/Player';
 import Pass from '../models/Pass';
 import Level from '../models/Level';
@@ -236,7 +236,7 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
     }));
 
   // Calculate player stats
-  const validScores = scores.filter(s => !s.isDeleted);
+  const validScores = scores.filter((s: any) => !s.isDeleted);
 
   const enrichedPlayer = {
     id: playerData.id,

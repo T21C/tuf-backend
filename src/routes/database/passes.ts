@@ -10,18 +10,28 @@ import {getIO} from '../../utils/socket';
 import {calcAcc} from '../../misc/CalcAcc';
 import {getScoreV2} from '../../misc/CalcScore';
 import sequelize from '../../config/db';
-import {IPass as PassInterface} from '../../types/models';
+import {IPass as PassInterface} from '../../interfaces/models';
 
 const router: Router = Router();
 
-type WhereClause = WhereOptions<PassInterface> & {
+type WhereClause = {
   isDeleted?: boolean;
   levelId?: number;
   is12K?: boolean;
   '$player.name$'?: {[Op.like]: string};
-  '$level.diffId$'?: {[Op.gte]: number} | {[Op.lte]: number};
-  [Op.or]?: Array<{[key: string]: any}>;
-};
+  '$level.diffId$'?: {[Op.gte]: number} | {[Op.lte]: number} | {
+    [Op.gte]?: number;
+    [Op.lte]?: number;
+  };
+  [Op.or]?: Array<{
+    '$player.name$'?: {[Op.like]: string};
+    '$level.song$'?: {[Op.like]: string};
+    '$level.artist$'?: {[Op.like]: string};
+    '$level.difficulty.name$'?: {[Op.like]: string};
+    levelId?: {[Op.like]: string};
+    id?: {[Op.like]: string};
+  }>;
+} & WhereOptions<PassInterface>;
 
 // Helper function to build where clause
 const buildWhereClause = (query: {
@@ -42,17 +52,15 @@ const buildWhereClause = (query: {
     where.isDeleted = true;
   }
 
-  // Add difficulty range filter
-  if (query.lowDiff) {
-    where['$level.diffId$'] = {
-      [Op.gte]: Number(query.lowDiff),
-    };
-  }
-  if (query.highDiff) {
-    where['$level.diffId$'] = {
-      ...where['$level.diffId$'],
-      [Op.lte]: Number(query.highDiff),
-    };
+  // Update difficulty range filter
+  if (query.lowDiff || query.highDiff) {
+    where['$level.diffId$'] = {};
+    if (query.lowDiff) {
+      (where['$level.diffId$'] as any)[Op.gte] = Number(query.lowDiff);
+    }
+    if (query.highDiff) {
+      (where['$level.diffId$'] as any)[Op.lte] = Number(query.highDiff);
+    }
   }
 
   // Add 12k filter

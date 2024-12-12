@@ -22,7 +22,7 @@ export interface ILevel extends IBaseModel {
   vfxer: string;
   team: string;
   diffId: number;
-  baseScore: number;
+  baseScore: number | null;
   isCleared: boolean;
   clears: number;
   vidLink: string;

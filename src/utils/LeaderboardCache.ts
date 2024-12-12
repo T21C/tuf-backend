@@ -3,7 +3,7 @@ import Pass from '../models/Pass';
 import Level from '../models/Level';
 import Judgement from '../models/Judgement';
 import {enrichPlayerData} from './PlayerEnricher';
-import {IPlayer} from '../types/models';
+import {IPlayer} from '../interfaces/models';
 
 interface PlayerRanks {
   rankedScoreRank: number;

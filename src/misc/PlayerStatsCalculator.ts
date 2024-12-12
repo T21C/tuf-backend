@@ -1,5 +1,5 @@
 import {PGU_SORT, PguLetter} from '../config/constants';
-import {IPass} from '../types/models';
+import {IPass} from '../interfaces/models';
 
 interface Score {
   score: number;

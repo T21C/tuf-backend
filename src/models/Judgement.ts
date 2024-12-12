@@ -1,6 +1,6 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {IJudgement} from '../types/models';
+import {IJudgement} from '../interfaces/models';
 import Pass from './Pass';
 
 type JudgementCreationAttributes = Optional<

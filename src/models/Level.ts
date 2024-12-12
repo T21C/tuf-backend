@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {ILevel, IPass} from '../types/models';
+import {ILevel, IPass} from '../interfaces/models';
 import Pass from './Pass';
 import Difficulty from './Difficulty';
 
@@ -22,7 +22,7 @@ class Level
   declare vfxer: string;
   declare team: string;
   declare diffId: number;
-  declare baseScore: number;
+  declare baseScore: number | null;
   declare isCleared: boolean;
   declare clears: number;
   declare vidLink: string;
@@ -77,12 +77,13 @@ Level.init(
       allowNull: false,
       references: {
         model: 'difficulties',
-        key: 'id'
-      }
+        key: 'id',
+      },
     },
     baseScore: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
+      defaultValue: null,
     },
     isCleared: {
       type: DataTypes.BOOLEAN,

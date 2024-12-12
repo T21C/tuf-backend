@@ -5,7 +5,7 @@ import RatingDetail from '../../models/RatingDetail';
 import Level from '../../models/Level';
 import {calculateAverageRating} from '../../utils/ratingUtils';
 import {Auth} from '../../middleware/auth';
-import {IUser} from '../../types/express';
+import {IUser} from '../../interfaces/express';
 import {getIO} from '../../utils/socket';
 import sequelize from '../../config/db';
 import Difficulty from '../../models/Difficulty';

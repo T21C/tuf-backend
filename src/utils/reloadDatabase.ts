@@ -173,7 +173,6 @@ function getBaseScorePguRating(baseScore: number): string {
   );
 }
 
-
 function createPlaceholderLevel(id: number) {
   return {
     id,
@@ -219,9 +218,9 @@ async function reloadDatabase() {
 
     // Clear existing data in correct order (children before parents)
     await Promise.all([
-      db.models.RatingDetail.destroy({ where: {}, transaction }),
-      db.models.Rating.destroy({ where: {}, transaction }),
-      db.models.Judgement.destroy({ where: {}, transaction }),
+      db.models.RatingDetail.destroy({where: {}, transaction}),
+      db.models.Rating.destroy({where: {}, transaction}),
+      db.models.Judgement.destroy({where: {}, transaction}),
       db.models.Pass.destroy({where: {}, transaction}),
       db.models.Level.destroy({where: {}, transaction}),
       db.models.Player.destroy({where: {}, transaction}),
@@ -229,11 +228,11 @@ async function reloadDatabase() {
     ]);
 
     // Clear tables with foreign key dependencies in order
-    
+
     console.log('Cleared existing data');
 
     // Populate difficulties table first
-    await db.models.Difficulty.bulkCreate(difficultyMap, { transaction });
+    await db.models.Difficulty.bulkCreate(difficultyMap, {transaction});
     console.log('Populated difficulties table');
 
     // Load data from BE API
@@ -282,26 +281,40 @@ async function reloadDatabase() {
 
       // Process actual level
       let diffId = 0; // Default to unranked
+      let baseScore = null;
 
       if (level.pguDiff) {
         // Try direct match from pguDiff to difficultyMap
-        const directMatch = difficultyMap.find(d => 
-          d.name.toLowerCase() === String(level.pguDiff).toLowerCase() ||
-          d.name.toLowerCase().replace('+', 'p') === String(level.pguDiff).toLowerCase()
+        const directMatch = difficultyMap.find(
+          d =>
+            d.name.toLowerCase() === String(level.pguDiff).toLowerCase() ||
+            d.name.toLowerCase().replace('+', 'p') ===
+              String(level.pguDiff).toLowerCase(),
         );
-        
+
         if (directMatch) {
           diffId = directMatch.id;
+          // Only set baseScore if it differs from difficulty's baseScore
+          baseScore =
+            level.baseScore === directMatch.baseScore ? null : level.baseScore;
         } else {
           // Try oldDiffToPGUMap
-          const mappedPGU = oldDiffToPGUMap[level.legacyDiff as keyof typeof oldDiffToPGUMap];
+          const mappedPGU =
+            oldDiffToPGUMap[level.legacyDiff as keyof typeof oldDiffToPGUMap];
           if (mappedPGU) {
-            const mappedMatch = difficultyMap.find(d => 
-              d.name.toLowerCase() === String(mappedPGU).toLowerCase() ||
-              d.name.toLowerCase().replace('+', 'p') === String(mappedPGU).toLowerCase()
+            const mappedMatch = difficultyMap.find(
+              d =>
+                d.name.toLowerCase() === String(mappedPGU).toLowerCase() ||
+                d.name.toLowerCase().replace('+', 'p') ===
+                  String(mappedPGU).toLowerCase(),
             );
             if (mappedMatch) {
               diffId = mappedMatch.id;
+              // Only set baseScore if it differs from difficulty's baseScore
+              baseScore =
+                level.baseScore === mappedMatch.baseScore
+                  ? null
+                  : level.baseScore;
             }
           }
         }
@@ -316,7 +329,7 @@ async function reloadDatabase() {
         vfxer: level.vfxer || '',
         team: level.team || '',
         diffId,
-        baseScore: level.baseScore || 0,
+        baseScore,
         isCleared: level.isCleared || false,
         clears: level.clears || 0,
         vidLink: level.vidLink || '',

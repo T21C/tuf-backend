@@ -250,7 +250,11 @@ router.put(
           },
           {
             diff: Number(level.difficulty?.legacy) || 0,
-            baseScore: Number(level.difficulty?.baseScore) || 0,
+            baseScore:
+              level.baseScore !== null
+                ? level.baseScore
+                : level.difficulty?.baseScore || 0,
+            difficulty: level.difficulty,
           },
         );
 

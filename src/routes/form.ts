@@ -39,6 +39,10 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         videoLink: req.body['videoLink'],
         directDL: req.body['directDL'],
         wsLink: req.body['wsLink'] || '',
+        baseScore:
+          req.body['baseScore'] && !isNaN(parseFloat(req.body['baseScore']))
+            ? parseFloat(req.body['baseScore'])
+            : null,
         submitterDiscordUsername: tokenInfo.username,
         submitterEmail: tokenInfo.email,
         status: 'pending',
@@ -59,13 +63,13 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         'passer',
         'feelingDifficulty',
         'title',
-        'rawTime'
+        'rawTime',
       ];
 
       for (const field of requiredFields) {
         if (!req.body[field]) {
           return res.status(400).json({
-            error: `Missing required field: ${field}`
+            error: `Missing required field: ${field}`,
           });
         }
       }

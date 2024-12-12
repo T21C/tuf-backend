@@ -5,7 +5,7 @@ import {
   HasManyGetAssociationsMixin,
 } from 'sequelize';
 import sequelize from '../config/db';
-import {IPlayer} from '../types/models';
+import {IPlayer} from '../interfaces/models';
 import Pass from './Pass';
 
 type PlayerCreationAttributes = Optional<
