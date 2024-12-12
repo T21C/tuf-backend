@@ -126,5 +126,5 @@ export interface IDifficulty extends IBaseModel {
   legacy: number;
   type: 'PGU' | 'SPECIAL'; // To distinguish between PGU and special ratings
   icon: string; // The icon filename from iconResolver
-  legacy_icon: string | null;
+  legacyIcon: string | null;
 }

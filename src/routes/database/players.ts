@@ -6,6 +6,7 @@ import Level from '../../models/Level';
 import Judgement from '../../models/Judgement';
 import {enrichPlayerData} from '../../utils/PlayerEnricher';
 import leaderboardCache from '../../utils/LeaderboardCache';
+import Difficulty from '../../models/Difficulty';
 
 const router: Router = Router();
 
@@ -40,6 +41,12 @@ router.get('/:id', async (req: Request, res: Response) => {
             {
               model: Level,
               as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
             },
             {
               model: Judgement,

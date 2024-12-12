@@ -70,12 +70,12 @@ router.get(
         include: [
           {
             model: PassSubmissionJudgements,
-            as: 'PassSubmissionJudgement',
+            as: 'judgements',
             required: true,
           },
           {
             model: PassSubmissionFlags,
-            as: 'PassSubmissionFlag',
+            as: 'flags',
             required: true,
           },
         ],
@@ -178,22 +178,18 @@ router.put(
           include: [
             {
               model: PassSubmissionJudgements,
-              as: 'PassSubmissionJudgement',
+              as: 'judgements',
               required: true,
             },
             {
               model: PassSubmissionFlags,
-              as: 'PassSubmissionFlag',
+              as: 'flags',
               required: true,
             },
           ],
         });
 
-        if (
-          !submission ||
-          !submission.PassSubmissionJudgement ||
-          !submission.PassSubmissionFlag
-        ) {
+        if (!submission || !submission.judgements || !submission.flags) {
           return res
             .status(404)
             .json({error: 'Submission or its data not found'});
@@ -232,13 +228,13 @@ router.put(
 
         // Calculate accuracy and score
         const judgements: IJudgements = {
-          earlyDouble: Number(submission.PassSubmissionJudgement.earlyDouble),
-          earlySingle: Number(submission.PassSubmissionJudgement.earlySingle),
-          ePerfect: Number(submission.PassSubmissionJudgement.ePerfect),
-          perfect: Number(submission.PassSubmissionJudgement.perfect),
-          lPerfect: Number(submission.PassSubmissionJudgement.lPerfect),
-          lateSingle: Number(submission.PassSubmissionJudgement.lateSingle),
-          lateDouble: Number(submission.PassSubmissionJudgement.lateDouble),
+          earlyDouble: Number(submission.judgements.earlyDouble),
+          earlySingle: Number(submission.judgements.earlySingle),
+          ePerfect: Number(submission.judgements.ePerfect),
+          perfect: Number(submission.judgements.perfect),
+          lPerfect: Number(submission.judgements.lPerfect),
+          lateSingle: Number(submission.judgements.lateSingle),
+          lateDouble: Number(submission.judgements.lateDouble),
         };
 
         const accuracy = calcAcc(judgements);
@@ -246,7 +242,7 @@ router.put(
           {
             speed: Number(submission.speed) || 1,
             judgements: judgements,
-            isNoHoldTap: Boolean(submission.PassSubmissionFlag.isNHT),
+            isNoHoldTap: Boolean(submission.flags.isNHT),
           },
           {
             diff: Number(level.difficulty?.legacy) || 0,
@@ -259,7 +255,7 @@ router.put(
           console.error('ScoreV2 calculation resulted in NaN:', {
             speed: submission.speed,
             judgements,
-            isNHT: submission.PassSubmissionFlag.isNHT,
+            isNHT: submission.flags.isNHT,
             diff: level.difficulty?.legacy || 0,
             baseScore: level.difficulty?.baseScore || 0,
           });
@@ -275,9 +271,9 @@ router.put(
           vidTitle: submission.title,
           vidLink: submission.rawVideoId,
           vidUploadTime: submission.rawTime,
-          is12K: Boolean(submission.PassSubmissionFlag.is12k),
-          is16K: Boolean(submission.PassSubmissionFlag.is16k),
-          isNoHoldTap: Boolean(submission.PassSubmissionFlag.isNHT),
+          is12K: Boolean(submission.flags.is12k),
+          is16K: Boolean(submission.flags.is16k),
+          isNoHoldTap: Boolean(submission.flags.isNHT),
           isLegacyPass: false,
           isWorldsFirst: existingPasses === 0,
           accuracy,
@@ -288,13 +284,13 @@ router.put(
         // Create judgements
         await Judgement.create({
           id: newPass.id,
-          earlyDouble: submission.PassSubmissionJudgement.earlyDouble,
-          earlySingle: submission.PassSubmissionJudgement.earlySingle,
-          ePerfect: submission.PassSubmissionJudgement.ePerfect,
-          perfect: submission.PassSubmissionJudgement.perfect,
-          lPerfect: submission.PassSubmissionJudgement.lPerfect,
-          lateSingle: submission.PassSubmissionJudgement.lateSingle,
-          lateDouble: submission.PassSubmissionJudgement.lateDouble,
+          earlyDouble: submission.judgements.earlyDouble,
+          earlySingle: submission.judgements.earlySingle,
+          ePerfect: submission.judgements.ePerfect,
+          perfect: submission.judgements.perfect,
+          lPerfect: submission.judgements.lPerfect,
+          lateSingle: submission.judgements.lateSingle,
+          lateDouble: submission.judgements.lateDouble,
         });
 
         // Update submission status

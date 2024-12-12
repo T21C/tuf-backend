@@ -6,7 +6,7 @@ export interface DifficultyEntry {
   name: string;
   type: 'PGU' | 'SPECIAL';
   icon: string;
-  legacy_icon: string | null;
+  legacyIcon: string | null;
   baseScore: number;
   legacy: number;
   createdAt: Date;
@@ -141,7 +141,7 @@ function getLegacyIconUrl(legacyDiff: number): string | null {
   // Regular legacy difficulties
   const key = legacyDiff.toString();
   if (key in legacyIconMap) {
-    return `${baseURL}legacy/${legacyIconMap[key]}${queryParams}`;
+    return `${baseURL}legacyDiff/${legacyIconMap[key]}${queryParams}`;
   }
 
   return null;
@@ -153,8 +153,8 @@ export const difficultyMap: DifficultyEntry[] = [
     id: 0,
     name: 'Unranked',
     type: 'SPECIAL',
-    icon: 'Unranked.png',
-    legacy_icon: null,
+    icon: getIconUrl('0'),
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -167,7 +167,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: `P${i + 1}`,
     type: 'PGU' as const,
     icon: getIconUrl(`P${i + 1}`),
-    legacy_icon: getLegacyIconUrl(legacyMap[`P${i + 1}` as keyof typeof legacyMap]),
+    legacyIcon: getLegacyIconUrl(legacyMap[`P${i + 1}` as keyof typeof legacyMap]),
     baseScore: calculateBaseScore(i + 1),
     legacy: legacyMap[`P${i + 1}` as keyof typeof legacyMap] as number,
     createdAt: new Date(),
@@ -180,7 +180,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: `G${i + 1}`,
     type: 'PGU' as const,
     icon: getIconUrl(`G${i + 1}`),
-    legacy_icon: getLegacyIconUrl(legacyMap[`G${i + 1}` as keyof typeof legacyMap]),
+    legacyIcon: getLegacyIconUrl(legacyMap[`G${i + 1}` as keyof typeof legacyMap]),
     baseScore: calculateBaseScore(i + 21),
     legacy: legacyMap[`G${i + 1}` as keyof typeof legacyMap] as number,
     createdAt: new Date(),
@@ -193,7 +193,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: `U${i + 1}`,
     type: 'PGU' as const,
     icon: getIconUrl(`U${i + 1}`),
-    legacy_icon: getLegacyIconUrl(legacyMap[`U${i + 1}` as keyof typeof legacyMap]),
+    legacyIcon: getLegacyIconUrl(legacyMap[`U${i + 1}` as keyof typeof legacyMap]),
     baseScore: calculateBaseScore(i + 41),
     legacy: legacyMap[`U${i + 1}` as keyof typeof legacyMap] as number,
     createdAt: new Date(),
@@ -206,7 +206,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'MP',
     type: 'SPECIAL',
     icon: getIconUrl('MP'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -217,7 +217,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Grande',
     type: 'SPECIAL',
     icon: getIconUrl('Grande'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -228,7 +228,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'MA',
     type: 'SPECIAL',
     icon: getIconUrl('MA'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -239,7 +239,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Bus',
     type: 'SPECIAL',
     icon: getIconUrl('Bus'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -250,7 +250,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Qq',
     type: 'SPECIAL',
     icon: getIconUrl('QQ'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -261,7 +261,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Q2',
     type: 'SPECIAL',
     icon: getIconUrl('Q2'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -272,7 +272,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Q2+',
     type: 'SPECIAL',
     icon: getIconUrl('Q2+'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -283,7 +283,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Q3',
     type: 'SPECIAL',
     icon: getIconUrl('Q3'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -294,7 +294,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Q3+',
     type: 'SPECIAL',
     icon: getIconUrl('Q3+'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -305,7 +305,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: 'Q4',
     type: 'SPECIAL',
     icon: getIconUrl('Q4'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: 0,
     createdAt: new Date(),
@@ -316,7 +316,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: '-2',
     type: 'SPECIAL',
     icon: getIconUrl('-2'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: -2,
     createdAt: new Date(),
@@ -327,7 +327,7 @@ export const difficultyMap: DifficultyEntry[] = [
     name: '-21',
     type: 'SPECIAL',
     icon: getIconUrl('-21'),
-    legacy_icon: null,
+    legacyIcon: null,
     baseScore: 0,
     legacy: -21,
     createdAt: new Date(),

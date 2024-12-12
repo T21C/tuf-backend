@@ -11,7 +11,7 @@ class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare updatedAt: Date;
   declare baseScore: number;
   declare legacy: number;
-  declare legacy_icon: string | null;
+  declare legacyIcon: string | null;
 }
 
 Difficulty.init(
@@ -48,7 +48,7 @@ Difficulty.init(
       type: DataTypes.FLOAT,
       allowNull: false,
     },
-    legacy_icon: {
+    legacyIcon: {
       type: DataTypes.STRING,
       allowNull: true,
     },

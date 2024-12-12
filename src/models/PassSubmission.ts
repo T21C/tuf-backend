@@ -42,8 +42,8 @@ class PassSubmission extends Model<
   declare assignedPlayerId?: number;
 
   // Associations
-  declare PassSubmissionJudgement?: PassSubmissionJudgements;
-  declare PassSubmissionFlag?: PassSubmissionFlags;
+  declare judgements?: PassSubmissionJudgements;
+  declare flags?: PassSubmissionFlags;
 }
 
 class PassSubmissionJudgements extends Model {

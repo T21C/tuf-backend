@@ -11,20 +11,18 @@
     "skipLibCheck": true,
     "rootDir": ".",
     "outDir": "build",
-    "types": ["node"]
+    "types": ["node"],
+    "sourceMap": true,
+    "inlineSourceMap": false
   },
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
     "src/**/*.d.ts"
   ],
-  "files.exclude": {
-    "node_modules": true
-  },
-  "search.exclude": {
-    "node_modules": true
-  },
-  "files.watcherExclude": {
-    "node_modules/**": true
-  }
+  "exclude": [
+    "node_modules",
+    "build",
+    ".tsimp"
+  ]
 }
