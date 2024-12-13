@@ -1,5 +1,5 @@
 import {PGU_SORT, PguLetter} from '../config/constants';
-import {IPass} from '../interfaces/models';
+import {IDifficulty, IPass} from '../interfaces/models';
 
 interface Score {
   score: number;
@@ -67,38 +67,45 @@ export function countWorldsFirstPasses(passes: IPass[]): number {
   return passes.filter(pass => !pass.isDeleted && pass.isWorldsFirst).length;
 }
 
-export function calculateTopDiff(passes: IPass[]): string {
+export function calculateTopDiff(passes: IPass[]): IDifficulty | null {
   return calculateDiff(passes, false);
 }
-
-export function calculateTop12KDiff(passes: IPass[]): string {
+  
+export function calculateTop12KDiff(passes: IPass[]): IDifficulty | null {
   return calculateDiff(passes, true);
 }
 
-export function calculateDiff(passes: IPass[], only12k: boolean): string {
-  let topLetter: PguLetter = 'P';
-  let topNumber = 1;
+export function calculateDiff(passes: IPass[], only12k: boolean): IDifficulty | null {
+  let topDiff: IDifficulty | null = null;
 
   const validPasses = passes.filter(
     pass => !pass.isDeleted && (!only12k || pass.is12K),
   );
-  if (validPasses.length === 0) return 'P1';
+  if (validPasses.length === 0) return null;
+
+  // Find the lowest difficulty as initial value
+  const lowestDiff = validPasses.reduce((lowest, pass) => {
+    const diff = pass.level?.difficulty;
+    if (!diff || diff.type !== 'PGU') return lowest;
+    if (!lowest || diff.sortOrder < lowest.sortOrder) {
+      return diff;
+    }
+    return lowest;
+  }, null as IDifficulty | null);
+
+  topDiff = lowestDiff;
 
   validPasses.forEach(pass => {
-    const pguDiff = pass.level?.difficulty?.name;
-    if (!pguDiff) return;
-
-    const letter = pguDiff[0] as PguLetter;
-    const number = parseInt(pguDiff.slice(1));
-
+    const diff = pass.level?.difficulty;
+    if (!diff || diff.type !== 'PGU') return;
     if (
-      PGU_SORT[letter] > PGU_SORT[topLetter] ||
-      (PGU_SORT[letter] === PGU_SORT[topLetter] && number > topNumber)
+      !topDiff ||
+      diff.sortOrder > topDiff.sortOrder ||
+      (diff.sortOrder === topDiff.sortOrder && diff.id > topDiff.id)
     ) {
-      topLetter = letter;
-      topNumber = number;
+      topDiff = diff;
     }
   });
 
-  return `${topLetter}${topNumber}`;
+  return topDiff;
 }

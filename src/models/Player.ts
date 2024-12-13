@@ -5,7 +5,7 @@ import {
   HasManyGetAssociationsMixin,
 } from 'sequelize';
 import sequelize from '../config/db';
-import {IPlayer} from '../interfaces/models';
+import {IDifficulty, IPlayer} from '../interfaces/models';
 import Pass from './Pass';
 
 type PlayerCreationAttributes = Optional<
@@ -22,6 +22,9 @@ class Player
   declare country: string;
   declare isBanned: boolean;
   declare pfp: string | null;
+  declare discordId: string | null;
+  declare discordUsername: string | null;
+  declare discordAvatar: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -39,8 +42,8 @@ class Player
   declare totalPasses?: number;
   declare universalPasses?: number;
   declare worldsFirstPasses?: number;
-  declare topDiff?: string;
-  declare top12kDiff?: string;
+  declare topDiff?: IDifficulty;
+  declare top12kDiff?: IDifficulty;
 }
 
 Player.init(
@@ -64,6 +67,18 @@ Player.init(
       defaultValue: false,
     },
     pfp: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    discordId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    discordUsername: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    discordAvatar: {
       type: DataTypes.STRING,
       allowNull: true,
     },

@@ -142,7 +142,6 @@ class LeaderboardCache {
                   {
                     model: Difficulty,
                     as: 'difficulty',
-                    attributes: ['baseScore'],
                   },
                 ],
               },

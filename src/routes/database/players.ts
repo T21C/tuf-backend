@@ -103,7 +103,13 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     });
 
     const enrichedPlayers = await Promise.all(
-      players.map(player => enrichPlayerData(player)),
+      players.map(async (player) => ({
+        ...await enrichPlayerData(player),
+        passes: undefined,
+        discordUsername: player.discordUsername,
+        discordId: player.discordId,
+        discordAvatar: player.discordAvatar
+      })),
     );
 
     return res.json(enrichedPlayers);
@@ -112,6 +118,74 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     return res.status(500).json({
       error: 'Failed to search players',
       details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+router.put('/:id/discord', async (req: Request, res: Response) => {
+  try {
+    const {id} = req.params;
+    const {discordId, discordUsername, discordAvatar} = req.body;
+
+    const player = await Player.findByPk(id);
+    if (!player) {
+      return res.status(404).json({error: 'Player not found'});
+    }
+
+    await player.update({
+      discordId,
+      discordUsername,
+      discordAvatar,
+    });
+
+    return res.json({message: 'Discord info updated successfully'});
+  } catch (error) {
+    console.error('Error updating player discord info:', error);
+    return res.status(500).json({
+      error: 'Failed to update player discord info',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+router.post('/create', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.body;
+    
+    // Check if player already exists
+    const existingPlayer = await Player.findOne({
+      where: {
+        name: name
+      }
+    });
+
+    if (existingPlayer) {
+      return res.status(409).json({
+        error: 'Player already exists',
+        details: 'A player with this name already exists'
+      });
+    }
+
+    // Create new player with required fields
+    const player = await Player.create({
+      name,
+      country: 'XX', // Default country code
+      isBanned: false,
+      pfp: null,
+      discordId: null,
+      discordUsername: null,
+      discordAvatar: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    const enrichedPlayer = await enrichPlayerData(player);
+    return res.status(201).json(enrichedPlayer);
+  } catch (error) {
+    console.error('Error creating player:', error);
+    return res.status(500).json({
+      error: 'Failed to create player',
+      details: error instanceof Error ? error.message : String(error)
     });
   }
 });

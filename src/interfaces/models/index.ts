@@ -67,6 +67,9 @@ export interface IPlayer extends IBaseModel {
   country: string;
   isBanned: boolean;
   pfp?: string | null;
+  discordId?: string | null;
+  discordUsername?: string | null;
+  discordAvatar?: string | null;
 
   // Associations
   passes?: IPass[];
@@ -81,8 +84,8 @@ export interface IPlayer extends IBaseModel {
   totalPasses?: number;
   universalPasses?: number;
   worldsFirstPasses?: number;
-  topDiff?: string;
-  top12kDiff?: string;
+  topDiff?: IDifficulty;
+  top12kDiff?: IDifficulty;
 }
 
 // Rating interface

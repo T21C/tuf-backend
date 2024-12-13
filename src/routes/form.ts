@@ -86,7 +86,7 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         submitterDiscordUsername: tokenInfo.username,
         submitterEmail: tokenInfo.email,
         submitterDiscordId: tokenInfo.id,
-        submitterDiscordAvatar: tokenInfo.avatar,
+        submitterDiscordAvatar: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
         status: 'pending',
         assignedPlayerId: null, // Will be assigned during review
       });

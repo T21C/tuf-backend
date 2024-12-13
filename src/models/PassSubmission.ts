@@ -109,6 +109,10 @@ PassSubmission.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    submitterDiscordAvatar: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'declined'),
       defaultValue: 'pending',
