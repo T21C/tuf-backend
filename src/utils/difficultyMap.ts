@@ -8,6 +8,7 @@ export interface DifficultyEntry {
   icon: string;
   legacyIcon: string | null;
   baseScore: number;
+  sortOrder: number;
   legacy: number;
   createdAt: Date;
   updatedAt: Date;
@@ -147,6 +148,8 @@ function getLegacyIconUrl(legacyDiff: number): string | null {
   return null;
 }
 
+const mainDiffConst = 1000;
+
 export const difficultyMap: DifficultyEntry[] = [
   {
     id: 0,
@@ -155,6 +158,7 @@ export const difficultyMap: DifficultyEntry[] = [
     icon: getIconUrl('0'),
     legacyIcon: null,
     baseScore: 0,
+    sortOrder: mainDiffConst - 1,
     legacy: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -171,6 +175,7 @@ export const difficultyMap: DifficultyEntry[] = [
     ),
     baseScore: calculateBaseScore(i + 1),
     legacy: legacyMap[`P${i + 1}` as keyof typeof legacyMap] as number,
+    sortOrder: mainDiffConst + i,
     createdAt: new Date(),
     updatedAt: new Date(),
   })),
@@ -186,6 +191,7 @@ export const difficultyMap: DifficultyEntry[] = [
     ),
     baseScore: calculateBaseScore(i + 21),
     legacy: legacyMap[`G${i + 1}` as keyof typeof legacyMap] as number,
+    sortOrder: mainDiffConst + i + 20,
     createdAt: new Date(),
     updatedAt: new Date(),
   })),
@@ -201,6 +207,7 @@ export const difficultyMap: DifficultyEntry[] = [
     ),
     baseScore: calculateBaseScore(i + 41),
     legacy: legacyMap[`U${i + 1}` as keyof typeof legacyMap] as number,
+    sortOrder: mainDiffConst + i + 40,
     createdAt: new Date(),
     updatedAt: new Date(),
   })),
@@ -214,6 +221,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 5001,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -225,6 +233,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 5002,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -236,6 +245,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 5003,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -247,6 +257,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 5004,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -258,6 +269,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 10005,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -269,6 +281,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 10006,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -280,6 +293,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 10007,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -291,6 +305,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 10008,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -302,6 +317,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 10009,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -313,6 +329,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,
+    sortOrder: 10010,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -324,6 +341,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: -2,
+    sortOrder: 2,
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -335,6 +353,7 @@ export const difficultyMap: DifficultyEntry[] = [
     legacyIcon: null,
     baseScore: 0,
     legacy: -21,
+    sortOrder: 21,
     createdAt: new Date(),
     updatedAt: new Date(),
   },

@@ -10,6 +10,7 @@ class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare createdAt: Date;
   declare updatedAt: Date;
   declare baseScore: number;
+  declare sortOrder: number;
   declare legacy: number;
   declare legacyIcon: string | null;
 }
@@ -42,6 +43,10 @@ Difficulty.init(
     },
     baseScore: {
       type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+    sortOrder: {
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
     legacy: {

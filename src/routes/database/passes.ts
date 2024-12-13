@@ -128,13 +128,13 @@ const getSortOptions = (sort?: string): OrderItem[] => {
       ];
     case 'DIFF_ASC':
       return [
-        [{model: Level, as: 'level'}, 'pguDiffNum', 'ASC'],
+        [{model: Level, as: 'level'}, 'diffId', 'ASC'],
         ['scoreV2', 'DESC'], // Secondary sort by highest score
         ['id', 'DESC'], // Tertiary sort by newest first
       ];
     case 'DIFF_DESC':
       return [
-        [{model: Level, as: 'level'}, 'pguDiffNum', 'DESC'],
+        [{model: Level, as: 'level'}, 'diffId', 'DESC'],
         ['scoreV2', 'DESC'], // Secondary sort by highest score
         ['id', 'DESC'], // Tertiary sort by newest first
       ];

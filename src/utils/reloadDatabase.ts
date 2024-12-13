@@ -240,6 +240,7 @@ async function reloadDatabase() {
       type: diff.type,
       icon: diff.icon,
       baseScore: diff.baseScore,
+      sortOrder: diff.sortOrder,
       legacy: diff.legacy,
       legacyIcon: diff.legacyIcon,
       createdAt: new Date(),

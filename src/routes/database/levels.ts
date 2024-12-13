@@ -13,79 +13,127 @@ import Difficulty from '../../models/Difficulty';
 
 const router: Router = Router();
 
+
 // Helper function to build where clause
-const buildWhereClause = (query: any) => {
+const buildWhereClause = async (query: any) => {
   const where: any = {};
   const conditions: any[] = [];
 
   // Handle deleted filter
   if (query.deletedFilter === 'hide') {
-    conditions.push({isDeleted: false});
+    conditions.push({ isDeleted: false });
   } else if (query.deletedFilter === 'only') {
-    conditions.push({isDeleted: true});
+    conditions.push({ isDeleted: true });
   }
-  // 'show' case doesn't need any condition as it shows both
 
-  // Text search conditions
+  // Handle text search
   if (query.query) {
     const searchTerm = `%${query.query}%`;
     conditions.push({
       [Op.or]: [
-        {song: {[Op.like]: searchTerm}},
-        {artist: {[Op.like]: searchTerm}},
-        {charter: {[Op.like]: searchTerm}},
+        { song: { [Op.like]: searchTerm } },
+        { artist: { [Op.like]: searchTerm } },
+        { charter: { [Op.like]: searchTerm } },
       ],
     });
   }
 
-  // Specific field searches
-  if (query.artistQuery)
-    conditions.push({artist: {[Op.like]: `%${query.artistQuery}%`}});
-  if (query.songQuery)
-    conditions.push({song: {[Op.like]: `%${query.songQuery}%`}});
-  if (query.charterQuery)
-    conditions.push({charter: {[Op.like]: `%${query.charterQuery}%`}});
-
-  // Difficulty filters
-  const diffConditions: any[] = [];
-  if (query.hideCensored === 'true') diffConditions.push({[Op.ne]: -2});
-  if (query.hideEpic === 'true') diffConditions.push({[Op.ne]: 0.9});
-  if (query.hideUnranked === 'true') diffConditions.push({[Op.ne]: 0});
-
-  if (diffConditions.length > 0) {
-    conditions.push({diff: {[Op.and]: diffConditions}});
+  // Handle difficulty range filter
+  if (query.minDiff || query.maxDiff) {
+    // Find difficulties by name and get their sortOrder values
+    const [minDiff, maxDiff] = await Promise.all([
+      query.minDiff ? Difficulty.findOne({
+        where: { name: query.minDiff },
+        attributes: ['sortOrder', 'name']
+      }) : null,
+      query.maxDiff ? Difficulty.findOne({
+        where: { name: query.maxDiff },
+        attributes: ['sortOrder', 'name']
+      }) : null
+    ]);
+    
+    if (minDiff && maxDiff && minDiff.sortOrder > maxDiff.sortOrder) {
+      // Swap the difficulties if they're in wrong order
+      const difficultyIds = await Difficulty.findAll({
+        where: {
+          sortOrder: {
+            [Op.gte]: maxDiff.sortOrder,
+            [Op.lte]: minDiff.sortOrder
+          }
+        },
+        attributes: ['id']
+      });
+      conditions.push({
+        diffId: {
+          [Op.in]: difficultyIds.map(d => d.id)
+        }
+      });
+    } else if (minDiff || maxDiff) {
+      // Original logic for correctly ordered or single difficulty
+      const difficultyIds = await Difficulty.findAll({
+        where: {
+          sortOrder: {
+            ...(minDiff && { [Op.gte]: minDiff.sortOrder }),
+            ...(maxDiff && { [Op.lte]: maxDiff.sortOrder })
+          }
+        },
+        attributes: ['id']
+      });
+      conditions.push({
+        diffId: {
+          [Op.in]: difficultyIds.map(d => d.id)
+        }
+      });
+    }
   }
 
-  // PGU difficulty range
-  const pguConditions: any[] = [];
-  if (query.minDiff) pguConditions.push({[Op.gte]: Number(query.minDiff)});
-  if (query.maxDiff) pguConditions.push({[Op.lte]: Number(query.maxDiff)});
-
-  if (pguConditions.length > 0) {
-    conditions.push({pguDiffNum: {[Op.and]: pguConditions}});
+  // Handle hide filters
+  if (query.hideUnranked === 'true') {
+    conditions.push({
+      diffId: { [Op.ne]: 0 }
+    });
   }
 
-  // Combine all conditions with AND
+  if (query.hideCensored === 'true' || query.hideEpic === 'true') {
+    const difficultyNames = [];
+    if (query.hideCensored === 'true') difficultyNames.push('-2');
+    if (query.hideEpic === 'true') difficultyNames.push('0.9');
+
+    const diffIds = await Difficulty.findAll({
+      where: {
+        name: { [Op.in]: difficultyNames }
+      },
+      attributes: ['id']
+    });
+
+    conditions.push({
+      diffId: { [Op.notIn]: diffIds.map(d => d.id) }
+    });
+  }
+
+  // Combine all conditions
   if (conditions.length > 0) {
     where[Op.and] = conditions;
   }
 
   return where;
 };
+// Update the type definition
+type OrderOption = [string | { model: any; as: string }, string] | [{ model: any; as: string }, string, string];
 
 // Get sort options
-const getSortOptions = (sort?: string) => {
+const getSortOptions = (sort?: string): OrderOption[] => {
   switch (sort) {
     case 'RECENT_DESC':
       return [['id', 'DESC']];
     case 'RECENT_ASC':
       return [['id', 'ASC']];
-    case 'DIFF_DESC':
-      return [['diffId', 'DESC']];
     case 'DIFF_ASC':
-      return [['diffId', 'ASC']];
+      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC']];
+    case 'DIFF_DESC':
+      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC']];
     default:
-      return [['id', 'DESC']];
+      return []; // No sorting, will use default database order (by ID)
   }
 };
 
@@ -93,73 +141,25 @@ const getSortOptions = (sort?: string) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
+    const where = await buildWhereClause(req.query);
 
-    if (req.query.sort === 'RANDOM') {
-      const where = buildWhereClause(req.query);
-      const count = await Level.count({where});
-
-      // Get all IDs that match the criteria
-      const allIds = await Level.findAll({
-        where,
-        attributes: ['id'],
-        raw: true,
-      });
-
-      // Shuffle IDs
-      const shuffledIds = allIds
-        .map(item => item.id)
-        .sort(() => Math.random() - 0.5);
-
-      // Get paginated results
-      const offset = req.query.offset ? Number(req.query.offset) : 0;
-      const limit = req.query.limit ? Number(req.query.limit) : undefined;
-
-      const results = await Level.findAll({
-        where: {
-          id: {
-            [Op.in]: shuffledIds.slice(
-              offset,
-              limit ? offset + limit : undefined,
-            ),
-          },
-        },
-        include: [
-          {
-            model: Pass,
-            as: 'passes',
-            include: [
-              {
-                model: Player,
-                as: 'player',
-              },
-              {
-                model: Judgement,
-                as: 'judgements',
-              },
-            ],
-          },
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-        ],
-      });
-
-      return res.json({count, results});
-    }
-
-    // Normal sorting
     const results = await Level.findAll({
-      where: buildWhereClause(req.query),
-      order: getSortOptions(req.query.sort as string) as OrderItem[],
+      where,
       include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
         {
           model: Pass,
           as: 'passes',
+          required: false,
           include: [
             {
               model: Player,
               as: 'player',
+              attributes: ['name', 'country', 'isBanned'],
             },
             {
               model: Judgement,
@@ -167,24 +167,18 @@ router.get('/', async (req: Request, res: Response) => {
             },
           ],
         },
-        {
-          model: Difficulty,
-          as: 'difficulty',
-        },
       ],
-      offset: req.query.offset ? Number(req.query.offset) : 0,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      order: getSortOptions(req.query.sort as string),
+      limit: parseInt(req.query.limit as string) || 30,
+      offset: parseInt(req.query.offset as string) || 0,
     });
 
-    const count = await Level.count({where: buildWhereClause(req.query)});
+    const count = await Level.count({ where });
 
-    const totalTime = performance.now() - routeStart;
-    console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
-
-    return res.json({count, results});
+    return res.json({ count, results });
   } catch (error) {
     console.error('Error fetching levels:', error);
-    return res.status(500).json({error: 'Failed to fetch levels'});
+    return res.status(500).json({ error: 'Failed to fetch levels' });
   }
 });
 
