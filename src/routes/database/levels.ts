@@ -129,9 +129,9 @@ const getSortOptions = (sort?: string): OrderOption[] => {
     case 'RECENT_ASC':
       return [['id', 'ASC']];
     case 'DIFF_ASC':
-      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC']];
+      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC'], ['id', 'DESC']];
     case 'DIFF_DESC':
-      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC']];
+      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'], ['id', 'DESC']];
     default:
       return []; // No sorting, will use default database order (by ID)
   }
@@ -140,11 +140,34 @@ const getSortOptions = (sort?: string): OrderOption[] => {
 // Get all levels with filtering and pagination
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const routeStart = performance.now();
     const where = await buildWhereClause(req.query);
-
-    const results = await Level.findAll({
+    const order = getSortOptions(req.query.sort as string);
+    
+    // First get all IDs in correct order
+    const allIds = await Level.findAll({
       where,
+      include: [{
+        model: Difficulty,
+        as: 'difficulty',
+        required: false,
+      }],
+      order,
+      attributes: ['id'],
+      raw: true,
+    });
+
+    // Then get paginated results using those IDs in their original order
+    const offset = parseInt(req.query.offset as string) || 0;
+    const limit = parseInt(req.query.limit as string) || 30;
+    const paginatedIds = allIds.map(level => level.id).slice(offset, offset + limit);
+    
+    const results = await Level.findAll({
+      where: {
+        ...where,
+        id: {
+          [Op.in]: paginatedIds
+        }
+      },
       include: [
         {
           model: Difficulty,
@@ -155,27 +178,16 @@ router.get('/', async (req: Request, res: Response) => {
           model: Pass,
           as: 'passes',
           required: false,
-          include: [
-            {
-              model: Player,
-              as: 'player',
-              attributes: ['name', 'country', 'isBanned'],
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
+          attributes: ['id']
         },
       ],
-      order: getSortOptions(req.query.sort as string),
-      limit: parseInt(req.query.limit as string) || 30,
-      offset: parseInt(req.query.offset as string) || 0,
+      order: [['id', 'DESC']], // Maintain consistent ID ordering within the paginated results
     });
 
-    const count = await Level.count({ where });
-
-    return res.json({ count, results });
+    return res.json({ 
+      count: allIds.length, 
+      results 
+    });
   } catch (error) {
     console.error('Error fetching levels:', error);
     return res.status(500).json({ error: 'Failed to fetch levels' });
