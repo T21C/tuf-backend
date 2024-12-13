@@ -5,6 +5,8 @@ import {calcAcc} from '../misc/CalcAcc';
 import {getScoreV2} from '../misc/CalcScore';
 import {difficultyMap} from './difficultyMap';
 import {calculatePGUDiffNum} from './ratingUtils';
+import { getBaseScore } from './parseBaseScore';
+import { ILevel } from '../interfaces/models';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -231,8 +233,21 @@ async function reloadDatabase() {
 
     console.log('Cleared existing data');
 
-    // Populate difficulties table first
-    await db.models.Difficulty.bulkCreate(difficultyMap, {transaction});
+    // Process difficulties
+    const difficultyDocs = difficultyMap.map(diff => ({
+      id: diff.id,
+      name: diff.name,
+      type: diff.type,
+      icon: diff.icon,
+      baseScore: diff.baseScore,
+      legacy: diff.legacy,
+      legacyIcon: diff.legacyIcon,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    // Replace the direct bulkCreate with our new docs array
+    await db.models.Difficulty.bulkCreate(difficultyDocs, {transaction});
     console.log('Populated difficulties table');
 
     // Load data from BE API
@@ -406,6 +421,8 @@ async function reloadDatabase() {
 
         // Get the level's base score
         const level = levelDocs.find((l: any) => l.id === newLevelId);
+        const difficulty = difficultyDocs.find(d => d.id === level?.diffId);
+        const baseScore = level?.baseScore || difficulty?.baseScore || 0;
 
         // Calculate accuracy and score
         const accuracy = calcAcc(judgements);
@@ -416,7 +433,7 @@ async function reloadDatabase() {
             isNoHoldTap: pass.isNoHoldTap,
           },
           {
-            baseScore: level?.baseScore || 0,
+            baseScore,
           },
         );
 

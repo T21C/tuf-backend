@@ -8,7 +8,6 @@ interface Score {
   is12K: boolean;
   baseScore: number;
   isDeleted: boolean;
-  pguDiff?: string;
 }
 
 export function calculateRankedScore(scores: Score[]): number {

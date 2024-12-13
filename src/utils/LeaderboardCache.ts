@@ -4,6 +4,7 @@ import Level from '../models/Level';
 import Judgement from '../models/Judgement';
 import {enrichPlayerData} from './PlayerEnricher';
 import {IPlayer} from '../interfaces/models';
+import Difficulty from '../models/Difficulty';
 
 interface PlayerRanks {
   rankedScoreRank: number;
@@ -137,6 +138,13 @@ class LeaderboardCache {
                 model: Level,
                 as: 'level',
                 attributes: ['id', 'song', 'artist', 'diffId', 'baseScore'],
+                include: [
+                  {
+                    model: Difficulty,
+                    as: 'difficulty',
+                    attributes: ['baseScore'],
+                  },
+                ],
               },
               {
                 model: Judgement,

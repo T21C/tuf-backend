@@ -1,4 +1,4 @@
-import {IPass, IPlayer} from '../interfaces/models';
+import {ILevel, IPass, IPlayer} from '../interfaces/models';
 import Player from '../models/Player';
 import Pass from '../models/Pass';
 import Level from '../models/Level';
@@ -16,6 +16,7 @@ import {
   calculateTop12KDiff,
 } from '../misc/PlayerStatsCalculator';
 import {getPfpUrl} from './pfpResolver';
+import { getBaseScore } from './parseBaseScore';
 
 // Rate limiting settings
 const CONCURRENT_BATCH_SIZE = 25; // Process 10 players concurrently
@@ -230,7 +231,7 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
       xacc: pass.accuracy || 0,
       isWorldsFirst: pass.isWorldsFirst || false,
       is12K: pass.is12K || false,
-      baseScore: pass.level?.baseScore || 0,
+      baseScore: getBaseScore(pass.level as ILevel),
       isDeleted: pass.isDeleted || false,
       pguDiff: pass.level?.difficulty?.name,
     }));

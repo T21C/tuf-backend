@@ -11,6 +11,7 @@ import {calcAcc} from '../../misc/CalcAcc';
 import {getScoreV2} from '../../misc/CalcScore';
 import sequelize from '../../config/db';
 import {IPass as PassInterface} from '../../interfaces/models';
+import Difficulty from '../../models/Difficulty';
 
 const router: Router = Router();
 
@@ -194,6 +195,12 @@ router.get('/', async (req: Request, res: Response) => {
           model: Level,
           as: 'level',
           attributes: ['song', 'artist', 'pguDiff', 'baseScore', 'pguDiffNum'],
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
         },
         {
           model: Judgement,
@@ -232,6 +239,12 @@ router.get('/:id', async (req: Request, res: Response) => {
           model: Level,
           as: 'level',
           attributes: ['song', 'artist', 'pguDiff', 'baseScore'],
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
         },
         {
           model: Judgement,

@@ -5,7 +5,6 @@ import Pass from '../../models/Pass';
 import Rating from '../../models/Rating';
 import Player from '../../models/Player';
 import Judgement from '../../models/Judgement';
-import {calculateBaseScore, calculatePGUDiffNum} from '../../utils/ratingUtils';
 import {Auth} from '../../middleware/auth';
 import {getIO} from '../../utils/socket';
 import sequelize from '../../config/db';
@@ -250,21 +249,18 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // Calculate new pguDiffNum if pguDiffNum is being updated
-    let pguDiffNum = level.diffId;
-    let baseScore = level.baseScore;
+    // Calculate new pguDiffNum if diffId is being updated
+    let baseScore = req.body.baseScore;  // Use the provided baseScore or keep it null
+
     if (req.body.diffId && req.body.diffId !== level.diffId) {
-      pguDiffNum = calculatePGUDiffNum(req.body.pguDiff);
-      baseScore = calculateBaseScore(req.body.pguDiffNum);
+      if (baseScore === undefined) {
+        const difficulty = await Difficulty.findByPk(req.body.diffId);
+        baseScore = difficulty?.baseScore || null;
+      }
     }
 
-    // Calculate new baseScore if diff is being updated
-
     // Handle rating creation/deletion if toRate is changing
-    if (
-      typeof req.body.toRate === 'boolean' &&
-      req.body.toRate !== level.toRate
-    ) {
+    if (typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate) {
       if (req.body.toRate) {
         // Create new rating if toRate is being set to true
         const existingRating = await Rating.findOne({
@@ -312,21 +308,15 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       vfxer: req.body.vfxer || undefined,
       team: req.body.team || undefined,
       diffId: req.body.diffId || undefined,
-      baseScore: baseScore || undefined,
-      isCleared:
-        typeof req.body.isCleared === 'boolean'
-          ? req.body.isCleared
-          : level.isCleared,
-      clears:
-        typeof req.body.clears === 'number' ? req.body.clears : level.clears,
+      // Explicitly handle baseScore to allow null values
+      baseScore: baseScore === '' ? null : baseScore,
       vidLink: req.body.vidLink || undefined,
       dlLink: req.body.dlLink || undefined,
       workshopLink: req.body.workshopLink || undefined,
       publicComments: req.body.publicComments || undefined,
-      toRate:
-        typeof req.body.toRate === 'boolean' ? req.body.toRate : level.toRate,
+      toRate: typeof req.body.toRate === 'boolean' ? req.body.toRate : level.toRate,
       rerateReason: req.body.rerateReason || undefined,
-      rerateNum: req.body.rerateNum || undefined,
+      rerateNum: req.body.rerateNum || undefined
     };
 
     // Update level

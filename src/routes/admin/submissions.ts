@@ -15,6 +15,7 @@ import {Auth} from '../../middleware/auth';
 import Player from '../../models/Player';
 import Judgement from '../../models/Judgement';
 import Difficulty from '../../models/Difficulty';
+import { getBaseScore } from '../../utils/parseBaseScore';
 
 // Define interfaces for the data structure
 interface PassData {
@@ -250,10 +251,7 @@ router.put(
           },
           {
             diff: Number(level.difficulty?.legacy) || 0,
-            baseScore:
-              level.baseScore !== null
-                ? level.baseScore
-                : level.difficulty?.baseScore || 0,
+            baseScore: getBaseScore(level),
             difficulty: level.difficulty,
           },
         );
@@ -265,7 +263,7 @@ router.put(
             judgements,
             isNHT: submission.flags.isNHT,
             diff: level.difficulty?.legacy || 0,
-            baseScore: level.difficulty?.baseScore || 0,
+            baseScore: getBaseScore(level),
           });
           return res.status(400).json({error: 'Invalid score calculation'});
         }

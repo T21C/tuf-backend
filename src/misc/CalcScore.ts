@@ -84,7 +84,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
   const legacyDiff = levelData.diff;
   const inputs = passData.judgements;
   const base =
-    levelData.baseScore !== null
+    levelData.baseScore
       ? levelData.baseScore
       : levelData.difficulty?.baseScore || 0;
   const xaccMtp = getXaccMtp(inputs);
