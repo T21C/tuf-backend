@@ -265,7 +265,7 @@ export const difficultyMap: DifficultyEntry[] = [
     id: 80,
     name: 'Qq',
     type: 'SPECIAL',
-    icon: getIconUrl('QQ'),
+    icon: getIconUrl('Qq'),
     legacyIcon: null,
     baseScore: 0,
     legacy: 0,

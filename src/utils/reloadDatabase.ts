@@ -8,6 +8,14 @@ import {calculatePGUDiffNum} from './ratingUtils';
 import { getBaseScore } from './parseBaseScore';
 import { ILevel } from '../interfaces/models';
 
+const reloadPlayers = false;
+const reloadLevels = false;
+const reloadPasses = false;
+
+
+
+
+
 const BE_API = 'http://be.t21c.kro.kr';
 
 interface RawLevel {
@@ -154,7 +162,7 @@ const baseScoreToPguMap = {
 };
 
 const oldDiffToPGUMap = {
-  61: 'QQ',
+  61: 'Qq',
   62: 'Q2',
   63: 'Q2p',
   64: 'Q3',
@@ -222,12 +230,21 @@ async function reloadDatabase() {
     await Promise.all([
       db.models.RatingDetail.destroy({where: {}, transaction}),
       db.models.Rating.destroy({where: {}, transaction}),
-      db.models.Judgement.destroy({where: {}, transaction}),
-      db.models.Pass.destroy({where: {}, transaction}),
-      db.models.Level.destroy({where: {}, transaction}),
-      db.models.Player.destroy({where: {}, transaction}),
       db.models.Difficulty.destroy({where: {}, transaction}),
     ]);
+
+    if (reloadPlayers) {
+      await db.models.Player.destroy({where: {}, transaction});
+    }
+
+    if (reloadLevels) {
+      await db.models.Level.destroy({where: {}, transaction});
+    }
+
+    if (reloadPasses) {
+      await db.models.Judgement.destroy({where: {}, transaction});
+      await db.models.Pass.destroy({where: {}, transaction});
+    }
 
     // Clear tables with foreign key dependencies in order
 
@@ -316,7 +333,7 @@ async function reloadDatabase() {
         } else {
           // Try oldDiffToPGUMap
           const mappedPGU =
-            oldDiffToPGUMap[level.legacyDiff as keyof typeof oldDiffToPGUMap];
+            oldDiffToPGUMap[level.newDiff as keyof typeof oldDiffToPGUMap];
           if (mappedPGU) {
             const mappedMatch = difficultyMap.find(
               d =>
@@ -467,9 +484,17 @@ async function reloadDatabase() {
     }
 
     // Bulk insert data in the correct order
-    await db.models.Player.bulkCreate(playerDocs, {transaction});
-    await db.models.Level.bulkCreate(levelDocs, {transaction});
-    await db.models.Pass.bulkCreate(passDocs, {transaction});
+    if (reloadPlayers) {
+      await db.models.Player.bulkCreate(playerDocs, {transaction});
+    }
+
+    if (reloadLevels) {
+      await db.models.Level.bulkCreate(levelDocs, {transaction});
+    }
+
+    if (reloadPasses) {
+      await db.models.Pass.bulkCreate(passDocs, {transaction});
+    }
 
     // Create judgements only for existing passes
     const existingPassIds = passDocs.map(pass => pass.id);
@@ -477,7 +502,9 @@ async function reloadDatabase() {
       existingPassIds.includes(judgement.id),
     );
 
-    await db.models.Judgement.bulkCreate(validJudgementDocs, {transaction});
+    if (reloadPasses) {
+      await db.models.Judgement.bulkCreate(validJudgementDocs, {transaction});
+    }
 
     // Update clear counts
     const clearCounts = new Map<number, number>();
@@ -491,11 +518,13 @@ async function reloadDatabase() {
       }
     });
 
-    await Promise.all(
-      Array.from(clearCounts.entries()).map(([levelId, clears]) =>
-        db.models.Level.update({clears}, {where: {id: levelId}, transaction}),
-      ),
-    );
+    if (reloadLevels) {
+      await Promise.all(
+        Array.from(clearCounts.entries()).map(([levelId, clears]) =>
+          db.models.Level.update({clears}, {where: {id: levelId}, transaction}),
+        ),
+      );
+    }
 
     // Commit transaction first
     await transaction.commit();
