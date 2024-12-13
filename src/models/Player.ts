@@ -24,6 +24,7 @@ class Player
   declare pfp: string | null;
   declare discordId: string | null;
   declare discordUsername: string | null;
+  declare discordAvatarId: string | null;
   declare discordAvatar: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -75,6 +76,10 @@ Player.init(
       allowNull: true,
     },
     discordUsername: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    discordAvatarId: {
       type: DataTypes.STRING,
       allowNull: true,
     },

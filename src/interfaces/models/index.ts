@@ -69,6 +69,7 @@ export interface IPlayer extends IBaseModel {
   pfp?: string | null;
   discordId?: string | null;
   discordUsername?: string | null;
+  discordAvatarId?: string | null;
   discordAvatar?: string | null;
 
   // Associations

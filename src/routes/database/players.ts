@@ -7,6 +7,7 @@ import Judgement from '../../models/Judgement';
 import {enrichPlayerData} from '../../utils/PlayerEnricher';
 import leaderboardCache from '../../utils/LeaderboardCache';
 import Difficulty from '../../models/Difficulty';
+import fetch from 'node-fetch';
 
 const router: Router = Router();
 
@@ -65,6 +66,9 @@ router.get('/:id', async (req: Request, res: Response) => {
     return res.json({
       ...enrichedPlayer,
       ranks: await leaderboardCache.getRanks(player.id),
+      discordId: player.discordId,
+      discordUsername: player.discordUsername,
+      discordAvatar: player.discordAvatar,
     });
   } catch (error) {
     console.error('Error fetching player:', error);
@@ -185,6 +189,55 @@ router.post('/create', async (req: Request, res: Response) => {
     console.error('Error creating player:', error);
     return res.status(500).json({
       error: 'Failed to create player',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+router.get('/:id/discord/:discordId', async (req: Request, res: Response) => {
+  try {
+    const { id, discordId } = req.params;
+    
+    // Fetch Discord user data
+    const response = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
+      headers: {
+        Authorization: `Bot ${process.env.BOT_TOKEN}`
+      }
+    });
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: 'Failed to fetch Discord user',
+        details: `Discord API returned status ${response.status}`
+      });
+    }
+
+    const discordUser: {id: string, username: string, avatar: string} = await response.json() as any;
+
+    // Update player with Discord info
+    const player = await Player.findByPk(id);
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    await player.update({
+      discordId: discordUser.id,
+      discordUsername: discordUser.username,
+      discordAvatarId: discordUser.avatar,
+      discordAvatar: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`
+    });
+
+    return res.json({
+      message: 'Discord info updated successfully',
+      discordUser: {
+        id: discordUser.id,
+        username: discordUser.username,
+        avatar: discordUser.avatar
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching Discord user:', error);
+    return res.status(500).json({
+      error: 'Failed to fetch Discord user',
       details: error instanceof Error ? error.message : String(error)
     });
   }
