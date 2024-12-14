@@ -13,7 +13,7 @@ import db from './models/index';
 import initializeDatabase from './utils/initializeDatabase';
 import {setIO} from './utils/socket';
 import {updateAllPlayerPfps} from './utils/PlayerEnricher';
-import leaderboardCache from './utils/LeaderboardCache';
+import {Cache} from './middleware/cache';
 
 dotenv.config();
 
@@ -60,14 +60,16 @@ async function startServer() {
     app.use(cors());
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
+    console.log('Initializing cache middleware...');
+    app.use(Cache.leaderboard());
+    console.log('Cache middleware attached');
 
     // Set up routes
-
     app.use('/v2/admin', adminRoutes);
     app.use('/v2/form', formRoutes);
     app.use('/v2/auth', authRoutes);
     app.use('/v2/media', mediaRoutes);
-    app.use('/v2/data', databaseRoutes);
+    app.use('/v2/data', databaseRoutes());
     app.use('/v2/webhook', webhookRoutes);
     app.get('/', (req, res) => {
       res.send(
@@ -84,13 +86,13 @@ async function startServer() {
       });
     });
 
-    // Initialize leaderboard cache
-    console.log('Initializing leaderboard cache...');
+    // Initialize leaderboard cache through middleware
+    console.log('Starting cache initialization...');
     try {
-      await leaderboardCache.initialize(); // This will trigger the initial cache update
-      console.log('Leaderboard cache initialized successfully');
+      await Cache.leaderboard().initialize?.();
+      console.log('Cache initialization completed successfully');
     } catch (cacheError) {
-      console.error('Error initializing leaderboard cache:', cacheError);
+      console.error('Error during cache initialization:', cacheError);
     }
 
     // Update profile pictures after server is fully initialized

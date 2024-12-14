@@ -12,6 +12,7 @@ import {getScoreV2} from '../../misc/CalcScore';
 import sequelize from '../../config/db';
 import {IPass as PassInterface} from '../../interfaces/models';
 import Difficulty from '../../models/Difficulty';
+import {Cache} from '../../middleware/cache';
 
 const router: Router = Router();
 
@@ -20,10 +21,13 @@ type WhereClause = {
   levelId?: number;
   is12K?: boolean;
   '$player.name$'?: {[Op.like]: string};
-  '$level.diffId$'?: {[Op.gte]: number} | {[Op.lte]: number} | {
-    [Op.gte]?: number;
-    [Op.lte]?: number;
-  };
+  '$level.diffId$'?:
+    | {[Op.gte]: number}
+    | {[Op.lte]: number}
+    | {
+        [Op.gte]?: number;
+        [Op.lte]?: number;
+      };
   [Op.or]?: Array<{
     '$player.name$'?: {[Op.like]: string};
     '$level.song$'?: {[Op.like]: string};
@@ -264,143 +268,157 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
-
-  try {
-    const {id} = req.params;
-    const originalPass = await Pass.findOne({
-      where: {id: parseInt(id)},
-      include: [
-        {
-          model: Level,
-          as: 'level',
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-      transaction,
-    });
-
-    if (!originalPass) {
-      await transaction.rollback();
-      return res.status(404).json({error: 'Pass not found'});
-    }
-
-    // Handle level change and clear count updates
-    if (originalPass.levelId !== req.body.levelId) {
-      await Promise.all([
-        Level.decrement('clears', {
-          where: {id: originalPass.levelId},
-          transaction,
-        }),
-        Level.increment('clears', {
-          where: {id: req.body.levelId},
-          transaction,
-        }),
-      ]);
-    }
-
-    // Get the correct level for score calculation
-    const level =
-      originalPass.levelId !== req.body.levelId
-        ? await Level.findByPk(req.body.levelId, {transaction}).then(
-            level => level?.dataValues,
-          )
-        : originalPass.level?.dataValues;
-
-    if (!level) {
-      await transaction.rollback();
-      return res.status(404).json({error: 'Level not found'});
-    }
-
-    // Calculate new accuracy and score
-    const judgements = req.body.judgements;
-    const accuracy = calcAcc(judgements);
-    const scoreV2 = getScoreV2(
-      {
-        speed: req.body.speed,
-        judgements,
-        isNoHoldTap: req.body.isNoHoldTap,
-      },
-      {
-        baseScore: level.baseScore || 0,
-      },
-    );
-
-    // Update pass
-    await Pass.update(
-      {
-        levelId: req.body.levelId,
-        speed: req.body.speed,
-        playerId: req.body.playerId,
-        feelingRating: req.body.feelingRating,
-        vidTitle: req.body.vidTitle,
-        vidLink: req.body.vidLink,
-        vidUploadTime: new Date(req.body.vidUploadTime),
-        is12K: req.body.is12K,
-        is16K: req.body.is16K,
-        isNoHoldTap: req.body.isNoHoldTap,
-        accuracy,
-        scoreV2,
-      },
-      {
-        where: {id: parseInt(id)},
-        transaction,
-      },
-    );
-
-    // Update judgements
-    await Judgement.update(judgements, {
-      where: {id: parseInt(id)},
-      transaction,
-    });
-
-    // Fetch the updated pass
-    const updatedPass = await Pass.findOne({
-      where: {id: parseInt(id)},
-      include: [
-        {
-          model: Level,
-          as: 'level',
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned'],
-        },
-      ],
-      transaction,
-    });
-
-    await transaction.commit();
-
-    const io = getIO();
-    io.emit('passesUpdated');
-
-    return res.json({
-      message: 'Pass updated successfully',
-      pass: updatedPass,
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error updating pass:', error);
-    return res.status(500).json({error: 'Failed to update pass'});
-  }
-});
-
-// Add soft delete endpoint
-router.patch(
-  '/:id/soft-delete',
+router.put(
+  '/:id',
+  Cache.leaderboard(),
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
+    const leaderboardCache = req.leaderboardCache;
+    if (!leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
+    try {
+      const {id} = req.params;
+      const originalPass = await Pass.findOne({
+        where: {id: parseInt(id)},
+        include: [
+          {
+            model: Level,
+            as: 'level',
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        transaction,
+      });
+
+      if (!originalPass) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Pass not found'});
+      }
+
+      // Handle level change and clear count updates
+      if (originalPass.levelId !== req.body.levelId) {
+        await Promise.all([
+          Level.decrement('clears', {
+            where: {id: originalPass.levelId},
+            transaction,
+          }),
+          Level.increment('clears', {
+            where: {id: req.body.levelId},
+            transaction,
+          }),
+        ]);
+      }
+
+      // Get the correct level for score calculation
+      const level =
+        originalPass.levelId !== req.body.levelId
+          ? await Level.findByPk(req.body.levelId, {transaction}).then(
+              level => level?.dataValues,
+            )
+          : originalPass.level?.dataValues;
+
+      if (!level) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      // Calculate new accuracy and score
+      const judgements = req.body.judgements;
+      const accuracy = calcAcc(judgements);
+      const scoreV2 = getScoreV2(
+        {
+          speed: req.body.speed,
+          judgements,
+          isNoHoldTap: req.body.isNoHoldTap,
+        },
+        {
+          baseScore: level.baseScore || 0,
+        },
+      );
+
+      // Update pass
+      await Pass.update(
+        {
+          levelId: req.body.levelId,
+          speed: req.body.speed,
+          playerId: req.body.playerId,
+          feelingRating: req.body.feelingRating,
+          vidTitle: req.body.vidTitle,
+          vidLink: req.body.vidLink,
+          vidUploadTime: new Date(req.body.vidUploadTime),
+          is12K: req.body.is12K,
+          is16K: req.body.is16K,
+          isNoHoldTap: req.body.isNoHoldTap,
+          accuracy,
+          scoreV2,
+        },
+        {
+          where: {id: parseInt(id)},
+          transaction,
+        },
+      );
+
+      // Update judgements
+      await Judgement.update(judgements, {
+        where: {id: parseInt(id)},
+        transaction,
+      });
+
+      // Fetch the updated pass
+      const updatedPass = await Pass.findOne({
+        where: {id: parseInt(id)},
+        include: [
+          {
+            model: Level,
+            as: 'level',
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned'],
+          },
+        ],
+        transaction,
+      });
+
+      await transaction.commit();
+
+      // Force cache update
+      await leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+
+      return res.json({
+        message: 'Pass updated successfully',
+        pass: updatedPass,
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error updating pass:', error);
+      return res.status(500).json({error: 'Failed to update pass'});
+    }
+  },
+);
+
+router.delete(
+  '/:id',
+  Cache.leaderboard(),
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+    const leaderboardCache = req.leaderboardCache;
+    if (!leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
 
     try {
       const {id} = req.params;
@@ -457,7 +475,13 @@ router.patch(
 
       await transaction.commit();
 
+      // Force cache update
+      if (!leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+      await leaderboardCache.forceUpdate();
       const io = getIO();
+      io.emit('leaderboardUpdated');
       io.emit('passesUpdated');
 
       return res.json({
@@ -474,10 +498,14 @@ router.patch(
 // Add restore endpoint
 router.patch(
   '/:id/restore',
+  Cache.leaderboard(),
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
-
+    const leaderboardCache = req.leaderboardCache;
+    if (!leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
     try {
       const {id} = req.params;
 
@@ -523,7 +551,13 @@ router.patch(
 
       await transaction.commit();
 
+      // Force cache update
+      if (!leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+      await leaderboardCache.forceUpdate();
       const io = getIO();
+      io.emit('leaderboardUpdated');
       io.emit('passesUpdated');
 
       return res.json({

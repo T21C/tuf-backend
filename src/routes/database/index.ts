@@ -1,18 +1,20 @@
-import express, {Router} from 'express';
-import levelsRoutes from './levels';
-import playersRoute from './players';
-import passesRoute from './passes';
-import leaderboardRoute from './leaderboard';
-import diffsRoute from './diffs';
-// Import other admin routes here
+import {Router} from 'express';
+import levelRoutes from './levels';
+import passRoutes from './passes';
+import playerRoutes from './players';
+import leaderboardRoutes from './leaderboard';
+import difficultyRoutes from './diffs';
+import {Cache} from '../../middleware/cache';
 
-const router: Router = express.Router();
+export default function createDatabaseRouter(): Router {
+  const router = Router();
 
-router.use('/levels', levelsRoutes);
-router.use('/players', playersRoute);
-router.use('/passes', passesRoute);
-router.use('/leaderboard', leaderboardRoute);
-router.use('/diffs', diffsRoute);
-// Add other admin routes here
+  // Initialize routes with leaderboardCache middleware
+  router.use('/levels', Cache.leaderboard(), levelRoutes);
+  router.use('/passes', Cache.leaderboard(), passRoutes);
+  router.use('/players', Cache.leaderboard(), playerRoutes);
+  router.use('/leaderboard', Cache.leaderboard(), leaderboardRoutes);
+  router.use('/difficulties', difficultyRoutes);
 
-export default router;
+  return router;
+}

@@ -1,11 +1,16 @@
 import {Request, Response, Router} from 'express';
 import {validSortOptions} from '../../config/constants';
-import leaderboardCache from '../../utils/LeaderboardCache';
-
+import {IPlayer} from '../../interfaces/models';
+import {Cache, LeaderboardCache} from '../../middleware/cache';
 const router: Router = Router();
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
   try {
+    const leaderboardCache = req.leaderboardCache as LeaderboardCache;
+    if (!leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
+
     const routeStart = performance.now();
     const {
       sortBy = 'rankedScore',
@@ -31,9 +36,9 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Filter based on ban status after getting from cache
     if (showBanned === 'only') {
-      players = players.filter(player => player.isBanned);
+      players = players.filter((player: IPlayer) => player.isBanned);
     } else if (showBanned === 'hide') {
-      players = players.filter(player => !player.isBanned);
+      players = players.filter((player: IPlayer) => !player.isBanned);
     }
 
     const totalTime = performance.now() - routeStart;

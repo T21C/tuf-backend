@@ -70,12 +70,15 @@ export function countWorldsFirstPasses(passes: IPass[]): number {
 export function calculateTopDiff(passes: IPass[]): IDifficulty | null {
   return calculateDiff(passes, false);
 }
-  
+
 export function calculateTop12KDiff(passes: IPass[]): IDifficulty | null {
   return calculateDiff(passes, true);
 }
 
-export function calculateDiff(passes: IPass[], only12k: boolean): IDifficulty | null {
+export function calculateDiff(
+  passes: IPass[],
+  only12k: boolean,
+): IDifficulty | null {
   let topDiff: IDifficulty | null = null;
 
   const validPasses = passes.filter(
@@ -84,14 +87,17 @@ export function calculateDiff(passes: IPass[], only12k: boolean): IDifficulty | 
   if (validPasses.length === 0) return null;
 
   // Find the lowest difficulty as initial value
-  const lowestDiff = validPasses.reduce((lowest, pass) => {
-    const diff = pass.level?.difficulty;
-    if (!diff || diff.type !== 'PGU') return lowest;
-    if (!lowest || diff.sortOrder < lowest.sortOrder) {
-      return diff;
-    }
-    return lowest;
-  }, null as IDifficulty | null);
+  const lowestDiff = validPasses.reduce(
+    (lowest, pass) => {
+      const diff = pass.level?.difficulty;
+      if (!diff || diff.type !== 'PGU') return lowest;
+      if (!lowest || diff.sortOrder < lowest.sortOrder) {
+        return diff;
+      }
+      return lowest;
+    },
+    null as IDifficulty | null,
+  );
 
   topDiff = lowestDiff;
 

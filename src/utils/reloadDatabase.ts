@@ -5,10 +5,8 @@ import {calcAcc} from '../misc/CalcAcc';
 import {getScoreV2} from '../misc/CalcScore';
 import {difficultyMap} from './difficultyMap';
 import {calculatePGUDiffNum} from './ratingUtils';
-import { getBaseScore } from './parseBaseScore';
-import { ILevel } from '../interfaces/models';
-
-
+import {getBaseScore} from './parseBaseScore';
+import {ILevel} from '../interfaces/models';
 
 const BE_API = 'http://be.t21c.kro.kr';
 

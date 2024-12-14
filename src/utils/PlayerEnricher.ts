@@ -16,7 +16,7 @@ import {
   calculateTop12KDiff,
 } from '../misc/PlayerStatsCalculator';
 import {getPfpUrl} from './pfpResolver';
-import { getBaseScore } from './parseBaseScore';
+import {getBaseScore} from './parseBaseScore';
 
 // Rate limiting settings
 const CONCURRENT_BATCH_SIZE = 25; // Process 10 players concurrently
@@ -256,6 +256,10 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
     WFPasses: countWorldsFirstPasses(passes),
     topDiff: calculateTopDiff(passes),
     top12kDiff: calculateTop12KDiff(passes),
+    discordId: playerData.discordId,
+    discordUsername: playerData.discordUsername,
+    discordAvatar: playerData.discordAvatar,
+    discordAvatarId: playerData.discordAvatarId,
     createdAt: playerData.createdAt,
     updatedAt: playerData.updatedAt,
     passes: passes,

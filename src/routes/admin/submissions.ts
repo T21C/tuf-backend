@@ -15,7 +15,7 @@ import {Auth} from '../../middleware/auth';
 import Player from '../../models/Player';
 import Judgement from '../../models/Judgement';
 import Difficulty from '../../models/Difficulty';
-import { getBaseScore } from '../../utils/parseBaseScore';
+import {getBaseScore} from '../../utils/parseBaseScore';
 
 // Define interfaces for the data structure
 interface PassData {

@@ -10,9 +10,9 @@ import {getIO} from '../../utils/socket';
 import sequelize from '../../config/db';
 import RatingDetail from '../../models/RatingDetail';
 import Difficulty from '../../models/Difficulty';
+import {Cache} from '../../middleware/cache';
 
 const router: Router = Router();
-
 
 // Helper function to build where clause
 const buildWhereClause = async (query: any) => {
@@ -21,9 +21,9 @@ const buildWhereClause = async (query: any) => {
 
   // Handle deleted filter
   if (query.deletedFilter === 'hide') {
-    conditions.push({ isDeleted: false });
+    conditions.push({isDeleted: false});
   } else if (query.deletedFilter === 'only') {
-    conditions.push({ isDeleted: true });
+    conditions.push({isDeleted: true});
   }
 
   // Handle text search
@@ -31,9 +31,9 @@ const buildWhereClause = async (query: any) => {
     const searchTerm = `%${query.query}%`;
     conditions.push({
       [Op.or]: [
-        { song: { [Op.like]: searchTerm } },
-        { artist: { [Op.like]: searchTerm } },
-        { charter: { [Op.like]: searchTerm } },
+        {song: {[Op.like]: searchTerm}},
+        {artist: {[Op.like]: searchTerm}},
+        {charter: {[Op.like]: searchTerm}},
       ],
     });
   }
@@ -42,47 +42,51 @@ const buildWhereClause = async (query: any) => {
   if (query.minDiff || query.maxDiff) {
     // Find difficulties by name and get their sortOrder values
     const [minDiff, maxDiff] = await Promise.all([
-      query.minDiff ? Difficulty.findOne({
-        where: { name: query.minDiff },
-        attributes: ['sortOrder', 'name']
-      }) : null,
-      query.maxDiff ? Difficulty.findOne({
-        where: { name: query.maxDiff },
-        attributes: ['sortOrder', 'name']
-      }) : null
+      query.minDiff
+        ? Difficulty.findOne({
+            where: {name: query.minDiff},
+            attributes: ['sortOrder', 'name'],
+          })
+        : null,
+      query.maxDiff
+        ? Difficulty.findOne({
+            where: {name: query.maxDiff},
+            attributes: ['sortOrder', 'name'],
+          })
+        : null,
     ]);
-    
+
     if (minDiff && maxDiff && minDiff.sortOrder > maxDiff.sortOrder) {
       // Swap the difficulties if they're in wrong order
       const difficultyIds = await Difficulty.findAll({
         where: {
           sortOrder: {
             [Op.gte]: maxDiff.sortOrder,
-            [Op.lte]: minDiff.sortOrder
-          }
+            [Op.lte]: minDiff.sortOrder,
+          },
         },
-        attributes: ['id']
+        attributes: ['id'],
       });
       conditions.push({
         diffId: {
-          [Op.in]: difficultyIds.map(d => d.id)
-        }
+          [Op.in]: difficultyIds.map(d => d.id),
+        },
       });
     } else if (minDiff || maxDiff) {
       // Original logic for correctly ordered or single difficulty
       const difficultyIds = await Difficulty.findAll({
         where: {
           sortOrder: {
-            ...(minDiff && { [Op.gte]: minDiff.sortOrder }),
-            ...(maxDiff && { [Op.lte]: maxDiff.sortOrder })
-          }
+            ...(minDiff && {[Op.gte]: minDiff.sortOrder}),
+            ...(maxDiff && {[Op.lte]: maxDiff.sortOrder}),
+          },
         },
-        attributes: ['id']
+        attributes: ['id'],
       });
       conditions.push({
         diffId: {
-          [Op.in]: difficultyIds.map(d => d.id)
-        }
+          [Op.in]: difficultyIds.map(d => d.id),
+        },
       });
     }
   }
@@ -90,7 +94,7 @@ const buildWhereClause = async (query: any) => {
   // Handle hide filters
   if (query.hideUnranked === 'true') {
     conditions.push({
-      diffId: { [Op.ne]: 0 }
+      diffId: {[Op.ne]: 0},
     });
   }
 
@@ -101,13 +105,13 @@ const buildWhereClause = async (query: any) => {
 
     const diffIds = await Difficulty.findAll({
       where: {
-        name: { [Op.in]: difficultyNames }
+        name: {[Op.in]: difficultyNames},
       },
-      attributes: ['id']
+      attributes: ['id'],
     });
 
     conditions.push({
-      diffId: { [Op.notIn]: diffIds.map(d => d.id) }
+      diffId: {[Op.notIn]: diffIds.map(d => d.id)},
     });
   }
 
@@ -119,7 +123,9 @@ const buildWhereClause = async (query: any) => {
   return where;
 };
 // Update the type definition
-type OrderOption = [string | { model: any; as: string }, string] | [{ model: any; as: string }, string, string];
+type OrderOption =
+  | [string | {model: any; as: string}, string]
+  | [{model: any; as: string}, string, string];
 
 // Get sort options
 const getSortOptions = (sort?: string): OrderOption[] => {
@@ -129,9 +135,15 @@ const getSortOptions = (sort?: string): OrderOption[] => {
     case 'RECENT_ASC':
       return [['id', 'ASC']];
     case 'DIFF_ASC':
-      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC'], ['id', 'DESC']];
+      return [
+        [{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC'],
+        ['id', 'DESC'],
+      ];
     case 'DIFF_DESC':
-      return [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'], ['id', 'DESC']];
+      return [
+        [{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'],
+        ['id', 'DESC'],
+      ];
     default:
       return []; // No sorting, will use default database order (by ID)
   }
@@ -142,15 +154,17 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const where = await buildWhereClause(req.query);
     const order = getSortOptions(req.query.sort as string);
-    
+
     // First get all IDs in correct order
     const allIds = await Level.findAll({
       where,
-      include: [{
-        model: Difficulty,
-        as: 'difficulty',
-        required: false,
-      }],
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+      ],
       order,
       attributes: ['id'],
       raw: true,
@@ -159,14 +173,16 @@ router.get('/', async (req: Request, res: Response) => {
     // Then get paginated results using those IDs in their original order
     const offset = parseInt(req.query.offset as string) || 0;
     const limit = parseInt(req.query.limit as string) || 30;
-    const paginatedIds = allIds.map(level => level.id).slice(offset, offset + limit);
-    
+    const paginatedIds = allIds
+      .map(level => level.id)
+      .slice(offset, offset + limit);
+
     const results = await Level.findAll({
       where: {
         ...where,
         id: {
-          [Op.in]: paginatedIds
-        }
+          [Op.in]: paginatedIds,
+        },
       },
       include: [
         {
@@ -178,19 +194,19 @@ router.get('/', async (req: Request, res: Response) => {
           model: Pass,
           as: 'passes',
           required: false,
-          attributes: ['id']
+          attributes: ['id'],
         },
       ],
       order: [['id', 'DESC']], // Maintain consistent ID ordering within the paginated results
     });
 
-    return res.json({ 
-      count: allIds.length, 
-      results 
+    return res.json({
+      count: allIds.length,
+      results,
     });
   } catch (error) {
     console.error('Error fetching levels:', error);
-    return res.status(500).json({ error: 'Failed to fetch levels' });
+    return res.status(500).json({error: 'Failed to fetch levels'});
   }
 });
 
@@ -256,7 +272,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     }
 
     // Calculate new pguDiffNum if diffId is being updated
-    let baseScore = req.body.baseScore;  // Use the provided baseScore or keep it null
+    let baseScore = req.body.baseScore; // Use the provided baseScore or keep it null
 
     if (req.body.diffId && req.body.diffId !== level.diffId) {
       if (baseScore === undefined) {
@@ -266,7 +282,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     }
 
     // Handle rating creation/deletion if toRate is changing
-    if (typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate) {
+    if (
+      typeof req.body.toRate === 'boolean' &&
+      req.body.toRate !== level.toRate
+    ) {
       if (req.body.toRate) {
         // Create new rating if toRate is being set to true
         const existingRating = await Rating.findOne({
@@ -320,9 +339,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       dlLink: req.body.dlLink || undefined,
       workshopLink: req.body.workshopLink || undefined,
       publicComments: req.body.publicComments || undefined,
-      toRate: typeof req.body.toRate === 'boolean' ? req.body.toRate : level.toRate,
+      toRate:
+        typeof req.body.toRate === 'boolean' ? req.body.toRate : level.toRate,
       rerateReason: req.body.rerateReason || undefined,
-      rerateNum: req.body.rerateNum || undefined
+      rerateNum: req.body.rerateNum || undefined,
     };
 
     // Update level
@@ -339,7 +359,13 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     await transaction.commit();
 
+    // Force cache update since level data affects pass calculations
+    if (!req.leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
+    await req.leaderboardCache.forceUpdate();
     const io = getIO();
+    io.emit('leaderboardUpdated');
     io.emit('ratingsUpdated');
 
     return res.json({
@@ -544,5 +570,105 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
     });
   }
 });
+
+router.delete(
+  '/:id',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const {id} = req.params;
+
+      const level = await Level.findOne({
+        where: {id: parseInt(id)},
+        transaction,
+      });
+
+      if (!level) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      // Soft delete the level
+      await Level.update(
+        {isDeleted: true},
+        {
+          where: {id: parseInt(id)},
+          transaction,
+        },
+      );
+
+      await transaction.commit();
+
+      // Force cache update since level deletion affects pass calculations
+      if (!req.leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+      await req.leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+      io.emit('ratingsUpdated');
+
+      return res.json({
+        message: 'Level soft deleted successfully',
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error soft deleting level:', error);
+      return res.status(500).json({error: 'Failed to soft delete level'});
+    }
+  },
+);
+
+router.patch(
+  '/:id/restore',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const {id} = req.params;
+
+      const level = await Level.findOne({
+        where: {id: parseInt(id)},
+        transaction,
+      });
+
+      if (!level) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      // Restore the level
+      await Level.update(
+        {isDeleted: false},
+        {
+          where: {id: parseInt(id)},
+          transaction,
+        },
+      );
+
+      await transaction.commit();
+
+      // Force cache update since level restoration affects pass calculations
+      if (!req.leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+      await req.leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+      io.emit('ratingsUpdated');
+
+      return res.json({
+        message: 'Level restored successfully',
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error restoring level:', error);
+      return res.status(500).json({error: 'Failed to restore level'});
+    }
+  },
+);
 
 export default router;

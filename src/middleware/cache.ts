@@ -1,10 +1,20 @@
+import {Request, Response, NextFunction} from 'express';
 import Player from '../models/Player';
 import Pass from '../models/Pass';
 import Level from '../models/Level';
 import Judgement from '../models/Judgement';
-import {enrichPlayerData} from './PlayerEnricher';
+import {enrichPlayerData} from '../utils/PlayerEnricher';
 import {IPlayer} from '../interfaces/models';
 import Difficulty from '../models/Difficulty';
+
+// Define the middleware function type with initialize property
+type CacheMiddleware = ((
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => Promise<void | Response>) & {
+  initialize: () => Promise<void>;
+};
 
 interface PlayerRanks {
   rankedScoreRank: number;
@@ -14,17 +24,25 @@ interface PlayerRanks {
   score12kRank: number;
 }
 
-class LeaderboardCache {
+export class LeaderboardCache {
   private cache: Map<string, any[]>;
   private lastUpdate: Date;
   private updateInterval: number;
   private isUpdating: boolean;
+  private static instance: LeaderboardCache;
 
-  constructor() {
+  private constructor() {
     this.cache = new Map();
     this.lastUpdate = new Date(0);
     this.updateInterval = 5 * 60 * 1000; // 5 minutes
     this.isUpdating = false;
+  }
+
+  public static getInstance(): LeaderboardCache {
+    if (!LeaderboardCache.instance) {
+      LeaderboardCache.instance = new LeaderboardCache();
+    }
+    return LeaderboardCache.instance;
   }
 
   public async get(
@@ -37,10 +55,7 @@ class LeaderboardCache {
     }
 
     const key = this.getCacheKey(sortBy, order, includeAllScores);
-
-    const result = this.cache.get(key) || [];
-
-    return result;
+    return this.cache.get(key) || [];
   }
 
   public async getRanks(playerId: number): Promise<PlayerRanks> {
@@ -56,7 +71,6 @@ class LeaderboardCache {
       score12kRank: 0,
     };
 
-    // Get all leaderboards in descending order
     const rankedScoreLeaderboard = await this.get('rankedScore', 'desc', false);
     const generalScoreLeaderboard = await this.get(
       'generalScore',
@@ -67,7 +81,6 @@ class LeaderboardCache {
     const wfScoreLeaderboard = await this.get('wfScore', 'desc', false);
     const score12kLeaderboard = await this.get('score12k', 'desc', false);
 
-    // Find player's rank in each leaderboard
     ranks.rankedScoreRank =
       rankedScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
     ranks.generalScoreRank =
@@ -79,7 +92,6 @@ class LeaderboardCache {
     ranks.score12kRank =
       score12kLeaderboard.findIndex(p => p.id === playerId) + 1;
 
-    // Convert 0 to last place + 1 for players not found in leaderboard
     const totalPlayers = rankedScoreLeaderboard.length;
     ranks.rankedScoreRank = ranks.rankedScoreRank || totalPlayers + 1;
     ranks.generalScoreRank = ranks.generalScoreRank || totalPlayers + 1;
@@ -91,6 +103,10 @@ class LeaderboardCache {
   }
 
   public async initialize() {
+    await this.updateCache();
+  }
+
+  public async forceUpdate() {
     await this.updateCache();
   }
 
@@ -163,12 +179,11 @@ class LeaderboardCache {
           },
         ],
       });
-      // Enrich player data with calculated fields
+
       const enrichedPlayers = await Promise.all(
         players.map(player => enrichPlayerData(player)),
       );
 
-      // Cache different sorted versions
       const sortOptions = [
         'rankedScore',
         'generalScore',
@@ -202,7 +217,6 @@ class LeaderboardCache {
               : sortedPlayers.map(player => stripPassesFromPlayer(player));
 
             const key = this.getCacheKey(sortBy, order, includeScores);
-
             this.cache.set(key, finalPlayers);
           }
         }
@@ -230,4 +244,26 @@ class LeaderboardCache {
   }
 }
 
-export default new LeaderboardCache();
+// Export the Cache middleware factory with proper typing
+export const Cache = {
+  leaderboard: (): CacheMiddleware => {
+    const middleware: CacheMiddleware = Object.assign(
+      async (req: Request, res: Response, next: NextFunction) => {
+        try {
+          req.leaderboardCache = LeaderboardCache.getInstance();
+          return next();
+        } catch (error) {
+          console.error('Cache middleware error:', error);
+          return res.status(500).json({error: 'Internal Server Error'});
+        }
+      },
+      {
+        initialize: async () => {
+          return LeaderboardCache.getInstance().initialize();
+        },
+      },
+    );
+
+    return middleware;
+  },
+};
