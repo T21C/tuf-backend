@@ -226,7 +226,7 @@ router.post(
 
 router.get('/:id/discord/:discordId', async (req: Request, res: Response) => {
   try {
-    const {id, discordId} = req.params;
+    const {discordId} = req.params;
 
     // Fetch Discord user data
     const response = await fetch(
@@ -247,25 +247,13 @@ router.get('/:id/discord/:discordId', async (req: Request, res: Response) => {
     const discordUser: {id: string; username: string; avatar: string} =
       (await response.json()) as any;
 
-    // Update player with Discord info
-    const player = await Player.findByPk(id);
-    if (!player) {
-      return res.status(404).json({error: 'Player not found'});
-    }
-
-    await player.update({
-      discordId: discordUser.id,
-      discordUsername: discordUser.username,
-      discordAvatarId: discordUser.avatar,
-      discordAvatar: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`,
-    });
-
     return res.json({
-      message: 'Discord info updated successfully',
+      message: 'Discord info fetched successfully',
       discordUser: {
         id: discordUser.id,
         username: discordUser.username,
         avatar: discordUser.avatar,
+        avatarUrl: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`,
       },
     });
   } catch (error) {
@@ -278,9 +266,53 @@ router.get('/:id/discord/:discordId', async (req: Request, res: Response) => {
 });
 
 router.put(
-  '/:id/name',
+  '/:id/discord/:discordId',
   Cache.leaderboard(),
   async (req: Request, res: Response) => {
+    try {
+      const {id, discordId} = req.params;
+      const {username, avatar} = req.body;
+      const leaderboardCache = req.leaderboardCache;
+      if (!leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+
+      const player = await Player.findByPk(id);
+      if (!player) {
+        return res.status(404).json({error: 'Player not found'});
+      }
+
+      await player.update({
+        discordId,
+        discordUsername: username,
+        discordAvatarId: avatar,
+        discordAvatar: `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`,
+      });
+
+      await leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+
+      return res.json({
+        message: 'Discord info updated successfully',
+        discordInfo: {
+          id: discordId,
+          username,
+          avatar,
+          avatarUrl: `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`,
+        },
+      });
+    } catch (error) {
+      console.error('Error updating Discord info:', error);
+      return res.status(500).json({
+        error: 'Failed to update Discord info',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.put('/:id/name', Cache.leaderboard(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
@@ -340,11 +372,8 @@ router.put(
   },
 );
 
-router.put(
-  '/:id/country',
-  Cache.leaderboard(),
-  async (req: Request, res: Response) => {
-    try {
+router.put('/:id/country', Cache.leaderboard(), async (req: Request, res: Response) => {
+  try {
       const {id} = req.params;
       const {country} = req.body;
       const leaderboardCache = req.leaderboardCache;
@@ -388,15 +417,12 @@ router.put(
   },
 );
 
-router.put(
-  '/:id/ban',
-  Cache.leaderboard(),
-  async (req: Request, res: Response) => {
-    try {
-      const {id} = req.params;
-      const {isBanned} = req.body;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
+router.put('/:id/ban', Cache.leaderboard(), async (req: Request, res: Response) => {
+  try {
+    const {id} = req.params;
+    const {isBanned} = req.body;
+    const leaderboardCache = req.leaderboardCache;
+    if (!leaderboardCache) {
         throw new Error('LeaderboardCache not initialized');
       }
 

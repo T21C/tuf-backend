@@ -4,6 +4,11 @@ import {loadPfpList} from '../utils/fileHandlers.js';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
+import sharp from 'sharp';
+import { createCanvas, loadImage, registerFont } from 'canvas';
+import Level from '../models/Level.js';
+import Difficulty from '../models/Difficulty.js';
+import { getVideoDetails } from '../utils/videoDetailParser.js';
 
 const router: Router = express.Router();
 
@@ -115,6 +120,60 @@ router.get('/image/:path', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error serving cached image:', error);
     return res.status(500).send('Error serving image');
+  }
+});
+
+router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.levelId);
+    const level = await Level.findOne({ where: { id: levelId }, include: [{ model: Difficulty, as: 'difficulty' }] });
+    if (!level) {
+      return res.status(404).send('Level or difficulty not found');
+    }
+    const { song, artist, creator, difficulty: diff } = level.dataValues;
+    if (!diff) {
+      return res.status(404).send('Difficulty not found');
+    }
+    const details = await getVideoDetails(level.dataValues.vidLink);
+    if (!details || !details.image) {
+      return res.status(404).send('Video details not found');
+    }
+    const { image } = details;
+    // Create a canvas with specified dimensions
+    
+    const width = 1200;
+    const height = 630;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Set background
+    ctx.fillStyle = '#1a1a1a';
+    ctx.drawImage(await loadImage(image), 0, 0, width, height);
+    ctx.drawImage(await loadImage(diff.icon), 20, 20, 100, 100);
+    // Add text example (you can customize this based on query parameters)
+    ctx.font = 'bold 60px Arial';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(req.query.text?.toString() || 'Dynamic Image', width / 2, height / 2);
+
+    // Convert canvas to buffer using Sharp for optimization
+    const buffer = await sharp(canvas.toBuffer())
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    // Set cache headers (cache for 1 hour)
+    res.set({
+      'Content-Type': 'image/jpeg',
+      //'Cache-Control': 'public, max-age=3600',
+    });
+
+    // Send the optimized image
+    res.send(buffer);
+    return;
+  } catch (error) {
+    console.error('Error generating image:', error);
+    res.status(500).send('Error generating image');
+    return;
   }
 });
 

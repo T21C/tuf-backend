@@ -118,15 +118,6 @@ export class LeaderboardCache {
     this.isUpdating = true;
     try {
       const players = await Player.findAll({
-        attributes: [
-          'id',
-          'name',
-          'country',
-          'isBanned',
-          'pfp',
-          'createdAt',
-          'updatedAt',
-        ],
         include: [
           {
             model: Pass,
