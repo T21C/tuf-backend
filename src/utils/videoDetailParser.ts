@@ -29,15 +29,32 @@ interface YouTubeResponse {
       thumbnails: {
         maxres: {
           url: string;
+          width: number;
+          height: number;
+        }
+        high: {
+          url: string;
+          width: number;
+          height: number;
+        },
+        medium: {
+          url: string;
+          width: number;
+          height: number;
+        },
+        default: {
+          url: string;
+          width: number;
+          height: number;
+        },
         };
-      };
       channelId: string;
       title: string;
       channelTitle: string;
       publishedAt: string;
       description: string;
-    };
-  }>;
+    }
+  }>
 }
 
 interface YouTubeChannelResponse {
@@ -158,7 +175,10 @@ async function getYouTubeVideoDetails(url: string): Promise<VideoDetails | null>
       title: data.items[0].snippet.title,
       channelName: data.items[0].snippet.channelTitle,
       timestamp: data.items[0].snippet.publishedAt,
-      image: data.items[0].snippet.thumbnails.maxres.url,
+      image: data.items[0].snippet.thumbnails?.maxres?.url || 
+             data.items[0].snippet.thumbnails?.high?.url ||
+             data.items[0].snippet.thumbnails?.medium?.url ||
+             data.items[0].snippet.thumbnails?.default?.url,
       embed: getYouTubeEmbedUrl(url),
       pfp: channelData.items[0].snippet.thumbnails.default.url
     };

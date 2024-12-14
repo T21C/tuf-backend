@@ -5,10 +5,14 @@ import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
 import sharp from 'sharp';
-import { createCanvas, loadImage, registerFont } from 'canvas';
+import { createCanvas, loadImage } from 'canvas';
 import Level from '../models/Level.js';
 import Difficulty from '../models/Difficulty.js';
 import { getVideoDetails } from '../utils/videoDetailParser.js';
+import { initializeFonts } from '../utils/fontLoader.js';
+
+// Initialize fonts
+initializeFonts();
 
 const router: Router = express.Router();
 
@@ -139,7 +143,6 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       return res.status(404).send('Video details not found');
     }
     const { image } = details;
-    // Create a canvas with specified dimensions
     
     const width = 1200;
     const height = 630;
@@ -147,27 +150,35 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     const ctx = canvas.getContext('2d');
 
     // Set background
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = '#000000bb';
     ctx.drawImage(await loadImage(image), 0, 0, width, height);
+    ctx.fillRect(0, 0, width, 140);
     ctx.drawImage(await loadImage(diff.icon), 20, 20, 100, 100);
-    // Add text example (you can customize this based on query parameters)
-    ctx.font = 'bold 60px Arial';
+
+    // Title with Black weight
+    ctx.font = '900 60px "Noto Sans KR"';
     ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.fillText(req.query.text?.toString() || 'Dynamic Image', width / 2, height / 2);
+    ctx.textAlign = 'left';
+    ctx.fillText(song, 140, 70);
+
+    // Artist with Regular weight
+    ctx.font = '400 30px "Noto Sans KR"';
+    ctx.fillText(artist, 140, 110);
+
+    // Level ID with Bold weight
+    ctx.font = '700 40px "Noto Sans KR"';
+    ctx.fillStyle = '#bbbbbb';
+    ctx.textAlign = 'right';
+    ctx.fillText("#"+levelId.toString(), width-30, 60);
 
     // Convert canvas to buffer using Sharp for optimization
     const buffer = await sharp(canvas.toBuffer())
-      .jpeg({ quality: 90 })
       .toBuffer();
 
-    // Set cache headers (cache for 1 hour)
     res.set({
-      'Content-Type': 'image/jpeg',
-      //'Cache-Control': 'public, max-age=3600',
+      'Content-Type': 'image/jpeg'
     });
 
-    // Send the optimized image
     res.send(buffer);
     return;
   } catch (error) {
