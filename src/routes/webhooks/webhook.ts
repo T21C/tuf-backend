@@ -8,6 +8,9 @@ import Difficulty from '../../models/Difficulty';
 import Level from '../../models/Level';
 import {Webhook, MessageBuilder} from '../../webhook/index';
 import Player from '../../models/Player.js';
+import { Op } from 'sequelize';
+import { createClearEmbed, createNewLevelEmbed, createRerateEmbed} from './embeds';
+import Judgement from '../../models/Judgement';
 
 const router: Router = express.Router();
 
@@ -24,68 +27,43 @@ interface PassInfo {
   link: string;
 }
 
-const passInfo = await Pass.findByPk(11082, {
-  include: [
-    {
-      model: Level,
-      as: 'level',
+
+router.get('/testhook/passes', async (req: Request, res: Response) => {
+  try {
+    const passes = await Pass.findAll({
+      where: {
+        id: {
+          [Op.gt]: 11082,
+          [Op.lt]: 11086
+        }
+      },
       include: [
         {
-          model: Difficulty,
-          as: 'difficulty',
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
         },
+        {
+          model: Player,
+          as: 'player',
+          include: [
+            {
+              model: Pass,
+              as: 'passes',
+            }
+          ]
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        }
       ],
-    },
-    {
-      model: Player,
-      as: 'player',
-    },
-  ],
-});
-
-function createClearEmbed(passInfo: Pass | null): MessageBuilder {
-  if (!passInfo) return new MessageBuilder().setDescription('No pass info available');
-  const pass = passInfo.dataValues;
-  console.log(pass.level?.difficulty?.icon);
-  const embed = new MessageBuilder()
-    .setTitle('New Clear!')
-    .setAuthor(
-      pass.player?.name || 'Unknown Player',
-      pass.level?.difficulty?.icon || '',
-      ''
-    )
-    .setColor('#000000')
-    .setThumbnail(
-      pass.player?.discordAvatar ? 
-      pass.player?.discordAvatar : 
-      pass.player?.pfp && 
-      pass.player?.pfp !== "none" ? 
-      pass.player?.pfp : 
-      placeHolder
-    )
-    .setDescription(
-      `${pass.level?.artist || 'Unknown Artist'} - ${pass.level?.song || 'Unknown Song'}\n` +
-      `${pass.vidLink || 'No video link'}\n\n` +
-      `Player: ${pass.player?.discordId ? `<@${pass.player?.discordId}>` : pass.player?.name || 'Unknown Player'}\n\n` +
-      `TUF Rating: ${pass.scoreV2 || 0}\n` +
-      `Feeling Rating: ${pass.feelingRating || 'None'}\n\n` +
-      'Accuracy\n' +
-      `${((pass.accuracy || 0.95) * 100).toFixed(6)}%\n\n` +
-      'Additional Info\n' +
-      `${pass.isWorldsFirst ? '🏆 World\'s First!\n' : ''}` +
-      `${pass.is12K ? '12K ' : ''}${pass.is16K ? '16K ' : ''}${pass.isNoHoldTap ? 'No Hold Tap ' : ''}`
-    )
-    .setFooter(
-      `Mapped by ${pass.level?.charter || 'Unknown'} | VFX by ${pass.level?.vfxer || 'Unknown'}`, 
-      placeHolder
-    )
-    .setTimestamp();
-
-  return embed;
-}
-
-router.get('/testhook', async (req: Request, res: Response) => {
-  try {
+    });
     const {CLEAR_ANNOUNCEMENT_HOOK} = process.env;
     if (!CLEAR_ANNOUNCEMENT_HOOK) {
       throw new Error('Webhook URL not configured');
@@ -94,9 +72,10 @@ router.get('/testhook', async (req: Request, res: Response) => {
     const hook = new Webhook(CLEAR_ANNOUNCEMENT_HOOK);
     hook.setUsername('TUF Clear Announcer');
     hook.setAvatar(placeHolder);
-
-    const embed = createClearEmbed(passInfo);
-    await hook.send(embed);
+    const embeds = passes.map(pass => createClearEmbed(pass));
+    const combinedEmbed = MessageBuilder.combine(...embeds);
+    combinedEmbed.setText('# New clears!');
+    await hook.send(combinedEmbed);
 
     return res.json({ success: true, message: 'Webhook sent successfully' });
   } catch (error) {
@@ -108,25 +87,41 @@ router.get('/testhook', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/announcementTest', async (req: Request, res: Response) => {
+router.get('/testhook/levels', async (req: Request, res: Response) => {
   try {
+    
+const levels = await Level.findAll({
+  where: {
+    id: {
+      [Op.gte]: 7248,
+      [Op.lte]: 7256
+    }
+  },
+  include: [
+    {
+      model: Difficulty,
+      as: 'difficulty',
+    },
+  ],
+});
     const {CLEAR_ANNOUNCEMENT_HOOK} = process.env;
     if (!CLEAR_ANNOUNCEMENT_HOOK) {
       throw new Error('Webhook URL not configured');
     }
 
     const hook = new Webhook(CLEAR_ANNOUNCEMENT_HOOK);
-    hook.setUsername('TUF Clear Announcer');
+    hook.setUsername('TUF Level Announcer');
     hook.setAvatar(placeHolder);
+    const embeds = await Promise.all(levels.map(level => createNewLevelEmbed(level)));
+    const combinedEmbed = MessageBuilder.combine(...embeds);
+    combinedEmbed.setText('# <:J_wow:1223816920592023552> New levels! <:J_wow:1223816920592023552>');
+    await hook.send(combinedEmbed);
 
-    const embed = createClearEmbed(passInfo);
-    await hook.send(embed);
-
-    return res.json({ success: true, message: 'Announcement sent successfully' });
+    return res.json({ success: true, message: 'Webhook sent successfully' });
   } catch (error) {
-    console.error('Error sending announcement:', error);
+    console.error('Error sending webhook:', error);
     return res.status(500).json({
-      error: 'Failed to send announcement',
+      error: 'Failed to send webhook',
       details: error instanceof Error ? error.message : String(error)
     });
   }

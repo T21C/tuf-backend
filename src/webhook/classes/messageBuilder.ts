@@ -27,7 +27,8 @@ export default class MessageBuilder {
 
   setText(text: string) {
     this.payload.content = text;
-
+    console.log(this.payload);
+    
     return this;
   }
 
@@ -117,7 +118,7 @@ export default class MessageBuilder {
     if (contents.length > 0) {
       combined.payload.content = contents.join(' ');
     }
-
+    
     // Combine embeds
     for (const builder of builders) {
       combined.payload.embeds.push(...builder.payload.embeds);

@@ -92,6 +92,11 @@ export function initializeAssociations() {
     as: 'difficulty',
   });
 
+  Level.belongsTo(Difficulty, {
+    foreignKey: 'toBeChangedDiff',
+    as: 'toBeChangedDifficulty',
+  });
+
   PassSubmission.belongsTo(Player, {
     foreignKey: 'assignedPlayerId',
     as: 'assignedPlayer',

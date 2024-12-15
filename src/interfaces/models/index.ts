@@ -32,6 +32,7 @@ export interface ILevel extends IBaseModel {
   toRate: boolean;
   rerateReason: string;
   rerateNum: string;
+  toBeChangedDiff: number | null;
   isDeleted: boolean;
   // Associations
   passes?: IPass[];
@@ -58,7 +59,7 @@ export interface IPass extends IBaseModel {
   // Associations
   level?: ILevel;
   player?: IPlayer;
-  judgement?: IJudgement;
+  judgements?: IJudgement;
 }
 
 // Player interface
@@ -127,9 +128,11 @@ export type JudgementInstance = Model<IJudgement>;
 export interface IDifficulty extends IBaseModel {
   name: string; // The display name (P1, G1, U1, etc.)
   baseScore: number;
-  legacy: number;
+  legacy: string;
   type: 'PGU' | 'SPECIAL'; // To distinguish between PGU and special ratings
   icon: string; // The icon filename from iconResolver
   legacyIcon: string | null;
+  legacyEmoji: string | null;
+  emoji: string;
   sortOrder: number;
 }

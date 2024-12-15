@@ -32,6 +32,7 @@ class Level
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
+  declare toBeChangedDiff: number;
   declare isDeleted: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -120,6 +121,14 @@ Level.init(
     rerateNum: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    toBeChangedDiff: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'difficulties',
+        key: 'id',
+      },
     },
     isDeleted: {
       type: DataTypes.BOOLEAN,

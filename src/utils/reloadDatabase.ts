@@ -195,6 +195,7 @@ function createPlaceholderLevel(id: number) {
     toRate: false,
     rerateReason: '',
     rerateNum: '',
+    toBeChangedDiff: null,
     isDeleted: true,
   };
 }
@@ -243,6 +244,8 @@ async function reloadDatabase() {
       sortOrder: diff.sortOrder,
       legacy: diff.legacy,
       legacyIcon: diff.legacyIcon,
+      emoji: diff.emoji,
+      legacyEmoji: diff.legacyEmoji,
       createdAt: new Date(),
       updatedAt: new Date(),
     }));

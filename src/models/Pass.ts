@@ -37,7 +37,7 @@ class Pass
   // Associations
   declare level?: Level;
   declare player?: Player;
-  declare judgement?: Judgement;
+  declare judgements?: Judgement;
 }
 
 Pass.init(

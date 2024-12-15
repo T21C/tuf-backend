@@ -14,6 +14,7 @@ import initializeDatabase from './utils/initializeDatabase';
 import {setIO} from './utils/socket';
 import {updateAllPlayerPfps} from './utils/PlayerEnricher';
 import {Cache} from './middleware/cache';
+import {htmlMetaMiddleware} from './middleware/html-meta';
 
 dotenv.config();
 
@@ -60,11 +61,14 @@ async function startServer() {
     app.use(cors());
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
-    console.log('Initializing cache middleware...');
     app.use(Cache.leaderboard());
     console.log('Cache middleware attached');
 
-    // Set up routes
+    // HTML meta tags middleware for specific routes
+    app.get('/passes/:id', htmlMetaMiddleware);
+    app.get('/levels/:id', htmlMetaMiddleware);
+
+    // Set up API routes
     app.use('/v2/admin', adminRoutes);
     app.use('/v2/form', formRoutes);
     app.use('/v2/auth', authRoutes);
@@ -87,7 +91,6 @@ async function startServer() {
     });
 
     // Initialize leaderboard cache through middleware
-    console.log('Starting cache initialization...');
     try {
       await Cache.leaderboard().initialize?.();
       console.log('Cache initialization completed successfully');

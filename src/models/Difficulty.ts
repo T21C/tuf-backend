@@ -7,12 +7,14 @@ class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare name: string;
   declare type: 'PGU' | 'SPECIAL';
   declare icon: string;
+  declare emoji: string;
   declare createdAt: Date;
   declare updatedAt: Date;
   declare baseScore: number;
   declare sortOrder: number;
-  declare legacy: number;
+  declare legacy: string;
   declare legacyIcon: string | null;
+  declare legacyEmoji: string | null;
 }
 
 Difficulty.init(
@@ -33,6 +35,18 @@ Difficulty.init(
       type: DataTypes.STRING,
       allowNull: false,
     },
+    emoji: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: '<:OnemustimagineSisyphushappy:1201714114582286417>',
+      set(value: string) {
+        if (!value) {
+          this.setDataValue('emoji', '<:OnemustimagineSisyphushappy:1201714114582286417>');
+        } else {
+          this.setDataValue('emoji', value);
+        }
+      }
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -50,12 +64,21 @@ Difficulty.init(
       allowNull: false,
     },
     legacy: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.STRING,
       allowNull: false,
     },
     legacyIcon: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    legacyEmoji: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      set(value: string | null) {
+        if (value) {
+          this.setDataValue('legacyEmoji', value);
+        }
+      }
     },
   },
   {
