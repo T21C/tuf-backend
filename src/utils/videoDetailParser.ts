@@ -156,7 +156,6 @@ async function getYouTubeVideoDetails(url: string): Promise<VideoDetails | null>
   try {
     const response = await axios.get<YouTubeResponse>(apiUrl);
     const data = response.data;
-    console.log(data.items[0].snippet);
     if (!data.items?.length) {
       return null;
     }

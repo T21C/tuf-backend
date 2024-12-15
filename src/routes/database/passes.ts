@@ -38,11 +38,26 @@ type WhereClause = {
   }>;
 } & WhereOptions<PassInterface>;
 
+const difficultyNameToSortOrder: { [key: string]: number } = {
+  'P1': 1, 'P2': 3, 'P3': 4, 'P4': 5, 'P5': 6,
+  'P6': 7, 'P7': 8, 'P8': 9, 'P9': 10, 'P10': 11,
+  'P11': 12, 'P12': 13, 'P13': 14, 'P14': 15, 'P15': 16,
+  'P16': 17, 'P17': 18, 'P18': 18.5, 'P19': 19, 'P20': 19.5,
+  'G1': 20, 'G2': 20.05, 'G3': 20.1, 'G4': 20.15, 'G5': 20.2,
+  'G6': 20.25, 'G7': 20.3, 'G8': 20.35, 'G9': 20.4, 'G10': 20.45,
+  'G11': 20.5, 'G12': 20.55, 'G13': 20.6, 'G14': 20.65, 'G15': 20.7,
+  'G16': 20.75, 'G17': 20.8, 'G18': 20.85, 'G19': 20.9, 'G20': 20.95,
+  'U1': 21, 'U2': 21.04, 'U3': 21.05, 'U4': 21.09, 'U5': 21.1,
+  'U6': 21.14, 'U7': 21.15, 'U8': 21.19, 'U9': 21.2, 'U10': 21.24,
+  'U11': 21.25, 'U12': 21.29, 'U13': 21.3, 'U14': 21.34, 'U15': 21.35,
+  'U16': 21.39, 'U17': 21.4, 'U18': 21.44, 'U19': 21.45, 'U20': 21.49
+};
+
 // Helper function to build where clause
 const buildWhereClause = (query: {
   deletedFilter?: string;
-  lowDiff?: string;
-  highDiff?: string;
+  minDiff?: string;
+  maxDiff?: string;
   only12k?: string | boolean;
   levelId?: string;
   player?: string;
@@ -58,13 +73,34 @@ const buildWhereClause = (query: {
   }
 
   // Update difficulty range filter
-  if (query.lowDiff || query.highDiff) {
+  if (query.minDiff || query.maxDiff) {
     where['$level.diffId$'] = {};
-    if (query.lowDiff) {
-      (where['$level.diffId$'] as any)[Op.gte] = Number(query.lowDiff);
-    }
-    if (query.highDiff) {
-      (where['$level.diffId$'] as any)[Op.lte] = Number(query.highDiff);
+    
+    // Convert difficulty names to sortOrder values
+    const minDiffValue = query.minDiff ? difficultyNameToSortOrder[query.minDiff] : undefined;
+    const maxDiffValue = query.maxDiff ? difficultyNameToSortOrder[query.maxDiff] : undefined;
+
+    if (minDiffValue !== undefined && maxDiffValue !== undefined) {
+      if (minDiffValue > maxDiffValue) {
+        // Swap if min > max
+        where['$level.diffId$'] = {
+          [Op.gte]: maxDiffValue,
+          [Op.lte]: minDiffValue
+        };
+      } else {
+        where['$level.diffId$'] = {
+          [Op.gte]: minDiffValue,
+          [Op.lte]: maxDiffValue
+        };
+      }
+    } else if (minDiffValue !== undefined) {
+      where['$level.diffId$'] = {
+        [Op.gte]: minDiffValue
+      };
+    } else if (maxDiffValue !== undefined) {
+      where['$level.diffId$'] = {
+        [Op.lte]: maxDiffValue
+      };
     }
   }
 
@@ -185,20 +221,62 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
+    const where = buildWhereClause(req.query);
+    const order = getSortOptions(req.query.sort as string);
 
-    const passes = await Pass.findAll({
-      where: buildWhereClause(req.query),
+    // First get all IDs in correct order
+    const allIds = await Pass.findAll({
+      where,
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          where: { isBanned: false },
+          required: true,
+        },
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              required: false,
+            },
+          ],
+        },
+      ],
+      order,
+      attributes: ['id'],
+      raw: true,
+    });
+
+    // Then get paginated results using those IDs in their original order
+    const offset = parseInt(req.query.offset as string) || 0;
+    const limit = parseInt(req.query.limit as string) || 30;
+    const paginatedIds = allIds
+      .map((pass: any) => pass.id)
+      .slice(offset, offset + limit);
+
+    const results = await Pass.findAll({
+      where: {
+        ...where,
+        id: {
+          [Op.in]: paginatedIds,
+        },
+      },
       include: [
         {
           model: Player,
           as: 'player',
           attributes: ['name', 'country', 'isBanned'],
-          where: {isBanned: false},
+          where: { isBanned: false },
+          required: true,
         },
         {
           model: Level,
           as: 'level',
-          attributes: ['song', 'artist', 'pguDiff', 'baseScore', 'pguDiffNum'],
+          attributes: ['song', 'artist', 'baseScore'],
           include: [
             {
               model: Difficulty,
@@ -211,18 +289,16 @@ router.get('/', async (req: Request, res: Response) => {
           as: 'judgements',
         },
       ],
-      order: getSortOptions(req.query.sort as string),
+      order: [['id', 'DESC']], // Maintain consistent ID ordering within paginated results
     });
-
-    const count = passes.length;
-    const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const limit = req.query.limit ? Number(req.query.limit) : undefined;
-    const results = passes.slice(offset, limit ? offset + limit : undefined);
 
     const totalTime = performance.now() - routeStart;
     console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
 
-    return res.json({count, results});
+    return res.json({
+      count: allIds.length,
+      results,
+    });
   } catch (error) {
     console.error('Error fetching passes:', error);
     return res.status(500).json({error: 'Failed to fetch passes'});
@@ -242,7 +318,7 @@ router.get('/:id', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
-          attributes: ['song', 'artist', 'pguDiff', 'baseScore'],
+          attributes: ['song', 'artist', 'baseScore'],
           include: [
             {
               model: Difficulty,
@@ -286,6 +362,12 @@ router.put(
           {
             model: Level,
             as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
           },
           {
             model: Judgement,
@@ -376,6 +458,12 @@ router.put(
           {
             model: Level,
             as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
           },
           {
             model: Judgement,
@@ -409,11 +497,7 @@ router.put(
   },
 );
 
-router.delete(
-  '/:id',
-  Cache.leaderboard(),
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     const leaderboardCache = req.leaderboardCache;
     if (!leaderboardCache) {
@@ -429,6 +513,12 @@ router.delete(
           {
             model: Level,
             as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
           },
         ],
         transaction,
@@ -496,11 +586,7 @@ router.delete(
 );
 
 // Add restore endpoint
-router.patch(
-  '/:id/restore',
-  Cache.leaderboard(),
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     const leaderboardCache = req.leaderboardCache;
     if (!leaderboardCache) {
@@ -515,6 +601,12 @@ router.patch(
           {
             model: Level,
             as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
           },
         ],
         transaction,
@@ -588,7 +680,13 @@ router.get('/byId/:id', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
-          attributes: ['song', 'artist', 'pguDiff', 'baseScore'],
+          attributes: ['song', 'artist', 'baseScore'],
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
         },
         {
           model: Judgement,

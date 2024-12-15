@@ -8,7 +8,7 @@ import authRoutes from './routes/auth';
 import mediaRoutes from './routes/media';
 import formRoutes from './routes/form';
 import databaseRoutes from './routes/database/index';
-import webhookRoutes from './routes/webhook';
+import webhookRoutes from './routes/webhooks/index';
 import db from './models/index';
 import initializeDatabase from './utils/initializeDatabase';
 import {setIO} from './utils/socket';
