@@ -27,7 +27,6 @@ export default class MessageBuilder {
 
   setText(text: string) {
     this.payload.content = text;
-    console.log(this.payload);
     
     return this;
   }

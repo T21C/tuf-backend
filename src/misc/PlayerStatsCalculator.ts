@@ -1,7 +1,7 @@
 import {PGU_SORT, PguLetter} from '../config/constants';
 import {IDifficulty, IPass} from '../interfaces/models';
 
-interface Score {
+export interface Score {
   score: number;
   xacc: number;
   isWorldsFirst: boolean;

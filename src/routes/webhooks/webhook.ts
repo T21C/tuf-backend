@@ -33,8 +33,8 @@ router.get('/testhook/passes', async (req: Request, res: Response) => {
     const passes = await Pass.findAll({
       where: {
         id: {
-          [Op.gt]: 11082,
-          [Op.lt]: 11086
+          [Op.gte]: 11166,
+          [Op.lte]: 11166
         }
       },
       include: [
