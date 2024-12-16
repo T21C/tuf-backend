@@ -195,8 +195,9 @@ function createPlaceholderLevel(id: number) {
     toRate: false,
     rerateReason: '',
     rerateNum: '',
-    toBeChangedDiff: null,
     isDeleted: true,
+    isAnnounced: true,
+    previousDiffId: null,
   };
 }
 // Add this helper function for creating placeholder judgements
@@ -359,6 +360,9 @@ async function reloadDatabase() {
         rerateReason: '',
         rerateNum: '',
         isDeleted: false,
+        isAnnounced: true,
+        previousDiffId: null,
+
       });
 
       nextLevelId = level.id + 1;

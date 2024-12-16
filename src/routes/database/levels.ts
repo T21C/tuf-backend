@@ -197,7 +197,7 @@ router.get('/', async (req: Request, res: Response) => {
           attributes: ['id'],
         },
       ],
-      order: [['id', 'DESC']], // Maintain consistent ID ordering within the paginated results
+      order // Maintain consistent ID ordering within the paginated results
     });
 
     return res.json({
@@ -208,6 +208,30 @@ router.get('/', async (req: Request, res: Response) => {
     console.error('Error fetching levels:', error);
     return res.status(500).json({error: 'Failed to fetch levels'});
   }
+});
+
+router.get('/byId/:id', async (req: Request, res: Response) => {
+  if (isNaN(parseInt(req.params.id))) {
+    return res.status(400).json({error: 'Invalid level ID'});
+  }
+  const level = await Level.findOne({
+    where: {id: parseInt(req.params.id)},
+    
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty',
+        required: false,
+      },
+      {
+        model: Pass,
+        as: 'passes',
+        required: false,
+        attributes: ['id'],
+      },
+    ],
+  });
+  return res.json(level);
 });
 
 // Get a single level by ID
@@ -670,5 +694,88 @@ router.patch(
     }
   },
 );
+
+// Get unannounced new levels
+router.get('/unannounced/new', async (req: Request, res: Response) => {
+  try {
+    const levels = await Level.findAll({
+      where: {
+        isAnnounced: false,
+        previousDiffId: null,
+        isDeleted: false
+      },
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
+    return res.json(levels);
+  } catch (error) {
+    console.error('Error fetching unannounced new levels:', error);
+    return res.status(500).json({ error: 'Failed to fetch unannounced new levels' });
+  }
+});
+
+// Get unannounced rerates
+router.get('/unannounced/rerates', async (req: Request, res: Response) => {
+  try {
+    const levels = await Level.findAll({
+      where: {
+        isAnnounced: false,
+        previousDiffId: {
+          [Op.not]: null
+        },
+        isDeleted: false
+      },
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+        },
+        {
+          model: Difficulty,
+          as: 'previousDifficulty',
+        }
+      ],
+      order: [['updatedAt', 'DESC']]
+    });
+
+    return res.json(levels);
+  } catch (error) {
+    console.error('Error fetching unannounced rerates:', error);
+    return res.status(500).json({ error: 'Failed to fetch unannounced rerates' });
+  }
+});
+
+// Mark levels as announced
+router.post('/announce', async (req: Request, res: Response) => {
+  try {
+    const { levelIds } = req.body;
+    
+    if (!Array.isArray(levelIds)) {
+      return res.status(400).json({ error: 'levelIds must be an array' });
+    }
+
+    await Level.update(
+      { isAnnounced: true },
+      {
+        where: {
+          id: {
+            [Op.in]: levelIds
+          }
+        }
+      }
+    );
+
+    return res.json({ success: true, message: 'Levels marked as announced' });
+  } catch (error) {
+    console.error('Error marking levels as announced:', error);
+    return res.status(500).json({ error: 'Failed to mark levels as announced' });
+  }
+});
 
 export default router;

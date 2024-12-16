@@ -93,8 +93,8 @@ export function initializeAssociations() {
   });
 
   Level.belongsTo(Difficulty, {
-    foreignKey: 'toBeChangedDiff',
-    as: 'toBeChangedDifficulty',
+    foreignKey: 'previousDiffId',
+    as: 'previousDifficulty',
   });
 
   PassSubmission.belongsTo(Player, {

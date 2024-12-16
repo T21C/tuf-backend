@@ -34,7 +34,7 @@ router.get('/testhook/passes', async (req: Request, res: Response) => {
       where: {
         id: {
           [Op.gte]: 11166,
-          [Op.lte]: 11166
+          [Op.lte]: 11166,
         }
       },
       include: [
@@ -72,7 +72,7 @@ router.get('/testhook/passes', async (req: Request, res: Response) => {
     const hook = new Webhook(CLEAR_ANNOUNCEMENT_HOOK);
     hook.setUsername('TUF Clear Announcer');
     hook.setAvatar(placeHolder);
-    const embeds = passes.map(pass => createClearEmbed(pass));
+    const embeds = await Promise.all(passes.map(pass => createClearEmbed(pass)));
     const combinedEmbed = MessageBuilder.combine(...embeds);
     combinedEmbed.setText('# New clears!');
     await hook.send(combinedEmbed);
@@ -93,8 +93,7 @@ router.get('/testhook/levels', async (req: Request, res: Response) => {
 const levels = await Level.findAll({
   where: {
     id: {
-      [Op.gte]: 7248,
-      [Op.lte]: 7256
+      [Op.or]: [7102, 3924],
     }
   },
   include: [
@@ -126,5 +125,51 @@ const levels = await Level.findAll({
     });
   }
 });
+
+
+
+router.get('/testhook/rerates', async (req: Request, res: Response) => {
+  try {
+    
+const levels = await Level.findAll({
+  where: {
+    id: {
+      [Op.or]: [7102, 3924],
+    }
+  },
+  include: [
+    {
+      model: Difficulty,
+      as: 'difficulty',
+    },
+    {
+      model: Difficulty,
+      as: 'previousDifficulty',
+    },
+  ],
+});
+    const {CLEAR_ANNOUNCEMENT_HOOK} = process.env;
+    if (!CLEAR_ANNOUNCEMENT_HOOK) {
+      throw new Error('Webhook URL not configured');
+    }
+
+    const hook = new Webhook(CLEAR_ANNOUNCEMENT_HOOK);
+    hook.setUsername('TUF Level Announcer');
+    hook.setAvatar(placeHolder);
+    const embeds = await Promise.all(levels.map(level => createRerateEmbed(level)));
+    const combinedEmbed = MessageBuilder.combine(...embeds);
+    combinedEmbed.setText('# <:J_wow:1223816920592023552> New levels! <:J_wow:1223816920592023552>');
+    await hook.send(combinedEmbed);
+
+    return res.json({ success: true, message: 'Webhook sent successfully' });
+  } catch (error) {
+    console.error('Error sending webhook:', error);
+    return res.status(500).json({
+      error: 'Failed to send webhook',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 
 export default router;

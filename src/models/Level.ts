@@ -32,7 +32,8 @@ class Level
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
-  declare toBeChangedDiff: number;
+  declare previousDiffId: number;
+  declare isAnnounced: boolean;
   declare isDeleted: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -40,6 +41,7 @@ class Level
   // Associations
   declare passes?: Pass[];
   declare difficulty?: Difficulty;
+  declare previousDifficulty?: Difficulty;
 }
 
 Level.init(
@@ -122,13 +124,18 @@ Level.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
-    toBeChangedDiff: {
+    previousDiffId: {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
         model: 'difficulties',
         key: 'id',
       },
+    },
+    isAnnounced: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     isDeleted: {
       type: DataTypes.BOOLEAN,

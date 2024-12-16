@@ -3,17 +3,13 @@ import Level from "../../models/Level";
 import Pass from "../../models/Pass";
 import { MessageBuilder } from "../../webhook";
 import { Score, calculateRankedScore } from "../../misc/PlayerStatsCalculator";
+import { getVideoDetails } from "../../utils/videoDetailParser";
+import { log } from "console";
 
 
-const placeHolder = process.env.OWN_URL + '/v2/media/image/soggycat.png';
-
-function trim(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str;
-  return str.slice(0, maxLength - 3) + '...';
-}
-
-export async function getDifficultyEmojis(levelInfo: Level | null): Promise<string | null> {
+export async function getDifficultyEmojis(levelInfo: Level | null, rerate: boolean = false): Promise<string | null> {
     if (!levelInfo) return null;
+    if (rerate && !levelInfo.dataValues.previousDiffId) rerate = false;
     const qList = "Q2,Q2+,Q3,Q3+,Q4";
     const qMap = {
       "Q2": ["U5", "U6"],
@@ -24,6 +20,9 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
     }
     const difficulties = await Difficulty.findAll().then(data => data.map(difficulty => difficulty.dataValues));
     const level = levelInfo.dataValues;
+
+
+    if (!rerate) {
     const difficulty = difficulties.find(difficulty => difficulty.name === level.difficulty?.name);
     if (qList.includes(level.difficulty?.name || '')) {
       const q = qMap[`${level.difficulty?.name || ''}` as keyof typeof qMap];
@@ -35,67 +34,168 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
       + ` | ${difficulties.find(
         difficulty => difficulty.name === q[0]
       )?.legacyEmoji || ''}`;
-      return `${difficulty?.emoji || ''}${emoji ? ` | ${emoji}` : ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
+      return `${difficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}||`;
     }
     return `${difficulty?.emoji || ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
+    }
+    else {
+      const difficulty = difficulties.find(difficulty => difficulty.name === level.difficulty?.name);
+      const previousDifficulty = difficulties.find(difficulty => difficulty.name === level.previousDifficulty?.name);
+      let diffString = '';
+      let previousDiffString = '';
+      console.log(level.difficulty?.name, level.previousDifficulty?.name);
+      if (qList.includes(level.difficulty?.name || '')) {
+        const q = qMap[`${level.difficulty?.name || ''}` as keyof typeof qMap];
+        const emoji = q.map(emoji => 
+          difficulties.find(
+            difficulty => difficulty.name === emoji
+          )?.emoji || ''
+        ).join('~')
+        + ` | ${difficulties.find(
+          difficulty => difficulty.name === q[0]
+        )?.legacyEmoji || ''}`;
+        diffString = `${difficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}||`;
+      }
+      else {
+        diffString = `${difficulty?.emoji || ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
+      }
+      if (qList.includes(level.previousDifficulty?.name || '')) {
+        const q = qMap[`${level.previousDifficulty?.name || ''}` as keyof typeof qMap];
+        const emoji = q.map(emoji => 
+          difficulties.find(
+            difficulty => difficulty.name === emoji
+          )?.emoji || ''
+        ).join('~')
+        + ` | ${difficulties.find(
+          difficulty => difficulty.name === q[0]
+        )?.legacyEmoji || ''}`;
+        previousDiffString = `${previousDifficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}${previousDifficulty?.legacyEmoji ? ` | ${previousDifficulty?.legacyEmoji}` : ''}||`;
+      }
+      else {
+        previousDiffString = `${previousDifficulty?.emoji || ''}${previousDifficulty?.legacyEmoji ? ` | ${previousDifficulty?.legacyEmoji}` : ''}`;
+      }
+      return `**${previousDiffString}** ➔ **${diffString}**`;
+      }
   }
   
+function trim(str: string, maxLength: number): string {
+    if (str.length <= maxLength) return str;
+    return str.slice(0, maxLength - 3) + '...';
+  }
+  function wrap(str: string, maxLength: number): string {
+    if (str.length <= maxLength) return str;
+    
+    const chunks: string[] = [];
+    let remaining = str;
+    
+    while (remaining.length > maxLength) {
+      // Look for last space within maxLength
+      let splitIndex = remaining.lastIndexOf(' ', maxLength);
+      
+      // If no space found or would result in very short chunk, just split at maxLength
+      if (splitIndex === -1 || splitIndex < maxLength - 10) {
+        splitIndex = maxLength;
+      }
+      
+      chunks.push(remaining.slice(0, splitIndex));
+      remaining = remaining.slice(splitIndex).trim();
+    }
+    
+    if (remaining.length > 0) {
+      chunks.push(remaining);
+    }
   
-  export function createRerateEmbed(levelInfo: Level | null): MessageBuilder {
-    if (!levelInfo) return new MessageBuilder().setDescription('No pass info available');
-    const level = levelInfo.dataValues;
-  
-    const embed = new MessageBuilder()
-      .setTitle('New level!')
-      .setAuthor(
-        `${level.artist || 'Unknown Artist'} - ${level.song || 'Unknown Song'}\n`,
-        '',
-        level.vidLink
-      )
+    return chunks.join('\n');
+  }
+  function formatNumber(num: number): string {
+    return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }
+  function formatString(str: string): string {
+    return str.replace(/\n/g, ' ');
+  }
+
+
+
+
+const placeHolder = process.env.OWN_URL + '/v2/media/image/soggycat.png';
+
+
+
+export async function createRerateEmbed(levelInfo: Level | null): Promise<MessageBuilder> {
+  if (!levelInfo) return new MessageBuilder().setDescription('No pass info available');
+  const level = levelInfo.dataValues;
+  const team = level?.team ? level?.team : null;
+  const charter = level?.charter ? level?.charter : null;
+  const creator = level?.creator ? level?.creator : null;
+  const vfxer = level?.vfxer ? level?.vfxer : null;
+  const videoInfo = await getVideoDetails(level.vidLink).then(details => details);
+
+  console.log(team, charter, creator, vfxer);
+  const embed = new MessageBuilder()
       .setColor('#000000')
-      .setThumbnail(
-        level.difficulty?.icon || ''
-      )
-      .setDescription(
-        `${level.artist || 'Unknown Artist'} - ${level.song || 'Unknown Song'}\n` +
-        `${level.vidLink ? `[Go to video](${level.vidLink})` : 'No video link'}\n\n` +
-        `Difficulty: **${level.difficulty?.emoji} | ${level.difficulty?.legacyEmoji}**\n\n`
-      )
-      .setFooter(
-        `Mapped by ${level.charter || 'Unknown'}${level.vfxer ? ` | VFX by ${level.vfxer || 'Unknown'}` : ''}`, 
-        placeHolder
-      )
-      .setTimestamp();
+      //.setAuthor('New level!', '', '')
+    .setTitle(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`)
+    .setThumbnail(level.difficulty?.icon || placeHolder)
+    .addField("", "", false)
+    .addField('Rerate', `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`, true)
+    .addField("", "", false)
+    
+    if (team) embed
+      .addField('Team', `**${formatString(team)}**`, true)
+    if (vfxer) embed
+      .addField('', `VFXer\n**${formatString(vfxer)}**`, true);
+    if (charter) embed
+      .addField('', `Charter\n**${formatString(charter)}**`, true);
+    else if (creator) embed
+      .addField('', `Creator\n**${formatString(creator)}**`, true);
+    
+    embed.addField('', `**${level.vidLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.vidLink})` : 'No video link'}**`, false)
+    /*.setFooter(
+      team || credit, 
+      ''
+    )*/
+    //.setImage(videoInfo?.image || "")
+    .setTimestamp();
+
+  return embed;
+}
   
-    return embed;
-  }
   
-  
-  
+  // DONE ############
   export async function createNewLevelEmbed(levelInfo: Level | null): Promise<MessageBuilder> {
     if (!levelInfo) return new MessageBuilder().setDescription('No pass info available');
     const level = levelInfo.dataValues;
-  
+    const team = level?.team ? level?.team : null;
+    const charter = level?.charter ? level?.charter : null;
+    const creator = level?.creator ? level?.creator : null;
+    const vfxer = level?.vfxer ? level?.vfxer : null;
+    const videoInfo = await getVideoDetails(level.vidLink).then(details => details);
+
+    console.log(team, charter, creator, vfxer);
     const embed = new MessageBuilder()
-      .setTitle('New level!')
-      .setAuthor(
-        `${level.artist || 'Unknown Artist'} - ${level.song || 'Unknown Song'}\n`,
-        '',
-        level.vidLink
-      )
-      .setColor('#000000')
-      .setThumbnail(
-        level.difficulty?.icon || ''
-      )
-      .setDescription(
-        `${level.artist || 'Unknown Artist'} - ${level.song || 'Unknown Song'}\n` +
-        `${level.vidLink ? `[Go to video](${level.vidLink})` : 'No video link'}\n\n` +
-        `Difficulty: ${await getDifficultyEmojis(levelInfo)}\n\n`
-      )
-      .setFooter(
-        `Mapped by ${level.charter || 'Unknown'}${level.vfxer ? ` | VFX by ${level.vfxer || 'Unknown'}` : ''}`, 
-        placeHolder
-      )
+        .setColor('#000000')
+        //.setAuthor('New level!', '', '')
+      .setTitle(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`)
+      .setThumbnail(level.difficulty?.icon || placeHolder)
+      .addField("", "", false)
+      .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo)}**`, true)
+      .addField("", "", false)
+      
+      if (team) embed
+        .addField('Team', `**${formatString(team)}**`, true)
+      if (vfxer) embed
+        .addField('', `VFXer\n**${formatString(vfxer)}**`, true);
+      if (charter) embed
+        .addField('', `Charter\n**${formatString(charter)}**`, true);
+      else if (creator) embed
+        .addField('', `Creator\n**${formatString(creator)}**`, true);
+      
+      embed.addField('', `**${level.vidLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.vidLink})` : 'No video link'}**`, false)
+      /*.setFooter(
+        team || credit, 
+        ''
+      )*/
+      //.setImage(videoInfo?.image || "")
       .setTimestamp();
   
     return embed;
@@ -104,7 +204,7 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
   
   
 // DONE ################
-  export function createClearEmbed(passInfo: Pass | null): MessageBuilder {
+  export async function createClearEmbed(passInfo: Pass | null): Promise<MessageBuilder> {
     if (!passInfo) return new MessageBuilder().setDescription('No pass info available');
     const pass = passInfo.dataValues;
     const level = pass.level;
@@ -127,6 +227,9 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
         isDeleted: pass.isDeleted || false
     })) || []);
 
+
+    const videoInfo = pass?.vidLink ? await getVideoDetails(pass.vidLink).then(details => details) : null;
+
     const showAddInfo = pass.isWorldsFirst || pass.is12K || pass.is16K || pass.isNoHoldTap;
     const additionalInfo = (
     `${pass.isWorldsFirst ? '🏆 World\'s First!  |  ' : ''}` +
@@ -137,14 +240,14 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
     const judgementLine = pass.judgements ? 
       `\`\`\`ansi\n[2;31m${pass.judgements.earlyDouble}[0m [2;33m${pass.judgements.earlySingle}[0m [2;32m${pass.judgements.ePerfect}[0m [1;32m${pass.judgements.perfect}[0m [2;32m${pass.judgements.lPerfect}[0m [2;33m${pass.judgements.lateSingle}[0m [2;31m${pass.judgements.lateDouble}[0m\n\`\`\`\n` : '';
     
-    const team = `Level by ${pass.level?.team || ''}`
-    const credit = `${trim(pass.level?.charter || 'Unknown', 25)} ${pass.level?.vfxer ? `| VFX by ${trim(pass.level?.vfxer || 'Unknown', 25)}` : ''}`;
+      const team = level?.team ? `Level by ${level?.team}` : null;
+      const credit = `Chart by ${trim(level?.charter || 'Unknown', 25)}${level?.vfxer ? ` | VFX by ${trim(level?.vfxer || 'Unknown', 25)}` : ''}`;
 
     const embed = new MessageBuilder()
       .setAuthor(
         `${trim(level?.song || 'Unknown Song', 27)}\n— ${trim(level?.artist || 'Unknown Artist', 30)}`,
         pass.level?.difficulty?.icon || '',
-        ''
+        level?.vidLink || ''
       )
       .setTitle(`Clear by ${trim(pass.player?.name || 'Unknown Player', 25)}`)
       .setColor('#000000')
@@ -158,11 +261,11 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
       )
       .addField("", "", false)
       .addField('Player', `**${pass.player?.discordId ? `<@${pass.player?.discordId}>` : pass.player?.name || 'Unknown Player'}**`, true)
-      .addField('Ranked Score', `**${currentRankedScore.toFixed(2)}** (+${(currentRankedScore - previousRankedScore).toFixed(2)})`, true)
+      .addField('Ranked Score', `**${formatNumber(currentRankedScore)}** (+${formatNumber(currentRankedScore - previousRankedScore)})`, true)
       .addField("", "", false)
 
       .addField('Feeling Rating', `**${pass.feelingRating || 'None'}**`, true)
-      .addField('Score', `**${pass.scoreV2?.toFixed(2) || 0}**`, true)
+      .addField('Score', `**${formatNumber(pass.scoreV2 || 0)}**`, true)
       .addField("", "", false)
 
       .addField('Accuracy', `**${((pass.accuracy || 0.95) * 100).toFixed(2)}%**`, true)
@@ -170,6 +273,12 @@ export async function getDifficultyEmojis(levelInfo: Level | null): Promise<stri
       .addField("", "", false)
       .addField('', judgementLine, false)
       .addField(showAddInfo ? additionalInfo : '', '', false)
+      .addField('', `**${pass.vidLink ? `[${videoInfo?.title || 'No title'}](${pass.vidLink})` : 'No video link'}**`, true)
+      /*.setFooter(
+        team || credit, 
+        ''
+      )*/
+      .setImage(videoInfo?.image || "")
       .setFooter(
         team || credit, 
         ''

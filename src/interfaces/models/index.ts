@@ -32,11 +32,13 @@ export interface ILevel extends IBaseModel {
   toRate: boolean;
   rerateReason: string;
   rerateNum: string;
-  toBeChangedDiff: number | null;
+  previousDiffId: number | null;
+  isAnnounced: boolean;
   isDeleted: boolean;
   // Associations
   passes?: IPass[];
   difficulty?: IDifficulty;
+  previousDifficulty?: IDifficulty;
 }
 
 // Pass interface
