@@ -57,6 +57,7 @@ export interface IPass extends IBaseModel {
   isWorldsFirst: boolean | null;
   accuracy: number | null;
   scoreV2: number | null;
+  isAnnounced: boolean | null;
   isDeleted: boolean | null;
   // Associations
   level?: ILevel;

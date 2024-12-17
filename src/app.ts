@@ -15,6 +15,10 @@ import {setIO} from './utils/socket';
 import {updateAllPlayerPfps} from './utils/PlayerEnricher';
 import {Cache} from './middleware/cache';
 import {htmlMetaMiddleware} from './middleware/html-meta';
+import { getAnnouncementConfig, formatPings } from './routes/webhooks/channelParser';
+import Pass from './models/Pass';
+import Level from './models/Level';
+import Difficulty from './models/Difficulty';
 
 dotenv.config();
 
@@ -43,6 +47,80 @@ io.on('connection', socket => {
     console.log('Client disconnected:', socket.id, 'Reason:', reason);
   });
 });
+
+async function testChannelParser() {
+  try {
+    // Test different difficulty scenarios
+    const testCases = [
+      { 
+        diffName: 'U5', 
+        isWF: true,
+        accuracy: 1.0  // PP clear
+      },
+      { 
+        diffName: 'U8', 
+        isWF: true,
+        accuracy: 0.95  // Not PP
+      },
+      { 
+        diffName: 'U12', 
+        isWF: false,
+        accuracy: 1.0  // PP clear
+      },
+      { 
+        diffName: 'G5', 
+        isWF: true,
+        accuracy: 1.0  // PP clear
+      },
+      { 
+        diffName: 'G15', 
+        isWF: false,
+        accuracy: 0.98  // Not PP
+      },
+      { 
+        diffName: 'P5', 
+        isWF: false,
+        accuracy: 1.0  // PP clear
+      },
+      { 
+        diffName: 'Q3', 
+        isWF: false,
+        accuracy: 1.0  // PP clear
+      },
+      { 
+        diffName: 'MP', 
+        isWF: false,
+        accuracy: 0.95  // Not PP
+      }
+    ];
+
+    for (const testCase of testCases) {
+      // Create mock difficulty
+      const difficulty = new Difficulty();
+      difficulty.name = testCase.diffName;
+      
+      // Create mock level
+      const level = new Level();
+      level.difficulty = difficulty;
+      
+      // Create mock pass
+      const pass = new Pass();
+      pass.isWorldsFirst = testCase.isWF;
+      pass.level = level;
+      pass.accuracy = testCase.accuracy;
+
+      // Get and format announcement config
+      const config = getAnnouncementConfig(pass);
+      const pings = formatPings(config);
+
+      console.log(`\nTest case: ${testCase.diffName} (WF: ${testCase.isWF}, PP: ${testCase.accuracy === 1.0})`);
+      console.log('Channels:', config.channels);
+      console.log('Pings:', pings);
+    }
+  } catch (error) {
+    console.error('Error testing channel parser:', error);
+  }
+}
 
 // Initialize database and start server
 async function startServer() {
@@ -106,6 +184,8 @@ async function startServer() {
     } catch (pfpError) {
       console.error('Error updating profile pictures:', pfpError);
     }
+
+    //await testChannelParser();
   } catch (error) {
     console.error('Failed to start server:', error);
     throw error;

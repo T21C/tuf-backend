@@ -211,6 +211,8 @@ function createPlaceholderJudgement(id: number) {
     lPerfect: 0,
     lateSingle: 0,
     lateDouble: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 }
 
@@ -425,6 +427,8 @@ async function reloadDatabase() {
           lPerfect: Number(pass.judgements[4]) || 0,
           lateSingle: Number(pass.judgements[5]) || 0,
           lateDouble: Number(pass.judgements[6]) || 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         };
 
         // Get the level's base score
@@ -465,6 +469,7 @@ async function reloadDatabase() {
           isWorldsFirst,
           accuracy,
           scoreV2,
+          isAnnounced: true,
           isDeleted: false,
         });
 

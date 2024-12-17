@@ -1,17 +1,8 @@
-import {DataTypes, Model, Optional} from 'sequelize';
+import {DataTypes, Model} from 'sequelize';
 import sequelize from '../config/db';
 import {IJudgement} from '../interfaces/models';
-import Pass from './Pass';
 
-type JudgementCreationAttributes = Optional<
-  IJudgement,
-  'id' | 'createdAt' | 'updatedAt'
->;
-
-class Judgement
-  extends Model<IJudgement, JudgementCreationAttributes>
-  implements IJudgement
-{
+class Judgement extends Model<IJudgement> implements IJudgement {
   declare id: number;
   declare earlyDouble: number;
   declare earlySingle: number;
@@ -22,9 +13,6 @@ class Judgement
   declare lateDouble: number;
   declare createdAt: Date;
   declare updatedAt: Date;
-
-  // Associations
-  declare pass?: Pass;
 }
 
 Judgement.init(
@@ -32,34 +20,44 @@ Judgement.init(
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      allowNull: false,
+      references: {
+        model: 'passes',
+        key: 'id',
+      },
     },
     earlyDouble: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     earlySingle: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     ePerfect: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     perfect: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     lPerfect: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     lateSingle: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     lateDouble: {
       type: DataTypes.INTEGER,
+      allowNull: false,
       defaultValue: 0,
     },
     createdAt: {

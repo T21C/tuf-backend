@@ -701,7 +701,12 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
     const levels = await Level.findAll({
       where: {
         isAnnounced: false,
-        previousDiffId: null,
+        previousDiffId: {
+          [Op.or]: [
+            { [Op.eq]: null },
+            { [Op.eq]: 0 }
+          ]
+        },
         isDeleted: false
       },
       include: [
@@ -727,7 +732,10 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
       where: {
         isAnnounced: false,
         previousDiffId: {
-          [Op.not]: null
+          [Op.and]: [
+            { [Op.not]: null },
+            { [Op.ne]: 0 }
+          ]
         },
         isDeleted: false
       },
@@ -751,7 +759,7 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
   }
 });
 
-// Mark levels as announced
+// Mark levels as announced - single endpoint for all announcement operations
 router.post('/announce', async (req: Request, res: Response) => {
   try {
     const { levelIds } = req.body;
@@ -777,5 +785,30 @@ router.post('/announce', async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Failed to mark levels as announced' });
   }
 });
+
+// Mark a single level as announced
+router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+
+    const level = await Level.findByPk(levelId);
+    if (!level) {
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    await level.update({ isAnnounced: true });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error marking level as announced:', error);
+    return res.status(500).json({ 
+      error: 'Failed to mark level as announced',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 
 export default router;

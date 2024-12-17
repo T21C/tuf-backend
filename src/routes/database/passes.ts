@@ -666,31 +666,41 @@ router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req:
 // Add new route for getting pass by ID as a list
 router.get('/byId/:id', async (req: Request, res: Response) => {
   try {
+    const passId = parseInt(req.params.id);
+    if (!passId || isNaN(passId) || passId <= 0) {
+      return res.status(400).json({ error: 'Invalid pass ID' });
+    }
+
     const pass = await Pass.findOne({
       where: {
-        id: parseInt(req.params.id),
-        '$player.isBanned$': false,
+        id: passId,
+        isDeleted: false,
       },
       include: [
         {
           model: Player,
           as: 'player',
           attributes: ['name', 'country', 'isBanned'],
+          where: { isBanned: false },
+          required: true,
         },
         {
           model: Level,
           as: 'level',
+          required: true,
           attributes: ['song', 'artist', 'baseScore'],
           include: [
             {
               model: Difficulty,
               as: 'difficulty',
+              required: true,
             },
           ],
         },
         {
           model: Judgement,
           as: 'judgements',
+          required: false,
         },
       ],
     });
@@ -703,6 +713,108 @@ router.get('/byId/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching pass by ID:', error);
     return res.status(500).json({error: 'Failed to fetch pass'});
+  }
+});
+
+// Get unannounced passes
+router.get('/unannounced/new', async (req: Request, res: Response) => {
+  try {
+    const passes = await Pass.findAll({
+      where: {
+        isAnnounced: false,
+        isDeleted: false,
+      },
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['name', 'country', 'isBanned'],
+          where: { isBanned: false },
+          required: true,
+        },
+        {
+          model: Level,
+          as: 'level',
+          required: true,
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              required: true,
+            },
+          ],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+          required: false,
+        },
+      ],
+      order: [['updatedAt', 'DESC']]
+    });
+
+    return res.json(passes);
+  } catch (error) {
+    console.error('Error fetching unannounced passes:', error);
+    return res.status(500).json({ error: 'Failed to fetch unannounced passes' });
+  }
+});
+
+// Mark passes as announced
+router.post('/announce', async (req: Request, res: Response) => {
+  try {
+    const { passIds } = req.body;
+    
+    if (!Array.isArray(passIds) || !passIds.every(id => Number.isInteger(id) && id > 0)) {
+      return res.status(400).json({ error: 'passIds must be an array of valid IDs' });
+    }
+
+    await Pass.update(
+      { isAnnounced: true },
+      {
+        where: {
+          id: {
+            [Op.in]: passIds
+          },
+          isDeleted: false
+        }
+      }
+    );
+
+    return res.json({ success: true, message: 'Passes marked as announced' });
+  } catch (error) {
+    console.error('Error marking passes as announced:', error);
+    return res.status(500).json({ error: 'Failed to mark passes as announced' });
+  }
+});
+
+// Mark a single pass as announced
+router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
+  try {
+    const passId = parseInt(req.params.id);
+    if (!passId || isNaN(passId) || passId <= 0) {
+      return res.status(400).json({ error: 'Invalid pass ID' });
+    }
+
+    const pass = await Pass.findOne({
+      where: {
+        id: passId,
+        isDeleted: false
+      }
+    });
+    
+    if (!pass) {
+      return res.status(404).json({ error: 'Pass not found' });
+    }
+
+    await pass.update({ isAnnounced: true });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error marking pass as announced:', error);
+    return res.status(500).json({ 
+      error: 'Failed to mark pass as announced',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 

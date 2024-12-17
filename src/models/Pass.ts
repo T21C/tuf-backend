@@ -31,6 +31,7 @@ class Pass
   declare accuracy: number | null;
   declare scoreV2: number | null;
   declare isDeleted: boolean | null;
+  declare isAnnounced: boolean | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -133,6 +134,11 @@ Pass.init(
       allowNull: true,
       defaultValue: false,
     },
+    isAnnounced: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: false,
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -150,6 +156,7 @@ Pass.init(
       {fields: ['playerId']},
       {fields: ['isWorldsFirst']},
       {fields: ['isDeleted']},
+      {fields: ['isAnnounced']},
     ],
   },
 );

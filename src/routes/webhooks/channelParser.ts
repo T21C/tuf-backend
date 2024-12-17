@@ -1,0 +1,136 @@
+import Pass from '../../models/Pass';
+import Level from '../../models/Level';
+import Difficulty from '../../models/Difficulty';
+
+interface AnnouncementConfig {
+  channels: string[];
+  pings: {
+    [key: string]: string; // channel name -> ping type
+  };
+}
+
+// Difficulty name patterns
+const PATTERN = {
+  P: /^P\d+$/,  // P1-P20
+  G: /^G\d+$/,  // G1-G20
+  U: /^U\d+$/,  // U1-U20
+  Q: /^Q[234](\+)?$/,  // Q2, Q2+, Q3, Q3+, Q4
+  SPECIAL: /^(MP|Grande|MA|Bus|Qq|-2|-21)$/
+};
+
+function getDifficultyType(diffName: string): string {
+  if (PATTERN.P.test(diffName)) return 'P';
+  if (PATTERN.G.test(diffName)) return 'G';
+  if (PATTERN.U.test(diffName)) return 'U';
+  if (PATTERN.Q.test(diffName)) return 'Q';
+  if (PATTERN.SPECIAL.test(diffName)) return 'SPECIAL';
+  return 'UNKNOWN';
+}
+
+function getDifficultyNumber(diffName: string): number {
+  const match = diffName.match(/\d+/);
+  return match ? parseInt(match[0]) : 0;
+}
+
+function isPurePerect(pass: Pass): boolean {
+  return pass.accuracy === 1.0;
+}
+
+export function getAnnouncementConfig(pass: Pass): AnnouncementConfig {
+  const difficulty = pass.level?.difficulty;
+  if (!difficulty || difficulty.name === "-2") {
+    return { channels: [], pings: {} };
+  }
+
+  const diffName = difficulty.name;
+  const diffType = getDifficultyType(diffName);
+  const diffNumber = getDifficultyNumber(diffName);
+  const isWF = pass.isWorldsFirst;
+  const isPP = isPurePerect(pass);
+
+  const config: AnnouncementConfig = {
+    channels: [],
+    pings: {
+    }
+  };
+
+  // Add channels based on flags and determine their pings
+  if (isWF) {
+    config.channels.push('wf-clears');
+    if (diffName !== "P") {
+      config.pings['wf-clears'] = '@wf ping';
+    }
+  }
+
+  if (isPP) {
+    config.channels.push('pp-clears');
+    if (diffName !== "P") {
+      config.pings['pp-clears'] = '@pp ping';
+    }
+  }
+
+  if (diffType === 'U' || diffName === 'MP' || diffName === 'Grande' || diffName === 'MA' || diffName === 'Bus') {
+    config.channels.push('universal-clears');
+  }
+
+  // Determine pings based on difficulty and flags
+  switch (diffType) {
+    case 'P':
+      // P levels don't get pings
+      config.pings['universal-clears'] = '';
+      break;
+    
+    case 'G':
+      // G levels only get WF pings (handled above)
+      break;
+    
+    case 'U':
+    if (pass.accuracy === 1.0) {
+        config.pings['universal-clears'] = '@everyone';
+    }
+      // U1-U6: Universal ping for clear
+      else if (diffNumber <= 6) {
+        config.pings['universal-clears'] = '@universal ping';
+      }
+      // U7-U9: Universal ping for clear, WF gets everyone
+      else if (diffNumber <= 9) {
+        config.pings['universal-clears'] = isWF ? '@everyone' : '@universal ping';
+      }
+      // U10: Universal ping for clear, WF gets everyone
+      else if (diffNumber === 10) {
+        config.pings['universal-clears'] = isWF ? '@everyone' : '@universal ping';
+      }
+      // U11+: Everyone ping for everything
+      else {
+        config.pings['universal-clears'] = '@everyone';
+      }
+      break;
+    
+    case 'Q':
+      config.pings['universal-clears'] = '@everyone';
+      break;
+    
+    case 'SPECIAL':
+      switch (diffName) {
+        case 'MP':
+        case 'Grande':
+        case 'MA':
+        case 'Bus':
+          config.pings['universal-clears'] = '@universal ping';
+          break;
+        case '-21':
+          config.pings['universal-clears'] = '@everyone';
+          break;
+        default:
+          config.pings['universal-clears'] = '';
+      }
+      break;
+  }
+
+  return config;
+}
+
+// Helper function to format pings for Discord
+export function formatPings(config: AnnouncementConfig): { [key: string]: string } {
+  return config.pings;
+}

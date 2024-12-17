@@ -13,10 +13,7 @@ export const PATHS = {
 export const SUPER_ADMINS = [
   'teo_72',
   'v0w4n',
-  'soulengine',
-  'harliefox',
   'sjk04',
-  'soft.bunner',
   'dehznik',
   'willtrm',
 ];

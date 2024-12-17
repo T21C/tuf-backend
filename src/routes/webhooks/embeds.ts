@@ -4,7 +4,6 @@ import Pass from "../../models/Pass";
 import { MessageBuilder } from "../../webhook";
 import { Score, calculateRankedScore } from "../../misc/PlayerStatsCalculator";
 import { getVideoDetails } from "../../utils/videoDetailParser";
-import { log } from "console";
 
 
 export async function getDifficultyEmojis(levelInfo: Level | null, rerate: boolean = false): Promise<string | null> {
@@ -43,7 +42,6 @@ export async function getDifficultyEmojis(levelInfo: Level | null, rerate: boole
       const previousDifficulty = difficulties.find(difficulty => difficulty.name === level.previousDifficulty?.name);
       let diffString = '';
       let previousDiffString = '';
-      console.log(level.difficulty?.name, level.previousDifficulty?.name);
       if (qList.includes(level.difficulty?.name || '')) {
         const q = qMap[`${level.difficulty?.name || ''}` as keyof typeof qMap];
         const emoji = q.map(emoji => 
@@ -130,7 +128,6 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
   const vfxer = level?.vfxer ? level?.vfxer : null;
   const videoInfo = await getVideoDetails(level.vidLink).then(details => details);
 
-  console.log(team, charter, creator, vfxer);
   const embed = new MessageBuilder()
       .setColor('#000000')
       //.setAuthor('New level!', '', '')
@@ -171,7 +168,6 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     const vfxer = level?.vfxer ? level?.vfxer : null;
     const videoInfo = await getVideoDetails(level.vidLink).then(details => details);
 
-    console.log(team, charter, creator, vfxer);
     const embed = new MessageBuilder()
         .setColor('#000000')
         //.setAuthor('New level!', '', '')
@@ -284,7 +280,5 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
         ''
       )
       .setTimestamp();
-    console.log("embed");
-    console.log(JSON.stringify(embed.getJSON(), null, 2));
     return embed;
   }
