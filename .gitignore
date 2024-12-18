@@ -140,6 +140,7 @@ playerlist.json
 pfpList.json
 rankList.json
 cache/
+backups/
 __pycache__/
 
 # ts builds
