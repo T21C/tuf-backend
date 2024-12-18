@@ -347,7 +347,16 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         }
       }
     }
+    let previousDiffId = level.previousDiffId;
+    if (req.body.diffId && req.body.diffId !== level.diffId) {
+      previousDiffId = level.diffId;
+    }
 
+
+    let isAnnounced = level.isAnnounced || req.body.toRate;
+    if (isAnnounced && level.toRate && !req.body.toRate) {
+      isAnnounced = false;
+    }
     // Prepare update data with proper null handling
     const updateData = {
       song: req.body.song || undefined,
@@ -359,7 +368,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       diffId: req.body.diffId || undefined,
       // Explicitly handle baseScore to allow null values
       baseScore: baseScore === '' ? null : baseScore,
-      vidLink: req.body.vidLink || undefined,
+      videoLink: req.body.videoLink || undefined,
       dlLink: req.body.dlLink || undefined,
       workshopLink: req.body.workshopLink || undefined,
       publicComments: req.body.publicComments || undefined,
@@ -367,8 +376,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         typeof req.body.toRate === 'boolean' ? req.body.toRate : level.toRate,
       rerateReason: req.body.rerateReason || undefined,
       rerateNum: req.body.rerateNum || undefined,
+      isAnnounced: req.body.isAnnounced !== undefined ? req.body.isAnnounced : isAnnounced,
+      previousDiffId: req.body.previousDiffId !== undefined ? req.body.previousDiffId : previousDiffId,
     };
 
+    console.log(updateData);
     // Update level
     await Level.update(updateData, {
       where: {id: levelId},

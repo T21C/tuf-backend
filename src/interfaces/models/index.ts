@@ -25,7 +25,7 @@ export interface ILevel extends IBaseModel {
   baseScore: number | null;
   isCleared: boolean;
   clears: number;
-  vidLink: string;
+  videoLink: string;
   dlLink: string;
   workshopLink: string;
   publicComments: string;
@@ -48,12 +48,11 @@ export interface IPass extends IBaseModel {
   playerId: number;
   feelingRating: string | null;
   vidTitle: string | null;
-  vidLink: string | null;
+  videoLink: string | null;
   vidUploadTime: Date | null;
   is12K: boolean | null;
   is16K: boolean | null;
   isNoHoldTap: boolean | null;
-  isLegacyPass: boolean | null;
   isWorldsFirst: boolean | null;
   accuracy: number | null;
   scoreV2: number | null;
@@ -138,4 +137,45 @@ export interface IDifficulty extends IBaseModel {
   legacyEmoji: string | null;
   emoji: string;
   sortOrder: number;
+}
+
+// PassSubmission interfaces
+export interface IPassSubmissionJudgements {
+  passSubmissionId: number;
+  earlyDouble: number;
+  earlySingle: number;
+  ePerfect: number;
+  perfect: number;
+  lPerfect: number;
+  lateSingle: number;
+  lateDouble: number;
+}
+
+export interface IPassSubmissionFlags {
+  passSubmissionId: number;
+  is12K: boolean;
+  isNoHoldTap: boolean;
+  is16K: boolean;
+}
+
+export interface IPassSubmission extends IBaseModel {
+  levelId: number;
+  speed: number;
+  passer: string;
+  feelingDifficulty: string;
+  title: string;
+  videoLink: string;
+  rawTime: Date;
+  submitterDiscordUsername?: string;
+  submitterEmail?: string;
+  submitterDiscordId?: string;
+  submitterDiscordPfp?: string;
+  status: 'pending' | 'approved' | 'declined';
+  assignedPlayerId?: number | null;
+  
+  // Associations
+  assignedPlayer?: IPlayer;
+  judgements?: IPassSubmissionJudgements;
+  flags?: IPassSubmissionFlags;
+  level?: ILevel;
 }

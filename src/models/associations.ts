@@ -103,4 +103,19 @@ export function initializeAssociations() {
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });
+
+  // Add PassSubmission to Level association
+  PassSubmission.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Level.hasMany(PassSubmission, {
+    foreignKey: 'levelId',
+    as: 'submissions',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
 }

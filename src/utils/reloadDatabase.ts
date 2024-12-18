@@ -27,7 +27,7 @@ interface RawLevel {
   baseScore: number;
   isCleared: boolean;
   clears: number;
-  vidLink: string;
+  videoLink: string;
   dlLink: string;
   workshopLink: string;
   publicComments: string;
@@ -40,11 +40,10 @@ interface RawPass {
   player: string;
   feelingRating: string;
   vidTitle: string;
-  vidLink: string;
+  videoLink: string;
   vidUploadTime: string;
   is12K: boolean;
   isNoHoldTap: boolean;
-  isLegacyPass: boolean;
   judgements: number[];
   accuracy: number;
   scoreV2: number;
@@ -188,7 +187,7 @@ function createPlaceholderLevel(id: number) {
     baseScore: 0,
     isCleared: false,
     clears: 0,
-    vidLink: '',
+    videoLink: '',
     dlLink: '',
     workshopLink: '',
     publicComments: 'Placeholder level for missing ID',
@@ -354,7 +353,7 @@ async function reloadDatabase() {
         baseScore,
         isCleared: level.isCleared || false,
         clears: level.clears || 0,
-        vidLink: level.vidLink || '',
+        videoLink: level.videoLink || '',
         dlLink: level.dlLink || '',
         workshopLink: level.workshopLink || '',
         publicComments: level.publicComments || '',
@@ -406,11 +405,21 @@ async function reloadDatabase() {
     // Sort passes by ID to process them in order
     passes.sort((a, b) => a.id - b.id);
 
+    let lastValidUploadTime = new Date('2000-01-01 00:00:00'); // Default fallback
+
     for (const pass of passes) {
       const playerId = playerNameToId.get(pass.player);
       const newLevelId = levelIdMapping.get(pass.levelId);
 
       if (playerId && typeof newLevelId === 'number') {
+        // Update lastValidUploadTime if this pass has a valid upload time
+        if (pass.vidUploadTime) {
+          const uploadTime = new Date(pass.vidUploadTime);
+          if (uploadTime instanceof Date && !isNaN(uploadTime.getTime())) {
+            lastValidUploadTime = uploadTime;
+          }
+        }
+
         // Fill any gaps with placeholder judgements
         while (nextJudgementId < pass.id) {
           judgementDocs.push(createPlaceholderJudgement(nextJudgementId));
@@ -418,6 +427,17 @@ async function reloadDatabase() {
         }
 
         // Create judgements object
+        // Check if all judgements are integers
+        if (pass.judgements.some(j => !Number.isInteger(j))) {
+          pass.judgements[0] = 0;
+          pass.judgements[1] = 0;
+          pass.judgements[2] = 5;
+          pass.judgements[3] = 40;
+          pass.judgements[4] = 5; 
+          pass.judgements[5] = 0;
+          pass.judgements[6] = 0;
+        }
+        
         const judgements = {
           id: pass.id,
           earlyDouble: Number(pass.judgements[0]) || 0,
@@ -460,12 +480,11 @@ async function reloadDatabase() {
           feelingRating:
             feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
-          vidLink: pass.vidLink,
-          vidUploadTime: new Date(pass.vidUploadTime),
+          videoLink: pass.videoLink,
+          vidUploadTime: pass.vidUploadTime ? new Date(pass.vidUploadTime) : lastValidUploadTime,
           is12K: pass.is12K,
           is16K: false,
           isNoHoldTap: pass.isNoHoldTap,
-          isLegacyPass: pass.isLegacyPass,
           isWorldsFirst,
           accuracy,
           scoreV2,

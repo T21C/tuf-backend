@@ -1,3 +1,4 @@
+import { IPassSubmission } from '../interfaces/models/index.js';
 import {calcAcc, IJudgements, tilecount} from './CalcAcc.js';
 
 const gmConst = 315;
@@ -19,7 +20,7 @@ const getScoreV2Mtp = (inputs: IJudgements) => {
   const tpDeduc = (startDeduc + endDeduc) / 2;
   const am = Math.max(0, misses - Math.floor(tiles / gmConst));
   if (am === 0) {
-    return 1.1;
+    return 1;
   } else if (am <= start) {
     return 1 - startDeduc / 100;
   }
@@ -114,12 +115,45 @@ interface PassData {
   isNoHoldTap: boolean;
 }
 
-export function getScoreV2(passData: PassData, levelData: LevelData): number {
-  const inputs: IJudgements = passData.judgements;
-  const scoreOrig = getScore(passData, levelData);
-  let mtp = getScoreV2Mtp(inputs);
-  if (passData.isNoHoldTap === true) {
-    mtp *= 0.9;
+// Declare the overloads
+export function getScoreV2(passData: PassData, levelData: LevelData): number;
+export function getScoreV2(passSubmission: IPassSubmission, levelData: LevelData): number;
+// Implement the function with a union type
+export function getScoreV2(
+  input: PassData | IPassSubmission, 
+  levelData: LevelData
+): number {
+  // Type guard to determine which type we're dealing with
+  const isPassSubmission = (input: PassData | IPassSubmission): input is IPassSubmission => 
+    'judgements' in input && 'flags' in input;
+
+  if (isPassSubmission(input)) {
+    const inputs: IJudgements = input.judgements || {
+      earlyDouble: 0,
+      earlySingle: 0,
+      ePerfect: 5,
+      perfect: 40,
+      lPerfect: 5,
+      lateSingle: 0,
+      lateDouble: 0
+    };
+    const passData = {
+      speed: input.speed || 1,
+      judgements: inputs,
+      isNoHoldTap: input.flags?.isNoHoldTap || false
+    }
+    const scoreOrig = getScore(passData, levelData);
+    let mtp = getScoreV2Mtp(inputs);
+    if (input.flags?.isNoHoldTap === true) {
+      mtp *= 0.9;
+    }
+    return scoreOrig * mtp;
+  } else {
+    const scoreOrig = getScore(input, levelData);
+    let mtp = getScoreV2Mtp(input.judgements);
+    if (input.isNoHoldTap === true) {
+      mtp *= 0.9;
+    }
+    return scoreOrig * mtp;
   }
-  return scoreOrig * mtp;
 }

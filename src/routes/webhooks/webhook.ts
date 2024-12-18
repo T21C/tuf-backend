@@ -9,9 +9,16 @@ import Level from '../../models/Level';
 import {Webhook, MessageBuilder} from '../../webhook/index';
 import Player from '../../models/Player.js';
 import { Op } from 'sequelize';
-import { createClearEmbed, createNewLevelEmbed, createRerateEmbed} from './embeds';
+import { createClearEmbed, createNewLevelEmbed, createRerateEmbed, formatNumber, formatString, trim, wrap} from './embeds';
 import Judgement from '../../models/Judgement';
 import { getAnnouncementConfig } from './channelParser';
+import { PassSubmission, PassSubmissionFlags, PassSubmissionJudgements } from '../../models/PassSubmission';
+import { getVideoDetails } from '../../utils/videoDetailParser';
+import LevelSubmission from '../../models/LevelSubmission';
+import { getScoreV2 } from '../../misc/CalcScore';
+import { ILevel } from '../../interfaces/models';
+import { IPassSubmission } from '../../interfaces/models';
+import { calcAcc, IJudgements } from '../../misc/CalcAcc';
 
 const router: Router = express.Router();
 
@@ -45,7 +52,125 @@ async function processBatches<T>(
   }
 }
 
-router.post('/testhook/passes', async (req: Request, res: Response) => {
+export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
+  const hook = new Webhook(process.env.LEVEL_SUBMISSION_HOOK);
+  hook.setUsername('TUF Level Submission Hook');
+  hook.setAvatar(placeHolder);
+
+  if (!levelSubmission) return new MessageBuilder().setDescription('No level info available');
+  const level = levelSubmission.dataValues as LevelSubmission;
+
+  const song = level?.song || null;
+  const diff = level?.diff || null;
+  const artist = level?.artist || null;
+  const team = level?.team || null;
+  const charter = level?.charter || null;
+  const vfxer = level?.vfxer || null;
+  const videoLink = level?.videoLink || null;
+  const videoInfo = videoLink ? await getVideoDetails(videoLink).then(details => details) : null;
+  const directDL = level?.directDL || null;
+  const wsLink = level?.wsLink || null;
+  const submitterDiscordUsername = level?.submitterDiscordUsername || null;
+  const submitterDiscordPfp = level?.submitterDiscordPfp || null;
+  const submitterDiscordId = level?.submitterDiscordId || null;
+
+
+  const embed = new MessageBuilder()
+      .setColor('#000000')
+      .setAuthor(`New level submission`, submitterDiscordPfp || placeHolder, '')
+    .setTitle(`${song || 'Unknown Song'} — ${artist || 'Unknown Artist'}`)
+    //.setThumbnail(submitterDiscordPfp || placeHolder)
+    .addField("", `<@${submitterDiscordId}>`, false)
+    .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
+    .addField("", "", false)
+    
+    if (team) embed
+      .addField('', `Team\n**${formatString(team)}**`, true)
+    if (vfxer) embed
+      .addField('', `VFX\n**${formatString(vfxer)}**`, true);
+    if (charter) embed
+      .addField('', `Chart\n**${formatString(charter)}**`, true);
+    
+    embed.addField('', `<:1384060:1317995999355994112>\n**${videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${videoLink})` : 'No video link'}**`, false)
+    /*.setFooter(
+      team || credit, 
+      ''
+    )*/
+    //.setImage(videoInfo?.image || "")
+    .setTimestamp();
+
+
+
+  hook.send(embed);
+  return embed;
+}
+
+export async function passSubmissionHook(passSubmission: PassSubmission) {
+  const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
+  hook.setUsername('TUF Pass Submission Hook');
+  hook.setAvatar(placeHolder);
+    if (!passSubmission) return new MessageBuilder().setDescription('No pass info available');
+    const pass = passSubmission.dataValues;
+    const level = pass.level;
+    
+    const score = getScoreV2(pass as IPassSubmission, level as ILevel)
+    const accuracy = calcAcc(pass.judgements as IJudgements)
+
+    const videoInfo = pass?.videoLink ? await getVideoDetails(pass.videoLink).then(details => details) : null;
+
+    const levelLink = `${process.env.CLIENT_URL}/levels/${level?.id}`;
+
+    const showAddInfo = pass.flags?.is12K || pass.flags?.is16K || pass.flags?.isNoHoldTap;
+    const additionalInfo = (
+    `${pass.flags?.is12K ? '12K  |  ' : ''}` +
+    `${pass.flags?.is16K ? '16K  |  ' : ''}` +
+    `${pass.flags?.isNoHoldTap ? 'No Hold Tap  |  ' : ''}`
+    ).replace(/\|\s*$/, '');
+    const judgementLine = pass.judgements ? 
+      `\`\`\`ansi\n[2;31m${pass.judgements.earlyDouble}[0m [2;33m${pass.judgements.earlySingle}[0m [2;32m${pass.judgements.ePerfect}[0m [1;32m${pass.judgements.perfect}[0m [2;32m${pass.judgements.lPerfect}[0m [2;33m${pass.judgements.lateSingle}[0m [2;31m${pass.judgements.lateDouble}[0m\n\`\`\`\n` : '';
+    
+      const team = level?.team ? `Level by ${level?.team}` : null;
+      const credit = `Chart by ${trim(level?.charter || 'Unknown', 25)}${level?.vfxer ? ` | VFX by ${trim(level?.vfxer || 'Unknown', 25)}` : ''}`;
+
+    const embed = new MessageBuilder()
+      .setAuthor(
+        `${trim(level?.song || 'Unknown Song', 27)} — ${trim(level?.artist || 'Unknown Artist', 30)}`,
+        level?.difficulty?.icon || '',
+        levelLink
+      )
+      .setTitle(`New clear submission ${trim(pass.submitterDiscordUsername || 'Unknown Player', 25)}`)
+      .setColor('#000000')
+      .setThumbnail(
+        pass.submitterDiscordPfp ? 
+        pass.submitterDiscordPfp : 
+        placeHolder
+      )
+      .addField("", "", false)
+      .addField('Player', `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || 'Unknown Player'}**`, true)
+      .addField("", "", false)
+
+      .addField('Feeling Rating', `**${pass.feelingDifficulty || 'None'}**`, true)
+      .addField('Score', `**${formatNumber(score || 0)}**`, true)
+      .addField("", "", false)
+
+      .addField('Accuracy', `**${((accuracy || 0.95) * 100).toFixed(2)}%**`, true)
+      .addField('<:1384060:1317995999355994112>', `**[Go to video](${pass.videoLink})**`, true)
+      .addField("", "", false)
+      .addField('', judgementLine, false)
+      .addField(showAddInfo ? additionalInfo : '', '', false)
+      //.addField('', `**${pass.videoLink ? `[${videoInfo?.title || 'No title'}](${pass.videoLink})` : 'No video link'}**`, true)
+      //.setImage(videoInfo?.image || "")
+      .setFooter(
+        team || credit, 
+        ''
+      )
+      .setTimestamp();
+  hook.send(embed);
+  return embed;
+}
+
+
+router.post('/passes', async (req: Request, res: Response) => {
   try {
     const { passIds } = req.body;
     
@@ -148,14 +273,14 @@ router.post('/testhook/passes', async (req: Request, res: Response) => {
       if (universalPingPasses.length > 0) {
         const embeds = await Promise.all(universalPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('# New Universal clears! @universal ping');
+        if (isFirstBatch) combinedEmbed.setText('<@&1041009420836016208>');
         await uClearHook.send(combinedEmbed);
       }
 
       if (universalEveryonePasses.length > 0) {
         const embeds = await Promise.all(universalEveryonePasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('# New Universal clears! @everyone');
+        if (isFirstBatch) combinedEmbed.setText('@everyone');
         await uClearHook.send(combinedEmbed);
       }
 
@@ -163,14 +288,14 @@ router.post('/testhook/passes', async (req: Request, res: Response) => {
       if (wfPingPasses.length > 0) {
         const embeds = await Promise.all(wfPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('# New World\'s First clears! @wf ping');
+        if (isFirstBatch) combinedEmbed.setText('<@&1101885999212138557>');
         await wfClearHook.send(combinedEmbed);
       }
 
       if (wfNoPingPasses.length > 0) {
         const embeds = await Promise.all(wfNoPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('# New World\'s First clears!');
+        if (isFirstBatch) combinedEmbed.setText('');
         await wfClearHook.send(combinedEmbed);
         await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -179,14 +304,14 @@ router.post('/testhook/passes', async (req: Request, res: Response) => {
       if (ppPingPasses.length > 0) {
         const embeds = await Promise.all(ppPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('# New Pure Perfect clears! @pp ping');
+        if (isFirstBatch) combinedEmbed.setText('<@&1268895982352072769>');
         await ppClearHook.send(combinedEmbed);
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       if (ppNoPingPasses.length > 0) {
         const embeds = await Promise.all(ppNoPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('# New Pure Perfect clears!');
+        if (isFirstBatch) combinedEmbed.setText('');
         await ppClearHook.send(combinedEmbed);
         await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -202,7 +327,7 @@ router.post('/testhook/passes', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/testhook/levels', async (req: Request, res: Response) => {
+router.post('/levels', async (req: Request, res: Response) => {
   try {
     const { levelIds } = req.body;
     
@@ -253,7 +378,7 @@ router.post('/testhook/levels', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/testhook/rerates', async (req: Request, res: Response) => {
+router.post('/rerates', async (req: Request, res: Response) => {
   try {
     const { levelIds } = req.body;
     
@@ -306,6 +431,45 @@ router.post('/testhook/rerates', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error)
     });
   }
+});
+
+router.get('/testhook/submission/level', async (req: Request, res: Response) => {
+  const level = await LevelSubmission.findOne({
+    where: {id: 2},
+  });
+  if (!level) return res.status(404).json({error: 'Level submission not found'});
+  await levelSubmissionHook(level);
+  return res.json({success: true});
+});
+
+
+router.get('/testhook/submission/pass', async (req: Request, res: Response) => {
+  const pass = await PassSubmission.findOne({
+    where: {id: 1},
+    include: [
+      {
+        model: Level,
+        as: 'level',
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+        ],
+      },
+      {
+        model: PassSubmissionJudgements,
+        as: 'judgements',
+      },
+      {
+        model: PassSubmissionFlags,
+        as: 'flags',
+      }
+    ],
+  });
+  if (!pass) return res.status(404).json({error: 'Pass submission not found'});
+  await passSubmissionHook(pass);
+  return res.json({success: true});
 });
 
 export default router;

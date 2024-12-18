@@ -19,6 +19,8 @@ import { getAnnouncementConfig, formatPings } from './routes/webhooks/channelPar
 import Pass from './models/Pass';
 import Level from './models/Level';
 import Difficulty from './models/Difficulty';
+import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -130,7 +132,7 @@ async function startServer() {
     console.log('Database connection established.');
 
     // Then initialize if needed
-    if (process.env.INIT_DB === 'true') {
+    if (process.env.INIT_DB === '') {
       console.log('Initializing database...');
       await initializeDatabase();
     }
@@ -154,9 +156,7 @@ async function startServer() {
     app.use('/v2/data', databaseRoutes());
     app.use('/v2/webhook', webhookRoutes);
     app.get('/', (req, res) => {
-      res.send(
-        '<img src="' + gato + '" style="width: 50%; height: 50%;" alt="">',
-      );
+      res.send(fs.readFileSync(path.join('src', 'index.html'), 'utf8'));
     });
 
     // Start the server

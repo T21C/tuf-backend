@@ -335,7 +335,7 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       return res.status(404).send('Difficulty not found');
     }
 
-    const details = await getVideoDetails(level.dataValues.vidLink);
+    const details = await getVideoDetails(level.dataValues.videoLink);
     if (!details || !details.image) {
       return res.status(404).send('Video details not found');
     }

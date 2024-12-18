@@ -76,11 +76,11 @@ export async function getDifficultyEmojis(levelInfo: Level | null, rerate: boole
       }
   }
   
-function trim(str: string, maxLength: number): string {
+export function trim(str: string, maxLength: number): string {
     if (str.length <= maxLength) return str;
     return str.slice(0, maxLength - 3) + '...';
   }
-  function wrap(str: string, maxLength: number): string {
+  export function wrap(str: string, maxLength: number): string {
     if (str.length <= maxLength) return str;
     
     const chunks: string[] = [];
@@ -105,10 +105,10 @@ function trim(str: string, maxLength: number): string {
   
     return chunks.join('\n');
   }
-  function formatNumber(num: number): string {
+  export function formatNumber(num: number): string {
     return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
   }
-  function formatString(str: string): string {
+  export function formatString(str: string): string {
     return str.replace(/\n/g, ' ');
   }
 
@@ -126,7 +126,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
   const charter = level?.charter ? level?.charter : null;
   const creator = level?.creator ? level?.creator : null;
   const vfxer = level?.vfxer ? level?.vfxer : null;
-  const videoInfo = await getVideoDetails(level.vidLink).then(details => details);
+  const videoInfo = await getVideoDetails(level.videoLink).then(details => details);
 
   const embed = new MessageBuilder()
       .setColor('#000000')
@@ -138,15 +138,15 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     .addField("", "", false)
     
     if (team) embed
-      .addField('Team', `**${formatString(team)}**`, true)
+      .addField('', `Team\n**${formatString(team)}**`, true)
     if (vfxer) embed
-      .addField('', `VFXer\n**${formatString(vfxer)}**`, true);
+      .addField('', `VFX\n**${formatString(vfxer)}**`, true);
     if (charter) embed
-      .addField('', `Charter\n**${formatString(charter)}**`, true);
+      .addField('', `Chart\n**${formatString(charter)}**`, true);
     else if (creator) embed
       .addField('', `Creator\n**${formatString(creator)}**`, true);
     
-    embed.addField('', `**${level.vidLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.vidLink})` : 'No video link'}**`, false)
+    embed.addField('', `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`, false)
     /*.setFooter(
       team || credit, 
       ''
@@ -166,7 +166,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     const charter = level?.charter ? level?.charter : null;
     const creator = level?.creator ? level?.creator : null;
     const vfxer = level?.vfxer ? level?.vfxer : null;
-    const videoInfo = await getVideoDetails(level.vidLink).then(details => details);
+    const videoInfo = await getVideoDetails(level.videoLink).then(details => details);
 
     const embed = new MessageBuilder()
         .setColor('#000000')
@@ -178,15 +178,15 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .addField("", "", false)
       
       if (team) embed
-        .addField('Team', `**${formatString(team)}**`, true)
+        .addField('', `Team\n**${formatString(team)}**`, true)
       if (vfxer) embed
-        .addField('', `VFXer\n**${formatString(vfxer)}**`, true);
+        .addField('', `VFX\n**${formatString(vfxer)}**`, true);
       if (charter) embed
-        .addField('', `Charter\n**${formatString(charter)}**`, true);
+        .addField('', `Chart\n**${formatString(charter)}**`, true);
       else if (creator) embed
         .addField('', `Creator\n**${formatString(creator)}**`, true);
       
-      embed.addField('', `**${level.vidLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.vidLink})` : 'No video link'}**`, false)
+      embed.addField('', `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`, false)
       /*.setFooter(
         team || credit, 
         ''
@@ -224,7 +224,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     })) || []);
 
 
-    const videoInfo = pass?.vidLink ? await getVideoDetails(pass.vidLink).then(details => details) : null;
+    const videoInfo = pass?.videoLink ? await getVideoDetails(pass.videoLink).then(details => details) : null;
 
     const showAddInfo = pass.isWorldsFirst || pass.is12K || pass.is16K || pass.isNoHoldTap;
     const additionalInfo = (
@@ -243,7 +243,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .setAuthor(
         `${trim(level?.song || 'Unknown Song', 27)}\n— ${trim(level?.artist || 'Unknown Artist', 30)}`,
         pass.level?.difficulty?.icon || '',
-        level?.vidLink || ''
+        level?.videoLink || ''
       )
       .setTitle(`Clear by ${trim(pass.player?.name || 'Unknown Player', 25)}`)
       .setColor('#000000')
@@ -265,11 +265,11 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .addField("", "", false)
 
       .addField('Accuracy', `**${((pass.accuracy || 0.95) * 100).toFixed(2)}%**`, true)
-      .addField('<:1384060:1317995999355994112>', `**[Go to video](${pass.vidLink})**`, true)
+      .addField('<:1384060:1317995999355994112>', `**[Go to video](${pass.videoLink})**`, true)
       .addField("", "", false)
       .addField('', judgementLine, false)
       .addField(showAddInfo ? additionalInfo : '', '', false)
-      .addField('', `**${pass.vidLink ? `[${videoInfo?.title || 'No title'}](${pass.vidLink})` : 'No video link'}**`, true)
+      .addField('', `**${pass.videoLink ? `[${videoInfo?.title || 'No title'}](${pass.videoLink})` : 'No video link'}**`, true)
       /*.setFooter(
         team || credit, 
         ''

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gatito</title>
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        .gatito {
+            width: 50%;
+            height: 50%;
+            animation-duration: 1s;
+            animation-name: scale-easeOutElastic;
+            animation-timing-function: ease-out;
+            animation-direction:normal;
+            animation-iteration-count: 1;
+        }
+        @keyframes scale-easeOutElastic {
+	0% {
+		transform: scale(0, 0);
+	}
+
+	12% {
+		transform: scale(1.4, 1.2); 
+	}
+
+	22% {
+		transform: scale(0.8, 1.3);
+	}
+
+	32% {
+		transform: scale(1.2, 0.85);
+	}
+
+	42% {
+		transform: scale(0.9, 1.15);
+	}
+
+	52% {
+		transform: scale(1.1, 0.95);
+	}
+
+	62% {
+		transform: scale(0.95, 1.08);
+	}
+
+	72% {
+		transform: scale(1.05, 0.98);
+	}
+
+	82% {
+		transform: scale(0.98, 1.03);
+	}
+
+	90% {
+		transform: scale(1.02, 0.99);
+	}
+
+
+	100% {
+		transform: scale(1, 1);
+	}
+
+        }
+        
+
+
+    </style>
+</head>
+<body>
+        <img src="https://soggy.cat/img/soggycat.webp" class="gatito" alt="gatito">
+</body>
+</html>

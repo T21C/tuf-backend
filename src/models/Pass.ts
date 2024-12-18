@@ -21,12 +21,11 @@ class Pass
   declare playerId: number;
   declare feelingRating: string | null;
   declare vidTitle: string | null;
-  declare vidLink: string | null;
-  declare vidUploadTime: Date | null;
+  declare videoLink: string | null;
+  declare vidUploadTime: Date;
   declare is12K: boolean | null;
   declare is16K: boolean | null;
   declare isNoHoldTap: boolean | null;
-  declare isLegacyPass: boolean | null;
   declare isWorldsFirst: boolean | null;
   declare accuracy: number | null;
   declare scoreV2: number | null;
@@ -76,20 +75,20 @@ Pass.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    vidLink: {
+    videoLink: {
       type: DataTypes.TEXT,
       allowNull: true,
     },
     vidUploadTime: {
       type: DataTypes.DATE,
-      allowNull: true,
       get() {
         const date = this.getDataValue('vidUploadTime');
         return date instanceof Date && !isNaN(date.getTime()) ? date : null;
       },
       set(value: any) {
         if (!value) {
-          this.setDataValue('vidUploadTime', null);
+          const defaultDate = new Date('2023-07-27 07:27:27');
+          this.setDataValue('vidUploadTime', defaultDate);
           return;
         }
 
@@ -97,7 +96,8 @@ Pass.init(
         if (date instanceof Date && !isNaN(date.getTime())) {
           this.setDataValue('vidUploadTime', date);
         } else {
-          this.setDataValue('vidUploadTime', null);
+          const defaultDate = new Date('2023-01-01 07:27:27');
+          this.setDataValue('vidUploadTime', defaultDate);
         }
       },
     },
@@ -110,10 +110,6 @@ Pass.init(
       allowNull: true,
     },
     isNoHoldTap: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-    },
-    isLegacyPass: {
       type: DataTypes.BOOLEAN,
       allowNull: true,
     },

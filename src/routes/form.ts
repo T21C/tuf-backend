@@ -7,6 +7,7 @@ import {
   PassSubmissionJudgements,
   PassSubmissionFlags,
 } from '../models/PassSubmission';
+import { levelSubmissionHook, passSubmissionHook } from './webhooks/webhook.js';
 const router: Router = express.Router();
 
 // Form submission endpoint
@@ -27,7 +28,7 @@ router.post('/form-submit', async (req: Request, res: Response) => {
     }
 
     const formType = req.headers['x-form-type'];
-
+    console.log(tokenInfo);
     if (formType === 'level') {
       const submission = await LevelSubmission.create({
         artist: req.body['artist'],
@@ -44,9 +45,12 @@ router.post('/form-submit', async (req: Request, res: Response) => {
             ? parseFloat(req.body['baseScore'])
             : null,
         submitterDiscordUsername: tokenInfo.username,
-        submitterEmail: tokenInfo.email,
+        submitterDiscordId: tokenInfo.id,
+        submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
         status: 'pending',
       });
+
+      await levelSubmissionHook(submission);
 
       return res.json({
         success: true,
@@ -58,7 +62,7 @@ router.post('/form-submit', async (req: Request, res: Response) => {
     if (formType === 'pass') {
       // Validate required fields
       const requiredFields = [
-        'rawVideoId',
+        'videoLink',
         'levelId',
         'passer',
         'feelingDifficulty',
@@ -81,12 +85,12 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         passer: req.body.passer,
         feelingDifficulty: req.body.feelingDifficulty,
         title: req.body.title,
-        rawVideoId: req.body.rawVideoId,
+        videoLink: req.body.videoLink,
         rawTime: new Date(req.body.rawTime),
         submitterDiscordUsername: tokenInfo.username,
         submitterEmail: tokenInfo.email,
         submitterDiscordId: tokenInfo.id,
-        submitterDiscordAvatar: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
+        submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
         status: 'pending',
         assignedPlayerId: null, // Will be assigned during review
       });
@@ -108,13 +112,17 @@ router.post('/form-submit', async (req: Request, res: Response) => {
       // Create flags with proper validation
       const flags = {
         passSubmissionId: submission.id,
-        is12k: req.body.is12k === 'true',
-        isNHT: req.body.isNHT === 'true',
-        is16k: req.body.is16k === 'true',
-        isLegacy: false, // Default value as per model
+        is12K: req.body.is12K === 'true',
+        isNoHoldTap: req.body.isNoHoldTap === 'true',
+        is16K: req.body.is16K === 'true',
       };
 
       await PassSubmissionFlags.create(flags);
+
+
+      await passSubmissionHook(submission);
+
+
 
       return res.json({
         success: true,

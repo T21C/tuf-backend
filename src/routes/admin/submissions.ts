@@ -30,9 +30,9 @@ interface PassData {
   };
   speed?: number;
   flags: {
-    is12k: boolean;
-    isNHT: boolean;
-    is16k: boolean;
+    is12K: boolean;
+    isNoHoldTap: boolean;
+    is16K: boolean;
   };
 }
 
@@ -124,7 +124,7 @@ router.put(
           charter: submission.charter,
           vfxer: submission.vfxer,
           team: submission.team,
-          vidLink: submission.videoLink,
+          videoLink: submission.videoLink,
           dlLink: submission.directDL,
           workshopLink: submission.wsLink,
           toRate: true,
@@ -136,6 +136,7 @@ router.put(
           publicComments: '',
           rerateReason: '',
           rerateNum: '',
+          isAnnounced: false,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -209,13 +210,13 @@ router.put(
         // Check if this is the first pass for this level
         const existingPasses = await Pass.count({
           where: {
-            levelId: parseInt(submission.levelId),
+            levelId: submission.levelId,
             isDeleted: false,
           },
         });
 
         // Get level data for score calculation
-        const levelObj = await Level.findByPk(parseInt(submission.levelId), {
+        const levelObj = await Level.findByPk(submission.levelId, {
           include: [
             {
               model: Difficulty,
@@ -247,7 +248,7 @@ router.put(
           {
             speed: Number(submission.speed) || 1,
             judgements: judgements,
-            isNoHoldTap: Boolean(submission.flags.isNHT),
+            isNoHoldTap: Boolean(submission.flags.isNoHoldTap),
           },
           {
             diff: Number(level.difficulty?.legacy) || 0,
@@ -261,7 +262,7 @@ router.put(
           console.error('ScoreV2 calculation resulted in NaN:', {
             speed: submission.speed,
             judgements,
-            isNHT: submission.flags.isNHT,
+            isNoHoldTap: submission.flags.isNoHoldTap,
             diff: level.difficulty?.legacy || 0,
             baseScore: getBaseScore(level),
           });
@@ -270,17 +271,16 @@ router.put(
 
         // Create the pass with all its data
         const newPass = await Pass.create({
-          levelId: parseInt(submission.levelId),
+          levelId: submission.levelId,
           playerId: submission.assignedPlayerId,
           speed: Number(submission.speed) || 1,
           feelingRating: submission.feelingDifficulty,
           vidTitle: submission.title,
-          vidLink: submission.rawVideoId,
+          videoLink: submission.videoLink,
           vidUploadTime: submission.rawTime,
-          is12K: Boolean(submission.flags.is12k),
-          is16K: Boolean(submission.flags.is16k),
-          isNoHoldTap: Boolean(submission.flags.isNHT),
-          isLegacyPass: false,
+          is12K: Boolean(submission.flags.is12K),
+          is16K: Boolean(submission.flags.is16K),
+          isNoHoldTap: Boolean(submission.flags.isNoHoldTap),
           isWorldsFirst: existingPasses === 0,
           accuracy,
           scoreV2,
@@ -297,6 +297,8 @@ router.put(
           lPerfect: submission.judgements.lPerfect,
           lateSingle: submission.judgements.lateSingle,
           lateDouble: submission.judgements.lateDouble,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         });
 
         // Update submission status

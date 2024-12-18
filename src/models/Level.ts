@@ -25,7 +25,7 @@ class Level
   declare baseScore: number | null;
   declare isCleared: boolean;
   declare clears: number;
-  declare vidLink: string;
+  declare videoLink: string;
   declare dlLink: string;
   declare workshopLink: string;
   declare publicComments: string;
@@ -96,7 +96,7 @@ Level.init(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
-    vidLink: {
+    videoLink: {
       type: DataTypes.TEXT,
       allowNull: true,
     },

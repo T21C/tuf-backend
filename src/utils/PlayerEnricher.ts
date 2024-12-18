@@ -58,7 +58,7 @@ async function updatePlayerPfp(player: Player): Promise<{
 
     // Get up to 20 passes with video links
     const validPasses = (player.passes || [])
-      .filter(pass => pass.vidLink && !pass.isDeleted)
+      .filter(pass => pass.videoLink && !pass.isDeleted)
       .slice(0, 20);
 
     if (validPasses.length === 0) {
@@ -79,15 +79,15 @@ async function updatePlayerPfp(player: Player): Promise<{
     // Try each video link until we get a valid pfp
     for (const pass of validPasses) {
       try {
-        //console.log(`Trying video ${pass.vidLink} for player ${playerData.name}`);
-        const pfpUrl = await getPfpUrl(pass.vidLink!);
+        //console.log(`Trying video ${pass.videoLink} for player ${playerData.name}`);
+        const pfpUrl = await getPfpUrl(pass.videoLink!);
 
         if (pfpUrl) {
           // Update player's pfp in database
           await Player.update({pfp: pfpUrl}, {where: {id: playerData.id}});
 
           console.log(
-            `✓ Success: Updated pfp for ${playerData.name} using video ${pass.vidLink}`,
+            `✓ Success: Updated pfp for ${playerData.name} using video ${pass.videoLink}`,
           );
           return {
             playerId: playerData.id,
@@ -98,7 +98,7 @@ async function updatePlayerPfp(player: Player): Promise<{
         }
       } catch (error) {
         console.log(
-          `✗ Failed to get pfp from video ${pass.vidLink} for ${playerData.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `✗ Failed to get pfp from video ${pass.videoLink} for ${playerData.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         continue;
       }

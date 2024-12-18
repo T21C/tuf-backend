@@ -7,7 +7,7 @@ import Player from '../../models/Player';
 import Judgement from '../../models/Judgement';
 import {Auth} from '../../middleware/auth';
 import {getIO} from '../../utils/socket';
-import {calcAcc} from '../../misc/CalcAcc';
+import {calcAcc, IJudgements} from '../../misc/CalcAcc';
 import {getScoreV2} from '../../misc/CalcScore';
 import sequelize from '../../config/db';
 import {IPass as PassInterface} from '../../interfaces/models';
@@ -15,6 +15,7 @@ import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
 
 const router: Router = Router();
+
 
 type WhereClause = {
   isDeleted?: boolean;
@@ -289,7 +290,7 @@ router.get('/', async (req: Request, res: Response) => {
           as: 'judgements',
         },
       ],
-      order: [['id', 'DESC']], // Maintain consistent ID ordering within paginated results
+      order, // Maintain consistent ID ordering within paginated results
     });
 
     const totalTime = performance.now() - routeStart;
@@ -415,11 +416,11 @@ router.put(
       const scoreV2 = getScoreV2(
         {
           speed: req.body.speed,
-          judgements,
+          judgements: judgements as IJudgements,
           isNoHoldTap: req.body.isNoHoldTap,
         },
         {
-          baseScore: level.baseScore || 0,
+          baseScore: level.baseScore || level.difficulty?.baseScore || 0,
         },
       );
 
@@ -431,13 +432,14 @@ router.put(
           playerId: req.body.playerId,
           feelingRating: req.body.feelingRating,
           vidTitle: req.body.vidTitle,
-          vidLink: req.body.vidLink,
+          videoLink: req.body.videoLink,
           vidUploadTime: new Date(req.body.vidUploadTime),
           is12K: req.body.is12K,
           is16K: req.body.is16K,
           isNoHoldTap: req.body.isNoHoldTap,
           accuracy,
           scoreV2,
+          isAnnounced: req.body.isAnnounced,
         },
         {
           where: {id: parseInt(id)},
