@@ -10,6 +10,7 @@ export class BackupService {
 
   constructor() {
     this.config = config;
+    console.log('BackupService initialized');
   }
 
   public getConfig() {
@@ -33,7 +34,10 @@ export class BackupService {
     return new Promise((resolve, reject) => {
       exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
         if (error) reject(error);
-        else resolve(filePath);
+        else {
+          console.log(`MySQL backup created successfully: ${fileName}`);
+          resolve(filePath);
+        }
       });
     });
   }
@@ -50,9 +54,9 @@ export class BackupService {
       exec(cmd, { shell: 'cmd.exe' }, async (error, stdout, stderr) => {
         if (error) reject(error);
         else {
-          // Force reload models after restore
           try {
             await db.sequelize.sync({ force: false });
+            console.log(`MySQL backup restored successfully from: ${path.basename(backupPath)}`);
             resolve(true);
           } catch (syncError) {
             reject(syncError);
@@ -78,7 +82,10 @@ export class BackupService {
     return new Promise((resolve, reject) => {
       exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
         if (error) reject(error);
-        else resolve(filePath);
+        else {
+          console.log(`Files backup created successfully: ${fileName}`);
+          resolve(filePath);
+        }
       });
     });
   }
@@ -117,10 +124,13 @@ export class BackupService {
         // Copy restored files
         await fs.cp(source, destination, { recursive: true });
       }
+
+      console.log(`Files backup restored successfully from: ${path.basename(backupPath)}`);
     } finally {
       // Clean up temporary directory
       try {
         await fs.rm(extractPath, { recursive: true, force: true });
+        console.log('Temporary restore directory cleaned up successfully');
       } catch (error) {
         console.warn('Warning: Could not clean up temporary directory:', error);
       }
@@ -139,8 +149,14 @@ export class BackupService {
     typeFiles.sort().reverse();
 
     // Remove files beyond retention period
+    let removedCount = 0;
     for (const file of typeFiles.slice(retention)) {
       await fs.unlink(path.join(backupDir, file));
+      removedCount++;
+    }
+
+    if (removedCount > 0) {
+      console.log(`Cleaned up ${removedCount} old ${type} backups`);
     }
   }
 
@@ -151,6 +167,7 @@ export class BackupService {
         try {
           await this.createMySQLBackup(type);
           await this.cleanOldBackups(type as keyof typeof config.mysql.retention);
+          console.log(`Scheduled ${type} MySQL backup completed successfully`);
         } catch (error) {
           console.error(`Scheduled ${type} backup failed:`, error);
         }
@@ -158,12 +175,17 @@ export class BackupService {
     });
 
     // File backups
-    cron.schedule(this.config.files.schedule, async () => {
-      try {
-        await this.createFileBackup();
-      } catch (error) {
-        console.error('Scheduled file backup failed:', error);
-      }
+    Object.entries(this.config.files.schedule).forEach(([type, schedule]) => {
+      cron.schedule(schedule, async () => {
+        try {
+          await this.createFileBackup();
+          console.log(`Scheduled ${type} files backup completed successfully`);
+        } catch (error) {
+          console.error(`Scheduled ${type} files backup failed:`, error);
+        }
+      });
     });
+
+    console.log('Backup schedules initialized successfully');
   }
 }
