@@ -135,4 +135,41 @@ router.delete('/delete/:type/:filename', Auth.superAdmin(), async (req: Request,
   }
 });
 
+// Rename backup
+router.post('/rename/:type/:filename', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { type, filename } = req.params;
+    const { newName } = req.body;
+    
+    if (!['mysql', 'files'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid backup type' });
+    }
+
+    const config = backupService.getConfig();
+    const backupPath = type === 'mysql' ? config.mysql.backupPath : config.files.backupPath;
+    const oldPath = path.join(backupPath, filename);
+    const newPath = path.join(backupPath, newName);
+
+    try {
+      await fs.access(oldPath);
+    } catch {
+      return res.status(404).json({ error: 'Backup file not found' });
+    }
+
+    // Check if new name already exists
+    try {
+      await fs.access(newPath);
+      return res.status(400).json({ error: 'A backup with this name already exists' });
+    } catch {
+      // This is good - the file doesn't exist
+    }
+
+    await fs.rename(oldPath, newPath);
+    return res.json({ success: true, message: 'Backup renamed successfully', newName });
+  } catch (error) {
+    console.error('Failed to rename backup:', error);
+    return res.status(500).json({ error: 'Failed to rename backup' });
+  }
+});
+
 export default router;
