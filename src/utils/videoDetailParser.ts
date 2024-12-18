@@ -109,7 +109,10 @@ async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null
     return null;
   }
 
-  const apiUrl = `${process.env.VITE_BILIBILI_API}?bvid=${videoId}`;
+  const IMAGE_API = (process.env.OWN_URL || 'http://localhost:3000') + process.env.IMAGE_API;
+  const BILIBILI_API = (process.env.OWN_URL || 'http://localhost:3000') + process.env.BILIBILI_API;
+
+  const apiUrl = `${BILIBILI_API}?bvid=${videoId}`;
 
   try {
     const response = await axios.get<{ data: BilibiliData }>(apiUrl);
@@ -120,8 +123,8 @@ async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null
     const { data } = response.data;
     const unix = data.pubdate;
     const date = new Date(unix * 1000);
-    const imageUrl = `${process.env.VITE_IMAGE}?url=${encodeURIComponent(data.pic)}`;
-    const pfpUrl = `${process.env.VITE_IMAGE}?url=${encodeURIComponent(data.owner.face)}`;
+    const imageUrl = `${IMAGE_API}?url=${encodeURIComponent(data.pic)}`;
+    const pfpUrl = `${IMAGE_API}?url=${encodeURIComponent(data.owner.face)}`;
 
     return {
       title: data.title,

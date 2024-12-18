@@ -11,9 +11,10 @@ const backupService = new BackupService();
 backupService.initializeSchedules().catch(console.error);
 
 // Trigger manual backup
-router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/create/:target', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
-    const { type = 'manual', target = 'all' } = req.body;
+    const { type = 'manual' } = req.body;
+    const { target } = req.params;
     const results = [];
 
     if (target === 'all' || target === 'mysql') {

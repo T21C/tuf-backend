@@ -11,7 +11,7 @@ import Player from '../../models/Player.js';
 import { Op } from 'sequelize';
 import { createClearEmbed, createNewLevelEmbed, createRerateEmbed, formatNumber, formatString, trim, wrap} from './embeds';
 import Judgement from '../../models/Judgement';
-import { getAnnouncementConfig } from './channelParser';
+import { getPassAnnouncementConfig, getLevelAnnouncementConfig } from './channelParser';
 import { PassSubmission, PassSubmissionFlags, PassSubmissionJudgements } from '../../models/PassSubmission';
 import { getVideoDetails } from '../../utils/videoDetailParser';
 import LevelSubmission from '../../models/LevelSubmission';
@@ -19,6 +19,7 @@ import { getScoreV2 } from '../../misc/CalcScore';
 import { ILevel } from '../../interfaces/models';
 import { IPassSubmission } from '../../interfaces/models';
 import { calcAcc, IJudgements } from '../../misc/CalcAcc';
+import { Auth } from '../../middleware/auth';
 
 const router: Router = express.Router();
 
@@ -150,15 +151,14 @@ export async function passSubmissionHook(passSubmission: PassSubmission) {
       .addField("", "", false)
 
       .addField('Feeling Rating', `**${pass.feelingDifficulty || 'None'}**`, true)
-      .addField('Score', `**${formatNumber(score || 0)}**`, true)
+      .addField('Accuracy', `**${((accuracy || 0.95) * 100).toFixed(2)}%**`, true)
+      //.addField('Score', `**${formatNumber(score || 0)}**`, true)
       .addField("", "", false)
 
-      .addField('Accuracy', `**${((accuracy || 0.95) * 100).toFixed(2)}%**`, true)
-      .addField('<:1384060:1317995999355994112>', `**[Go to video](${pass.videoLink})**`, true)
-      .addField("", "", false)
+      //.addField('<:1384060:1317995999355994112>', `**[Go to video](${pass.videoLink})**`, true)
       .addField('', judgementLine, false)
       .addField(showAddInfo ? additionalInfo : '', '', false)
-      //.addField('', `**${pass.videoLink ? `[${videoInfo?.title || 'No title'}](${pass.videoLink})` : 'No video link'}**`, true)
+      .addField('', `**${pass.videoLink ? `[${videoInfo?.title || 'No title'}](${pass.videoLink})` : 'No video link'}**`, true)
       //.setImage(videoInfo?.image || "")
       .setFooter(
         team || credit, 
@@ -170,7 +170,7 @@ export async function passSubmissionHook(passSubmission: PassSubmission) {
 }
 
 
-router.post('/passes', async (req: Request, res: Response) => {
+router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { passIds } = req.body;
     
@@ -239,7 +239,7 @@ router.post('/passes', async (req: Request, res: Response) => {
       const ppNoPingPasses: Pass[] = [];
 
       for (const pass of passes) {
-        const config = getAnnouncementConfig(pass);
+        const config = getPassAnnouncementConfig(pass);
         
         // Check universal clears
         if (config.channels.includes('universal-clears')) {
@@ -327,7 +327,7 @@ router.post('/passes', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/levels', async (req: Request, res: Response) => {
+router.post('/levels', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { levelIds } = req.body;
     
@@ -335,14 +335,27 @@ router.post('/levels', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'levelIds must be an array' });
     }
 
-    const {LEVEL_ANNOUNCEMENT_HOOK} = process.env;
-    if (!LEVEL_ANNOUNCEMENT_HOOK) {
-      throw new Error('Webhook URL not configured');
+    const {
+      PLANETARY_LEVEL_ANNOUNCEMENT_HOOK,
+      GALACTIC_LEVEL_ANNOUNCEMENT_HOOK,
+      UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK,
+      CENSORED_LEVEL_ANNOUNCEMENT_HOOK
+    } = process.env;
+
+    if (!PLANETARY_LEVEL_ANNOUNCEMENT_HOOK || !GALACTIC_LEVEL_ANNOUNCEMENT_HOOK || 
+        !UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK || !CENSORED_LEVEL_ANNOUNCEMENT_HOOK) {
+      throw new Error('Webhook URLs not configured');
     }
 
-    const hook = new Webhook(LEVEL_ANNOUNCEMENT_HOOK);
-    hook.setUsername('TUF Level Announcer');
-    hook.setAvatar(placeHolder);
+    const planetaryHook = new Webhook(PLANETARY_LEVEL_ANNOUNCEMENT_HOOK);
+    const galacticHook = new Webhook(GALACTIC_LEVEL_ANNOUNCEMENT_HOOK);
+    const universalHook = new Webhook(UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK);
+    const censoredHook = new Webhook(CENSORED_LEVEL_ANNOUNCEMENT_HOOK);
+
+    [planetaryHook, galacticHook, universalHook, censoredHook].forEach(hook => {
+      hook.setUsername('TUF Level Announcer');
+      hook.setAvatar(placeHolder);
+    });
 
     // Process levels in batches of 10
     await processBatches(levelIds, 10, async (batchIds, isFirstBatch) => {
@@ -360,12 +373,65 @@ router.post('/levels', async (req: Request, res: Response) => {
         ],
       });
 
-      const embeds = await Promise.all(levels.map(level => createNewLevelEmbed(level)));
-      const combinedEmbed = MessageBuilder.combine(...embeds);
-      if (isFirstBatch) {
-        combinedEmbed.setText('# <:J_wow:1223816920592023552> New levels! <:J_wow:1223816920592023552>');
+      // Group levels by their announcement channels
+      const planetaryLevels: Level[] = [];
+      const galacticLevels: Level[] = [];
+      const universalLevels: Level[] = [];
+      const censoredLevels: Level[] = [];
+
+      for (const level of levels) {
+        const config = getLevelAnnouncementConfig(level);
+        
+        if (config.channels.includes('planetary-levels')) {
+          planetaryLevels.push(level);
+        } else if (config.channels.includes('galactic-levels')) {
+          galacticLevels.push(level);
+        } else if (config.channels.includes('censored-levels')) {
+          censoredLevels.push(level);
+        } else if (config.channels.includes('universal-levels')) {
+          universalLevels.push(level);
+        }
       }
-      await hook.send(combinedEmbed);
+
+      // Send to Planetary channel
+      if (planetaryLevels.length > 0) {
+        const embeds = await Promise.all(planetaryLevels.map(async (level) => await createNewLevelEmbed(level)));
+        const combinedEmbed = MessageBuilder.combine(...embeds);
+        if (isFirstBatch) {
+          combinedEmbed.setText(`<@&${process.env.PLANETARY_PING_ROLE_ID}>`);
+        }
+        await planetaryHook.send(combinedEmbed);
+      }
+
+      // Send to Galactic channel
+      if (galacticLevels.length > 0) {
+        const embeds = await Promise.all(galacticLevels.map(async (level) => await createNewLevelEmbed(level)));
+        const combinedEmbed = MessageBuilder.combine(...embeds);
+        if (isFirstBatch) {
+          combinedEmbed.setText(`<@&${process.env.GALACTIC_PING_ROLE_ID}>`);
+        }
+        await galacticHook.send(combinedEmbed);
+      }
+
+      // Send to Universal channel
+      if (universalLevels.length > 0) {
+        const embeds = await Promise.all(universalLevels.map(async (level) => await createNewLevelEmbed(level)));
+        const combinedEmbed = MessageBuilder.combine(...embeds);
+        if (isFirstBatch) {
+          combinedEmbed.setText(`\n<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`);
+        }
+        await universalHook.send(combinedEmbed);
+      }
+
+      // Send to Censored channel
+      if (censoredLevels.length > 0) {
+        const embeds = await Promise.all(censoredLevels.map(async (level) => await createNewLevelEmbed(level)));
+        const combinedEmbed = MessageBuilder.combine(...embeds);
+        if (isFirstBatch) {
+          combinedEmbed.setText('');
+        }
+        await censoredHook.send(combinedEmbed);
+      }
     });
 
     return res.json({ success: true, message: 'Webhooks sent successfully' });
@@ -417,9 +483,14 @@ router.post('/rerates', async (req: Request, res: Response) => {
 
       const embeds = await Promise.all(levels.map(level => createRerateEmbed(level)));
       const combinedEmbed = MessageBuilder.combine(...embeds);
+      
       if (isFirstBatch) {
-        combinedEmbed.setText('# <:J_wow:1223816920592023552> Level rerates! <:J_wow:1223816920592023552>');
+        // Get the appropriate ping based on the first level's difficulty
+        const config = getLevelAnnouncementConfig(levels[0], true);
+        const ping = config.pings['rerates'] || '';
+        combinedEmbed.setText(`${ping}`);
       }
+      
       await hook.send(combinedEmbed);
     });
 

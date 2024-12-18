@@ -32,11 +32,58 @@ function getDifficultyNumber(diffName: string): number {
   return match ? parseInt(match[0]) : 0;
 }
 
+export function getLevelAnnouncementConfig(level: Level, isRerate: boolean = false): AnnouncementConfig {
+  const difficulty = level?.difficulty;
+  if (!difficulty) {
+    return { channels: [], pings: {} };
+  }
+
+  const diffName = difficulty.name;
+  const config: AnnouncementConfig = {
+    channels: [],
+    pings: {}
+  };
+
+  // Handle censored levels (-2)
+  if (diffName === '-2') {
+    config.channels.push('censored-levels');
+    return config;
+  }
+
+  // Handle rerates
+  if (isRerate) {
+    config.channels.push('rerates');
+    // Add ping based on difficulty type
+    if (diffName.startsWith('P')) {
+      config.pings['rerates'] = `<@&${process.env.PLANETARY_PING_ROLE_ID}>`;
+    } else if (diffName.startsWith('G')) {
+      config.pings['rerates'] = `<@&${process.env.GALACTIC_PING_ROLE_ID}>`;
+    } else if (diffName.startsWith('U')) {
+      config.pings['rerates'] = `<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`;
+    }
+    return config;
+  }
+
+  // Handle new levels
+  if (diffName.startsWith('P')) {
+    config.channels.push('planetary-levels');
+    config.pings['planetary-levels'] = `<@&${process.env.PLANETARY_PING_ROLE_ID}>`;
+  } else if (diffName.startsWith('G')) {
+    config.channels.push('galactic-levels');
+    config.pings['galactic-levels'] = `<@&${process.env.GALACTIC_PING_ROLE_ID}>`;
+  } else {
+    config.channels.push('universal-levels');
+    config.pings['universal-levels'] = `<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`;
+  }
+
+  return config;
+}
+
 function isPurePerect(pass: Pass): boolean {
   return pass.accuracy === 1.0;
 }
 
-export function getAnnouncementConfig(pass: Pass): AnnouncementConfig {
+export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
   const difficulty = pass.level?.difficulty;
   if (!difficulty || difficulty.name === "-2") {
     return { channels: [], pings: {} };
@@ -50,8 +97,7 @@ export function getAnnouncementConfig(pass: Pass): AnnouncementConfig {
 
   const config: AnnouncementConfig = {
     channels: [],
-    pings: {
-    }
+    pings: {}
   };
 
   // Add channels based on flags and determine their pings
@@ -85,9 +131,9 @@ export function getAnnouncementConfig(pass: Pass): AnnouncementConfig {
       break;
     
     case 'U':
-    if (pass.accuracy === 1.0) {
+      if (pass.accuracy === 1.0) {
         config.pings['universal-clears'] = '@everyone';
-    }
+      }
       // U1-U6: Universal ping for clear
       else if (diffNumber <= 6) {
         config.pings['universal-clears'] = '@universal ping';

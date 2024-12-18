@@ -160,12 +160,13 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
   
   // DONE ############
   export async function createNewLevelEmbed(levelInfo: Level | null): Promise<MessageBuilder> {
-    if (!levelInfo) return new MessageBuilder().setDescription('No pass info available');
+    if (!levelInfo) return new MessageBuilder().setDescription('No level info available');
     const level = levelInfo.dataValues;
     const team = level?.team ? level?.team : null;
     const charter = level?.charter ? level?.charter : null;
     const creator = level?.creator ? level?.creator : null;
     const vfxer = level?.vfxer ? level?.vfxer : null;
+    const comment = level?.publicComments ? level?.publicComments : "(Unspecified)";
     const videoInfo = await getVideoDetails(level.videoLink).then(details => details);
 
     const embed = new MessageBuilder()
@@ -176,7 +177,8 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .addField("", "", false)
       .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo)}**`, true)
       .addField("", "", false)
-      
+      if (comment && level.difficulty?.name == '-2') embed
+        .addField('Reason', `**${formatString(comment)}**`, false)
       if (team) embed
         .addField('', `Team\n**${formatString(team)}**`, true)
       if (vfxer) embed

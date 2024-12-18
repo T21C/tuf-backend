@@ -95,10 +95,7 @@ router.get(
   },
 );
 
-router.put(
-  '/levels/:id/:action',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: Response) => {
     const {id, action} = req.params;
 
     try {
@@ -134,6 +131,7 @@ router.put(
           isCleared: false,
           clears: 0,
           publicComments: '',
+          submitterDiscordId: submission.submitterDiscordId,
           rerateReason: '',
           rerateNum: '',
           isAnnounced: false,
@@ -145,7 +143,7 @@ router.put(
         await Rating.create({
           levelId: newLevel.id,
           currentDiff: '0',
-          lowDiff: false,
+          lowDiff: /^(p|P|[1-9]|1[0-9])(\+)?$/i.test(submission.diff),
           requesterFR: submission.diff,
           average: '0',
         });
@@ -171,10 +169,7 @@ router.put(
   },
 );
 
-router.put(
-  '/passes/:id/:action',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: Response) => {
     const {id, action} = req.params;
 
     try {

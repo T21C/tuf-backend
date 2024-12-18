@@ -27,7 +27,7 @@ interface RawLevel {
   baseScore: number;
   isCleared: boolean;
   clears: number;
-  videoLink: string;
+  vidLink: string;
   dlLink: string;
   workshopLink: string;
   publicComments: string;
@@ -40,7 +40,7 @@ interface RawPass {
   player: string;
   feelingRating: string;
   vidTitle: string;
-  videoLink: string;
+  vidLink: string;
   vidUploadTime: string;
   is12K: boolean;
   isNoHoldTap: boolean;
@@ -353,7 +353,7 @@ async function reloadDatabase() {
         baseScore,
         isCleared: level.isCleared || false,
         clears: level.clears || 0,
-        videoLink: level.videoLink || '',
+        videoLink: level.vidLink || '',
         dlLink: level.dlLink || '',
         workshopLink: level.workshopLink || '',
         publicComments: level.publicComments || '',
@@ -480,7 +480,7 @@ async function reloadDatabase() {
           feelingRating:
             feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
-          videoLink: pass.videoLink,
+          videoLink: pass.vidLink,
           vidUploadTime: pass.vidUploadTime ? new Date(pass.vidUploadTime) : lastValidUploadTime,
           is12K: pass.is12K,
           is16K: false,
