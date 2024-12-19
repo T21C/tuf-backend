@@ -6,6 +6,7 @@ import Rating from './Rating';
 import RatingDetail from './RatingDetail';
 import Difficulty from './Difficulty';
 import {PassSubmission} from './PassSubmission';
+import Reference from './References';
 
 export function initializeAssociations() {
   // Player has many Passes
@@ -117,5 +118,20 @@ export function initializeAssociations() {
     as: 'submissions',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
+  });
+
+  // Add many-to-many relationship between Difficulty and Level through References
+  Difficulty.belongsToMany(Level, {
+    through: Reference,
+    foreignKey: 'difficultyId',
+    otherKey: 'levelId',
+    as: 'referenceLevels'
+  });
+
+  Level.belongsToMany(Difficulty, {
+    through: Reference,
+    foreignKey: 'levelId',
+    otherKey: 'difficultyId',
+    as: 'referenceDifficulties'
   });
 }

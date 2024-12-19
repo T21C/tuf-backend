@@ -92,7 +92,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     if (charter) embed
       .addField('', `Chart\n**${formatString(charter)}**`, true);
     
-    embed.addField('', `<:1384060:1317995999355994112>\n**${videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${videoLink})` : 'No video link'}**`, false)
+    embed.addField('', `**${videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${videoLink})` : 'No video link'}**`, false)
     /*.setFooter(
       team || credit, 
       ''
@@ -114,8 +114,7 @@ export async function passSubmissionHook(passSubmission: PassSubmission) {
     const pass = passSubmission.dataValues;
     const level = pass.level;
     
-    const score = getScoreV2(pass as IPassSubmission, level as ILevel)
-    const accuracy = calcAcc(pass.judgements as IJudgements)
+    const accuracy = calcAcc(pass.judgements as PassSubmissionJudgements)
 
     const videoInfo = pass?.videoLink ? await getVideoDetails(pass.videoLink).then(details => details) : null;
 
@@ -444,7 +443,7 @@ router.post('/levels', Auth.superAdmin(), async (req: Request, res: Response) =>
   }
 });
 
-router.post('/rerates', async (req: Request, res: Response) => {
+router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { levelIds } = req.body;
     
@@ -502,45 +501,6 @@ router.post('/rerates', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
-
-router.get('/testhook/submission/level', async (req: Request, res: Response) => {
-  const level = await LevelSubmission.findOne({
-    where: {id: 2},
-  });
-  if (!level) return res.status(404).json({error: 'Level submission not found'});
-  await levelSubmissionHook(level);
-  return res.json({success: true});
-});
-
-
-router.get('/testhook/submission/pass', async (req: Request, res: Response) => {
-  const pass = await PassSubmission.findOne({
-    where: {id: 1},
-    include: [
-      {
-        model: Level,
-        as: 'level',
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-        ],
-      },
-      {
-        model: PassSubmissionJudgements,
-        as: 'judgements',
-      },
-      {
-        model: PassSubmissionFlags,
-        as: 'flags',
-      }
-    ],
-  });
-  if (!pass) return res.status(404).json({error: 'Pass submission not found'});
-  await passSubmissionHook(pass);
-  return res.json({success: true});
 });
 
 export default router;

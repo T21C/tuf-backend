@@ -26,6 +26,7 @@ Difficulty.init(
     name: {
       type: DataTypes.STRING,
       allowNull: false,
+      unique: true,
     },
     type: {
       type: DataTypes.ENUM('PGU', 'SPECIAL'),
@@ -84,6 +85,12 @@ Difficulty.init(
   {
     sequelize,
     tableName: 'difficulties',
+    indexes: [
+      {
+        unique: true,
+        fields: ['name'],
+      },
+    ],
   },
 );
 

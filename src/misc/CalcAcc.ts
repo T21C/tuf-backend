@@ -1,3 +1,5 @@
+import { PassSubmissionJudgements } from "../models/PassSubmission";
+
 export interface IJudgements {
   earlyDouble: number;
   earlySingle: number;
@@ -26,18 +28,18 @@ export function tilecount(inp: IJudgements): number {
   );
 }
 
-export function calcAcc(inp: IJudgements): number {
+export function calcAcc(inp: IJudgements | PassSubmissionJudgements): number {
   // Handle array format (from client)
+  if (!inp) return 0.95;
 
-  if (inp) {
-    const result =
-      (inp.perfect + // perfect
-        (inp.ePerfect + inp.lPerfect) * 0.75 + // ePerfect + lPerfect
-        (inp.earlySingle + inp.lateSingle) * 0.4 + // earlySingle + lateSingle
-        (inp.earlyDouble + inp.lateDouble) * 0.2) / // earlyDouble + lateDouble
-      sumJudgements(inp);
+  const judgements = inp instanceof PassSubmissionJudgements ? inp.dataValues : inp;
 
-    return result;
-  }
-  return 0.95;
+  const result =
+    (judgements.perfect + // perfect
+      (judgements.ePerfect + judgements.lPerfect) * 0.75 + // ePerfect + lPerfect
+      (judgements.earlySingle + judgements.lateSingle) * 0.4 + // earlySingle + lateSingle
+      (judgements.earlyDouble + judgements.lateDouble) * 0.2) / // earlyDouble + lateDouble
+    sumJudgements(judgements);
+
+  return result;
 }

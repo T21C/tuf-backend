@@ -4,6 +4,7 @@ import xlsx from 'xlsx';
 import {calcAcc} from '../misc/CalcAcc';
 import {getScoreV2} from '../misc/CalcScore';
 import {difficultyMap} from './difficultyMap';
+import {initializeReferences} from './referenceMap';
 import {calculatePGUDiffNum} from './ratingUtils';
 import {getBaseScore} from './parseBaseScore';
 import {ILevel} from '../interfaces/models';
@@ -255,6 +256,7 @@ async function reloadDatabase() {
     // Replace the direct bulkCreate with our new docs array
     await db.models.Difficulty.bulkCreate(difficultyDocs, {transaction});
     console.log('Populated difficulties table');
+
 
     // Load data from BE API
     const [playersResponse, levelsResponse, passesResponse] = await Promise.all(
@@ -528,6 +530,8 @@ async function reloadDatabase() {
       ),
     );
 
+    await initializeReferences(difficultyDocs, transaction);
+    console.log('Populated references table');
     // Commit transaction first
     await transaction.commit();
     console.log('Database reload completed successfully');

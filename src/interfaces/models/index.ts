@@ -29,7 +29,7 @@ export interface ILevel extends IBaseModel {
   dlLink: string;
   workshopLink: string;
   publicComments: string;
-  submitterDiscordId: number | null;
+  submitterDiscordId: string | null;
   toRate: boolean;
   rerateReason: string;
   rerateNum: string;

@@ -513,6 +513,7 @@ router.patch(
 
       return res.json({
         message: 'Level restored successfully',
+        level: level,
       });
     } catch (error) {
       await transaction.rollback();
@@ -618,6 +619,18 @@ router.delete(
 
       const level = await Level.findOne({
         where: {id: parseInt(id)},
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+          {
+            model: Pass,
+            as: 'passes',
+            required: false,
+            attributes: ['id'],
+          },
+        ],
         transaction,
       });
 
@@ -635,6 +648,23 @@ router.delete(
         },
       );
 
+      // Reload the level to get updated data
+      await level.reload({
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+          {
+            model: Pass,
+            as: 'passes',
+            required: false,
+            attributes: ['id'],
+          },
+        ],
+        transaction,
+      });
+
       await transaction.commit();
 
       // Force cache update since level deletion affects pass calculations
@@ -648,6 +678,7 @@ router.delete(
 
       return res.json({
         message: 'Level soft deleted successfully',
+        level: level,
       });
     } catch (error) {
       await transaction.rollback();
@@ -698,6 +729,7 @@ router.patch(
 
       return res.json({
         message: 'Level restored successfully',
+        level: level,
       });
     } catch (error) {
       await transaction.rollback();

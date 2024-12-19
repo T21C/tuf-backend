@@ -522,6 +522,15 @@ router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Reques
               },
             ],
           },
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned'],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
         ],
         transaction,
       });
@@ -565,6 +574,32 @@ router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Reques
         );
       }
 
+      // Reload the pass to get updated data
+      await pass.reload({
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned'],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        transaction,
+      });
+
       await transaction.commit();
 
       // Force cache update
@@ -578,6 +613,7 @@ router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Reques
 
       return res.json({
         message: 'Pass soft deleted successfully',
+        pass: pass,
       });
     } catch (error) {
       await transaction.rollback();
@@ -656,6 +692,7 @@ router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req:
 
       return res.json({
         message: 'Pass restored successfully',
+        pass: pass,
       });
     } catch (error) {
       await transaction.rollback();

@@ -8,6 +8,8 @@ import {
   PassSubmissionFlags,
 } from '../models/PassSubmission';
 import { levelSubmissionHook, passSubmissionHook } from './webhooks/webhook.js';
+import Level from '../models/Level.js';
+import Difficulty from '../models/Difficulty.js';
 const router: Router = express.Router();
 
 // Form submission endpoint
@@ -118,9 +120,33 @@ router.post('/form-submit', async (req: Request, res: Response) => {
       };
 
       await PassSubmissionFlags.create(flags);
-
-
-      await passSubmissionHook(submission);
+      const passObj = await PassSubmission.findByPk(
+        submission.id,
+        {
+          include: [
+            {
+              model: PassSubmissionJudgements,
+              as: 'judgements',
+            },
+            {
+              model: PassSubmissionFlags,
+              as: 'flags',
+            },
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+          ],
+        }
+      );
+      if (!passObj) return res.status(500).json({error: 'Failed to create pass submission'});
+      await passSubmissionHook(passObj);
 
 
 

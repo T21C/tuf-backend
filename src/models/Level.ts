@@ -29,7 +29,7 @@ class Level
   declare dlLink: string;
   declare workshopLink: string;
   declare publicComments: string;
-  declare submitterDiscordId: number;
+  declare submitterDiscordId: string;
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
@@ -114,7 +114,7 @@ Level.init(
       allowNull: true,
     },
     submitterDiscordId: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.STRING,
       allowNull: true,
     },
     toRate: {

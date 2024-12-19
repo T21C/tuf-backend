@@ -72,6 +72,7 @@ async function startServer() {
     // HTML meta tags middleware for specific routes
     app.get('/passes/:id', htmlMetaMiddleware);
     app.get('/levels/:id', htmlMetaMiddleware);
+    app.get('/player/:id', htmlMetaMiddleware);
 
     // Set up API routes
     app.use('/v2/admin', adminRoutes);

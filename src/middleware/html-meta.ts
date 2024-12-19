@@ -37,7 +37,7 @@ export const htmlMetaMiddleware = async (req: Request, res: Response, next: Next
     let metaTags = '';
     
     if (req.path.startsWith('/passes/')) {
-      console.log('Fetching pass data for ID:', id);
+      //console.log('Fetching pass data for ID:', id);
       
       const pass = await Pass.findByPk(id, {
         include: [
@@ -76,7 +76,20 @@ export const htmlMetaMiddleware = async (req: Request, res: Response, next: Next
     <meta property="og:image:height" content="720" />
     <meta property="og:url" content="${process.env.CLIENT_URL}${req.path}" />`;
     }
-    console.log(metaTags);
+
+    if (req.path.startsWith('/player/')) {
+      metaTags = `
+    <meta property="og:title" content="Player ${id}" />
+    <meta property="og:description" content="View player details" />
+    <meta property="og:image" content="${process.env.OWN_URL}/v2/media/image/soggycat.webp" />
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:image" content="${process.env.OWN_URL}/v2/media/image/soggycat.webp" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="720" />
+    <meta property="og:url" content="${process.env.CLIENT_URL}${req.path}" />`;
+    }
+
+    //console.log(metaTags);
 
     // Insert meta tags into HTML
     const html = getBaseHtml(process.env.CLIENT_URL || '').replace('<!-- METADATA_PLACEHOLDER -->', metaTags);
