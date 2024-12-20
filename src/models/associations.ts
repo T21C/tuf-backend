@@ -93,9 +93,21 @@ export function initializeAssociations() {
     as: 'difficulty',
   });
 
+  // Add the direct hasMany relationship
+  Difficulty.hasMany(Level, {
+    foreignKey: 'diffId',
+    as: 'levels',
+  });
+
   Level.belongsTo(Difficulty, {
     foreignKey: 'previousDiffId',
     as: 'previousDifficulty',
+  });
+
+  // Add hasMany for previous difficulties too
+  Difficulty.hasMany(Level, {
+    foreignKey: 'previousDiffId',
+    as: 'previousLevels',
   });
 
   PassSubmission.belongsTo(Player, {
