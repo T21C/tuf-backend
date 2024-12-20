@@ -249,6 +249,7 @@ async function reloadDatabase() {
       legacyIcon: diff.legacyIcon,
       emoji: diff.emoji,
       legacyEmoji: diff.legacyEmoji,
+      color: diff.color,
       createdAt: new Date(),
       updatedAt: new Date(),
     }));

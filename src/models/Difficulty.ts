@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
 import sequelize from '../config/db';
-import {IDifficulty} from '../interfaces/models';
+import {IDifficulty, ILevel} from '../interfaces/models';
 
 class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare id: number;
@@ -8,6 +8,7 @@ class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare type: 'PGU' | 'SPECIAL';
   declare icon: string;
   declare emoji: string;
+  declare color: string;
   declare createdAt: Date;
   declare updatedAt: Date;
   declare baseScore: number;
@@ -15,6 +16,7 @@ class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare legacy: string;
   declare legacyIcon: string | null;
   declare legacyEmoji: string | null;
+  declare referenceLevels: ILevel[];
 }
 
 Difficulty.init(
@@ -47,6 +49,11 @@ Difficulty.init(
           this.setDataValue('emoji', value);
         }
       }
+    },
+    color: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: '#000000',
     },
     createdAt: {
       type: DataTypes.DATE,

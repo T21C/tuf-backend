@@ -4,6 +4,7 @@ import passRoutes from './passes';
 import playerRoutes from './players';
 import leaderboardRoutes from './leaderboard';
 import difficultyRoutes from './diffs';
+import referenceRoutes from './references';
 import {Cache} from '../../middleware/cache';
 
 export default function createDatabaseRouter(): Router {
@@ -15,6 +16,7 @@ export default function createDatabaseRouter(): Router {
   router.use('/players', Cache.leaderboard(), playerRoutes);
   router.use('/leaderboard', Cache.leaderboard(), leaderboardRoutes);
   router.use('/difficulties', difficultyRoutes);
+  router.use('/references', referenceRoutes);
 
   return router;
 }

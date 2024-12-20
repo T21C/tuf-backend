@@ -134,10 +134,12 @@ export interface IDifficulty extends IBaseModel {
   legacy: string;
   type: 'PGU' | 'SPECIAL'; // To distinguish between PGU and special ratings
   icon: string; // The icon filename from iconResolver
+  color: string;
   legacyIcon: string | null;
   legacyEmoji: string | null;
   emoji: string;
   sortOrder: number;
+  referenceLvels?: ILevel[];
 }
 
 // PassSubmission interfaces

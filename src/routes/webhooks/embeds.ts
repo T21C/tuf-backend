@@ -129,7 +129,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
   const videoInfo = await getVideoDetails(level.videoLink).then(details => details);
 
   const embed = new MessageBuilder()
-      .setColor('#000000')
+      .setColor(level?.difficulty?.color || '#000000')
       //.setAuthor('New level!', '', '')
     .setTitle(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`)
     .setThumbnail(level.difficulty?.icon || placeHolder)
@@ -170,7 +170,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     const videoInfo = await getVideoDetails(level.videoLink).then(details => details);
 
     const embed = new MessageBuilder()
-        .setColor('#000000')
+        .setColor(level.difficulty?.color || '#000000')
         //.setAuthor('New level!', '', '')
       .setTitle(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`)
       .setThumbnail(level.difficulty?.icon || placeHolder)
@@ -248,7 +248,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
         level?.videoLink || ''
       )
       .setTitle(`Clear by ${trim(pass.player?.name || 'Unknown Player', 25)}`)
-      .setColor('#000000')
+      .setColor(level?.difficulty?.color || '#000000')
       .setThumbnail(
         pass.player?.discordAvatar ? 
         pass.player?.discordAvatar : 

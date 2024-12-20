@@ -134,4 +134,19 @@ export function initializeAssociations() {
     otherKey: 'difficultyId',
     as: 'referenceDifficulties'
   });
+
+
+  Reference.belongsTo(Difficulty, {
+    foreignKey: 'difficultyId',
+    as: 'difficultyReference',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Reference.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'levelReference',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
 }
