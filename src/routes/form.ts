@@ -32,6 +32,11 @@ router.post('/form-submit', async (req: Request, res: Response) => {
     const formType = req.headers['x-form-type'];
     console.log(tokenInfo);
     if (formType === 'level') {
+      // Sanitize baseScore if present
+      const baseScore = req.body['baseScore'] 
+        ? Math.min(0, Math.max(0, parseFloat(req.body['baseScore'].slice(0, 9))))
+        : null;
+
       const submission = await LevelSubmission.create({
         artist: req.body['artist'],
         charter: req.body['charter'],
@@ -42,10 +47,7 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         videoLink: req.body['videoLink'],
         directDL: req.body['directDL'],
         wsLink: req.body['wsLink'] || '',
-        baseScore:
-          req.body['baseScore'] && !isNaN(parseFloat(req.body['baseScore']))
-            ? parseFloat(req.body['baseScore'])
-            : null,
+        baseScore,
         submitterDiscordUsername: tokenInfo.username,
         submitterDiscordId: tokenInfo.id,
         submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
@@ -97,19 +99,19 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         assignedPlayerId: null, // Will be assigned during review
       });
 
-      // Create judgements with proper validation
-      const judgements = {
+      // Sanitize numeric inputs
+      const sanitizedJudgements = {
         passSubmissionId: submission.id,
-        earlyDouble: Math.max(0, parseInt(req.body.earlyDouble || '0')),
-        earlySingle: Math.max(0, parseInt(req.body.earlySingle || '0')),
-        ePerfect: Math.max(0, parseInt(req.body.ePerfect || '0')),
-        perfect: Math.max(0, parseInt(req.body.perfect || '0')),
-        lPerfect: Math.max(0, parseInt(req.body.lPerfect || '0')),
-        lateSingle: Math.max(0, parseInt(req.body.lateSingle || '0')),
-        lateDouble: Math.max(0, parseInt(req.body.lateDouble || '0')),
+        earlyDouble: Math.max(0, parseInt(req.body.earlyDouble?.slice(0, 15) || '0')),
+        earlySingle: Math.max(0, parseInt(req.body.earlySingle?.slice(0, 15) || '0')),
+        ePerfect: Math.max(0, parseInt(req.body.ePerfect?.slice(0, 15) || '0')),
+        perfect: Math.max(0, parseInt(req.body.perfect?.slice(0, 15) || '0')),
+        lPerfect: Math.max(0, parseInt(req.body.lPerfect?.slice(0, 15) || '0')),
+        lateSingle: Math.max(0, parseInt(req.body.lateSingle?.slice(0, 15) || '0')),
+        lateDouble: Math.max(0, parseInt(req.body.lateDouble?.slice(0, 15) || '0')),
       };
-
-      await PassSubmissionJudgements.create(judgements);
+      6969696969696
+      await PassSubmissionJudgements.create(sanitizedJudgements);
 
       // Create flags with proper validation
       const flags = {
@@ -156,7 +158,7 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         submissionId: submission.id,
         data: {
           ...submission.toJSON(),
-          judgements,
+          judgements: sanitizedJudgements,
           flags,
         },
       });

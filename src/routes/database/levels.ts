@@ -745,6 +745,9 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
     const levels = await Level.findAll({
       where: {
         isAnnounced: false,
+        diffId: {
+          [Op.ne]: 0
+        },
         previousDiffId: {
           [Op.or]: [
             { [Op.eq]: null },
@@ -775,6 +778,9 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
     const levels = await Level.findAll({
       where: {
         isAnnounced: false,
+        diffId: {
+          [Op.ne]: 0
+        },
         previousDiffId: {
           [Op.and]: [
             { [Op.not]: null },

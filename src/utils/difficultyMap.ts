@@ -1,5 +1,14 @@
+import axios from 'axios';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import {getIconUrl} from './iconResolver';
 import {calculateBaseScore} from './ratingUtils';
+
+// Fix __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export interface DifficultyEntry {
   id: number;
@@ -299,7 +308,7 @@ export const legacyMap = {
   U17: "21.4",
   U18: "21.4",
   U19: "21.4+",
-  U20: "21.4+",
+  U20: "21.4+"
 };
 
 // Helper function to get legacy icon URL
@@ -360,9 +369,9 @@ function getLegacyIconUrl(legacyDiff: string): string | null {
   };
 
   // Special cases
-  if (legacyDiff === "-2") return `${baseURL}legacy/-2.png${queryParams}`;
-  if (legacyDiff === "-21") return `${baseURL}legacy/21-.png${queryParams}`;
-  if (legacyDiff === "-22") return `${baseURL}legacy/MP.png${queryParams}`;
+  if (legacyDiff === "-2") return `${baseURL}miscDiff/-2.png${queryParams}`;
+  if (legacyDiff === "-21") return `${baseURL}miscDiff/21-.png${queryParams}`;
+  if (legacyDiff === "-22") return `${baseURL}miscDiff/MP.png${queryParams}`;
 
   // Regular legacy difficulties
   const key = legacyDiff.toString();
@@ -374,268 +383,329 @@ function getLegacyIconUrl(legacyDiff: string): string | null {
 }
 
 const mainDiffConst = 1000;
+const qDiffConst = 10000;
+// Cache directory path using resolved dirname
+const ICON_CACHE_DIR = path.join(__dirname, '../../cache/icons');
+const IMAGE_API = process.env.IMAGE_API || '/api/images';
+const OWN_URL = process.env.OWN_URL || 'http://localhost:3000';
 
-export const difficultyMap: DifficultyEntry[] = [
-  {
-    id: 0,
-    name: 'Unranked',
-    type: 'SPECIAL',
-    icon: getIconUrl('0'),
-    legacyIcon: null,
-    baseScore: 0,
-    sortOrder: mainDiffConst - 1,
-    legacy: '0',
-    legacyEmoji: null,
-    emoji: emojiMap['0'],
-    color: '000000',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
+// Helper function to download and cache icons
+async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
+  try {
+    await fs.mkdir(ICON_CACHE_DIR, { recursive: true });
+    const fileName = `${diffName.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+    const filePath = path.join(ICON_CACHE_DIR, fileName);
 
-  // P ratings (1-20)
-  ...Array.from({length: 20}, (_, i) => {
+    if (!(await fs.stat(filePath).catch(() => false))) {
+      const response = await axios.get(iconUrl, { responseType: 'arraybuffer' });
+      await fs.writeFile(filePath, Buffer.from(response.data));
+    }
+
+    return `${OWN_URL}${IMAGE_API}/icon/${fileName}`;
+  } catch (error) {
+    console.error(`Failed to cache icon for ${diffName}:`, error);
+    return iconUrl;
+  }
+}
+
+// Initialize without caching first
+export const initializeDifficultyMap = async (transaction?: any): Promise<DifficultyEntry[]> => {
   
+  // Create special ratings first
+  const specialRatings = [
+    {
+      id: 0,
+      name: 'Unranked',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('0'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: 0,
+      legacy: '0',
+      legacyEmoji: null,
+      emoji: emojiMap['0'],
+      color: colorMap['0'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },    
+        
+    {
+      id: mainDiffConst,
+      name: '-2',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('-2'),
+      legacyIcon: getLegacyIconUrl('-2'),
+      baseScore: 0,
+      sortOrder: mainDiffConst-1,
+      legacy: '-2',
+      legacyEmoji: legacyEmojiMap['-2'],
+      emoji: emojiMap['-2'],
+      color: colorMap['-2'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: mainDiffConst+1,
+      name: 'Grande',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Grande'),
+      legacyIcon: getLegacyIconUrl('100'),
+      baseScore: 0,
+      sortOrder: mainDiffConst,
+      legacy: '100',
+      legacyEmoji: legacyEmojiMap['100'],
+      emoji: emojiMap['Grande'],
+      color: colorMap['Grande'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: mainDiffConst + 2,
+      name: 'Bus',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Bus'),
+      legacyIcon: getLegacyIconUrl('101'),
+      baseScore: 0,
+      sortOrder: mainDiffConst + 2,
+      legacy: '101',
+      legacyEmoji: legacyEmojiMap['101'],
+      emoji: emojiMap['Bus'],
+      color: colorMap['Bus'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: mainDiffConst + 3,
+      name: 'MA',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('MA'),
+      legacyIcon: getLegacyIconUrl('102'),
+      baseScore: 0,
+      sortOrder: mainDiffConst + 3,
+      legacy: '102',
+      legacyEmoji: legacyEmojiMap['102'],
+      emoji: emojiMap['MA'],
+      color: colorMap['MA'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+  ];
+
+  // Create Q ratings
+  const qRatings = [
+    {
+      id: qDiffConst + 1,
+      name: 'Q1+',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Q1+'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 1,
+      legacy: '103',
+      legacyEmoji: null,
+      emoji: emojiMap['Q1+'],
+      color: colorMap['Q1+'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: qDiffConst + 2,
+      name: 'Q2',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Q2'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 2,
+      legacy: '104',
+      legacyEmoji: null,
+      emoji: emojiMap['Q2'],
+      color: colorMap['Q2'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: qDiffConst + 3,
+      name: 'Q2+',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Q2+'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 3,
+      legacy: '105',
+      legacyEmoji: null,
+      emoji: emojiMap['Q2+'],
+      color: colorMap['Q2+'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: qDiffConst + 4,
+      name: 'Q3',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Q3'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 4,
+      legacy: '106',
+      legacyEmoji: null,
+      emoji: emojiMap['Q3'],
+      color: colorMap['Q3'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: qDiffConst + 5,
+      name: 'Q3+',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Q3+'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 5,
+      legacy: '107',
+      legacyEmoji: null,
+      emoji: emojiMap['Q3+'],
+      color: colorMap['Q3+'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: qDiffConst + 6,
+      name: 'Q4',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Q4'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 6,
+      legacy: '108',
+      legacyEmoji: null,
+      emoji: emojiMap['Q4'],
+      color: colorMap['Q4'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    {
+      id: qDiffConst + 100,
+      name: 'Qq',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('Qq'),
+      legacyIcon: null,
+      baseScore: 0,
+      sortOrder: qDiffConst + 100,
+      legacy: '109',
+      legacyEmoji: null,
+      emoji: emojiMap['Qq'],
+      color: colorMap['Qq'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+        
+    {
+      id: qDiffConst+101,
+      name: '-21',
+      type: 'SPECIAL' as const,
+      icon: getIconUrl('-21'),
+      legacyIcon: getLegacyIconUrl('-21'),
+      baseScore: 0,
+      sortOrder: qDiffConst+101,
+      legacy: '-21',
+      legacyEmoji: legacyEmojiMap['-21'],
+      emoji: emojiMap['-21'],
+      color: colorMap['-21'],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  ];
+
+  // Create P ratings
+  const pRatings = Array.from({ length: 20 }, (_, i) => {
+    const name = `P${i + 1}`;
     return {
       id: i + 1,
-      name: `P${i + 1}`,
-    type: 'PGU' as const,
-    icon: getIconUrl(`P${i + 1}`),
-    legacyIcon: getLegacyIconUrl(
-      legacyMap[`P${i + 1}` as keyof typeof legacyMap],
-    ),
-    baseScore: calculateBaseScore(i + 1),
-    legacy: legacyMap[`P${i + 1}` as keyof typeof legacyMap],
-    legacyEmoji: legacyEmojiMap[
-      legacyMap[`P${i + 1}` as keyof typeof legacyMap] as keyof typeof legacyEmojiMap
-    ],
-    emoji: emojiMap[`P${i + 1}` as keyof typeof emojiMap],
-    color: colorMap[`P${i + 1}` as keyof typeof colorMap],
-    sortOrder: mainDiffConst + i,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  }}),
+      name,
+      type: 'PGU' as const,
+      icon: getIconUrl(name),
+      legacyIcon: getLegacyIconUrl(legacyMap[name as keyof typeof legacyMap]),
+      baseScore: calculateBaseScore(i + 1),
+      sortOrder: i + 1,
+      legacy: legacyMap[name as keyof typeof legacyMap],
+      legacyEmoji: legacyEmojiMap[legacyMap[name as keyof typeof legacyMap]],
+      emoji: emojiMap[name],
+      color: colorMap[name],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  });
 
-  // G ratings (21-40)
-  ...Array.from({length: 20}, (_, i) => ({
-    id: i + 21,
-    name: `G${i + 1}`,
-    type: 'PGU' as const,
-    icon: getIconUrl(`G${i + 1}`),
-    legacyIcon: getLegacyIconUrl(
-      legacyMap[`G${i + 1}` as keyof typeof legacyMap],
-    ),
-    baseScore: calculateBaseScore(i + 21),
-    legacy: legacyMap[`G${i + 1}` as keyof typeof legacyMap],
-    legacyEmoji: legacyEmojiMap[
-      legacyMap[`G${i + 1}` as keyof typeof legacyMap] as keyof typeof legacyEmojiMap
-    ],
-    emoji: emojiMap[`G${i + 1}` as keyof typeof emojiMap],
-    color: colorMap[`G${i + 1}` as keyof typeof colorMap],
-    sortOrder: mainDiffConst + i + 20,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })),
+  // Create G ratings
+  const gRatings = Array.from({ length: 20 }, (_, i) => {
+    const name = `G${i + 1}`;
+    return {
+      id: i + 21,
+      name,
+      type: 'PGU' as const,
+      icon: getIconUrl(name),
+      legacyIcon: getLegacyIconUrl(legacyMap[name as keyof typeof legacyMap]),
+      baseScore: calculateBaseScore(i + 21),
+      sortOrder: i + 21,
+      legacy: legacyMap[name as keyof typeof legacyMap],
+      legacyEmoji: legacyEmojiMap[legacyMap[name as keyof typeof legacyMap]],
+      emoji: emojiMap[name],
+      color: colorMap[name],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  });
 
-  // U ratings (41-60)
-  ...Array.from({length: 20}, (_, i) => ({
-    id: i + 41,
-    name: `U${i + 1}`,
-    type: 'PGU' as const,
-    icon: getIconUrl(`U${i + 1}`),
-    legacyIcon: getLegacyIconUrl(
-      legacyMap[`U${i + 1}` as keyof typeof legacyMap],
-    ),
-    baseScore: calculateBaseScore(i + 41),
-    legacy: legacyMap[`U${i + 1}` as keyof typeof legacyMap],
-    legacyEmoji: legacyEmojiMap[
-      legacyMap[`U${i + 1}` as keyof typeof legacyMap] as keyof typeof legacyEmojiMap
-    ],
-    emoji: emojiMap[`U${i + 1}` as keyof typeof emojiMap],
-    color: colorMap[`U${i + 1}` as keyof typeof colorMap],
-    sortOrder: mainDiffConst + i + 40,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })),
+  // Create U ratings
+  const uRatings = Array.from({ length: 20 }, (_, i) => {
+    const name = `U${i + 1}`;
+    return {
+      id: i + 41,
+      name,
+      type: 'PGU' as const,
+      icon: getIconUrl(name),
+      legacyIcon: getLegacyIconUrl(legacyMap[name as keyof typeof legacyMap]),
+      baseScore: calculateBaseScore(i + 41),
+      sortOrder: i + 41,
+      legacy: legacyMap[name as keyof typeof legacyMap],
+      legacyEmoji: legacyEmojiMap[legacyMap[name as keyof typeof legacyMap]],
+      emoji: emojiMap[name],
+      color: colorMap[name],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  });
 
-  // Special ratings
-  {
-    id: 61,
-    name: 'MP',
-    type: 'SPECIAL',
-    icon: getIconUrl('MP'),
-    legacyIcon: getLegacyIconUrl('-22'),
-    baseScore: 0,
-    legacy: '-22',
-    legacyEmoji: legacyEmojiMap['MP'],
-    emoji: emojiMap['MP'],
-    color: colorMap['MP'],
-    sortOrder: 5001,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 62,
-    name: 'Grande',
-    type: 'SPECIAL',
-    icon: getIconUrl('Grande'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Grande'],
-    emoji: emojiMap['Grande'],
-    color: colorMap['Grande'],
-    sortOrder: 5002,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 63,
-    name: 'MA',
-    type: 'SPECIAL',
-    icon: getIconUrl('MA'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['MA'],
-    emoji: emojiMap['MA'],
-    color: colorMap['MA'],
-    sortOrder: 5003,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 64,
-    name: 'Bus',
-    type: 'SPECIAL',
-    icon: getIconUrl('Bus'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Bus'],
-    emoji: emojiMap['Bus'],
-    color: colorMap['Bus'],
-    sortOrder: 5004,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 80,
-    name: 'Qq',
-    type: 'SPECIAL',
-    icon: getIconUrl('Qq'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Qq'],
-    emoji: emojiMap['Qq'],
-    color: colorMap['Qq'],
-    sortOrder: 10005,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 81,
-    name: 'Q2',
-    type: 'SPECIAL',
-    icon: getIconUrl('Q2'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Q2'],
-    emoji: emojiMap['Q2'],
-    color: colorMap['Q2'],
-    sortOrder: 10006,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 82,
-    name: 'Q2+',
-    type: 'SPECIAL',
-    icon: getIconUrl('Q2+'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Q2+'],
-    emoji: emojiMap['Q2+'],
-    color: colorMap['Q2+'],
-    sortOrder: 10007,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 83,
-    name: 'Q3',
-    type: 'SPECIAL',
-    icon: getIconUrl('Q3'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Q3'],
-    emoji: emojiMap['Q3'],
-    color: colorMap['Q3'],
-    sortOrder: 10008,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 84,
-    name: 'Q3+',
-    type: 'SPECIAL',
-    icon: getIconUrl('Q3+'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Q3+'],
-    emoji: emojiMap['Q3+'],
-    color: colorMap['Q3+'],
-    sortOrder: 10009,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 85,
-    name: 'Q4',
-    type: 'SPECIAL',
-    icon: getIconUrl('Q4'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '0',
-    legacyEmoji: legacyEmojiMap['Q4'],
-    emoji: emojiMap['Q4'],
-    color: colorMap['Q4'],
-    sortOrder: 10010,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 1002,
-    name: '-2',
-    type: 'SPECIAL',
-    icon: getIconUrl('-2'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '-2',
-    legacyEmoji: legacyEmojiMap['-2'],
-    emoji: emojiMap['-2'],
-    color: colorMap['-2'],
-    sortOrder: 2,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 1021,
-    name: '-21',
-    type: 'SPECIAL',
-    icon: getIconUrl('-21'),
-    legacyIcon: null,
-    baseScore: 0,
-    legacy: '-21',
-    legacyEmoji: legacyEmojiMap['-21'],
-    emoji: emojiMap['-21'],
-    color: colorMap['-21'],
-    sortOrder: 21,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-];
+  // Combine all ratings
+  const difficulties = [
+    ...specialRatings,
+    ...qRatings,
+    ...pRatings,
+    ...gRatings,
+    ...uRatings
+  ];
+  // Only cache icons if transaction is provided
+  if (transaction) {
+    const processedDifficulties = await Promise.all(
+      difficulties.map(async (diff) => {
+        try {
+          const newDiff = {
+            ...diff,
+            icon: await cacheIcon(diff.icon, diff.name),
+            legacyIcon: diff.legacyIcon ? await cacheIcon(diff.legacyIcon, `legacy_${diff.name}`) : null
+          };
+          return newDiff;
+        } catch (error) {
+          console.error(`Failed to cache icons for ${diff.name}:`, error);
+          return diff;
+        }
+      })
+    );
+    return processedDifficulties;
+  }
+
+  return difficulties;
+};
+
+// Export the initial map without caching for regular use
+export const difficultyMap = await initializeDifficultyMap();

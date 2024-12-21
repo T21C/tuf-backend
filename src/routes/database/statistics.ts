@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { Op, fn, col, literal } from 'sequelize';
+import { Op, fn, col, literal, Sequelize } from 'sequelize';
 import Level from '../../models/Level';
 import Pass from '../../models/Pass';
 import Player from '../../models/Player';
@@ -41,17 +41,19 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
       console.log('4. Active players query successful:', totalActivePlayers);
 
       const difficultyStats = await Difficulty.findAll({
-        attributes: {
-          include: [
-            [fn('COUNT', col('levels.id')), 'levelCount'],
-            [fn('COUNT', col('levels->passes.id')), 'passCount']
-          ]
-        },
+        attributes: [
+          'id',
+          'name',
+          'type',
+          'sortOrder',
+          'color',
+          [fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))), 'levelCount'],
+          [fn('COUNT', col('levels.passes.id')), 'passCount']
+        ],
         include: [{
           model: Level,
           as: 'levels',
           attributes: [],
-          where: { isDeleted: false },
           required: false,
           include: [{
             model: Pass,
@@ -61,25 +63,9 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
             required: false
           }]
         }],
-        group: [
-          'Difficulty.id',
-          'Difficulty.name',
-          'Difficulty.type',
-          'Difficulty.icon',
-          'Difficulty.emoji',
-          'Difficulty.color',
-          'Difficulty.baseScore',
-          'Difficulty.sortOrder',
-          'Difficulty.legacy',
-          'Difficulty.legacyIcon',
-          'Difficulty.legacyEmoji',
-          'Difficulty.createdAt',
-          'Difficulty.updatedAt'
-        ],
-        order: [
-          ['type', 'ASC'],
-          ['sortOrder', 'ASC']
-        ]
+        group: ['Difficulty.id', 'Difficulty.name', 'Difficulty.type', 'Difficulty.sortOrder', 'Difficulty.color'],
+        order: [['sortOrder', 'ASC']],
+        subQuery: false
       });
       console.log('5. Difficulty stats query successful:', difficultyStats.length, 'records');
 
@@ -100,6 +86,7 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
           'type',
           'sortOrder',
           'color',
+          [fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))), 'levelCount'],
           [fn('COUNT', col('levels.passes.id')), 'passCount']
         ],
         include: [{
@@ -115,11 +102,10 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
             required: true
           }]
         }],
-        group: ['Difficulty.id', 'Difficulty.name', 'Difficulty.type'],
+        group: ['Difficulty.id', 'Difficulty.name', 'Difficulty.type', 'Difficulty.sortOrder', 'Difficulty.color'],
         order: [[fn('COUNT', col('levels.passes.id')), 'DESC']],
         limit: 5,
-        subQuery: false,
-        logging: console.log
+        subQuery: false
       });
       console.log('7. Top difficulties query successful:', topDifficulties.length, 'records');
 

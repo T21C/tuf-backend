@@ -8,6 +8,7 @@ import {initializeReferences} from './referenceMap';
 import {calculatePGUDiffNum} from './ratingUtils';
 import {getBaseScore} from './parseBaseScore';
 import {ILevel} from '../interfaces/models';
+import { initializeDifficultyMap } from './difficultyMap';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -222,7 +223,12 @@ async function reloadDatabase() {
   try {
     console.log('Starting database reload...');
 
-    // Clear existing data in correct order (children before parents)
+    // Initialize difficulty map with cached icons and transaction
+    console.log('Initializing difficulties with icon caching...');
+    const difficultyMapWithIcons = await initializeDifficultyMap(transaction);
+
+    // Clear existing data in correct order
+    console.log('Clearing existing data...');
     await Promise.all([
       db.models.RatingDetail.destroy({where: {}, transaction}),
       db.models.Rating.destroy({where: {}, transaction}),
@@ -233,12 +239,8 @@ async function reloadDatabase() {
       db.models.Difficulty.destroy({where: {}, transaction}),
     ]);
 
-    // Clear tables with foreign key dependencies in order
-
-    console.log('Cleared existing data');
-
-    // Process difficulties
-    const difficultyDocs = difficultyMap.map(diff => ({
+    // Process difficulties with cached icons
+    const difficultyDocs = difficultyMapWithIcons.map(diff => ({
       id: diff.id,
       name: diff.name,
       type: diff.type,
@@ -254,10 +256,9 @@ async function reloadDatabase() {
       updatedAt: new Date(),
     }));
 
-    // Replace the direct bulkCreate with our new docs array
+    console.log(`Creating ${difficultyDocs.length} difficulty entries...`);
     await db.models.Difficulty.bulkCreate(difficultyDocs, {transaction});
     console.log('Populated difficulties table');
-
 
     // Load data from BE API
     const [playersResponse, levelsResponse, passesResponse] = await Promise.all(
@@ -309,7 +310,7 @@ async function reloadDatabase() {
 
       if (level.pguDiff) {
         // Try direct match from pguDiff to difficultyMap
-        const directMatch = difficultyMap.find(
+        const directMatch = difficultyMapWithIcons.find(
           d =>
             d.name.toLowerCase() === String(level.pguDiff).toLowerCase() ||
             d.name.toLowerCase().replace('+', 'p') ===
@@ -326,7 +327,7 @@ async function reloadDatabase() {
           const mappedPGU =
             oldDiffToPGUMap[level.newDiff as keyof typeof oldDiffToPGUMap];
           if (mappedPGU) {
-            const mappedMatch = difficultyMap.find(
+            const mappedMatch = difficultyMapWithIcons.find(
               d =>
                 d.name.toLowerCase() === String(mappedPGU).toLowerCase() ||
                 d.name.toLowerCase().replace('+', 'p') ===
@@ -539,8 +540,8 @@ async function reloadDatabase() {
 
     return true;
   } catch (error) {
+    console.error('Error during database reload:', error);
     await transaction.rollback();
-    console.error('Database reload failed:', error);
     throw error;
   }
 }

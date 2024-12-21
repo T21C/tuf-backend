@@ -106,9 +106,8 @@ router.get('/github-asset', async (req: Request, res: Response) => {
     return;
   }
 });
-
-router.get('/image/:path', async (req: Request, res: Response) => {
-  const imagePath = req.params.path;
+router.get('/image/:type/:path', async (req: Request, res: Response) => {
+  const { type, path: imagePath } = req.params;
   try {
     if (!imagePath || typeof imagePath !== 'string') {
       return res.status(400).send('Invalid image path');
@@ -118,10 +117,18 @@ router.get('/image/:path', async (req: Request, res: Response) => {
     const sanitizedPath = path
       .normalize(imagePath)
       .replace(/^(\.\.(\/|\\|$))+/, '');
-    const fullPath = path.join(process.cwd(), 'cache', sanitizedPath);
 
-    // Verify the path is within the cache directory
-    if (!fullPath.startsWith(path.join(process.cwd(), 'cache'))) {
+    let basePath;
+    if (type === 'icon') {
+      basePath = path.join(process.cwd(), 'cache', 'icons');
+    } else {
+      basePath = path.join(process.cwd(), 'cache');
+    }
+
+    const fullPath = path.join(basePath, sanitizedPath);
+
+    // Verify the path is within the allowed directory
+    if (!fullPath.startsWith(basePath)) {
       return res.status(403).send('Access denied');
     }
 
