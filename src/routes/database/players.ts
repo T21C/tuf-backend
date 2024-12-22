@@ -170,6 +170,46 @@ router.put(
   },
 );
 
+
+router.delete(
+  '/:id/discord',
+  Cache.leaderboard(),
+  async (req: Request, res: Response) => {
+    try {
+      const {id} = req.params;
+      const leaderboardCache = req.leaderboardCache;
+      if (!leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+
+      const player = await Player.findByPk(id);
+      if (!player) {
+        return res.status(404).json({error: 'Player not found'});
+      }
+
+      await player.update({
+        discordId: null,
+        discordUsername: null,
+        discordAvatar: null,
+        discordAvatarId: null,
+      });
+
+      await leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+
+      return res.json({message: 'Discord info removed successfully'});
+    } catch (error) {
+      console.error('Error removing player discord info:', error);
+      return res.status(500).json({
+        error: 'Failed to remove player discord info',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+
 router.post(
   '/create',
   Cache.leaderboard(),

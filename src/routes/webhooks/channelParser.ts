@@ -75,12 +75,15 @@ export function getLevelAnnouncementConfig(level: Level, isRerate: boolean = fal
     config.channels.push('universal-levels');
     config.pings['universal-levels'] = `<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`;
   }
-
   return config;
 }
 
 function isPurePerect(pass: Pass): boolean {
   return pass.accuracy === 1.0;
+}
+
+function isNoMiss(pass: Pass): boolean {
+  return pass.judgements?.earlyDouble === 0;
 }
 
 export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
@@ -115,10 +118,6 @@ export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
     }
   }
 
-  if (diffType === 'U' || diffName === 'MP' || diffName === 'Grande' || diffName === 'MA' || diffName === 'Bus') {
-    config.channels.push('universal-clears');
-  }
-
   // Determine pings based on difficulty and flags
   switch (diffType) {
     case 'P':
@@ -127,10 +126,10 @@ export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
       break;
     
     case 'G':
-      // G levels only get WF pings (handled above)
       break;
     
     case 'U':
+      config.channels.push('universal-clears');
       if (pass.accuracy === 1.0) {
         config.pings['universal-clears'] = '@everyone';
       }
@@ -142,9 +141,9 @@ export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
       else if (diffNumber <= 9) {
         config.pings['universal-clears'] = isWF ? '@everyone' : '@universal ping';
       }
-      // U10: Universal ping for clear, WF gets everyone
+      // U10: Universal ping for clear, no miss gets everyone
       else if (diffNumber === 10) {
-        config.pings['universal-clears'] = isWF ? '@everyone' : '@universal ping';
+        config.pings['universal-clears'] = isNoMiss(pass) ? '@everyone' : '@universal ping';
       }
       // U11+: Everyone ping for everything
       else {
@@ -153,10 +152,12 @@ export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
       break;
     
     case 'Q':
+      config.channels.push('universal-clears');
       config.pings['universal-clears'] = '@everyone';
       break;
     
     case 'SPECIAL':
+      config.channels.push('universal-clears');
       switch (diffName) {
         case 'MP':
         case 'Grande':

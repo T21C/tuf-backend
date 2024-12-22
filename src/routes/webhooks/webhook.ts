@@ -146,13 +146,17 @@ export async function passSubmissionHook(passSubmission: PassSubmission) {
         placeHolder
       )
       .addField("", "", false)
-      .addField('Player', `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || 'Unknown Player'}**`, true)
+      .addField('Player', `**${pass.passer || 'Unknown Player'}**`, true)
+      .addField('Submitter', `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || 'Unknown Player'}**`, true)
       .addField("", "", false)
 
       .addField('Feeling Rating', `**${pass.feelingDifficulty || 'None'}**`, true)
       .addField('Accuracy', `**${((accuracy || 0.95) * 100).toFixed(2)}%**`, true)
       //.addField('Score', `**${formatNumber(score || 0)}**`, true)
       .addField("", "", false)
+
+      
+      .addField('Speed', `**${pass.speed || 'Unknown Speed'}**`, false)
 
       //.addField('<:1384060:1317995999355994112>', `**[Go to video](${pass.videoLink})**`, true)
       .addField('', judgementLine, false)
@@ -193,14 +197,13 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
     ppClearHook.setUsername('TUF Clear Announcer');
     ppClearHook.setAvatar(placeHolder);
 
-    // Process passes in batches of 10
+    // Collect @everyone passes during batch processing
+    let everyonePasses: Pass[] = [];
+
+    // Process regular passes first
     await processBatches(passIds, 10, async (batchIds, isFirstBatch) => {
       const passes = await Pass.findAll({
-        where: {
-          id: {
-            [Op.in]: batchIds,
-          }
-        },
+        where: { id: { [Op.in]: batchIds } },
         include: [
           {
             model: Level,
@@ -237,10 +240,9 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
       const ppPingPasses: Pass[] = [];
       const ppNoPingPasses: Pass[] = [];
 
+      // Sort passes into their respective groups
       for (const pass of passes) {
         const config = getPassAnnouncementConfig(pass);
-        
-        // Check universal clears
         if (config.channels.includes('universal-clears')) {
           if (config.pings['universal-clears'] === '@everyone') {
             universalEveryonePasses.push(pass);
@@ -268,22 +270,16 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
         }
       }
 
-      // Send to Universal channel
+      // Send regular announcements first
       if (universalPingPasses.length > 0) {
         const embeds = await Promise.all(universalPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
         if (isFirstBatch) combinedEmbed.setText('<@&1041009420836016208>');
         await uClearHook.send(combinedEmbed);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
-      if (universalEveryonePasses.length > 0) {
-        const embeds = await Promise.all(universalEveryonePasses.map(pass => createClearEmbed(pass)));
-        const combinedEmbed = MessageBuilder.combine(...embeds);
-        if (isFirstBatch) combinedEmbed.setText('@everyone');
-        await uClearHook.send(combinedEmbed);
-      }
-
-      // Send to WF channel
+      // Send WF and PP announcements
       if (wfPingPasses.length > 0) {
         const embeds = await Promise.all(wfPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
@@ -296,7 +292,7 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
         const combinedEmbed = MessageBuilder.combine(...embeds);
         if (isFirstBatch) combinedEmbed.setText('');
         await wfClearHook.send(combinedEmbed);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       // Send to PP channel
@@ -305,16 +301,65 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
         const combinedEmbed = MessageBuilder.combine(...embeds);
         if (isFirstBatch) combinedEmbed.setText('<@&1268895982352072769>');
         await ppClearHook.send(combinedEmbed);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
       if (ppNoPingPasses.length > 0) {
         const embeds = await Promise.all(ppNoPingPasses.map(pass => createClearEmbed(pass)));
         const combinedEmbed = MessageBuilder.combine(...embeds);
         if (isFirstBatch) combinedEmbed.setText('');
         await ppClearHook.send(combinedEmbed);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
+
+      // Store @everyone passes
+      const batchEveryonePasses = passes.filter(pass => {
+        const config = getPassAnnouncementConfig(pass);
+        return config.channels.includes('universal-clears') && 
+               config.pings['universal-clears'] === '@everyone';
+      });
+      everyonePasses = everyonePasses.concat(batchEveryonePasses);
     });
+
+    // Process collected @everyone passes last
+    if (everyonePasses.length > 0) {
+      await processBatches(everyonePasses.map(p => p.id), 10, async (batchIds, isFirstBatch) => {
+        const passes = await Pass.findAll({
+          where: { id: { [Op.in]: batchIds } },
+          include: [
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+            {
+              model: Player,
+              as: 'player',
+              include: [
+                {
+                  model: Pass,
+                  as: 'passes',
+                }
+              ]
+            },
+            {
+              model: Judgement,
+              as: 'judgements',
+            }
+          ],
+        });
+
+        const embeds = await Promise.all(passes.map(pass => createClearEmbed(pass)));
+        const combinedEmbed = MessageBuilder.combine(...embeds);
+        if (isFirstBatch) combinedEmbed.setText('@everyone');
+        await uClearHook.send(combinedEmbed);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Longer delay for @everyone pings
+      });
+    }
 
     return res.json({ success: true, message: 'Webhooks sent successfully' });
   } catch (error) {
