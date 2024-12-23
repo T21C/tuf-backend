@@ -20,7 +20,7 @@ import Level from './models/Level';
 import Difficulty from './models/Difficulty';
 import path from 'path';
 import fs from 'fs';
-import ratersRouter from './routes/database/raters';
+import discordRouter from './routes/discord';
 
 dotenv.config();
 
@@ -82,6 +82,7 @@ async function startServer() {
     app.use('/v2/media', mediaRoutes);
     app.use('/v2/data', databaseRoutes());
     app.use('/v2/webhook', webhookRoutes);
+    app.use('/v2/discord', discordRouter);
     app.get('/', (req, res) => {
       res.send(fs.readFileSync(path.join('src', 'index.html'), 'utf8'));
     });

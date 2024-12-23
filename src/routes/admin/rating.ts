@@ -15,8 +15,8 @@ const router: Router = express.Router();
 router.get('/raters', Auth.rater(), async (req: Request, res: Response) => {
   try {
     const raters = await RaterService.getAll();
-    const raterNames = raters.map(rater => rater.name);
-    res.json(raterNames);
+    const raterUsernames = raters.map(rater => rater.discordUsername);
+    res.json(raterUsernames);
   } catch (error) {
     console.error('Failed to fetch raters:', error);
     res.status(500).json({ error: 'Failed to fetch raters' });

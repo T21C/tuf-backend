@@ -9,6 +9,7 @@ import {calculatePGUDiffNum} from './ratingUtils';
 import {getBaseScore} from './parseBaseScore';
 import {ILevel} from '../interfaces/models';
 import { initializeDifficultyMap } from './difficultyMap';
+import { populateRaters } from './raterMap';
 
 const BE_API = 'http://be.t21c.kro.kr';
 
@@ -223,6 +224,9 @@ async function reloadDatabase() {
 
   try {
     console.log('Starting database reload...');
+
+    // Start rater population early - it will run in parallel
+    const raterPopulationPromise = populateRaters(transaction);
 
     // Initialize difficulty map with cached icons and transaction
     console.log('Initializing difficulties with icon caching...');
@@ -536,7 +540,12 @@ async function reloadDatabase() {
 
     await initializeReferences(difficultyDocs, transaction);
     console.log('Populated references table');
-    // Commit transaction first
+
+    // Wait for rater population to complete before committing
+    await raterPopulationPromise;
+    console.log('Rater population completed');
+
+    // Commit transaction
     await transaction.commit();
     console.log('Database reload completed successfully');
 

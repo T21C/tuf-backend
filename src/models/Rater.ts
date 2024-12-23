@@ -3,7 +3,6 @@ import { Schema, model } from 'mongoose';
 interface IRater {
   discordId: string;
   name: string;
-  discordUsername?: string;
   discordAvatar?: string;
   isSuperAdmin: boolean;
   createdAt: Date;
@@ -21,7 +20,6 @@ const raterSchema = new Schema<IRater>(
       type: String,
       required: true,
     },
-    discordUsername: String,
     discordAvatar: String,
     isSuperAdmin: {
       type: Boolean,

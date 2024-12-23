@@ -11,7 +11,7 @@ const backupService = new BackupService();
 backupService.initializeSchedules().catch(console.error);
 
 // Trigger manual backup
-router.post('/create/:target', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/create/:target', Auth.superAdminEditingSuperAdmin(), async (req: Request, res: Response) => {
   try {
     const { type = 'manual' } = req.body;
     const { target } = req.params;
@@ -77,7 +77,7 @@ router.get('/list', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // Restore backup
-router.post('/restore/:type/:filename', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/restore/:type/:filename', Auth.superAdminEditingSuperAdmin(), async (req: Request, res: Response) => {
   try {
     const { type, filename } = req.params;
     const config = backupService.getConfig();
@@ -110,7 +110,7 @@ router.post('/restore/:type/:filename', Auth.superAdmin(), async (req: Request, 
 });
 
 // Delete backup
-router.delete('/delete/:type/:filename', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/delete/:type/:filename', Auth.superAdminEditingSuperAdmin(), async (req: Request, res: Response) => {
   try {
     const { type, filename } = req.params;
     const config = backupService.getConfig();
@@ -137,7 +137,7 @@ router.delete('/delete/:type/:filename', Auth.superAdmin(), async (req: Request,
 });
 
 // Rename backup
-router.post('/rename/:type/:filename', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/rename/:type/:filename', Auth.superAdminEditingSuperAdmin(), async (req: Request, res: Response) => {
   try {
     const { type, filename } = req.params;
     const { newName } = req.body;

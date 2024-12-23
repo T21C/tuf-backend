@@ -6,8 +6,7 @@ import { SUPER_ADMINS } from '../config/constants';
 export class Rater extends Model {
   public id!: number;
   public discordId!: string;
-  public name!: string;
-  public discordUsername!: string | null;
+  public discordUsername!: string;
   public discordAvatar!: string | null;
   public isSuperAdmin!: boolean;
   public readonly createdAt!: Date;
@@ -26,13 +25,9 @@ Rater.init({
     allowNull: false,
     unique: true,
   },
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false,
-  },
   discordUsername: {
     type: DataTypes.STRING,
-    allowNull: true,
+    allowNull: false,
   },
   discordAvatar: {
     type: DataTypes.STRING,
@@ -55,31 +50,27 @@ export class RaterService {
   static async create(raterData: Partial<Rater>) {
     return await Rater.create({
       ...raterData,
-      isSuperAdmin: SUPER_ADMINS.includes(raterData.name || '')
+      isSuperAdmin: SUPER_ADMINS.includes(raterData.discordUsername || '')
     });
   }
 
   // Get all raters
   static async getAll() {
     return await Rater.findAll({
-      order: [['name', 'ASC']]
+      order: [['discordUsername', 'ASC']]
     });
   }
 
   // Get rater by ID
   static async getById(id: string) {
-    return await Rater.findOne({
-      where: {
-        discordId: id
-      }
-    });
+    return await Rater.findByPk(id);
   }
 
   // Delete rater by ID
   static async deleteById(id: string) {
     return await Rater.destroy({
       where: {
-        discordId: id
+        id: id
       }
     });
   }
@@ -94,7 +85,7 @@ export class RaterService {
       },
       {
         where: {
-          discordId: id
+          id: id
         }
       }
     );
@@ -116,7 +107,7 @@ export class RaterService {
           },
           {
             where: {
-              discordId: update.id
+              id: update.id
             }
           }
         )
@@ -127,18 +118,42 @@ export class RaterService {
   // Get all rater IDs
   static async getAllIds(): Promise<string[]> {
     const raters = await Rater.findAll({
-      attributes: ['discordId']
+      attributes: ['id']
     });
-    return raters.map(rater => rater.discordId);
+    return raters.map(rater => rater.id.toString());
   }
 
   // Check if user is a rater
-  static async isRater(id: string): Promise<boolean> {
+  static async isRater(discordId: string): Promise<boolean> {
     const count = await Rater.count({
       where: {
-        discordId: id
+        discordId: discordId
       }
     });
     return count > 0;
+  }
+
+  // Get rater by username
+  static async getByUsername(username: string) {
+    return await Rater.findOne({
+      where: {
+        discordUsername: username
+      }
+    });
+  }
+
+  // Update super admin status
+  static async updateSuperAdminStatus(id: string, isSuperAdmin: boolean) {
+    return await Rater.update(
+      {
+        isSuperAdmin,
+        updatedAt: new Date()
+      },
+      {
+        where: {
+          id: id
+        }
+      }
+    );
   }
 } 
