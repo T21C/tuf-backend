@@ -36,6 +36,7 @@ export interface ILevel extends IBaseModel {
   previousDiffId: number | null;
   isAnnounced: boolean;
   isDeleted: boolean;
+  isHidden: boolean;
   // Associations
   passes?: IPass[];
   difficulty?: IDifficulty;

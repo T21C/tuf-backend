@@ -13,6 +13,7 @@ import sequelize from '../../config/db';
 import {IPass as PassInterface} from '../../interfaces/models';
 import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
+import { calculateRankedScore } from '../../misc/PlayerStatsCalculator';
 
 const router: Router = Router();
 
@@ -277,6 +278,7 @@ router.get('/', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
+          where: { isHidden: false },
           attributes: ['song', 'artist', 'baseScore'],
           include: [
             {
@@ -306,7 +308,7 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
   try {
     const pass = await Pass.findOne({
       where: {id: parseInt(req.params.id)},
@@ -314,12 +316,32 @@ router.get('/:id', async (req: Request, res: Response) => {
         {
           model: Player,
           as: 'player',
-          attributes: ['name', 'country', 'isBanned'],
+          include: [
+            {
+              model: Pass,
+              as: 'passes',
+              include: [
+                {
+                  model: Judgement,
+                  as: 'judgements',
+                },
+                {
+                  model: Level,
+                  as: 'level',
+                  include: [
+                    {
+                      model: Difficulty,
+                      as: 'difficulty',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
         },
         {
           model: Level,
           as: 'level',
-          attributes: ['song', 'artist', 'baseScore'],
           include: [
             {
               model: Difficulty,
@@ -338,7 +360,55 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Pass not found'});
     }
 
-    return res.json(pass);
+    const leaderboardCache = req.leaderboardCache;
+    if (!leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
+
+    // Calculate current and previous ranked scores
+    const currentRankedScore = calculateRankedScore(pass.player?.passes?.map(pass => ({ 
+      score: pass.scoreV2 || 0, 
+      baseScore: pass.level?.baseScore || 0,
+      xacc: pass.accuracy || 0,
+      isWorldsFirst: pass.isWorldsFirst || false,
+      is12K: pass.is12K || false,
+      isDeleted: pass.isDeleted || false
+    })) || []);
+
+    const previousRankedScore = calculateRankedScore(pass.player?.passes?.filter(p => p.id !== pass.id).map(pass => ({ 
+      score: pass.scoreV2 || 0, 
+      baseScore: pass.level?.baseScore || 0,
+      xacc: pass.accuracy || 0,
+      isWorldsFirst: pass.isWorldsFirst || false,
+      is12K: pass.is12K || false,
+      isDeleted: pass.isDeleted || false
+    })) || []);
+
+    // Get player ranks
+    const ranks = pass.player ? await leaderboardCache.getRanks(pass.player.id) : null;
+
+    // Create response object without player passes
+    const response = {
+      ...pass.toJSON(),
+      player: {
+        id: pass.player?.id,
+        name: pass.player?.name,
+        country: pass.player?.country,
+        isBanned: pass.player?.isBanned,
+        discordId: pass.player?.discordId,
+        discordUsername: pass.player?.discordUsername,
+        discordAvatar: pass.player?.discordAvatar,
+        discordAvatarId: pass.player?.discordAvatarId,
+      },
+      scoreInfo: {
+        currentRankedScore,
+        previousRankedScore,
+        scoreDifference: currentRankedScore - previousRankedScore,
+      },
+      ranks,
+    };
+
+    return res.json(response);
   } catch (error) {
     console.error('Error fetching pass:', error);
     return res.status(500).json({error: 'Failed to fetch pass'});

@@ -38,6 +38,7 @@ class Level
   declare isDeleted: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
+  declare isHidden: boolean;
 
   // Associations
   declare passes?: Pass[];
@@ -154,6 +155,11 @@ Level.init(
     updatedAt: {
       type: DataTypes.DATE,
       allowNull: false,
+    },
+    isHidden: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
   },
   {

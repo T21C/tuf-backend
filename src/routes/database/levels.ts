@@ -21,10 +21,21 @@ const buildWhereClause = async (query: any) => {
 
   // Handle deleted filter
   if (query.deletedFilter === 'hide') {
-    conditions.push({isDeleted: false});
+    conditions.push({
+      [Op.and]: [
+        {isDeleted: false},
+        {isHidden: false}
+      ]
+    });
   } else if (query.deletedFilter === 'only') {
-    conditions.push({isDeleted: true});
+    conditions.push({
+      [Op.or]: [
+        {isDeleted: true},
+        {isHidden: true}
+      ]
+    });
   }
+
 
   // Handle text search
   if (query.query) {
@@ -114,6 +125,18 @@ const buildWhereClause = async (query: any) => {
       diffId: {[Op.notIn]: diffIds.map(d => d.id)},
     });
   }
+
+  conditions.push({
+    [Op.and]: [
+      {song: {[Op.ne]: 'Placeholder'}},
+      {artist: {[Op.ne]: 'Placeholder'}},
+      {charter: {[Op.ne]: 'Placeholder'}},
+      {creator: {[Op.ne]: 'Placeholder'}},
+      {publicComments: {[Op.ne]: 'Placeholder'}},
+    ]
+  });
+
+
 
   // Combine all conditions
   if (conditions.length > 0) {
@@ -415,114 +438,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-// Soft delete a level
-router.patch(
-  '/:id/soft-delete',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
-
-    try {
-      const {id} = req.params;
-
-      const level = await Level.findOne({
-        where: {id: parseInt(id)},
-        transaction,
-      });
-
-      if (!level) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Find and delete associated rating details and rating
-      const rating = await Rating.findOne({
-        where: {levelId: parseInt(id)},
-        transaction,
-      });
-
-      if (rating) {
-        // Delete rating details first due to foreign key constraint
-        await RatingDetail.destroy({
-          where: {ratingId: rating.id},
-          transaction,
-        });
-
-        // Then delete the rating
-        await rating.destroy({transaction});
-      }
-
-      // Soft delete the level
-      await Level.update(
-        {isDeleted: true},
-        {
-          where: {id: parseInt(id)},
-          transaction,
-        },
-      );
-
-      await transaction.commit();
-
-      const io = getIO();
-      io.emit('ratingsUpdated');
-
-      return res.json({
-        message: 'Level and associated ratings soft deleted successfully',
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error soft deleting level:', error);
-      return res.status(500).json({error: 'Failed to soft delete level'});
-    }
-  },
-);
-
-// Restore a soft-deleted level
-router.patch(
-  '/:id/restore',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
-
-    try {
-      const {id} = req.params;
-
-      const level = await Level.findOne({
-        where: {id: parseInt(id)},
-        transaction,
-      });
-
-      if (!level) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Restore the level
-      await Level.update(
-        {isDeleted: false},
-        {
-          where: {id: parseInt(id)},
-          transaction,
-        },
-      );
-
-      await transaction.commit();
-
-      const io = getIO();
-      io.emit('ratingsUpdated');
-
-      return res.json({
-        message: 'Level restored successfully',
-        level: level,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error restoring level:', error);
-      return res.status(500).json({error: 'Failed to restore level'});
-    }
-  },
-);
-
 // Toggle rating status for a level
 router.put('/:id/toRate', async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
@@ -706,7 +621,6 @@ router.patch(
         await transaction.rollback();
         return res.status(404).json({error: 'Level not found'});
       }
-
       // Restore the level
       await Level.update(
         {isDeleted: false},
@@ -860,5 +774,58 @@ router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Toggle hidden status
+router.patch(
+  '/:id/toggle-hidden',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const {id} = req.params;
+
+      const level = await Level.findOne({
+        where: {id: parseInt(id)},
+        transaction,
+      });
+
+      if (!level) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      // Toggle the hidden status
+      await Level.update(
+        {isHidden: !level.isHidden},
+        {
+          where: {id: parseInt(id)},
+          transaction,
+        },
+      );
+
+      await transaction.commit();
+
+      // Force cache update since visibility change affects public views
+      if (!req.leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+      await req.leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+
+      return res.json({
+        message: `Level ${level.isHidden ? 'unhidden' : 'hidden'} successfully`,
+        isHidden: !level.isHidden,
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error toggling level hidden status:', error);
+      return res.status(500).json({
+        error: 'Failed to toggle level hidden status',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
 
 export default router;

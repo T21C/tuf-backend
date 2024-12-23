@@ -199,6 +199,7 @@ function createPlaceholderLevel(id: number) {
     isDeleted: true,
     isAnnounced: true,
     previousDiffId: null,
+    isHidden: false,
   };
 }
 // Add this helper function for creating placeholder judgements
@@ -367,7 +368,7 @@ async function reloadDatabase() {
         isDeleted: false,
         isAnnounced: true,
         previousDiffId: null,
-
+        isHidden: false,
       });
 
       nextLevelId = level.id + 1;
@@ -494,6 +495,7 @@ async function reloadDatabase() {
           scoreV2,
           isAnnounced: true,
           isDeleted: false,
+          isHidden: false,
         });
 
         judgementDocs.push(judgements);

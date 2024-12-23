@@ -139,6 +139,7 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
           rerateReason: '',
           rerateNum: '',
           isAnnounced: false,
+          isHidden: false,
           createdAt: new Date(),
           updatedAt: new Date(),
         });

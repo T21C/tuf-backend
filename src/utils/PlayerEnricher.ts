@@ -233,6 +233,7 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
       is12K: pass.is12K || false,
       baseScore: getBaseScore(pass.level as ILevel),
       isDeleted: pass.isDeleted || false,
+      isHidden: pass.level?.isHidden || false,
       pguDiff: pass.level?.difficulty?.name,
     }));
 
