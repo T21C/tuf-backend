@@ -1,10 +1,10 @@
 import express, {Request, Response, Router} from 'express';
-import {raterList} from '../../config/constants';
+import { RaterService } from '../../services/RaterService';
+import { Auth } from '../../middleware/auth';
 import Rating from '../../models/Rating';
 import RatingDetail from '../../models/RatingDetail';
 import Level from '../../models/Level';
 import {calculateAverageRating} from '../../utils/ratingUtils';
-import {Auth} from '../../middleware/auth';
 import {IUser} from '../../interfaces/express/index';
 import {getIO} from '../../utils/socket';
 import sequelize from '../../config/db';
@@ -12,8 +12,15 @@ import Difficulty from '../../models/Difficulty';
 
 const router: Router = express.Router();
 
-router.get('/raters', async (req: Request, res: Response) => {
-  return res.json(raterList);
+router.get('/raters', Auth.rater(), async (req: Request, res: Response) => {
+  try {
+    const raters = await RaterService.getAll();
+    const raterNames = raters.map(rater => rater.name);
+    res.json(raterNames);
+  } catch (error) {
+    console.error('Failed to fetch raters:', error);
+    res.status(500).json({ error: 'Failed to fetch raters' });
+  }
 });
 
 router.get('/', Auth.rater(), async (req: Request, res: Response) => {

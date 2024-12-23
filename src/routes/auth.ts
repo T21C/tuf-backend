@@ -2,7 +2,8 @@ import express, {Request, Response, Router} from 'express';
 import {verifyAccessToken} from '../utils/authHelpers.js';
 import axios from 'axios';
 import {type RESTPostOAuth2AccessTokenResult} from 'discord-api-types/v10';
-import {raterList, SUPER_ADMINS} from '../config/constants.js';
+import { SUPER_ADMINS } from '../config/constants';
+import { RaterService } from '../services/RaterService';
 
 const router: Router = express.Router();
 
@@ -123,16 +124,17 @@ router.post('/check-token', async (req: Request, res: Response) => {
 router.get('/check-admin', async (req: Request, res: Response) => {
   const accessToken = req.headers.authorization?.split(' ')[1];
   if (!accessToken) {
-    return res.status(401).json({isAdmin: false, isSuperAdmin: false});
+    return res.status(401).json({ isAdmin: false, isSuperAdmin: false });
   }
   const tokenInfo = await verifyAccessToken(accessToken); // Validate token
 
   if (tokenInfo) {
-    const isAdmin = raterList.includes(tokenInfo.username);
+    const isRater = await RaterService.isRater(tokenInfo.id);
+    const isAdmin = isRater || SUPER_ADMINS.includes(tokenInfo.username);
     const isSuperAdmin = SUPER_ADMINS.includes(tokenInfo.username);
-    return res.json({isAdmin: isAdmin, isSuperAdmin: isSuperAdmin});
+    return res.json({ isAdmin, isSuperAdmin });
   } else {
-    return res.status(401).json({isAdmin: false, isSuperAdmin: false});
+    return res.status(401).json({ isAdmin: false, isSuperAdmin: false });
   }
 });
 

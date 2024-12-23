@@ -20,6 +20,7 @@ import Level from './models/Level';
 import Difficulty from './models/Difficulty';
 import path from 'path';
 import fs from 'fs';
+import ratersRouter from './routes/database/raters';
 
 dotenv.config();
 
