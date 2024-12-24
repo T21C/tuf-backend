@@ -56,7 +56,7 @@ export const Auth = {
   },
 
   // For super admin editing super admin
-  superAdminEditingSuperAdmin: () => {
+  superAdminPassword: () => {
     return async (req: Request, res: Response, next: NextFunction) => {
       try {
         const authHeader = req.headers.authorization;

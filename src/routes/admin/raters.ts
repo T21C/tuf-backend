@@ -51,7 +51,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // Delete rater
-router.delete('/:id', [Auth.superAdmin(), Auth.superAdminEditingSuperAdmin()], async (req: Request, res: Response) => {
+router.delete('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
@@ -79,7 +79,7 @@ router.delete('/:id', [Auth.superAdmin(), Auth.superAdminEditingSuperAdmin()], a
 });
 
 // Update rater's Discord info
-router.put('/:id/discord', [Auth.superAdmin(), Auth.superAdminEditingSuperAdmin()], async (req: Request, res: Response) => {
+router.put('/:id/discord', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { discordId, discordUsername, discordAvatar } = req.body;
