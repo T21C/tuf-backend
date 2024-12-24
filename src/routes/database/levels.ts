@@ -375,7 +375,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       previousDiffId = level.diffId;
     }
 
-
     let isAnnounced = level.isAnnounced || req.body.toRate;
     if (isAnnounced && level.toRate && !req.body.toRate) {
       isAnnounced = false;
@@ -410,9 +409,22 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       transaction,
     });
 
-    // Fetch the updated record
+    // Fetch the updated record with associations
     const updatedLevel = await Level.findOne({
       where: {id: levelId},
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+        {
+          model: Pass,
+          as: 'passes',
+          required: false,
+          attributes: ['id'],
+        },
+      ],
       transaction,
     });
 
