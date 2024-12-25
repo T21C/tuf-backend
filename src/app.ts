@@ -65,11 +65,20 @@ async function startServer() {
     }
 
     // Set up Express middleware
-    app.use(cors());
+    app.use(cors({
+      origin: process.env.CLIENT_URL || 'http://localhost:5173',
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      credentials: true,
+      allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID'],
+      exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID']
+    }));
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
     app.use(Cache.leaderboard());
     console.log('Cache middleware attached');
+
+    // Add CORS preflight handler for SSE endpoint
+    app.options('/events', cors());
 
     // HTML meta tags middleware for specific routes
     app.get('/passes/:id', htmlMetaMiddleware);

@@ -124,16 +124,6 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
       ]);
       console.log('9. Pass submissions stats:', { pending: pendingPassSubmissions, total: totalPassSubmissions });
 
-      // Rating Stats
-      const ratingStats = await Rating.findAll({
-        attributes: [
-          [fn('AVG', col('average')), 'averageRating'],
-          [fn('COUNT', col('id')), 'totalRatings'],
-          [fn('SUM', literal('CASE WHEN lowDiff = true THEN 1 ELSE 0 END')), 'lowDiffCount']
-        ]
-      });
-      console.log('10. Rating stats:', ratingStats[0]?.get());
-
       return res.json({
         overview: {
           totalLevels,
@@ -171,11 +161,6 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
             pending: pendingPassSubmissions,
             total: totalPassSubmissions
           }
-        },
-        ratings: {
-          averageRating: Number(ratingStats[0]?.get('averageRating') || 0),
-          totalRatings: Number(ratingStats[0]?.get('totalRatings') || 0),
-          lowDiffCount: Number(ratingStats[0]?.get('lowDiffCount') || 0)
         }
       });
 

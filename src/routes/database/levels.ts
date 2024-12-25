@@ -439,6 +439,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     
     // Replace socket.io emit with SSE broadcast
     sseManager.broadcast({ type: 'ratingUpdate' });
+    sseManager.broadcast({ type: 'levelUpdate' });
 
     return res.json({
       message: 'Level updated successfully',
@@ -493,6 +494,11 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
       );
 
       await transaction.commit();
+      
+      // Broadcast updates
+      sseManager.broadcast({ type: 'ratingUpdate' });
+      sseManager.broadcast({ type: 'levelUpdate' });
+      
       return res.json({
         message: 'Rating removed successfully',
         toRate: false,
@@ -520,6 +526,11 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
       );
 
       await transaction.commit();
+      
+      // Broadcast updates
+      sseManager.broadcast({ type: 'ratingUpdate' });
+      sseManager.broadcast({ type: 'levelUpdate' });
+      
       return res.json({
         message: 'Rating created successfully',
         toRate: true,
@@ -604,6 +615,10 @@ router.delete(
       io.emit('leaderboardUpdated');
       io.emit('ratingsUpdated');
 
+      // Broadcast updates
+      sseManager.broadcast({ type: 'levelUpdate' });
+      sseManager.broadcast({ type: 'ratingUpdate' });
+
       return res.json({
         message: 'Level soft deleted successfully',
         level: level,
@@ -653,6 +668,10 @@ router.patch(
       const io = getIO();
       io.emit('leaderboardUpdated');
       io.emit('ratingsUpdated');
+
+      // Broadcast updates
+      sseManager.broadcast({ type: 'levelUpdate' });
+      sseManager.broadcast({ type: 'ratingUpdate' });
 
       return res.json({
         message: 'Level restored successfully',
@@ -756,6 +775,9 @@ router.post('/announce', async (req: Request, res: Response) => {
       }
     );
 
+    // Broadcast level update
+    sseManager.broadcast({ type: 'levelUpdate' });
+
     return res.json({ success: true, message: 'Levels marked as announced' });
   } catch (error) {
     console.error('Error marking levels as announced:', error);
@@ -777,6 +799,10 @@ router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
     }
 
     await level.update({ isAnnounced: true });
+    
+    // Broadcast level update
+    sseManager.broadcast({ type: 'levelUpdate' });
+    
     return res.json({ success: true });
   } catch (error) {
     console.error('Error marking level as announced:', error);
@@ -825,6 +851,9 @@ router.patch(
       await req.leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
+
+      // Broadcast updates
+      sseManager.broadcast({ type: 'levelUpdate' });
 
       return res.json({
         message: `Level ${level.isHidden ? 'unhidden' : 'hidden'} successfully`,

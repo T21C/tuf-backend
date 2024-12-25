@@ -159,11 +159,19 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
           {where: {id}},
         );
 
+        // Broadcast updates
+        sseManager.broadcast({ type: 'submissionUpdate' });
+        sseManager.broadcast({ type: 'levelUpdate' });
+
         return res.json({
           message: 'Submission approved, level and rating created successfully',
         });
       } else if (action === 'decline') {
         await LevelSubmission.update({status: 'declined'}, {where: {id}});
+        
+        // Broadcast submission update
+        sseManager.broadcast({ type: 'submissionUpdate' });
+        
         return res.json({message: 'Submission declined successfully'});
       } else {
         return res.status(400).json({error: 'Invalid action'});
@@ -356,6 +364,10 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
           }
         );
         await transaction.commit();
+        
+        // Broadcast submission update
+        sseManager.broadcast({ type: 'submissionUpdate' });
+        
         return res.json({message: 'Pass submission declined successfully'});
       } else if (action === 'assign-player') {
         const {playerId} = req.body;

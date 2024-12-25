@@ -1,19 +1,41 @@
 import { Response } from 'express';
 
-class SSEManager {
-  private clients: Set<Response> = new Set();
+interface SSEClient {
+  id: string;
+  res: Response;
+}
 
-  addClient(client: Response) {
-    this.clients.add(client);
-    client.on('close', () => {
-      this.clients.delete(client);
+class SSEManager {
+  private clients: Map<string, SSEClient> = new Map();
+
+  addClient(res: Response): string {
+    const clientId = Math.random().toString(36).substring(7);
+    this.clients.set(clientId, { id: clientId, res });
+    
+    res.on('close', () => {
+      this.removeClient(clientId);
     });
+
+    return clientId;
+  }
+
+  removeClient(clientId: string) {
+    this.clients.delete(clientId);
   }
 
   broadcast(event: { type: string; data?: any }) {
     this.clients.forEach(client => {
-      client.write(`data: ${JSON.stringify(event)}\n\n`);
+      try {
+        client.res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch (error) {
+        console.error(`Error broadcasting to client ${client.id}:`, error);
+        this.removeClient(client.id);
+      }
     });
+  }
+
+  getClientCount(): number {
+    return this.clients.size;
   }
 }
 

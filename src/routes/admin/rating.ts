@@ -136,6 +136,44 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    // If both rating and comment are empty, treat it as a deletion request
+    if (!rating && !comment) {
+      // Delete the rating detail
+      await RatingDetail.destroy({
+        where: {
+          ratingId: id,
+          username: username
+        },
+        transaction
+      });
+
+      // Get remaining rating details
+      const details = await RatingDetail.findAll({
+        where: { ratingId: id },
+        transaction
+      });
+
+      // Calculate new average difficulty
+      const averageDifficulty = await calculateAverageRating(details, transaction);
+
+      // Update the main rating record
+      await Rating.update({
+        averageDifficultyId: averageDifficulty?.id || null,
+      }, {
+        where: { id: id },
+        transaction
+      });
+
+      await transaction.commit();
+
+      // Broadcast rating update via SSE
+      sseManager.broadcast({ type: 'ratingUpdate' });
+
+      return res.json({
+        message: 'Rating detail deleted successfully'
+      });
+    }
+
     // Validate rating exists in difficulties
     const difficulty = await Difficulty.findOne({
       where: { name: rating },
