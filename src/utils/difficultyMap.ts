@@ -38,7 +38,7 @@ export const colorMap: {[key: string]: string} = {
   "Bus": "#ffffff",
   "Q1+": "#443a57",
   "Q2": "#2f2b36",
-  "Q2+": "#241f1f:",
+  "Q2+": "#241f1f",
   "Q3": "#000000",
   "Q3+": "#000000",
   "Q4": "#000000",

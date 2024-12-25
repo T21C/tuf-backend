@@ -57,48 +57,61 @@ const buildWhereClause = async (query: any) => {
       query.minDiff
         ? Difficulty.findOne({
             where: {name: query.minDiff},
-            attributes: ['sortOrder', 'name'],
+            attributes: ['sortOrder', 'name', 'type'],
           })
         : null,
       query.maxDiff
         ? Difficulty.findOne({
             where: {name: query.maxDiff},
-            attributes: ['sortOrder', 'name'],
+            attributes: ['sortOrder', 'name', 'type'],
           })
         : null,
     ]);
 
-    if (minDiff && maxDiff && minDiff.sortOrder > maxDiff.sortOrder) {
-      // Swap the difficulties if they're in wrong order
+    // Get all special difficulties if they're selected
+    const specialDiffs = query.specialDiffs ? query.specialDiffs.split(',') : [];
+    const specialDiffIds = specialDiffs.length > 0 
+      ? (await Difficulty.findAll({
+          where: {
+            name: {[Op.in]: specialDiffs},
+            type: 'SPECIAL'
+          },
+          attributes: ['id']
+        })).map(d => d.id)
+      : [];
+
+    // Build the difficulty condition
+    if (minDiff && maxDiff && minDiff.type === 'PGU' && maxDiff.type === 'PGU') {
+      // Handle PGU range
       const difficultyIds = await Difficulty.findAll({
         where: {
-          sortOrder: {
-            [Op.gte]: maxDiff.sortOrder,
-            [Op.lte]: minDiff.sortOrder,
-          },
+          [Op.or]: [
+            // PGU range
+            {
+              type: 'PGU',
+              sortOrder: {
+                [Op.gte]: Math.min(minDiff.sortOrder, maxDiff.sortOrder),
+                [Op.lte]: Math.max(minDiff.sortOrder, maxDiff.sortOrder)
+              }
+            },
+            // Special difficulties if any
+            ...(specialDiffIds.length > 0 ? [{id: {[Op.in]: specialDiffIds}}] : [])
+          ]
         },
-        attributes: ['id'],
+        attributes: ['id']
       });
+
       conditions.push({
         diffId: {
-          [Op.in]: difficultyIds.map(d => d.id),
-        },
+          [Op.in]: difficultyIds.map(d => d.id)
+        }
       });
-    } else if (minDiff || maxDiff) {
-      // Original logic for correctly ordered or single difficulty
-      const difficultyIds = await Difficulty.findAll({
-        where: {
-          sortOrder: {
-            ...(minDiff && {[Op.gte]: minDiff.sortOrder}),
-            ...(maxDiff && {[Op.lte]: maxDiff.sortOrder}),
-          },
-        },
-        attributes: ['id'],
-      });
+    } else if (specialDiffIds.length > 0) {
+      // Only special difficulties selected
       conditions.push({
         diffId: {
-          [Op.in]: difficultyIds.map(d => d.id),
-        },
+          [Op.in]: specialDiffIds
+        }
       });
     }
   }
@@ -869,5 +882,185 @@ router.patch(
     }
   },
 );
+
+// Add type definitions for the request body
+interface DifficultyFilterBody {
+  pguRange: {
+    from: string | null;
+    to: string | null;
+  };
+  specialDifficulties: string[];
+}
+
+// Add the new filtering endpoint
+router.post('/filter', async (req: Request, res: Response) => {
+  try {
+    const { pguRange, specialDifficulties } = req.body as DifficultyFilterBody;
+    const { query, sort, offset, limit, deletedFilter } = req.query;
+
+    // Build the base where clause
+    const where: any = {};
+    const conditions: any[] = [];
+
+    // Handle deleted filter
+    if (deletedFilter === 'hide') {
+      conditions.push({
+        [Op.and]: [
+          {isDeleted: false},
+          {isHidden: false}
+        ]
+      });
+    } else if (deletedFilter === 'only') {
+      conditions.push({
+        [Op.or]: [
+          {isDeleted: true},
+          {isHidden: true}
+        ]
+      });
+    }
+
+    // Handle text search
+    if (query) {
+      const searchTerm = `%${query}%`;
+      conditions.push({
+        [Op.or]: [
+          {song: {[Op.like]: searchTerm}},
+          {artist: {[Op.like]: searchTerm}},
+          {charter: {[Op.like]: searchTerm}},
+        ],
+      });
+    }
+
+    // Handle difficulty filtering
+    const difficultyConditions: any[] = [];
+
+    // Handle PGU range if provided
+    if (pguRange.from || pguRange.to) {
+      const [fromDiff, toDiff] = await Promise.all([
+        pguRange.from ? Difficulty.findOne({
+          where: { name: pguRange.from, type: 'PGU' },
+          attributes: ['id', 'sortOrder']
+        }) : null,
+        pguRange.to ? Difficulty.findOne({
+          where: { name: pguRange.to, type: 'PGU' },
+          attributes: ['id', 'sortOrder']
+        }) : null
+      ]);
+
+      if (fromDiff || toDiff) {
+        const pguDifficulties = await Difficulty.findAll({
+          where: {
+            type: 'PGU',
+            sortOrder: {
+              ...(fromDiff && { [Op.gte]: fromDiff.sortOrder }),
+              ...(toDiff && { [Op.lte]: toDiff.sortOrder })
+            }
+          },
+          attributes: ['id']
+        });
+        
+        if (pguDifficulties.length > 0) {
+          difficultyConditions.push({
+            diffId: { [Op.in]: pguDifficulties.map(d => d.id) }
+          });
+        }
+      }
+    }
+
+    // Handle special difficulties if provided
+    if (specialDifficulties && specialDifficulties.length > 0) {
+      const specialDiffs = await Difficulty.findAll({
+        where: {
+          name: { [Op.in]: specialDifficulties },
+          type: 'SPECIAL'
+        },
+        attributes: ['id']
+      });
+
+      if (specialDiffs.length > 0) {
+        difficultyConditions.push({
+          diffId: { [Op.in]: specialDiffs.map(d => d.id) }
+        });
+      }
+    }
+
+    // Combine difficulty conditions with OR if both exist
+    if (difficultyConditions.length > 0) {
+      conditions.push({
+        [Op.or]: difficultyConditions
+      });
+    }
+
+    // Add placeholder exclusion
+    conditions.push({
+      [Op.and]: [
+        {song: {[Op.ne]: 'Placeholder'}},
+        {artist: {[Op.ne]: 'Placeholder'}},
+        {charter: {[Op.ne]: 'Placeholder'}},
+        {creator: {[Op.ne]: 'Placeholder'}},
+        {publicComments: {[Op.ne]: 'Placeholder'}},
+      ]
+    });
+
+    // Combine all conditions
+    if (conditions.length > 0) {
+      where[Op.and] = conditions;
+    }
+
+    // Get sort options
+    const order = getSortOptions(sort as string);
+
+    // First get all IDs in correct order
+    const allIds = await Level.findAll({
+      where,
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+      ],
+      order,
+      attributes: ['id'],
+      raw: true,
+    });
+
+    // Then get paginated results
+    const paginatedIds = allIds
+      .map(level => level.id)
+      .slice(Number(offset) || 0, (Number(offset) || 0) + (Number(limit) || 30));
+
+    const results = await Level.findAll({
+      where: {
+        ...where,
+        id: {
+          [Op.in]: paginatedIds,
+        },
+      },
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+        {
+          model: Pass,
+          as: 'passes',
+          required: false,
+          attributes: ['id'],
+        },
+      ],
+      order
+    });
+
+    return res.json({
+      count: allIds.length,
+      results,
+    });
+  } catch (error) {
+    console.error('Error filtering levels:', error);
+    return res.status(500).json({error: 'Failed to filter levels'});
+  }
+});
 
 export default router;
