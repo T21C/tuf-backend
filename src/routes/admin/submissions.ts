@@ -352,7 +352,23 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
 
         // Force cache update
         await leaderboardCache.forceUpdate();
-        sseManager.broadcast({ type: 'submissionUpdate' });
+        const io = getIO();
+        io.emit('leaderboardUpdated');
+
+        // Get player's new score from leaderboard cache
+        const players = await leaderboardCache.get('rankedScore', 'desc', true);
+        const playerData = players.find(p => p.id === submission.assignedPlayerId);
+
+        // Emit SSE event with pass creation data
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId: submission.assignedPlayerId,
+            passedLevelId: submission.levelId,
+            newScore: playerData?.rankedScore || 0,
+            action: 'create'
+          }
+        });
 
         return res.json({message: 'Pass submission approved successfully'});
       } else if (action === 'decline') {
@@ -629,8 +645,19 @@ router.post(
             });
 
             // Emit socket event
-            sseManager.broadcast({ type: 'submissionUpdate' });
-            console.log(`Emitted socket event for submission ${submission.id}`);
+            const players = await leaderboardCache.get('rankedScore', 'desc', true);
+            const playerData = players.find(p => p.id === submission.assignedPlayerId);
+
+            // Emit SSE event with pass creation data
+            sseManager.broadcast({
+              type: 'passUpdate',
+              data: {
+                playerId: submission.assignedPlayerId,
+                passedLevelId: submission.levelId,
+                newScore: playerData?.rankedScore || 0,
+                action: 'create'
+              }
+            });
 
             return { id: submission.id, success: true };
           } catch (error) {

@@ -28,7 +28,7 @@ class SSEManager {
       try {
         client.res.write(`data: ${JSON.stringify(event)}\n\n`);
       } catch (error) {
-        console.error(`Error broadcasting to client ${client.id}:`, error);
+        //console.error(`Error broadcasting to client ${client.id}:`, error);
         this.removeClient(client.id);
       }
     });

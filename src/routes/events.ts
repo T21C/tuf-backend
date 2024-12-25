@@ -9,7 +9,7 @@ const router: Router = Router();
 router.options('/', cors());
 
 router.get('/', cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: '*',//process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
   methods: ['GET'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID'],
@@ -40,7 +40,7 @@ router.get('/', cors({
       }
       res.write(`data: {"type":"ping","clientId":"${clientId}"}\n\n`);
     } catch (error) {
-      console.error('Error sending ping:', error);
+      //console.error('Error sending ping:', error);
       clearInterval(pingInterval);
       sseManager.removeClient(clientId);
     }
@@ -54,14 +54,14 @@ router.get('/', cors({
 
   // Handle errors
   req.on('error', (error) => {
-    console.error('SSE connection error:', error);
+    //console.error('SSE connection error:', error);
     clearInterval(pingInterval);
     sseManager.removeClient(clientId);
   });
 
   // Handle response errors
   res.on('error', (error) => {
-    console.error('SSE response error:', error);
+    //console.error('SSE response error:', error);
     clearInterval(pingInterval);
     sseManager.removeClient(clientId);
   });

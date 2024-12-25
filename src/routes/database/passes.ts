@@ -14,6 +14,7 @@ import {IPass as PassInterface} from '../../interfaces/models';
 import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
 import { calculateRankedScore } from '../../misc/PlayerStatsCalculator';
+import { sseManager } from '../../utils/sse';
 
 const router: Router = Router();
 
@@ -557,6 +558,24 @@ router.put(
       const io = getIO();
       io.emit('leaderboardUpdated');
 
+      // Get player's new score from leaderboard cache
+      if (updatedPass && updatedPass.player && updatedPass.levelId) {
+        const playerId = updatedPass.player.id;
+        const players = await leaderboardCache.get('rankedScore', 'desc', true);
+        const playerData = players.find(p => p.id === playerId);
+
+        // Emit SSE event with pass update data
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId,
+            passedLevelId: updatedPass.levelId,
+            newScore: playerData?.rankedScore || 0,
+            action: 'update'
+          }
+        });
+      }
+
       return res.json({
         message: 'Pass updated successfully',
         pass: updatedPass,
@@ -673,13 +692,28 @@ router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Reques
       await transaction.commit();
 
       // Force cache update
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
       await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
       io.emit('passesUpdated');
+
+      // Get player's new score from leaderboard cache
+      if (pass && pass.player && pass.levelId) {
+        const playerId = pass.player.id;
+        const players = await leaderboardCache.get('rankedScore', 'desc', true);
+        const playerData = players.find(p => p.id === playerId);
+
+        // Emit SSE event with pass deletion data
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId,
+            passedLevelId: pass.levelId,
+            newScore: playerData?.rankedScore || 0,
+            action: 'delete'
+          }
+        });
+      }
 
       return res.json({
         message: 'Pass soft deleted successfully',
@@ -752,13 +786,28 @@ router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req:
       await transaction.commit();
 
       // Force cache update
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
       await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
       io.emit('passesUpdated');
+
+      // Get player's new score from leaderboard cache
+      if (pass && pass.player && pass.levelId) {
+        const playerId = pass.player.id;
+        const players = await leaderboardCache.get('rankedScore', 'desc', true);
+        const playerData = players.find(p => p.id === playerId);
+
+        // Emit SSE event with pass restoration data
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId,
+            passedLevelId: pass.levelId,
+            newScore: playerData?.rankedScore || 0,
+            action: 'restore'
+          }
+        });
+      }
 
       return res.json({
         message: 'Pass restored successfully',
