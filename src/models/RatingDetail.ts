@@ -29,6 +29,7 @@ RatingDetail.init(
     },
     comment: {
       type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {

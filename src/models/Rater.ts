@@ -1,6 +1,8 @@
-import { Schema, model } from 'mongoose';
+import { Model, DataTypes } from 'sequelize';
+import sequelize from '../config/db';
 
-interface IRater {
+interface RaterAttributes {
+  id: number;
   discordId: string;
   name: string;
   discordAvatar?: string;
@@ -9,28 +11,60 @@ interface IRater {
   updatedAt: Date;
 }
 
-const raterSchema = new Schema<IRater>(
+class Rater extends Model<RaterAttributes> implements RaterAttributes {
+  declare id: number;
+  declare discordId: string;
+  declare name: string;
+  declare discordAvatar: string | undefined;
+  declare isSuperAdmin: boolean;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+
+Rater.init(
   {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
     discordId: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
       unique: true,
     },
     name: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING,
+      allowNull: false,
     },
-    discordAvatar: String,
+    discordAvatar: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     isSuperAdmin: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
     },
   },
   {
-    timestamps: true,
-  }
+    sequelize,
+    tableName: 'raters',
+    indexes: [
+      {
+        unique: true,
+        fields: ['discordId'],
+      },
+    ],
+  },
 );
 
-const Rater = model<IRater>('Rater', raterSchema);
-
-export { Rater, IRater }; 
+export default Rater; 

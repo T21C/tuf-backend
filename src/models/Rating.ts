@@ -1,16 +1,19 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
+import Difficulty from './Difficulty';
+import Level from './Level';
+import RatingDetail from './RatingDetail';
 
 interface RatingAttributes {
   id: number;
   levelId: number;
-  currentDiff: string;
+  currentDifficultyId: number | null;
   lowDiff: boolean;
   requesterFR: string;
-  average: string;
+  averageDifficultyId: number | null;
 }
 
-type RatingCreationAttributes = Optional<RatingAttributes, 'id'>;
+type RatingCreationAttributes = Optional<RatingAttributes, 'id' | 'averageDifficultyId' | 'currentDifficultyId'>;
 
 class Rating
   extends Model<RatingAttributes, RatingCreationAttributes>
@@ -18,10 +21,16 @@ class Rating
 {
   declare id: number;
   declare levelId: number;
-  declare currentDiff: string;
+  declare currentDifficultyId: number | null;
   declare lowDiff: boolean;
   declare requesterFR: string;
-  declare average: string;
+  declare averageDifficultyId: number | null;
+
+  // Associations
+  declare level?: Level;
+  declare details?: RatingDetail[];
+  declare currentDifficulty?: Difficulty;
+  declare averageDifficulty?: Difficulty;
 }
 
 Rating.init(
@@ -39,9 +48,13 @@ Rating.init(
         key: 'id',
       },
     },
-    currentDiff: {
-      type: DataTypes.STRING,
-      defaultValue: '0',
+    currentDifficultyId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'difficulties',
+        key: 'id',
+      },
     },
     lowDiff: {
       type: DataTypes.BOOLEAN,
@@ -51,9 +64,13 @@ Rating.init(
       type: DataTypes.STRING,
       defaultValue: '',
     },
-    average: {
-      type: DataTypes.STRING,
-      defaultValue: '0',
+    averageDifficultyId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'difficulties',
+        key: 'id',
+      },
     },
   },
   {

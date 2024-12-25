@@ -11,6 +11,7 @@ import sequelize from '../../config/db';
 import RatingDetail from '../../models/RatingDetail';
 import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
+import { sseManager } from '../../utils/sse';
 
 const router: Router = Router();
 
@@ -344,10 +345,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           await Rating.create(
             {
               levelId: levelId,
-              currentDiff: '0',
+              currentDifficultyId: 0,
               lowDiff: false,
               requesterFR: '',
-              average: '',
+              averageDifficultyId: null,
             },
             {transaction},
           );
@@ -435,9 +436,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       throw new Error('LeaderboardCache not initialized');
     }
     await req.leaderboardCache.forceUpdate();
-    const io = getIO();
-    io.emit('leaderboardUpdated');
-    io.emit('ratingsUpdated');
+    
+    // Replace socket.io emit with SSE broadcast
+    sseManager.broadcast({ type: 'ratingUpdate' });
 
     return res.json({
       message: 'Level updated successfully',
@@ -501,10 +502,10 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
       const newRating = await Rating.create(
         {
           levelId,
-          currentDiff: '0',
+          currentDifficultyId: 0,
           lowDiff: false,
           requesterFR: '',
-          average: '',
+          averageDifficultyId: null,
         },
         {transaction},
       );

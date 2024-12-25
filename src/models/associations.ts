@@ -70,6 +70,28 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
+  // Rating belongs to Difficulties
+  Rating.belongsTo(Difficulty, {
+    foreignKey: 'currentDifficultyId',
+    as: 'currentDifficulty',
+  });
+
+  Rating.belongsTo(Difficulty, {
+    foreignKey: 'averageDifficultyId',
+    as: 'averageDifficulty',
+  });
+
+  // Difficulty has many Ratings
+  Difficulty.hasMany(Rating, {
+    foreignKey: 'currentDifficultyId',
+    as: 'currentRatings',
+  });
+
+  Difficulty.hasMany(Rating, {
+    foreignKey: 'averageDifficultyId',
+    as: 'averageRatings',
+  });
+
   // Rating has many RatingDetails
   Rating.hasMany(RatingDetail, {
     foreignKey: 'ratingId',
@@ -146,7 +168,6 @@ export function initializeAssociations() {
     otherKey: 'difficultyId',
     as: 'referenceDifficulties'
   });
-
 
   Reference.belongsTo(Difficulty, {
     foreignKey: 'difficultyId',

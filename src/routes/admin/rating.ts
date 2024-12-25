@@ -1,257 +1,337 @@
-import express, {Request, Response, Router} from 'express';
-import { RaterService } from '../../services/RaterService';
+import { Router, Request, Response } from 'express';
 import { Auth } from '../../middleware/auth';
 import Rating from '../../models/Rating';
 import RatingDetail from '../../models/RatingDetail';
 import Level from '../../models/Level';
-import {calculateAverageRating} from '../../utils/ratingUtils';
-import {IUser} from '../../interfaces/express/index';
-import {getIO} from '../../utils/socket';
+import { sseManager } from '../../utils/sse';
 import sequelize from '../../config/db';
 import Difficulty from '../../models/Difficulty';
+import { Op, fn, col, literal } from 'sequelize';
 
-const router: Router = express.Router();
+const router: Router = Router();
 
-router.get('/raters', Auth.rater(), async (req: Request, res: Response) => {
-  try {
-    const raters = await RaterService.getAll();
-    const raterUsernames = raters.map(rater => rater.discordUsername);
-    res.json(raterUsernames);
-  } catch (error) {
-    console.error('Failed to fetch raters:', error);
-    res.status(500).json({ error: 'Failed to fetch raters' });
+// Helper function to normalize rating string
+function normalizeRating(rating: string): string {
+  return rating.trim().toUpperCase();
+}
+
+// Helper function to calculate average rating
+async function calculateAverageRating(detailObject: RatingDetail[], transaction: any) {
+  // Get all difficulties for efficient querying
+
+  const details = detailObject.map(d => d.dataValues);
+  const difficulties = await Difficulty.findAll({
+    transaction,
+    order: [['sortOrder', 'ASC']]
+  });
+
+  // Create maps for quick lookups
+  const difficultyMap = new Map(
+    difficulties.map(d => [normalizeRating(d.name), d])
+  );
+
+  // Count votes for each difficulty
+  const voteCounts = new Map<string, { count: number, difficulty: any }>();
+
+  for (const detail of details) {
+    if (!detail.rating) continue;
+    
+    const normalizedRating = normalizeRating(detail.rating);
+    const difficulty = difficultyMap.get(normalizedRating);
+    
+    if (!difficulty) continue;
+
+    const current = voteCounts.get(normalizedRating) || { count: 0, difficulty };
+    current.count++;
+    voteCounts.set(normalizedRating, current);
   }
-});
+  // Check if any special rating has 4 or more votes
+  for (const [_, data] of voteCounts) {
+    if (data.difficulty.type === 'SPECIAL' && data.count >= 4) {
+      return data.difficulty;
+    }
+  }
 
+  // Calculate average for PGU ratings
+  const pguVotes = Array.from(voteCounts.values())
+    .filter(({ difficulty }) => difficulty.type === 'PGU');
+
+  if (pguVotes.length > 0) {
+    // Calculate weighted average based on vote counts
+    const totalVotes = pguVotes.reduce((sum, { count }) => sum + count, 0);
+    const weightedSortOrder = pguVotes.reduce((sum, { difficulty, count }) => 
+      sum + (difficulty.sortOrder * count), 0) / totalVotes;
+    
+    // Find the closest PGU difficulty by sortOrder
+    const closestDifficulty = difficulties
+      .filter(d => d.type === 'PGU')
+      .reduce((prev, curr) => {
+        return Math.abs(curr.sortOrder - weightedSortOrder) < Math.abs(prev.sortOrder - weightedSortOrder)
+          ? curr
+          : prev;
+      });
+    
+    return closestDifficulty;
+  }
+
+  return null;
+}
+
+// Get all ratings
 router.get('/', Auth.rater(), async (req: Request, res: Response) => {
   try {
     const ratings = await Rating.findAll({
       include: [
         {
-          model: RatingDetail,
-          as: 'details',
-          attributes: ['username', 'rating', 'comment'],
-        },
-        {
           model: Level,
           as: 'level',
-          attributes: [
-            'id',
-            'song',
-            'artist',
-            'creator',
-            'charter',
-            'vfxer',
-            'team',
-            'diffId',
-            'baseScore',
-            'isCleared',
-            'clears',
-            'videoLink',
-            'dlLink',
-            'workshopLink',
-            'publicComments',
-            'toRate',
-            'rerateReason',
-            'rerateNum',
-          ],
+          where: {
+            isDeleted: false,
+            isHidden: false
+          },
           include: [
             {
               model: Difficulty,
               as: 'difficulty',
-              attributes: ['id', 'name', 'type', 'icon', 'baseScore', 'legacy'],
-            },
+              required: false,
+            }
           ],
         },
+        {
+          model: RatingDetail,
+          as: 'details',
+        },
+        {
+          model: Difficulty,
+          as: 'currentDifficulty',
+          required: false,
+        },
+        {
+          model: Difficulty,
+          as: 'averageDifficulty',
+          required: false,
+        }
       ],
       order: [['levelId', 'ASC']],
     });
+
     return res.json(ratings);
   } catch (error) {
-    console.error('Error fetching rating list:', error);
-    return res.status(500).json({error: 'Internal Server Error'});
+    console.error('Error fetching ratings:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-router.put('/', Auth.rater(), async (req: Request, res: Response) => {
+// Update rating
+router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
   try {
-    const userInfo = req.user as IUser;
-    const updates = req.body.updates;
-    if (!updates || !Array.isArray(updates)) {
-      return res.status(400).json({error: 'Updates array is required'});
+    const { id } = req.params;
+    const { rating, comment } = req.body;
+    const username = req.user?.username;
+
+    if (!username) {
+      await transaction.rollback();
+      return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const transaction = await sequelize.transaction();
-    const updatedRatings = [];
+    // Validate rating exists in difficulties
+    const difficulty = await Difficulty.findOne({
+      where: { name: rating },
+      transaction
+    });
 
-    try {
-      // Process each update
-      for (const update of updates) {
-        if (!update.id) {
-          console.error('Missing id in update:', update);
-          continue;
-        }
+    if (!difficulty) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid rating value' });
+    }
 
-        // Find existing rating
-        let rating = await Rating.findOne({
-          where: {id: update.id},
-          transaction,
-        });
-
-        if (!rating) {
-          // Create new rating if it doesn't exist
-          rating = await Rating.create(
-            {
-              id: update.id,
-              levelId: 0,
-              currentDiff: '0',
-              lowDiff: false,
-              requesterFR: '',
-              average: '',
-            },
-            {transaction},
-          );
-        }
-
-        // Find existing rating detail
-        const existingDetail = await RatingDetail.findOne({
+    // Find the rating with all associations
+    const ratingRecord = await Rating.findByPk(id, {
+      include: [
+        {
+          model: Level,
+          as: 'level',
           where: {
-            ratingId: rating.id,
-            username: userInfo.username,
+            isDeleted: false,
+            isHidden: false
           },
-          transaction,
-        });
-
-        if (existingDetail) {
-          // Update only rating and comment
-          await existingDetail.update(
-            {
-              rating: update.rating,
-              comment: update.comment || '',
-            },
-            {transaction},
-          );
-        } else {
-          // Create new rating detail
-          await RatingDetail.create(
-            {
-              ratingId: rating.id,
-              username: userInfo.username,
-              rating: update.rating,
-              comment: update.comment || '',
-            },
-            {transaction},
-          );
-        }
-
-        // Get all rating details for this rating
-        const ratingDetails = await RatingDetail.findAll({
-          where: {ratingId: rating.id},
-          transaction,
-        });
-
-        // Calculate new average using the rating details
-        const averageRating = calculateAverageRating(ratingDetails);
-
-        // Update only the average in the main rating record
-        await rating.update({average: averageRating || ''}, {transaction});
-
-        // Get updated rating with details
-        const updatedRating = await Rating.findByPk(rating.id, {
           include: [
             {
-              model: RatingDetail,
-              as: 'details',
-              attributes: ['username', 'rating', 'comment'],
-            },
-            {
-              model: Level,
-              as: 'level',
-              attributes: [
-                'id',
-                'song',
-                'artist',
-                'creator',
-                'charter',
-                'vfxer',
-                'team',
-                'baseScore',
-                'isCleared',
-                'clears',
-                'videoLink',
-                'dlLink',
-                'workshopLink',
-                'publicComments',
-                'toRate',
-                'rerateReason',
-                'rerateNum',
-              ],
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                  attributes: [
-                    'id',
-                    'name',
-                    'type',
-                    'icon',
-                    'baseScore',
-                    'legacy',
-                  ],
-                },
-              ],
-            },
+              model: Difficulty,
+              as: 'difficulty',
+              required: false,
+            }
           ],
-          transaction,
-        });
-
-        if (updatedRating) {
-          updatedRatings.push(updatedRating);
+        },
+        {
+          model: RatingDetail,
+          as: 'details',
+        },
+        {
+          model: Difficulty,
+          as: 'currentDifficulty',
+          required: false,
+        },
+        {
+          model: Difficulty,
+          as: 'averageDifficulty',
+          required: false,
         }
-      }
+      ],
+      transaction
+    });
 
-      await transaction.commit();
-
-      // Emit the event using the socket utility
-      const io = getIO();
-      io.emit('ratingsUpdated');
-
-      return res.json({
-        success: true,
-        message: `Ratings updated successfully by ${userInfo.username}`,
-        ratings: updatedRatings,
-      });
-    } catch (error) {
+    if (!ratingRecord) {
       await transaction.rollback();
-      throw error;
+      return res.status(404).json({ error: 'Rating not found' });
     }
+
+    // Find or create rating detail
+    const [ratingDetail] = await RatingDetail.findOrCreate({
+      where: {
+        ratingId: id,
+        username: username
+      },
+      defaults: {
+        rating: rating,
+        comment: comment || '',
+      },
+      transaction
+    });
+
+    if (ratingDetail) {
+      await ratingDetail.update({
+        rating: rating,
+        comment: comment || ratingDetail.comment,
+      }, { transaction });
+    }
+
+    // Get all rating details for this rating
+    const details = await RatingDetail.findAll({
+      where: { ratingId: id },
+      transaction
+    });
+
+    // Calculate new average difficulty
+    const averageDifficulty = await calculateAverageRating(details, transaction);
+
+    // Update the main rating record with current and average difficulties
+    await ratingRecord.update({
+      currentDifficultyId: difficulty.id,
+      averageDifficultyId: averageDifficulty?.id || null,
+    }, { transaction });
+
+    // Fetch the updated record with all associations
+    const updatedRating = await Rating.findByPk(id, {
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          where: {
+            isDeleted: false,
+            isHidden: false
+          },
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              required: false,
+            }
+          ],
+        },
+        {
+          model: RatingDetail,
+          as: 'details',
+        },
+        {
+          model: Difficulty,
+          as: 'currentDifficulty',
+          required: false,
+        },
+        {
+          model: Difficulty,
+          as: 'averageDifficulty',
+          required: false,
+        }
+      ],
+      transaction
+    });
+
+    await transaction.commit();
+
+    // Broadcast rating update via SSE
+    sseManager.broadcast({ type: 'ratingUpdate' });
+
+    return res.json({
+      message: 'Rating updated successfully',
+      rating: updatedRating
+    });
   } catch (error) {
-    console.error('Error updating ratings:', error);
-    return res.status(500).json({error: 'Internal Server Error'});
+    await transaction.rollback();
+    console.error('Error updating rating:', error);
+    return res.status(500).json({ error: 'Failed to update rating' });
   }
 });
 
-router.delete('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+// Delete rating detail
+router.delete('/:id/detail/:username', Auth.rater(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
   try {
-    const {id} = req.body;
-    if (!id) {
-      return res.status(400).json({error: 'Id is required'});
+    const { id, username } = req.params;
+    const currentUser = req.user?.username;
+
+    if (!currentUser) {
+      await transaction.rollback();
+      return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    const rating = await Rating.findOne({where: {id}});
-    if (!rating) {
-      return res.status(404).json({error: 'Rating not found'});
+    // Only allow users to delete their own ratings or super admins to delete any
+    if (!req.user?.isSuperAdmin && currentUser !== username) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'Not authorized to delete this rating' });
     }
 
-    // Delete rating details first due to foreign key constraint
-    await RatingDetail.destroy({where: {ratingId: rating.id}});
-    // Then delete the main rating
-    await rating.destroy();
+    // Delete the rating detail
+    await RatingDetail.destroy({
+      where: {
+        ratingId: id,
+        username: username
+      },
+      transaction
+    });
 
-    return res.json({success: true});
+    // Get remaining rating details
+    const details = await RatingDetail.findAll({
+      where: { ratingId: id },
+      transaction
+    });
+
+    // Calculate new average difficulty
+    const averageDifficulty = await calculateAverageRating(details, transaction);
+
+    // Update the main rating record
+    await Rating.update({
+      averageDifficultyId: averageDifficulty?.id || null,
+    }, {
+      where: { id: id },
+      transaction
+    });
+
+    await transaction.commit();
+
+    // Broadcast rating update via SSE
+    sseManager.broadcast({ type: 'ratingUpdate' });
+
+    return res.json({
+      message: 'Rating detail deleted successfully'
+    });
   } catch (error) {
-    console.error('Error deleting rating:', error);
-    return res.status(500).json({error: 'Internal Server Error'});
+    await transaction.rollback();
+    console.error('Error deleting rating detail:', error);
+    return res.status(500).json({ error: 'Failed to delete rating detail' });
   }
 });
 

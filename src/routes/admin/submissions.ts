@@ -20,6 +20,7 @@ import {Op} from 'sequelize';
 import { getIO } from '../../utils/socket';
 import { Cache } from '../../middleware/cache';
 import sequelize from '../../config/db';
+import { sseManager } from '../../utils/sse';
 
 // Define interfaces for the data structure
 interface PassData {
@@ -147,10 +148,10 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         // Create rating since toRate is true
         await Rating.create({
           levelId: newLevel.id,
-          currentDiff: '0',
+          currentDifficultyId: 0,
           lowDiff: /^(p|P|[1-9]|1[0-9])(\+)?$/i.test(submission.diff),
           requesterFR: submission.diff,
-          average: '0',
+          averageDifficultyId: null,
         });
 
         await LevelSubmission.update(
@@ -343,9 +344,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
 
         // Force cache update
         await leaderboardCache.forceUpdate();
-        const io = getIO();
-        io.emit('leaderboardUpdated');
-        io.emit('passesUpdated');
+        sseManager.broadcast({ type: 'submissionUpdate' });
 
         return res.json({message: 'Pass submission approved successfully'});
       } else if (action === 'decline') {
@@ -618,11 +617,7 @@ router.post(
             });
 
             // Emit socket event
-            const io = getIO();
-            io.emit('passSubmissionApproved', {
-              submissionId: submission.id,
-              playerId: submission.assignedPlayerId
-            });
+            sseManager.broadcast({ type: 'submissionUpdate' });
             console.log(`Emitted socket event for submission ${submission.id}`);
 
             return { id: submission.id, success: true };
@@ -637,9 +632,7 @@ router.post(
 
       // Force cache update
       await leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('passesUpdated');
+      sseManager.broadcast({ type: 'submissionUpdate' });
 
       return res.json({
         message: `Auto-approved ${approvalResults.filter(r => r.success).length} submissions`,

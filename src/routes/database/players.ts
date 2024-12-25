@@ -9,6 +9,7 @@ import Difficulty from '../../models/Difficulty';
 import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket';
 import {Cache} from '../../middleware/cache';
+import { Auth } from '../../middleware/auth';
 
 const router: Router = Router();
 
@@ -133,6 +134,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 
 router.put(
   '/:id/discord',
+  Auth.superAdmin(),
   Cache.leaderboard(),
   async (req: Request, res: Response) => {
     try {
@@ -173,6 +175,7 @@ router.put(
 
 router.delete(
   '/:id/discord',
+  Auth.superAdmin(),
   Cache.leaderboard(),
   async (req: Request, res: Response) => {
     try {
@@ -212,6 +215,7 @@ router.delete(
 
 router.post(
   '/create',
+  Auth.superAdmin(),
   Cache.leaderboard(),
   async (req: Request, res: Response) => {
     try {
@@ -264,7 +268,7 @@ router.post(
   },
 );
 
-router.get('/:id/discord/:discordId', async (req: Request, res: Response) => {
+router.get('/:id/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {discordId} = req.params;
 
@@ -308,6 +312,7 @@ router.get('/:id/discord/:discordId', async (req: Request, res: Response) => {
 router.put(
   '/:id/discord/:discordId',
   Cache.leaderboard(),
+  Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
       const {id, discordId} = req.params;
@@ -352,7 +357,7 @@ router.put(
   },
 );
 
-router.put('/:id/name', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.put('/:id/name', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
@@ -412,7 +417,7 @@ router.put('/:id/name', Cache.leaderboard(), async (req: Request, res: Response)
   },
 );
 
-router.put('/:id/country', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.put('/:id/country', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
   try {
       const {id} = req.params;
       const {country} = req.body;
@@ -457,7 +462,7 @@ router.put('/:id/country', Cache.leaderboard(), async (req: Request, res: Respon
   },
 );
 
-router.put('/:id/ban', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.put('/:id/ban', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {isBanned} = req.body;

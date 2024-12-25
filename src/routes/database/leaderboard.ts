@@ -45,7 +45,11 @@ router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
     console.log(
       `[PERF] Total leaderboard route time: ${totalTime.toFixed(2)}ms`,
     );
-
+    players = await Promise.all(players.map(async (player: IPlayer) => ({
+      ...player,
+      rank: (await leaderboardCache.getRanks(player.id)).rankedScoreRank,
+    })));
+    
     return res.json(players);
   } catch (error) {
     console.error('Error fetching leaderboard:', error);

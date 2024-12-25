@@ -173,4 +173,30 @@ router.post('/rename/:type/:filename', Auth.superAdminPassword(), async (req: Re
   }
 });
 
+// Download backup
+router.get('/download/:type/:filename', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { type, filename } = req.params;
+    const config = backupService.getConfig();
+    
+    if (!['mysql', 'files'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid backup type' });
+    }
+
+    const backupPath = type === 'mysql' ? config.mysql.backupPath : config.files.backupPath;
+    const filePath = path.join(backupPath, filename);
+
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({ error: 'Backup file not found' });
+    }
+
+    return res.download(filePath);
+  } catch (error) {
+    console.error('Failed to download backup:', error);
+    return res.status(500).json({ error: 'Failed to download backup' });
+  }
+});
+
 export default router;
