@@ -43,10 +43,7 @@ export function calculate12KScore(scores: Score[]): number {
     .filter(score => score.is12K)
     .sort((a, b) => b.score - a.score)
     .slice(0, 20)
-    .reduce(
-      (acc, score, index) => acc + score.score * Math.pow(0.95, index),
-      0,
-    );
+    .reduce((acc, score, index) => acc + score.score * Math.pow(0.9, index), 0);
 }
 
 export function calculateAverageXacc(scores: Score[]): number {

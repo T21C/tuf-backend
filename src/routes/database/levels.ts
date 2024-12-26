@@ -37,6 +37,18 @@ const buildWhereClause = async (query: any) => {
     });
   }
 
+  // Handle cleared filter
+  if (query.clearedFilter && query.clearedFilter === 'hide') {
+    conditions.push({
+      clears: 0
+    });
+  } else if (query.clearedFilter && query.clearedFilter === 'only') {
+    conditions.push({
+      clears: {
+        [Op.gt]: 0
+      }
+    });
+  }
 
   // Handle text search
   if (query.query) {
@@ -896,7 +908,7 @@ interface DifficultyFilterBody {
 router.post('/filter', async (req: Request, res: Response) => {
   try {
     const { pguRange, specialDifficulties } = req.body as DifficultyFilterBody;
-    const { query, sort, offset, limit, deletedFilter } = req.query;
+    const { query, sort, offset, limit, deletedFilter, clearedFilter } = req.query;
 
     // Build the base where clause
     const where: any = {};
@@ -916,6 +928,19 @@ router.post('/filter', async (req: Request, res: Response) => {
           {isDeleted: true},
           {isHidden: true}
         ]
+      });
+    }
+
+    // Handle cleared filter
+    if (clearedFilter && clearedFilter === 'hide') {
+      conditions.push({
+        clears: 0
+      });
+    } else if (clearedFilter && clearedFilter === 'only') {
+      conditions.push({
+        clears: {
+          [Op.gt]: 0
+        }
       });
     }
 

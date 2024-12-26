@@ -21,16 +21,10 @@ const router: Router = Router();
 
 type WhereClause = {
   isDeleted?: boolean;
-  levelId?: number;
+  levelId?: number | { [Op.in]: number[] };
   is12K?: boolean;
   '$player.name$'?: {[Op.like]: string};
-  '$level.diffId$'?:
-    | {[Op.gte]: number}
-    | {[Op.lte]: number}
-    | {
-        [Op.gte]?: number;
-        [Op.lte]?: number;
-      };
+  '$level.diffId$'?: {[Op.in]: number[]};
   [Op.or]?: Array<{
     '$player.name$'?: {[Op.like]: string};
     '$level.song$'?: {[Op.like]: string};
@@ -57,7 +51,7 @@ const difficultyNameToSortOrder: { [key: string]: number } = {
 };
 
 // Helper function to build where clause
-const buildWhereClause = (query: {
+const buildWhereClause = async (query: {
   deletedFilter?: string;
   minDiff?: string;
   maxDiff?: string;
@@ -65,7 +59,7 @@ const buildWhereClause = (query: {
   levelId?: string;
   player?: string;
   query?: string;
-}): WhereClause => {
+}): Promise<WhereClause> => {
   const where: WhereClause = {};
 
   // Handle deleted filter
@@ -77,33 +71,33 @@ const buildWhereClause = (query: {
 
   // Update difficulty range filter
   if (query.minDiff || query.maxDiff) {
-    where['$level.diffId$'] = {};
-    
-    // Convert difficulty names to sortOrder values
-    const minDiffValue = query.minDiff ? difficultyNameToSortOrder[query.minDiff] : undefined;
-    const maxDiffValue = query.maxDiff ? difficultyNameToSortOrder[query.maxDiff] : undefined;
+    // Find difficulties by name and get their sortOrder values
+    const [minDiff, maxDiff] = await Promise.all([
+      query.minDiff ? Difficulty.findOne({
+        where: { name: query.minDiff, type: 'PGU' },
+        attributes: ['id', 'sortOrder']
+      }) : null,
+      query.maxDiff ? Difficulty.findOne({
+        where: { name: query.maxDiff, type: 'PGU' },
+        attributes: ['id', 'sortOrder']
+      }) : null
+    ]);
 
-    if (minDiffValue !== undefined && maxDiffValue !== undefined) {
-      if (minDiffValue > maxDiffValue) {
-        // Swap if min > max
-        where['$level.diffId$'] = {
-          [Op.gte]: maxDiffValue,
-          [Op.lte]: minDiffValue
-        };
-      } else {
-        where['$level.diffId$'] = {
-          [Op.gte]: minDiffValue,
-          [Op.lte]: maxDiffValue
-        };
+    if (minDiff || maxDiff) {
+      const pguDifficulties = await Difficulty.findAll({
+        where: {
+          type: 'PGU',
+          sortOrder: {
+            ...(minDiff && { [Op.gte]: minDiff.sortOrder }),
+            ...(maxDiff && { [Op.lte]: maxDiff.sortOrder })
+          }
+        },
+        attributes: ['id']
+      });
+      
+      if (pguDifficulties.length > 0) {
+        where['$level.difficulty.id$'] = pguDifficulties.map(d => d.id);
       }
-    } else if (minDiffValue !== undefined) {
-      where['$level.diffId$'] = {
-        [Op.gte]: minDiffValue
-      };
-    } else if (maxDiffValue !== undefined) {
-      where['$level.diffId$'] = {
-        [Op.lte]: maxDiffValue
-      };
     }
   }
 
@@ -221,12 +215,111 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/', async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const routeStart = performance.now();
-    const where = buildWhereClause(req.query);
-    const order = getSortOptions(req.query.sort as string);
+    const {
+      deletedFilter,
+      minDiff,
+      maxDiff,
+      only12k,
+      levelId,
+      player,
+      query: searchQuery,
+      offset = 0,
+      limit = 30,
+      sort
+    } = req.body;
 
+    // Step 1: Get matching difficulty IDs if difficulty filter is applied
+    let matchingLevelIds: number[] | undefined;
+    if (minDiff || maxDiff) {
+      const [minDiffObj, maxDiffObj] = await Promise.all([
+        minDiff ? Difficulty.findOne({
+          where: { name: minDiff, type: 'PGU' },
+          attributes: ['id', 'sortOrder']
+        }) : null,
+        maxDiff ? Difficulty.findOne({
+          where: { name: maxDiff, type: 'PGU' },
+          attributes: ['id', 'sortOrder']
+        }) : null
+      ]);
+
+      if (minDiffObj || maxDiffObj) {
+        const pguDifficulties = await Difficulty.findAll({
+          where: {
+            type: 'PGU',
+            sortOrder: {
+              ...(minDiffObj && { [Op.gte]: minDiffObj.sortOrder }),
+              ...(maxDiffObj && { [Op.lte]: maxDiffObj.sortOrder })
+            }
+          },
+          attributes: ['id']
+        });
+
+        if (pguDifficulties.length > 0) {
+          const levels = await Level.findAll({
+            where: {
+              diffId: {
+                [Op.in]: pguDifficulties.map(d => d.id)
+              }
+            },
+            attributes: ['id']
+          });
+          matchingLevelIds = levels.map(l => l.id);
+        }
+      }
+    }
+
+    // Build base where clause
+    const where: WhereClause = {};
+
+    // Handle deleted filter
+    if (deletedFilter === 'hide') {
+      where.isDeleted = false;
+    } else if (deletedFilter === 'only') {
+      where.isDeleted = true;
+    }
+
+    // Add 12k filter
+    if (only12k === 'true' || only12k === true) {
+      where.is12K = true;
+    } else {
+      where.is12K = false;
+    }
+
+    // Add level ID filter from difficulty matching
+    if (matchingLevelIds) {
+      where.levelId = {
+        [Op.in]: matchingLevelIds
+      };
+    }
+
+    // Add specific level ID filter if provided
+    if (levelId) {
+      where.levelId = Number(levelId);
+    }
+
+    // Add player name filter
+    if (player) {
+      where['$player.name$'] = {[Op.like]: `%${escapeRegExp(player)}%`};
+    }
+
+    // Add general search
+    if (searchQuery) {
+      const searchTerm = escapeRegExp(searchQuery);
+      where[Op.or] = [
+        {'$player.name$': {[Op.like]: `%${searchTerm}%`}},
+        {'$level.song$': {[Op.like]: `%${searchTerm}%`}},
+        {'$level.artist$': {[Op.like]: `%${searchTerm}%`}},
+        {'$level.difficulty.name$': {[Op.like]: `%${searchTerm}%`}},
+        {levelId: {[Op.like]: `%${searchTerm}%`}},
+        {id: {[Op.like]: `%${searchTerm}%`}},
+      ];
+    }
+
+    const order = getSortOptions(sort);
+    console.log(sort, " => ",order);
     // First get all IDs in correct order
     const allIds = await Pass.findAll({
       where,
@@ -255,8 +348,6 @@ router.get('/', async (req: Request, res: Response) => {
     });
 
     // Then get paginated results using those IDs in their original order
-    const offset = parseInt(req.query.offset as string) || 0;
-    const limit = parseInt(req.query.limit as string) || 30;
     const paginatedIds = allIds
       .map((pass: any) => pass.id)
       .slice(offset, offset + limit);
@@ -293,7 +384,7 @@ router.get('/', async (req: Request, res: Response) => {
           as: 'judgements',
         },
       ],
-      order, // Maintain consistent ID ordering within paginated results
+      order,
     });
 
     const totalTime = performance.now() - routeStart;
