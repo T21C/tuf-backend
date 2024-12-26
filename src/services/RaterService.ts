@@ -48,9 +48,14 @@ Rater.init({
 export class RaterService {
   // Create a new rater
   static async create(raterData: Partial<Rater>) {
-    return await Rater.create({
+    await Rater.create({
       ...raterData,
       isSuperAdmin: SUPER_ADMINS.includes(raterData.discordUsername || '')
+    });
+    return Rater.findOne({
+      where: {
+        discordId: raterData.discordId
+      }
     });
   }
 

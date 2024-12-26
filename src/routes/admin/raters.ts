@@ -39,6 +39,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
         discordUsername: discordInfo.username,
         discordAvatar: discordInfo.avatar || undefined
       });
+      console.log(rater);
       return res.status(201).json(rater);
     } catch (discordError) {
       console.error('Failed to fetch Discord info:', discordError);
