@@ -126,15 +126,23 @@ router.get('/check-admin', async (req: Request, res: Response) => {
   if (!accessToken) {
     return res.status(401).json({ isAdmin: false, isSuperAdmin: false });
   }
-  const tokenInfo = await verifyAccessToken(accessToken); // Validate token
-
-  if (tokenInfo) {
-    const isRater = await RaterService.isRater(tokenInfo.id);
-    const isAdmin = isRater || SUPER_ADMINS.includes(tokenInfo.username);
-    const isSuperAdmin = SUPER_ADMINS.includes(tokenInfo.username);
-    return res.json({ isAdmin, isSuperAdmin });
-  } else {
+  
+  const tokenInfo = await verifyAccessToken(accessToken);
+  if (!tokenInfo) {
     return res.status(401).json({ isAdmin: false, isSuperAdmin: false });
+  }
+
+  try {
+    const rater = await RaterService.getByUsername(tokenInfo.username);
+    const isRater = await RaterService.isRater(tokenInfo.id);
+    const isAdmin = isRater;
+    console.log("rater", rater);
+    const isSuperAdmin = rater?.dataValues?.isSuperAdmin || false;
+
+    return res.json({ isAdmin, isSuperAdmin });
+  } catch (error) {
+    console.error('Error checking admin status:', error);
+    return res.status(500).json({ error: 'Failed to check admin status' });
   }
 });
 

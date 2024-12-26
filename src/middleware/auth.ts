@@ -1,24 +1,23 @@
 import {Request, Response, NextFunction} from 'express';
 import {verifyAccessToken} from '../utils/authHelpers';
-import {SUPER_ADMINS} from '../config/constants';
 import {RaterService} from '../services/RaterService';
 
 // Create middleware factories for common auth patterns
 export const Auth = {
   // For super admin only routes
-  superAdmin: () => requireAuth(SUPER_ADMINS),
+  superAdmin: () => requireAuth(true),
 
   // For admin routes
-  rater: () => requireAuth([]),
+  rater: () => requireAuth(false),
 
   // For any authenticated user
-  user: () => requireAuth([]),
+  user: () => requireAuth(false),
 
   // For specific roles/users
-  allowUsers: (users: string[]) => requireAuth(users),
+  allowUsers: (users: string[]) => requireAuth(false, users),
 
-  // For super admin routes that require password
-  superAdminWithPassword: () => {
+  // For super admin editing super admin
+  superAdminPassword: () => {
     return async (req: Request, res: Response, next: NextFunction) => {
       try {
         const authHeader = req.headers.authorization;
@@ -33,41 +32,10 @@ export const Auth = {
           return res.status(403).json({error: 'Unauthorized access'});
         }
 
-        // Add tokenInfo to request for use in route handlers
-        req.user = tokenInfo;
-
-        // Check if user is in SUPER_ADMINS list
-        if (!SUPER_ADMINS.includes(tokenInfo.username)) {
-          return res.status(403).json({error: 'Unauthorized access'});
-        }
-
-        // Check for password when modifying super admin
-        const {targetRater, superAdminPassword} = req.body;
-        if (targetRater?.isSuperAdmin && superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
-          return res.status(403).json({error: 'Invalid super admin password'});
-        }
-
-        return next();
-      } catch (error) {
-        console.error('Auth middleware error:', error);
-        return res.status(500).json({error: 'Internal Server Error'});
-      }
-    };
-  },
-
-  // For super admin editing super admin
-  superAdminPassword: () => {
-    return async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({error: 'Authorization token required'});
-        }
-
-        const accessToken = authHeader.split(' ')[1];
-        const tokenInfo = await verifyAccessToken(accessToken);
-
-        if (!tokenInfo || !SUPER_ADMINS.includes(tokenInfo.username)) {
+        // Check if user is a super admin in database
+        const isRater = await RaterService.isRater(tokenInfo.id);
+        const rater = await RaterService.getById(tokenInfo.id);
+        if (!isRater || !rater?.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
 
@@ -89,7 +57,7 @@ export const Auth = {
 };
 
 // Base middleware function
-function requireAuth(allowedUsersList: string[]) {
+function requireAuth(requireSuperAdmin: boolean, allowedUsersList: string[] = []) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authHeader = req.headers.authorization;
@@ -107,9 +75,11 @@ function requireAuth(allowedUsersList: string[]) {
       // Add tokenInfo to request for use in route handlers
       req.user = tokenInfo;
 
-      // For super admin routes, check if user is in SUPER_ADMINS list
-      if (allowedUsersList.length > 0 && allowedUsersList === SUPER_ADMINS) {
-        if (!SUPER_ADMINS.includes(tokenInfo.username)) {
+      // For super admin routes, check if user is a super admin in database
+      if (requireSuperAdmin) {
+        const isRater = await RaterService.isRater(tokenInfo.id);
+        const rater = await RaterService.getById(tokenInfo.id);
+        if (!isRater || !rater?.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
         return next();
@@ -117,8 +87,9 @@ function requireAuth(allowedUsersList: string[]) {
 
       // For rater routes, check if user is a rater or super admin
       if (allowedUsersList.length === 0) {
-        const isRater = await RaterService.isRater(tokenInfo.id) || SUPER_ADMINS.includes(tokenInfo.username);
-        if (!isRater) {
+        const isRater = await RaterService.isRater(tokenInfo.id);
+        const rater = await RaterService.getById(tokenInfo.id);
+        if (!isRater && !rater?.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
         return next();

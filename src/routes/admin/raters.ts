@@ -155,14 +155,10 @@ router.get('/check/:id', async (req: Request, res: Response) => {
 });
 
 // Update rater's super admin status
-router.put('/:id/super-admin', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id/super-admin', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { isSuperAdmin, superAdminPassword } = req.body;
-
-    if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
-      return res.status(403).json({ error: 'Invalid password' });
-    }
+    const { isSuperAdmin } = req.body;
 
     // Get rater info first
     const rater = await RaterService.getById(id);
