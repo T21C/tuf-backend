@@ -22,6 +22,7 @@ import path from 'path';
 import fs from 'fs';
 import discordRouter from './routes/discord';
 import eventsRouter from './routes/events';
+import utilsRouter from './routes/utils';
 
 dotenv.config();
 
@@ -69,8 +70,8 @@ async function startServer() {
       origin: process.env.CLIENT_URL || 'http://localhost:5173',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID'],
-      exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID']
+      allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type'],
+      exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type']
     }));
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
@@ -94,6 +95,7 @@ async function startServer() {
     app.use('/v2/webhook', webhookRoutes);
     app.use('/v2/discord', discordRouter);
     app.use('/events', eventsRouter);
+    app.use('/v2/utils', utilsRouter);
     app.get('/', (req, res) => {
       res.send(fs.readFileSync(path.join('src', 'index.html'), 'utf8'));
     });

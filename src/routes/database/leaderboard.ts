@@ -42,9 +42,7 @@ router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
     }
 
     const totalTime = performance.now() - routeStart;
-    console.log(
-      `[PERF] Total leaderboard route time: ${totalTime.toFixed(2)}ms`,
-    );
+
     players = await Promise.all(players.map(async (player: IPlayer) => ({
       ...player,
       rank: (await leaderboardCache.getRanks(player.id)).rankedScoreRank,

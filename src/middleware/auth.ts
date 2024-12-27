@@ -77,9 +77,8 @@ function requireAuth(requireSuperAdmin: boolean, allowedUsersList: string[] = []
 
       // For super admin routes, check if user is a super admin in database
       if (requireSuperAdmin) {
-        const isRater = await RaterService.isRater(tokenInfo.id);
-        const rater = await RaterService.getById(tokenInfo.id);
-        if (!isRater || !rater?.isSuperAdmin) {
+        const rater = await RaterService.getByUsername(tokenInfo.username);
+        if (!rater?.dataValues.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
         return next();

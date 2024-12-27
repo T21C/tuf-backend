@@ -21,7 +21,6 @@ export const parseJudgements = (
   ];
 
   const parsedJudgements: any = {};
-  console.log(updatedForm);
   judgementFields.forEach(field => {
     const parsedValue = parseInt(updatedForm[field], 10);
     parsedJudgements[field] = Number.isNaN(parsedValue) ? null : parsedValue;

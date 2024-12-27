@@ -10,6 +10,7 @@ import {
 import { levelSubmissionHook, passSubmissionHook } from './webhooks/webhook.js';
 import Level from '../models/Level.js';
 import Difficulty from '../models/Difficulty.js';
+import { sseManager } from '../utils/sse';
 const router: Router = express.Router();
 
 // Form submission endpoint
@@ -30,7 +31,6 @@ router.post('/form-submit', async (req: Request, res: Response) => {
     }
 
     const formType = req.headers['x-form-type'];
-    console.log(tokenInfo);
     if (formType === 'level') {
       // Sanitize baseScore if present
       const baseScore = req.body['baseScore'] 
@@ -55,6 +55,16 @@ router.post('/form-submit', async (req: Request, res: Response) => {
       });
 
       await levelSubmissionHook(submission);
+
+      // Broadcast submission update
+      sseManager.broadcast({
+        type: 'submissionUpdate',
+        data: {
+          action: 'create',
+          submissionId: submission.id,
+          submissionType: 'level'
+        }
+      });
 
       return res.json({
         success: true,
@@ -110,7 +120,7 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         lateSingle: Math.max(0, parseInt(req.body.lateSingle?.slice(0, 15) || '0')),
         lateDouble: Math.max(0, parseInt(req.body.lateDouble?.slice(0, 15) || '0')),
       };
-      6969696969696
+      
       await PassSubmissionJudgements.create(sanitizedJudgements);
 
       // Create flags with proper validation
@@ -150,7 +160,15 @@ router.post('/form-submit', async (req: Request, res: Response) => {
       if (!passObj) return res.status(500).json({error: 'Failed to create pass submission'});
       await passSubmissionHook(passObj);
 
-
+      // Broadcast submission update
+      sseManager.broadcast({
+        type: 'submissionUpdate',
+        data: {
+          action: 'create',
+          submissionId: submission.id,
+          submissionType: 'pass'
+        }
+      });
 
       return res.json({
         success: true,

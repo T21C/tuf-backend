@@ -14,21 +14,17 @@ const router: Router = Router();
 // Get overall statistics
 router.get('/', Cache.leaderboard(), async (req, res) => {
   try {
-    console.log('Starting statistics fetch...');
 
     try {
       const totalLevels = await Level.count({
         where: { isDeleted: false }
       });
-      console.log('1. Total levels query successful:', totalLevels);
 
       const totalPasses = await Pass.count({
         where: { isDeleted: false }
       });
-      console.log('2. Total passes query successful:', totalPasses);
 
       const totalPlayers = await Player.count();
-      console.log('3. Total players query successful:', totalPlayers);
 
       const totalActivePlayers = await Player.count({
         include: [{
@@ -38,7 +34,6 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
           where: { isDeleted: false }
         }]
       });
-      console.log('4. Active players query successful:', totalActivePlayers);
 
       const difficultyStats = await Difficulty.findAll({
         attributes: [
@@ -67,7 +62,6 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
         order: [['sortOrder', 'ASC']],
         subQuery: false
       });
-      console.log('5. Difficulty stats query successful:', difficultyStats.length, 'records');
 
       const recentPassStats = await Pass.count({
         where: {
@@ -77,7 +71,6 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
           }
         }
       });
-      console.log('6. Recent pass stats query successful:', recentPassStats);
 
       const topDifficulties = await Difficulty.findAll({
         attributes: [
@@ -107,13 +100,11 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
         limit: 5,
         subQuery: false
       });
-      console.log('7. Top difficulties query successful:', topDifficulties.length, 'records');
 
       // Level Submission Stats
       const levelSubmissionStats = await LevelSubmission.count({
         where: { status: 'pending' }
       });
-      console.log('8. Pending level submissions count:', levelSubmissionStats);
 
       // Pass Submission Stats
       const [pendingPassSubmissions, totalPassSubmissions] = await Promise.all([
@@ -122,7 +113,6 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
         }),
         PassSubmission.count()
       ]);
-      console.log('9. Pass submissions stats:', { pending: pendingPassSubmissions, total: totalPassSubmissions });
 
       return res.json({
         overview: {

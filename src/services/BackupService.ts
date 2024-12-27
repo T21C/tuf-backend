@@ -35,7 +35,6 @@ export class BackupService {
       exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
         if (error) reject(error);
         else {
-          console.log(`MySQL backup created successfully: ${fileName}`);
           resolve(filePath);
         }
       });
@@ -83,7 +82,6 @@ export class BackupService {
       exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
         if (error) reject(error);
         else {
-          console.log(`Files backup created successfully: ${fileName}`);
           resolve(filePath);
         }
       });
@@ -130,7 +128,6 @@ export class BackupService {
       // Clean up temporary directory
       try {
         await fs.rm(extractPath, { recursive: true, force: true });
-        console.log('Temporary restore directory cleaned up successfully');
       } catch (error) {
         console.warn('Warning: Could not clean up temporary directory:', error);
       }
@@ -167,7 +164,6 @@ export class BackupService {
         try {
           await this.createMySQLBackup(type);
           await this.cleanOldBackups(type as keyof typeof config.mysql.retention);
-          console.log(`Scheduled ${type} MySQL backup completed successfully`);
         } catch (error) {
           console.error(`Scheduled ${type} backup failed:`, error);
         }
@@ -179,13 +175,11 @@ export class BackupService {
       cron.schedule(schedule, async () => {
         try {
           await this.createFileBackup();
-          console.log(`Scheduled ${type} files backup completed successfully`);
         } catch (error) {
           console.error(`Scheduled ${type} files backup failed:`, error);
         }
       });
     });
 
-    console.log('Backup schedules initialized successfully');
   }
 }

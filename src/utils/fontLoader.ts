@@ -31,5 +31,4 @@ export function initializeFonts() {
     });
   });
   
-  console.log('Fonts initialized successfully');
 } 

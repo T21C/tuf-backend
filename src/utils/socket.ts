@@ -11,5 +11,4 @@ export const getIO = (): Server => {
 
 export const setIO = (ioServer: Server): void => {
   io = ioServer;
-  console.log('Socket.IO initialized');
 };

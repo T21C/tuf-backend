@@ -116,7 +116,6 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         const lastLevel = await Level.findOne({order: [['id', 'DESC']]});
         const nextId = lastLevel ? lastLevel.id + 1 : 1;
 
-        console.log(submission);
 
         const newLevel = await Level.create({
           id: nextId,
@@ -163,6 +162,16 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         sseManager.broadcast({ type: 'submissionUpdate' });
         sseManager.broadcast({ type: 'levelUpdate' });
 
+        // Emit detailed SSE events
+        sseManager.broadcast({
+          type: 'submissionUpdate',
+          data: {
+            action: 'approve',
+            submissionId: id,
+            submissionType: 'pass'
+          }
+        });
+
         return res.json({
           message: 'Submission approved, level and rating created successfully',
         });
@@ -171,6 +180,16 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         
         // Broadcast submission update
         sseManager.broadcast({ type: 'submissionUpdate' });
+        
+        // Broadcast detailed submission update
+        sseManager.broadcast({ 
+          type: 'submissionUpdate',
+          data: {
+            action: 'decline',
+            submissionId: id,
+            submissionType: 'pass'
+          }
+        });
         
         return res.json({message: 'Submission declined successfully'});
       } else {
@@ -370,6 +389,16 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
           }
         });
 
+        // Emit detailed SSE events
+        sseManager.broadcast({
+          type: 'submissionUpdate',
+          data: {
+            action: 'approve',
+            submissionId: id,
+            submissionType: 'pass'
+          }
+        });
+
         return res.json({message: 'Pass submission approved successfully'});
       } else if (action === 'decline') {
         await PassSubmission.update(
@@ -383,6 +412,16 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
         
         // Broadcast submission update
         sseManager.broadcast({ type: 'submissionUpdate' });
+        
+        // Broadcast detailed submission update
+        sseManager.broadcast({ 
+          type: 'submissionUpdate',
+          data: {
+            action: 'decline',
+            submissionId: id,
+            submissionType: 'pass'
+          }
+        });
         
         return res.json({message: 'Pass submission declined successfully'});
       } else if (action === 'assign-player') {
@@ -424,7 +463,6 @@ router.post(
     }
 
     try {
-      console.log('Starting auto-approve process for pass submissions...');
       // Find all pending submissions
       const pendingSubmissions = await PassSubmission.findAll({
         where: {
@@ -449,21 +487,15 @@ router.post(
         ],
         transaction
       });
-      console.log(`Found ${pendingSubmissions.length} pending submissions with required data`);
-
-      // Find and assign matching players
-      console.log('Starting player matching and assignment process...');
       const matchingSubmissions = await Promise.all(
         pendingSubmissions.map(async (submission) => {
           // First check if there's already an assigned player
           if (submission.assignedPlayerId) {
-            console.log(`Submission ${submission.id} already has assigned player ${submission.assignedPlayerId}`);
-            return submission;
+             return submission;
           }
 
           // If no assigned player, try to match by Discord ID
           if (!submission.submitterDiscordId) {
-            console.log(`Submission ${submission.id} has no submitter Discord ID, skipping`);
             return null;
           }
 
@@ -476,12 +508,10 @@ router.post(
           });
 
           if (!matchingPlayer) {
-            console.log(`No matching player found for Discord ID ${submission.submitterDiscordId}, skipping submission ${submission.id}`);
             return null;
           }
 
           // Assign the player
-          console.log(`Assigning player ${matchingPlayer.id} to submission ${submission.id}`);
           await submission.update(
             { assignedPlayerId: matchingPlayer.id },
             { transaction }
@@ -512,15 +542,10 @@ router.post(
           !!sub.judgements && 
           !!sub.level
       );
-      console.log(`Found ${validSubmissions.length} valid submissions after player matching`);
-
-      // Auto-approve matching submissions
-      console.log('Starting auto-approval process for valid submissions...');
       const approvalResults = await Promise.all(
         validSubmissions.map(async (submission) => {
           try {
-            console.log(`Processing submission ${submission.id} for player ${submission.assignedPlayerId}`);
-            
+             
             // Check if this is the first pass for this level
             const existingPasses = await Pass.count({
               where: {
@@ -603,8 +628,7 @@ router.post(
               isDeleted: false,
               isAnnounced: false
             }, { transaction });
-            console.log(`Created pass record ${newPass.id} for submission ${submission.id}`);
-
+            
             // Create judgement record
             await Judgement.create({
               id: newPass.id,
@@ -618,15 +642,13 @@ router.post(
               createdAt: new Date(),
               updatedAt: new Date()
             }, { transaction });
-            console.log(`Created judgement record for pass ${newPass.id}`);
-
+            
             // Update submission status
             await submission.update(
               { status: 'approved' },
               { transaction }
             );
-            console.log(`Updated submission ${submission.id} status to approved`);
-
+            
             // Update level clear status if this is the first pass
             if (existingPasses === 0) {
               await Level.update(
@@ -672,6 +694,16 @@ router.post(
       // Force cache update
       await leaderboardCache.forceUpdate();
       sseManager.broadcast({ type: 'submissionUpdate' });
+
+      // Broadcast detailed submission update for auto-approvals
+      sseManager.broadcast({ 
+        type: 'submissionUpdate',
+        data: {
+          action: 'auto-approve',
+          submissionType: 'pass',
+          count: approvalResults.filter(r => r.success).length
+        }
+      });
 
       return res.json({
         message: `Auto-approved ${approvalResults.filter(r => r.success).length} submissions`,

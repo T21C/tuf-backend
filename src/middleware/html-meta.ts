@@ -37,7 +37,6 @@ export const htmlMetaMiddleware = async (req: Request, res: Response, next: Next
     let metaTags = '';
     
     if (req.path.startsWith('/passes/')) {
-      //console.log('Fetching pass data for ID:', id);
       
       const pass = await Pass.findByPk(id, {
         include: [
@@ -89,7 +88,6 @@ export const htmlMetaMiddleware = async (req: Request, res: Response, next: Next
     <meta property="og:url" content="${process.env.CLIENT_URL}${req.path}" />`;
     }
 
-    //console.log(metaTags);
 
     // Insert meta tags into HTML
     const html = getBaseHtml(process.env.CLIENT_URL || '').replace('<!-- METADATA_PLACEHOLDER -->', metaTags);

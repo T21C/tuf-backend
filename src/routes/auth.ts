@@ -39,9 +39,6 @@ router.post('/google-auth', async (req: Request, res: Response) => {
     }
 
     const userInfo = userInfoResponse.data;
-    //console.log("userInfo", userInfo);
-
-    // Token is valid, return the token info and user profile
     return res.json({
       valid: true,
       tokenInfo,
@@ -69,7 +66,6 @@ router.post('/discord-auth', async (req: Request, res: Response) => {
       redirect_uri: `${process.env.CLIENT_URL}/callback`, // Adjust this as needed
     }).toString();
 
-    //console.log('Request Body:', requestBody); // Log request body
 
     const tokenResponseData = await axios.post(
       'https://discord.com/api/oauth2/token',
@@ -90,9 +86,7 @@ router.post('/discord-auth', async (req: Request, res: Response) => {
     }
 
     const oauthData: RESTPostOAuth2AccessTokenResult = tokenResponseData.data; // Parse the token response
-    //console.log('OAuth Data:', oauthData);
 
-    // Send back the token data to the client
     return res.status(200).json({
       access_token: oauthData.access_token,
       refresh_token: oauthData.refresh_token,
@@ -136,7 +130,6 @@ router.get('/check-admin', async (req: Request, res: Response) => {
     const rater = await RaterService.getByUsername(tokenInfo.username);
     const isRater = await RaterService.isRater(tokenInfo.id);
     const isAdmin = isRater;
-    console.log("rater", rater);
     const isSuperAdmin = rater?.dataValues?.isSuperAdmin || false;
 
     return res.json({ isAdmin, isSuperAdmin });

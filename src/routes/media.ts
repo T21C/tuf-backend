@@ -33,7 +33,6 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number,
       currentLine = word;
     }
   }
-  console.log(lines);
   lines.push(currentLine);
   return lines.slice(0, 2); // Return maximum 2 lines
 }
@@ -239,7 +238,6 @@ async function drawFooter(ctx: CanvasRenderingContext2D, config: FooterConfig) {
   const creator = level?.creator ? level?.creator : null;
   const vfxer = level?.vfxer ? level?.vfxer : null;
 
-  console.log(team, charter, creator, vfxer);
   // Calculate relative sizes (increased by 15%)
   const footerHeight = Math.floor(height * 0.255); // was 0.222
   const fontSize = Math.floor(height * 0.06);     // was 0.048

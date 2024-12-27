@@ -319,7 +319,6 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const order = getSortOptions(sort);
-    console.log(sort, " => ",order);
     // First get all IDs in correct order
     const allIds = await Pass.findAll({
       where,
@@ -388,7 +387,6 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     const totalTime = performance.now() - routeStart;
-    console.log(`[PERF] Total route time: ${totalTime.toFixed(2)}ms`);
 
     return res.json({
       count: allIds.length,

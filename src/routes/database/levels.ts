@@ -428,7 +428,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       previousDiffId: req.body.previousDiffId !== undefined ? req.body.previousDiffId : previousDiffId,
     };
 
-    console.log(updateData);
     // Update level
     await Level.update(updateData, {
       where: {id: levelId},
