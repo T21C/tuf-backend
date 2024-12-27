@@ -86,9 +86,10 @@ function requireAuth(requireSuperAdmin: boolean, allowedUsersList: string[] = []
       // For rater routes, check if user is a rater or super admin
         if (allowedUsersList.length === 0) {
         const rater = await RaterService.getByDiscordId(tokenInfo.id);
-        if (!rater || !rater?.dataValues.isSuperAdmin) {
+        if (!rater) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
+        
         return next();
       }
 
