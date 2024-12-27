@@ -263,6 +263,101 @@ router.get('/download-translations', async (req: Request, res: Response) => {
   }
 });
 
+// Language configuration
+const languages = {
+  en: { display: "English", countryCode: "us", implemented: true },
+  kr: { display: "한국어", countryCode: "kr", implemented: false },
+  cn: { display: "中文", countryCode: "cn", implemented: false },
+  id: { display: "Bahasa Indonesia", countryCode: "id", implemented: false },
+  jp: { display: "日本語", countryCode: "jp", implemented: false },
+  ru: { display: "Русский", countryCode: "ru", implemented: false },
+  de: { display: "Deutsch", countryCode: "de", implemented: false },
+  fr: { display: "Français", countryCode: "fr", implemented: false },
+  es: { display: "Español", countryCode: "es", implemented: false }
+};
+
+// Get list of available languages
+router.get('/languages', (req: Request, res: Response) => {
+  try {
+    const languagesInfo = Object.entries(languages).map(([code, info]) => ({
+      code,
+      ...info
+    }));
+    
+    res.json(languagesInfo);
+  } catch (error) {
+    console.error('Error getting languages list:', error);
+    res.status(500).json({
+      error: 'Failed to get languages list',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Type for languages
+type LanguageCode = keyof typeof languages;
+
+// Download translations for a specific language
+router.get('/download-translations/:lang', async (req: Request, res: Response) => {
+  const { lang } = req.params;
+  let tempZipPath: string | null = null;
+  
+  try {
+    if (!languages[lang as LanguageCode]) {
+      return res.status(404).json({ error: 'Language not found' });
+    }
+
+    // Update path resolution for translations
+    const translationsDir = path.resolve(__dirname, `../../../client/src/translations/languages/${lang}`);
+    
+    // Check if directory exists
+    if (!fs.existsSync(translationsDir)) {
+      return res.status(404).json({ error: 'Translations not found for this language' });
+    }
+    
+    tempZipPath = path.join('uploads', `${lang}-translations-${Date.now()}_${Math.random().toString(36).substring(7)}.zip`);
+    
+    const zip = new AdmZip();
+    
+    // Add all files from the translations directory
+    function addFilesToZip(currentPath: string, baseDir: string) {
+      const files = fs.readdirSync(currentPath);
+      
+      files.forEach(file => {
+        const filePath = path.join(currentPath, file);
+        const stat = fs.statSync(filePath);
+        
+        if (stat.isDirectory()) {
+          addFilesToZip(filePath, baseDir);
+        } else if (path.extname(file) === '.json') {
+          const relativePath = path.relative(baseDir, filePath);
+          zip.addLocalFile(filePath, path.dirname(relativePath));
+        }
+      });
+    }
+    
+    addFilesToZip(translationsDir, translationsDir);
+    
+    // Write the zip file
+    zip.writeZip(tempZipPath);
+    
+    // Send the file and ensure cleanup
+    return res.download(tempZipPath, `${lang}-translations.zip`, (err) => {
+      cleanupFiles(tempZipPath);
+      if (err) {
+        console.error(`Error sending ${lang} translations zip:`, err);
+      }
+    });
+  } catch (error) {
+    cleanupFiles(tempZipPath);
+    console.error(`Error creating ${lang} translations zip:`, error);
+    res.status(500).json({
+      error: 'Failed to create translations zip',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 // Serve the utility navigation page
 router.get('/', (req: Request, res: Response) => {
   res.send(`
@@ -481,6 +576,78 @@ router.get('/', (req: Request, res: Response) => {
           font-family: monospace;
           color: #fff;
         }
+        
+        .language-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+          gap: 1rem;
+          margin-top: 2rem;
+        }
+        
+        .language-card {
+          background: #2a2a2a;
+          padding: 1rem 1.2rem;
+          border-radius: 8px;
+          display: flex;
+          flex-direction: column;
+          gap: 0.8rem;
+        }
+        
+        .language-header {
+          display: flex;
+          align-items: center;
+          gap: 0.8rem;
+        }
+        
+        .language-name {
+          font-size: 1.2em;
+          font-weight: 600;
+          color: #fff;
+        }
+        
+        .language-status {
+          font-size: 0.9em;
+          padding: 0.3em 0.6em;
+          border-radius: 4px;
+          font-weight: 500;
+        }
+        
+        .status-implemented {
+          background: #2b825b;
+          color: #fff;
+        }
+        
+        .status-pending {
+          background: #825b2b;
+          color: #fff;
+        }
+        
+        .language-download {
+          margin-top: 0.5rem;
+        }
+        
+        .language-download button {
+          width: 100%;
+          padding: 0.8em;
+          background: #8f7dea;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-family: inherit;
+          font-weight: 600;
+          font-size: 0.9em;
+          transition: background 0.2s;
+        }
+        
+        .language-download button:hover {
+          background: #7763c2;
+        }
+        
+        .language-download button:disabled {
+          background: #555;
+          cursor: not-allowed;
+        }
       </style>
     </head>
     <body>
@@ -499,7 +666,6 @@ router.get('/', (req: Request, res: Response) => {
           <input type="file" name="translationZip" accept=".zip,.7z,.rar,.tar,.gz" required>
           <div class="button-group">
             <button type="submit">Verify Translations</button>
-            <button type="button" id="downloadBtn" onclick="downloadTranslations()">Download English Translations</button>
           </div>
         </form>
         
@@ -511,13 +677,13 @@ router.get('/', (req: Request, res: Response) => {
             <div class="step">
               <span class="step-number">1</span>
               <h4>Download Base Translations</h4>
-              <p>Click "Download English Translations" to get the original English files. These will serve as your template.</p>
+              <p>Select a language below to download its translation files. These will serve as your template.</p>
             </div>
             
             <div class="step">
               <span class="step-number">2</span>
               <h4>Extract & Translate</h4>
-              <p>Extract the archive and locate the JSON files. For each translation entry, replace the English text while keeping the keys unchanged.</p>
+              <p>Extract the archive and locate the JSON files. For each translation entry, replace the text while keeping the keys unchanged.</p>
               <div class="example-box">
                 <p>Basic Translation Example:</p>
                 <pre>"noLevels": "No new levels to announce" → "noLevels": "Your translated text here"</pre>
@@ -547,23 +713,63 @@ router.get('/', (req: Request, res: Response) => {
             </div>
           </div>
         </div>
+
+        <div class="language-section">
+          <h3>Available Languages</h3>
+          <div class="language-list" id="languageList">
+            <!-- Languages will be populated here -->
+          </div>
+        </div>
       </div>
 
       <script>
-        async function downloadTranslations() {
-          const downloadBtn = document.getElementById('downloadBtn');
-          downloadBtn.disabled = true;
-          downloadBtn.textContent = 'Preparing download...';
+        // Fetch and display languages
+        async function fetchLanguages() {
+          try {
+            const response = await fetch('/v2/utils/languages');
+            const languages = await response.json();
+            const languageList = document.getElementById('languageList');
+            
+            languages.forEach(lang => {
+              const card = document.createElement('div');
+              card.className = 'language-card';
+              
+              card.innerHTML = \`
+                <div class="language-header">
+                  <span class="language-name">\${lang.display}</span>
+                  <span class="language-status \${lang.implemented ? 'status-implemented' : 'status-pending'}">
+                    \${lang.implemented ? 'Implemented' : 'Coming Soon'}
+                  </span>
+                </div>
+                <div class="language-download">
+                  <button onclick="downloadTranslation('\${lang.code}')" \${!lang.implemented ? 'disabled' : ''}>
+                    Download \${lang.display} Translations
+                  </button>
+                </div>
+              \`;
+              
+              languageList.appendChild(card);
+            });
+          } catch (error) {
+            console.error('Error fetching languages:', error);
+          }
+        }
+
+        async function downloadTranslation(langCode) {
+          const button = event.target;
+          const originalText = button.textContent;
+          button.disabled = true;
+          button.textContent = 'Preparing download...';
           
           try {
-            const response = await fetch('/v2/utils/download-translations');
+            const response = await fetch(\`/v2/utils/download-translations/\${langCode}\`);
             if (!response.ok) throw new Error('Failed to download translations');
             
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'en-translations.zip';
+            a.download = \`\${langCode}-translations.zip\`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
@@ -571,11 +777,12 @@ router.get('/', (req: Request, res: Response) => {
           } catch (error) {
             alert('Error downloading translations: ' + error.message);
           } finally {
-            downloadBtn.disabled = false;
-            downloadBtn.textContent = 'Download English Translations';
+            button.disabled = false;
+            button.textContent = originalText;
           }
         }
 
+        // Handle form submission
         document.getElementById('translationForm').addEventListener('submit', async (e) => {
           e.preventDefault();
           const form = e.target;
@@ -628,6 +835,9 @@ router.get('/', (req: Request, res: Response) => {
             resultDiv.className = 'error';
           }
         });
+
+        // Initialize
+        fetchLanguages();
       </script>
     </body>
     </html>
