@@ -33,9 +33,8 @@ export const Auth = {
         }
 
         // Check if user is a super admin in database
-        const isRater = await RaterService.isRater(tokenInfo.id);
-        const rater = await RaterService.getById(tokenInfo.id);
-        if (!isRater || !rater?.isSuperAdmin) {
+        const rater = await RaterService.getByDiscordId(tokenInfo.id);
+        if (!rater?.dataValues.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
 
@@ -77,7 +76,7 @@ function requireAuth(requireSuperAdmin: boolean, allowedUsersList: string[] = []
 
       // For super admin routes, check if user is a super admin in database
       if (requireSuperAdmin) {
-        const rater = await RaterService.getByUsername(tokenInfo.username);
+        const rater = await RaterService.getByDiscordId(tokenInfo.id);
         if (!rater?.dataValues.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
@@ -85,10 +84,9 @@ function requireAuth(requireSuperAdmin: boolean, allowedUsersList: string[] = []
       }
 
       // For rater routes, check if user is a rater or super admin
-      if (allowedUsersList.length === 0) {
-        const isRater = await RaterService.isRater(tokenInfo.id);
-        const rater = await RaterService.getById(tokenInfo.id);
-        if (!isRater && !rater?.isSuperAdmin) {
+        if (allowedUsersList.length === 0) {
+        const rater = await RaterService.getByDiscordId(tokenInfo.id);
+        if (!rater || !rater?.dataValues.isSuperAdmin) {
           return res.status(403).json({error: 'Unauthorized access'});
         }
         return next();

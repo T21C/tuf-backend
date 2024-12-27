@@ -147,6 +147,14 @@ export class RaterService {
     });
   }
 
+  static async getByDiscordId(discordId: string) {
+    return await Rater.findOne({
+      where: {
+        discordId: discordId
+      }
+    });
+  }
+
   // Update super admin status
   static async updateSuperAdminStatus(id: string, isSuperAdmin: boolean) {
     return await Rater.update(
