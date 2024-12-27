@@ -164,13 +164,50 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
         transaction
       });
 
+      // Fetch the updated record with all associations
+      const updatedRating = await Rating.findByPk(id, {
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            where: {
+              isDeleted: false,
+              isHidden: false
+            },
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+                required: false,
+              }
+            ],
+          },
+          {
+            model: RatingDetail,
+            as: 'details',
+          },
+          {
+            model: Difficulty,
+            as: 'currentDifficulty',
+            required: false,
+          },
+          {
+            model: Difficulty,
+            as: 'averageDifficulty',
+            required: false,
+          }
+        ],
+        transaction
+      });
+
       await transaction.commit();
 
       // Broadcast rating update via SSE
       sseManager.broadcast({ type: 'ratingUpdate' });
 
       return res.json({
-        message: 'Rating detail deleted successfully'
+        message: 'Rating detail deleted successfully',
+        rating: updatedRating
       });
     }
 
