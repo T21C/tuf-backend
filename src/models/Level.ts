@@ -111,7 +111,7 @@ Level.init(
       allowNull: true,
     },
     publicComments: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     submitterDiscordId: {
@@ -123,11 +123,11 @@ Level.init(
       allowNull: true,
     },
     rerateReason: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     rerateNum: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     previousDiffId: {

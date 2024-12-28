@@ -68,7 +68,7 @@ async function startServer() {
     // Set up Express middleware
     app.use(cors({
       origin: process.env.CLIENT_URL || 'http://localhost:5173',
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      methods: '*',
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type'],
       exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type']

@@ -673,14 +673,35 @@ router.patch(
         await transaction.rollback();
         return res.status(404).json({error: 'Level not found'});
       }
-      // Restore the level
+
+      // Restore both isDeleted and isHidden flags
       await Level.update(
-        {isDeleted: false},
+        {
+          isDeleted: false,
+          isHidden: false
+        },
         {
           where: {id: parseInt(id)},
           transaction,
         },
       );
+
+      // Reload the level to get updated data
+      await level.reload({
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+          {
+            model: Pass,
+            as: 'passes',
+            required: false,
+            attributes: ['id'],
+          },
+        ],
+        transaction,
+      });
 
       await transaction.commit();
 
@@ -689,9 +710,6 @@ router.patch(
         throw new Error('LeaderboardCache not initialized');
       }
       await req.leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('ratingsUpdated');
 
       // Broadcast updates
       sseManager.broadcast({ type: 'levelUpdate' });

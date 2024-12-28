@@ -18,7 +18,6 @@ function normalizeRating(rating: string): string {
 // Helper function to calculate average rating
 async function calculateAverageRating(detailObject: RatingDetail[], transaction: any) {
   // Get all difficulties for efficient querying
-
   const details = detailObject.map(d => d.dataValues);
   const difficulties = await Difficulty.findAll({
     transaction,
@@ -39,12 +38,14 @@ async function calculateAverageRating(detailObject: RatingDetail[], transaction:
     const normalizedRating = normalizeRating(detail.rating);
     const difficulty = difficultyMap.get(normalizedRating);
     
+    // Skip if rating doesn't match a known difficulty
     if (!difficulty) continue;
 
     const current = voteCounts.get(normalizedRating) || { count: 0, difficulty };
     current.count++;
     voteCounts.set(normalizedRating, current);
   }
+
   // Check if any special rating has 4 or more votes
   for (const [_, data] of voteCounts) {
     if (data.difficulty.type === 'SPECIAL' && data.count >= 4) {
@@ -211,18 +212,36 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
       });
     }
 
-    // Validate rating exists in difficulties
-    const difficulty = await Difficulty.findOne({
-      where: { name: rating },
+    // Find or create rating detail without validation
+    const [ratingDetail] = await RatingDetail.findOrCreate({
+      where: {
+        ratingId: id,
+        username: username
+      },
+      defaults: {
+        rating: rating,
+        comment: comment || '',
+      },
       transaction
     });
 
-    if (!difficulty) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid rating value' });
+    if (ratingDetail) {
+      await ratingDetail.update({
+        rating: rating,
+        comment: comment || ratingDetail.comment,
+      }, { transaction });
     }
 
-    // Find the rating with all associations
+    // Get all rating details for this rating
+    const details = await RatingDetail.findAll({
+      where: { ratingId: id },
+      transaction
+    });
+
+    // Calculate new average difficulty (this will only use valid difficulty ratings)
+    const averageDifficulty = await calculateAverageRating(details, transaction);
+
+    // Find the rating record
     const ratingRecord = await Rating.findByPk(id, {
       include: [
         {
@@ -263,38 +282,15 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Rating not found' });
     }
 
-    // Find or create rating detail
-    const [ratingDetail] = await RatingDetail.findOrCreate({
-      where: {
-        ratingId: id,
-        username: username
-      },
-      defaults: {
-        rating: rating,
-        comment: comment || '',
-      },
+    // Find the difficulty if it exists (for current difficulty)
+    const difficulty = await Difficulty.findOne({
+      where: { name: rating },
       transaction
     });
-
-    if (ratingDetail) {
-      await ratingDetail.update({
-        rating: rating,
-        comment: comment || ratingDetail.comment,
-      }, { transaction });
-    }
-
-    // Get all rating details for this rating
-    const details = await RatingDetail.findAll({
-      where: { ratingId: id },
-      transaction
-    });
-
-    // Calculate new average difficulty
-    const averageDifficulty = await calculateAverageRating(details, transaction);
 
     // Update the main rating record with current and average difficulties
     await ratingRecord.update({
-      currentDifficultyId: difficulty.id,
+      currentDifficultyId: difficulty?.id || null,
       averageDifficultyId: averageDifficulty?.id || null,
     }, { transaction });
 
