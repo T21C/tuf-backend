@@ -1,5 +1,5 @@
 import {Request, Response, Router} from 'express';
-import {Op, OrderItem} from 'sequelize';
+import {Op, Order, OrderItem, Sequelize, fn, literal, col} from 'sequelize';
 import Level from '../../models/Level';
 import Pass from '../../models/Pass';
 import Rating from '../../models/Rating';
@@ -12,6 +12,8 @@ import RatingDetail from '../../models/RatingDetail';
 import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
 import { sseManager } from '../../utils/sse';
+import { getScoreV2 } from '../../misc/CalcScore';
+import { calcAcc } from '../../misc/CalcAcc';
 
 const router: Router = Router();
 
@@ -172,12 +174,10 @@ const buildWhereClause = async (query: any) => {
   return where;
 };
 // Update the type definition
-type OrderOption =
-  | [string | {model: any; as: string}, string]
-  | [{model: any; as: string}, string, string];
+type OrderOption = OrderItem | OrderItem[];
 
 // Get sort options
-const getSortOptions = (sort?: string): OrderOption[] => {
+const getSortOptions = (sort?: string): Order => {
   switch (sort) {
     case 'RECENT_DESC':
       return [['id', 'DESC']];
@@ -193,8 +193,10 @@ const getSortOptions = (sort?: string): OrderOption[] => {
         [{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'],
         ['id', 'DESC'],
       ];
+    case 'RANDOM':
+      return [[literal('RAND()'), 'ASC']];
     default:
-      return []; // No sorting, will use default database order (by ID)
+      return [['id', 'DESC']]; // Default to recent descending
   }
 };
 
@@ -202,9 +204,67 @@ const getSortOptions = (sort?: string): OrderOption[] => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const where = await buildWhereClause(req.query);
-    const order = getSortOptions(req.query.sort as string);
+    const sort = req.query.sort as string;
+    const isRandomSort = sort === 'RANDOM';
+    const order = getSortOptions(sort);
 
-    // First get all IDs in correct order
+    // For random sorting, we'll use a different approach to ensure consistent pagination
+    if (isRandomSort) {
+      // First, get all matching IDs
+      const allIds = await Level.findAll({
+        where,
+        attributes: ['id'],
+        raw: true,
+      });
+
+      // Generate a random seed based on the current hour to maintain consistency for a period
+      const now = new Date();
+      let seedValue = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate() + now.getHours();
+      
+      // Use the seed to shuffle the array consistently
+      const shuffledIds = allIds
+        .map(level => level.id)
+        .sort(() => {
+          const x = Math.sin(seedValue++) * 10000;
+          return x - Math.floor(x);
+        });
+
+      // Get the paginated slice of IDs
+      const offset = parseInt(req.query.offset as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 30;
+      const paginatedIds = shuffledIds.slice(offset, offset + limit);
+
+      // Fetch the actual levels
+      const results = await Level.findAll({
+        where: {
+          id: {
+            [Op.in]: paginatedIds,
+          },
+        },
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+            required: false,
+          },
+          {
+            model: Pass,
+            as: 'passes',
+            required: false,
+            attributes: ['id'],
+          },
+        ],
+        // Use FIELD function to maintain the shuffled order
+        order: [[literal(`FIELD(id, ${paginatedIds.join(',')})`), 'ASC']] as OrderItem[],
+      });
+
+      return res.json({
+        count: allIds.length,
+        results,
+      });
+    }
+
+    // Non-random sorting follows the original logic
     const allIds = await Level.findAll({
       where,
       include: [
@@ -219,7 +279,6 @@ router.get('/', async (req: Request, res: Response) => {
       raw: true,
     });
 
-    // Then get paginated results using those IDs in their original order
     const offset = parseInt(req.query.offset as string) || 0;
     const limit = parseInt(req.query.limit as string) || 30;
     const paginatedIds = allIds
@@ -337,6 +396,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     const level = await Level.findOne({
       where: {id: levelId},
       transaction,
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+        }
+      ]
     });
 
     if (!level) {
@@ -451,6 +516,53 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       transaction,
     });
 
+    // If baseScore or diffId changed, recalculate all passes for this level
+    if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+      const passes = await Pass.findAll({
+        where: { 
+          levelId,
+        },
+        include: [
+          {
+            model: Judgement,
+            as: 'judgements'
+          }
+        ],
+        transaction
+      });
+
+      // Recalculate and update each pass
+      for (const passData of passes) {
+        const pass = passData.dataValues;
+        console.log(pass);
+        if (!pass.judgements) {
+          continue;
+        }
+        const accuracy = calcAcc(pass.judgements);
+        const scoreV2 = getScoreV2(
+          {
+            speed: pass.speed || 1,
+            judgements: pass.judgements,
+            isNoHoldTap: pass.isNoHoldTap || false,
+          },
+          {
+            baseScore: updateData.baseScore || level.difficulty?.baseScore || 0,
+          }
+        );
+        console.log(pass.scoreV2, "➡", scoreV2);
+        await Pass.update(
+          { 
+            accuracy,
+            scoreV2 
+          },
+          {
+            where: { id: pass.id },
+            transaction
+          }
+        );
+      }
+    }
+
     // Fetch the updated record with associations
     const updatedLevel = await Level.findOne({
       where: {id: levelId},
@@ -478,9 +590,16 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     }
     await req.leaderboardCache.forceUpdate();
     
-    // Replace socket.io emit with SSE broadcast
+    // Broadcast updates
     sseManager.broadcast({ type: 'ratingUpdate' });
     sseManager.broadcast({ type: 'levelUpdate' });
+    sseManager.broadcast({ 
+      type: 'passUpdate',
+      data: {
+        levelId,
+        action: 'levelUpdate'
+      }
+    });
 
     return res.json({
       message: 'Level updated successfully',

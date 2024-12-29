@@ -386,8 +386,6 @@ router.post('/', async (req: Request, res: Response) => {
       order,
     });
 
-    const totalTime = performance.now() - routeStart;
-
     return res.json({
       count: allIds.length,
       results,
