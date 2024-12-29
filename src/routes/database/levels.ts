@@ -264,7 +264,6 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Non-random sorting follows the original logic
     const allIds = await Level.findAll({
       where,
       include: [
@@ -483,6 +482,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     if (isAnnounced && level.toRate && !req.body.toRate) {
       isAnnounced = false;
     }
+
+    const difficulty = await Difficulty.findByPk(req.body.diffId);
     // Prepare update data with proper null handling
     const updateData = {
       song: req.body.song || undefined,
@@ -534,7 +535,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // Recalculate and update each pass
       for (const passData of passes) {
         const pass = passData.dataValues;
-        console.log(pass);
         if (!pass.judgements) {
           continue;
         }
@@ -546,10 +546,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             isNoHoldTap: pass.isNoHoldTap || false,
           },
           {
-            baseScore: updateData.baseScore || level.difficulty?.baseScore || 0,
+            baseScore: updateData.baseScore ||
+            difficulty?.baseScore ||
+            level.difficulty?.baseScore || 0,
           }
         );
-        console.log(pass.scoreV2, "➡", scoreV2);
         await Pass.update(
           { 
             accuracy,
