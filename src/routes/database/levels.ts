@@ -367,11 +367,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         });
 
         if (!existingRating) {
+          // Check if rerateNum starts with 'p' or 'P' followed by a number
+          const lowDiff = req.body.rerateNum ? /^[pP]\d/.test(req.body.rerateNum) : false;
+
           await Rating.create(
             {
               levelId: levelId,
               currentDifficultyId: 0,
-              lowDiff: false,
+              lowDiff: lowDiff,
               requesterFR: '',
               averageDifficultyId: null,
             },
@@ -396,11 +399,21 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         }
       }
     }
+
+    const existingRating = await Rating.findOne({
+      where: {levelId: levelId},
+      transaction,
+    });
+
+    if (existingRating) {
+      const lowDiff = /^[pP]\d/.test(req.body.rerateNum) || /^[pP]\d/.test(existingRating.dataValues.requesterFR);
+      await existingRating.update({ lowDiff }, { transaction });
+    }
+    
     let previousDiffId = level.previousDiffId;
     if (req.body.diffId && req.body.diffId !== level.diffId) {
       previousDiffId = level.diffId;
     }
-
     let isAnnounced = level.isAnnounced || req.body.toRate;
     if (isAnnounced && level.toRate && !req.body.toRate) {
       isAnnounced = false;
@@ -425,7 +438,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       rerateReason: req.body.rerateReason || undefined,
       rerateNum: req.body.rerateNum || undefined,
       isAnnounced: req.body.isAnnounced !== undefined ? req.body.isAnnounced : isAnnounced,
-      previousDiffId: req.body.previousDiffId !== undefined ? req.body.previousDiffId : previousDiffId,
+      previousDiffId: 
+      (req.body.previousDiffId !== undefined 
+        && req.body.previousDiffId !== null) 
+        ? req.body.previousDiffId 
+        : previousDiffId,
     };
 
     // Update level

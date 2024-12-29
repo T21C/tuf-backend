@@ -148,7 +148,7 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         await Rating.create({
           levelId: newLevel.id,
           currentDifficultyId: 0,
-          lowDiff: /^(p|P|[1-9]|1[0-9])(\+)?$/i.test(submission.diff),
+          lowDiff: /^[pP]\d/.test(submission.diff),
           requesterFR: submission.diff,
           averageDifficultyId: null,
         });

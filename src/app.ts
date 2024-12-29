@@ -66,20 +66,24 @@ async function startServer() {
     }
 
     // Set up Express middleware
-    app.use(cors({
+    const corsOptions = {
       origin: process.env.CLIENT_URL || 'http://localhost:5173',
-      methods: '*',
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD', 'CONNECT', 'TRACE'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type'],
       exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type']
-    }));
+    };
+
+    // Enable pre-flight requests for all routes
+    app.options('*', cors(corsOptions));
+
+    // Apply CORS middleware to all routes
+    app.use(cors(corsOptions));
+    
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
     app.use(Cache.leaderboard());
     console.log('Cache middleware attached');
-
-    // Add CORS preflight handler for SSE endpoint
-    app.options('/events', cors());
 
     // HTML meta tags middleware for specific routes
     app.get('/passes/:id', htmlMetaMiddleware);
@@ -126,7 +130,6 @@ async function startServer() {
       console.error('Error updating profile pictures:', pfpError);
     }
 
-    //await testChannelParser();
   } catch (error) {
     console.error('Failed to start server:', error);
     throw error;

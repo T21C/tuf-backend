@@ -10,6 +10,7 @@ import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket';
 import {Cache} from '../../middleware/cache';
 import { Auth } from '../../middleware/auth';
+import sequelize from '../../config/db';
 
 const router: Router = Router();
 
@@ -499,5 +500,70 @@ router.put('/:id/ban', Auth.superAdmin(), Cache.leaderboard(), async (req: Reque
     }
   },
 );
+
+router.post('/:id/merge', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { targetPlayerId } = req.body;
+    const leaderboardCache = req.leaderboardCache;
+    if (!leaderboardCache) {
+      throw new Error('LeaderboardCache not initialized');
+    }
+
+    // Find both players
+    const sourcePlayer = await Player.findByPk(id);
+    const targetPlayer = await Player.findByPk(targetPlayerId);
+
+    if (!sourcePlayer) {
+      return res.status(404).json({ error: 'Source player not found' });
+    }
+    if (!targetPlayer) {
+      return res.status(404).json({ error: 'Target player not found' });
+    }
+
+    // Get all passes for the source player
+    const passes = await Pass.findAll({
+      where: {
+        playerId: sourcePlayer.id
+      }
+    });
+
+    // Start a transaction
+    const t = await sequelize.transaction();
+
+    try {
+      // Update all passes to point to the target player
+      await Promise.all(passes.map(pass => 
+        pass.update({ playerId: targetPlayer.id }, { transaction: t })
+      ));
+
+      // Delete the source player
+      await sourcePlayer.destroy({ transaction: t });
+
+      // Commit the transaction
+      await t.commit();
+
+      // Force cache update
+      await leaderboardCache.forceUpdate();
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+
+      return res.json({ 
+        message: 'Player merged successfully',
+        targetPlayer: await enrichPlayerData(targetPlayer)
+      });
+    } catch (error) {
+      // If anything fails, roll back the transaction
+      await t.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error merging players:', error);
+    return res.status(500).json({
+      error: 'Failed to merge players',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 export default router;
