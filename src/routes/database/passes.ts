@@ -18,6 +18,43 @@ import { sseManager } from '../../utils/sse';
 
 const router: Router = Router();
 
+export async function updateWorldsFirstStatus(levelId: number, transaction?: any) {
+  // Find the earliest non-deleted pass for this level from non-banned players
+  const earliestPass = await Pass.findOne({
+    where: {
+      levelId,
+      isDeleted: false
+    },
+    include: [{
+      model: Player,
+      as: 'player',
+      where: { isBanned: false },
+      required: true
+    }],
+    order: [['vidUploadTime', 'ASC']],
+    transaction
+  });
+
+  // Reset all passes for this level to not be world's first
+  await Pass.update(
+    { isWorldsFirst: false },
+    { 
+      where: { levelId },
+      transaction
+    }
+  );
+
+  // If we found an earliest pass, mark it as world's first
+  if (earliestPass) {
+    await Pass.update(
+      { isWorldsFirst: true },
+      { 
+        where: { id: earliestPass.id },
+        transaction
+      }
+    );
+  }
+}
 
 type WhereClause = {
   isDeleted?: boolean;
@@ -386,6 +423,7 @@ router.post('/', async (req: Request, res: Response) => {
       order,
     });
 
+
     return res.json({
       count: allIds.length,
       results,
@@ -716,14 +754,20 @@ router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Reques
         return res.status(404).json({error: 'Pass not found'});
       }
 
+      // Store levelId before deleting
+      const levelId = pass.levelId;
+
       // Soft delete the pass
       await Pass.update(
-        {isDeleted: true},
+        { isDeleted: true },
         {
-          where: {id: parseInt(id)},
+          where: { id: parseInt(id) },
           transaction,
-        },
+        }
       );
+
+      // Update world's first status for this level
+      await updateWorldsFirstStatus(levelId, transaction);
 
       // Update level clear count
       await Level.decrement('clears', {
@@ -846,14 +890,20 @@ router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req:
         return res.status(404).json({error: 'Pass not found'});
       }
 
+      // Store levelId
+      const levelId = pass.levelId;
+
       // Restore the pass
       await Pass.update(
-        {isDeleted: false},
+        { isDeleted: false },
         {
-          where: {id: parseInt(id)},
+          where: { id: parseInt(id) },
           transaction,
-        },
+        }
       );
+
+      // Update world's first status for this level
+      await updateWorldsFirstStatus(levelId, transaction);
 
       // Update level clear count and status
       await Promise.all([

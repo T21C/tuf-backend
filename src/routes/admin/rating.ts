@@ -7,6 +7,7 @@ import { sseManager } from '../../utils/sse';
 import sequelize from '../../config/db';
 import Difficulty from '../../models/Difficulty';
 import { Op, fn, col, literal } from 'sequelize';
+import { RaterService } from '../../services/RaterService';
 
 const router: Router = Router();
 
@@ -352,15 +353,16 @@ router.delete('/:id/detail/:username', Auth.rater(), async (req: Request, res: R
 
   try {
     const { id, username } = req.params;
-    const currentUser = req.user?.username;
-
+    const currentUser = req.user;
     if (!currentUser) {
       await transaction.rollback();
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
     // Only allow users to delete their own ratings or super admins to delete any
-    if (!req.user?.isSuperAdmin && currentUser !== username) {
+    const user = await RaterService.getByDiscordId(currentUser.id);
+    
+    if (!user?.dataValues.isSuperAdmin && currentUser.username !== username) {
       await transaction.rollback();
       return res.status(403).json({ error: 'Not authorized to delete this rating' });
     }
@@ -391,15 +393,52 @@ router.delete('/:id/detail/:username', Auth.rater(), async (req: Request, res: R
       transaction
     });
 
+    // Fetch the updated record with all associations
+    const updatedRating = await Rating.findByPk(id, {
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          where: {
+            isDeleted: false,
+            isHidden: false
+          },
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              required: false
+            }
+          ]
+        },
+        {
+          model: RatingDetail,
+          as: 'details'
+        },
+        {
+          model: Difficulty,
+          as: 'currentDifficulty',
+          required: false
+        },
+        {
+          model: Difficulty,
+          as: 'averageDifficulty',
+          required: false
+        }
+      ],
+      transaction
+    });
+
     await transaction.commit();
 
     // Broadcast rating update via SSE
     sseManager.broadcast({ type: 'ratingUpdate' });
 
     return res.json({
-      message: 'Rating detail deleted successfully'
+      message: 'Rating detail deleted successfully',
+      rating: updatedRating
     });
-  } catch (error) {
+  } catch (error: unknown) {
     await transaction.rollback();
     console.error('Error deleting rating detail:', error);
     return res.status(500).json({ error: 'Failed to delete rating detail' });

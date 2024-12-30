@@ -193,6 +193,16 @@ const getSortOptions = (sort?: string): Order => {
         [{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'],
         ['id', 'DESC'],
       ];
+    case 'CLEARS_ASC':
+      return [
+        ['clears', 'ASC'],
+        ['id', 'DESC'],
+      ];
+    case 'CLEARS_DESC':
+      return [
+        ['clears', 'DESC'],
+        ['id', 'DESC'],
+      ];
     case 'RANDOM':
       return [[literal('RAND()'), 'ASC']];
     default:

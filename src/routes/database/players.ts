@@ -11,6 +11,8 @@ import {getIO} from '../../utils/socket';
 import {Cache} from '../../middleware/cache';
 import { Auth } from '../../middleware/auth';
 import sequelize from '../../config/db';
+import { updateWorldsFirstStatus } from './passes';
+import { sseManager } from '../../utils/sse';
 
 const router: Router = Router();
 
@@ -463,43 +465,59 @@ router.put('/:id/country', Auth.superAdmin(), Cache.leaderboard(), async (req: R
   },
 );
 
-router.put('/:id/ban', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
+// Add helper function to update all affected levels
+async function updateAffectedLevelsWorldsFirst(playerId: number, transaction?: any) {
+  // Find all levels where this player has passes
+  const affectedLevels = await Pass.findAll({
+    where: {
+      playerId,
+      isWorldsFirst: true
+    },
+    attributes: ['levelId'],
+    group: ['levelId'],
+    transaction
+  });
+
+  // Update world's first status for each affected level
+  for (const level of affectedLevels) {
+    await updateWorldsFirstStatus(level.levelId, transaction);
+  }
+}
+
+// Update the ban/unban endpoint
+router.patch('/:id/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
   try {
-    const {id} = req.params;
-    const {isBanned} = req.body;
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
+    const { id } = req.params;
+    const { isBanned } = req.body;
 
-      const player = await Player.findByPk(id);
-      if (!player) {
-        return res.status(404).json({error: 'Player not found'});
-      }
-
-      await player.update({isBanned});
-
-      // Force cache update
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-
-      return res.json({
-        message: `Player ${isBanned ? 'banned' : 'unbanned'} successfully`,
-        isBanned,
-      });
-    } catch (error) {
-      console.error('Error updating player ban status:', error);
-      return res.status(500).json({
-        error: 'Failed to update player ban status',
-        details: error instanceof Error ? error.message : String(error),
-      });
+    const player = await Player.findByPk(id, { transaction });
+    if (!player) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Player not found' });
     }
-  },
-);
+
+    await player.update({ isBanned }, { transaction });
+
+    // Update world's first status for all affected levels
+    await updateAffectedLevelsWorldsFirst(player.id, transaction);
+
+    await transaction.commit();
+
+    // Force cache update and broadcast changes
+    if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
+    sseManager.broadcast({ type: 'playerUpdate' });
+
+    return res.json({ 
+      message: `Player ${isBanned ? 'banned' : 'unbanned'} successfully`,
+      player 
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error updating player ban status:', error);
+    return res.status(500).json({ error: 'Failed to update player ban status' });
+  }
+});
 
 router.post('/:id/merge', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
   try {
