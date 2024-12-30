@@ -57,7 +57,7 @@ class SSEManager {
     });
     
     res.on('close', () => {
-      console.debug(`SSE: Client ${clientId} connection closed`);
+      //console.debug(`SSE: Client ${clientId} connection closed`);
       this.removeClient(clientId);
     });
 

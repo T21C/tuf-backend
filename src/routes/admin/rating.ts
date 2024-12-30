@@ -11,69 +11,268 @@ import { RaterService } from '../../services/RaterService';
 
 const router: Router = Router();
 
-// Helper function to normalize rating string
-function normalizeRating(rating: string): string {
-  return rating.trim().toUpperCase();
+// Cache for difficulties to avoid repeated DB queries
+let difficultyCache: { 
+  special: Set<string>,
+  map: Map<string, any>
+} | null = null;
+
+// Helper function to get difficulties
+async function getDifficulties(transaction: any) {
+  if (!difficultyCache) {
+    const difficulties = await Difficulty.findAll({
+      transaction,
+      order: [['sortOrder', 'ASC']]
+    });
+
+    difficultyCache = {
+      special: new Set(difficulties.filter(d => d.type === 'SPECIAL').map(d => d.name)),
+      map: new Map(difficulties.map(d => [d.name, d]))
+    };
+
+  }
+  return difficultyCache;
+}
+
+// Helper function to parse complex rating string
+async function parseRatingRange(rating: string, specialDifficulties: Set<string>): Promise<string[]> {
+  console.log(`🔍 Parsing rating range: "${rating}"`);
+  console.log(`  Available special difficulties:`, Array.from(specialDifficulties));
+  
+  // First check if the entire rating is a special difficulty
+  if (specialDifficulties.has(rating.trim())) {
+    console.log(`  ↳ Found direct special rating: "${rating.trim()}"`);
+    return [rating.trim()];
+  }
+  
+  // Find the first separator, but be careful with negative numbers
+  // Look for separator only if it's not part of a negative number
+  const match = rating.match(/([^-~\s]+|^-\d+)([-~\s])(.+)/);
+  if (!match) {
+    console.log(`  ↳ No separator found, treating as single rating: "${rating.trim()}"`);
+    return [rating.trim()];
+  }
+
+  const [_, firstPart, separator, lastPart] = match;
+  console.log(`  ↳ Split by "${separator}" into: ["${firstPart}", "${lastPart}"]`);
+ 
+  // Check if second part is a special rating before any processing
+  if (specialDifficulties.has(lastPart)) {
+    console.log(`  ↳ Found special rating in second part: "${lastPart}"`);
+    return [firstPart, lastPart];
+  }
+
+  // For number-only second parts in ranges like "U11-13", copy the prefix
+  const firstMatch = firstPart.match(/([A-Za-z]*)(-?\d+)/);
+  const lastMatch = lastPart.match(/([A-Za-z]*)(-?\d+)/);
+  
+  if (firstMatch && lastMatch) {
+    console.log(`  ↳ Analyzing parts:
+      First part: prefix="${firstMatch[1]}", number="${firstMatch[2]}"
+      Last part: prefix="${lastMatch[1]}", number="${lastMatch[2]}"`);
+    
+    const [_, firstPrefix, firstNum] = firstMatch;
+    const [__, lastPrefix, lastNum] = lastMatch;
+    
+    // If second part has no prefix and first part does, copy the prefix
+    // BUT only if it's not a special rating
+    if (!lastPrefix && firstPrefix) {
+      const rawSecondPart = lastNum; // Keep the raw number for special check
+      if (specialDifficulties.has(rawSecondPart)) {
+        console.log(`  ↳ Found special rating in raw second part: "${rawSecondPart}"`);
+        return [firstPart, rawSecondPart];
+      }
+      const fullLastPart = `${firstPrefix}${lastNum}`;
+      console.log(`  ↳ Copied prefix "${firstPrefix}" to second part: ["${firstPart}", "${fullLastPart}"]`);
+      return [firstPart, fullLastPart];
+    }
+  }
+
+  console.log(`  ↳ Using parts as is: ["${firstPart}", "${lastPart}"]`);
+  return [firstPart, lastPart];
+}
+
+// Helper function to normalize rating string and calculate average for ranges
+async function normalizeRating(rating: string, transaction: any): Promise<{ pguRating?: string, specialRatings: string[] }> {
+  console.log(`\n📊 Normalizing rating: "${rating}"`);
+  if (!rating) {
+    console.log('  ↳ Empty rating, returning empty result');
+    return { specialRatings: [] };
+  }
+
+  const { special: specialDifficulties } = await getDifficulties(transaction);
+  console.log(`  Special difficulties available:`, Array.from(specialDifficulties));
+  
+  const parts = await parseRatingRange(rating, specialDifficulties);
+  
+  // If it's not a range, just normalize the single rating
+  if (parts.length === 1) {
+    console.log('  Processing single rating');
+    // First check if it's a special difficulty directly
+    if (specialDifficulties.has(parts[0])) {
+      console.log(`    ↳ Found direct special difficulty: "${parts[0]}"`);
+      return { specialRatings: [parts[0]] };
+    }
+
+    const match = parts[0].match(/([A-Za-z]*)(-?\d+)/);
+    if (!match) {
+      console.log('    ↳ No valid pattern found, skipping');
+      return { specialRatings: [] };
+    }
+    const [_, prefix, num] = match;
+    const normalizedRating = (prefix || 'G').toUpperCase() + num;
+    console.log(`    ↳ Normalized to: "${normalizedRating}" (prefix: "${prefix || 'G'}", number: ${num})`);
+
+    // Check if it's a special difficulty after normalization
+    if (specialDifficulties.has(normalizedRating)) {
+      console.log(`    ↳ Found special difficulty after normalization: "${normalizedRating}"`);
+      return { specialRatings: [normalizedRating] };
+    }
+
+    return { 
+      pguRating: normalizedRating,
+      specialRatings: []
+    };
+  }
+
+  // Process range
+  console.log('  Processing rating range');
+  type RatingInfo = { 
+    raw: string; 
+    isSpecial: boolean; 
+    prefix?: string; 
+    number?: number;
+  };
+
+  const ratings = parts.map(r => {
+    // First check if it's a special rating as is
+    if (specialDifficulties.has(r)) {
+      console.log(`    ↳ Found direct special rating: "${r}"`);
+      return { raw: r, isSpecial: true } as RatingInfo;
+    }
+
+    const match = r.match(/([A-Za-z]*)(-?\d+)/);
+    if (!match) {
+      console.log(`    ↳ No valid pattern found for part: "${r}"`);
+      return null;
+    }
+    const prefix = (match[1] || 'G').toUpperCase();
+    const number = parseInt(match[2]);
+    const raw = `${prefix}${number}`;
+    const isSpecial = specialDifficulties.has(raw);
+    console.log(`    ↳ Processed part: "${r}" -> "${raw}" (prefix: "${prefix}", number: ${number}, isSpecial: ${isSpecial})`);
+    return { prefix, number, raw, isSpecial } as RatingInfo;
+  }).filter((r): r is RatingInfo => r !== null);
+
+  if (ratings.length !== 2) {
+    console.log('    ↳ Invalid range format');
+    return { specialRatings: [] };
+  }
+
+  // Collect special ratings (check against actual special difficulties)
+  const specialRatings = ratings
+    .filter(r => r.isSpecial)
+    .map(r => r.raw);
+  
+  if (specialRatings.length > 0) {
+    console.log(`    ↳ Found special ratings:`, specialRatings);
+  }
+
+  // Find PGU ratings (those that aren't special)
+  const pguRatings = ratings
+    .filter(r => !r.isSpecial && r.number !== undefined && r.prefix !== undefined)
+    .map(r => ({ prefix: r.prefix!, number: r.number!, raw: r.raw }));
+
+  if (pguRatings.length === 0) {
+    console.log('    ↳ No valid PGU ratings found');
+    return { specialRatings };
+  }
+
+  if (pguRatings.length === 1) {
+    // If only one PGU rating, use it directly
+    console.log(`    ↳ Using single PGU rating: "${pguRatings[0].raw}"`);
+    return {
+      pguRating: pguRatings[0].raw,
+      specialRatings
+    };
+  }
+
+  // Calculate average of PGU ratings
+  const avgNumber = Math.round(pguRatings.reduce((sum, r) => sum + r.number, 0) / pguRatings.length);
+  // Use common prefix if same, otherwise default to G
+  const prefix = pguRatings.every(r => r.prefix === pguRatings[0].prefix) ? pguRatings[0].prefix : 'G';
+  const pguRating = `${prefix}${avgNumber}`;
+  console.log(`    ↳ Calculated PGU average: "${pguRating}"`);
+
+  return {
+    pguRating,
+    specialRatings
+  };
 }
 
 // Helper function to calculate average rating
 async function calculateAverageRating(detailObject: RatingDetail[], transaction: any) {
-  // Get all difficulties for efficient querying
+  const { map: difficultyMap } = await getDifficulties(transaction);
   const details = detailObject.map(d => d.dataValues);
-  const difficulties = await Difficulty.findAll({
-    transaction,
-    order: [['sortOrder', 'ASC']]
-  });
-
-  // Create maps for quick lookups
-  const difficultyMap = new Map(
-    difficulties.map(d => [normalizeRating(d.name), d])
-  );
-
+  
   // Count votes for each difficulty
   const voteCounts = new Map<string, { count: number, difficulty: any }>();
+  const pguVotes = new Map<number, number>(); // Map of difficulty ID to vote count
 
+  // First pass: Count all votes
   for (const detail of details) {
     if (!detail.rating) continue;
     
-    const normalizedRating = normalizeRating(detail.rating);
-    const difficulty = difficultyMap.get(normalizedRating);
-    
-    // Skip if rating doesn't match a known difficulty
-    if (!difficulty) continue;
+    const { pguRating, specialRatings } = await normalizeRating(detail.rating, transaction);
 
-    const current = voteCounts.get(normalizedRating) || { count: 0, difficulty };
-    current.count++;
-    voteCounts.set(normalizedRating, current);
+    // Process special ratings first
+    for (const specialRating of specialRatings) {
+      const difficulty = difficultyMap.get(specialRating);
+      if (!difficulty || difficulty.type !== 'SPECIAL') continue;
+      
+      const current = voteCounts.get(specialRating) || { count: 0, difficulty };
+      current.count++;
+      voteCounts.set(specialRating, current);
+    }
+
+    // Process PGU rating if present
+    if (pguRating) {
+      const difficulty = difficultyMap.get(pguRating);
+      if (!difficulty || difficulty.type !== 'PGU') continue;
+      
+      // Use difficulty ID for vote counting
+      const currentCount = pguVotes.get(difficulty.id) || 0;
+      pguVotes.set(difficulty.id, currentCount + 1);
+    }
   }
 
   // Check if any special rating has 4 or more votes
-  for (const [_, data] of voteCounts) {
-    if (data.difficulty.type === 'SPECIAL' && data.count >= 4) {
+  const specialRatings = Array.from(voteCounts.entries())
+    .filter(([_, data]) => data.difficulty.type === 'SPECIAL')
+    .sort((a, b) => b[1].count - a[1].count);
+
+  for (const [_, data] of specialRatings) {
+    if (data.count >= 4) {
       return data.difficulty;
     }
   }
 
-  // Calculate average for PGU ratings
-  const pguVotes = Array.from(voteCounts.values())
-    .filter(({ difficulty }) => difficulty.type === 'PGU');
-
-  if (pguVotes.length > 0) {
-    // Calculate weighted average based on vote counts
-    const totalVotes = pguVotes.reduce((sum, { count }) => sum + count, 0);
-    const weightedSortOrder = pguVotes.reduce((sum, { difficulty, count }) => 
-      sum + (difficulty.sortOrder * count), 0) / totalVotes;
+  // If no special rating has 4+ votes, calculate PGU average
+  if (pguVotes.size > 0) {
+    const totalVotes = Array.from(pguVotes.values()).reduce((sum, count) => sum + count, 0);
     
-    // Find the closest PGU difficulty by sortOrder
-    const closestDifficulty = difficulties
+    // Calculate weighted average using difficulty IDs
+    const weightedAverage = Array.from(pguVotes.entries())
+      .reduce((sum, [diffId, count]) => sum + (diffId * count), 0) / totalVotes;
+    
+    // Find the closest PGU difficulty by ID
+    const pguDifficulties = Array.from(difficultyMap.values())
       .filter(d => d.type === 'PGU')
-      .reduce((prev, curr) => {
-        return Math.abs(curr.sortOrder - weightedSortOrder) < Math.abs(prev.sortOrder - weightedSortOrder)
-          ? curr
-          : prev;
-      });
-    
-    return closestDifficulty;
+      .sort((a, b) => Math.abs(a.id - weightedAverage) - Math.abs(b.id - weightedAverage));
+
+    if (pguDifficulties.length > 0) {
+      return pguDifficulties[0];
+    }
   }
 
   return null;

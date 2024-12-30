@@ -6,32 +6,8 @@ import { PassSubmission } from '../../models/PassSubmission';
 import Level from '../../models/Level';
 import RatingDetail from '../../models/RatingDetail';
 import { Op, Sequelize } from 'sequelize';
+import { IUser } from '../../interfaces/express';
 
-interface IUser {
-  id: string;
-  username: string;
-  avatar?: string;
-  discriminator: string;
-  public_flags: number;
-  flags: number;
-  banner?: string;
-  accent_color?: number;
-  global_name?: string;
-  avatar_decoration_data?: {
-    asset: string;
-    sku_id: string;
-    expires_at: string | null;
-  };
-  banner_color?: string;
-  clan?: string | null;
-  primary_guild?: string | null;
-  mfa_enabled: boolean;
-  locale: string;
-  premium_type: number;
-  email: string;
-  verified: boolean;
-  access_token: string;
-}
 
 const router: Router = Router();
 
@@ -42,7 +18,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    // Get unrated ratings count using a subquery
+    // Get unrated ratings count using a proper subquery
     const unratedRatings = await Rating.findAll({
       include: [{
         model: Level,
@@ -55,7 +31,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       where: {
         id: {
           [Op.notIn]: Sequelize.literal(
-            `(SELECT ratingId FROM rating_details WHERE username = '${user.username}')`
+            `(SELECT DISTINCT "ratingId" FROM rating_details WHERE username = '${user.username}')`
           )
         }
       }
