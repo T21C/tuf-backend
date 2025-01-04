@@ -1,7 +1,7 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import Difficulty from './Difficulty';
 import Level from './Level';
+import Difficulty from './Difficulty';
 import RatingDetail from './RatingDetail';
 
 interface RatingAttributes {
@@ -26,7 +26,7 @@ class Rating
   declare requesterFR: string;
   declare averageDifficultyId: number | null;
 
-  // Associations
+  // Virtual fields from associations
   declare level?: Level;
   declare details?: RatingDetail[];
   declare currentDifficulty?: Difficulty;

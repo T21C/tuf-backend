@@ -311,8 +311,8 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
         // Create the pass with all its data
         const newPass = await Pass.create({
           levelId: submission.levelId,
+          speed: submission.speed,
           playerId: submission.assignedPlayerId,
-          speed: Number(submission.speed) || 1,
           feelingRating: submission.feelingDifficulty,
           vidTitle: submission.title,
           videoLink: submission.videoLink,
@@ -613,8 +613,8 @@ router.post(
             // Create the pass record
             const newPass = await Pass.create({
               levelId: submission.levelId,
+              speed: submission.speed,
               playerId: submission.assignedPlayerId!,
-              speed: Number(submission.speed) || 1,
               feelingRating: submission.feelingDifficulty,
               vidTitle: submission.title,
               videoLink: submission.videoLink,

@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { Auth } from '../../middleware/auth';
 import Rating from '../../models/Rating';
 import RatingDetail from '../../models/RatingDetail';
@@ -7,7 +7,6 @@ import { sseManager } from '../../utils/sse';
 import sequelize from '../../config/db';
 import Difficulty from '../../models/Difficulty';
 import { Op, fn, col, literal } from 'sequelize';
-import { RaterService } from '../../services/RaterService';
 
 const router: Router = Router();
 
@@ -29,19 +28,14 @@ async function getDifficulties(transaction: any) {
       special: new Set(difficulties.filter(d => d.type === 'SPECIAL').map(d => d.name)),
       map: new Map(difficulties.map(d => [d.name, d]))
     };
-
   }
   return difficultyCache;
 }
 
 // Helper function to parse complex rating string
 async function parseRatingRange(rating: string, specialDifficulties: Set<string>): Promise<string[]> {
-  console.log(`🔍 Parsing rating range: "${rating}"`);
-  console.log(`  Available special difficulties:`, Array.from(specialDifficulties));
-  
   // First check if the entire rating is a special difficulty
   if (specialDifficulties.has(rating.trim())) {
-    console.log(`  ↳ Found direct special rating: "${rating.trim()}"`);
     return [rating.trim()];
   }
   
@@ -49,16 +43,13 @@ async function parseRatingRange(rating: string, specialDifficulties: Set<string>
   // Look for separator only if it's not part of a negative number
   const match = rating.match(/([^-~\s]+|^-\d+)([-~\s])(.+)/);
   if (!match) {
-    console.log(`  ↳ No separator found, treating as single rating: "${rating.trim()}"`);
     return [rating.trim()];
   }
 
   const [_, firstPart, separator, lastPart] = match;
-  console.log(`  ↳ Split by "${separator}" into: ["${firstPart}", "${lastPart}"]`);
  
   // Check if second part is a special rating before any processing
   if (specialDifficulties.has(lastPart)) {
-    console.log(`  ↳ Found special rating in second part: "${lastPart}"`);
     return [firstPart, lastPart];
   }
 
@@ -67,65 +58,48 @@ async function parseRatingRange(rating: string, specialDifficulties: Set<string>
   const lastMatch = lastPart.match(/([A-Za-z]*)(-?\d+)/);
   
   if (firstMatch && lastMatch) {
-    console.log(`  ↳ Analyzing parts:
-      First part: prefix="${firstMatch[1]}", number="${firstMatch[2]}"
-      Last part: prefix="${lastMatch[1]}", number="${lastMatch[2]}"`);
-    
     const [_, firstPrefix, firstNum] = firstMatch;
     const [__, lastPrefix, lastNum] = lastMatch;
     
     // If second part has no prefix and first part does, copy the prefix
     // BUT only if it's not a special rating
     if (!lastPrefix && firstPrefix) {
-      const rawSecondPart = lastNum; // Keep the raw number for special check
+      const rawSecondPart = lastNum;
       if (specialDifficulties.has(rawSecondPart)) {
-        console.log(`  ↳ Found special rating in raw second part: "${rawSecondPart}"`);
         return [firstPart, rawSecondPart];
       }
-      const fullLastPart = `${firstPrefix}${lastNum}`;
-      console.log(`  ↳ Copied prefix "${firstPrefix}" to second part: ["${firstPart}", "${fullLastPart}"]`);
-      return [firstPart, fullLastPart];
+      return [firstPart, `${firstPrefix}${lastNum}`];
     }
   }
 
-  console.log(`  ↳ Using parts as is: ["${firstPart}", "${lastPart}"]`);
   return [firstPart, lastPart];
 }
 
 // Helper function to normalize rating string and calculate average for ranges
 async function normalizeRating(rating: string, transaction: any): Promise<{ pguRating?: string, specialRatings: string[] }> {
-  console.log(`\n📊 Normalizing rating: "${rating}"`);
   if (!rating) {
-    console.log('  ↳ Empty rating, returning empty result');
     return { specialRatings: [] };
   }
 
   const { special: specialDifficulties } = await getDifficulties(transaction);
-  console.log(`  Special difficulties available:`, Array.from(specialDifficulties));
-  
   const parts = await parseRatingRange(rating, specialDifficulties);
   
   // If it's not a range, just normalize the single rating
   if (parts.length === 1) {
-    console.log('  Processing single rating');
     // First check if it's a special difficulty directly
     if (specialDifficulties.has(parts[0])) {
-      console.log(`    ↳ Found direct special difficulty: "${parts[0]}"`);
       return { specialRatings: [parts[0]] };
     }
 
     const match = parts[0].match(/([A-Za-z]*)(-?\d+)/);
     if (!match) {
-      console.log('    ↳ No valid pattern found, skipping');
       return { specialRatings: [] };
     }
     const [_, prefix, num] = match;
     const normalizedRating = (prefix || 'G').toUpperCase() + num;
-    console.log(`    ↳ Normalized to: "${normalizedRating}" (prefix: "${prefix || 'G'}", number: ${num})`);
 
     // Check if it's a special difficulty after normalization
     if (specialDifficulties.has(normalizedRating)) {
-      console.log(`    ↳ Found special difficulty after normalization: "${normalizedRating}"`);
       return { specialRatings: [normalizedRating] };
     }
 
@@ -136,7 +110,6 @@ async function normalizeRating(rating: string, transaction: any): Promise<{ pguR
   }
 
   // Process range
-  console.log('  Processing rating range');
   type RatingInfo = { 
     raw: string; 
     isSpecial: boolean; 
@@ -147,25 +120,21 @@ async function normalizeRating(rating: string, transaction: any): Promise<{ pguR
   const ratings = parts.map(r => {
     // First check if it's a special rating as is
     if (specialDifficulties.has(r)) {
-      console.log(`    ↳ Found direct special rating: "${r}"`);
       return { raw: r, isSpecial: true } as RatingInfo;
     }
 
     const match = r.match(/([A-Za-z]*)(-?\d+)/);
     if (!match) {
-      console.log(`    ↳ No valid pattern found for part: "${r}"`);
       return null;
     }
     const prefix = (match[1] || 'G').toUpperCase();
     const number = parseInt(match[2]);
     const raw = `${prefix}${number}`;
     const isSpecial = specialDifficulties.has(raw);
-    console.log(`    ↳ Processed part: "${r}" -> "${raw}" (prefix: "${prefix}", number: ${number}, isSpecial: ${isSpecial})`);
     return { prefix, number, raw, isSpecial } as RatingInfo;
   }).filter((r): r is RatingInfo => r !== null);
 
   if (ratings.length !== 2) {
-    console.log('    ↳ Invalid range format');
     return { specialRatings: [] };
   }
 
@@ -173,10 +142,6 @@ async function normalizeRating(rating: string, transaction: any): Promise<{ pguR
   const specialRatings = ratings
     .filter(r => r.isSpecial)
     .map(r => r.raw);
-  
-  if (specialRatings.length > 0) {
-    console.log(`    ↳ Found special ratings:`, specialRatings);
-  }
 
   // Find PGU ratings (those that aren't special)
   const pguRatings = ratings
@@ -184,13 +149,11 @@ async function normalizeRating(rating: string, transaction: any): Promise<{ pguR
     .map(r => ({ prefix: r.prefix!, number: r.number!, raw: r.raw }));
 
   if (pguRatings.length === 0) {
-    console.log('    ↳ No valid PGU ratings found');
     return { specialRatings };
   }
 
   if (pguRatings.length === 1) {
     // If only one PGU rating, use it directly
-    console.log(`    ↳ Using single PGU rating: "${pguRatings[0].raw}"`);
     return {
       pguRating: pguRatings[0].raw,
       specialRatings
@@ -202,7 +165,6 @@ async function normalizeRating(rating: string, transaction: any): Promise<{ pguR
   // Use common prefix if same, otherwise default to G
   const prefix = pguRatings.every(r => r.prefix === pguRatings[0].prefix) ? pguRatings[0].prefix : 'G';
   const pguRating = `${prefix}${avgNumber}`;
-  console.log(`    ↳ Calculated PGU average: "${pguRating}"`);
 
   return {
     pguRating,
@@ -547,7 +509,14 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
 });
 
 // Delete rating detail
-router.delete('/:id/detail/:username', Auth.rater(), async (req: Request, res: Response) => {
+router.delete('/:id/detail/:username', [Auth.rater(), async (req: Request, res: Response, next: NextFunction) => {
+  // Check if it's the user's own rating
+  if (req.user?.username === req.params.username) {
+    return next();
+  }
+  // If not own rating, require super admin
+  return Auth.superAdmin()(req, res, next);
+}], async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -556,14 +525,6 @@ router.delete('/:id/detail/:username', Auth.rater(), async (req: Request, res: R
     if (!currentUser) {
       await transaction.rollback();
       return res.status(401).json({ error: 'User not authenticated' });
-    }
-
-    // Only allow users to delete their own ratings or super admins to delete any
-    const user = await RaterService.getByDiscordId(currentUser.id);
-    
-    if (!user?.dataValues.isSuperAdmin && currentUser.username !== username) {
-      await transaction.rollback();
-      return res.status(403).json({ error: 'Not authorized to delete this rating' });
     }
 
     // Delete the rating detail

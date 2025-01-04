@@ -62,7 +62,7 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
 
   const response = await fetch(endpoint, {
     headers: {
-      Authorization: `Bot ${process.env.BOT_TOKEN}`
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`
     }
   });
 
@@ -89,8 +89,5 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
 
   const data = (await response.json()) as DiscordUserInfo;
   
-  return {
-    username: data.username,
-    avatar: data.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${data.avatar}.png` : null
-  };
+  return data;
 } 

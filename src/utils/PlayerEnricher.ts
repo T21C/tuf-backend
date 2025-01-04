@@ -3,6 +3,7 @@ import Player from '../models/Player';
 import Pass from '../models/Pass';
 import Level from '../models/Level';
 import Judgement from '../models/Judgement';
+import { User } from '../models';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -224,6 +225,12 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   const playerData = player.get({plain: true});
   const passes = playerData.passes || [];
 
+  // Get associated user data for profile enrichment
+  const userData = await User.findOne({
+    where: { playerId: player.id },
+    attributes: ['nickname', 'avatarUrl', 'username']
+  });
+
   const scores = passes
     .filter((pass: IPass) => !pass.isDeleted)
     .map((pass: IPass) => ({
@@ -242,10 +249,10 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
 
   const enrichedPlayer = {
     id: playerData.id,
-    name: playerData.name,
+    name: userData?.nickname || playerData.name,
     country: playerData.country,
     isBanned: playerData.isBanned,
-    pfp: playerData.pfp,
+    pfp: userData?.avatarUrl || playerData.pfp, // Use user avatar if available, fallback to player pfp
     rankedScore: calculateRankedScore(validScores),
     generalScore: calculateGeneralScore(validScores),
     ppScore: calculatePPScore(validScores),
@@ -258,9 +265,7 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
     topDiff: calculateTopDiff(passes),
     top12kDiff: calculateTop12KDiff(passes),
     discordId: playerData.discordId,
-    discordUsername: playerData.discordUsername,
-    discordAvatar: playerData.discordAvatar,
-    discordAvatarId: playerData.discordAvatarId,
+    discordUsername: userData?.username || playerData.discordUsername, // Use user data if available
     createdAt: playerData.createdAt,
     updatedAt: playerData.updatedAt,
     passes: passes,

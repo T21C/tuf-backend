@@ -5,10 +5,33 @@ import Judgement from './Judgement';
 import Rating from './Rating';
 import RatingDetail from './RatingDetail';
 import Difficulty from './Difficulty';
-import {PassSubmission} from './PassSubmission';
+import {PassSubmission, PassSubmissionJudgements, PassSubmissionFlags} from './PassSubmission';
 import Reference from './References';
+import User from './User';
+import OAuthProvider from './OAuthProvider';
 
 export function initializeAssociations() {
+  // User associations
+  User.belongsTo(Player, {
+    foreignKey: 'playerId',
+    as: 'player'
+  });
+
+  Player.hasOne(User, {
+    foreignKey: 'playerId',
+    as: 'user'
+  });
+
+  User.hasMany(OAuthProvider, {
+    foreignKey: 'userId',
+    as: 'providers'
+  });
+
+  OAuthProvider.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'oauthUser'
+  });
+
   // Player has many Passes
   Player.hasMany(Pass, {
     foreignKey: 'playerId',
@@ -54,7 +77,6 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
-  // Level has one Rating
   Level.hasOne(Rating, {
     foreignKey: 'levelId',
     as: 'rating',
@@ -172,13 +194,36 @@ export function initializeAssociations() {
   Reference.belongsTo(Difficulty, {
     foreignKey: 'difficultyId',
     as: 'difficultyReference',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
   });
 
   Reference.belongsTo(Level, {
     foreignKey: 'levelId',
     as: 'levelReference',
+  });
+
+  // Add PassSubmission associations with its related models
+  PassSubmission.hasOne(PassSubmissionJudgements, {
+    foreignKey: 'passSubmissionId',
+    as: 'judgements',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  PassSubmissionJudgements.belongsTo(PassSubmission, {
+    foreignKey: 'passSubmissionId',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  PassSubmission.hasOne(PassSubmissionFlags, {
+    foreignKey: 'passSubmissionId',
+    as: 'flags',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  PassSubmissionFlags.belongsTo(PassSubmission, {
+    foreignKey: 'passSubmissionId',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });

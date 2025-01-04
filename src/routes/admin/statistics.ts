@@ -6,14 +6,14 @@ import { PassSubmission } from '../../models/PassSubmission';
 import Level from '../../models/Level';
 import RatingDetail from '../../models/RatingDetail';
 import { Op, Sequelize } from 'sequelize';
-import { IUser } from '../../interfaces/express';
+import { UserAttributes } from '../../models/User';
 
 
 const router: Router = Router();
 
 router.get('/', Auth.rater(), async (req: Request, res: Response) => {
   try {
-    const user = req.user as IUser;
+    const user = req.user as UserAttributes;
     if (!user) {
       return res.status(401).json({ error: 'User not authenticated' });
     }

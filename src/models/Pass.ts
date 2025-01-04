@@ -1,6 +1,6 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {ILevel, IPass} from '../interfaces/models';
+import {IPass} from '../interfaces/models';
 import Level from './Level';
 import Player from './Player';
 import Judgement from './Judgement';
@@ -34,7 +34,7 @@ class Pass
   declare createdAt: Date;
   declare updatedAt: Date;
 
-  // Associations
+  // Virtual fields from associations
   declare level?: Level;
   declare player?: Player;
   declare judgements?: Judgement;
@@ -128,12 +128,10 @@ Pass.init(
     isDeleted: {
       type: DataTypes.BOOLEAN,
       allowNull: true,
-      defaultValue: false,
     },
     isAnnounced: {
       type: DataTypes.BOOLEAN,
       allowNull: true,
-      defaultValue: false,
     },
     createdAt: {
       type: DataTypes.DATE,
@@ -148,11 +146,9 @@ Pass.init(
     sequelize,
     tableName: 'passes',
     indexes: [
-      {fields: ['levelId']},
       {fields: ['playerId']},
+      {fields: ['levelId']},
       {fields: ['isWorldsFirst']},
-      {fields: ['isDeleted']},
-      {fields: ['isAnnounced']},
     ],
   },
 );

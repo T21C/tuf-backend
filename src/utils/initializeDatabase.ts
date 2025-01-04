@@ -4,8 +4,6 @@ import reloadDatabase from './reloadDatabase';
 import sequelize from '../config/db';
 
 async function initializeDatabase() {
-  const transaction = await sequelize.transaction();
-
   try {
     console.log('Starting database initialization...');
 
@@ -22,10 +20,8 @@ async function initializeDatabase() {
     await reloadDatabase();
     console.log('Database data loaded successfully.');
 
-    await transaction.commit();
     console.log('Database initialized successfully');
   } catch (error) {
-    await transaction.rollback();
     console.error('Error initializing database:', error);
     throw error;
   }

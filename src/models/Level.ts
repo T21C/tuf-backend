@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {ILevel, IPass} from '../interfaces/models';
+import {ILevel} from '../interfaces/models';
 import Pass from './Pass';
 import Difficulty from './Difficulty';
 
@@ -40,7 +40,7 @@ class Level
   declare updatedAt: Date;
   declare isHidden: boolean;
 
-  // Associations
+  // Virtual fields from associations
   declare passes?: Pass[];
   declare difficulty?: Difficulty;
   declare previousDifficulty?: Difficulty;

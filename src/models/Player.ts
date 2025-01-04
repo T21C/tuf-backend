@@ -22,10 +22,6 @@ class Player
   declare country: string;
   declare isBanned: boolean;
   declare pfp: string | null;
-  declare discordId: string | null;
-  declare discordUsername: string | null;
-  declare discordAvatarId: string | null;
-  declare discordAvatar: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -68,22 +64,6 @@ Player.init(
       defaultValue: false,
     },
     pfp: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    discordId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    discordUsername: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    discordAvatarId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    discordAvatar: {
       type: DataTypes.STRING,
       allowNull: true,
     },

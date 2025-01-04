@@ -26,7 +26,6 @@ import utilsRouter from './routes/utils';
 
 dotenv.config();
 
-const gato = process.env.OWN_URL + '/v2/media/image/soggycat.webp';
 const app: Express = express();
 const httpServer = createServer(app);
 

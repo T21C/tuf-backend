@@ -12,6 +12,7 @@ import { getVideoDetails } from '../utils/videoDetailParser.js';
 import { initializeFonts } from '../utils/fontLoader.js';
 import Pass from '../models/Pass.js';
 import { IDifficulty, ILevel } from '../interfaces/models/index.js';
+import User from '../models/User.js';
 
 // Initialize fonts
 initializeFonts();
@@ -82,6 +83,45 @@ router.get('/pfp', async (req: Request, res: Response) => {
   const player = req.query.player as string;
   const pfpList = loadPfpList();
   res.json(pfpList[player]);
+});
+
+router.get('/avatar/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  try {
+    const user = await User.findByPk(userId);
+    if (!user || !user.avatarUrl) {
+      return res.status(404).send('Avatar not found');
+    }
+
+    // Create cache directory if it doesn't exist
+    const cacheDir = path.join(process.cwd(), 'cache', 'avatars');
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+
+    const avatarPath = path.join(cacheDir, `${userId}.png`);
+
+    // If avatar is not cached, download it
+    if (!fs.existsSync(avatarPath)) {
+      const response = await axios.get(user.avatarUrl, {
+        responseType: 'arraybuffer'
+      });
+
+      // Process and save the image
+      await sharp(response.data)
+        .resize(256, 256, {
+          fit: 'cover',
+          position: 'center'
+        })
+        .png()
+        .toFile(avatarPath);
+    }
+
+    return res.sendFile(avatarPath);
+  } catch (error) {
+    console.error('Error serving avatar:', error);
+    return res.status(500).send('Error serving avatar');
+  }
 });
 
 router.get('/github-asset', async (req: Request, res: Response) => {

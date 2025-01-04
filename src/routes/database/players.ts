@@ -280,7 +280,7 @@ router.get('/:id/discord/:discordId', Auth.superAdmin(), async (req: Request, re
       `https://discord.com/api/v10/users/${discordId}`,
       {
         headers: {
-          Authorization: `Bot ${process.env.BOT_TOKEN}`,
+          Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
         },
       },
     );

@@ -5,7 +5,6 @@ import Player from './Player';
 import Rating from './Rating';
 import RatingDetail from './RatingDetail';
 import Judgement from './Judgement';
-import RerateSubmission from './RerateSubmission';
 import LevelSubmission from './LevelSubmission';
 import Difficulty from './Difficulty';
 import {
@@ -15,10 +14,10 @@ import {
 } from './PassSubmission';
 import sequelize from '../config/db';
 import {initializeAssociations} from './associations';
+import User from './User';
+import OAuthProvider from './OAuthProvider';
 
-// Initialize all associations
-initializeAssociations();
-
+// Create db object with models first
 export const db = {
   sequelize,
   models: {
@@ -28,13 +27,30 @@ export const db = {
     Rating,
     RatingDetail,
     Judgement,
-    RerateSubmission,
     LevelSubmission,
     PassSubmission,
     PassSubmissionJudgements,
     PassSubmissionFlags,
     Difficulty,
+    User,
+    OAuthProvider,
   },
 };
 
+// Initialize associations after models are defined
+initializeAssociations();
+
+// Define associations
+User.hasMany(OAuthProvider, {
+  foreignKey: 'userId',
+  as: 'oauthProviders'
+});
+
+OAuthProvider.belongsTo(User, {
+  foreignKey: 'userId'
+});
+
 export default db;
+
+// Also export User and OAuthProvider directly for convenience
+export { User, OAuthProvider };

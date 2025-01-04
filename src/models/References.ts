@@ -22,7 +22,6 @@ Reference.init(
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement: true,
     },
     difficultyId: {
       type: DataTypes.INTEGER,

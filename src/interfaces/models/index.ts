@@ -110,6 +110,7 @@ export interface IRatingDetail extends IBaseModel {
   rating: string;
   comment: string;
 }
+
 export interface IJudgement extends IBaseModel {
   earlyDouble: number;
   earlySingle: number;

@@ -1,107 +1,178 @@
-import {Request, Response, NextFunction} from 'express';
-import {verifyAccessToken} from '../utils/authHelpers';
-import {RaterService} from '../services/RaterService';
+import { Request, Response, NextFunction } from 'express';
+import { User, OAuthProvider } from '../models';
+import { tokenUtils, authMiddleware } from '../utils/auth';
+import type { UserAttributes } from '../models/User';
 
-// Create middleware factories for common auth patterns
+// Extend Express Request type to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: UserAttributes & {
+        provider?: string;
+        providerId?: string;
+      };
+    }
+  }
+}
+
+type MiddlewareFunction = (req: Request, res: Response, next: NextFunction) => Promise<void> | void;
+
+/**
+ * Auth middleware factory
+ */
 export const Auth = {
-  // For super admin only routes
-  superAdmin: () => requireAuth(true),
-
-  // For admin routes
-  rater: () => requireAuth(false),
-
-  // For any authenticated user
-  user: () => requireAuth(false),
-
-  // For specific roles/users
-  allowUsers: (users: string[]) => requireAuth(false, users),
-
-  // For super admin editing super admin
-  superAdminPassword: () => {
+  /**
+   * Require authenticated user
+   */
+  user: (): MiddlewareFunction => {
     return async (req: Request, res: Response, next: NextFunction) => {
       try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader) {
-          return res.status(401).json({error: 'Authorization token required'});
+        const token = authMiddleware.extractToken(req.headers.authorization);
+        if (!token) {
+          res.status(401).json({ message: 'No token provided' });
+          return;
         }
 
-        const accessToken = authHeader.split(' ')[1];
-        const tokenInfo = await verifyAccessToken(accessToken);
-
-        if (!tokenInfo) {
-          return res.status(403).json({error: 'Unauthorized access'});
+        const decoded = tokenUtils.verifyJWT(token);
+        if (!decoded) {
+          res.status(401).json({ message: 'Invalid token' });
+          return;
         }
 
-        // Check if user is a super admin in database
-        const rater = await RaterService.getByDiscordId(tokenInfo.id);
-        if (!rater?.dataValues.isSuperAdmin) {
-          return res.status(403).json({error: 'Unauthorized access'});
+        // Find user and attach to request
+        const user = await User.findByPk(decoded.id, {
+          include: [{
+            model: OAuthProvider,
+            as: 'providers'
+          }]
+        });
+
+        if (!user) {
+          res.status(401).json({ message: 'User not found' });
+          return;
         }
 
-        req.user = tokenInfo;
+        // Add provider info if available
+        const mainProvider = user.providers?.[0];
+        const userJson = user.toJSON();
 
-        // Always require password for super admin operations
-        const {superAdminPassword} = req.body;
-        if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
-          return res.status(403).json({error: 'Invalid super admin password'});
-        }
+        req.user = {
+          ...userJson,
+          provider: mainProvider?.provider || undefined,
+          providerId: mainProvider?.providerId || undefined
+        };
 
-        return next();
+        next();
       } catch (error) {
-        console.error('Auth middleware error:', error);
-        return res.status(500).json({error: 'Internal Server Error'});
+        res.status(401).json({ message: 'Authentication failed' });
+        return;
+      }
+    };
+  },
+
+  /**
+   * Require rater privileges
+   */
+  rater: (): MiddlewareFunction => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // First ensure user is authenticated
+        await Auth.user()(req, res, () => {
+          if (!req.user?.isRater) {
+            res.status(403).json({ message: 'Requires rater privileges' });
+            return;
+          }
+          next();
+        });
+      } catch (error) {
+        res.status(500).json({ message: 'Authorization failed' });
+        return;
+      }
+    };
+  },
+
+  /**
+   * Require super admin privileges
+   */
+  superAdmin: (): MiddlewareFunction => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // First ensure user is authenticated
+        await Auth.user()(req, res, () => {
+          if (!req.user?.isSuperAdmin) {
+            res.status(403).json({ message: 'Requires super admin privileges' });
+            return;
+          }
+          next();
+        });
+      } catch (error) {
+        res.status(500).json({ message: 'Authorization failed' });
+        return;
+      }
+    };
+  },
+
+  /**
+   * Require super admin password for sensitive operations
+   */
+  superAdminPassword: (): MiddlewareFunction => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // First ensure user is a super admin
+        await Auth.superAdmin()(req, res, () => {
+          const { superAdminPassword } = req.body;
+          if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
+            res.status(403).json({ message: 'Invalid super admin password' });
+            return;
+          }
+          next();
+        });
+      } catch (error) {
+        res.status(500).json({ message: 'Authorization failed' });
+        return;
+      }
+    };
+  },
+
+  /**
+   * Require verified email
+   */
+  verified: (): MiddlewareFunction => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // First ensure user is authenticated
+        await Auth.user()(req, res, () => {
+          if (!req.user?.isEmailVerified) {
+            res.status(403).json({ message: 'Email verification required' });
+            return;
+          }
+          next();
+        });
+      } catch (error) {
+        res.status(500).json({ message: 'Authorization failed' });
+        return;
+      }
+    };
+  },
+
+  /**
+   * Allow specific providers only
+   */
+  provider: (providerName: string): MiddlewareFunction => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        // First ensure user is authenticated
+        await Auth.user()(req, res, () => {
+          if (req.user?.provider !== providerName) {
+            res.status(403).json({ message: `This feature requires ${providerName} authentication` });
+            return;
+          }
+          next();
+        });
+      } catch (error) {
+        res.status(500).json({ message: 'Authorization failed' });
+        return;
       }
     };
   }
 };
-
-// Base middleware function
-function requireAuth(requireSuperAdmin: boolean, allowedUsersList: string[] = []) {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        return res.status(401).json({error: 'Authorization token required'});
-      }
-
-      const accessToken = authHeader.split(' ')[1];
-      const tokenInfo = await verifyAccessToken(accessToken);
-
-      if (!tokenInfo) {
-        return res.status(403).json({error: 'Unauthorized access'});
-      }
-
-      // Add tokenInfo to request for use in route handlers
-      req.user = tokenInfo;
-
-      // For super admin routes, check if user is a super admin in database
-      if (requireSuperAdmin) {
-        const rater = await RaterService.getByDiscordId(tokenInfo.id);
-        if (!rater?.dataValues.isSuperAdmin) {
-          return res.status(403).json({error: 'Unauthorized access'});
-        }
-        return next();
-      }
-
-      // For rater routes, check if user is a rater or super admin
-        if (allowedUsersList.length === 0) {
-        const rater = await RaterService.getByDiscordId(tokenInfo.id);
-        if (!rater) {
-          return res.status(403).json({error: 'Unauthorized access'});
-        }
-        
-        return next();
-      }
-
-      // For specific user lists
-      if (allowedUsersList.length > 0 && !allowedUsersList.includes(tokenInfo.username)) {
-        return res.status(403).json({error: 'Unauthorized access'});
-      }
-
-      return next();
-    } catch (error) {
-      console.error('Auth middleware error:', error);
-      return res.status(500).json({error: 'Internal Server Error'});
-    }
-  };
-}
