@@ -21,6 +21,7 @@ export interface UserAttributes {
   avatarUrl?: string | null;
   createdAt: Date;
   updatedAt: Date;
+  providers?: OAuthProvider[];
 }
 
 class User extends Model<UserAttributes> implements UserAttributes {

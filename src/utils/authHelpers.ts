@@ -10,7 +10,6 @@ export const verifyAccessToken = async (accessToken: string) => {
         },
       },
     );
-    //console.log(tokenInfoResponse);
 
     if (tokenInfoResponse.status !== 200) {
       return false; // Invalid token

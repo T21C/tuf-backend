@@ -166,15 +166,14 @@ export const OAuthController = {
         const playerMapping = findPlayerByDiscordId(profile.id);
         
         if (playerMapping) {
-          console.log(`Found player mapping for ID ${playerMapping.id}`);
+          console.log(`Found player mapping for ID ${profile.id}`);
           
           // Try to find existing player by mapping ID
-          player = await Player.findOne({ where: { id: playerMapping.id } });
+          player = await Player.findOne({ where: { name: playerMapping.name } });
           
           if (!player) {
             console.log('Creating new player with mapping data');
             player = await Player.create({
-              id: playerMapping.id,
               name: playerMapping.name,
               country: playerMapping.region || 'XX',
               isBanned: false,

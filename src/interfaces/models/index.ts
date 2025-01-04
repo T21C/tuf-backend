@@ -1,4 +1,5 @@
 import {Model} from 'sequelize';
+import { UserAttributes } from '../../models/User';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -79,6 +80,7 @@ export interface IPlayer extends IBaseModel {
 
   // Associations
   passes?: IPass[];
+  user?: Model<UserAttributes>;
 
   // Virtual fields
   rankedScore?: number;

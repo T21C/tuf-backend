@@ -4,6 +4,7 @@ import Pass from '../models/Pass';
 import Level from '../models/Level';
 import Judgement from '../models/Judgement';
 import { User } from '../models';
+import OAuthProvider from '../models/OAuthProvider';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -75,7 +76,6 @@ async function updatePlayerPfp(player: Player): Promise<{
       };
     }
 
-    //console.log(`Processing player ${playerData.name} (ID: ${playerData.id}) with ${validPasses.length} videos`);
 
     // Try each video link until we get a valid pfp
     for (const pass of validPasses) {
@@ -225,11 +225,20 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   const playerData = player.get({plain: true});
   const passes = playerData.passes || [];
 
-  // Get associated user data for profile enrichment
+  // Get associated user data for profile enrichment with OAuth providers
   const userData = await User.findOne({
     where: { playerId: player.id },
+    include: [{
+      model: OAuthProvider,
+      as: 'providers',
+      where: { provider: 'discord' },
+      attributes: ['profile'],
+      required: false
+    }],
     attributes: ['nickname', 'avatarUrl', 'username']
   });
+
+  // Get Discord info from OAuth provider if available
 
   const scores = passes
     .filter((pass: IPass) => !pass.isDeleted)
@@ -247,12 +256,26 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   // Calculate player stats
   const validScores = scores.filter((s: any) => !s.isDeleted);
 
+  let discordProvider: any;
+  if (userData?.dataValues.providers) {
+    discordProvider = userData?.dataValues.providers[0].dataValues as any;
+    discordProvider.profile.avatarUrl = discordProvider.profile.avatar ? 
+      `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png` :
+      null;
+  }
+
+
+  
   const enrichedPlayer = {
     id: playerData.id,
-    name: userData?.nickname || playerData.name,
+    name: playerData.name,
     country: playerData.country,
     isBanned: playerData.isBanned,
     pfp: userData?.avatarUrl || playerData.pfp, // Use user avatar if available, fallback to player pfp
+    discordUsername: userData?.username,
+    discordAvatar: discordProvider?.profile.avatarUrl,
+    discordAvatarId: discordProvider?.profile.avatar,
+    discordId: discordProvider?.profile.id,
     rankedScore: calculateRankedScore(validScores),
     generalScore: calculateGeneralScore(validScores),
     ppScore: calculatePPScore(validScores),
@@ -264,8 +287,6 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
     WFPasses: countWorldsFirstPasses(passes),
     topDiff: calculateTopDiff(passes),
     top12kDiff: calculateTop12KDiff(passes),
-    discordId: playerData.discordId,
-    discordUsername: userData?.username || playerData.discordUsername, // Use user data if available
     createdAt: playerData.createdAt,
     updatedAt: playerData.updatedAt,
     passes: passes,

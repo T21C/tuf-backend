@@ -13,6 +13,8 @@ import { Auth } from '../../middleware/auth';
 import sequelize from '../../config/db';
 import { updateWorldsFirstStatus } from './passes';
 import { sseManager } from '../../utils/sse';
+import User from '../../models/User';
+import OAuthProvider from '../../models/OAuthProvider';
 
 const router: Router = Router();
 
@@ -528,9 +530,27 @@ router.post('/:id/merge', Auth.superAdmin(), Cache.leaderboard(), async (req: Re
       throw new Error('LeaderboardCache not initialized');
     }
 
-    // Find both players
-    const sourcePlayer = await Player.findByPk(id);
-    const targetPlayer = await Player.findByPk(targetPlayerId);
+    // Find both players with their associated users and OAuth providers
+    const sourcePlayer = await Player.findByPk(id, {
+      include: [{
+        model: User,
+        as: 'user',
+        include: [{
+          model: OAuthProvider,
+          as: 'providers'
+        }]
+      }]
+    });
+    const targetPlayer = await Player.findByPk(targetPlayerId, {
+      include: [{
+        model: User,
+        as: 'user',
+        include: [{
+          model: OAuthProvider,
+          as: 'providers'
+        }]
+      }]
+    });
 
     if (!sourcePlayer) {
       return res.status(404).json({ error: 'Source player not found' });
@@ -554,6 +574,26 @@ router.post('/:id/merge', Auth.superAdmin(), Cache.leaderboard(), async (req: Re
       await Promise.all(passes.map(pass => 
         pass.update({ playerId: targetPlayer.id }, { transaction: t })
       ));
+
+      // Handle user associations
+      if (sourcePlayer.user && !targetPlayer.user) {
+        // If source has a user but target doesn't, transfer the user and its providers
+        await sourcePlayer.user.update({ playerId: targetPlayer.id }, { transaction: t });
+      } else if (sourcePlayer.user && targetPlayer.user) {
+        // If both have users, transfer providers from source to target if they don't exist
+        const sourceProviders = sourcePlayer.user.providers || [];
+        const targetProviders = targetPlayer.user.providers || [];
+        const targetProviderIds = new Set(targetProviders.map(p => p.providerId));
+
+        // Transfer providers that don't exist in target
+        await Promise.all(sourceProviders
+          .filter(provider => !targetProviderIds.has(provider.providerId))
+          .map(provider => provider.update({ userId: targetPlayer.user!.id }, { transaction: t }))
+        );
+
+        // Delete the source user
+        await sourcePlayer.user.destroy({ transaction: t });
+      }
 
       // Delete the source player
       await sourcePlayer.destroy({ transaction: t });

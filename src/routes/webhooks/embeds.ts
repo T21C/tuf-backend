@@ -250,11 +250,10 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .setTitle(`Clear by ${trim(pass.player?.name || 'Unknown Player', 25)}`)
       .setColor(level?.difficulty?.color || '#000000')
       .setThumbnail(
-        pass.player?.discordAvatar ? 
-        pass.player?.discordAvatar : 
-        pass.player?.pfp && 
-        pass.player?.pfp !== "none" ? 
-        pass.player?.pfp : 
+        pass.player?.pfp && pass.player?.pfp !== "none" ?
+        pass.player?.pfp :
+        pass.player?.discordAvatar ?
+        pass.player?.discordAvatar :
         placeHolder
       )
       .addField("", "", false)

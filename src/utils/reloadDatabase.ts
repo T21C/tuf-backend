@@ -507,7 +507,9 @@ async function reloadDatabase() {
     await db.models.Player.bulkCreate(playerDocs, {transaction});
     await db.models.Level.bulkCreate(levelDocs, {transaction});
     await db.models.Pass.bulkCreate(passDocs, {transaction});
-
+    
+    await initializeReferences(difficultyDocs, transaction);
+    
     // Create judgements only for existing passes
     const existingPassIds = passDocs.map(pass => pass.id);
     const validJudgementDocs = judgementDocs.filter(judgement =>

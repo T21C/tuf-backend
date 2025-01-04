@@ -155,7 +155,6 @@ class OAuthService {
       
       const isRater = raterList.includes(profile.id) || SUPER_ADMINS.includes(profile.username);
       const isSuperAdmin = SUPER_ADMINS.includes(profile.username);
-      console.log(isRater, isSuperAdmin);
       if (isRater || isSuperAdmin) {
         await User.update({
           isRater,

@@ -3,10 +3,12 @@ import {
   Model,
   Optional,
   HasManyGetAssociationsMixin,
+  HasOneGetAssociationMixin,
 } from 'sequelize';
 import sequelize from '../config/db';
 import {IDifficulty, IPlayer} from '../interfaces/models';
 import Pass from './Pass';
+import User from './User';
 
 type PlayerCreationAttributes = Optional<
   IPlayer,
@@ -28,6 +30,8 @@ class Player
   // Associations
   declare passes?: Pass[];
   declare getPasses: HasManyGetAssociationsMixin<Pass>;
+  declare user?: User;
+  declare getUser: HasOneGetAssociationMixin<User>;
 
   // Virtual fields
   declare rankedScore?: number;

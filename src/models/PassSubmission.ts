@@ -21,7 +21,6 @@ class PassSubmission extends BaseModel {
   public title!: string | null;
   public rawTime!: Date | null;
   public submitterDiscordUsername?: string;
-  public submitterEmail?: string;
   public submitterDiscordId?: string;
   public submitterDiscordPfp?: string;
 

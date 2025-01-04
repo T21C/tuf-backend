@@ -1,11 +1,168 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { Auth } from '../../middleware/auth';
 import { User, OAuthProvider } from '../../models';
+import Player from '../../models/Player';
 import { fetchDiscordUserInfo } from '../../utils/discord';
 import { CreationAttributes, Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 
 const router: Router = Router();
+
+interface OAuthProviderWithUser extends OAuthProvider {
+  User?: User;
+}
+
+// Helper function to find or create user by Discord ID
+async function findOrCreateUserByDiscordId(discordId: string, discordInfo: any) {
+  // First try to find existing OAuth provider
+  const provider = await OAuthProvider.findOne({
+    where: {
+      provider: 'discord',
+      providerId: discordId
+    },
+    include: [{
+      model: User,
+      required: false,
+      include: [{
+        model: OAuthProvider,
+        as: 'providers',
+        where: { provider: 'discord' },
+        required: false
+      }]
+    }]
+  }) as OAuthProviderWithUser | null;
+
+  // If provider exists but no user is associated, something is wrong
+  if (provider && !provider.User) {
+    throw new Error('OAuth provider exists but no user is associated');
+  }
+
+  // If we found the user, return it
+  if (provider?.User) {
+    return provider.User;
+  }
+
+  // If no user exists, create a player first
+  const now = new Date();
+  const player = await Player.create({
+    name: discordInfo.username,
+    country: 'XX', // Default country code
+    isBanned: false,
+    discordId,
+    discordUsername: discordInfo.username,
+    discordAvatarId: discordInfo.avatar,
+    discordAvatar: discordInfo.avatar ? 
+      `https://cdn.discordapp.com/avatars/${discordId}/${discordInfo.avatar}.png` : 
+      null,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  // Then create the user
+  const user = await User.create({
+    id: uuidv4(),
+    username: discordInfo.username,
+    isEmailVerified: false,
+    isRater: false,
+    isSuperAdmin: false,
+    status: 'active',
+    playerId: player.id,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  // Create OAuth provider
+  await OAuthProvider.create({
+    userId: user.id,
+    provider: 'discord',
+    providerId: discordId,
+    profile: discordInfo,
+    accessToken: '',
+    tokenExpiry: now,
+    createdAt: now,
+    updatedAt: now
+  } as CreationAttributes<OAuthProvider>);
+
+  // Fetch the user again with providers included
+  const createdUser = await User.findByPk(user.id, {
+    include: [{
+      model: OAuthProvider,
+      as: 'providers',
+      where: { provider: 'discord' },
+      required: true
+    }]
+  });
+
+  if (!createdUser) {
+    throw new Error('Failed to create user');
+  }
+
+  return createdUser;
+}
+
+// Helper function to check if operation requires password
+const requiresPassword = (req: Request, res: Response, next: NextFunction) => {
+  const { role } = req.body;
+  if (role === 'superadmin') {
+    return Auth.superAdminPassword()(req, res, next);
+  }
+  return next();
+};
+
+router.get('/raters', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const raters = await User.findAll({
+      where: {
+        [Op.or]: [
+          { isRater: true },
+          { isSuperAdmin: true }
+        ]
+      },
+      include: [
+        {
+          model: OAuthProvider,
+          as: 'providers',
+          where: { provider: 'discord' },
+          required: true
+        },
+        {
+          model: Player,
+          as: 'player',
+          required: false
+        }
+      ]
+    });
+
+    return res.json(raters.map(user => {
+      const discordProvider = user.providers![0];
+      const discordProfile = discordProvider.profile as { 
+        username?: string; 
+        avatar?: string;
+        id?: string;
+      } || {};
+      
+      return {
+        id: user.id,
+        username: user.username,
+        nickname: user.nickname,
+        avatarUrl: user.avatarUrl,
+        isRater: user.isRater,
+        isSuperAdmin: user.isSuperAdmin,
+        playerId: user.playerId,
+        player: user.player,
+        discordId: discordProvider.providerId,
+        discordUsername: discordProfile.username,
+        discordAvatar: discordProfile.avatar ? 
+          `https://cdn.discordapp.com/avatars/${discordProvider.providerId}/${discordProfile.avatar}.png` : 
+          null
+      };
+    }));
+  } catch (error) {
+    console.error('Failed to fetch raters:', error);
+    return res.status(500).json({ error: 'Failed to fetch raters' });
+  }
+});
+
 
 // Get all users with roles (raters and admins)
 router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
@@ -17,21 +174,44 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
           { isSuperAdmin: true }
         ]
       },
-      include: [{
-        model: OAuthProvider,
-        as: 'providers',
-        where: { provider: 'discord' },
-        required: true
-      }]
+      include: [
+        {
+          model: OAuthProvider,
+          as: 'providers',
+          where: { provider: 'discord' },
+          required: true
+        },
+        {
+          model: Player,
+          as: 'player',
+          required: false
+        }
+      ]
     });
 
-    return res.json(users.map(user => ({
-      id: user.id,
-      username: user.username,
-      discordId: user.providers![0].providerId,
-      isRater: user.isRater,
-      isSuperAdmin: user.isSuperAdmin
-    })));
+    return res.json(users.map(user => {
+      const discordProvider = user.providers![0];
+      const discordProfile = discordProvider.profile as { 
+        username?: string; 
+        avatar?: string;
+      } || {};
+      
+      return {
+        id: user.id,
+        username: user.username,
+        nickname: user.nickname,
+        avatarUrl: user.avatarUrl,
+        isRater: user.isRater,
+        isSuperAdmin: user.isSuperAdmin,
+        playerId: user.playerId,
+        player: user.player,
+        discordId: discordProvider.providerId,
+        discordUsername: discordProfile.username,
+        discordAvatar: discordProfile.avatar ? 
+          `https://cdn.discordapp.com/avatars/${discordProvider.providerId}/${discordProfile.avatar}.png` : 
+          null
+      };
+    }));
   } catch (error) {
     console.error('Failed to fetch users:', error);
     return res.status(500).json({ error: 'Failed to fetch users' });
@@ -39,7 +219,7 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // Grant rater role to user
-router.post('/grant-role', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/grant-role', [Auth.superAdmin(), requiresPassword], async (req: Request, res: Response) => {
   try {
     const { discordId, role } = req.body;
     
@@ -47,77 +227,42 @@ router.post('/grant-role', Auth.superAdmin(), async (req: Request, res: Response
       return res.status(400).json({ error: 'Discord ID and valid role (rater/superadmin) are required' });
     }
 
-    // Find user by Discord provider ID
-    const provider = await OAuthProvider.findOne({
-      where: {
-        provider: 'discord',
-        providerId: discordId
-      },
-      include: [{ model: User, as: 'user' }]
-    });
-
-    if (!provider?.user) {
-      // If user doesn't exist, fetch Discord info and create placeholder user
-      try {
-        const discordInfo = await fetchDiscordUserInfo(discordId);
-        const now = new Date();
-        
-        // Create user with UUID
-        const user = await User.create({
-          id: uuidv4(),
-          username: discordInfo.username,
-          isEmailVerified: false,
-          isRater: role === 'rater',
-          isSuperAdmin: role === 'superadmin',
-          status: 'active',
-          createdAt: now,
-          updatedAt: now
-        });
-
-        // Create OAuth provider with timestamps
-        await OAuthProvider.create({
-          userId: user.id,
-          provider: 'discord',
-          providerId: discordId,
-          profile: discordInfo,
-          accessToken: '',
-          tokenExpiry: now,
-          createdAt: now,
-          updatedAt: now
-        } as CreationAttributes<OAuthProvider>);
-
-        return res.status(201).json({
-          message: 'User created and role granted',
-          user: {
-            id: user.id,
-            username: user.username,
-            discordId,
-            isRater: user.isRater,
-            isSuperAdmin: user.isSuperAdmin
-          }
-        });
-      } catch (discordError) {
-        console.error('Failed to fetch Discord info:', discordError);
-        return res.status(400).json({ error: 'Failed to fetch Discord info for the provided ID' });
+    // Fetch Discord info
+    try {
+      const discordInfo = await fetchDiscordUserInfo(discordId);
+      if (!discordInfo) {
+        return res.status(404).json({ error: 'User not found' });
       }
+
+      // Find or create user
+      const user = await findOrCreateUserByDiscordId(discordId, discordInfo);
+      if (!user) {
+        return res.status(500).json({ error: 'Failed to find or create user' });
+      }
+
+      // Update roles
+      await user.update({
+        isRater: role === 'rater' ? true : user.isRater,
+        isSuperAdmin: role === 'superadmin' ? true : user.isSuperAdmin
+      });
+
+      return res.json({
+        message: 'Role granted successfully',
+        user: {
+          id: user.id,
+          username: user.username,
+          discordId,
+          isRater: user.isRater,
+          isSuperAdmin: user.isSuperAdmin,
+          playerId: user.playerId
+        }
+      });
+    } catch (error: any) {
+      if (error.message?.includes('Failed to fetch Discord user info: Not Found')) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      throw error;
     }
-
-    // Update existing user's roles
-    await provider.user.update({
-      isRater: role === 'rater' ? true : provider.user.isRater,
-      isSuperAdmin: role === 'superadmin' ? true : provider.user.isSuperAdmin
-    });
-
-    return res.json({
-      message: 'Role granted successfully',
-      user: {
-        id: provider.user.id,
-        username: provider.user.username,
-        discordId,
-        isRater: provider.user.isRater,
-        isSuperAdmin: provider.user.isSuperAdmin
-      }
-    });
   } catch (error) {
     console.error('Failed to grant role:', error);
     return res.status(500).json({ error: 'Failed to grant role' });
@@ -125,7 +270,7 @@ router.post('/grant-role', Auth.superAdmin(), async (req: Request, res: Response
 });
 
 // Revoke role from user
-router.post('/revoke-role', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: Request, res: Response) => {
+router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: Request, res: Response) => {
   try {
     const { discordId, role } = req.body;
     
@@ -138,35 +283,44 @@ router.post('/revoke-role', [Auth.superAdmin(), Auth.superAdminPassword()], asyn
         provider: 'discord',
         providerId: discordId
       },
-      include: [{ model: User, as: 'user' }]
-    });
+      include: [{
+        model: User,
+        required: true,
+        include: [{
+          model: OAuthProvider,
+          as: 'providers',
+          where: { provider: 'discord' },
+          required: false
+        }]
+      }]
+    }) as OAuthProviderWithUser | null;
 
-    if (!provider?.user) {
+    if (!provider?.User) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Prevent revoking last super admin
     if (role === 'superadmin') {
       const superAdminCount = await User.count({ where: { isSuperAdmin: true } });
-      if (superAdminCount <= 1 && provider.user.isSuperAdmin) {
+      if (superAdminCount <= 1 && provider.User.isSuperAdmin) {
         return res.status(400).json({ error: 'Cannot remove last super admin' });
       }
     }
 
     // Update user's roles
-    await provider.user.update({
-      isRater: role === 'rater' ? false : provider.user.isRater,
-      isSuperAdmin: role === 'superadmin' ? false : provider.user.isSuperAdmin
+    await provider.User.update({
+      isRater: role === 'rater' ? false : provider.User.isRater,
+      isSuperAdmin: role === 'superadmin' ? false : provider.User.isSuperAdmin
     });
 
     return res.json({
       message: 'Role revoked successfully',
       user: {
-        id: provider.user.id,
-        username: provider.user.username,
+        id: provider.User.id,
+        username: provider.User.username,
         discordId,
-        isRater: provider.user.isRater,
-        isSuperAdmin: provider.user.isSuperAdmin
+        isRater: provider.User.isRater,
+        isSuperAdmin: provider.User.isSuperAdmin
       }
     });
   } catch (error) {

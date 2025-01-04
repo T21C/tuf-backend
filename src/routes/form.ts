@@ -1,5 +1,5 @@
 import express, {Request, Response, Router} from 'express';
-import {verifyAccessToken} from '../utils/authHelpers.js';
+import {Auth} from '../middleware/auth';
 import {emailBanList} from '../config/constants.js';
 import LevelSubmission from '../models/LevelSubmission';
 import {
@@ -14,19 +14,9 @@ import { sseManager } from '../utils/sse';
 const router: Router = express.Router();
 
 // Form submission endpoint
-router.post('/form-submit', async (req: Request, res: Response) => {
+router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => {
   try {
-    if (!req.headers.authorization) {
-      return res.status(401).json({error: 'No authorization header'});
-    }
-    const accessToken = req.headers.authorization.split(' ')[1];
-    const tokenInfo = await verifyAccessToken(accessToken);
-
-    if (!tokenInfo) {
-      return res.status(401).json({error: 'Invalid access token'});
-    }
-
-    if (emailBanList.includes(tokenInfo.email)) {
+    if (req.user?.email && emailBanList.includes(req.user.email)) {
       return res.status(403).json({error: 'User is banned'});
     }
 
@@ -36,6 +26,8 @@ router.post('/form-submit', async (req: Request, res: Response) => {
       const baseScore = req.body['baseScore'] 
         ? Math.min(0, Math.max(0, parseFloat(req.body['baseScore'].slice(0, 9))))
         : null;
+
+      const discordProvider = req.user?.providers?.find(provider => provider.dataValues.provider === 'discord');
 
       const submission = await LevelSubmission.create({
         artist: req.body['artist'],
@@ -48,9 +40,9 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         directDL: req.body['directDL'],
         wsLink: req.body['wsLink'] || '',
         baseScore,
-        submitterDiscordUsername: tokenInfo.username,
-        submitterDiscordId: tokenInfo.id,
-        submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
+        submitterDiscordUsername: (discordProvider?.dataValues.profile as any).username,
+        submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
+        submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
         status: 'pending',
       });
 
@@ -92,6 +84,8 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         }
       }
 
+      const discordProvider = req.user?.providers?.find(provider => provider.dataValues.provider === 'discord');
+
       // Create the pass submission
       const submission = await PassSubmission.create({
         levelId: req.body.levelId,
@@ -101,10 +95,9 @@ router.post('/form-submit', async (req: Request, res: Response) => {
         title: req.body.title,
         videoLink: req.body.videoLink,
         rawTime: new Date(req.body.rawTime),
-        submitterDiscordUsername: tokenInfo.username,
-        submitterEmail: tokenInfo.email,
-        submitterDiscordId: tokenInfo.id,
-        submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${tokenInfo.id}/${tokenInfo.avatar}.png`,
+        submitterDiscordUsername: (discordProvider?.dataValues.profile as any).username,
+        submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
+        submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
         status: 'pending',
         assignedPlayerId: null, // Will be assigned during review
       });
