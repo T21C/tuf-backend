@@ -1,12 +1,16 @@
 import {DataTypes} from 'sequelize';
 import sequelize from '../config/db';
 import BaseModel from './BaseModel';
+import User from './User';
 
 class RatingDetail extends BaseModel {
-  public ratingId!: number;
-  public username!: string;
-  public rating!: string;
-  public comment!: string;
+  declare ratingId: number;
+  declare userId: string;
+  declare rating: string;
+  declare comment: string;
+  
+  // Virtual fields
+  declare user?: User;
 }
 
 RatingDetail.init(
@@ -19,9 +23,13 @@ RatingDetail.init(
         key: 'id',
       },
     },
-    username: {
-      type: DataTypes.STRING,
+    userId: {
+      type: DataTypes.UUID,
       allowNull: false,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
     },
     rating: {
       type: DataTypes.STRING,
@@ -35,8 +43,14 @@ RatingDetail.init(
   {
     sequelize,
     tableName: 'rating_details',
-    indexes: [{fields: ['ratingId', 'username'], unique: true}],
+    indexes: [{fields: ['ratingId', 'userId'], unique: true}],
   },
 );
+
+// Add association
+RatingDetail.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
 
 export default RatingDetail;

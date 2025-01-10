@@ -31,7 +31,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       where: {
         id: {
           [Op.notIn]: Sequelize.literal(
-            `(SELECT DISTINCT "ratingId" FROM rating_details WHERE username = '${user.username}')`
+            `(SELECT DISTINCT "ratingId" FROM rating_details WHERE userId = '${user.id}')`
           )
         }
       }

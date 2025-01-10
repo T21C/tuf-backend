@@ -5,24 +5,24 @@ import Player from './Player';
 import Level from './Level';
 
 class PassSubmission extends BaseModel {
-  public passer!: string;
-  public videoLink!: string;
-  public status!: 'pending' | 'approved' | 'declined';
-  public assignedPlayerId!: number | null;
-  public levelId!: number;
-  public speed!: number | null;
-  public is12K!: boolean;
-  public is16K!: boolean;
-  public isNoHoldTap!: boolean;
-  public isWorldsFirst!: boolean;
-  public accuracy!: number | null;
-  public scoreV2!: number | null;
-  public feelingDifficulty!: string | null;
-  public title!: string | null;
-  public rawTime!: Date | null;
-  public submitterDiscordUsername?: string;
-  public submitterDiscordId?: string;
-  public submitterDiscordPfp?: string;
+  declare passer: string;
+  declare videoLink: string;
+  declare status: 'pending' | 'approved' | 'declined';
+  declare assignedPlayerId: number | null;
+  declare levelId: number;
+  declare speed: number | null;
+  declare is12K: boolean;
+  declare is16K: boolean;
+  declare isNoHoldTap: boolean;
+  declare isWorldsFirst: boolean;
+  declare accuracy: number | null;
+  declare scoreV2: number | null;
+  declare feelingDifficulty: string | null;
+  declare title: string | null;
+  declare rawTime: Date | null;
+  declare submitterDiscordUsername: string | null;
+  declare submitterDiscordId: string | null;
+  declare submitterDiscordPfp: string | null;
 
   // Virtual fields from associations
   declare assignedPlayer?: Player;

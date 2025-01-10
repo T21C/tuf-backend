@@ -9,8 +9,10 @@ import {calculatePGUDiffNum} from './ratingUtils';
 import {getBaseScore} from './parseBaseScore';
 import {ILevel} from '../interfaces/models';
 import { initializeDifficultyMap } from './difficultyMap';
+import { migrateCredits } from './migrateCredits';
 
 const BE_API = 'http://be.t21c.kro.kr';
+const PLACEHOLDER = "" + process.env.PLACEHOLDER_PREFIX + process.env.PLACEHOLDER_BODY + process.env.PLACEHOLDER_POSTFIX;
 
 interface RawLevel {
   id: number;
@@ -179,13 +181,14 @@ function getBaseScorePguRating(baseScore: number): string {
 function createPlaceholderLevel(id: number) {
   return {
     id,
-    song: 'Placeholder',
-    artist: 'Placeholder',
-    creator: 'Placeholder',
-    charter: 'Placeholder',
-    vfxer: '',
-    team: '',
-    diffId: 0, // Unranked difficulty
+    song: PLACEHOLDER,
+    artist: PLACEHOLDER,
+    creator: PLACEHOLDER,
+    charter: PLACEHOLDER,
+    vfxer: "",
+    team: "",
+    teamId: null,
+    diffId: 1000,
     baseScore: 0,
     isCleared: false,
     clears: 0,
@@ -198,7 +201,8 @@ function createPlaceholderLevel(id: number) {
     rerateNum: '',
     isDeleted: true,
     isAnnounced: true,
-    previousDiffId: null,
+    isVerified: true,
+    previousDiffId: 0,
     isHidden: false,
   };
 }
@@ -230,12 +234,17 @@ async function reloadDatabase() {
 
     // Clear existing data in correct order
     console.log('Clearing existing data...');
+    
     await Promise.all([
       db.models.RatingDetail.destroy({where: {}, transaction}),
       db.models.Rating.destroy({where: {}, transaction}),
       db.models.Judgement.destroy({where: {}, transaction}),
       db.models.Pass.destroy({where: {}, transaction}),
+      db.models.TeamMember.destroy({where: {}, transaction}),
+      db.models.LevelCredit.destroy({where: {}, transaction}),
       db.models.Level.destroy({where: {}, transaction}),
+      db.models.Creator.destroy({where: {}, transaction}),
+      db.models.Team.destroy({where: {}, transaction}),
       db.models.Player.destroy({where: {}, transaction}),
       db.models.Difficulty.destroy({where: {}, transaction}),
     ]);
@@ -346,6 +355,14 @@ async function reloadDatabase() {
         }
       }
 
+      // Check if credits are simple (no brackets or parentheses)
+      const complexChars = ['[', '(', '{', '}', ']', ')'];
+      const hasSimpleCredits = !complexChars.some(char => 
+        level.creator.includes(char) || 
+        level.charter.includes(char) || 
+        level.vfxer.includes(char)
+      );
+
       levelDocs.push({
         id: level.id,
         song: level.song || '',
@@ -354,6 +371,7 @@ async function reloadDatabase() {
         charter: level.charter || '',
         vfxer: level.vfxer || '',
         team: level.team || '',
+        teamId: null, // Will be set during credit migration
         diffId,
         baseScore,
         isCleared: level.isCleared || false,
@@ -367,9 +385,11 @@ async function reloadDatabase() {
         rerateNum: '',
         isDeleted: false,
         isAnnounced: true,
-        previousDiffId: null,
+        previousDiffId: 0,
         isHidden: false,
+        isVerified: hasSimpleCredits // Auto-verify levels with simple credits
       });
+      
 
       nextLevelId = level.id + 1;
       levelIdMapping.set(level.id, level.id);
@@ -508,7 +528,9 @@ async function reloadDatabase() {
     await db.models.Level.bulkCreate(levelDocs, {transaction});
     await db.models.Pass.bulkCreate(passDocs, {transaction});
     
+    // Initialize references and migrate credits (which now includes team handling)
     await initializeReferences(difficultyDocs, transaction);
+    await migrateCredits(levelDocs, transaction);
     
     // Create judgements only for existing passes
     const existingPassIds = passDocs.map(pass => pass.id);
@@ -535,6 +557,41 @@ async function reloadDatabase() {
         db.models.Level.update({clears}, {where: {id: levelId}, transaction}),
       ),
     );
+
+    // After all other operations, before the final commit
+    // Create ratings for unranked levels
+    console.log('Creating ratings for unranked levels...');
+    const unrankedLevels = await db.models.Level.findAll({
+      where: { 
+        diffId: 0,
+        isDeleted: false,
+        isHidden: false
+      },
+      transaction
+    });
+
+    const ratingDocs = unrankedLevels.map(level => ({
+      levelId: level.id,
+      currentDifficultyId: 0,
+      lowDiff: /^[pP]\d/.test(level.rerateNum || ''),
+      requesterFR: level.rerateNum || '',
+      averageDifficultyId: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }));
+
+    if (ratingDocs.length > 0) {
+      await db.models.Rating.bulkCreate(ratingDocs, { transaction });
+      // Update toRate flag for these levels
+      await db.models.Level.update(
+        { toRate: true },
+        {
+          where: { id: unrankedLevels.map(l => l.id) },
+          transaction
+        }
+      );
+      console.log(`Created ${ratingDocs.length} rating objects for unranked levels`);
+    }
 
     await transaction.commit();
     console.log('Database reload completed successfully');

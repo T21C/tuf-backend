@@ -15,6 +15,8 @@ import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
 import { calculateRankedScore } from '../../misc/PlayerStatsCalculator';
 import { sseManager } from '../../utils/sse';
+import User from '../../models/User';
+import { excludePlaceholder } from '../../middleware/excludePlaceholder';
 
 const router: Router = Router();
 
@@ -237,6 +239,13 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
           model: Player,
           as: 'player',
           attributes: ['name', 'country', 'isBanned'],
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['id', 'username', 'nickname', 'avatarUrl', 'isSuperAdmin', 'isRater'],
+            },
+          ],
         },
         {
           model: Judgement,
@@ -463,6 +472,11 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
                 },
               ],
             },
+            {
+              model: User,
+              as: 'user',
+              attributes: ['id', 'username', 'nickname', 'avatarUrl', 'isSuperAdmin', 'isRater'],
+            },
           ],
         },
         {
@@ -513,6 +527,7 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
     // Get player ranks
     const ranks = pass.player ? await leaderboardCache.getRanks(pass.player.id) : null;
 
+
     // Create response object without player passes
     const response = {
       ...pass.toJSON(),
@@ -521,10 +536,7 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
         name: pass.player?.name,
         country: pass.player?.country,
         isBanned: pass.player?.isBanned,
-        discordId: pass.player?.discordId,
-        discordUsername: pass.player?.discordUsername,
-        discordAvatar: pass.player?.discordAvatar,
-        discordAvatarId: pass.player?.discordAvatarId,
+        user: pass.player?.user,
       },
       scoreInfo: {
         currentRankedScore,
@@ -959,7 +971,7 @@ router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req:
 );
 
 // Add new route for getting pass by ID as a list
-router.get('/byId/:id', async (req: Request, res: Response) => {
+router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId) || passId <= 0) {
@@ -1110,6 +1122,201 @@ router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
       error: 'Failed to mark pass as announced',
       details: error instanceof Error ? error.message : String(error)
     });
+  }
+});
+
+// Helper function to ensure string type
+const ensureString = (value: any): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value[0]?.toString();
+  if (value?.toString) return value.toString();
+  return undefined;
+};
+
+// Main GET endpoint with search
+router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+  try {
+    const {
+      deletedFilter,
+      minDiff,
+      maxDiff,
+      only12k,
+      levelId,
+      player,
+      query: searchQuery,
+      offset = '0',
+      limit = '30',
+      sort
+    } = req.query;
+
+    // Step 1: Get matching difficulty IDs if difficulty filter is applied
+    let matchingLevelIds: number[] | undefined;
+    const minDiffStr = ensureString(minDiff);
+    const maxDiffStr = ensureString(maxDiff);
+
+    if (minDiffStr || maxDiffStr) {
+      const [minDiffObj, maxDiffObj] = await Promise.all([
+        minDiffStr ? Difficulty.findOne({
+          where: { name: minDiffStr, type: 'PGU' },
+          attributes: ['id', 'sortOrder']
+        }) : null,
+        maxDiffStr ? Difficulty.findOne({
+          where: { name: maxDiffStr, type: 'PGU' },
+          attributes: ['id', 'sortOrder']
+        }) : null
+      ]);
+
+      if (minDiffObj || maxDiffObj) {
+        const pguDifficulties = await Difficulty.findAll({
+          where: {
+            type: 'PGU',
+            sortOrder: {
+              ...(minDiffObj && { [Op.gte]: minDiffObj.sortOrder }),
+              ...(maxDiffObj && { [Op.lte]: maxDiffObj.sortOrder })
+            }
+          },
+          attributes: ['id']
+        });
+
+        if (pguDifficulties.length > 0) {
+          const levels = await Level.findAll({
+            where: {
+              diffId: {
+                [Op.in]: pguDifficulties.map(d => d.id)
+              }
+            },
+            attributes: ['id']
+          });
+          matchingLevelIds = levels.map(l => l.id);
+        }
+      }
+    }
+
+    // Build base where clause
+    const where: WhereClause = {};
+
+    // Handle deleted filter
+    const deletedFilterStr = ensureString(deletedFilter);
+    if (deletedFilterStr === 'hide') {
+      where.isDeleted = false;
+    } else if (deletedFilterStr === 'only') {
+      where.isDeleted = true;
+    }
+
+    // Add 12k filter
+    const only12kStr = ensureString(only12k);
+    where.is12K = only12kStr === 'true';
+
+    // Add level ID filter from difficulty matching
+    if (matchingLevelIds) {
+      where.levelId = {
+        [Op.in]: matchingLevelIds
+      };
+    }
+
+    // Add specific level ID filter if provided
+    const levelIdStr = ensureString(levelId);
+    if (levelIdStr) {
+      where.levelId = Number(levelIdStr);
+    }
+
+    // Add player name filter
+    const playerStr = ensureString(player);
+    if (playerStr) {
+      where['$player.name$'] = {[Op.like]: `%${escapeRegExp(playerStr)}%`};
+    }
+
+    // Add general search
+    const searchQueryStr = ensureString(searchQuery);
+    if (searchQueryStr) {
+      const searchTerm = escapeRegExp(searchQueryStr);
+      where[Op.or] = [
+        {'$player.name$': {[Op.like]: `%${searchTerm}%`}},
+        {'$level.song$': {[Op.like]: `%${searchTerm}%`}},
+        {'$level.artist$': {[Op.like]: `%${searchTerm}%`}},
+        {'$level.difficulty.name$': {[Op.like]: `%${searchTerm}%`}},
+        {levelId: {[Op.like]: `%${searchTerm}%`}},
+        {id: {[Op.like]: `%${searchTerm}%`}},
+      ];
+    }
+
+    const order = getSortOptions(ensureString(sort));
+    // First get all IDs in correct order
+    const allIds = await Pass.findAll({
+      where,
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          where: { isBanned: false },
+          required: true,
+        },
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              required: false,
+            },
+          ],
+        },
+      ],
+      order,
+      attributes: ['id'],
+      raw: true,
+    });
+
+    // Then get paginated results using those IDs in their original order
+    const offsetNum = Math.max(0, Number(ensureString(offset)) || 0);
+    const limitNum = Math.max(1, Math.min(100, Number(ensureString(limit)) || 30));
+    const paginatedIds = allIds
+      .map((pass: any) => pass.id)
+      .slice(offsetNum, offsetNum + limitNum);
+
+    const results = await Pass.findAll({
+      where: {
+        ...where,
+        id: {
+          [Op.in]: paginatedIds,
+        },
+      },
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['name', 'country', 'isBanned'],
+          where: { isBanned: false },
+          required: true,
+        },
+        {
+          model: Level,
+          as: 'level',
+          where: { isHidden: false },
+          attributes: ['song', 'artist', 'baseScore'],
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        },
+      ],
+      order,
+    });
+
+    return res.json({
+      count: allIds.length,
+      results,
+    });
+  } catch (error) {
+    console.error('Error fetching passes:', error);
+    return res.status(500).json({error: 'Failed to fetch passes'});
   }
 });
 

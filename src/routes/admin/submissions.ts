@@ -21,6 +21,7 @@ import { getIO } from '../../utils/socket';
 import { Cache } from '../../middleware/cache';
 import sequelize from '../../config/db';
 import { sseManager } from '../../utils/sse';
+import { excludePlaceholder } from '../../middleware/excludePlaceholder';
 
 // Define interfaces for the data structure
 interface PassData {
@@ -133,11 +134,13 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
           diffId: 0,
           baseScore: 0,
           isCleared: false,
+          isVerified: false,
           clears: 0,
           publicComments: '',
           submitterDiscordId: submission.submitterDiscordId,
           rerateReason: '',
           rerateNum: '',
+          previousDiffId: 0,
           isAnnounced: false,
           isHidden: false,
           createdAt: new Date(),
@@ -311,15 +314,15 @@ router.put('/passes/:id/:action', Auth.superAdmin(), Cache.leaderboard(), async 
         // Create the pass with all its data
         const newPass = await Pass.create({
           levelId: submission.levelId,
-          speed: submission.speed,
-          playerId: submission.assignedPlayerId,
+          speed: submission.speed || 1,
+          playerId: submission.assignedPlayerId!,
           feelingRating: submission.feelingDifficulty,
           vidTitle: submission.title,
           videoLink: submission.videoLink,
           vidUploadTime: submission.rawTime,
-          is12K: Boolean(submission.flags.is12K),
-          is16K: Boolean(submission.flags.is16K),
-          isNoHoldTap: Boolean(submission.flags.isNoHoldTap),
+          is12K: Boolean(submission.flags!.is12K),
+          is16K: Boolean(submission.flags!.is16K),
+          isNoHoldTap: Boolean(submission.flags!.isNoHoldTap),
           isWorldsFirst: existingPasses === 0,
           accuracy,
           scoreV2,
@@ -613,7 +616,7 @@ router.post(
             // Create the pass record
             const newPass = await Pass.create({
               levelId: submission.levelId,
-              speed: submission.speed,
+              speed: submission.speed || 1,
               playerId: submission.assignedPlayerId!,
               feelingRating: submission.feelingDifficulty,
               vidTitle: submission.title,
@@ -719,5 +722,25 @@ router.post(
     }
   }
 );
+
+// Get level submissions
+router.get('/levels', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+  try {
+    const levelSubmissions = await LevelSubmission.findAll();
+    res.json(levelSubmissions);
+  } catch (error) {
+    res.status(500).json({error: error});
+  }
+});
+
+// Get pass submissions
+router.get('/passes', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+  try {
+    const passSubmissions = await PassSubmission.findAll();
+    res.json(passSubmissions);
+  } catch (error) {
+    res.status(500).json({error: error});
+  }
+});
 
 export default router;

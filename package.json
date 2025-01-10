@@ -26,6 +26,7 @@
   "license": "ISC",
   "dependencies": {
     "@ctrl/ts-base32": "^4.0.0",
+    "@google-cloud/recaptcha-enterprise": "^5.13.0",
     "@types/adm-zip": "^0.5.7",
     "@types/multer": "^1.4.12",
     "@types/socket.io": "^3.0.2",

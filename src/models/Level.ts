@@ -1,8 +1,13 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../config/db';
-import {ILevel} from '../interfaces/models';
+import {ILevel, IPass, IDifficulty, ICreator, ITeam} from '../interfaces/models';
 import Pass from './Pass';
 import Difficulty from './Difficulty';
+import Creator from './Creator';
+import LevelAlias from './LevelAlias';
+import Rating from './Rating';
+import LevelCredit from './LevelCredit';
+import Team from './Team';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -29,7 +34,7 @@ class Level
   declare dlLink: string;
   declare workshopLink: string;
   declare publicComments: string;
-  declare submitterDiscordId: string;
+  declare submitterDiscordId: string | null;
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
@@ -39,11 +44,15 @@ class Level
   declare createdAt: Date;
   declare updatedAt: Date;
   declare isHidden: boolean;
+  declare isVerified: boolean;
+  declare teamId: number | null;
+  declare teamObject: ITeam;
 
   // Virtual fields from associations
-  declare passes?: Pass[];
-  declare difficulty?: Difficulty;
-  declare previousDifficulty?: Difficulty;
+  declare passes?: IPass[];
+  declare difficulty?: IDifficulty;
+  declare previousDifficulty?: IDifficulty;
+  declare levelCreators?: ICreator[];
 }
 
 Level.init(
@@ -160,6 +169,19 @@ Level.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
+    },
+    isVerified: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    teamId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'teams',
+        key: 'id'
+      }
     },
   },
   {

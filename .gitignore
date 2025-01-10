@@ -146,5 +146,8 @@ __pycache__/
 # ts builds
 build/
 
+# google cloud
+src/config/recaptcha-service-key.json
+
 # tsimp
 .tsimp/

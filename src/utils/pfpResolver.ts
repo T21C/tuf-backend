@@ -5,7 +5,7 @@ dotenv.config();
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
-const ENABLE_FETCHING = false;
+const ENABLE_FETCHING = true;
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -33,7 +33,7 @@ async function getBilibiliVideoDetails(
     }
 
     const data = resp.data;
-    const pfpUrl = `${process.env.OWN_URL}/v2/media/image?url=${encodeURIComponent(
+    const pfpUrl = `${process.env.OWN_URL}/v2/media/image-proxy?url=${encodeURIComponent(
       data.owner.face,
     )}`;
 

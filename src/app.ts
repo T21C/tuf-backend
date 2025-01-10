@@ -94,7 +94,7 @@ async function startServer() {
     app.use('/v2/form', formRoutes);
     app.use('/v2/auth', authRoutes);
     app.use('/v2/media', mediaRoutes);
-    app.use('/v2/data', databaseRoutes());
+    app.use('/v2/database', databaseRoutes());
     app.use('/v2/webhook', webhookRoutes);
     app.use('/v2/discord', discordRouter);
     app.use('/events', eventsRouter);

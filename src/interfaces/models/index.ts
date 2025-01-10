@@ -14,8 +14,14 @@ export interface IBaseModelAttributes {
   updatedAt: Date;
 }
 
+export interface ICreator extends IBaseModel {
+  name: string;
+  aliases: string[];
+} 
+
 // Level interface
 export interface ILevel extends IBaseModel {
+  id: number;
   song: string;
   artist: string;
   creator: string;
@@ -34,14 +40,19 @@ export interface ILevel extends IBaseModel {
   toRate: boolean;
   rerateReason: string;
   rerateNum: string;
-  previousDiffId: number | null;
+  previousDiffId: number;
   isAnnounced: boolean;
   isDeleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
   isHidden: boolean;
-  // Associations
+  isVerified: boolean;
+  teamId?: number | null;
   passes?: IPass[];
   difficulty?: IDifficulty;
   previousDifficulty?: IDifficulty;
+  levelCreators?: ICreator[];
+  teamObject?: ITeam;
 }
 
 // Pass interface
@@ -185,4 +196,11 @@ export interface IPassSubmission extends IBaseModel {
   judgements?: IPassSubmissionJudgements;
   flags?: IPassSubmissionFlags;
   level?: ILevel;
+}
+
+export interface ITeam extends IBaseModel {
+  name: string;
+  members: ICreator[];
+  aliases: string[];
+  description?: string | null; 
 }

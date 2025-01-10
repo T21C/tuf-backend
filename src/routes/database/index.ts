@@ -6,6 +6,7 @@ import leaderboardRoutes from './leaderboard';
 import difficultyRoutes from './diffs';
 import referenceRoutes from './references';
 import statisticsRoutes from './statistics';
+import creatorRoutes from './creators';
 import {Cache} from '../../middleware/cache';
 
 export default function createDatabaseRouter(): Router {
@@ -19,6 +20,7 @@ export default function createDatabaseRouter(): Router {
   router.use('/difficulties', difficultyRoutes);
   router.use('/references', referenceRoutes);
   router.use('/statistics', statisticsRoutes);
+  router.use('/creators', creatorRoutes);
 
   return router;
 }

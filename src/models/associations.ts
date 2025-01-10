@@ -9,9 +9,14 @@ import {PassSubmission, PassSubmissionJudgements, PassSubmissionFlags} from './P
 import Reference from './References';
 import User from './User';
 import OAuthProvider from './OAuthProvider';
+import Creator from './Creator';
+import LevelCredit from './LevelCredit';
+import Team from './Team';
+import TeamMember from './TeamMember';
+import LevelAlias from './LevelAlias';
 
 export function initializeAssociations() {
-  // User associations
+  // User <-> Player associations
   User.belongsTo(Player, {
     foreignKey: 'playerId',
     as: 'player'
@@ -22,6 +27,7 @@ export function initializeAssociations() {
     as: 'user'
   });
 
+  // User <-> OAuthProvider associations
   User.hasMany(OAuthProvider, {
     foreignKey: 'userId',
     as: 'providers'
@@ -32,18 +38,42 @@ export function initializeAssociations() {
     as: 'oauthUser'
   });
 
-  // Player has many Passes
-  Player.hasMany(Pass, {
-    foreignKey: 'playerId',
-    as: 'passes',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
+  // User <-> Creator associations
+  User.hasOne(Creator, {
+    foreignKey: 'userId',
+    as: 'creator'
   });
 
-  // Pass belongs to Player and Level
-  Pass.belongsTo(Player, {
-    foreignKey: 'playerId',
-    as: 'player',
+  Creator.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user'
+  });
+
+  // Level <-> Difficulty associations
+  Level.belongsTo(Difficulty, {
+    foreignKey: 'diffId',
+    as: 'difficulty',
+  });
+
+  Difficulty.hasMany(Level, {
+    foreignKey: 'diffId',
+    as: 'levels',
+  });
+
+  Level.belongsTo(Difficulty, {
+    foreignKey: 'previousDiffId',
+    as: 'previousDifficulty',
+  });
+
+  Difficulty.hasMany(Level, {
+    foreignKey: 'previousDiffId',
+    as: 'previousLevels',
+  });
+
+  // Level <-> Pass associations
+  Level.hasMany(Pass, {
+    foreignKey: 'levelId',
+    as: 'passes',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });
@@ -55,7 +85,132 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
-  // Pass has one Judgement
+  // Level <-> Rating associations
+  Level.hasMany(Rating, {
+    foreignKey: 'levelId',
+    as: 'ratings',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Rating.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // Level <-> Team associations
+  Level.belongsTo(Team, {
+    foreignKey: 'teamId',
+    as: 'teamObject',
+  });
+
+  Team.hasMany(Level, {
+    foreignKey: 'teamId',
+    as: 'levels'
+  });
+
+  // Level <-> LevelAlias associations
+  Level.hasMany(LevelAlias, {
+    foreignKey: 'levelId',
+    as: 'aliases',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelAlias.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // Level <-> PassSubmission associations
+  Level.hasMany(PassSubmission, {
+    foreignKey: 'levelId',
+    as: 'submissions',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  PassSubmission.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // Level <-> Creator (through LevelCredit) associations
+  Level.belongsToMany(Creator, {
+    through: LevelCredit,
+    as: 'levelCreators',
+    foreignKey: 'levelId',
+    otherKey: 'creatorId'
+  });
+
+  Creator.belongsToMany(Level, {
+    through: LevelCredit,
+    as: 'createdLevels',
+    foreignKey: 'creatorId',
+    otherKey: 'levelId'
+  });
+
+  // Level <-> LevelCredit direct associations
+  Level.hasMany(LevelCredit, {
+    foreignKey: 'levelId',
+    as: 'levelCredits',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelCredit.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level'
+  });
+
+  // Level <-> Difficulty (through Reference) associations
+  Level.belongsToMany(Difficulty, {
+    through: Reference,
+    foreignKey: 'levelId',
+    otherKey: 'difficultyId',
+    as: 'referenceDifficulties'
+  });
+
+  Difficulty.belongsToMany(Level, {
+    through: Reference,
+    foreignKey: 'difficultyId',
+    otherKey: 'levelId',
+    as: 'referenceLevels'
+  });
+
+  // Reference associations
+  Reference.belongsTo(Difficulty, {
+    foreignKey: 'difficultyId',
+    as: 'difficultyReference',
+  });
+
+  Reference.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'levelReference',
+  });
+
+  // Player <-> Pass associations
+  Player.hasMany(Pass, {
+    foreignKey: 'playerId',
+    as: 'passes',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Pass.belongsTo(Player, {
+    foreignKey: 'playerId',
+    as: 'player',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // Pass <-> Judgement associations
   Pass.hasOne(Judgement, {
     foreignKey: 'id',
     as: 'judgements',
@@ -69,30 +224,7 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
-  // Level has many Passes
-  Level.hasMany(Pass, {
-    foreignKey: 'levelId',
-    as: 'passes',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
-  });
-
-  Level.hasOne(Rating, {
-    foreignKey: 'levelId',
-    as: 'rating',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
-  });
-
-  // Rating belongs to Level
-  Rating.belongsTo(Level, {
-    foreignKey: 'levelId',
-    as: 'level',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
-  });
-
-  // Rating belongs to Difficulties
+  // Rating <-> Difficulty associations
   Rating.belongsTo(Difficulty, {
     foreignKey: 'currentDifficultyId',
     as: 'currentDifficulty',
@@ -103,7 +235,6 @@ export function initializeAssociations() {
     as: 'averageDifficulty',
   });
 
-  // Difficulty has many Ratings
   Difficulty.hasMany(Rating, {
     foreignKey: 'currentDifficultyId',
     as: 'currentRatings',
@@ -114,7 +245,7 @@ export function initializeAssociations() {
     as: 'averageRatings',
   });
 
-  // Rating has many RatingDetails
+  // Rating <-> RatingDetail associations
   Rating.hasMany(RatingDetail, {
     foreignKey: 'ratingId',
     sourceKey: 'id',
@@ -131,29 +262,7 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
-  // Level belongs to Difficulty
-  Level.belongsTo(Difficulty, {
-    foreignKey: 'diffId',
-    as: 'difficulty',
-  });
-
-  // Add the direct hasMany relationship
-  Difficulty.hasMany(Level, {
-    foreignKey: 'diffId',
-    as: 'levels',
-  });
-
-  Level.belongsTo(Difficulty, {
-    foreignKey: 'previousDiffId',
-    as: 'previousDifficulty',
-  });
-
-  // Add hasMany for previous difficulties too
-  Difficulty.hasMany(Level, {
-    foreignKey: 'previousDiffId',
-    as: 'previousLevels',
-  });
-
+  // PassSubmission <-> Player associations
   PassSubmission.belongsTo(Player, {
     foreignKey: 'assignedPlayerId',
     as: 'assignedPlayer',
@@ -161,47 +270,7 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
-  // Add PassSubmission to Level association
-  PassSubmission.belongsTo(Level, {
-    foreignKey: 'levelId',
-    as: 'level',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
-  });
-
-  Level.hasMany(PassSubmission, {
-    foreignKey: 'levelId',
-    as: 'submissions',
-    onDelete: 'CASCADE',
-    onUpdate: 'CASCADE',
-  });
-
-  // Add many-to-many relationship between Difficulty and Level through References
-  Difficulty.belongsToMany(Level, {
-    through: Reference,
-    foreignKey: 'difficultyId',
-    otherKey: 'levelId',
-    as: 'referenceLevels'
-  });
-
-  Level.belongsToMany(Difficulty, {
-    through: Reference,
-    foreignKey: 'levelId',
-    otherKey: 'difficultyId',
-    as: 'referenceDifficulties'
-  });
-
-  Reference.belongsTo(Difficulty, {
-    foreignKey: 'difficultyId',
-    as: 'difficultyReference',
-  });
-
-  Reference.belongsTo(Level, {
-    foreignKey: 'levelId',
-    as: 'levelReference',
-  });
-
-  // Add PassSubmission associations with its related models
+  // PassSubmission <-> PassSubmissionJudgements associations
   PassSubmission.hasOne(PassSubmissionJudgements, {
     foreignKey: 'passSubmissionId',
     as: 'judgements',
@@ -215,6 +284,7 @@ export function initializeAssociations() {
     onUpdate: 'CASCADE',
   });
 
+  // PassSubmission <-> PassSubmissionFlags associations
   PassSubmission.hasOne(PassSubmissionFlags, {
     foreignKey: 'passSubmissionId',
     as: 'flags',
@@ -226,5 +296,31 @@ export function initializeAssociations() {
     foreignKey: 'passSubmissionId',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
+  });
+
+  // Creator <-> LevelCredit associations
+  Creator.hasMany(LevelCredit, {
+    foreignKey: 'creatorId',
+    as: 'credits'
+  });
+
+  LevelCredit.belongsTo(Creator, {
+    foreignKey: 'creatorId',
+    as: 'creator'
+  });
+
+  // Team <-> Creator (through TeamMember) associations
+  Team.belongsToMany(Creator, {
+    through: TeamMember,
+    foreignKey: 'teamId',
+    otherKey: 'creatorId',
+    as: 'members'
+  });
+
+  Creator.belongsToMany(Team, {
+    through: TeamMember,
+    foreignKey: 'creatorId',
+    otherKey: 'teamId',
+    as: 'teams'
   });
 }

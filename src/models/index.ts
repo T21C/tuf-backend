@@ -16,6 +16,10 @@ import sequelize from '../config/db';
 import {initializeAssociations} from './associations';
 import User from './User';
 import OAuthProvider from './OAuthProvider';
+import Creator from './Creator';
+import LevelCredit from './LevelCredit';
+import Team from './Team';
+import TeamMember from './TeamMember';
 
 // Create db object with models first
 export const db = {
@@ -34,6 +38,10 @@ export const db = {
     Difficulty,
     User,
     OAuthProvider,
+    Creator,
+    LevelCredit,
+    Team,
+    TeamMember,
   },
 };
 

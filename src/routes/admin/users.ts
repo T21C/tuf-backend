@@ -42,21 +42,39 @@ async function findOrCreateUserByDiscordId(discordId: string, discordInfo: any) 
     return provider.User;
   }
 
-  // If no user exists, create a player first
+  // Try to find an existing player with the same name first
   const now = new Date();
-  const player = await Player.create({
-    name: discordInfo.username,
-    country: 'XX', // Default country code
-    isBanned: false,
-    discordId,
-    discordUsername: discordInfo.username,
-    discordAvatarId: discordInfo.avatar,
-    discordAvatar: discordInfo.avatar ? 
-      `https://cdn.discordapp.com/avatars/${discordId}/${discordInfo.avatar}.png` : 
-      null,
-    createdAt: now,
-    updatedAt: now
+  let player = await Player.findOne({
+    where: { name: discordInfo.username }
   });
+
+  // If no player exists with this name, create a new one
+  if (!player) {
+    player = await Player.create({
+      name: discordInfo.username,
+      country: 'XX', // Default country code
+      isBanned: false,
+      discordId,
+      discordUsername: discordInfo.username,
+      discordAvatarId: discordInfo.avatar,
+      discordAvatar: discordInfo.avatar ? 
+        `https://cdn.discordapp.com/avatars/${discordId}/${discordInfo.avatar}.png` : 
+        null,
+      createdAt: now,
+      updatedAt: now
+    });
+  } else {
+    // Update the existing player with Discord info
+    await player.update({
+      discordId,
+      discordUsername: discordInfo.username,
+      discordAvatarId: discordInfo.avatar,
+      discordAvatar: discordInfo.avatar ? 
+        `https://cdn.discordapp.com/avatars/${discordId}/${discordInfo.avatar}.png` : 
+        null,
+      updatedAt: now
+    });
+  }
 
   // Then create the user
   const user = await User.create({
@@ -263,8 +281,13 @@ router.post('/grant-role', [Auth.superAdmin(), requiresPassword], async (req: Re
       }
       throw error;
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to grant role:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     return res.status(500).json({ error: 'Failed to grant role' });
   }
 });
@@ -273,6 +296,7 @@ router.post('/grant-role', [Auth.superAdmin(), requiresPassword], async (req: Re
 router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: Request, res: Response) => {
   try {
     const { discordId, role } = req.body;
+    console.log('Revoking role:', { discordId, role });
     
     if (!discordId || !['rater', 'superadmin'].includes(role)) {
       return res.status(400).json({ error: 'Discord ID and valid role (rater/superadmin) are required' });
@@ -285,6 +309,7 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
       },
       include: [{
         model: User,
+        as: 'user',
         required: true,
         include: [{
           model: OAuthProvider,
@@ -293,38 +318,55 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
           required: false
         }]
       }]
-    }) as OAuthProviderWithUser | null;
+    });
 
-    if (!provider?.User) {
+    if (!provider?.user) {
+      console.log('No user found for role revocation, Discord ID:', discordId);
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Prevent revoking last super admin
     if (role === 'superadmin') {
       const superAdminCount = await User.count({ where: { isSuperAdmin: true } });
-      if (superAdminCount <= 1 && provider.User.isSuperAdmin) {
+      console.log('Super admin count:', superAdminCount);
+      if (superAdminCount <= 1 && provider.user.isSuperAdmin) {
         return res.status(400).json({ error: 'Cannot remove last super admin' });
       }
     }
 
     // Update user's roles
-    await provider.User.update({
-      isRater: role === 'rater' ? false : provider.User.isRater,
-      isSuperAdmin: role === 'superadmin' ? false : provider.User.isSuperAdmin
+    await provider.user.update({
+      isRater: role === 'rater' ? false : provider.user.isRater,
+      isSuperAdmin: role === 'superadmin' ? false : provider.user.isSuperAdmin
+    });
+
+    console.log('Role revoked successfully:', {
+      userId: provider.user.id,
+      username: provider.user.username,
+      role,
+      newRoles: {
+        isRater: provider.user.isRater,
+        isSuperAdmin: provider.user.isSuperAdmin
+      }
     });
 
     return res.json({
       message: 'Role revoked successfully',
       user: {
-        id: provider.User.id,
-        username: provider.User.username,
+        id: provider.user.id,
+        username: provider.user.username,
         discordId,
-        isRater: provider.User.isRater,
-        isSuperAdmin: provider.User.isSuperAdmin
+        isRater: provider.user.isRater,
+        isSuperAdmin: provider.user.isSuperAdmin
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to revoke role:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     return res.status(500).json({ error: 'Failed to revoke role' });
   }
 });
@@ -332,6 +374,8 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
 // Update user's Discord info
 router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
+    console.log('Starting Discord info sync');
+
     const users = await User.findAll({
       include: [{
         model: OAuthProvider,
@@ -341,14 +385,21 @@ router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Respon
       }]
     });
 
+    console.log(`Found ${users.length} users to sync`);
+
     const updates = [];
     const errors = [];
 
     for (const user of users) {
       const discordId = user.providers![0].providerId;
+      console.log(`Processing user ${user.username} with Discord ID ${discordId}`);
+      
       try {
         const discordInfo = await fetchDiscordUserInfo(discordId);
+        console.log('Fetched Discord info:', discordInfo);
+        
         if (discordInfo.username && discordInfo.username !== user.username) {
+          console.log(`Updating username from ${user.username} to ${discordInfo.username}`);
           await user.update({ username: discordInfo.username });
           updates.push(discordId);
         }
@@ -358,13 +409,25 @@ router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Respon
       }
     }
 
+    console.log('Sync completed:', {
+      updatedCount: updates.length,
+      failedCount: errors.length,
+      updatedIds: updates,
+      failedIds: errors
+    });
+
     return res.json({
       message: 'Discord info sync completed',
       updatedCount: updates.length,
       failedIds: errors
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to sync Discord info:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     return res.status(500).json({ error: 'Failed to sync Discord info' });
   }
 });
@@ -373,25 +436,97 @@ router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Respon
 router.get('/check/:discordId', async (req: Request, res: Response) => {
   try {
     const { discordId } = req.params;
-    const provider = await OAuthProvider.findOne({
-      where: {
-        provider: 'discord',
-        providerId: discordId
-      },
-      include: [{ model: User, as: 'user' }]
+    console.log('Checking roles for Discord ID:', discordId);
+
+    const users = await User.findAll({
+      include: [{
+        model: OAuthProvider,
+        as: 'providers',
+        where: { provider: 'discord' },
+        required: true
+      }]
     });
 
-    if (!provider?.user) {
+    console.log(`Found ${users.length} users to search through`);
+
+    const user = users.find(user => user.providers![0].providerId === discordId);
+    console.log('Search result:', user ? `Found user ${user.username}` : 'No user found');
+
+    if (!user) {
       return res.json({ isRater: false, isSuperAdmin: false });
     }
 
-    return res.json({
-      isRater: provider.user.isRater,
-      isSuperAdmin: provider.user.isSuperAdmin
+    console.log('Found user roles:', {
+      isRater: user.isRater,
+      isSuperAdmin: user.isSuperAdmin
     });
-  } catch (error) {
+
+    return res.json({
+      isRater: user.isRater,
+      isSuperAdmin: user.isSuperAdmin
+    });
+  } catch (error: any) {
     console.error('Failed to check roles:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     return res.status(500).json({ error: 'Failed to check roles' });
+  }
+});
+
+
+// Get user by Discord ID
+router.get('/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { discordId } = req.params;
+    console.log('Searching for Discord ID:', discordId);
+
+    const users = await User.findAll({
+      include: [{
+        model: OAuthProvider,
+        as: 'providers',
+        where: { provider: 'discord' },
+        required: true
+      }]
+    });
+
+    console.log(`Found ${users.length} users to search through`);
+
+    const user = users.find(user => user.providers![0].providerId === discordId);
+    console.log('Search result:', user ? `Found user ${user.username}` : 'No user found');
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const discordProvider = user.providers![0];
+    const discordProfile = discordProvider.profile as { 
+      username?: string; 
+      avatar?: string;
+    } || {};
+
+    console.log('Found user details:', {
+      id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl,
+      discordProfile
+    });
+
+    return res.json({
+      id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl
+    });
+  } catch (error: any) {
+    console.error('Error fetching user by Discord ID:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    return res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
 

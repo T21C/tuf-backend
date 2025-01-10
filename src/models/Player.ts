@@ -6,7 +6,7 @@ import {
   HasOneGetAssociationMixin,
 } from 'sequelize';
 import sequelize from '../config/db';
-import {IDifficulty, IPlayer} from '../interfaces/models';
+import {IDifficulty, IPass, IPlayer} from '../interfaces/models';
 import Pass from './Pass';
 import User from './User';
 
@@ -28,7 +28,7 @@ class Player
   declare updatedAt: Date;
 
   // Associations
-  declare passes?: Pass[];
+  declare passes?: IPass[];
   declare getPasses: HasManyGetAssociationsMixin<Pass>;
   declare user?: User;
   declare getUser: HasOneGetAssociationMixin<User>;

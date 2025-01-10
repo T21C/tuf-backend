@@ -7,6 +7,7 @@ import { sseManager } from '../../utils/sse';
 import sequelize from '../../config/db';
 import Difficulty from '../../models/Difficulty';
 import { Op, fn, col, literal } from 'sequelize';
+import User from '../../models/User';
 
 const router: Router = Router();
 
@@ -263,6 +264,11 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
         {
           model: RatingDetail,
           as: 'details',
+          include: [{
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'nickname', 'avatarUrl']
+          }]
         },
         {
           model: Difficulty,
@@ -292,9 +298,9 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { rating, comment } = req.body;
-    const username = req.user?.username;
+    const userId = req.user?.id;
 
-    if (!username) {
+    if (!userId) {
       await transaction.rollback();
       return res.status(401).json({ error: 'User not authenticated' });
     }
@@ -305,7 +311,7 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
       await RatingDetail.destroy({
         where: {
           ratingId: id,
-          username: username
+          userId: userId
         },
         transaction
       });
@@ -348,6 +354,11 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
           {
             model: RatingDetail,
             as: 'details',
+            include: [{
+              model: User,
+              as: 'user',
+              attributes: ['id', 'username', 'nickname', 'avatarUrl']
+            }]
           },
           {
             model: Difficulty,
@@ -378,7 +389,7 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
     const [ratingDetail] = await RatingDetail.findOrCreate({
       where: {
         ratingId: id,
-        username: username
+        userId: userId
       },
       defaults: {
         rating: rating,
@@ -424,6 +435,11 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
         {
           model: RatingDetail,
           as: 'details',
+          include: [{
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'nickname', 'avatarUrl']
+          }]
         },
         {
           model: Difficulty,
@@ -477,6 +493,11 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
         {
           model: RatingDetail,
           as: 'details',
+          include: [{
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'nickname', 'avatarUrl']
+          }]
         },
         {
           model: Difficulty,
@@ -509,9 +530,9 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
 });
 
 // Delete rating detail
-router.delete('/:id/detail/:username', [Auth.rater(), async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/:id/detail/:userId', [Auth.rater(), async (req: Request, res: Response, next: NextFunction) => {
   // Check if it's the user's own rating
-  if (req.user?.username === req.params.username) {
+  if (req.user?.id === req.params.userId) {
     return next();
   }
   // If not own rating, require super admin
@@ -520,7 +541,7 @@ router.delete('/:id/detail/:username', [Auth.rater(), async (req: Request, res: 
   const transaction = await sequelize.transaction();
 
   try {
-    const { id, username } = req.params;
+    const { id, userId } = req.params;
     const currentUser = req.user;
     if (!currentUser) {
       await transaction.rollback();
@@ -531,7 +552,7 @@ router.delete('/:id/detail/:username', [Auth.rater(), async (req: Request, res: 
     await RatingDetail.destroy({
       where: {
         ratingId: id,
-        username: username
+        userId: userId
       },
       transaction
     });
@@ -573,7 +594,12 @@ router.delete('/:id/detail/:username', [Auth.rater(), async (req: Request, res: 
         },
         {
           model: RatingDetail,
-          as: 'details'
+          as: 'details',
+          include: [{
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'nickname', 'avatarUrl']
+          }]
         },
         {
           model: Difficulty,

@@ -3,19 +3,19 @@ import sequelize from '../config/db';
 import BaseModel from './BaseModel';
 
 class LevelSubmission extends BaseModel {
-  public artist!: string;
-  public charter!: string;
-  public diff!: string;
-  public song!: string;
-  public team!: string;
-  public vfxer!: string;
-  public videoLink!: string;
-  public directDL!: string;
-  public wsLink!: string;
-  public submitterDiscordUsername!: string;
-  public submitterDiscordPfp!: string;
-  public submitterDiscordId!: string;
-  public status!: 'pending' | 'approved' | 'declined';
+  declare artist: string;
+  declare charter: string;
+  declare diff: string;
+  declare song: string;
+  declare team: string;
+  declare vfxer: string;
+  declare videoLink: string;
+  declare directDL: string;
+  declare wsLink: string;
+  declare submitterDiscordUsername: string;
+  declare submitterDiscordPfp: string;
+  declare submitterDiscordId: string;
+  declare status: 'pending' | 'approved' | 'declined';
 }
 
 LevelSubmission.init(

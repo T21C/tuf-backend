@@ -14,10 +14,135 @@ import {Cache} from '../../middleware/cache';
 import { sseManager } from '../../utils/sse';
 import { getScoreV2 } from '../../misc/CalcScore';
 import { calcAcc } from '../../misc/CalcAcc';
+import Team from '../../models/Team';
+import Creator from '../../models/Creator';
+import LevelCredit from '../../models/LevelCredit';
+import LevelAlias from '../../models/LevelAlias';
 
 const router: Router = Router();
 
-// Helper function to build where clause
+// Search query types and interfaces
+interface FieldSearch {
+  field: string;
+  value: string;
+  exact: boolean;
+}
+
+interface SearchGroup {
+  terms: FieldSearch[];
+  operation: 'AND' | 'OR';
+}
+
+// Helper function to parse field-specific searches (e.g., "song:Example")
+const parseFieldSearch = (term: string): FieldSearch | null => {
+  // Trim the term here when parsing
+  const trimmedTerm = term.trim();
+  if (!trimmedTerm) return null;
+
+  const fieldMatch = trimmedTerm.match(/^(song|artist|charter):(.+)$/i);
+  if (fieldMatch) {
+    const result = {
+      field: fieldMatch[1].toLowerCase(),
+      value: fieldMatch[2].trim(),
+      exact: true
+    };
+    return result;
+  }
+  return null;
+};
+
+// Helper function to parse the entire search query
+const parseSearchQuery = (query: string): SearchGroup[] => {
+  if (!query) return [];
+  
+  // Split by | for OR groups and handle trimming here
+  const groups = query.split('|').map(group => {
+    // Split by comma for AND terms within each group
+    const terms = group.split(',')
+      .map(term => term.trim())
+      .filter(term => term.length > 0)
+      .map(term => {
+        const fieldSearch = parseFieldSearch(term);
+        if (fieldSearch) {
+          return fieldSearch;
+        }
+        return {
+          field: 'any',
+          value: term.trim(),
+          exact: false
+        };
+      });
+
+    return {
+      terms,
+      operation: 'AND' as const
+    };
+  }).filter(group => group.terms.length > 0); // Remove empty groups
+
+  return groups;
+};
+
+// Helper function to build field-specific search condition
+const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any> => {
+  const { field, value, exact } = fieldSearch;
+  const searchValue = exact ? value : `%${value}%`;
+  const operator = exact ? Op.eq : Op.like;
+
+  // For field-specific searches
+  if (field !== 'any') {
+    const condition = {
+      [field]: { [operator]: searchValue }
+    };
+
+    // Also search in aliases for song and artist fields
+    if (field === 'song' || field === 'artist') {
+      const aliasMatches = await LevelAlias.findAll({
+        where: {
+          field,
+          [Op.or]: [
+            { alias: { [operator]: searchValue } },
+            { originalValue: { [operator]: searchValue } }
+          ]
+        },
+        attributes: ['levelId']
+      });
+
+      if (aliasMatches.length > 0) {
+        const result = {
+          [Op.or]: [
+            condition,
+            { id: { [Op.in]: aliasMatches.map(a => a.levelId) } }
+          ]
+        };
+        return result;
+      }
+    }
+
+    return condition;
+  }
+
+  // For general searches (field === 'any')
+  const aliasMatches = await LevelAlias.findAll({
+    where: {
+      [Op.or]: [
+        { alias: { [operator]: searchValue } },
+        { originalValue: { [operator]: searchValue } }
+      ]
+    },
+    attributes: ['levelId']
+  });
+
+  const result = {
+    [Op.or]: [
+      { song: { [operator]: searchValue } },
+      { artist: { [operator]: searchValue } },
+      { charter: { [operator]: searchValue } },
+      ...(aliasMatches.length > 0 ? [{ id: { [Op.in]: aliasMatches.map(a => a.levelId) } }] : [])
+    ]
+  };
+  return result;
+};
+
 const buildWhereClause = async (query: any) => {
   const where: any = {};
   const conditions: any[] = [];
@@ -52,108 +177,32 @@ const buildWhereClause = async (query: any) => {
     });
   }
 
-  // Handle text search
+  // Handle text search with new parsing
   if (query.query) {
-    const searchTerm = `%${query.query}%`;
-    conditions.push({
-      [Op.or]: [
-        {song: {[Op.like]: searchTerm}},
-        {artist: {[Op.like]: searchTerm}},
-        {charter: {[Op.like]: searchTerm}},
-      ],
-    });
-  }
+    const searchGroups = parseSearchQuery(query.query.trim());
+    
+    if (searchGroups.length > 0) {
+      const orConditions = await Promise.all(
+        searchGroups.map(async group => {
+          const andConditions = await Promise.all(
+            group.terms.map(term => buildFieldSearchCondition(term))
+          );
+          
+          return andConditions.length === 1 
+            ? andConditions[0] 
+            : { [Op.and]: andConditions };
+        })
+      );
 
-  // Handle difficulty range filter
-  if (query.minDiff || query.maxDiff) {
-    // Find difficulties by name and get their sortOrder values
-    const [minDiff, maxDiff] = await Promise.all([
-      query.minDiff
-        ? Difficulty.findOne({
-            where: {name: query.minDiff},
-            attributes: ['sortOrder', 'name', 'type'],
-          })
-        : null,
-      query.maxDiff
-        ? Difficulty.findOne({
-            where: {name: query.maxDiff},
-            attributes: ['sortOrder', 'name', 'type'],
-          })
-        : null,
-    ]);
-
-    // Get all special difficulties if they're selected
-    const specialDiffs = query.specialDiffs ? query.specialDiffs.split(',') : [];
-    const specialDiffIds = specialDiffs.length > 0 
-      ? (await Difficulty.findAll({
-          where: {
-            name: {[Op.in]: specialDiffs},
-            type: 'SPECIAL'
-          },
-          attributes: ['id']
-        })).map(d => d.id)
-      : [];
-
-    // Build the difficulty condition
-    if (minDiff && maxDiff && minDiff.type === 'PGU' && maxDiff.type === 'PGU') {
-      // Handle PGU range
-      const difficultyIds = await Difficulty.findAll({
-        where: {
-          [Op.or]: [
-            // PGU range
-            {
-              type: 'PGU',
-              sortOrder: {
-                [Op.gte]: Math.min(minDiff.sortOrder, maxDiff.sortOrder),
-                [Op.lte]: Math.max(minDiff.sortOrder, maxDiff.sortOrder)
-              }
-            },
-            // Special difficulties if any
-            ...(specialDiffIds.length > 0 ? [{id: {[Op.in]: specialDiffIds}}] : [])
-          ]
-        },
-        attributes: ['id']
-      });
-
-      conditions.push({
-        diffId: {
-          [Op.in]: difficultyIds.map(d => d.id)
-        }
-      });
-    } else if (specialDiffIds.length > 0) {
-      // Only special difficulties selected
-      conditions.push({
-        diffId: {
-          [Op.in]: specialDiffIds
-        }
-      });
+      conditions.push(
+        orConditions.length === 1 
+          ? orConditions[0] 
+          : { [Op.or]: orConditions }
+      );
     }
   }
 
-  // Handle hide filters
-  if (query.hideUnranked === 'true') {
-    conditions.push({
-      diffId: {[Op.ne]: 0},
-    });
-  }
-
-  if (query.hideCensored === 'true' || query.hideEpic === 'true') {
-    const difficultyNames = [];
-    if (query.hideCensored === 'true') difficultyNames.push('-2');
-    if (query.hideEpic === 'true') difficultyNames.push('0.9');
-
-    const diffIds = await Difficulty.findAll({
-      where: {
-        name: {[Op.in]: difficultyNames},
-      },
-      attributes: ['id'],
-    });
-
-    conditions.push({
-      diffId: {[Op.notIn]: diffIds.map(d => d.id)},
-    });
-  }
-
+  // Add placeholder exclusion
   conditions.push({
     [Op.and]: [
       {song: {[Op.ne]: 'Placeholder'}},
@@ -164,8 +213,6 @@ const buildWhereClause = async (query: any) => {
     ]
   });
 
-
-
   // Combine all conditions
   if (conditions.length > 0) {
     where[Op.and] = conditions;
@@ -173,6 +220,7 @@ const buildWhereClause = async (query: any) => {
 
   return where;
 };
+
 // Update the type definition
 type OrderOption = OrderItem | OrderItem[];
 
@@ -885,7 +933,6 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
         },
         previousDiffId: {
           [Op.or]: [
-            { [Op.eq]: null },
             { [Op.eq]: 0 }
           ]
         },
@@ -918,7 +965,6 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
         },
         previousDiffId: {
           [Op.and]: [
-            { [Op.not]: null },
             { [Op.ne]: 0 }
           ]
         },
@@ -932,6 +978,14 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
         {
           model: Difficulty,
           as: 'previousDifficulty',
+        },
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+        },
+        {
+          model: Team,
+          as: 'teamObject',
         }
       ],
       order: [['updatedAt', 'DESC']]
@@ -1071,6 +1125,7 @@ interface DifficultyFilterBody {
 // Add the new filtering endpoint
 router.post('/filter', async (req: Request, res: Response) => {
   try {
+
     const { pguRange, specialDifficulties } = req.body as DifficultyFilterBody;
     const { query, sort, offset, limit, deletedFilter, clearedFilter } = req.query;
 
@@ -1110,14 +1165,27 @@ router.post('/filter', async (req: Request, res: Response) => {
 
     // Handle text search
     if (query) {
-      const searchTerm = `%${query}%`;
-      conditions.push({
-        [Op.or]: [
-          {song: {[Op.like]: searchTerm}},
-          {artist: {[Op.like]: searchTerm}},
-          {charter: {[Op.like]: searchTerm}},
-        ],
-      });
+      const searchGroups = parseSearchQuery(query.toString().trim());
+      
+      if (searchGroups.length > 0) {
+        const orConditions = await Promise.all(
+          searchGroups.map(async group => {
+            const andConditions = await Promise.all(
+              group.terms.map(term => buildFieldSearchCondition(term))
+            );
+            
+            const result = andConditions.length === 1 
+              ? andConditions[0] 
+              : { [Op.and]: andConditions };
+            return result;
+          })
+        );
+
+        const searchCondition = orConditions.length === 1 
+          ? orConditions[0] 
+          : { [Op.or]: orConditions };
+        conditions.push(searchCondition);
+      }
     }
 
     // Handle difficulty filtering
@@ -1135,6 +1203,7 @@ router.post('/filter', async (req: Request, res: Response) => {
           attributes: ['id', 'sortOrder']
         }) : null
       ]);
+
 
       if (fromDiff || toDiff) {
         const pguDifficulties = await Difficulty.findAll({
@@ -1196,6 +1265,7 @@ router.post('/filter', async (req: Request, res: Response) => {
       where[Op.and] = conditions;
     }
 
+
     // Get sort options
     const order = getSortOptions(sort as string);
 
@@ -1249,6 +1319,185 @@ router.post('/filter', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error filtering levels:', error);
     return res.status(500).json({error: 'Failed to filter levels'});
+  }
+});
+
+// Get all aliases for a level
+router.get('/:id/aliases', async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+
+    const aliases = await LevelAlias.findAll({
+      where: { levelId },
+    });
+
+    return res.json(aliases);
+  } catch (error) {
+    console.error('Error fetching level aliases:', error);
+    return res.status(500).json({ error: 'Failed to fetch level aliases' });
+  }
+});
+
+// Add new alias(es) for a level with optional propagation
+router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+
+    const { field, alias, matchType = 'exact', propagate = false } = req.body;
+
+    if (!field || !alias || !['song', 'artist'].includes(field)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid field or alias' });
+    }
+
+    // Get the original level to get the original value
+    const level = await Level.findByPk(levelId);
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    const originalValue = level[field as 'song' | 'artist'];
+    
+    // Create alias for the current level
+    await LevelAlias.upsert({
+      levelId,
+      field,
+      originalValue,
+      alias,
+    }, { transaction });
+
+    // If propagation is requested, find other levels with matching field value
+    if (propagate) {
+      const whereClause = {
+        [field]: matchType === 'exact' 
+          ? originalValue
+          : { [Op.like]: `%${originalValue}%` }
+      };
+
+      const matchingLevels = await Level.findAll({
+        where: whereClause,
+        attributes: ['id', field],
+      });
+
+      // Create aliases for all matching levels
+      for (const matchingLevel of matchingLevels) {
+        if (matchingLevel.id !== levelId) {
+          await LevelAlias.upsert({
+            levelId: matchingLevel.id,
+            field,
+            originalValue: matchingLevel[field as 'song' | 'artist'],
+            alias,
+          }, { transaction });
+        }
+      }
+    }
+
+    await transaction.commit();
+    
+    // Return all created/updated aliases
+    const aliases = await LevelAlias.findAll({
+      where: { levelId },
+    });
+
+    return res.json({
+      message: 'Alias(es) added successfully',
+      aliases,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error adding level alias:', error);
+    return res.status(500).json({ error: 'Failed to add level alias' });
+  }
+});
+
+// Update an alias
+router.put('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const levelId = parseInt(req.params.levelId);
+    const aliasId = parseInt(req.params.aliasId);
+    if (isNaN(levelId) || isNaN(aliasId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid ID' });
+    }
+
+    const { alias } = req.body;
+    if (!alias) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Alias is required' });
+    }
+
+    const levelAlias = await LevelAlias.findOne({
+      where: {
+        id: aliasId,
+        levelId,
+      },
+    });
+
+    if (!levelAlias) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Alias not found' });
+    }
+
+    await levelAlias.update({ alias }, { transaction });
+    await transaction.commit();
+
+    return res.json({
+      message: 'Alias updated successfully',
+      alias: levelAlias,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error updating level alias:', error);
+    return res.status(500).json({ error: 'Failed to update level alias' });
+  }
+});
+
+// Delete an alias
+router.delete('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const levelId = parseInt(req.params.levelId);
+    const aliasId = parseInt(req.params.aliasId);
+    if (isNaN(levelId) || isNaN(aliasId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid ID' });
+    }
+
+    const deleted = await LevelAlias.destroy({
+      where: {
+        id: aliasId,
+        levelId,
+      },
+      transaction,
+    });
+
+    if (!deleted) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Alias not found' });
+    }
+
+    await transaction.commit();
+
+    return res.json({
+      message: 'Alias deleted successfully',
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error deleting level alias:', error);
+    return res.status(500).json({ error: 'Failed to delete level alias' });
   }
 });
 
