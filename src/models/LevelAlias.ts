@@ -61,7 +61,7 @@ LevelAlias.init(
     indexes: [
       {
         unique: true,
-        fields: ['field', 'originalValue', 'alias'],
+        fields: ['field', 'levelId', 'originalValue', 'alias'],
       },
     ],
   },

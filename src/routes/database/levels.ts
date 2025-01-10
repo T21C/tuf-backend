@@ -423,6 +423,11 @@ router.get('/:id', async (req: Request, res: Response) => {
           model: Difficulty,
           as: 'difficulty',
         },
+        {
+          model: LevelAlias,
+          as: 'aliases',
+          required: false,
+        },
       ],
     });
 
@@ -1369,42 +1374,54 @@ router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Respons
     const originalValue = level[field as 'song' | 'artist'];
     
     // Create alias for the current level
-    await LevelAlias.upsert({
+    await LevelAlias.create({
       levelId,
       field,
       originalValue,
       alias,
     }, { transaction });
 
+    let propagatedCount = 0;
+    let propagatedLevels: Array<Level & { id: number; [key: string]: any }> = [];
+    
     // If propagation is requested, find other levels with matching field value
     if (propagate) {
       const whereClause = {
+        id: { [Op.ne]: levelId }, // Exclude the current level
         [field]: matchType === 'exact' 
           ? originalValue
           : { [Op.like]: `%${originalValue}%` }
       };
 
-      const matchingLevels = await Level.findAll({
+      propagatedLevels = await Level.findAll({
         where: whereClause,
         attributes: ['id', field],
       });
 
-      // Create aliases for all matching levels
-      for (const matchingLevel of matchingLevels) {
-        if (matchingLevel.id !== levelId) {
-          await LevelAlias.upsert({
-            levelId: matchingLevel.id,
-            field,
-            originalValue: matchingLevel[field as 'song' | 'artist'],
-            alias,
-          }, { transaction });
+      if (propagatedLevels.length > 0) {
+        // Create the aliases one by one to ensure they're all created
+        for (const matchingLevel of propagatedLevels) {
+          try {
+            await LevelAlias.create({
+              levelId: matchingLevel.id,
+              field,
+              originalValue: matchingLevel[field as 'song' | 'artist'],
+              alias,
+            }, { 
+              transaction,
+            });
+            propagatedCount++;
+          } catch (err) {
+            console.error(`Failed to create alias for level ${matchingLevel.id}:`, err);
+            // Continue with other levels even if one fails
+          }
         }
       }
     }
 
     await transaction.commit();
     
-    // Return all created/updated aliases
+    // Return all created/updated aliases for the original level
     const aliases = await LevelAlias.findAll({
       where: { levelId },
     });
@@ -1412,6 +1429,8 @@ router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Respons
     return res.json({
       message: 'Alias(es) added successfully',
       aliases,
+      propagatedCount,
+      propagatedLevels: propagatedLevels.map(l => l.id)
     });
   } catch (error) {
     await transaction.rollback();
@@ -1498,6 +1517,54 @@ router.delete('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Reque
     await transaction.rollback();
     console.error('Error deleting level alias:', error);
     return res.status(500).json({ error: 'Failed to delete level alias' });
+  }
+});
+
+// Get count of levels that would be affected by alias propagation
+router.get('/alias-propagation-count/:levelId', async (req: Request, res: Response) => {
+  try {
+    const { field, matchType = 'exact' } = req.query;
+    const levelId = parseInt(req.params.levelId);
+
+    if (!field || !['song', 'artist'].includes(field as string)) {
+      return res.status(400).json({ error: 'Invalid field' });
+    }
+
+    if (isNaN(levelId)) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+
+    // First get the source level
+    const sourceLevel = await Level.findByPk(levelId);
+    if (!sourceLevel) {
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    const fieldValue = sourceLevel[field as 'song' | 'artist'];
+    if (!fieldValue) {
+      return res.json({ count: 0 });
+    }
+
+    // Then count matching levels
+    const whereClause = {
+      id: { [Op.ne]: levelId }, // Exclude the source level
+      [field as string]: matchType === 'exact'
+        ? fieldValue
+        : { [Op.like]: `%${fieldValue}%` }
+    };
+
+    const count = await Level.count({
+      where: whereClause
+    });
+
+    return res.json({ 
+      count,
+      fieldValue,
+      matchType
+    });
+  } catch (error) {
+    console.error('Error getting alias propagation count:', error);
+    return res.status(500).json({ error: 'Failed to get alias propagation count' });
   }
 });
 
