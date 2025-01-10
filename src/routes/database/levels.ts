@@ -18,8 +18,20 @@ import Team from '../../models/Team';
 import Creator from '../../models/Creator';
 import LevelCredit from '../../models/LevelCredit';
 import LevelAlias from '../../models/LevelAlias';
+import {PlayerStatsService} from '../../services/PlayerStatsService';
 
 const router: Router = Router();
+const playerStatsService = PlayerStatsService.getInstance();
+
+// After any level update that affects scores (baseScore, difficulty, etc.)
+async function handleLevelUpdate() {
+  try {
+    // Reload all player stats since level changes affect everyone's scores
+    await playerStatsService.reloadAllStats();
+  } catch (error) {
+    console.error('Error reloading player stats after level update:', error);
+  }
+}
 
 // Search query types and interfaces
 interface FieldSearch {
@@ -665,6 +677,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       }
     });
 
+    // Reload stats if baseScore or difficulty was changed
+    if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+      await handleLevelUpdate();
+    }
+
     return res.json({
       message: 'Level updated successfully',
       level: updatedLevel,
@@ -843,6 +860,9 @@ router.delete(
       sseManager.broadcast({ type: 'levelUpdate' });
       sseManager.broadcast({ type: 'ratingUpdate' });
 
+      // Reload stats after level deletion
+      await handleLevelUpdate();
+
       return res.json({
         message: 'Level soft deleted successfully',
         level: level,
@@ -914,6 +934,9 @@ router.patch(
       // Broadcast updates
       sseManager.broadcast({ type: 'levelUpdate' });
       sseManager.broadcast({ type: 'ratingUpdate' });
+
+      // Reload stats for new level
+      await handleLevelUpdate();
 
       return res.json({
         message: 'Level restored successfully',

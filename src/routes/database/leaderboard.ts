@@ -1,25 +1,17 @@
 import {Request, Response, Router} from 'express';
 import {validSortOptions} from '../../config/constants';
-import {IPlayer} from '../../interfaces/models';
-import {Cache, LeaderboardCache} from '../../middleware/cache';
+import {PlayerStatsService} from '../../services/PlayerStatsService';
+
 const router: Router = Router();
+const playerStatsService = PlayerStatsService.getInstance();
 
-router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const leaderboardCache = req.leaderboardCache as LeaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
-
-    const routeStart = performance.now();
     const {
       sortBy = 'rankedScore',
       order = 'desc',
-      includeAllScores = 'false',
       showBanned = 'show',
     } = req.query;
-
-    const includeScores = String(includeAllScores).toLowerCase() === 'true';
 
     if (!validSortOptions.includes(sortBy as string)) {
       return res.status(400).json({
@@ -27,27 +19,12 @@ router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
       });
     }
 
-    // Get cached leaderboard data
-    let players = await leaderboardCache.get(
+    const players = await playerStatsService.getLeaderboard(
       sortBy as string,
-      order as string,
-      includeScores,
+      order as 'asc' | 'desc',
+      showBanned as 'show' | 'hide' | 'only',
     );
 
-    // Filter based on ban status after getting from cache
-    if (showBanned === 'only') {
-      players = players.filter((player: IPlayer) => player.isBanned);
-    } else if (showBanned === 'hide') {
-      players = players.filter((player: IPlayer) => !player.isBanned);
-    }
-
-    const totalTime = performance.now() - routeStart;
-
-    players = await Promise.all(players.map(async (player: IPlayer) => ({
-      ...player,
-      rank: (await leaderboardCache.getRanks(player.id)).rankedScoreRank,
-    })));
-    
     return res.json(players);
   } catch (error) {
     console.error('Error fetching leaderboard:', error);

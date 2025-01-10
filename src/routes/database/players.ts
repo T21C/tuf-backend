@@ -8,28 +8,20 @@ import {enrichPlayerData} from '../../utils/PlayerEnricher';
 import Difficulty from '../../models/Difficulty';
 import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket';
-import {Cache} from '../../middleware/cache';
-import { Auth } from '../../middleware/auth';
+import {Auth} from '../../middleware/auth';
 import sequelize from '../../config/db';
-import { updateWorldsFirstStatus } from './passes';
-import { sseManager } from '../../utils/sse';
+import {updateWorldsFirstStatus} from './passes';
+import {sseManager} from '../../utils/sse';
 import User from '../../models/User';
 import OAuthProvider from '../../models/OAuthProvider';
+import {PlayerStatsService} from '../../services/PlayerStatsService';
 
 const router: Router = Router();
+const playerStatsService = PlayerStatsService.getInstance();
 
-router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const {includeScores = 'true'} = req.query;
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
-    const players = await leaderboardCache.get(
-      'rankedScore',
-      'desc',
-      includeScores === 'true',
-    );
+    const players = await playerStatsService.getLeaderboard();
     return res.json(players);
   } catch (error) {
     console.error('Error fetching players:', error);
@@ -40,13 +32,9 @@ router.get('/', Cache.leaderboard(), async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
     const player = await Player.findByPk(id, {
       include: [
         {
@@ -69,6 +57,11 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
             },
           ],
         },
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'username', 'nickname', 'avatarUrl', 'isSuperAdmin', 'isRater'],
+        },
       ],
     });
 
@@ -77,12 +70,11 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
     }
 
     const enrichedPlayer = await enrichPlayerData(player);
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
+    const playerStats = await playerStatsService.getPlayerStats(player.id);
+
     return res.json({
       ...enrichedPlayer,
-      ranks: await leaderboardCache.getRanks(player.id),
+      stats: playerStats,
     });
   } catch (error) {
     console.error('Error fetching player:', error);
@@ -140,15 +132,10 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 router.put(
   '/:id/discord',
   Auth.superAdmin(),
-  Cache.leaderboard(),
   async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {discordId, discordUsername, discordAvatar} = req.body;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
 
       const player = await Player.findByPk(id);
       if (!player) {
@@ -162,7 +149,6 @@ router.put(
         discordAvatarId: discordAvatar.split('/').pop(),
       });
 
-      await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
 
@@ -181,14 +167,9 @@ router.put(
 router.delete(
   '/:id/discord',
   Auth.superAdmin(),
-  Cache.leaderboard(),
   async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
 
       const player = await Player.findByPk(id);
       if (!player) {
@@ -202,7 +183,6 @@ router.delete(
         discordAvatarId: null,
       });
 
-      await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
 
@@ -221,14 +201,9 @@ router.delete(
 router.post(
   '/create',
   Auth.superAdmin(),
-  Cache.leaderboard(),
   async (req: Request, res: Response) => {
     try {
       const {name} = req.body;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
 
       // Check if player already exists
       const existingPlayer = await Player.findOne({
@@ -253,11 +228,6 @@ router.post(
         updatedAt: new Date(),
       });
 
-      // Force cache update
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
 
@@ -316,16 +286,11 @@ router.get('/:id/discord/:discordId', Auth.superAdmin(), async (req: Request, re
 
 router.put(
   '/:id/discord/:discordId',
-  Cache.leaderboard(),
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
       const {id, discordId} = req.params;
       const {username, avatar} = req.body;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
 
       const player = await Player.findByPk(id);
       if (!player) {
@@ -339,7 +304,6 @@ router.put(
         discordAvatar: `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`,
       });
 
-      await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
 
@@ -362,14 +326,10 @@ router.put(
   },
 );
 
-router.put('/:id/name', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
+router.put('/:id/name', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
 
       if (!name || name.trim().length === 0) {
         return res.status(400).json({
@@ -400,11 +360,6 @@ router.put('/:id/name', Auth.superAdmin(), Cache.leaderboard(), async (req: Requ
 
       await player.update({name});
 
-      // Force cache update
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
 
@@ -422,14 +377,10 @@ router.put('/:id/name', Auth.superAdmin(), Cache.leaderboard(), async (req: Requ
   },
 );
 
-router.put('/:id/country', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
+router.put('/:id/country', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
       const {id} = req.params;
       const {country} = req.body;
-      const leaderboardCache = req.leaderboardCache;
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
 
       if (!country || country.trim().length !== 2) {
         return res.status(400).json({
@@ -445,11 +396,6 @@ router.put('/:id/country', Auth.superAdmin(), Cache.leaderboard(), async (req: R
 
       await player.update({country: country.toUpperCase()});
 
-      // Force cache update
-      if (!leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
 
@@ -521,101 +467,93 @@ router.patch('/:id/ban', Auth.superAdmin(), async (req: Request, res: Response) 
   }
 });
 
-router.post('/:id/merge', Auth.superAdmin(), Cache.leaderboard(), async (req: Request, res: Response) => {
+router.post('/:id/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
   try {
-    const { id } = req.params;
-    const { targetPlayerId } = req.body;
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
+    const {id} = req.params;
+    const {targetPlayerId} = req.body;
 
     // Find both players with their associated users and OAuth providers
     const sourcePlayer = await Player.findByPk(id, {
-      include: [{
-        model: User,
-        as: 'user',
-        include: [{
-          model: OAuthProvider,
-          as: 'providers'
-        }]
-      }]
+      include: [
+        {
+          model: User,
+          as: 'user',
+          include: [
+            {
+              model: OAuthProvider,
+              as: 'oauthProviders',
+            },
+          ],
+        },
+      ],
+      transaction,
     });
+
     const targetPlayer = await Player.findByPk(targetPlayerId, {
-      include: [{
-        model: User,
-        as: 'user',
-        include: [{
-          model: OAuthProvider,
-          as: 'providers'
-        }]
-      }]
+      include: [
+        {
+          model: User,
+          as: 'user',
+          include: [
+            {
+              model: OAuthProvider,
+              as: 'oauthProviders',
+            },
+          ],
+        },
+      ],
+      transaction,
     });
 
-    if (!sourcePlayer) {
-      return res.status(404).json({ error: 'Source player not found' });
-    }
-    if (!targetPlayer) {
-      return res.status(404).json({ error: 'Target player not found' });
+    if (!sourcePlayer || !targetPlayer) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'One or both players not found'});
     }
 
-    // Get all passes for the source player
-    const passes = await Pass.findAll({
-      where: {
-        playerId: sourcePlayer.id
-      }
-    });
+    // Update all passes to point to the target player
+    await Pass.update(
+      {playerId: targetPlayer.id},
+      {
+        where: {playerId: sourcePlayer.id},
+        transaction,
+      },
+    );
 
-    // Start a transaction
-    const t = await sequelize.transaction();
+    // If source player has a user, update OAuth providers to point to target user
+    if (sourcePlayer.user && targetPlayer.user) {
+      await OAuthProvider.update(
+        {userId: targetPlayer.user.id},
+        {
+          where: {userId: sourcePlayer.user.id},
+          transaction,
+        },
+      );
 
-    try {
-      // Update all passes to point to the target player
-      await Promise.all(passes.map(pass => 
-        pass.update({ playerId: targetPlayer.id }, { transaction: t })
-      ));
-
-      // Handle user associations
-      if (sourcePlayer.user && !targetPlayer.user) {
-        // If source has a user but target doesn't, transfer the user and its providers
-        await sourcePlayer.user.update({ playerId: targetPlayer.id }, { transaction: t });
-      } else if (sourcePlayer.user && targetPlayer.user) {
-        // If both have users, transfer providers from source to target if they don't exist
-        const sourceProviders = sourcePlayer.user.providers || [];
-        const targetProviders = targetPlayer.user.providers || [];
-        const targetProviderIds = new Set(targetProviders.map(p => p.providerId));
-
-        // Transfer providers that don't exist in target
-        await Promise.all(sourceProviders
-          .filter(provider => !targetProviderIds.has(provider.providerId))
-          .map(provider => provider.update({ userId: targetPlayer.user!.id }, { transaction: t }))
-        );
-
-        // Delete the source user
-        await sourcePlayer.user.destroy({ transaction: t });
-      }
-
-      // Delete the source player
-      await sourcePlayer.destroy({ transaction: t });
-
-      // Commit the transaction
-      await t.commit();
-
-      // Force cache update
-      await leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-
-      return res.json({ 
-        message: 'Player merged successfully',
-        targetPlayer: await enrichPlayerData(targetPlayer)
+      // Delete the source user
+      await User.destroy({
+        where: {id: sourcePlayer.user.id},
+        transaction,
       });
-    } catch (error) {
-      // If anything fails, roll back the transaction
-      await t.rollback();
-      throw error;
     }
+
+    // Delete the source player
+    await Player.destroy({
+      where: {id: sourcePlayer.id},
+      transaction,
+    });
+
+    await transaction.commit();
+
+    // Update stats for target player
+    await playerStatsService.updatePlayerStats(targetPlayer.id);
+
+    const io = getIO();
+    io.emit('leaderboardUpdated');
+
+    return res.json({message: 'Players merged successfully'});
   } catch (error) {
+    await transaction.rollback();
     console.error('Error merging players:', error);
     return res.status(500).json({
       error: 'Failed to merge players',

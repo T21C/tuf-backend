@@ -17,8 +17,10 @@ import { calculateRankedScore } from '../../misc/PlayerStatsCalculator';
 import { sseManager } from '../../utils/sse';
 import User from '../../models/User';
 import { excludePlaceholder } from '../../middleware/excludePlaceholder';
+import {PlayerStatsService} from '../../services/PlayerStatsService';
 
 const router: Router = Router();
+const playerStatsService = PlayerStatsService.getInstance();
 
 export async function updateWorldsFirstStatus(levelId: number, transaction?: any) {
   // Find the earliest non-deleted pass for this level from non-banned players
@@ -443,7 +445,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const pass = await Pass.findOne({
       where: {id: parseInt(req.params.id)},
@@ -500,11 +502,6 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Pass not found'});
     }
 
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
-
     // Calculate current and previous ranked scores
     const currentRankedScore = calculateRankedScore(pass.player?.passes?.map(pass => ({ 
       score: pass.scoreV2 || 0, 
@@ -524,9 +521,8 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
       isDeleted: pass.isDeleted || false
     })) || []);
 
-    // Get player ranks
-    const ranks = pass.player ? await leaderboardCache.getRanks(pass.player.id) : null;
-
+    // Get player stats
+    const playerStats = pass.player ? await playerStatsService.getPlayerStats(pass.player.id) : null;
 
     // Create response object without player passes
     const response = {
@@ -543,187 +539,121 @@ router.get('/:id', Cache.leaderboard(), async (req: Request, res: Response) => {
         previousRankedScore,
         scoreDifference: currentRankedScore - previousRankedScore,
       },
-      ranks,
+      stats: playerStats,
     };
 
     return res.json(response);
   } catch (error) {
     console.error('Error fetching pass:', error);
-    return res.status(500).json({error: 'Failed to fetch pass'});
+    return res.status(500).json({
+      error: 'Failed to fetch pass',
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
 });
 
-router.put(
-  '/:id',
-  Cache.leaderboard(),
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
+router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const {id} = req.params;
+    const {judgements, isDeleted} = req.body;
+
+    // Update pass
+    const pass = await Pass.findOne({
+      where: {id: parseInt(id)},
+      include: [
+        {
+          model: Level,
+          as: 'level',
+        },
+        {
+          model: Player,
+          as: 'player',
+        },
+      ],
+      transaction,
+    });
+
+    if (!pass) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'Pass not found'});
     }
-    try {
-      const {id} = req.params;
-      const originalPass = await Pass.findOne({
-        where: {id: parseInt(id)},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-        ],
-        transaction,
-      });
 
-      if (!originalPass) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Pass not found'});
-      }
+    if (isDeleted !== undefined) {
+      await pass.update({isDeleted}, {transaction});
+    }
 
-      // Handle level change and clear count updates
-      if (originalPass.levelId !== req.body.levelId) {
-        await Promise.all([
-          Level.decrement('clears', {
-            where: {id: originalPass.levelId},
-            transaction,
-          }),
-          Level.increment('clears', {
-            where: {id: req.body.levelId},
-            transaction,
-          }),
-        ]);
-      }
-
-      // Get the correct level for score calculation
-      const level =
-        originalPass.levelId !== req.body.levelId
-          ? await Level.findByPk(req.body.levelId, {transaction}).then(
-              level => level?.dataValues,
-            )
-          : originalPass.level?.dataValues;
-
-      if (!level) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Calculate new accuracy and score
-      const judgements = req.body.judgements;
-      const accuracy = calcAcc(judgements);
-      const scoreV2 = getScoreV2(
-        {
-          speed: req.body.speed,
-          judgements: judgements as IJudgements,
-          isNoHoldTap: req.body.isNoHoldTap,
-        },
-        {
-          baseScore: level.baseScore || level.difficulty?.baseScore || 0,
-        },
-      );
-
-      // Update pass
-      await Pass.update(
-        {
-          levelId: req.body.levelId,
-          speed: req.body.speed,
-          playerId: req.body.playerId,
-          feelingRating: req.body.feelingRating,
-          vidTitle: req.body.vidTitle,
-          videoLink: req.body.videoLink,
-          vidUploadTime: new Date(req.body.vidUploadTime),
-          is12K: req.body.is12K,
-          is16K: req.body.is16K,
-          isNoHoldTap: req.body.isNoHoldTap,
-          accuracy,
-          scoreV2,
-          isAnnounced: req.body.isAnnounced,
-        },
-        {
-          where: {id: parseInt(id)},
-          transaction,
-        },
-      );
-
-      // Update judgements
+    // Update judgements
+    if (judgements) {
       await Judgement.update(judgements, {
         where: {id: parseInt(id)},
         transaction,
       });
-
-      // Fetch the updated pass
-      const updatedPass = await Pass.findOne({
-        where: {id: parseInt(id)},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-          {
-            model: Player,
-            as: 'player',
-            attributes: ['id', 'name', 'country', 'isBanned'],
-          },
-        ],
-        transaction,
-      });
-
-      await transaction.commit();
-
-      // Force cache update
-      await leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-
-      // Get player's new score from leaderboard cache
-      if (updatedPass && updatedPass.player && updatedPass.levelId) {
-        const playerId = updatedPass.player.id;
-        const players = await leaderboardCache.get('rankedScore', 'desc', true);
-        const playerData = players.find(p => p.id === playerId);
-
-        // Emit SSE event with pass update data
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            playerId,
-            passedLevelId: updatedPass.levelId,
-            newScore: playerData?.rankedScore || 0,
-            action: 'update'
-          }
-        });
-      }
-
-      return res.json({
-        message: 'Pass updated successfully',
-        pass: updatedPass,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error updating pass:', error);
-      return res.status(500).json({error: 'Failed to update pass'});
     }
-  },
-);
+
+    // Fetch the updated pass
+    const updatedPass = await Pass.findOne({
+      where: {id: parseInt(id)},
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        },
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['id', 'name', 'country', 'isBanned'],
+        },
+      ],
+      transaction,
+    });
+
+    await transaction.commit();
+
+    // Update player stats
+    if (pass.player) {
+      await playerStatsService.updatePlayerStats(pass.player.id);
+    }
+
+    const io = getIO();
+    io.emit('leaderboardUpdated');
+
+    // Get player's new stats
+    if (updatedPass && updatedPass.player) {
+      const playerStats = await playerStatsService.getPlayerStats(updatedPass.player.id);
+
+      // Emit SSE event with pass update data
+      sseManager.broadcast({
+        type: 'passUpdate',
+        data: {
+          playerId: updatedPass.player.id,
+          passedLevelId: updatedPass.levelId,
+          newScore: playerStats?.rankedScore || 0,
+          action: 'update',
+        },
+      });
+    }
+
+    return res.json(updatedPass);
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error updating pass:', error);
+    return res.status(500).json({
+      error: 'Failed to update pass',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
