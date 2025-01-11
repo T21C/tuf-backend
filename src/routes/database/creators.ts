@@ -1,5 +1,5 @@
 import { Request, Response, Router } from 'express';
-import { Op, Transaction } from 'sequelize';
+import { Op, Transaction, WhereOptions } from 'sequelize';
 import { Auth } from '../../middleware/auth';
 import Creator from '../../models/Creator';
 import Level from '../../models/Level';
@@ -46,7 +46,8 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
     const where: any = {};
     if (search) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } }
+        { name: { [Op.like]: `%${search}%` } },
+        { id: { [Op.like]: `%${search}%` } }
       ];
       if (excludeAliases !== 'true') {
         where[Op.or].push({ aliases: { [Op.like]: `%${search}%` } });
@@ -122,29 +123,39 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
     // Build where clause
     const where: any = {};
     if (searchQuery) {
-      where[Op.or] = [
-        { song: { [Op.like]: `%${searchQuery}%` } },
-        { artist: { [Op.like]: `%${searchQuery}%` } }
-      ];
+      // Handle exact ID search if query starts with #
+      if (searchQuery.startsWith('#')) {
+        const exactId = parseInt(searchQuery.substring(1));
+        if (!isNaN(exactId)) {
+          where.id = exactId;
+        }
+      } else {
+        const conditions: WhereOptions[] = [
+          { song: { [Op.like]: `%${searchQuery}%` } },
+          { artist: { [Op.like]: `%${searchQuery}%` } }
+        ];
 
-      // Add creator search conditions
-      const creatorConditions = [
-        { creator: { [Op.like]: `%${searchQuery}%` } }
-      ];
+        // Only add ID condition if the search query is a valid number
+        const numericId = parseInt(searchQuery);
+        if (!isNaN(numericId)) {
+          conditions.push({ id: numericId });
+        }
 
-      // Include creator search through level_credits and creators table
-      const creatorSubquery = {
-        [Op.in]: sequelize.literal(`(
-          SELECT DISTINCT Level.id 
-          FROM levels AS Level
-          INNER JOIN level_credits ON Level.id = level_credits.levelId
-          INNER JOIN creators ON level_credits.creatorId = creators.id
-          WHERE creators.name LIKE '%${searchQuery}%'
-          ${!excludeAliases ? "OR creators.aliases LIKE '%" + searchQuery + "%'" : ''}
-        )`)
-      };
+        // Include creator search through level_credits and creators table
+        const creatorSubquery = {
+          [Op.in]: sequelize.literal(`(
+            SELECT DISTINCT Level.id 
+            FROM levels AS Level
+            INNER JOIN level_credits ON Level.id = level_credits.levelId
+            INNER JOIN creators ON level_credits.creatorId = creators.id
+            WHERE creators.name LIKE '%${searchQuery}%'
+            ${!excludeAliases ? "OR creators.aliases LIKE '%" + searchQuery + "%'" : ''}
+          )`)
+        };
 
-      where[Op.or].push({ id: creatorSubquery });
+        conditions.push({ id: creatorSubquery });
+        where[Op.or] = conditions;
+      }
     }
     if (hideVerified) {
       where.isVerified = false;
@@ -444,11 +455,17 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
       transaction
     });
 
+    // Determine default role if creator has exactly one level
+    let defaultRole = CreditRole.CHARTER;
+    if (sourceCredits.length === 1) {
+      defaultRole = sourceCredits[0].role;
+    }
+
     const targetCreators = [];
     // Process each new name
     for (let i = 0; i < newNames.length; i++) {
       const newName = newNames[i];
-      const role = roles[i] || CreditRole.CREATOR;
+      const role = roles?.[i] || defaultRole;
 
       // Check if creator with the new name already exists
       let targetCreator = await Creator.findOne({

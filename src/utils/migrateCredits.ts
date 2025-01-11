@@ -217,6 +217,93 @@ export async function migrateCredits(levels: Omit<ILevel, 'submitterDiscordId' |
     creatorLevelCounts.set(credit.creatorId, count);
   });
 
+  // Merge creators with same name (case insensitive)
+  console.log('Starting case-insensitive creator merge...');
+  
+  // Get all creators with their level counts
+  const allCreators = await Creator.findAll({
+    include: [{
+      model: Level,
+      as: 'createdLevels',
+      through: { attributes: ['role'] }
+    }],
+    transaction
+  });
+
+  interface CreatorWithLevels extends Creator {
+    createdLevels?: Level[];
+  }
+
+  interface CreatorEntry {
+    creator: CreatorWithLevels;
+    levelCount: number;
+  }
+
+  // Group creators by case-insensitive name
+  const creatorsByName = new Map<string, CreatorEntry[]>();
+  allCreators.forEach((creator: CreatorWithLevels) => {
+    const lowerName = creator.name.toLowerCase();
+    if (!creatorsByName.has(lowerName)) {
+      creatorsByName.set(lowerName, []);
+    }
+    creatorsByName.get(lowerName)!.push({
+      creator,
+      levelCount: creator.createdLevels?.length || 0
+    });
+  });
+
+  // Process each group that has multiple creators
+  for (const [lowerName, creatorGroup] of creatorsByName) {
+    if (creatorGroup.length > 1) {
+      console.log(`Found ${creatorGroup.length} creators for name '${lowerName}'`);
+      
+      // Sort by level count descending to find the main creator
+      creatorGroup.sort((a: CreatorEntry, b: CreatorEntry) => b.levelCount - a.levelCount);
+      const mainCreator = creatorGroup[0].creator;
+      const duplicates = creatorGroup.slice(1).map((c: CreatorEntry) => c.creator);
+
+      console.log(`Merging to main creator '${mainCreator.name}' (${creatorGroup[0].levelCount} levels)`);
+
+      // Transfer all credits to the main creator
+      for (const duplicate of duplicates) {
+        console.log(`- Merging '${duplicate.name}' (${duplicate.createdLevels?.length || 0} levels)`);
+        
+        // Get all credits for the duplicate creator
+        const duplicateCredits = await LevelCredit.findAll({
+          where: { creatorId: duplicate.id },
+          transaction
+        });
+
+        // Transfer each credit using upsert
+        for (const credit of duplicateCredits) {
+          await LevelCredit.upsert({
+            levelId: credit.levelId,
+            creatorId: mainCreator.id,
+            role: credit.role,
+            isVerified: credit.isVerified
+          }, { transaction });
+        }
+
+        // Delete all duplicate credits after transfer
+        await LevelCredit.destroy({
+          where: { creatorId: duplicate.id },
+          transaction
+        });
+
+        // Add duplicate name as alias if it's different
+        if (duplicate.name.toLowerCase() !== mainCreator.name.toLowerCase()) {
+          mainCreator.aliases = [...(mainCreator.aliases || []), duplicate.name];
+          await mainCreator.save({ transaction });
+        }
+
+        // Delete the duplicate creator
+        await duplicate.destroy({ transaction });
+      }
+    }
+  }
+
+  console.log('Case-insensitive creator merge completed');
+
   // Get creators to verify and their level credits
   const creatorsToVerify = Array.from(creatorLevelCounts.entries())
     .filter(([_, count]) => count >= 20)
