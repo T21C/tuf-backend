@@ -4,6 +4,7 @@ import Player from '../models/Player';
 import Pass from '../models/Pass';
 import Level from '../models/Level';
 import Difficulty from '../models/Difficulty';
+import {IPass} from '../interfaces/models';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -19,6 +20,7 @@ import sequelize from '../config/db';
 import {getIO} from '../utils/socket';
 import {sseManager} from '../utils/sse';
 import User from '../models/User';
+import Judgement from '../models/Judgement';
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
@@ -83,25 +85,20 @@ export class PlayerStatsService {
 
       // Prepare bulk update data
       const bulkStats = players.map(player => {
-        const scores: Score[] = player.passes
-          ?.filter(pass => !pass.isDeleted)
-          .map(pass => ({
-            score: pass.scoreV2 || 0,
-            baseScore: pass.level?.baseScore || 0,
-            xacc: pass.accuracy || 0,
-            isWorldsFirst: pass.isWorldsFirst || false,
-            is12K: pass.is12K || false,
-            isDeleted: pass.isDeleted || false,
-          })) || [];
-
+        //console.log(`Processing player ${player.id} with ${player.passes?.length || 0} passes`);
+        
+        // Convert passes to scores and get highest score per level
+        const scores = this.convertPassesToScores(player.passes || []);
+        const uniqueScores = this.getHighestScorePerLevel(scores);
+        
         return {
           playerId: player.id,
-          rankedScore: calculateRankedScore(scores),
-          generalScore: calculateGeneralScore(scores),
-          ppScore: calculatePPScore(scores),
-          wfScore: calculateWFScore(scores),
-          score12k: calculate12KScore(scores),
-          averageXacc: calculateAverageXacc(scores),
+          rankedScore: calculateRankedScore(uniqueScores),
+          generalScore: calculateGeneralScore(uniqueScores),
+          ppScore: calculatePPScore(uniqueScores),
+          wfScore: calculateWFScore(uniqueScores),
+          score12k: calculate12KScore(uniqueScores),
+          averageXacc: calculateAverageXacc(uniqueScores),
           universalPassCount: countUniversalPasses(player.passes || []),
           worldsFirstCount: countWorldsFirstPasses(player.passes || []),
           lastUpdated: new Date(),
@@ -170,12 +167,46 @@ export class PlayerStatsService {
     }
   }
 
+  private getHighestScorePerLevel(scores: Score[], doLog: boolean = false): Score[] {
+    const levelScores = new Map<number, Score>();
+    scores.forEach(score => {
+      const levelId = score.levelId;
+      if (!levelId) return;
+      
+      const existingScore = levelScores.get(levelId);
+      if (!existingScore || score.score > existingScore.score) {
+        if (existingScore && doLog) {
+          console.log(`Replacing score for level ${levelId}: ${existingScore.score} with higher score: ${score.score}`);
+        }
+        levelScores.set(levelId, score);
+      } else {
+        if (doLog) {
+          console.log(`Ignoring lower score for level ${levelId}: ${score.score} (keeping ${existingScore.score})`);
+        }
+      }
+    });
+    return Array.from(levelScores.values());
+  }
+
+  private convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
+    return passes
+      .filter(pass => !pass.isDeleted)
+      .map(pass => ({
+        score: pass.scoreV2 || 0,
+        baseScore: pass.level?.baseScore || 0,
+        xacc: pass.accuracy || 0,
+        isWorldsFirst: pass.isWorldsFirst || false,
+        is12K: pass.is12K || false,
+        isDeleted: pass.isDeleted || false,
+        levelId: pass.level?.id || 0,
+      }));
+  }
+
   public async updatePlayerStats(playerId: number, existingTransaction?: any): Promise<void> {
     const transaction = existingTransaction || await sequelize.transaction();
     const shouldCommit = !existingTransaction;
 
     try {
-      // Fetch player with all passes
       const player = await Player.findByPk(playerId, {
         include: [
           {
@@ -202,31 +233,25 @@ export class PlayerStatsService {
         throw new Error('Player or passes not found');
       }
 
-      // Convert passes to Score type for calculations
-      const scores: Score[] = player.passes
-        .filter(pass => !pass.isDeleted)
-        .map(pass => ({
-          score: pass.scoreV2 || 0,
-          baseScore: pass.level?.baseScore || 0,
-          xacc: pass.accuracy || 0,
-          isWorldsFirst: pass.isWorldsFirst || false,
-          is12K: pass.is12K || false,
-          isDeleted: pass.isDeleted || false,
-        }));
+      // Convert passes to scores and get highest score per level
+      const scores = this.convertPassesToScores(player.passes);
+      const uniqueScores = this.getHighestScorePerLevel(scores);
 
-      // Calculate all scores
+      // Calculate all scores using the filtered scores
       const stats = {
         playerId,
-        rankedScore: calculateRankedScore(scores),
-        generalScore: calculateGeneralScore(scores),
-        ppScore: calculatePPScore(scores),
-        wfScore: calculateWFScore(scores),
-        score12k: calculate12KScore(scores),
-        averageXacc: calculateAverageXacc(scores),
+        rankedScore: calculateRankedScore(uniqueScores),
+        generalScore: calculateGeneralScore(uniqueScores),
+        ppScore: calculatePPScore(uniqueScores),
+        wfScore: calculateWFScore(uniqueScores),
+        score12k: calculate12KScore(uniqueScores),
+        averageXacc: calculateAverageXacc(uniqueScores),
         universalPassCount: countUniversalPasses(player.passes),
         worldsFirstCount: countWorldsFirstPasses(player.passes),
         lastUpdated: new Date(),
       };
+
+      console.log('Calculated stats:', JSON.stringify(stats, null, 2));
 
       // Update or create player stats
       await PlayerStats.upsert(stats, {transaction});
@@ -365,10 +390,10 @@ export class PlayerStatsService {
       'ppScore': 'ppScore',
       'wfScore': 'wfScore',
       'score12k': 'score12k',
-      'avgXacc': 'averageXacc',
+      'averageXacc': 'averageXacc',
       'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = PlayerStats.playerId AND Passes.isDeleted = false)'),
       'universalPasses': 'universalPassCount',
-      'WFPasses': 'worldsFirstCount',
+      'worldsFirstCount': 'worldsFirstCount',
       'topDiff': sequelize.literal(`(
         SELECT Difficulties.sortOrder 
         FROM Passes 
@@ -475,5 +500,96 @@ export class PlayerStatsService {
         },
       };
     });
+  }
+
+  public async getPassDetails(passId: number): Promise<any> {
+    const pass = await Pass.findOne({
+      where: {
+        id: passId,
+      },
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['id', 'name', 'country', 'isBanned', 'pfp'],
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['username', 'avatarUrl'],
+            },
+          ],
+        },
+        {
+          model: Level,
+          as: 'level',
+          attributes: ['id', 'song', 'artist', 'team', 'charter', 'vfxer', 'baseScore'],
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        },
+      ],
+    });
+
+    if (!pass) {
+      return null;
+    }
+
+    // Get player's passes for score calculation
+    const playerPasses = await Pass.findAll({
+      where: {
+        playerId: pass.player?.id,
+        isDeleted: false,
+      },
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          attributes: ['baseScore'],
+        },
+      ],
+    });
+
+    // Convert passes to scores and get highest score per level
+    const scores = this.convertPassesToScores(playerPasses);
+    const uniqueScores = this.getHighestScorePerLevel(scores);
+
+    // Calculate current and previous ranked scores
+    const currentRankedScore = calculateRankedScore(uniqueScores);
+    const previousRankedScore = calculateRankedScore(
+      this.getHighestScorePerLevel(
+        this.convertPassesToScores(playerPasses.filter(p => p.id !== pass.id))
+      )
+    );
+
+    // Get player stats for rank
+    const playerStats = await this.getPlayerStats(pass.player?.id || 0);
+
+    const response = {
+      ...pass.toJSON(),
+      player: {
+        ...pass.player?.toJSON(),
+        discordUsername: pass.player?.user?.username,
+        discordAvatar: pass.player?.user?.avatarUrl,
+        pfp: pass.player?.user?.avatarUrl || pass.player?.pfp || null,
+      },
+      scoreInfo: {
+        currentRankedScore,
+        previousRankedScore,
+        scoreDifference: currentRankedScore - previousRankedScore,
+      },
+      ranks: {
+        rankedScoreRank: playerStats?.rankedScoreRank,
+      },
+    };
+
+    return response;
   }
 } 

@@ -11,10 +11,10 @@ interface AnnouncementConfig {
 
 // Difficulty name patterns
 const PATTERN = {
-  P: /^P\d+$/,  // P1-P20
+  P: /^P\d+$/,  // P1-P20.
   G: /^G\d+$/,  // G1-G20
   U: /^U\d+$/,  // U1-U20
-  Q: /^Q[234](\+)?$/,  // Q2, Q2+, Q3, Q3+, Q4
+  Q: /^Q\d+(\+)?$/,  // Q2, Q2+, Q3, Q3+, Q4
   SPECIAL: /^(MP|Grande|MA|Bus|Qq|-2|-21)$/
 };
 

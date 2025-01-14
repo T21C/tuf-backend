@@ -23,6 +23,7 @@ import fs from 'fs';
 import discordRouter from './routes/discord';
 import eventsRouter from './routes/events';
 import utilsRouter from './routes/utils';
+import reloadDatabase, { partialReload } from './utils/reloadDatabase';
 
 dotenv.config();
 
@@ -62,6 +63,10 @@ async function startServer() {
     if (process.env.INIT_DB === 'true') {
       console.log('Initializing database...');
       await initializeDatabase();
+    }
+    else if (process.env.UPDATE_DB === 'true') {
+      console.log('Updating database...');
+      await partialReload();
     }
 
     // Set up Express middleware

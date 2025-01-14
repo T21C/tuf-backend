@@ -32,21 +32,21 @@ class PassSubmission extends BaseModel {
 }
 
 class PassSubmissionJudgements extends BaseModel {
-  public passSubmissionId!: number;
-  public earlyDouble!: number;
-  public earlySingle!: number;
-  public ePerfect!: number;
-  public perfect!: number;
-  public lPerfect!: number;
-  public lateSingle!: number;
-  public lateDouble!: number;
+  declare passSubmissionId: number;
+  declare earlyDouble: number;
+  declare earlySingle: number;
+  declare ePerfect: number;
+  declare perfect: number;
+  declare lPerfect: number;
+  declare lateSingle: number;
+  declare lateDouble: number;
 }
 
 class PassSubmissionFlags extends BaseModel {
-  public passSubmissionId!: number;
-  public is12K!: boolean;
-  public isNoHoldTap!: boolean;
-  public is16K!: boolean;
+  declare passSubmissionId: number;
+  declare is12K: boolean;
+  declare isNoHoldTap: boolean;
+  declare is16K: boolean;
 }
 
 PassSubmission.init(

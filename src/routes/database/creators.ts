@@ -88,7 +88,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
           model: Level,
           as: 'createdLevels',
           through: { attributes: ['role'] },
-          attributes: ['id', 'song', 'artist']
+          attributes: ['id', 'song', 'artist', 'diffId', 'charter', 'vfxer']
         },
         {
           model: User,

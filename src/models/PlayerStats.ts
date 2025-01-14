@@ -3,22 +3,22 @@ import sequelize from '../config/db';
 import Player from './Player';
 
 class PlayerStats extends Model {
-  public id!: number;
-  public playerId!: number;
-  public rankedScore!: number;
-  public generalScore!: number;
-  public ppScore!: number;
-  public wfScore!: number;
-  public score12k!: number;
-  public rankedScoreRank!: number;
-  public generalScoreRank!: number;
-  public ppScoreRank!: number;
-  public wfScoreRank!: number;
-  public score12kRank!: number;
-  public averageXacc!: number;
-  public universalPassCount!: number;
-  public worldsFirstCount!: number;
-  public lastUpdated!: Date;
+  declare id: number;
+  declare playerId: number;
+  declare rankedScore: number;
+  declare generalScore: number;
+  declare ppScore: number;
+  declare wfScore: number;
+  declare score12k: number;
+  declare rankedScoreRank: number;
+  declare generalScoreRank: number;
+  declare ppScoreRank: number;
+  declare wfScoreRank: number;
+  declare score12kRank: number;
+  declare averageXacc: number;
+  declare universalPassCount: number;
+  declare worldsFirstCount: number;
+  declare lastUpdated: Date;
 }
 
 PlayerStats.init(

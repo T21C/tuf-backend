@@ -11,6 +11,8 @@ import { levelSubmissionHook, passSubmissionHook } from './webhooks/webhook.js';
 import Level from '../models/Level.js';
 import Difficulty from '../models/Difficulty.js';
 import { sseManager } from '../utils/sse';
+import { getScoreV2 } from '../misc/CalcScore';
+import { calcAcc } from '../misc/CalcAcc';
 const router: Router = express.Router();
 
 // Form submission endpoint
@@ -84,12 +86,43 @@ router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => 
         }
       }
 
+      const sanitizedJudgements = {
+        earlyDouble: Math.max(0, parseInt(req.body.earlyDouble?.slice(0, 15) || '0')),
+        earlySingle: Math.max(0, parseInt(req.body.earlySingle?.slice(0, 15) || '0')),
+        ePerfect: Math.max(0, parseInt(req.body.ePerfect?.slice(0, 15) || '0')),
+        perfect: Math.max(0, parseInt(req.body.perfect?.slice(0, 15) || '0')),
+        lPerfect: Math.max(0, parseInt(req.body.lPerfect?.slice(0, 15) || '0')),
+        lateSingle: Math.max(0, parseInt(req.body.lateSingle?.slice(0, 15) || '0')),
+        lateDouble: Math.max(0, parseInt(req.body.lateDouble?.slice(0, 15) || '0')),
+      };
+      console.log(sanitizedJudgements);
+      
       const discordProvider = req.user?.providers?.find(provider => provider.dataValues.provider === 'discord');
 
+
+      const level = await Level.findByPk(req.body.levelId, {
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+        ],
+      });
+      if (!level) return res.status(404).json({error: 'Level not found'});
+
+      const score = getScoreV2({
+        speed: parseFloat(req.body.speed || '1'),
+        judgements: sanitizedJudgements,
+        isNoHoldTap: req.body.isNoHoldTap === 'true',
+      }, level.dataValues);
+      
+      const accuracy = calcAcc(sanitizedJudgements);
       // Create the pass submission
       const submission = await PassSubmission.create({
         levelId: req.body.levelId,
         speed: parseFloat(req.body.speed || '1'),
+        scoreV2: score,
+        accuracy,
         passer: req.body.passer,
         feelingDifficulty: req.body.feelingDifficulty,
         title: req.body.title,
@@ -102,19 +135,10 @@ router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => 
         assignedPlayerId: null, // Will be assigned during review
       });
 
-      // Sanitize numeric inputs
-      const sanitizedJudgements = {
+      await PassSubmissionJudgements.create({
+        ...sanitizedJudgements,
         passSubmissionId: submission.id,
-        earlyDouble: Math.max(0, parseInt(req.body.earlyDouble?.slice(0, 15) || '0')),
-        earlySingle: Math.max(0, parseInt(req.body.earlySingle?.slice(0, 15) || '0')),
-        ePerfect: Math.max(0, parseInt(req.body.ePerfect?.slice(0, 15) || '0')),
-        perfect: Math.max(0, parseInt(req.body.perfect?.slice(0, 15) || '0')),
-        lPerfect: Math.max(0, parseInt(req.body.lPerfect?.slice(0, 15) || '0')),
-        lateSingle: Math.max(0, parseInt(req.body.lateSingle?.slice(0, 15) || '0')),
-        lateDouble: Math.max(0, parseInt(req.body.lateDouble?.slice(0, 15) || '0')),
-      };
-      
-      await PassSubmissionJudgements.create(sanitizedJudgements);
+      });
 
       // Create flags with proper validation
       const flags = {
@@ -151,7 +175,7 @@ router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => 
         }
       );
       if (!passObj) return res.status(500).json({error: 'Failed to create pass submission'});
-      await passSubmissionHook(passObj);
+      await passSubmissionHook(passObj, sanitizedJudgements);
 
       // Broadcast submission update
       sseManager.broadcast({

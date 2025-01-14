@@ -1,4 +1,3 @@
-import {PGU_SORT, PguLetter} from '../config/constants';
 import {IDifficulty, IPass} from '../interfaces/models';
 
 export interface Score {
@@ -8,6 +7,7 @@ export interface Score {
   is12K: boolean;
   baseScore: number;
   isDeleted: boolean;
+  levelId?: number;
 }
 
 export function calculateRankedScore(scores: Score[]): number {

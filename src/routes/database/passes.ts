@@ -447,102 +447,17 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const pass = await Pass.findOne({
-      where: {id: parseInt(req.params.id)},
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          include: [
-            {
-              model: Pass,
-              as: 'passes',
-              include: [
-                {
-                  model: Judgement,
-                  as: 'judgements',
-                },
-                {
-                  model: Level,
-                  as: 'level',
-                  include: [
-                    {
-                      model: Difficulty,
-                      as: 'difficulty',
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username', 'nickname', 'avatarUrl', 'isSuperAdmin', 'isRater'],
-            },
-          ],
-        },
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-    });
-
-    if (!pass) {
-      return res.status(404).json({error: 'Pass not found'});
+    const passId = parseInt(req.params.id);
+    if (!passId || isNaN(passId)) {
+      return res.status(400).json({ error: 'Invalid pass ID' });
     }
 
-    // Calculate current and previous ranked scores
-    const currentRankedScore = calculateRankedScore(pass.player?.passes?.map(pass => ({ 
-      score: pass.scoreV2 || 0, 
-      baseScore: pass.level?.baseScore || 0,
-      xacc: pass.accuracy || 0,
-      isWorldsFirst: pass.isWorldsFirst || false,
-      is12K: pass.is12K || false,
-      isDeleted: pass.isDeleted || false
-    })) || []);
+    const pass = await playerStatsService.getPassDetails(passId);
+    if (!pass) {
+      return res.status(404).json({ error: 'Pass not found' });
+    }
 
-    const previousRankedScore = calculateRankedScore(pass.player?.passes?.filter(p => p.id !== pass.id).map(pass => ({ 
-      score: pass.scoreV2 || 0, 
-      baseScore: pass.level?.baseScore || 0,
-      xacc: pass.accuracy || 0,
-      isWorldsFirst: pass.isWorldsFirst || false,
-      is12K: pass.is12K || false,
-      isDeleted: pass.isDeleted || false
-    })) || []);
-
-    // Get player stats
-    const playerStats = pass.player ? await playerStatsService.getPlayerStats(pass.player.id) : null;
-
-    // Create response object without player passes
-    const response = {
-      ...pass.toJSON(),
-      player: {
-        id: pass.player?.id,
-        name: pass.player?.name,
-        country: pass.player?.country,
-        isBanned: pass.player?.isBanned,
-        user: pass.player?.user,
-      },
-      scoreInfo: {
-        currentRankedScore,
-        previousRankedScore,
-        scoreDifference: currentRankedScore - previousRankedScore,
-      },
-      stats: playerStats,
-    };
-
-    return res.json(response);
+    return res.json(pass);
   } catch (error) {
     console.error('Error fetching pass:', error);
     return res.status(500).json({
@@ -655,250 +570,247 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', Cache.leaderboard(), Auth.superAdmin(), async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
 
-    try {
-      const {id} = req.params;
+  try {
+    const {id} = req.params;
 
-      const pass = await Pass.findOne({
-        where: {id: parseInt(id)},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-          },
-          {
-            model: Player,
-            as: 'player',
-            attributes: ['id', 'name', 'country', 'isBanned'],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-        ],
-        transaction,
-      });
-
-      if (!pass) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Pass not found'});
-      }
-
-      // Store levelId before deleting
-      const levelId = pass.levelId;
-
-      // Soft delete the pass
-      await Pass.update(
-        { isDeleted: true },
+    const pass = await Pass.findOne({
+      where: {id: parseInt(id)},
+      include: [
         {
-          where: { id: parseInt(id) },
-          transaction,
-        }
-      );
-
-      // Update world's first status for this level
-      await updateWorldsFirstStatus(levelId, transaction);
-
-      // Update level clear count
-      await Level.decrement('clears', {
-        where: {id: pass.levelId},
-        transaction,
-      });
-
-      // If this was the last clear, update isCleared status
-      const remainingClears = await Pass.count({
-        where: {
-          levelId: pass.levelId,
-          isDeleted: false,
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
         },
-        transaction,
-      });
-
-      if (remainingClears === 0) {
-        await Level.update(
-          {isCleared: false},
-          {
-            where: {id: pass.levelId},
-            transaction,
-          },
-        );
-      }
-
-      // Reload the pass to get updated data
-      await pass.reload({
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-          },
-          {
-            model: Player,
-            as: 'player',
-            attributes: ['id', 'name', 'country', 'isBanned'],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-        ],
-        transaction,
-      });
-
-      await transaction.commit();
-
-      // Force cache update
-      await leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('passesUpdated');
-
-      // Get player's new score from leaderboard cache
-      if (pass && pass.player && pass.levelId) {
-        const playerId = pass.player.id;
-        const players = await leaderboardCache.get('rankedScore', 'desc', true);
-        const playerData = players.find(p => p.id === playerId);
-
-        // Emit SSE event with pass deletion data
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            playerId,
-            passedLevelId: pass.levelId,
-            newScore: playerData?.rankedScore || 0,
-            action: 'delete'
-          }
-        });
-      }
-
-      return res.json({
-        message: 'Pass soft deleted successfully',
-        pass: pass,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error soft deleting pass:', error);
-      return res.status(500).json({error: 'Failed to soft delete pass'});
-    }
-  },
-);
-
-// Add restore endpoint
-router.patch('/:id/restore', Cache.leaderboard(), Auth.superAdmin(), async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
-    const leaderboardCache = req.leaderboardCache;
-    if (!leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
-    try {
-      const {id} = req.params;
-
-      const pass = await Pass.findOne({
-        where: {id: parseInt(id)},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-          },
-        ],
-        transaction,
-      });
-
-      if (!pass) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Pass not found'});
-      }
-
-      // Store levelId
-      const levelId = pass.levelId;
-
-      // Restore the pass
-      await Pass.update(
-        { isDeleted: false },
         {
-          where: { id: parseInt(id) },
-          transaction,
-        }
-      );
+          model: Player,
+          as: 'player',
+          attributes: ['id', 'name', 'country', 'isBanned'],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        },
+      ],
+      transaction,
+    });
 
-      // Update world's first status for this level
-      await updateWorldsFirstStatus(levelId, transaction);
+    if (!pass) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'Pass not found'});
+    }
 
-      // Update level clear count and status
-      await Promise.all([
-        Level.increment('clears', {
+    // Store levelId and playerId before deleting
+    const levelId = pass.levelId;
+    const playerId = pass.player?.id;
+
+    // Soft delete the pass
+    await Pass.update(
+      { isDeleted: true },
+      {
+        where: { id: parseInt(id) },
+        transaction,
+      }
+    );
+
+    // Update world's first status for this level
+    await updateWorldsFirstStatus(levelId, transaction);
+
+    // Update level clear count
+    await Level.decrement('clears', {
+      where: {id: pass.levelId},
+      transaction,
+    });
+
+    // If this was the last clear, update isCleared status
+    const remainingClears = await Pass.count({
+      where: {
+        levelId: pass.levelId,
+        isDeleted: false,
+      },
+      transaction,
+    });
+
+    if (remainingClears === 0) {
+      await Level.update(
+        {isCleared: false},
+        {
           where: {id: pass.levelId},
           transaction,
-        }),
-        Level.update(
-          {isCleared: true},
-          {
-            where: {id: pass.levelId},
-            transaction,
-          },
-        ),
-      ]);
-
-      await transaction.commit();
-
-      // Force cache update
-      await leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('passesUpdated');
-
-      // Get player's new score from leaderboard cache
-      if (pass && pass.player && pass.levelId) {
-        const playerId = pass.player.id;
-        const players = await leaderboardCache.get('rankedScore', 'desc', true);
-        const playerData = players.find(p => p.id === playerId);
-
-        // Emit SSE event with pass restoration data
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            playerId,
-            passedLevelId: pass.levelId,
-            newScore: playerData?.rankedScore || 0,
-            action: 'restore'
-          }
-        });
-      }
-
-      return res.json({
-        message: 'Pass restored successfully',
-        pass: pass,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error restoring pass:', error);
-      return res.status(500).json({error: 'Failed to restore pass'});
+        },
+      );
     }
-  },
-);
+
+    // Reload the pass to get updated data
+    await pass.reload({
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
+        },
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['id', 'name', 'country', 'isBanned'],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        },
+      ],
+      transaction,
+    });
+
+    await transaction.commit();
+
+    // Update player stats
+    if (playerId) {
+      await playerStatsService.updatePlayerStats(playerId);
+    }
+
+    const io = getIO();
+    io.emit('leaderboardUpdated');
+    io.emit('passesUpdated');
+
+    // Get player's new stats and emit SSE event
+    if (playerId) {
+      const playerStats = await playerStatsService.getPlayerStats(playerId);
+
+      sseManager.broadcast({
+        type: 'passUpdate',
+        data: {
+          playerId,
+          passedLevelId: levelId,
+          newScore: playerStats?.rankedScore || 0,
+          action: 'delete'
+        }
+      });
+    }
+
+    return res.json({
+      message: 'Pass soft deleted successfully',
+      pass: pass,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error soft deleting pass:', error);
+    return res.status(500).json({error: 'Failed to soft delete pass'});
+  }
+});
+
+router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {id} = req.params;
+
+    const pass = await Pass.findOne({
+      where: {id: parseInt(id)},
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
+        },
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['id', 'name', 'country', 'isBanned'],
+        },
+      ],
+      transaction,
+    });
+
+    if (!pass) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'Pass not found'});
+    }
+
+    // Store levelId and playerId
+    const levelId = pass.levelId;
+    const playerId = pass.player?.id;
+
+    // Restore the pass
+    await Pass.update(
+      { isDeleted: false },
+      {
+        where: { id: parseInt(id) },
+        transaction,
+      }
+    );
+
+    // Update world's first status for this level
+    await updateWorldsFirstStatus(levelId, transaction);
+
+    // Update level clear count and status
+    await Promise.all([
+      Level.increment('clears', {
+        where: {id: pass.levelId},
+        transaction,
+      }),
+      Level.update(
+        {isCleared: true},
+        {
+          where: {id: pass.levelId},
+          transaction,
+        },
+      ),
+    ]);
+
+    await transaction.commit();
+
+    // Update player stats
+    if (playerId) {
+      await playerStatsService.updatePlayerStats(playerId);
+    }
+
+    const io = getIO();
+    io.emit('leaderboardUpdated');
+    io.emit('passesUpdated');
+
+    // Get player's new stats and emit SSE event
+    if (playerId) {
+      const playerStats = await playerStatsService.getPlayerStats(playerId);
+
+      sseManager.broadcast({
+        type: 'passUpdate',
+        data: {
+          playerId,
+          passedLevelId: levelId,
+          newScore: playerStats?.rankedScore || 0,
+          action: 'restore'
+        }
+      });
+    }
+
+    return res.json({
+      message: 'Pass restored successfully',
+      pass: pass,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error restoring pass:', error);
+    return res.status(500).json({error: 'Failed to restore pass'});
+  }
+});
 
 // Add new route for getting pass by ID as a list
 router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {

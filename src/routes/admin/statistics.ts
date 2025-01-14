@@ -18,6 +18,11 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
+    const currentRatingsCount = await RatingDetail.count({
+      where: {
+        userId: user.id
+      }
+    });
     // Get unrated ratings count using a proper subquery
     const unratedRatings = await Rating.findAll({
       include: [{
@@ -26,16 +31,18 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
         where: {
           toRate: true
         },
+        attributes: [],
         required: true
+      }, {
+        model: RatingDetail,
+        as: 'details',
+        attributes: []
       }],
-      where: {
-        id: {
-          [Op.notIn]: Sequelize.literal(
-            `(SELECT DISTINCT "ratingId" FROM rating_details WHERE userId = '${user.id}')`
-          )
-        }
-      }
+      attributes: ['id'],
+      group: ['Rating.id'],
+      having: Sequelize.literal("COUNT(`details`.`id`) < 4")
     });
+
 
     // Get pending level submissions count
     const pendingLevelSubmissions = await LevelSubmission.count({
@@ -51,11 +58,12 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       }
     });
 
+
     // Calculate total pending submissions
     const totalPendingSubmissions = pendingLevelSubmissions + pendingPassSubmissions;
 
     return res.json({
-      unratedRatings: unratedRatings.length,
+      unratedRatings: unratedRatings.length-currentRatingsCount,
       pendingLevelSubmissions,
       pendingPassSubmissions,
       totalPendingSubmissions

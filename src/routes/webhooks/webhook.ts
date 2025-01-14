@@ -24,18 +24,6 @@ import { Auth } from '../../middleware/auth';
 const router: Router = express.Router();
 
 const placeHolder = process.env.OWN_URL + '/v2/media/image/soggycat.png';
-
-interface PassInfo {
-  player: string;
-  tufRating: string;
-  feelingRating: string;
-  accuracy: string;
-  score: string;
-  song: string;
-  artist: string;
-  link: string;
-}
-
 // Helper function to process items in batches
 async function processBatches<T>(
   items: T[],
@@ -106,7 +94,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   return embed;
 }
 
-export async function passSubmissionHook(passSubmission: PassSubmission) {
+export async function passSubmissionHook(passSubmission: PassSubmission, sanitizedJudgements: IJudgements) {
   const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
   hook.setUsername('TUF Pass Submission Hook');
   hook.setAvatar(placeHolder);
@@ -114,7 +102,7 @@ export async function passSubmissionHook(passSubmission: PassSubmission) {
     const pass = passSubmission.dataValues;
     const level = pass.level;
     
-    const accuracy = calcAcc(pass.judgements as PassSubmissionJudgements)
+    const accuracy = calcAcc(sanitizedJudgements)
 
     const videoInfo = pass?.videoLink ? await getVideoDetails(pass.videoLink).then(details => details) : null;
 
@@ -126,8 +114,8 @@ export async function passSubmissionHook(passSubmission: PassSubmission) {
     `${pass.flags?.is16K ? '16K  |  ' : ''}` +
     `${pass.flags?.isNoHoldTap ? 'No Hold Tap  |  ' : ''}`
     ).replace(/\|\s*$/, '');
-    const judgementLine = pass.judgements ? 
-      `\`\`\`ansi\n[2;31m${pass.judgements.earlyDouble}[0m [2;33m${pass.judgements.earlySingle}[0m [2;32m${pass.judgements.ePerfect}[0m [1;32m${pass.judgements.perfect}[0m [2;32m${pass.judgements.lPerfect}[0m [2;33m${pass.judgements.lateSingle}[0m [2;31m${pass.judgements.lateDouble}[0m\n\`\`\`\n` : '';
+    const judgementLine = sanitizedJudgements ? 
+      `\`\`\`ansi\n[2;31m${sanitizedJudgements.earlyDouble}[0m [2;33m${sanitizedJudgements.earlySingle}[0m [2;32m${sanitizedJudgements.ePerfect}[0m [1;32m${sanitizedJudgements.perfect}[0m [2;32m${sanitizedJudgements.lPerfect}[0m [2;33m${sanitizedJudgements.lateSingle}[0m [2;31m${sanitizedJudgements.lateDouble}[0m\n\`\`\`\n` : '';
     
       const team = level?.team ? `Level by ${level?.team}` : null;
       const credit = `Chart by ${trim(level?.charter || 'Unknown', 25)}${level?.vfxer ? ` | VFX by ${trim(level?.vfxer || 'Unknown', 25)}` : ''}`;

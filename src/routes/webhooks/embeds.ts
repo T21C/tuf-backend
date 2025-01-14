@@ -11,11 +11,11 @@ export async function getDifficultyEmojis(levelInfo: Level | null, rerate: boole
     if (rerate && !levelInfo.dataValues.previousDiffId) rerate = false;
     const qList = "Q2,Q2+,Q3,Q3+,Q4";
     const qMap = {
-      "Q2": ["U5", "U6"],
-      "Q2+": ["U7", "U8"],
-      "Q3": ["U9", "U10"],
-      "Q3+": ["U11", "U12"],
-      "Q4": ["U13", "U14"],
+      "Q2": ["U9", "U10"],
+      "Q2+": ["U11", "U12"],
+      "Q3": ["U13", "U14"],
+      "Q3+": ["U15", "U16"],
+      "Q4": ["U17", "U20"],
     }
     const difficulties = await Difficulty.findAll().then(data => data.map(difficulty => difficulty.dataValues));
     const level = levelInfo.dataValues;

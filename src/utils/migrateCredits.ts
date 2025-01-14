@@ -341,3 +341,141 @@ export async function migrateCredits(levels: Omit<ILevel, 'submitterDiscordId' |
 
   console.log(`Credit migration completed: ${creators.length} creators, ${teams.length} teams, and ${levelCreditEntries.length} credits created`);
 }
+
+export async function migrateNewCredits(levels: Omit<ILevel, 'submitterDiscordId' | 'createdAt' | 'updatedAt'>[], transaction: Transaction): Promise<void> {
+  console.log('Starting credit migration for new levels...');
+  
+  // First, collect all unique creator names and team names from new levels
+  const uniqueCreatorNames = new Set<string>();
+  const uniqueTeamNames = new Set<string>();
+  const creditEntries: { levelId: number; creatorName: string; role: string }[] = [];
+  const teamEntries: { levelId: number; teamName: string; creatorName: string }[] = [];
+
+  // Get existing creators and teams first
+  const existingCreators = await Creator.findAll({
+    transaction
+  });
+  const existingTeams = await Team.findAll({
+    transaction
+  });
+
+  const existingCreatorsByName = new Map(existingCreators.map(c => [c.name.toLowerCase(), c]));
+  const existingTeamsByName = new Map(existingTeams.map(t => [t.name.toLowerCase(), t]));
+
+  // Process all new levels to gather data
+  for (const level of levels) {
+    const credits = parseCredits(level.creator, level.charter, level.vfxer);
+    
+    // Add all creators to the unique set
+    credits.charters.forEach(name => uniqueCreatorNames.add(name));
+    credits.vfxers.forEach(name => uniqueCreatorNames.add(name));
+
+    // Store credit relationships and team assignments
+    if (credits.team && level.team && level.team.trim() !== '') {
+      uniqueTeamNames.add(credits.team);
+      
+      credits.charters.forEach(name => {
+        creditEntries.push({ levelId: level.id, creatorName: name, role: 'charter' });
+        teamEntries.push({ levelId: level.id, teamName: credits.team!, creatorName: name });
+      });
+
+      credits.vfxers.forEach(name => {
+        creditEntries.push({ levelId: level.id, creatorName: name, role: 'vfxer' });
+        teamEntries.push({ levelId: level.id, teamName: credits.team!, creatorName: name });
+      });
+    } else {
+      credits.charters.forEach(name => {
+        creditEntries.push({ levelId: level.id, creatorName: name, role: 'charter' });
+      });
+      credits.vfxers.forEach(name => {
+        creditEntries.push({ levelId: level.id, creatorName: name, role: 'vfxer' });
+      });
+    }
+  }
+
+  // Filter out creators that already exist
+  const newCreatorNames = Array.from(uniqueCreatorNames)
+    .filter(name => !existingCreatorsByName.has(name.toLowerCase()));
+
+  // Create only new creators
+  if (newCreatorNames.length > 0) {
+    const newCreators = await Creator.bulkCreate(
+      newCreatorNames.map(name => ({
+        name,
+        aliases: [],
+        isVerified: false
+      })),
+      {
+        transaction
+      }
+    );
+
+    // Add new creators to the existing map
+    newCreators.forEach(creator => {
+      existingCreatorsByName.set(creator.name.toLowerCase(), creator);
+    });
+  }
+
+  // Filter out teams that already exist
+  const newTeamNames = Array.from(uniqueTeamNames)
+    .filter(name => !existingTeamsByName.has(name.toLowerCase()));
+
+  // Create only new teams
+  if (newTeamNames.length > 0) {
+    const newTeams = await Team.bulkCreate(
+      newTeamNames.map(name => ({
+        name,
+        aliases: []
+      })),
+      {
+        transaction
+      }
+    );
+
+    // Add new teams to the existing map
+    newTeams.forEach(team => {
+      existingTeamsByName.set(team.name.toLowerCase(), team);
+    });
+  }
+
+  // Transform credit entries to include creator IDs
+  const levelCreditEntries = creditEntries.map(entry => {
+    const creator = existingCreatorsByName.get(entry.creatorName.toLowerCase());
+    if (!creator) {
+      console.warn(`Creator not found for name: ${entry.creatorName}`);
+      return null;
+    }
+    return {
+      levelId: entry.levelId,
+      creatorId: creator.id,
+      role: entry.role,
+      isVerified: creator.isVerified
+    };
+  }).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  // Create only new level credits
+  if (levelCreditEntries.length > 0) {
+    await LevelCredit.bulkCreate(levelCreditEntries, {
+      ignoreDuplicates: true,
+      transaction
+    });
+  }
+
+  // Update team associations for new levels
+  for (const level of levels) {
+    if (level.team && level.team.trim() !== '') {
+      const team = existingTeamsByName.get(level.team.toLowerCase());
+      if (team) {
+        await Level.update(
+          { teamId: team.id },
+          { 
+            where: { id: level.id },
+            transaction
+          }
+        );
+      }
+    }
+  }
+
+  console.log(`Credit migration completed for new levels: ${newCreatorNames.length} new creators, ${newTeamNames.length} new teams, and ${levelCreditEntries.length} new credits created`);
+}
