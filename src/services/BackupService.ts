@@ -7,10 +7,12 @@ import db from '../models/index.js';
 
 export class BackupService {
   private config: typeof config;
+  private isWindows: boolean;
 
   constructor() {
     this.config = config;
-    console.log('BackupService initialized');
+    this.isWindows = process.env.OS?.toUpperCase() === 'WINDOWS';
+    console.log(`BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`);
   }
 
   public getConfig() {
@@ -24,33 +26,37 @@ export class BackupService {
 
     await fs.mkdir(this.config.mysql.backupPath, { recursive: true });
 
-    const mysqlDumpPath = path.join(process.env.MYSQL_PATH || '', 'mysqldump.exe');
-    const outputPath = filePath.replace(/\\/g, '/');
-
-    const cmd = `"${mysqlDumpPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} \
-      ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} \
-      ${process.env.DB_DATABASE} > "${outputPath}"`;
+    let cmd: string;
+    if (this.isWindows) {
+      const mysqlDumpPath = path.join(process.env.MYSQL_PATH || '', 'mysqldump.exe');
+      const outputPath = filePath.replace(/\\/g, '/');
+      cmd = `"${mysqlDumpPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} > "${outputPath}"`;
+    } else {
+      // Linux command
+      cmd = `mysqldump -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} > "${filePath}"`;
+    }
 
     return new Promise((resolve, reject) => {
-      exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
+      exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, (error, stdout, stderr) => {
         if (error) reject(error);
-        else {
-          resolve(filePath);
-        }
+        else resolve(filePath);
       });
     });
   }
 
   async restoreMySQLBackup(backupPath: string) {
-    const mysqlPath = path.join(process.env.MYSQL_PATH || '', 'mysql.exe');
-    const inputPath = backupPath.replace(/\\/g, '/');
-
-    const cmd = `"${mysqlPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} \
-      ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} \
-      ${process.env.DB_DATABASE} < "${inputPath}"`;
+    let cmd: string;
+    if (this.isWindows) {
+      const mysqlPath = path.join(process.env.MYSQL_PATH || '', 'mysql.exe');
+      const inputPath = backupPath.replace(/\\/g, '/');
+      cmd = `"${mysqlPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} < "${inputPath}"`;
+    } else {
+      // Linux command
+      cmd = `mysql -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} < "${backupPath}"`;
+    }
 
     return new Promise((resolve, reject) => {
-      exec(cmd, { shell: 'cmd.exe' }, async (error, stdout, stderr) => {
+      exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, async (error, stdout, stderr) => {
         if (error) reject(error);
         else {
           try {
@@ -72,33 +78,41 @@ export class BackupService {
 
     await fs.mkdir(this.config.files.backupPath, { recursive: true });
 
-    const includeFiles = this.config.files.include
-      .map(file => file.replace(/\//g, '\\'))
-      .join(',');
-
-    const cmd = `powershell -Command "Compress-Archive -Path ${includeFiles} -DestinationPath '${filePath.replace(/\\/g, '\\')}' -Force"`;
+    let cmd: string;
+    if (this.isWindows) {
+      const includeFiles = this.config.files.include
+        .map(file => file.replace(/\//g, '\\'))
+        .join(',');
+      cmd = `powershell -Command "Compress-Archive -Path ${includeFiles} -DestinationPath '${filePath.replace(/\\/g, '\\')}' -Force"`;
+    } else {
+      // Linux command using tar
+      const includeFiles = this.config.files.include.join(' ');
+      cmd = `tar -czf "${filePath}" ${includeFiles}`;
+    }
 
     return new Promise((resolve, reject) => {
-      exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
+      exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, (error, stdout, stderr) => {
         if (error) reject(error);
-        else {
-          resolve(filePath);
-        }
+        else resolve(filePath);
       });
     });
   }
 
   async restoreFileBackup(backupPath: string) {
-    // Create a temporary extraction directory
     const extractPath = path.join(this.config.files.backupPath, 'temp_restore');
     await fs.mkdir(extractPath, { recursive: true });
 
     try {
-      // Extract the backup
-      const cmd = `powershell -Command "Expand-Archive -Path '${backupPath.replace(/\\/g, '\\')}' -DestinationPath '${extractPath.replace(/\\/g, '\\')}' -Force"`;
-      
+      let cmd: string;
+      if (this.isWindows) {
+        cmd = `powershell -Command "Expand-Archive -Path '${backupPath.replace(/\\/g, '\\')}' -DestinationPath '${extractPath.replace(/\\/g, '\\')}' -Force"`;
+      } else {
+        // Linux command
+        cmd = `tar -xzf "${backupPath}" -C "${extractPath}"`;
+      }
+
       await new Promise((resolve, reject) => {
-        exec(cmd, { shell: 'cmd.exe' }, (error, stdout, stderr) => {
+        exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, (error, stdout, stderr) => {
           if (error) reject(error);
           else resolve(true);
         });

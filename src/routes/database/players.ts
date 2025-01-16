@@ -15,6 +15,7 @@ import {sseManager} from '../../utils/sse';
 import User from '../../models/User';
 import OAuthProvider from '../../models/OAuthProvider';
 import {PlayerStatsService} from '../../services/PlayerStatsService';
+import PlayerStats from '../../models/PlayerStats';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -520,22 +521,38 @@ router.post('/:id/merge', Auth.superAdmin(), async (req: Request, res: Response)
       },
     );
 
-    // If source player has a user, update OAuth providers to point to target user
-    if (sourcePlayer.user && targetPlayer.user) {
-      await OAuthProvider.update(
-        {userId: targetPlayer.user.id},
-        {
-          where: {userId: sourcePlayer.user.id},
+    // If source player has a user, update OAuth providers and reassign user to target player
+    if (sourcePlayer.user) {
+      if (targetPlayer.user) {
+        // If target has a user, move OAuth providers and delete source user
+        await OAuthProvider.update(
+          {userId: targetPlayer.user.id},
+          {
+            where: {userId: sourcePlayer.user.id},
+            transaction,
+          },
+        );
+        await User.destroy({
+          where: {id: sourcePlayer.user.id},
           transaction,
-        },
-      );
-
-      // Delete the source user
-      await User.destroy({
-        where: {id: sourcePlayer.user.id},
-        transaction,
-      });
+        });
+      } else {
+        // If target has no user, reassign source user to target player
+        await User.update(
+          {playerId: targetPlayer.id},
+          {
+            where: {id: sourcePlayer.user.id},
+            transaction,
+          },
+        );
+      }
     }
+
+    // Delete player stats first to avoid constraint issues
+    await PlayerStats.destroy({
+      where: {playerId: sourcePlayer.id},
+      transaction,
+    });
 
     // Delete the source player
     await Player.destroy({
