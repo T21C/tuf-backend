@@ -70,10 +70,18 @@ async function startServer() {
     if (process.env.INIT_DB === 'true') {
       console.log('Initializing database...');
       await initializeDatabase();
+      // Add a delay after initialization to ensure all transactions are complete
+      console.log("Waiting for 5 seconds before proceeding with PFP updates...");
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log('Database initialization complete, proceeding with PFP updates...');
     }
     else if (process.env.UPDATE_DB === 'true') {
       console.log('Updating database...');
       await partialReload();
+      // Add a delay after update to ensure all transactions are complete
+      console.log("Waiting for 5 seconds before proceeding with PFP updates...");
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log('Database update complete, proceeding with PFP updates...');
     }
 
     // Initialize PlayerStatsService after database is ready
@@ -135,7 +143,7 @@ async function startServer() {
       console.error('Error during cache initialization:', cacheError);
     }
 
-    // Update profile pictures after server is fully initialized
+    // Update profile pictures after server is fully initialized and database operations are complete
     console.log('Starting profile picture updates...');
     try {
       await updateAllPlayerPfps();
