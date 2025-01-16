@@ -118,8 +118,21 @@ const progressBar = new cliProgress.MultiBar({
   barCompleteChar: '\u2588',
   barIncompleteChar: '\u2591',
   hideCursor: true,
-  clearOnComplete: false
+  clearOnComplete: true,
+  noTTYOutput: !process.stdout.isTTY,
+  stream: process.stdout,
+  fps: 10,
 }, cliProgress.Presets.shades_classic);
+
+// Helper function to log without corrupting progress bar
+function safeLog(message: string) {
+  if (process.stdout.isTTY) {
+    progressBar.stop();
+    console.log(message);
+  } else {
+    console.log(message);
+  }
+}
 
 async function fetchData<T>(endpoint: string): Promise<T> {
   try {
@@ -331,7 +344,7 @@ async function reloadDatabase() {
     // Initialize progress
     let progress = 0;
     const updateProgress = (increment: number, task: string, subtask: string) => {
-      progress += increment;
+      progress = Math.min(100, progress + increment);
       mainBar.update(progress, { task, subtask });
     };
 
@@ -383,6 +396,7 @@ async function reloadDatabase() {
       ? playersResponse
       : (playersResponse as any).results || [];
     const playerNameToId = await getOrCreatePlayers(playersFromApi, transaction);
+    safeLog(`Created ${playersFromApi.length} players`);
 
     updateProgress(35, 'Level Processing', 'Processing levels');
     const levels = Array.isArray(levelsResponse)
@@ -392,6 +406,10 @@ async function reloadDatabase() {
     // Process levels with progress updates
     const levelDocs: LevelDoc[] = [];
     let nextLevelId = 1;
+    let processedCount = 0;
+    const totalLevels = levels.length;
+    const updateInterval = Math.max(1, Math.floor(totalLevels / 20)); // Update progress ~20 times
+
     for (const level of levels) {
       // Fill gaps with placeholders
       while (level.id > nextLevelId) {
@@ -479,18 +497,17 @@ async function reloadDatabase() {
       nextLevelId = level.id + 1;
       levelIdMapping.set(level.id, level.id);
 
-      if (levels.indexOf(level) % 100 === 0) {
+      processedCount++;
+      if (processedCount % updateInterval === 0) {
         updateProgress(
-          35 + (levels.indexOf(level) / levels.length) * 15,
+          35 + (processedCount / totalLevels) * 15,
           'Level Processing',
-          `Processing level ${level.id}`
+          `Processed ${processedCount}/${totalLevels} levels`
         );
       }
     }
 
-    console.log(
-      `Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`,
-    );
+    safeLog(`Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`);
 
     updateProgress(50, 'Pass Processing', 'Loading feeling ratings');
     const feelingRatings = await readFeelingRatingsFromXlsx();
@@ -500,6 +517,9 @@ async function reloadDatabase() {
     const passDocs = [];
     const judgementDocs = [];
     let nextJudgementId = 1;
+    processedCount = 0;
+    const totalPasses = passes.length;
+    const passUpdateInterval = Math.max(1, Math.floor(totalPasses / 20)); // Update progress ~20 times
 
     // First, organize passes by level to determine world's firsts
     const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
@@ -609,11 +629,12 @@ async function reloadDatabase() {
         judgementDocs.push(judgements);
         nextJudgementId = pass.id + 1;
 
-        if (passes.indexOf(pass) % 100 === 0) {
+        processedCount++;
+        if (processedCount % passUpdateInterval === 0) {
           updateProgress(
-            55 + (passes.indexOf(pass) / passes.length) * 20,
+            55 + (processedCount / totalPasses) * 20,
             'Pass Processing',
-            `Processing pass ${pass.id}`
+            `Processed ${processedCount}/${totalPasses} passes`
           );
         }
       }
@@ -692,7 +713,7 @@ async function reloadDatabase() {
     // Stop progress bars
     progressBar.stop();
     
-    console.log('\nDatabase reload completed successfully');
+    safeLog('\nDatabase reload completed successfully');
     return true;
 
   } catch (error) {
