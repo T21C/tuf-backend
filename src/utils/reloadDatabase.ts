@@ -510,18 +510,22 @@ async function reloadDatabase() {
     safeLog(`Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`);
 
     updateProgress(50, 'Pass Processing', 'Loading feeling ratings');
+    safeLog('Starting to load feeling ratings from XLSX...');
     const feelingRatings = await readFeelingRatingsFromXlsx();
+    safeLog(`Loaded ${feelingRatings.size} feeling ratings from XLSX`);
 
     updateProgress(55, 'Pass Processing', 'Processing passes');
     const passes = passesResponse.results;
+    safeLog(`Starting to process ${passes.length} passes...`);
     const passDocs = [];
     const judgementDocs = [];
     let nextJudgementId = 1;
     processedCount = 0;
     const totalPasses = passes.length;
-    const passUpdateInterval = Math.max(1, Math.floor(totalPasses / 20)); // Update progress ~20 times
+    const passUpdateInterval = Math.max(1, Math.floor(totalPasses / 20));
 
     // First, organize passes by level to determine world's firsts
+    safeLog('Organizing passes to determine world firsts...');
     const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
     passes.forEach((pass: RawPass) => {
       const newLevelId = levelIdMapping.get(pass.levelId);
@@ -534,11 +538,14 @@ async function reloadDatabase() {
         levelFirstPasses.set(newLevelId, {uploadTime, id: pass.id});
       }
     });
+    safeLog(`Found ${levelFirstPasses.size} world first passes`);
 
     // Sort passes by ID to process them in order
+    safeLog('Sorting passes by ID...');
     passes.sort((a, b) => a.id - b.id);
 
-    let lastValidUploadTime = new Date('2000-01-01 00:00:00'); // Default fallback
+    let lastValidUploadTime = new Date('2000-01-01 00:00:00');
+    safeLog('Starting pass processing loop...');
 
     for (const pass of passes) {
       const playerId = playerNameToId.get(pass.player);
@@ -640,16 +647,25 @@ async function reloadDatabase() {
       }
     }
 
+    safeLog(`Finished processing passes. Created ${passDocs.length} passes and ${judgementDocs.length} judgements`);
+
     updateProgress(75, 'Data Creation', 'Creating levels');
+    safeLog('Starting bulk creation of levels...');
     await db.models.Level.bulkCreate(levelDocs as any, {transaction});
+    safeLog(`Created ${levelDocs.length} levels in database`);
     
     updateProgress(80, 'Data Creation', 'Creating passes');
+    safeLog('Starting bulk creation of passes...');
     await db.models.Pass.bulkCreate(passDocs as any, {transaction});
+    safeLog(`Created ${passDocs.length} passes in database`);
     
     updateProgress(85, 'Data Creation', 'Creating judgements');
+    safeLog('Starting bulk creation of judgements...');
     await db.models.Judgement.bulkCreate(judgementDocs, {transaction});
+    safeLog(`Created ${judgementDocs.length} judgements in database`);
 
     updateProgress(90, 'Finalizing', 'Updating clear counts');
+    safeLog('Starting clear count updates...');
     // Update clear counts
     const clearCounts = new Map<number, number>();
     const existingPlayers = await db.models.Player.findAll({
@@ -659,22 +675,25 @@ async function reloadDatabase() {
     const nonBannedPlayerIds = new Set(
       existingPlayers.filter(p => !p.isBanned).map(p => p.id)
     );
+    safeLog(`Found ${nonBannedPlayerIds.size} non-banned players for clear counting`);
 
     passDocs.forEach((pass: PassDoc) => {
       if (nonBannedPlayerIds.has(pass.playerId)) {
         clearCounts.set(pass.levelId, (clearCounts.get(pass.levelId) || 0) + 1);
       }
     });
+    safeLog(`Calculated clear counts for ${clearCounts.size} levels`);
 
+    safeLog('Updating level clear counts in database...');
     await Promise.all(
       Array.from(clearCounts.entries()).map(([levelId, clears]) =>
         db.models.Level.update({clears}, {where: {id: levelId}, transaction}),
       ),
     );
+    safeLog('Finished updating clear counts');
 
     updateProgress(95, 'Finalizing', 'Creating ratings for unranked levels');
-    // After all other operations, before the final commit
-    // Create ratings for unranked levels
+    safeLog('Finding unranked levels...');
     const unrankedLevels = await db.models.Level.findAll({
       where: { 
         diffId: 0,
@@ -683,6 +702,7 @@ async function reloadDatabase() {
       },
       transaction
     });
+    safeLog(`Found ${unrankedLevels.length} unranked levels`);
 
     const ratingDocs = unrankedLevels.map(level => ({
       levelId: level.id,
@@ -695,8 +715,10 @@ async function reloadDatabase() {
     }));
 
     if (ratingDocs.length > 0) {
+      safeLog('Creating rating objects for unranked levels...');
       await db.models.Rating.bulkCreate(ratingDocs, { transaction });
-      // Update toRate flag for these levels
+      
+      safeLog('Updating toRate flag for unranked levels...');
       await db.models.Level.update(
         { toRate: true },
         {
@@ -704,11 +726,13 @@ async function reloadDatabase() {
           transaction
         }
       );
-      console.log(`Created ${ratingDocs.length} rating objects for unranked levels`);
+      safeLog(`Created ${ratingDocs.length} rating objects for unranked levels`);
     }
 
     updateProgress(100, 'Complete', 'Committing transaction');
+    safeLog('Starting transaction commit...');
     await transaction.commit();
+    safeLog('Transaction committed successfully');
     
     // Stop progress bars
     progressBar.stop();
