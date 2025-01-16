@@ -31,10 +31,16 @@ dotenv.config();
 const app: Express = express();
 const httpServer = createServer(app);
 
+// Get environment-specific configuration
+const isStaging = process.env.NODE_ENV === 'staging';
+const clientUrl = isStaging ? process.env.STAGING_CLIENT_URL : process.env.CLIENT_URL;
+const port = isStaging ? process.env.STAGING_PORT : process.env.PORT;
+const ownUrl = isStaging ? process.env.STAGING_API_URL : process.env.OWN_URL;
+
 // Create Socket.IO instance
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: clientUrl || 'http://localhost:5173',
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -76,7 +82,7 @@ async function startServer() {
 
     // Set up Express middleware
     const corsOptions = {
-      origin: process.env.CLIENT_URL || 'http://localhost:5173',
+      origin: clientUrl || 'http://localhost:5173',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD', 'CONNECT', 'TRACE'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type'],
@@ -114,10 +120,9 @@ async function startServer() {
     });
 
     // Start the server
-    const port = process.env.PORT || 3002;
     await new Promise<void>(resolve => {
       httpServer.listen(port, () => {
-        console.log(`Server running on ${process.env.OWN_URL}`);
+        console.log(`Server running on ${ownUrl} (${process.env.NODE_ENV} environment)`);
         resolve();
       });
     });

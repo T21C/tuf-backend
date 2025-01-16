@@ -8,9 +8,11 @@
     "node": ">=18.19.0"
   },
   "scripts": {
-    "start": "node build/app.js",
-    "dev": "tsx watch src/app.ts",
+    "start": "node dist/app.js",
+    "start:staging": "cross-env NODE_ENV=staging node dist/app.js",
+    "dev": "nodemon src/app.ts",
     "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1",
     "watch": "tsc -w",
     "clean": "rimraf build",
     "lint": "gts lint",
