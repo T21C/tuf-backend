@@ -8,6 +8,8 @@ import { User } from '../models';
 import OAuthProvider from '../models/OAuthProvider';
 import {Worker} from 'worker_threads';
 import path from 'path';
+import os from 'os';
+import { fileURLToPath } from 'url';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -25,6 +27,10 @@ import {getBaseScore} from './parseBaseScore';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
 import sequelize from '../config/db';
+
+// Get current file's directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Rate limiting settings
 const CONCURRENT_BATCH_SIZE = 25; // Number of players to process in parallel
@@ -48,13 +54,24 @@ const progressBar = new cliProgress.MultiBar({
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Worker pool configuration
-const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(require('os').cpus().length / 2)));
+const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)));
 const workerPool: Worker[] = [];
 
 // Initialize worker pool
 function initializeWorkerPool() {
+  const workerPath = path.join(__dirname, 'statsWorker.js');
   for (let i = 0; i < MAX_WORKERS; i++) {
-    const worker = new Worker(path.join(__dirname, 'statsWorker.js'));
+    const worker = new Worker(workerPath);
+    worker.on('error', (error) => {
+      console.error('Worker error:', error);
+      // Remove failed worker and create a new one
+      const index = workerPool.indexOf(worker);
+      if (index > -1) {
+        workerPool.splice(index, 1);
+        const newWorker = new Worker(workerPath);
+        workerPool.push(newWorker);
+      }
+    });
     workerPool.push(worker);
   }
 }

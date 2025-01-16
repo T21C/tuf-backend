@@ -1,4 +1,4 @@
-import { parentPort } from 'worker_threads';
+import { parentPort, isMainThread } from 'worker_threads';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -12,15 +12,49 @@ import {
   calculateTop12KDiff,
 } from '../misc/PlayerStatsCalculator';
 
-if (!parentPort) {
-  throw new Error('This file must be run as a worker thread');
+// Ensure we're in a worker thread
+if (isMainThread || !parentPort) {
+  process.exit(1);
 }
 
-parentPort.on('message', async ({ scores, passes }) => {
-  try {
-    const validScores = scores.filter((s: any) => !s.isDeleted);
+// Store parentPort in a variable to satisfy TypeScript
+const port = parentPort;
 
-    // Calculate all stats in parallel
+// Handle uncaught errors
+process.on('unhandledRejection', (error) => {
+  console.error('Worker unhandled rejection:', error);
+  port.postMessage({ error: error instanceof Error ? error.message : 'Unknown error in worker' });
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Worker uncaught exception:', error);
+  port.postMessage({ error: error instanceof Error ? error.message : 'Unknown error in worker' });
+});
+
+// Main worker message handler
+port.on('message', async ({ scores, passes }) => {
+  try {
+    // Validate input
+    if (!Array.isArray(scores) || !Array.isArray(passes)) {
+      throw new Error('Invalid input: scores and passes must be arrays');
+    }
+
+    const validScores = scores.filter(s => !s.isDeleted && s !== null);
+
+    // Calculate all stats in parallel with error handling
+    const results = await Promise.all([
+      Promise.resolve().then(() => calculateRankedScore(validScores)).catch(() => 0),
+      Promise.resolve().then(() => calculateGeneralScore(validScores)).catch(() => 0),
+      Promise.resolve().then(() => calculatePPScore(validScores)).catch(() => 0),
+      Promise.resolve().then(() => calculateWFScore(validScores)).catch(() => 0),
+      Promise.resolve().then(() => calculate12KScore(validScores)).catch(() => 0),
+      Promise.resolve().then(() => calculateAverageXacc(validScores)).catch(() => 0),
+      Promise.resolve().then(() => countUniversalPasses(passes)).catch(() => 0),
+      Promise.resolve().then(() => countWorldsFirstPasses(passes)).catch(() => 0),
+      Promise.resolve().then(() => calculateTopDiff(passes)).catch(() => null),
+      Promise.resolve().then(() => calculateTop12KDiff(passes)).catch(() => null)
+    ]);
+
     const [
       rankedScore,
       generalScore,
@@ -32,20 +66,9 @@ parentPort.on('message', async ({ scores, passes }) => {
       worldsFirstCount,
       topDiff,
       top12kDiff
-    ] = await Promise.all([
-      calculateRankedScore(validScores),
-      calculateGeneralScore(validScores),
-      calculatePPScore(validScores),
-      calculateWFScore(validScores),
-      calculate12KScore(validScores),
-      calculateAverageXacc(validScores),
-      countUniversalPasses(passes),
-      countWorldsFirstPasses(passes),
-      calculateTopDiff(passes),
-      calculateTop12KDiff(passes)
-    ]);
+    ] = results;
 
-    parentPort!.postMessage({
+    port.postMessage({
       rankedScore,
       generalScore,
       ppScore,
@@ -58,7 +81,8 @@ parentPort.on('message', async ({ scores, passes }) => {
       top12kDiff
     });
   } catch (error) {
-    parentPort!.postMessage({
+    console.error('Worker calculation error:', error);
+    port.postMessage({
       error: error instanceof Error ? error.message : 'Unknown error in worker'
     });
   }
