@@ -809,13 +809,27 @@ async function reloadDatabase() {
     
     updateProgress(85, 'Data Creation', 'Creating judgements');
     safeLog('Starting bulk creation of judgements...');
-    // Create judgements in batches
+    // Create judgements in batches, ensuring each batch only includes judgements for existing passes
     for (let i = 0; i < judgementDocs.length; i += BATCH_SIZE) {
       const batch = judgementDocs.slice(i, i + BATCH_SIZE);
-      safeLog(`Creating judgements batch ${i / BATCH_SIZE + 1}/${Math.ceil(judgementDocs.length / BATCH_SIZE)}...`);
-      await db.models.Judgement.bulkCreate(batch, {transaction});
+      const passIds = batch.map(j => j.id);
+      
+      // Verify passes exist for this batch
+      const existingPasses = await db.models.Pass.findAll({
+        where: { id: passIds },
+        attributes: ['id'],
+        transaction
+      });
+      const existingPassIds = new Set(existingPasses.map(p => p.id));
+      
+      // Only create judgements for existing passes
+      const validJudgements = batch.filter(j => existingPassIds.has(j.id));
+      if (validJudgements.length > 0) {
+        safeLog(`Creating judgements batch ${i / BATCH_SIZE + 1}/${Math.ceil(judgementDocs.length / BATCH_SIZE)}...`);
+        await db.models.Judgement.bulkCreate(validJudgements, {transaction});
+      }
     }
-    safeLog(`Created ${judgementDocs.length} judgements in database`);
+    safeLog(`Created judgements in database`);
 
     updateProgress(90, 'Finalizing', 'Updating clear counts');
     safeLog('Starting clear count updates...');
