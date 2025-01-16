@@ -18,6 +18,7 @@ const BE_API = 'http://be.t21c.kro.kr';
 const PLACEHOLDER = "" + process.env.PLACEHOLDER_PREFIX + process.env.PLACEHOLDER_BODY + process.env.PLACEHOLDER_POSTFIX;
 
 interface RawLevel {
+  
   id: number;
   song: string;
   artist: string;
@@ -146,26 +147,57 @@ async function fetchData<T>(endpoint: string): Promise<T> {
 
 async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
   try {
+    safeLog('Opening XLSX file...');
     const workbook = xlsx.readFile('./cache/passes.xlsx');
+    safeLog('XLSX file opened successfully');
+
+    safeLog('Getting first sheet...');
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+    safeLog(`Found sheet: ${sheetName}`);
+
+    safeLog('Converting sheet to JSON...');
     const rawData = xlsx.utils.sheet_to_json(worksheet);
+    safeLog(`Converted ${rawData.length} rows to JSON`);
 
     const feelingRatings = new Map<number, string>();
+    let validRatings = 0;
+    let invalidIds = 0;
+    let emptyRatings = 0;
 
-    rawData.forEach((row: any) => {
+    safeLog('Processing rows...');
+    rawData.forEach((row: any, index: number) => {
+      if (index % 1000 === 0) {
+        safeLog(`Processing row ${index}/${rawData.length}...`);
+      }
+
       const id = parseInt(row['Pid']);
       const rating = row['Feeling Difficulty']?.toString() || '';
-      if (id !== 0 && !isNaN(id) && rating !== '') {
+      
+      if (isNaN(id) || id === 0) {
+        invalidIds++;
+      } else if (rating === '') {
+        emptyRatings++;
+      } else {
         feelingRatings.set(id, rating);
+        validRatings++;
       }
     });
 
-    console.log(`Loaded ${feelingRatings.size} feeling ratings from XLSX`);
+    safeLog(`Feeling ratings processing complete:
+    - Total rows: ${rawData.length}
+    - Valid ratings: ${validRatings}
+    - Invalid IDs: ${invalidIds}
+    - Empty ratings: ${emptyRatings}
+    - Total mapped: ${feelingRatings.size}`);
+
     return feelingRatings;
   } catch (error) {
-    console.error('Error reading feeling ratings from XLSX:', error);
-    return new Map(); // Return empty map on error
+    safeLog(`Error reading feeling ratings from XLSX: ${error instanceof Error ? error.message : String(error)}`);
+    if (error instanceof Error && error.stack) {
+      safeLog(`Stack trace: ${error.stack}`);
+    }
+    return new Map();
   }
 }
 
