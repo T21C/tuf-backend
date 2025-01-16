@@ -121,7 +121,7 @@ async function startServer() {
 
     // Start the server
     await new Promise<void>(resolve => {
-      httpServer.listen(port, () => {
+      httpServer.listen(Number(port), '127.0.0.1', () => {
         console.log(`Server running on ${ownUrl} (${process.env.NODE_ENV} environment)`);
         resolve();
       });
