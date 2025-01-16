@@ -2,7 +2,7 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('PlayerStats', {
+    await queryInterface.createTable('player_stats', {
       id: {
         type: Sequelize.INTEGER,
         autoIncrement: true,
@@ -100,15 +100,15 @@ module.exports = {
     });
 
     // Add indexes for better query performance
-    await queryInterface.addIndex('PlayerStats', ['playerId']);
-    await queryInterface.addIndex('PlayerStats', ['rankedScore']);
-    await queryInterface.addIndex('PlayerStats', ['generalScore']);
-    await queryInterface.addIndex('PlayerStats', ['ppScore']);
-    await queryInterface.addIndex('PlayerStats', ['wfScore']);
-    await queryInterface.addIndex('PlayerStats', ['score12k']);
+    await queryInterface.addIndex('player_stats', ['playerId']);
+    await queryInterface.addIndex('player_stats', ['rankedScore']);
+    await queryInterface.addIndex('player_stats', ['generalScore']);
+    await queryInterface.addIndex('player_stats', ['ppScore']);
+    await queryInterface.addIndex('player_stats', ['wfScore']);
+    await queryInterface.addIndex('player_stats', ['score12k']);
   },
-
+  
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable('PlayerStats');
+    await queryInterface.dropTable('player_stats');
   },
 }; 

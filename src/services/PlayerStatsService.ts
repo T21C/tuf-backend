@@ -135,11 +135,11 @@ export class PlayerStatsService {
         
         // MySQL-compatible rank update query
         await sequelize.query(`
-          UPDATE PlayerStats ps
+          UPDATE player_stats ps
           JOIN (
             SELECT id, 
                    @rank := @rank + 1 as new_rank
-            FROM PlayerStats, (SELECT @rank := 0) r
+            FROM player_stats, (SELECT @rank := 0) r
             ORDER BY ${scoreType} DESC
           ) ranked ON ps.id = ranked.id
           SET ps.${rankField} = ranked.new_rank
@@ -316,13 +316,13 @@ export class PlayerStatsService {
     const playerStats = await PlayerStats.findOne({
       attributes: {
         include: [
-          [sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = PlayerStats.playerId AND Passes.isDeleted = false)'), 'totalPasses'],
+          [sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = player_stats.playerId AND Passes.isDeleted = false)'), 'totalPasses'],
           [sequelize.literal(`(
             SELECT Difficulties.sortOrder 
             FROM Passes 
             JOIN Levels ON Levels.id = Passes.levelId 
             JOIN Difficulties ON Difficulties.id = Levels.diffId 
-            WHERE Passes.playerId = PlayerStats.playerId 
+            WHERE Passes.playerId = player_stats.playerId 
             AND Passes.isDeleted = false 
             ORDER BY Difficulties.sortOrder DESC 
             LIMIT 1
@@ -332,7 +332,7 @@ export class PlayerStatsService {
             FROM Passes 
             JOIN Levels ON Levels.id = Passes.levelId 
             JOIN Difficulties ON Difficulties.id = Levels.diffId 
-            WHERE Passes.playerId = PlayerStats.playerId 
+            WHERE Passes.playerId = player_stats.playerId 
             AND Passes.isDeleted = false 
             AND Passes.is12K = true 
             ORDER BY Difficulties.sortOrder DESC 
@@ -391,7 +391,7 @@ export class PlayerStatsService {
       'wfScore': 'wfScore',
       'score12k': 'score12k',
       'averageXacc': 'averageXacc',
-      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = PlayerStats.playerId AND Passes.isDeleted = false)'),
+      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = player_stats.playerId AND Passes.isDeleted = false)'),
       'universalPasses': 'universalPassCount',
       'worldsFirstCount': 'worldsFirstCount',
       'topDiff': sequelize.literal(`(
@@ -399,7 +399,7 @@ export class PlayerStatsService {
         FROM Passes 
         JOIN Levels ON Levels.id = Passes.levelId 
         JOIN Difficulties ON Difficulties.id = Levels.diffId 
-        WHERE Passes.playerId = PlayerStats.playerId 
+        WHERE Passes.playerId = player_stats.playerId 
         AND Passes.isDeleted = false 
         ORDER BY Difficulties.sortOrder DESC 
         LIMIT 1
@@ -409,7 +409,7 @@ export class PlayerStatsService {
         FROM Passes 
         JOIN Levels ON Levels.id = Passes.levelId 
         JOIN Difficulties ON Difficulties.id = Levels.diffId 
-        WHERE Passes.playerId = PlayerStats.playerId 
+        WHERE Passes.playerId = player_stats.playerId 
         AND Passes.isDeleted = false 
         AND Passes.is12K = true 
         ORDER BY Difficulties.sortOrder DESC 

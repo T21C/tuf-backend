@@ -111,7 +111,7 @@ PlayerStats.init(
   {
     sequelize,
     modelName: 'PlayerStats',
-    tableName: 'PlayerStats',
+    tableName: 'player_stats',
     timestamps: true,
   },
 );
