@@ -13,6 +13,7 @@ import { migrateCredits, migrateNewCredits } from './migrateCredits';
 import { Transaction } from 'sequelize';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
+import fs from 'fs';
 
 const BE_API = 'http://be.t21c.kro.kr';
 const PLACEHOLDER = "" + process.env.PLACEHOLDER_PREFIX + process.env.PLACEHOLDER_BODY + process.env.PLACEHOLDER_POSTFIX;
@@ -147,13 +148,49 @@ async function fetchData<T>(endpoint: string): Promise<T> {
 
 async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
   try {
+    safeLog('Checking for XLSX file...');
+    const filePath = './cache/passes.xlsx';
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      safeLog('Warning: passes.xlsx not found in cache directory. Continuing without feeling ratings.');
+      return new Map();
+    }
+
+    try {
+      // Check file permissions
+      fs.accessSync(filePath, fs.constants.R_OK);
+    } catch (e) {
+      safeLog(`Warning: No read permission for passes.xlsx. Error: ${e instanceof Error ? e.message : String(e)}`);
+      return new Map();
+    }
+
     safeLog('Opening XLSX file...');
-    const workbook = xlsx.readFile('./cache/passes.xlsx');
-    safeLog('XLSX file opened successfully');
+    let workbook;
+    try {
+      workbook = xlsx.readFile(filePath, {
+        cellDates: true,
+        cellNF: false,
+        cellText: false
+      });
+    } catch (e) {
+      safeLog(`Error reading XLSX file: ${e instanceof Error ? e.message : String(e)}`);
+      safeLog('Continuing without feeling ratings.');
+      return new Map();
+    }
+
+    if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+      safeLog('Warning: Invalid XLSX file format. Continuing without feeling ratings.');
+      return new Map();
+    }
 
     safeLog('Getting first sheet...');
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) {
+      safeLog('Warning: No worksheet found in XLSX file. Continuing without feeling ratings.');
+      return new Map();
+    }
     safeLog(`Found sheet: ${sheetName}`);
 
     safeLog('Converting sheet to JSON...');
@@ -197,6 +234,7 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
     if (error instanceof Error && error.stack) {
       safeLog(`Stack trace: ${error.stack}`);
     }
+    safeLog('Continuing without feeling ratings.');
     return new Map();
   }
 }
