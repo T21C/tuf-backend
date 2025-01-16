@@ -2,9 +2,12 @@ import {ILevel, IPass, IPlayer} from '../interfaces/models';
 import Player from '../models/Player';
 import Pass from '../models/Pass';
 import Level from '../models/Level';
+import Difficulty from '../models/Difficulty';
 import Judgement from '../models/Judgement';
 import { User } from '../models';
 import OAuthProvider from '../models/OAuthProvider';
+import {Worker} from 'worker_threads';
+import path from 'path';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -43,6 +46,33 @@ const progressBar = new cliProgress.MultiBar({
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Worker pool configuration
+const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(require('os').cpus().length / 2)));
+const workerPool: Worker[] = [];
+
+// Initialize worker pool
+function initializeWorkerPool() {
+  for (let i = 0; i < MAX_WORKERS; i++) {
+    const worker = new Worker(path.join(__dirname, 'statsWorker.js'));
+    workerPool.push(worker);
+  }
+}
+
+// Get next available worker
+function getWorker(): Worker {
+  return workerPool[Math.floor(Math.random() * workerPool.length)];
+}
+
+// Process stats calculation in worker thread
+async function calculateStatsInWorker(scores: any[], passes: any[]): Promise<any> {
+  const worker = getWorker();
+  return new Promise((resolve, reject) => {
+    worker.postMessage({ scores, passes });
+    worker.once('message', resolve);
+    worker.once('error', reject);
+  });
+}
 
 async function updatePlayerPfp(player: Player): Promise<{
   playerId: number;
@@ -217,73 +247,76 @@ async function processBatch(
 }
 
 export async function enrichPlayerData(player: Player): Promise<IPlayer> {
-  // Load user data in parallel with pass processing
-  const userDataPromise = User.findOne({
-    where: { playerId: player.id },
-    include: [{
-      model: OAuthProvider,
-      as: 'providers',
-      where: { provider: 'discord' },
-      attributes: ['profile'],
-      required: false
-    }],
-    attributes: ['nickname', 'avatarUrl', 'username']
-  });
+  // Initialize worker pool if not already done
+  if (workerPool.length === 0) {
+    initializeWorkerPool();
+  }
+
+  // Split the data loading into parallel operations
+  const [userData, passesData] = await Promise.all([
+    // Load user data
+    User.findOne({
+      where: { playerId: player.id },
+      include: [{
+        model: OAuthProvider,
+        as: 'providers',
+        where: { provider: 'discord' },
+        attributes: ['profile'],
+        required: false
+      }],
+      attributes: ['nickname', 'avatarUrl', 'username']
+    }),
+    // Load passes with minimal data
+    Pass.findAll({
+      where: { 
+        playerId: player.id,
+        isDeleted: false
+      },
+      attributes: [
+        'id', 'scoreV2', 'accuracy', 'isWorldsFirst', 
+        'is12K', 'isDeleted', 'levelId'
+      ],
+      include: [{
+        model: Level,
+        as: 'level',
+        attributes: ['id', 'baseScore', 'isHidden'],
+        include: [{
+          model: Difficulty,
+          as: 'difficulty',
+          attributes: ['name', 'sortOrder']
+        }]
+      }]
+    })
+  ]);
 
   const playerData = player.get({plain: true});
-  const passes = playerData.passes || [];
-
-  // Process passes while user data is being fetched
-  const scores = passes
-    .filter((pass: IPass) => !pass.isDeleted)
-    .map((pass: IPass) => ({
+  
+  // Process passes data
+  const scores = passesData
+    .filter(pass => !pass.isDeleted)
+    .map(pass => ({
       score: pass.scoreV2 || 0,
       xacc: pass.accuracy || 0,
       isWorldsFirst: pass.isWorldsFirst || false,
       is12K: pass.is12K || false,
-      baseScore: getBaseScore(pass.level as ILevel),
+      baseScore: pass.level?.baseScore || 0,
       isDeleted: pass.isDeleted || false,
       isHidden: pass.level?.isHidden || false,
       pguDiff: pass.level?.difficulty?.name,
+      diffSortOrder: pass.level?.difficulty?.sortOrder
     }));
 
-  const validScores = scores.filter((s: any) => !s.isDeleted);
-
-  // Wait for user data
-  const userData = await userDataPromise;
-
+  // Process Discord data
   let discordProvider: any;
   if (userData?.dataValues.providers) {
-    discordProvider = userData?.dataValues.providers[0].dataValues as any;
+    discordProvider = userData.dataValues.providers[0].dataValues;
     discordProvider.profile.avatarUrl = discordProvider.profile.avatar ? 
       `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png` :
       null;
   }
 
-  // Calculate all stats in parallel
-  const [
-    rankedScore,
-    generalScore,
-    ppScore,
-    wfScore,
-    score12k,
-    averageXacc,
-    universalPassCount,
-    worldsFirstCount,
-    topDiff,
-    top12kDiff
-  ] = await Promise.all([
-    calculateRankedScore(validScores),
-    calculateGeneralScore(validScores),
-    calculatePPScore(validScores),
-    calculateWFScore(validScores),
-    calculate12KScore(validScores),
-    calculateAverageXacc(validScores),
-    countUniversalPasses(passes),
-    countWorldsFirstPasses(passes),
-    calculateTopDiff(passes),
-    calculateTop12KDiff(passes)
-  ]);
+  // Calculate stats in worker thread
+  const stats = await calculateStatsInWorker(scores, passesData);
 
   const enrichedPlayer = {
     id: playerData.id,
@@ -295,20 +328,11 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
     discordAvatar: discordProvider?.profile.avatarUrl,
     discordAvatarId: discordProvider?.profile.avatar,
     discordId: discordProvider?.profile.id,
-    rankedScore,
-    generalScore,
-    ppScore,
-    wfScore,
-    score12k,
-    averageXacc,
-    totalPasses: validScores.length,
-    universalPasses: universalPassCount,
-    worldsFirstCount,
-    topDiff,
-    top12kDiff,
+    ...stats,
+    totalPasses: scores.length,
     createdAt: playerData.createdAt,
     updatedAt: playerData.updatedAt,
-    passes: passes,
+    passes: passesData,
   } as IPlayer;
 
   return enrichedPlayer;
