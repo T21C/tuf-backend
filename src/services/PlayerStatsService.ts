@@ -52,9 +52,10 @@ export class PlayerStatsService {
   }
 
   public async reloadAllStats(): Promise<void> {
-    const transaction = await sequelize.transaction();
-
+    let transaction;
     try {
+      transaction = await sequelize.transaction();
+      
       console.log('Starting full stats reload...');
 
       // Get all players with their passes in a single query
@@ -160,8 +161,9 @@ export class PlayerStatsService {
         },
       });
     } catch (error) {
-      await transaction.rollback();
-      console.error('Error reloading player stats:', error);
+      if (transaction) {
+        await transaction.rollback();
+      }
       throw error;
     }
   }
