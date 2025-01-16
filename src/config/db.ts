@@ -18,11 +18,6 @@ const sequelize = new Sequelize({
   },
   dialectOptions: {
     connectTimeout: 60000,
-    options: {
-      requestTimeout: 300000
-    },
-    keepAlive: true,
-    keepAliveInitialDelay: 10000
   },
   retry: {
     max: 3
