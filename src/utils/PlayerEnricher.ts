@@ -25,6 +25,7 @@ import colors from 'ansi-colors';
 // Rate limiting settings
 const CONCURRENT_BATCH_SIZE = 25;
 const DELAY_BETWEEN_BATCHES = 0;
+const PLAYER_LOAD_BATCH_SIZE = 100; // Add batch size for initial player loading
 
 // Progress bar configuration
 const progressBar = new cliProgress.MultiBar({
@@ -144,6 +145,57 @@ async function processBatch(
   return results;
 }
 
+async function loadPlayersInBatches(mainBar: cliProgress.SingleBar): Promise<Player[]> {
+  // First get total count and IDs
+  const totalCount = await Player.count({
+    where: { pfp: null }
+  });
+
+  if (totalCount === 0) {
+    return [];
+  }
+
+  const allPlayers: Player[] = [];
+  const totalBatches = Math.ceil(totalCount / PLAYER_LOAD_BATCH_SIZE);
+
+  for (let batch = 0; batch < totalBatches; batch++) {
+    const progress = 10 + ((batch / totalBatches) * 10); // Use 10-20% range for loading
+    mainBar.update(progress, { subtask: `Loading players (batch ${batch + 1}/${totalBatches})` });
+
+    const batchPlayers = await Player.findAll({
+      where: { pfp: null },
+      include: [
+        {
+          model: Pass,
+          as: 'passes',
+          where: { isDeleted: false },
+          required: false,
+          attributes: ['videoLink', 'isDeleted'], // Only select needed fields
+          include: [
+            {
+              model: Level,
+              as: 'level',
+              attributes: ['id'], // Only select needed fields
+            },
+          ],
+        },
+      ],
+      limit: PLAYER_LOAD_BATCH_SIZE,
+      offset: batch * PLAYER_LOAD_BATCH_SIZE,
+      order: [['id', 'ASC']], // Ensure consistent ordering
+    });
+
+    allPlayers.push(...batchPlayers);
+
+    // Small delay between batches to prevent overloading
+    if (batch < totalBatches - 1) {
+      await delay(100);
+    }
+  }
+
+  return allPlayers;
+}
+
 export async function updateAllPlayerPfps(): Promise<void> {
   const mainBar = progressBar.create(100, 0, {
     task: 'PFP Update',
@@ -152,30 +204,14 @@ export async function updateAllPlayerPfps(): Promise<void> {
 
   try {
     mainBar.update(10, { subtask: 'Loading players' });
-    const players = await Player.findAll({
-      where: {
-        pfp: null,
-      },
-      include: [
-        {
-          model: Pass,
-          as: 'passes',
-          where: { isDeleted: false },
-          required: false,
-          include: [
-            {
-              model: Level,
-              as: 'level',
-            },
-          ],
-        },
-      ],
-    });
+    const players = await loadPlayersInBatches(mainBar);
 
     if (players.length === 0) {
       mainBar.update(100, { subtask: 'No updates needed' });
       return;
     }
+
+    mainBar.update(20, { subtask: `Processing ${players.length} players` });
 
     const batches = [];
     for (let i = 0; i < players.length; i += CONCURRENT_BATCH_SIZE) {
@@ -194,10 +230,18 @@ export async function updateAllPlayerPfps(): Promise<void> {
         subtask: `Processing batch ${i + 1}/${batches.length}` 
       });
 
-      const results = await processBatch(batches[i], mainBar, startProgress, endProgress);
-      const batchSuccesses = results.filter(r => r.success).length;
-      totalSuccesses += batchSuccesses;
-      totalFailures += results.length - batchSuccesses;
+      try {
+        const results = await processBatch(batches[i], mainBar, startProgress, endProgress);
+        const batchSuccesses = results.filter(r => r.success).length;
+        totalSuccesses += batchSuccesses;
+        totalFailures += results.length - batchSuccesses;
+      } catch (error) {
+        // Log error but continue with next batch
+        totalFailures += batches[i].length;
+        mainBar.update(endProgress, { 
+          subtask: `Batch ${i + 1} failed, continuing...` 
+        });
+      }
 
       if (i < batches.length - 1) {
         await delay(DELAY_BETWEEN_BATCHES);
