@@ -27,11 +27,10 @@ export class PlayerStatsService {
   private isInitialized: boolean = false;
 
   private constructor() {
-    // Run population on service initialization
-    this.initialize();
+    // Remove automatic initialization
   }
 
-  private async initialize() {
+  public async initialize() {
     if (this.isInitialized) return;
     
     try {

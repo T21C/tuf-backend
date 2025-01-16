@@ -24,6 +24,7 @@ import discordRouter from './routes/discord';
 import eventsRouter from './routes/events';
 import utilsRouter from './routes/utils';
 import reloadDatabase, { partialReload } from './utils/reloadDatabase';
+import {PlayerStatsService} from './services/PlayerStatsService';
 
 dotenv.config();
 
@@ -68,6 +69,10 @@ async function startServer() {
       console.log('Updating database...');
       await partialReload();
     }
+
+    // Initialize PlayerStatsService after database is ready
+    const playerStatsService = PlayerStatsService.getInstance();
+    await playerStatsService.initialize();
 
     // Set up Express middleware
     const corsOptions = {
