@@ -124,13 +124,19 @@ const progressBar = new cliProgress.MultiBar({
   noTTYOutput: !process.stdout.isTTY,
   stream: process.stdout,
   fps: 10,
+  forceRedraw: true,
 }, cliProgress.Presets.shades_classic);
 
 // Helper function to log without corrupting progress bar
-function safeLog(message: string) {
+function safeLog(message: string, bar?: cliProgress.SingleBar) {
   if (process.stdout.isTTY) {
-    progressBar.stop();
-    console.log(message);
+    if (bar) {
+      // Keep current progress value and update subtask
+      const currentValue = (bar as any).value || 0;
+      bar.update(currentValue, { subtask: message });
+    } else {
+      progressBar.log(message);
+    }
   } else {
     console.log(message);
   }
@@ -148,13 +154,18 @@ async function fetchData<T>(endpoint: string): Promise<T> {
 
 async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
   try {
-    safeLog('Checking for ratings file...');
+    const csvBar = progressBar.create(100, 0, {
+      task: 'CSV Processing',
+      subtask: 'Starting...'
+    });
+
+    safeLog('Checking for ratings file...', csvBar);
     const xlsxPath = './cache/passes.xlsx';
     const csvPath = './cache/passes.csv';
     
     // Try CSV first (faster)
     if (fs.existsSync(csvPath)) {
-      safeLog('Found CSV file, using it for faster processing...');
+      safeLog('Found CSV file, using it for faster processing...', csvBar);
       const content = fs.readFileSync(csvPath, 'utf8');
       const lines = content.split('\n');
       
@@ -181,17 +192,27 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
           validRatings++;
         }
 
-        if (i % 1000 === 0) {
-          safeLog(`Processing row ${i}/${lines.length}...`);
-        }
+        // Update progress bar
+        const progress = Math.floor((i / lines.length) * 100);
+        csvBar.update(progress, {
+          task: 'CSV Processing',
+          subtask: `${i}/${lines.length} rows`
+        });
       }
 
-      safeLog(`CSV processing complete:
+      const summary = `CSV processing complete:
       - Total rows: ${lines.length - 1}
       - Valid ratings: ${validRatings}
       - Invalid IDs: ${invalidIds}
       - Empty ratings: ${emptyRatings}
-      - Total mapped: ${feelingRatings.size}`);
+      - Total mapped: ${feelingRatings.size}`;
+
+      csvBar.update(100, {
+        task: 'CSV Processing',
+        subtask: 'Complete'
+      });
+      csvBar.stop();
+      safeLog(summary);
 
       return feelingRatings;
     }
@@ -767,17 +788,33 @@ async function reloadDatabase() {
 
     updateProgress(75, 'Data Creation', 'Creating levels');
     safeLog('Starting bulk creation of levels...');
-    await db.models.Level.bulkCreate(levelDocs as any, {transaction});
+    // Create levels in batches of 4000
+    const BATCH_SIZE = 4000;
+    for (let i = 0; i < levelDocs.length; i += BATCH_SIZE) {
+      const batch = levelDocs.slice(i, i + BATCH_SIZE);
+      safeLog(`Creating levels batch ${i / BATCH_SIZE + 1}/${Math.ceil(levelDocs.length / BATCH_SIZE)}...`);
+      await db.models.Level.bulkCreate(batch as any, {transaction});
+    }
     safeLog(`Created ${levelDocs.length} levels in database`);
     
     updateProgress(80, 'Data Creation', 'Creating passes');
     safeLog('Starting bulk creation of passes...');
-    await db.models.Pass.bulkCreate(passDocs as any, {transaction});
+    // Create passes in batches
+    for (let i = 0; i < passDocs.length; i += BATCH_SIZE) {
+      const batch = passDocs.slice(i, i + BATCH_SIZE);
+      safeLog(`Creating passes batch ${i / BATCH_SIZE + 1}/${Math.ceil(passDocs.length / BATCH_SIZE)}...`);
+      await db.models.Pass.bulkCreate(batch as any, {transaction});
+    }
     safeLog(`Created ${passDocs.length} passes in database`);
     
     updateProgress(85, 'Data Creation', 'Creating judgements');
     safeLog('Starting bulk creation of judgements...');
-    await db.models.Judgement.bulkCreate(judgementDocs, {transaction});
+    // Create judgements in batches
+    for (let i = 0; i < judgementDocs.length; i += BATCH_SIZE) {
+      const batch = judgementDocs.slice(i, i + BATCH_SIZE);
+      safeLog(`Creating judgements batch ${i / BATCH_SIZE + 1}/${Math.ceil(judgementDocs.length / BATCH_SIZE)}...`);
+      await db.models.Judgement.bulkCreate(batch, {transaction});
+    }
     safeLog(`Created ${judgementDocs.length} judgements in database`);
 
     updateProgress(90, 'Finalizing', 'Updating clear counts');
