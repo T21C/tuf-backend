@@ -148,27 +148,73 @@ async function fetchData<T>(endpoint: string): Promise<T> {
 
 async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
   try {
-    safeLog('Checking for XLSX file...');
-    const filePath = './cache/passes.xlsx';
+    safeLog('Checking for ratings file...');
+    const xlsxPath = './cache/passes.xlsx';
+    const csvPath = './cache/passes.csv';
     
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      safeLog('Warning: passes.xlsx not found in cache directory. Continuing without feeling ratings.');
+    // Try CSV first (faster)
+    if (fs.existsSync(csvPath)) {
+      safeLog('Found CSV file, using it for faster processing...');
+      const content = fs.readFileSync(csvPath, 'utf8');
+      const lines = content.split('\n');
+      
+      const feelingRatings = new Map<number, string>();
+      let validRatings = 0;
+      let invalidIds = 0;
+      let emptyRatings = 0;
+
+      // Skip header
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const [pidStr, , feelingDiff] = line.split(',');
+        const id = parseInt(pidStr);
+        const rating = feelingDiff?.trim()?.replace(/^"|"$/g, '') || '';
+
+        if (isNaN(id) || id === 0) {
+          invalidIds++;
+        } else if (rating === '') {
+          emptyRatings++;
+        } else {
+          feelingRatings.set(id, rating);
+          validRatings++;
+        }
+
+        if (i % 1000 === 0) {
+          safeLog(`Processing row ${i}/${lines.length}...`);
+        }
+      }
+
+      safeLog(`CSV processing complete:
+      - Total rows: ${lines.length - 1}
+      - Valid ratings: ${validRatings}
+      - Invalid IDs: ${invalidIds}
+      - Empty ratings: ${emptyRatings}
+      - Total mapped: ${feelingRatings.size}`);
+
+      return feelingRatings;
+    }
+
+    // Fallback to XLSX if CSV doesn't exist
+    if (!fs.existsSync(xlsxPath)) {
+      safeLog('Warning: Neither CSV nor XLSX file found. Continuing without feeling ratings.');
       return new Map();
     }
 
+    safeLog('No CSV found, falling back to XLSX (slower)...');
     try {
       // Check file permissions
-      fs.accessSync(filePath, fs.constants.R_OK);
+      fs.accessSync(xlsxPath, fs.constants.R_OK);
     } catch (e) {
-      safeLog(`Warning: No read permission for passes.xlsx. Error: ${e instanceof Error ? e.message : String(e)}`);
+      safeLog(`Warning: No read permission for XLSX file. Error: ${e instanceof Error ? e.message : String(e)}`);
       return new Map();
     }
 
-    safeLog('Opening XLSX file...');
+    // Rest of the existing XLSX code...
     let workbook;
     try {
-      workbook = xlsx.readFile(filePath, {
+      workbook = xlsx.readFile(xlsxPath, {
         cellDates: true,
         cellNF: false,
         cellText: false
@@ -230,7 +276,7 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
 
     return feelingRatings;
   } catch (error) {
-    safeLog(`Error reading feeling ratings from XLSX: ${error instanceof Error ? error.message : String(error)}`);
+    safeLog(`Error reading feeling ratings: ${error instanceof Error ? error.message : String(error)}`);
     if (error instanceof Error && error.stack) {
       safeLog(`Stack trace: ${error.stack}`);
     }
