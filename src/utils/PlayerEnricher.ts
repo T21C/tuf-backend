@@ -19,10 +19,25 @@ import {
 } from '../misc/PlayerStatsCalculator';
 import {getPfpUrl} from './pfpResolver';
 import {getBaseScore} from './parseBaseScore';
+import cliProgress from 'cli-progress';
+import colors from 'ansi-colors';
 
 // Rate limiting settings
-const CONCURRENT_BATCH_SIZE = 25; // Process 10 players concurrently
-const DELAY_BETWEEN_BATCHES = 0; // 5 seconds between batches
+const CONCURRENT_BATCH_SIZE = 25;
+const DELAY_BETWEEN_BATCHES = 0;
+
+// Progress bar configuration
+const progressBar = new cliProgress.MultiBar({
+  format: colors.cyan('{bar}') + ' | {percentage}% | {task} | {subtask}',
+  barCompleteChar: '\u2588',
+  barIncompleteChar: '\u2591',
+  hideCursor: true,
+  clearOnComplete: true,
+  noTTYOutput: !process.stdout.isTTY,
+  stream: process.stdout,
+  fps: 10,
+  forceRedraw: true,
+}, cliProgress.Presets.shades_classic);
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -35,7 +50,6 @@ async function updatePlayerPfp(player: Player): Promise<{
   error?: string;
 }> {
   try {
-    // Get raw data to ensure we have the ID
     const playerData = player.get({plain: true});
     if (!playerData.id) {
       return {
@@ -47,7 +61,6 @@ async function updatePlayerPfp(player: Player): Promise<{
       };
     }
 
-    // Skip if pfp is already set and not null
     if (playerData.pfp !== null) {
       return {
         playerId: playerData.id,
@@ -58,15 +71,12 @@ async function updatePlayerPfp(player: Player): Promise<{
       };
     }
 
-    // Get up to 20 passes with video links
     const validPasses = (player.passes || [])
       .filter(pass => pass.videoLink && !pass.isDeleted)
       .slice(0, 20);
 
     if (validPasses.length === 0) {
-      // Update database to mark as processed with no pfp
       await Player.update({pfp: 'none'}, {where: {id: playerData.id}});
-
       return {
         playerId: playerData.id,
         playerName: playerData.name,
@@ -76,20 +86,11 @@ async function updatePlayerPfp(player: Player): Promise<{
       };
     }
 
-
-    // Try each video link until we get a valid pfp
     for (const pass of validPasses) {
       try {
-        //console.log(`Trying video ${pass.videoLink} for player ${playerData.name}`);
         const pfpUrl = await getPfpUrl(pass.videoLink!);
-
         if (pfpUrl) {
-          // Update player's pfp in database
           await Player.update({pfp: pfpUrl}, {where: {id: playerData.id}});
-
-          console.log(
-            `✓ Success: Updated pfp for ${playerData.name} using video ${pass.videoLink}`,
-          );
           return {
             playerId: playerData.id,
             playerName: playerData.name,
@@ -98,16 +99,11 @@ async function updatePlayerPfp(player: Player): Promise<{
           };
         }
       } catch (error) {
-        console.log(
-          `✗ Failed to get pfp from video ${pass.videoLink} for ${playerData.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
         continue;
       }
     }
 
-    // If no pfp was found after trying all videos, mark as processed with no pfp
     await Player.update({pfp: 'none'}, {where: {id: playerData.id}});
-
     return {
       playerId: playerData.id,
       playerName: playerData.name,
@@ -126,98 +122,97 @@ async function updatePlayerPfp(player: Player): Promise<{
   }
 }
 
-async function processBatch(players: Player[]): Promise<
-  Array<{
-    playerId: number;
-    playerName: string;
-    success: boolean;
-    pfpUrl: string | null;
-    error?: string;
-  }>
-> {
-  const results = await Promise.all(players.map(updatePlayerPfp));
-
-  // console.log(`\nBatch complete:`);
-  // console.log(`✓ Successful updates: ${successCount}/${players.length}`);
-  // console.log(`✗ Failed updates: ${players.length - successCount}/${players.length}`);
-  // console.log(`⏱ Duration: ${duration.toFixed(2)} seconds`);
-
+async function processBatch(
+  players: Player[], 
+  progressBar: cliProgress.SingleBar, 
+  startProgress: number, 
+  endProgress: number
+): Promise<Array<{
+  playerId: number;
+  playerName: string;
+  success: boolean;
+  pfpUrl: string | null;
+  error?: string;
+}>> {
+  const results = await Promise.all(
+    players.map(async (player, index) => {
+      const progress = startProgress + ((index / players.length) * (endProgress - startProgress));
+      progressBar.update(progress, { subtask: `Processing ${player.name}` });
+      return updatePlayerPfp(player);
+    })
+  );
   return results;
 }
 
 export async function updateAllPlayerPfps(): Promise<void> {
-  try {
-    console.log('\n=== Starting pfp update process ===\n');
+  const mainBar = progressBar.create(100, 0, {
+    task: 'PFP Update',
+    subtask: 'Starting...'
+  });
 
+  try {
+    mainBar.update(10, { subtask: 'Loading players' });
     const players = await Player.findAll({
       where: {
-        pfp: null, // Only get players with null pfp
+        pfp: null,
       },
       include: [
         {
           model: Pass,
           as: 'passes',
+          where: { isDeleted: false },
+          required: false,
           include: [
             {
               model: Level,
               as: 'level',
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
             },
           ],
         },
       ],
     });
 
-    console.log(`Found ${players.length} players with null pfp to process`);
-
     if (players.length === 0) {
-      console.log('No players need pfp updates');
+      mainBar.update(100, { subtask: 'No updates needed' });
       return;
     }
 
-    // Process players in concurrent batches
     const batches = [];
     for (let i = 0; i < players.length; i += CONCURRENT_BATCH_SIZE) {
       const batch = players.slice(i, i + CONCURRENT_BATCH_SIZE);
       batches.push(batch);
     }
 
-    console.log(
-      `Split into ${batches.length} batches of ${CONCURRENT_BATCH_SIZE} players each\n`,
-    );
-
     let totalSuccesses = 0;
     let totalFailures = 0;
 
     for (let i = 0; i < batches.length; i++) {
-      // console.log(`\n=== Processing Batch ${i + 1}/${batches.length} ===`);
+      const startProgress = 20 + ((i / batches.length) * 70);
+      const endProgress = 20 + (((i + 1) / batches.length) * 70);
+      
+      mainBar.update(startProgress, { 
+        subtask: `Processing batch ${i + 1}/${batches.length}` 
+      });
 
-      const results = await processBatch(batches[i]);
+      const results = await processBatch(batches[i], mainBar, startProgress, endProgress);
       const batchSuccesses = results.filter(r => r.success).length;
-      const batchFailures = results.length - batchSuccesses;
-
       totalSuccesses += batchSuccesses;
-      totalFailures += batchFailures;
+      totalFailures += results.length - batchSuccesses;
 
-      // Add delay between batches (except for the last batch)
       if (i < batches.length - 1) {
-        //console.log(`\nWaiting ${DELAY_BETWEEN_BATCHES/1000} seconds before next batch...`);
         await delay(DELAY_BETWEEN_BATCHES);
       }
     }
 
-    const endTime = Date.now();
-
-    //console.log('\n=== Pfp Update Process Complete ===');
-    //console.log(`Total Duration: ${totalDuration.toFixed(2)} seconds`);
-    //console.log(`Total Successes: ${totalSuccesses}/${players.length}`);
-    //console.log(`Total Failures: ${totalFailures}/${players.length}`);
-    //console.log('===================================\n');
+    mainBar.update(100, { 
+      subtask: `Complete (${totalSuccesses} updated, ${totalFailures} failed)` 
+    });
   } catch (error) {
-    console.error('Error updating player pfps:', error);
+    mainBar.update(100, { subtask: 'Failed' });
+    throw error;
+  } finally {
+    mainBar.stop();
+    progressBar.remove(mainBar);
   }
 }
 
@@ -225,7 +220,6 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   const playerData = player.get({plain: true});
   const passes = playerData.passes || [];
 
-  // Get associated user data for profile enrichment with OAuth providers
   const userData = await User.findOne({
     where: { playerId: player.id },
     include: [{
@@ -237,8 +231,6 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
     }],
     attributes: ['nickname', 'avatarUrl', 'username']
   });
-
-  // Get Discord info from OAuth provider if available
 
   const scores = passes
     .filter((pass: IPass) => !pass.isDeleted)
@@ -253,7 +245,6 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
       pguDiff: pass.level?.difficulty?.name,
     }));
 
-  // Calculate player stats
   const validScores = scores.filter((s: any) => !s.isDeleted);
 
   let discordProvider: any;
@@ -264,14 +255,12 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
       null;
   }
 
-
-  
   const enrichedPlayer = {
     id: playerData.id,
     name: playerData.name,
     country: playerData.country,
     isBanned: playerData.isBanned,
-    pfp: userData?.avatarUrl || playerData.pfp, // Use user avatar if available, fallback to player pfp
+    pfp: userData?.avatarUrl || playerData.pfp,
     discordUsername: userData?.username,
     discordAvatar: discordProvider?.profile.avatarUrl,
     discordAvatarId: discordProvider?.profile.avatar,
