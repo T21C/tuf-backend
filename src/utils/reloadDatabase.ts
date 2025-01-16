@@ -131,14 +131,11 @@ const progressBar = new cliProgress.MultiBar({
 function safeLog(message: string, bar?: cliProgress.SingleBar) {
   if (process.stdout.isTTY) {
     if (bar) {
-      // Keep current progress value and update subtask
       const currentValue = (bar as any).value || 0;
       bar.update(currentValue, { subtask: message });
     } else {
       progressBar.log(message);
     }
-  } else {
-    console.log(message);
   }
 }
 
@@ -147,25 +144,21 @@ async function fetchData<T>(endpoint: string): Promise<T> {
     const response = await axios.get(`${BE_API}${endpoint}`);
     return response.data;
   } catch (error) {
-    console.error(`Error fetching data from ${endpoint}:`, error);
     throw error;
   }
 }
 
 async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
-  try {
-    const csvBar = progressBar.create(100, 0, {
-      task: 'CSV Processing',
-      subtask: 'Starting...'
-    });
+  const csvBar = progressBar.create(100, 0, {
+    task: 'CSV Processing',
+    subtask: 'Starting...'
+  });
 
-    safeLog('Checking for ratings file...', csvBar);
+  try {
     const xlsxPath = './cache/passes.xlsx';
     const csvPath = './cache/passes.csv';
     
-    // Try CSV first (faster)
     if (fs.existsSync(csvPath)) {
-      safeLog('Found CSV file, using it for faster processing...', csvBar);
       const content = fs.readFileSync(csvPath, 'utf8');
       const lines = content.split('\n');
       
@@ -174,7 +167,6 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
       let invalidIds = 0;
       let emptyRatings = 0;
 
-      // Skip header
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
@@ -183,16 +175,11 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
         const id = parseInt(pidStr);
         const rating = feelingDiff?.trim()?.replace(/^"|"$/g, '') || '';
 
-        if (isNaN(id) || id === 0) {
-          invalidIds++;
-        } else if (rating === '') {
-          emptyRatings++;
-        } else {
+        if (!isNaN(id) && id !== 0 && rating !== '') {
           feelingRatings.set(id, rating);
           validRatings++;
         }
 
-        // Update progress bar
         const progress = Math.floor((i / lines.length) * 100);
         csvBar.update(progress, {
           task: 'CSV Processing',
@@ -200,39 +187,25 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
         });
       }
 
-      const summary = `CSV processing complete:
-      - Total rows: ${lines.length - 1}
-      - Valid ratings: ${validRatings}
-      - Invalid IDs: ${invalidIds}
-      - Empty ratings: ${emptyRatings}
-      - Total mapped: ${feelingRatings.size}`;
-
       csvBar.update(100, {
         task: 'CSV Processing',
         subtask: 'Complete'
       });
       csvBar.stop();
-      safeLog(summary);
 
       return feelingRatings;
     }
 
-    // Fallback to XLSX if CSV doesn't exist
     if (!fs.existsSync(xlsxPath)) {
-      safeLog('Warning: Neither CSV nor XLSX file found. Continuing without feeling ratings.');
       return new Map();
     }
 
-    safeLog('No CSV found, falling back to XLSX (slower)...');
     try {
-      // Check file permissions
       fs.accessSync(xlsxPath, fs.constants.R_OK);
     } catch (e) {
-      safeLog(`Warning: No read permission for XLSX file. Error: ${e instanceof Error ? e.message : String(e)}`);
       return new Map();
     }
 
-    // Rest of the existing XLSX code...
     let workbook;
     try {
       workbook = xlsx.readFile(xlsxPath, {
@@ -241,67 +214,45 @@ async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
         cellText: false
       });
     } catch (e) {
-      safeLog(`Error reading XLSX file: ${e instanceof Error ? e.message : String(e)}`);
-      safeLog('Continuing without feeling ratings.');
       return new Map();
     }
 
     if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
-      safeLog('Warning: Invalid XLSX file format. Continuing without feeling ratings.');
       return new Map();
     }
 
-    safeLog('Getting first sheet...');
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) {
-      safeLog('Warning: No worksheet found in XLSX file. Continuing without feeling ratings.');
       return new Map();
     }
-    safeLog(`Found sheet: ${sheetName}`);
 
-    safeLog('Converting sheet to JSON...');
     const rawData = xlsx.utils.sheet_to_json(worksheet);
-    safeLog(`Converted ${rawData.length} rows to JSON`);
-
     const feelingRatings = new Map<number, string>();
-    let validRatings = 0;
-    let invalidIds = 0;
-    let emptyRatings = 0;
 
-    safeLog('Processing rows...');
     rawData.forEach((row: any, index: number) => {
-      if (index % 1000 === 0) {
-        safeLog(`Processing row ${index}/${rawData.length}...`);
-      }
-
       const id = parseInt(row['Pid']);
       const rating = row['Feeling Difficulty']?.toString() || '';
       
-      if (isNaN(id) || id === 0) {
-        invalidIds++;
-      } else if (rating === '') {
-        emptyRatings++;
-      } else {
+      if (!isNaN(id) && id !== 0 && rating !== '') {
         feelingRatings.set(id, rating);
-        validRatings++;
       }
+
+      const progress = Math.floor((index / rawData.length) * 100);
+      csvBar.update(progress, {
+        task: 'CSV Processing',
+        subtask: `${index}/${rawData.length} rows`
+      });
     });
 
-    safeLog(`Feeling ratings processing complete:
-    - Total rows: ${rawData.length}
-    - Valid ratings: ${validRatings}
-    - Invalid IDs: ${invalidIds}
-    - Empty ratings: ${emptyRatings}
-    - Total mapped: ${feelingRatings.size}`);
+    csvBar.update(100, {
+      task: 'CSV Processing',
+      subtask: 'Complete'
+    });
+    csvBar.stop();
 
     return feelingRatings;
   } catch (error) {
-    safeLog(`Error reading feeling ratings: ${error instanceof Error ? error.message : String(error)}`);
-    if (error instanceof Error && error.stack) {
-      safeLog(`Stack trace: ${error.stack}`);
-    }
-    safeLog('Continuing without feeling ratings.');
     return new Map();
   }
 }
@@ -460,7 +411,6 @@ async function getOrCreatePlayers(players: RawPlayer[], transaction: Transaction
     createdPlayers = await db.models.Player.bulkCreate(newPlayers, {
       transaction
     });
-    console.log(`Created ${newPlayers.length} new players`);
   }
 
   // Return all players (existing + new) as a name-to-id map
@@ -471,14 +421,12 @@ async function getOrCreatePlayers(players: RawPlayer[], transaction: Transaction
 async function reloadDatabase() {
   const transaction = await db.sequelize.transaction();
   
-  // Create main progress bar
   const mainBar = progressBar.create(100, 0, {
     task: 'Database Reload',
     subtask: 'Initializing...'
   });
 
   try {
-    // Initialize progress
     let progress = 0;
     const updateProgress = (increment: number, task: string, subtask: string) => {
       progress = Math.min(100, progress + increment);
@@ -533,19 +481,17 @@ async function reloadDatabase() {
       ? playersResponse
       : (playersResponse as any).results || [];
     const playerNameToId = await getOrCreatePlayers(playersFromApi, transaction);
-    safeLog(`Created ${playersFromApi.length} players`);
 
     updateProgress(35, 'Level Processing', 'Processing levels');
     const levels = Array.isArray(levelsResponse)
       ? levelsResponse
       : (levelsResponse as any).results || [];
     
-    // Process levels with progress updates
     const levelDocs: LevelDoc[] = [];
     let nextLevelId = 1;
     let processedCount = 0;
     const totalLevels = levels.length;
-    const updateInterval = Math.max(1, Math.floor(totalLevels / 20)); // Update progress ~20 times
+    const updateInterval = Math.max(1, Math.floor(totalLevels / 20));
 
     for (const level of levels) {
       // Fill gaps with placeholders
@@ -644,16 +590,11 @@ async function reloadDatabase() {
       }
     }
 
-    safeLog(`Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`);
-
     updateProgress(50, 'Pass Processing', 'Loading feeling ratings');
-    safeLog('Starting to load feeling ratings from XLSX...');
     const feelingRatings = await readFeelingRatingsFromXlsx();
-    safeLog(`Loaded ${feelingRatings.size} feeling ratings from XLSX`);
 
     updateProgress(55, 'Pass Processing', 'Processing passes');
     const passes = passesResponse.results;
-    safeLog(`Starting to process ${passes.length} passes...`);
     const passDocs = [];
     const judgementDocs = [];
     let nextJudgementId = 1;
@@ -662,7 +603,6 @@ async function reloadDatabase() {
     const passUpdateInterval = Math.max(1, Math.floor(totalPasses / 20));
 
     // First, organize passes by level to determine world's firsts
-    safeLog('Organizing passes to determine world firsts...');
     const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
     passes.forEach((pass: RawPass) => {
       const newLevelId = levelIdMapping.get(pass.levelId);
@@ -675,14 +615,11 @@ async function reloadDatabase() {
         levelFirstPasses.set(newLevelId, {uploadTime, id: pass.id});
       }
     });
-    safeLog(`Found ${levelFirstPasses.size} world first passes`);
 
     // Sort passes by ID to process them in order
-    safeLog('Sorting passes by ID...');
     passes.sort((a, b) => a.id - b.id);
 
     let lastValidUploadTime = new Date('2000-01-01 00:00:00');
-    safeLog('Starting pass processing loop...');
 
     for (const pass of passes) {
       const playerId = playerNameToId.get(pass.player);
@@ -784,37 +721,24 @@ async function reloadDatabase() {
       }
     }
 
-    safeLog(`Finished processing passes. Created ${passDocs.length} passes and ${judgementDocs.length} judgements`);
-
     updateProgress(75, 'Data Creation', 'Creating levels');
-    safeLog('Starting bulk creation of levels...');
-    // Create levels in batches of 4000
     const BATCH_SIZE = 4000;
     for (let i = 0; i < levelDocs.length; i += BATCH_SIZE) {
       const batch = levelDocs.slice(i, i + BATCH_SIZE);
-      safeLog(`Creating levels batch ${i / BATCH_SIZE + 1}/${Math.ceil(levelDocs.length / BATCH_SIZE)}...`);
       await db.models.Level.bulkCreate(batch as any, {transaction});
     }
-    safeLog(`Created ${levelDocs.length} levels in database`);
     
     updateProgress(80, 'Data Creation', 'Creating passes');
-    safeLog('Starting bulk creation of passes...');
-    // Create passes in batches
     for (let i = 0; i < passDocs.length; i += BATCH_SIZE) {
       const batch = passDocs.slice(i, i + BATCH_SIZE);
-      safeLog(`Creating passes batch ${i / BATCH_SIZE + 1}/${Math.ceil(passDocs.length / BATCH_SIZE)}...`);
       await db.models.Pass.bulkCreate(batch as any, {transaction});
     }
-    safeLog(`Created ${passDocs.length} passes in database`);
     
     updateProgress(85, 'Data Creation', 'Creating judgements');
-    safeLog('Starting bulk creation of judgements...');
-    // Create judgements in batches, ensuring each batch only includes judgements for existing passes
     for (let i = 0; i < judgementDocs.length; i += BATCH_SIZE) {
       const batch = judgementDocs.slice(i, i + BATCH_SIZE);
       const passIds = batch.map(j => j.id);
       
-      // Verify passes exist for this batch
       const existingPasses = await db.models.Pass.findAll({
         where: { id: passIds },
         attributes: ['id'],
@@ -822,18 +746,13 @@ async function reloadDatabase() {
       });
       const existingPassIds = new Set(existingPasses.map(p => p.id));
       
-      // Only create judgements for existing passes
       const validJudgements = batch.filter(j => existingPassIds.has(j.id));
       if (validJudgements.length > 0) {
-        safeLog(`Creating judgements batch ${i / BATCH_SIZE + 1}/${Math.ceil(judgementDocs.length / BATCH_SIZE)}...`);
         await db.models.Judgement.bulkCreate(validJudgements, {transaction});
       }
     }
-    safeLog(`Created judgements in database`);
 
     updateProgress(90, 'Finalizing', 'Updating clear counts');
-    safeLog('Starting clear count updates...');
-    // Update clear counts
     const clearCounts = new Map<number, number>();
     const existingPlayers = await db.models.Player.findAll({
       attributes: ['id', 'isBanned'],
@@ -842,25 +761,20 @@ async function reloadDatabase() {
     const nonBannedPlayerIds = new Set(
       existingPlayers.filter(p => !p.isBanned).map(p => p.id)
     );
-    safeLog(`Found ${nonBannedPlayerIds.size} non-banned players for clear counting`);
 
     passDocs.forEach((pass: PassDoc) => {
       if (nonBannedPlayerIds.has(pass.playerId)) {
         clearCounts.set(pass.levelId, (clearCounts.get(pass.levelId) || 0) + 1);
       }
     });
-    safeLog(`Calculated clear counts for ${clearCounts.size} levels`);
 
-    safeLog('Updating level clear counts in database...');
     await Promise.all(
       Array.from(clearCounts.entries()).map(([levelId, clears]) =>
         db.models.Level.update({clears}, {where: {id: levelId}, transaction}),
       ),
     );
-    safeLog('Finished updating clear counts');
 
     updateProgress(95, 'Finalizing', 'Creating ratings for unranked levels');
-    safeLog('Finding unranked levels...');
     const unrankedLevels = await db.models.Level.findAll({
       where: { 
         diffId: 0,
@@ -869,7 +783,6 @@ async function reloadDatabase() {
       },
       transaction
     });
-    safeLog(`Found ${unrankedLevels.length} unranked levels`);
 
     const ratingDocs = unrankedLevels.map(level => ({
       levelId: level.id,
@@ -882,10 +795,7 @@ async function reloadDatabase() {
     }));
 
     if (ratingDocs.length > 0) {
-      safeLog('Creating rating objects for unranked levels...');
       await db.models.Rating.bulkCreate(ratingDocs, { transaction });
-      
-      safeLog('Updating toRate flag for unranked levels...');
       await db.models.Level.update(
         { toRate: true },
         {
@@ -893,45 +803,44 @@ async function reloadDatabase() {
           transaction
         }
       );
-      safeLog(`Created ${ratingDocs.length} rating objects for unranked levels`);
     }
 
     updateProgress(100, 'Complete', 'Committing transaction');
-    safeLog('Starting transaction commit...');
     await transaction.commit();
-    safeLog('Transaction committed successfully');
-    
-    // Stop progress bars
     progressBar.stop();
-    
-    safeLog('\nDatabase reload completed successfully');
     return true;
 
   } catch (error) {
     progressBar.stop();
     await transaction.rollback();
-    console.error('Error during database reload:', error);
     throw error;
   }
 }
 
 export async function partialReload() {
   const transaction = await db.sequelize.transaction();
+  const mainBar = progressBar.create(100, 0, {
+    task: 'Partial Database Reload',
+    subtask: 'Initializing...'
+  });
 
   try {
-    console.log('Starting partial database reload...');
+    let progress = 0;
+    const updateProgress = (increment: number, task: string, subtask: string) => {
+      progress = Math.min(100, progress + increment);
+      mainBar.update(progress, { task, subtask });
+    };
 
-    // Initialize difficulty map with cached icons and transaction
-    console.log('Initializing difficulties with icon caching...');
+    updateProgress(0, 'Initializing', 'Setting up difficulty map');
     const difficultyMapWithIcons = await initializeDifficultyMap(transaction);
 
-    // Load data from BE API
+    updateProgress(20, 'Data Fetching', 'Loading from API');
     const [levelsResponse, passesResponse] = await Promise.all([
       fetchData<RawLevel[]>('/levels'),
       fetchData<{count: number; results: RawPass[]}>('/passes'),
     ]);
 
-    // Get existing levels and passes
+    updateProgress(30, 'Data Processing', 'Finding new data');
     const existingLevels = await db.models.Level.findAll({
       attributes: ['id'],
       transaction
@@ -944,19 +853,15 @@ export async function partialReload() {
     const existingLevelIds = new Set(existingLevels.map(l => l.id));
     const existingPassIds = new Set(existingPasses.map(p => p.id));
 
-    // Process levels
     const levels = Array.isArray(levelsResponse)
       ? levelsResponse
       : (levelsResponse as any).results || [];
-
-    // Filter out existing levels
     const newLevels = levels.filter((level: RawLevel) => !existingLevelIds.has(level.id));
-    console.log(`Found ${newLevels.length} new levels to add`);
 
-    // Process new levels
+    updateProgress(40, 'Level Processing', 'Processing new levels');
     const levelDocs: LevelDoc[] = [];
     for (const level of newLevels as RawLevel[]) {
-      let diffId = 0; // Default to unranked
+      let diffId = 0;
       let baseScore = null;
 
       if (level.pguDiff) {
@@ -992,7 +897,6 @@ export async function partialReload() {
         }
       }
 
-      // Check if credits are simple (no brackets or parentheses)
       const complexChars = ['[', '(', '{', '}', ']', ')'];
       const hasSimpleCredits = !complexChars.some(char => 
         level.creator.includes(char) || 
@@ -1028,27 +932,22 @@ export async function partialReload() {
       });
     }
 
-    // Process passes
+    updateProgress(50, 'Pass Processing', 'Processing new passes');
     const passes = passesResponse.results;
     const newPasses = passes.filter(pass => !existingPassIds.has(pass.id));
-    console.log(`Found ${newPasses.length} new passes to add`);
 
-    // Get existing players for mapping
     const players = await db.models.Player.findAll({
       attributes: ['id', 'name'],
       transaction
     });
     const playerNameToId = new Map(players.map(p => [p.name, p.id]));
 
-    // Load feeling ratings
     const feelingRatings = await readFeelingRatingsFromXlsx();
 
-    // Process new passes
     const passDocs = [];
     const judgementDocs = [];
     let lastValidUploadTime = new Date('2000-01-01 00:00:00');
 
-    // First, organize passes by level to determine world's firsts
     const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
     for (const pass of newPasses) {
       const uploadTime = new Date(pass.vidUploadTime);
@@ -1061,10 +960,7 @@ export async function partialReload() {
 
     for (const pass of newPasses) {
       const playerId = playerNameToId.get(pass.player);
-      if (!playerId) {
-        console.log(`Skipping pass ${pass.id} - player ${pass.player} not found`);
-        continue;
-      }
+      if (!playerId) continue;
 
       if (pass.vidUploadTime) {
         const uploadTime = new Date(pass.vidUploadTime);
@@ -1073,7 +969,6 @@ export async function partialReload() {
         }
       }
 
-      // Create judgements object
       if (pass.judgements.some(j => !Number.isInteger(j))) {
         pass.judgements[0] = 0;
         pass.judgements[1] = 0;
@@ -1097,7 +992,6 @@ export async function partialReload() {
         updatedAt: new Date(),
       };
 
-      // Get the level's base score
       const level = levelDocs.find((l: LevelDoc) => l.id === pass.levelId) || 
                    await db.models.Level.findByPk(pass.levelId, {
                      include: [{
@@ -1109,7 +1003,6 @@ export async function partialReload() {
       const difficulty = level?.difficulty;
       const baseScore = level?.baseScore || difficulty?.baseScore || 0;
 
-      // Calculate accuracy and score
       const accuracy = calcAcc(judgements);
       const scoreV2 = getScoreV2(
         {
@@ -1122,7 +1015,6 @@ export async function partialReload() {
         },
       );
 
-      // Check if this pass is the world's first for its level
       const isWorldsFirst = levelFirstPasses.get(pass.levelId)?.id === pass.id;
 
       passDocs.push({
@@ -1149,24 +1041,21 @@ export async function partialReload() {
       judgementDocs.push(judgements);
     }
 
-    // Bulk create new data
+    updateProgress(70, 'Data Creation', 'Creating new data');
     if (levelDocs.length > 0) {
       await db.models.Level.bulkCreate(levelDocs as any, {transaction});
-      console.log(`Created ${levelDocs.length} new levels`);
     }
 
     if (passDocs.length > 0) {
       await db.models.Pass.bulkCreate(passDocs as any, {transaction});
       await db.models.Judgement.bulkCreate(judgementDocs, {transaction});
-      console.log(`Created ${passDocs.length} new passes with judgements`);
     }
 
-    // Process credits for new levels
     if (levelDocs.length > 0) {
       await migrateNewCredits(levelDocs as any, transaction);
     }
 
-    // Update clear counts for affected levels
+    updateProgress(80, 'Finalizing', 'Updating clear counts');
     const affectedLevelIds = new Set([
       ...newLevels.map((l: RawLevel) => l.id), 
       ...newPasses.map(p => p.levelId)
@@ -1198,8 +1087,7 @@ export async function partialReload() {
       );
     }
 
-    // Create ratings for new unranked levels
-    console.log('Creating ratings for new unranked levels...');
+    updateProgress(90, 'Finalizing', 'Creating ratings');
     const unrankedLevels = await db.models.Level.findAll({
       where: { 
         id: levelDocs.filter(l => l.diffId === 0).map(l => l.id),
@@ -1221,8 +1109,6 @@ export async function partialReload() {
       }));
 
       await db.models.Rating.bulkCreate(ratingDocs, { transaction });
-      
-      // Update toRate flag for these levels
       await db.models.Level.update(
         { toRate: true },
         {
@@ -1230,15 +1116,15 @@ export async function partialReload() {
           transaction
         }
       );
-      console.log(`Created ${ratingDocs.length} rating objects for new unranked levels`);
     }
 
+    updateProgress(100, 'Complete', 'Committing transaction');
     await transaction.commit();
-    console.log('Partial database reload completed successfully');
+    mainBar.stop();
     return true;
   } catch (error) {
+    mainBar.stop();
     await transaction.rollback();
-    console.error('Error during partial database reload:', error);
     throw error;
   }
 }
