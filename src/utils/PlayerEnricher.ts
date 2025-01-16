@@ -59,16 +59,20 @@ const workerPool: Worker[] = [];
 
 // Initialize worker pool
 function initializeWorkerPool() {
-  const workerPath = path.join(__dirname, 'statsWorker.js');
+  const workerPath = fileURLToPath(new URL('./statsWorker.ts', import.meta.url));
   for (let i = 0; i < MAX_WORKERS; i++) {
-    const worker = new Worker(workerPath);
+    const worker = new Worker(workerPath, {
+      execArgv: ['--loader', 'ts-node/esm']
+    });
     worker.on('error', (error) => {
       console.error('Worker error:', error);
       // Remove failed worker and create a new one
       const index = workerPool.indexOf(worker);
       if (index > -1) {
         workerPool.splice(index, 1);
-        const newWorker = new Worker(workerPath);
+        const newWorker = new Worker(workerPath, {
+          execArgv: ['--loader', 'ts-node/esm']
+        });
         workerPool.push(newWorker);
       }
     });

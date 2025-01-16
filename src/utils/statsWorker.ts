@@ -1,4 +1,4 @@
-import { parentPort, isMainThread } from 'worker_threads';
+import { parentPort, isMainThread, threadId } from 'worker_threads';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -13,27 +13,35 @@ import {
 } from '../misc/PlayerStatsCalculator';
 
 // Ensure we're in a worker thread
-if (isMainThread || !parentPort) {
-  process.exit(1);
+if (isMainThread) {
+  throw new Error('This module must be run as a worker');
 }
+
+if (!parentPort) {
+  throw new Error('Parent port is not available');
+}
+
+console.log(`Worker ${threadId} initialized`);
 
 // Store parentPort in a variable to satisfy TypeScript
 const port = parentPort;
 
 // Handle uncaught errors
 process.on('unhandledRejection', (error) => {
-  console.error('Worker unhandled rejection:', error);
+  console.error(`Worker ${threadId} unhandled rejection:`, error);
   port.postMessage({ error: error instanceof Error ? error.message : 'Unknown error in worker' });
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('Worker uncaught exception:', error);
+  console.error(`Worker ${threadId} uncaught exception:`, error);
   port.postMessage({ error: error instanceof Error ? error.message : 'Unknown error in worker' });
 });
 
 // Main worker message handler
 port.on('message', async ({ scores, passes }) => {
   try {
+    console.log(`Worker ${threadId} processing ${scores.length} scores`);
+
     // Validate input
     if (!Array.isArray(scores) || !Array.isArray(passes)) {
       throw new Error('Invalid input: scores and passes must be arrays');
@@ -68,6 +76,8 @@ port.on('message', async ({ scores, passes }) => {
       top12kDiff
     ] = results;
 
+    console.log(`Worker ${threadId} completed processing`);
+
     port.postMessage({
       rankedScore,
       generalScore,
@@ -81,7 +91,7 @@ port.on('message', async ({ scores, passes }) => {
       top12kDiff
     });
   } catch (error) {
-    console.error('Worker calculation error:', error);
+    console.error(`Worker ${threadId} calculation error:`, error);
     port.postMessage({
       error: error instanceof Error ? error.message : 'Unknown error in worker'
     });

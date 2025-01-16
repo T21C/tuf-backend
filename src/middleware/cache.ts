@@ -130,11 +130,14 @@ export class LeaderboardCache {
     signal: AbortSignal
   ): Promise<IPlayer[]> {
     const enrichedPlayers: IPlayer[] = [];
+    const errors: Array<{ id: number, error: string }> = [];
     
     for (let i = 0; i < players.length && !signal.aborted; i++) {
       try {
         const enriched = await enrichPlayerData(players[i]);
-        enrichedPlayers.push(enriched);
+        if (enriched) {
+          enrichedPlayers.push(enriched);
+        }
         
         const progress = Math.min(100, ((start + i + 1) / total) * 100);
         progressBar.update(progress, { 
@@ -142,7 +145,22 @@ export class LeaderboardCache {
         });
       } catch (error) {
         console.error(`Error processing player ${players[i].id}:`, error);
+        errors.push({ 
+          id: players[i].id, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        });
+        // Continue with next player
+        continue;
       }
+
+      // Add small delay between players to prevent overload
+      if (i < players.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+
+    if (errors.length > 0) {
+      console.error(`Failed to process ${errors.length} players in batch:`, errors);
     }
 
     return enrichedPlayers;
