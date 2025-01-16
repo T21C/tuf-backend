@@ -24,8 +24,9 @@ import colors from 'ansi-colors';
 import sequelize from '../config/db';
 
 // Rate limiting settings
+const CONCURRENT_BATCH_SIZE = 25; // Number of players to process in parallel
 const DELAY_BETWEEN_BATCHES = 100; // Small delay between batches
-const PLAYER_LOAD_BATCH_SIZE = 100; // Reduced batch size for better memory management
+const PLAYER_LOAD_BATCH_SIZE = 50; // Reduced batch size for better memory management
 
 // Progress bar configuration
 const progressBar = new cliProgress.MultiBar({
@@ -311,4 +312,72 @@ export async function enrichPlayerData(player: Player): Promise<IPlayer> {
   } as IPlayer;
 
   return enrichedPlayer;
+}
+
+export async function updateAllPlayerPfps(): Promise<void> {
+  const mainBar = progressBar.create(100, 0, {
+    task: 'PFP Update',
+    subtask: 'Starting...'
+  });
+
+  try {
+    mainBar.update(10, { subtask: 'Loading players' });
+    const players = await loadPlayersInBatches(mainBar);
+
+    if (players.length === 0) {
+      mainBar.update(100, { subtask: 'No updates needed' });
+      return;
+    }
+
+    mainBar.update(20, { subtask: `Processing ${players.length} players` });
+
+    // Process players in smaller batches to manage memory and connection load
+    const batches = [];
+    for (let i = 0; i < players.length; i += CONCURRENT_BATCH_SIZE) {
+      const batch = players.slice(i, i + CONCURRENT_BATCH_SIZE);
+      batches.push(batch);
+    }
+
+    let totalSuccesses = 0;
+    let totalFailures = 0;
+
+    for (let i = 0; i < batches.length; i++) {
+      const startProgress = 20 + ((i / batches.length) * 70);
+      const endProgress = 20 + (((i + 1) / batches.length) * 70);
+      
+      mainBar.update(startProgress, { 
+        subtask: `Processing batch ${i + 1}/${batches.length}` 
+      });
+
+      try {
+        const results = await processBatch(batches[i], mainBar, startProgress, endProgress);
+        const batchSuccesses = results.filter(r => r.success).length;
+        totalSuccesses += batchSuccesses;
+        totalFailures += results.length - batchSuccesses;
+
+        // Add a small delay between batches to prevent overload
+        if (i < batches.length - 1) {
+          await delay(DELAY_BETWEEN_BATCHES);
+        }
+      } catch (error) {
+        console.error(`Error processing batch ${i + 1}:`, error);
+        // Log error but continue with next batch
+        totalFailures += batches[i].length;
+        mainBar.update(endProgress, { 
+          subtask: `Batch ${i + 1} failed, continuing...` 
+        });
+      }
+    }
+
+    mainBar.update(100, { 
+      subtask: `Complete (${totalSuccesses} updated, ${totalFailures} failed)` 
+    });
+  } catch (error) {
+    console.error('Error in updateAllPlayerPfps:', error);
+    mainBar.update(100, { subtask: 'Failed' });
+    throw error;
+  } finally {
+    mainBar.stop();
+    progressBar.remove(mainBar);
+  }
 }
