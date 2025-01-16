@@ -11,6 +11,8 @@ import {ILevel} from '../interfaces/models';
 import { initializeDifficultyMap } from './difficultyMap';
 import { migrateCredits, migrateNewCredits } from './migrateCredits';
 import { Transaction } from 'sequelize';
+import cliProgress from 'cli-progress';
+import colors from 'ansi-colors';
 
 const BE_API = 'http://be.t21c.kro.kr';
 const PLACEHOLDER = "" + process.env.PLACEHOLDER_PREFIX + process.env.PLACEHOLDER_BODY + process.env.PLACEHOLDER_POSTFIX;
@@ -109,6 +111,15 @@ interface PassDoc {
   playerId: number;
   [key: string]: any;
 }
+
+// Define progress bar format
+const progressBar = new cliProgress.MultiBar({
+  format: colors.cyan('{bar}') + ' | {percentage}% | {task} | {subtask}',
+  barCompleteChar: '\u2588',
+  barIncompleteChar: '\u2591',
+  hideCursor: true,
+  clearOnComplete: false
+}, cliProgress.Presets.shades_classic);
 
 async function fetchData<T>(endpoint: string): Promise<T> {
   try {
@@ -309,17 +320,25 @@ async function getOrCreatePlayers(players: RawPlayer[], transaction: Transaction
 
 async function reloadDatabase() {
   const transaction = await db.sequelize.transaction();
+  
+  // Create main progress bar
+  const mainBar = progressBar.create(100, 0, {
+    task: 'Database Reload',
+    subtask: 'Initializing...'
+  });
 
   try {
-    console.log('Starting database reload...');
+    // Initialize progress
+    let progress = 0;
+    const updateProgress = (increment: number, task: string, subtask: string) => {
+      progress += increment;
+      mainBar.update(progress, { task, subtask });
+    };
 
-    // Initialize difficulty map with cached icons and transaction
-    console.log('Initializing difficulties with icon caching...');
+    updateProgress(0, 'Database Reload', 'Initializing difficulty map');
     const difficultyMapWithIcons = await initializeDifficultyMap(transaction);
-
-    // Clear existing data in correct order
-    console.log('Clearing existing data...');
     
+    updateProgress(5, 'Database Cleanup', 'Clearing existing data');
     await Promise.all([
       db.models.RatingDetail.destroy({where: {}, transaction}),
       db.models.Rating.destroy({where: {}, transaction}),
@@ -334,7 +353,7 @@ async function reloadDatabase() {
       db.models.Difficulty.destroy({where: {}, transaction}),
     ]);
 
-    // Process difficulties with cached icons
+    updateProgress(10, 'Difficulty Setup', 'Creating difficulty entries');
     const difficultyDocs = difficultyMapWithIcons.map(diff => ({
       id: diff.id,
       name: diff.name,
@@ -350,42 +369,29 @@ async function reloadDatabase() {
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
-
-    console.log(`Creating ${difficultyDocs.length} difficulty entries...`);
     await db.models.Difficulty.bulkCreate(difficultyDocs, {transaction});
-    console.log('Populated difficulties table');
 
-    // Load data from BE API
-    const [playersResponse, levelsResponse, passesResponse] = await Promise.all(
-      [
-        fetchData<RawPlayer[]>('/players'),
-        fetchData<RawLevel[]>('/levels'),
-        fetchData<{count: number; results: RawPass[]}>('/passes'),
-      ],
-    );
+    updateProgress(15, 'Data Fetching', 'Loading data from API');
+    const [playersResponse, levelsResponse, passesResponse] = await Promise.all([
+      fetchData<RawPlayer[]>('/players'),
+      fetchData<RawLevel[]>('/levels'),
+      fetchData<{count: number; results: RawPass[]}>('/passes'),
+    ]);
 
-    // Process players from API
+    updateProgress(25, 'Player Processing', 'Creating player mappings');
     const playersFromApi = Array.isArray(playersResponse)
       ? playersResponse
       : (playersResponse as any).results || [];
-
     const playerNameToId = await getOrCreatePlayers(playersFromApi, transaction);
 
-    // Process levels
+    updateProgress(35, 'Level Processing', 'Processing levels');
     const levels = Array.isArray(levelsResponse)
       ? levelsResponse
       : (levelsResponse as any).results || [];
-
-    // Sort levels by ID and create ID mapping
-    levels.sort((a: any, b: any) => a.id - b.id);
-    levels.forEach((level: RawLevel) => {
-      levelIdMapping.set(level.id, level.id); // Map old ID to new ID
-    });
-
-    // Process levels with placeholders
+    
+    // Process levels with progress updates
     const levelDocs: LevelDoc[] = [];
     let nextLevelId = 1;
-
     for (const level of levels) {
       // Fill gaps with placeholders
       while (level.id > nextLevelId) {
@@ -472,16 +478,24 @@ async function reloadDatabase() {
 
       nextLevelId = level.id + 1;
       levelIdMapping.set(level.id, level.id);
+
+      if (levels.indexOf(level) % 100 === 0) {
+        updateProgress(
+          35 + (levels.indexOf(level) / levels.length) * 15,
+          'Level Processing',
+          `Processing level ${level.id}`
+        );
+      }
     }
 
     console.log(
       `Processed ${levelDocs.length} levels (including ${levelDocs.length - levels.length} placeholders)`,
     );
 
-    // Load feeling ratings
+    updateProgress(50, 'Pass Processing', 'Loading feeling ratings');
     const feelingRatings = await readFeelingRatingsFromXlsx();
 
-    // Process passes and judgements
+    updateProgress(55, 'Pass Processing', 'Processing passes');
     const passes = passesResponse.results;
     const passDocs = [];
     const judgementDocs = [];
@@ -594,25 +608,27 @@ async function reloadDatabase() {
 
         judgementDocs.push(judgements);
         nextJudgementId = pass.id + 1;
+
+        if (passes.indexOf(pass) % 100 === 0) {
+          updateProgress(
+            55 + (passes.indexOf(pass) / passes.length) * 20,
+            'Pass Processing',
+            `Processing pass ${pass.id}`
+          );
+        }
       }
     }
 
-    // Bulk insert data in the correct order
+    updateProgress(75, 'Data Creation', 'Creating levels');
     await db.models.Level.bulkCreate(levelDocs as any, {transaction});
+    
+    updateProgress(80, 'Data Creation', 'Creating passes');
     await db.models.Pass.bulkCreate(passDocs as any, {transaction});
     
-    // Initialize references and migrate credits (which now includes team handling)
-    await initializeReferences(difficultyDocs, transaction);
-    await migrateCredits(levelDocs as any, transaction);
-    
-    // Create judgements only for existing passes
-    const existingPassIds = passDocs.map(pass => pass.id);
-    const validJudgementDocs = judgementDocs.filter(judgement =>
-      existingPassIds.includes(judgement.id),
-    );
+    updateProgress(85, 'Data Creation', 'Creating judgements');
+    await db.models.Judgement.bulkCreate(judgementDocs, {transaction});
 
-    await db.models.Judgement.bulkCreate(validJudgementDocs, {transaction});
-
+    updateProgress(90, 'Finalizing', 'Updating clear counts');
     // Update clear counts
     const clearCounts = new Map<number, number>();
     const existingPlayers = await db.models.Player.findAll({
@@ -635,9 +651,9 @@ async function reloadDatabase() {
       ),
     );
 
+    updateProgress(95, 'Finalizing', 'Creating ratings for unranked levels');
     // After all other operations, before the final commit
     // Create ratings for unranked levels
-    console.log('Creating ratings for unranked levels...');
     const unrankedLevels = await db.models.Level.findAll({
       where: { 
         diffId: 0,
@@ -670,11 +686,17 @@ async function reloadDatabase() {
       console.log(`Created ${ratingDocs.length} rating objects for unranked levels`);
     }
 
+    updateProgress(100, 'Complete', 'Committing transaction');
     await transaction.commit();
-    console.log('Database reload completed successfully');
-
+    
+    // Stop progress bars
+    progressBar.stop();
+    
+    console.log('\nDatabase reload completed successfully');
     return true;
+
   } catch (error) {
+    progressBar.stop();
     await transaction.rollback();
     console.error('Error during database reload:', error);
     throw error;
