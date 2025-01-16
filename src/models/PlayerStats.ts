@@ -33,7 +33,7 @@ PlayerStats.init(
       allowNull: false,
       unique: true,
       references: {
-        model: 'Players',
+        model: 'players',
         key: 'id',
       },
     },
