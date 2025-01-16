@@ -111,8 +111,6 @@ export class LeaderboardCache {
         const progress = Math.min(100, (offset / (offset + CACHE_BATCH_SIZE)) * 100);
         progressBar.update(progress, { status: `Loading players (${allPlayers.length} loaded)` });
 
-        // Small delay between batches
-        await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         if (signal.aborted) break;
         console.error('Error loading player batch:', error);
@@ -129,41 +127,34 @@ export class LeaderboardCache {
     total: number,
     signal: AbortSignal
   ): Promise<IPlayer[]> {
-    const enrichedPlayers: IPlayer[] = [];
-    const errors: Array<{ id: number, error: string }> = [];
-    
-    for (let i = 0; i < players.length && !signal.aborted; i++) {
-      try {
-        const enriched = await enrichPlayerData(players[i]);
-        if (enriched) {
-          enrichedPlayers.push(enriched);
-        }
-        
-        const progress = Math.min(100, ((start + i + 1) / total) * 100);
-        progressBar.update(progress, { 
-          status: `Processing players (${start + i + 1}/${total})` 
-        });
-      } catch (error) {
-        console.error(`Error processing player ${players[i].id}:`, error);
-        errors.push({ 
-          id: players[i].id, 
-          error: error instanceof Error ? error.message : 'Unknown error' 
-        });
-        // Continue with next player
-        continue;
-      }
-
-      // Add small delay between players to prevent overload
-      if (i < players.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
+    if (signal.aborted) {
+      return [];
     }
 
-    if (errors.length > 0) {
-      console.error(`Failed to process ${errors.length} players in batch:`, errors);
-    }
+    try {
+      // Process the entire batch in parallel
+      const enrichedPlayers = await Promise.all(
+        players.map(async (player, index) => {
+          try {
+            const enriched = await enrichPlayerData(player);
+            const progress = Math.min(100, ((start + index + 1) / total) * 100);
+            progressBar.update(progress, { 
+              status: `Processing players (${start + index + 1}/${total})` 
+            });
+            return enriched;
+          } catch (error) {
+            console.error(`Error processing player ${player.id}:`, error);
+            return null;
+          }
+        })
+      );
 
-    return enrichedPlayers;
+      // Filter out failed entries
+      return enrichedPlayers.filter((player): player is IPlayer => player !== null);
+    } catch (error) {
+      console.error('Batch processing error:', error);
+      return [];
+    }
   }
 
   private async updateCache() {

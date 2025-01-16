@@ -27,15 +27,30 @@ import {getBaseScore} from './parseBaseScore';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
 import sequelize from '../config/db';
+import { Score } from '../misc/PlayerStatsCalculator';
+
+interface PlayerStats {
+  rankedScore: number;
+  generalScore: number;
+  ppScore: number;
+  wfScore: number;
+  score12K: number;
+  averageXacc: number;
+  universalPasses: number;
+  worldsFirstPasses: number;
+  topDiff: any;
+  top12KDiff: any;
+}
 
 // Get current file's directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Rate limiting settings
-const CONCURRENT_BATCH_SIZE = 25; // Number of players to process in parallel
-const DELAY_BETWEEN_BATCHES = 100; // Small delay between batches
-const PLAYER_LOAD_BATCH_SIZE = 50; // Reduced batch size for better memory management
+const CONCURRENT_BATCH_SIZE = 100; // Increased for better throughput
+const PLAYER_LOAD_BATCH_SIZE = 200; // Increased batch size for initial load
+const PASS_LOAD_BATCH_SIZE = 500; // Batch size for loading passes
+const DELAY_BETWEEN_BATCHES = 50; // Small delay between batches
 
 // Progress bar configuration
 const progressBar = new cliProgress.MultiBar({
@@ -53,46 +68,126 @@ const progressBar = new cliProgress.MultiBar({
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Worker pool configuration
-const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)));
-const workerPool: Worker[] = [];
-
-// Initialize worker pool
-function initializeWorkerPool() {
-  const workerPath = fileURLToPath(new URL('./statsWorker.ts', import.meta.url));
-  for (let i = 0; i < MAX_WORKERS; i++) {
-    const worker = new Worker(workerPath, {
-      execArgv: ['--loader', 'ts-node/esm']
-    });
-    worker.on('error', (error) => {
-      console.error('Worker error:', error);
-      // Remove failed worker and create a new one
-      const index = workerPool.indexOf(worker);
-      if (index > -1) {
-        workerPool.splice(index, 1);
-        const newWorker = new Worker(workerPath, {
-          execArgv: ['--loader', 'ts-node/esm']
-        });
-        workerPool.push(newWorker);
-      }
-    });
-    workerPool.push(worker);
-  }
+// Calculate stats directly without worker
+function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
+  return {
+    rankedScore: calculateRankedScore(scores),
+    generalScore: calculateGeneralScore(scores),
+    ppScore: calculatePPScore(scores),
+    wfScore: calculateWFScore(scores),
+    score12K: calculate12KScore(scores),
+    averageXacc: calculateAverageXacc(scores),
+    universalPasses: countUniversalPasses(passes),
+    worldsFirstPasses: countWorldsFirstPasses(passes),
+    topDiff: calculateTopDiff(passes),
+    top12KDiff: calculateTop12KDiff(passes)
+  };
 }
 
-// Get next available worker
-function getWorker(): Worker {
-  return workerPool[Math.floor(Math.random() * workerPool.length)];
-}
+// Process a batch of players in parallel
+async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
+  // First, get all player IDs
+  const playerIds = players.map(p => p.id);
 
-// Process stats calculation in worker thread
-async function calculateStatsInWorker(scores: any[], passes: any[]): Promise<any> {
-  const worker = getWorker();
-  return new Promise((resolve, reject) => {
-    worker.postMessage({ scores, passes });
-    worker.once('message', resolve);
-    worker.once('error', reject);
+  // Load all passes for these players in one query
+  const allPasses = await Pass.findAll({
+    where: { 
+      playerId: playerIds,
+      isDeleted: false
+    },
+    attributes: [
+      'id', 'scoreV2', 'accuracy', 'isWorldsFirst', 
+      'is12K', 'isDeleted', 'levelId', 'playerId'
+    ],
+    include: [{
+      model: Level,
+      as: 'level',
+      attributes: ['id', 'baseScore', 'isHidden'],
+      include: [{
+        model: Difficulty,
+        as: 'difficulty',
+        attributes: ['name', 'sortOrder']
+      }]
+    }]
   });
+
+  // Load all user data in one query
+  const allUserData = await User.findAll({
+    where: { playerId: playerIds },
+    include: [{
+      model: OAuthProvider,
+      as: 'providers',
+      where: { provider: 'discord' },
+      attributes: ['profile'],
+      required: false
+    }],
+    attributes: ['playerId', 'nickname', 'avatarUrl', 'username']
+  });
+
+  // Create lookup maps for faster access
+  const passesMap = new Map<number, Pass[]>();
+  allPasses.forEach((pass: Pass) => {
+    if (!passesMap.has(pass.playerId)) {
+      passesMap.set(pass.playerId, []);
+    }
+    passesMap.get(pass.playerId)?.push(pass);
+  });
+
+  const userDataMap = new Map(allUserData.map(user => [user.playerId, user]));
+
+  // Process each player with the pre-loaded data
+  return Promise.all(players.map(async (player) => {
+    const playerData = player.get({plain: true});
+    const passesData = passesMap.get(player.id) || [];
+    const userData = userDataMap.get(player.id);
+    
+    // Process passes data
+    const scores = passesData.map(pass => ({
+      score: pass.scoreV2 || 0,
+      xacc: pass.accuracy || 0,
+      isWorldsFirst: pass.isWorldsFirst || false,
+      is12K: pass.is12K || false,
+      baseScore: pass.level?.baseScore || 0,
+      isDeleted: pass.isDeleted || false,
+      isHidden: pass.level?.isHidden || false,
+      pguDiff: pass.level?.difficulty?.name,
+      diffSortOrder: pass.level?.difficulty?.sortOrder
+    }));
+
+    // Process Discord data
+    let discordProvider: any;
+    if (userData?.dataValues.providers) {
+      discordProvider = userData.dataValues.providers[0].dataValues;
+      discordProvider.profile.avatarUrl = discordProvider.profile.avatar ? 
+        `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png` :
+        null;
+    }
+
+    // Calculate stats directly
+    const stats = calculateStats(scores, passesData);
+
+    return {
+      id: playerData.id,
+      name: playerData.name,
+      country: playerData.country,
+      isBanned: playerData.isBanned,
+      pfp: userData?.avatarUrl || playerData.pfp,
+      discordUsername: userData?.username,
+      discordAvatar: discordProvider?.profile.avatarUrl,
+      discordAvatarId: discordProvider?.profile.avatar,
+      discordId: discordProvider?.profile.id,
+      ...stats,
+      totalPasses: scores.length,
+      createdAt: playerData.createdAt,
+      updatedAt: playerData.updatedAt,
+      passes: passesData,
+    } as IPlayer;
+  }));
+}
+
+export async function enrichPlayerData(player: Player): Promise<IPlayer> {
+  const [enrichedPlayer] = await processBatchParallel([player]);
+  return enrichedPlayer;
 }
 
 async function updatePlayerPfp(player: Player): Promise<{
@@ -265,98 +360,6 @@ async function processBatch(
     })
   );
   return results;
-}
-
-export async function enrichPlayerData(player: Player): Promise<IPlayer> {
-  // Initialize worker pool if not already done
-  if (workerPool.length === 0) {
-    initializeWorkerPool();
-  }
-
-  // Split the data loading into parallel operations
-  const [userData, passesData] = await Promise.all([
-    // Load user data
-    User.findOne({
-      where: { playerId: player.id },
-      include: [{
-        model: OAuthProvider,
-        as: 'providers',
-        where: { provider: 'discord' },
-        attributes: ['profile'],
-        required: false
-      }],
-      attributes: ['nickname', 'avatarUrl', 'username']
-    }),
-    // Load passes with minimal data
-    Pass.findAll({
-      where: { 
-        playerId: player.id,
-        isDeleted: false
-      },
-      attributes: [
-        'id', 'scoreV2', 'accuracy', 'isWorldsFirst', 
-        'is12K', 'isDeleted', 'levelId'
-      ],
-      include: [{
-        model: Level,
-        as: 'level',
-        attributes: ['id', 'baseScore', 'isHidden'],
-        include: [{
-          model: Difficulty,
-          as: 'difficulty',
-          attributes: ['name', 'sortOrder']
-        }]
-      }]
-    })
-  ]);
-
-  const playerData = player.get({plain: true});
-  
-  // Process passes data
-  const scores = passesData
-    .filter(pass => !pass.isDeleted)
-    .map(pass => ({
-      score: pass.scoreV2 || 0,
-      xacc: pass.accuracy || 0,
-      isWorldsFirst: pass.isWorldsFirst || false,
-      is12K: pass.is12K || false,
-      baseScore: pass.level?.baseScore || 0,
-      isDeleted: pass.isDeleted || false,
-      isHidden: pass.level?.isHidden || false,
-      pguDiff: pass.level?.difficulty?.name,
-      diffSortOrder: pass.level?.difficulty?.sortOrder
-    }));
-
-  // Process Discord data
-  let discordProvider: any;
-  if (userData?.dataValues.providers) {
-    discordProvider = userData.dataValues.providers[0].dataValues;
-    discordProvider.profile.avatarUrl = discordProvider.profile.avatar ? 
-      `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png` :
-      null;
-  }
-
-  // Calculate stats in worker thread
-  const stats = await calculateStatsInWorker(scores, passesData);
-
-  const enrichedPlayer = {
-    id: playerData.id,
-    name: playerData.name,
-    country: playerData.country,
-    isBanned: playerData.isBanned,
-    pfp: userData?.avatarUrl || playerData.pfp,
-    discordUsername: userData?.username,
-    discordAvatar: discordProvider?.profile.avatarUrl,
-    discordAvatarId: discordProvider?.profile.avatar,
-    discordId: discordProvider?.profile.id,
-    ...stats,
-    totalPasses: scores.length,
-    createdAt: playerData.createdAt,
-    updatedAt: playerData.updatedAt,
-    passes: passesData,
-  } as IPlayer;
-
-  return enrichedPlayer;
 }
 
 export async function updateAllPlayerPfps(): Promise<void> {
