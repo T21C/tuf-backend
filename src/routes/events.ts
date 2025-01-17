@@ -5,9 +5,17 @@ import cors from 'cors';
 
 const router: Router = Router();
 
+const clientUrl = process.env.NODE_ENV === 'production' 
+? process.env.PROD_CLIENT_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_CLIENT_URL
+: process.env.NODE_ENV === 'development'
+? process.env.CLIENT_URL 
+: 'http://localhost:5173';
+
 // Configure CORS for SSE
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: clientUrl,
   credentials: true,
   methods: ['GET'],
   allowedHeaders: ['Content-Type', 'Authorization'],

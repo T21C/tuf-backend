@@ -32,10 +32,30 @@ const app: Express = express();
 const httpServer = createServer(app);
 
 // Get environment-specific configuration
-const isStaging = process.env.NODE_ENV === 'staging';
-const clientUrl = isStaging ? process.env.STAGING_CLIENT_URL : process.env.CLIENT_URL;
-const port = isStaging ? process.env.STAGING_PORT : process.env.PORT;
-const ownUrl = isStaging ? process.env.STAGING_API_URL : process.env.OWN_URL;
+const clientUrl = process.env.NODE_ENV === 'production' 
+? process.env.PROD_CLIENT_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_CLIENT_URL
+: process.env.NODE_ENV === 'development'
+? process.env.CLIENT_URL 
+: 'http://localhost:5173';
+
+
+const port = process.env.NODE_ENV === 'production' 
+? process.env.PROD_PORT 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_PORT
+: process.env.NODE_ENV === 'development'
+? process.env.PORT
+: '3002';
+
+const ownUrl = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.OWN_URL
+: 'http://localhost:3002';
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
