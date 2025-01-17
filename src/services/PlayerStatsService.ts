@@ -21,47 +21,26 @@ import {getIO} from '../utils/socket';
 import {sseManager} from '../utils/sse';
 import User from '../models/User';
 import Judgement from '../models/Judgement';
-import cliProgress from 'cli-progress';
-import colors from 'ansi-colors';
-
-// Define progress bar format
-const progressBar = new cliProgress.MultiBar({
-  format: colors.cyan('{bar}') + ' | {percentage}% | {task} | {subtask}',
-  barCompleteChar: '\u2588',
-  barIncompleteChar: '\u2591',
-  hideCursor: true,
-  clearOnComplete: true,
-  noTTYOutput: !process.stdout.isTTY,
-  stream: process.stdout,
-  fps: 10,
-  forceRedraw: true,
-}, cliProgress.Presets.shades_classic);
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized: boolean = false;
 
-  private constructor() {}
+  private constructor() {
+    // Remove automatic initialization
+  }
 
   public async initialize() {
     if (this.isInitialized) return;
     
-    const initBar = progressBar.create(100, 0, {
-      task: 'Player Stats Service',
-      subtask: 'Initializing...'
-    });
-    
     try {
-      initBar.update(50, { subtask: 'Reloading all stats' });
+      console.log('Initializing PlayerStatsService...');
       await this.reloadAllStats();
       this.isInitialized = true;
-      initBar.update(100, { subtask: 'Complete' });
+      console.log('PlayerStatsService initialized successfully');
     } catch (error) {
-      initBar.update(100, { subtask: 'Failed' });
-      throw error;
-    } finally {
-      initBar.stop();
-      progressBar.remove(initBar);
+      console.error('Error initializing PlayerStatsService:', error);
+      // Don't set isInitialized to true if there was an error
     }
   }
 
@@ -74,79 +53,59 @@ export class PlayerStatsService {
 
   public async reloadAllStats(): Promise<void> {
     let transaction;
-    const reloadBar = progressBar.create(100, 0, {
-      task: 'Stats Reload',
-      subtask: 'Starting...'
-    });
-
     try {
       transaction = await sequelize.transaction();
       
-      // First, get all player IDs
-      reloadBar.update(5, { subtask: 'Loading player IDs' });
-      const playerIds = await Player.findAll({
-        attributes: ['id'],
+      console.log('Starting full stats reload...');
+
+      // Get all players with their passes in a single query
+      const players = await Player.findAll({
+        include: [
+          {
+            model: Pass,
+            as: 'passes',
+            include: [
+              {
+                model: Level,
+                as: 'level',
+                include: [
+                  {
+                    model: Difficulty,
+                    as: 'difficulty',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
         transaction,
-      }).then(players => players.map(p => p.id));
+      });
 
-      reloadBar.update(10, { subtask: `Processing ${playerIds.length} players` });
-      
-      // Process players in batches
-      const BATCH_SIZE = 50;
-      const bulkStats = [];
-      
-      for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
-        const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-        const progress = Math.floor(10 + (i / playerIds.length) * 50);
-        reloadBar.update(progress, { subtask: `Loading batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(playerIds.length/BATCH_SIZE)}` });
+      console.log(`Found ${players.length} players to process`);
+
+      // Prepare bulk update data
+      const bulkStats = players.map(player => {
+        //console.log(`Processing player ${player.id} with ${player.passes?.length || 0} passes`);
         
-        // Load batch of players with their data
-        const players = await Player.findAll({
-          where: { id: batchIds },
-          include: [
-            {
-              model: Pass,
-              as: 'passes',
-              where: { isDeleted: false },
-              required: false,
-              include: [
-                {
-                  model: Level,
-                  as: 'level',
-                  include: [
-                    {
-                      model: Difficulty,
-                      as: 'difficulty',
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-          transaction,
-        });
+        // Convert passes to scores and get highest score per level
+        const scores = this.convertPassesToScores(player.passes || []);
+        const uniqueScores = this.getHighestScorePerLevel(scores);
+        
+        return {
+          playerId: player.id,
+          rankedScore: calculateRankedScore(uniqueScores),
+          generalScore: calculateGeneralScore(uniqueScores),
+          ppScore: calculatePPScore(uniqueScores),
+          wfScore: calculateWFScore(uniqueScores),
+          score12k: calculate12KScore(uniqueScores),
+          averageXacc: calculateAverageXacc(uniqueScores),
+          universalPassCount: countUniversalPasses(player.passes || []),
+          worldsFirstCount: countWorldsFirstPasses(player.passes || []),
+          lastUpdated: new Date(),
+        };
+      });
 
-        // Process each player in the batch
-        for (const player of players) {
-          const scores = this.convertPassesToScores(player.passes || []);
-          const uniqueScores = this.getHighestScorePerLevel(scores);
-          
-          bulkStats.push({
-            playerId: player.id,
-            rankedScore: calculateRankedScore(uniqueScores),
-            generalScore: calculateGeneralScore(uniqueScores),
-            ppScore: calculatePPScore(uniqueScores),
-            wfScore: calculateWFScore(uniqueScores),
-            score12k: calculate12KScore(uniqueScores),
-            averageXacc: calculateAverageXacc(uniqueScores),
-            universalPassCount: countUniversalPasses(player.passes || []),
-            worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-            lastUpdated: new Date(),
-          });
-        }
-      }
-
-      reloadBar.update(70, { subtask: 'Updating database' });
+      // Bulk upsert all stats
       await PlayerStats.bulkCreate(bulkStats, {
         updateOnDuplicate: [
           'rankedScore',
@@ -162,7 +121,7 @@ export class PlayerStatsService {
         transaction,
       });
 
-      reloadBar.update(80, { subtask: 'Updating ranks' });
+      // Update ranks in bulk for each score type
       const scoreTypes = [
         'rankedScore',
         'generalScore',
@@ -171,12 +130,10 @@ export class PlayerStatsService {
         'score12k',
       ];
 
-      // Update ranks using direct SQL for better performance
-      for (const [index, scoreType] of scoreTypes.entries()) {
-        const progress = Math.floor(80 + (index / scoreTypes.length) * 15);
-        reloadBar.update(progress, { subtask: `Updating ${scoreType} ranks` });
-        
+      for (const scoreType of scoreTypes) {
         const rankField = `${scoreType}Rank`;
+        
+        // MySQL-compatible rank update query
         await sequelize.query(`
           UPDATE PlayerStats ps
           JOIN (
@@ -189,32 +146,29 @@ export class PlayerStatsService {
         `, { transaction });
       }
 
-      reloadBar.update(95, { subtask: 'Committing changes' });
       await transaction.commit();
+      console.log('Successfully reloaded all player stats');
 
-      reloadBar.update(100, { subtask: 'Notifying clients' });
+      // Notify clients about the update
       const io = getIO();
       io.emit('leaderboardUpdated');
       
+      // Emit SSE event
       sseManager.broadcast({
         type: 'statsUpdate',
         data: {
           action: 'fullReload',
         },
       });
-
     } catch (error) {
       if (transaction) {
         await transaction.rollback();
       }
       throw error;
-    } finally {
-      reloadBar.stop();
-      progressBar.remove(reloadBar);
     }
   }
 
-  private getHighestScorePerLevel(scores: Score[]): Score[] {
+  private getHighestScorePerLevel(scores: Score[], doLog: boolean = false): Score[] {
     const levelScores = new Map<number, Score>();
     scores.forEach(score => {
       const levelId = score.levelId;
@@ -222,7 +176,14 @@ export class PlayerStatsService {
       
       const existingScore = levelScores.get(levelId);
       if (!existingScore || score.score > existingScore.score) {
+        if (existingScore && doLog) {
+          console.log(`Replacing score for level ${levelId}: ${existingScore.score} with higher score: ${score.score}`);
+        }
         levelScores.set(levelId, score);
+      } else {
+        if (doLog) {
+          console.log(`Ignoring lower score for level ${levelId}: ${score.score} (keeping ${existingScore.score})`);
+        }
       }
     });
     return Array.from(levelScores.values());
@@ -245,13 +206,8 @@ export class PlayerStatsService {
   public async updatePlayerStats(playerId: number, existingTransaction?: any): Promise<void> {
     const transaction = existingTransaction || await sequelize.transaction();
     const shouldCommit = !existingTransaction;
-    const updateBar = progressBar.create(100, 0, {
-      task: 'Player Stats Update',
-      subtask: 'Starting...'
-    });
 
     try {
-      updateBar.update(10, { subtask: 'Loading player data' });
       const player = await Player.findByPk(playerId, {
         include: [
           {
@@ -278,11 +234,11 @@ export class PlayerStatsService {
         throw new Error('Player or passes not found');
       }
 
-      updateBar.update(30, { subtask: 'Processing scores' });
+      // Convert passes to scores and get highest score per level
       const scores = this.convertPassesToScores(player.passes);
       const uniqueScores = this.getHighestScorePerLevel(scores);
 
-      updateBar.update(50, { subtask: 'Calculating stats' });
+      // Calculate all scores using the filtered scores
       const stats = {
         playerId,
         rankedScore: calculateRankedScore(uniqueScores),
@@ -296,20 +252,22 @@ export class PlayerStatsService {
         lastUpdated: new Date(),
       };
 
-      updateBar.update(70, { subtask: 'Updating database' });
+      console.log('Calculated stats:', JSON.stringify(stats, null, 2));
+
+      // Update or create player stats
       await PlayerStats.upsert(stats, {transaction});
 
-      updateBar.update(80, { subtask: 'Updating ranks' });
+      // Update ranks for all players
       await this.updateRanks(transaction);
 
       if (shouldCommit) {
-        updateBar.update(90, { subtask: 'Committing changes' });
         await transaction.commit();
 
-        updateBar.update(100, { subtask: 'Notifying clients' });
+        // Notify clients about the update
         const io = getIO();
         io.emit('leaderboardUpdated');
         
+        // Emit SSE event
         sseManager.broadcast({
           type: 'statsUpdate',
           data: {
@@ -323,9 +281,6 @@ export class PlayerStatsService {
         await transaction.rollback();
       }
       throw error;
-    } finally {
-      updateBar.stop();
-      progressBar.remove(updateBar);
     }
   }
 
@@ -338,19 +293,23 @@ export class PlayerStatsService {
       'score12k',
     ];
 
-    // Update ranks using direct SQL for better performance
     for (const scoreType of scoreTypes) {
       const rankField = `${scoreType}Rank`;
-      await sequelize.query(`
-        UPDATE PlayerStats ps
-        JOIN (
-          SELECT id, 
-                 @rank := @rank + 1 as new_rank
-          FROM PlayerStats, (SELECT @rank := 0) r
-          ORDER BY ${scoreType} DESC
-        ) ranked ON ps.id = ranked.id
-        SET ps.${rankField} = ranked.new_rank
-      `, { transaction });
+      
+      // Get all players ordered by score
+      const players = await PlayerStats.findAll({
+        order: [[scoreType, 'DESC']],
+        transaction,
+      });
+
+      // Update ranks
+      for (let i = 0; i < players.length; i++) {
+        const player = players[i];
+        await player.update(
+          {[rankField]: i + 1},
+          {transaction},
+        );
+      }
     }
   }
 
@@ -358,84 +317,31 @@ export class PlayerStatsService {
     const playerStats = await PlayerStats.findOne({
       attributes: {
         include: [
-          [
-            sequelize.literal(`(
-              SELECT COUNT(*) 
-              FROM passes 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false
-            )`),
-            'totalPasses'
-          ],
-          [
-            sequelize.literal(`(
-              SELECT difficulties.sortOrder 
-              FROM passes 
-              JOIN levels ON levels.id = passes.levelId 
-              JOIN difficulties ON difficulties.id = levels.diffId 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false 
-              ORDER BY difficulties.sortOrder DESC 
-              LIMIT 1
-            )`),
-            'topDiff'
-          ],
-          [
-            sequelize.literal(`(
-              SELECT difficulties.sortOrder 
-              FROM passes 
-              JOIN levels ON levels.id = passes.levelId 
-              JOIN difficulties ON difficulties.id = levels.diffId 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false 
-              AND passes.is12K = true 
-              ORDER BY difficulties.sortOrder DESC 
-              LIMIT 1
-            )`),
-            'top12kDiff'
-          ],
-          [
-            sequelize.literal(`(
-              SELECT COUNT(*) 
-              FROM passes 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false 
-              AND passes.is12K = true
-            )`),
-            'total12kPasses'
-          ],
-          [
-            sequelize.literal(`(
-              SELECT COUNT(*) 
-              FROM passes 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false 
-              AND passes.isWorldsFirst = true
-            )`),
-            'worldsFirstCount'
-          ],
-          [
-            sequelize.literal(`(
-              SELECT COUNT(DISTINCT levels.diffId) 
-              FROM passes 
-              JOIN levels ON levels.id = passes.levelId 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false
-            )`),
-            'uniqueDifficultiesCleared'
-          ],
-          [
-            sequelize.literal(`(
-              SELECT AVG(accuracy) 
-              FROM passes 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false
-            )`),
-            'averageAccuracy'
-          ]
+          [sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = PlayerStats.playerId AND Passes.isDeleted = false)'), 'totalPasses'],
+          [sequelize.literal(`(
+            SELECT Difficulties.sortOrder 
+            FROM Passes 
+            JOIN Levels ON Levels.id = Passes.levelId 
+            JOIN Difficulties ON Difficulties.id = Levels.diffId 
+            WHERE Passes.playerId = PlayerStats.playerId 
+            AND Passes.isDeleted = false 
+            ORDER BY Difficulties.sortOrder DESC 
+            LIMIT 1
+          )`), 'topDiff'],
+          [sequelize.literal(`(
+            SELECT Difficulties.sortOrder 
+            FROM Passes 
+            JOIN Levels ON Levels.id = Passes.levelId 
+            JOIN Difficulties ON Difficulties.id = Levels.diffId 
+            WHERE Passes.playerId = PlayerStats.playerId 
+            AND Passes.isDeleted = false 
+            AND Passes.is12K = true 
+            ORDER BY Difficulties.sortOrder DESC 
+            LIMIT 1
+          )`), 'top12kDiff'],
         ],
       },
-      where: { playerId },
+      where: {playerId},
       include: [
         {
           model: Player,
@@ -486,28 +392,28 @@ export class PlayerStatsService {
       'wfScore': 'wfScore',
       'score12k': 'score12k',
       'averageXacc': 'averageXacc',
-      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = PlayerStats.playerId AND passes.isDeleted = false)'),
+      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = PlayerStats.playerId AND Passes.isDeleted = false)'),
       'universalPasses': 'universalPassCount',
       'worldsFirstCount': 'worldsFirstCount',
       'topDiff': sequelize.literal(`(
-        SELECT difficulties.sortOrder 
-        FROM passes 
-        JOIN levels ON levels.id = passes.levelId 
-        JOIN difficulties ON difficulties.id = levels.diffId 
-        WHERE passes.playerId = PlayerStats.playerId 
-        AND passes.isDeleted = false 
-        ORDER BY difficulties.sortOrder DESC 
+        SELECT Difficulties.sortOrder 
+        FROM Passes 
+        JOIN Levels ON Levels.id = Passes.levelId 
+        JOIN Difficulties ON Difficulties.id = Levels.diffId 
+        WHERE Passes.playerId = PlayerStats.playerId 
+        AND Passes.isDeleted = false 
+        ORDER BY Difficulties.sortOrder DESC 
         LIMIT 1
       )`),
       'top12kDiff': sequelize.literal(`(
-        SELECT difficulties.sortOrder 
-        FROM passes 
-        JOIN levels ON levels.id = passes.levelId 
-        JOIN difficulties ON difficulties.id = levels.diffId 
-        WHERE passes.playerId = PlayerStats.playerId 
-        AND passes.isDeleted = false 
-        AND passes.is12K = true 
-        ORDER BY difficulties.sortOrder DESC 
+        SELECT Difficulties.sortOrder 
+        FROM Passes 
+        JOIN Levels ON Levels.id = Passes.levelId 
+        JOIN Difficulties ON Difficulties.id = Levels.diffId 
+        WHERE Passes.playerId = PlayerStats.playerId 
+        AND Passes.isDeleted = false 
+        AND Passes.is12K = true 
+        ORDER BY Difficulties.sortOrder DESC 
         LIMIT 1
       )`),
     };
@@ -688,3 +594,4 @@ export class PlayerStatsService {
     return response;
   }
 } 
+ 
