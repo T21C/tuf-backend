@@ -17,7 +17,13 @@ const __dirname = dirname(__filename);
 // Cache directory path
 const ICON_CACHE_DIR = path.join(__dirname, '../../../cache/icons');
 const IMAGE_API = process.env.IMAGE_API || '/api/images';
-const OWN_URL = process.env.OWN_URL || 'http://localhost:3000';
+const OWN_URL = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.OWN_URL
+: 'http://localhost:3002';
 
 // Helper function to download and cache icons
 async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
@@ -25,16 +31,24 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
     await fs.mkdir(ICON_CACHE_DIR, { recursive: true });
     const fileName = `${diffName.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
     const filePath = path.join(ICON_CACHE_DIR, fileName);
+    const newUrl = `${OWN_URL}${IMAGE_API}/icon/${fileName}`;
 
-    if (!(await fs.stat(filePath).catch(() => false))) {
+    // Always attempt to cache the icon, even if it's already a cached URL
+    try {
       const response = await axios.get(iconUrl, { responseType: 'arraybuffer' });
       await fs.writeFile(filePath, Buffer.from(response.data));
+    } catch (error) {
+      console.error(`Failed to cache icon for ${diffName}:`, error);
+      // If caching fails but file exists, continue using existing cache
+      if (!(await fs.stat(filePath).catch(() => false))) {
+        throw error; // Re-throw if no cached file exists
+      }
     }
 
-    return `${OWN_URL}${IMAGE_API}/icon/${fileName}`;
+    return newUrl;
   } catch (error) {
-    console.error(`Failed to cache icon for ${diffName}:`, error);
-    return iconUrl;
+    console.error(`Failed to process icon for ${diffName}:`, error);
+    return iconUrl; // Return original URL as fallback
   }
 }
 
@@ -141,23 +155,23 @@ router.put('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: R
     }
 
     // Cache new icons if provided
-    const cachedIcon = icon ? await cacheIcon(icon, name || difficulty.name) : difficulty.icon;
-    const cachedLegacyIcon = legacyIcon ? 
+    const cachedIcon = icon && icon !== difficulty.icon ? await cacheIcon(icon, name || difficulty.name) : difficulty.icon;
+    const cachedLegacyIcon = legacyIcon && legacyIcon !== difficulty.legacyIcon ? 
       await cacheIcon(legacyIcon, `legacy_${name || difficulty.name}`) : 
       difficulty.legacyIcon;
 
-    // Update the difficulty
+    // Update the difficulty with nullish coalescing
     await difficulty.update({
-      name: name || difficulty.name,
-      type: type || difficulty.type,
+      name: name ?? difficulty.name,
+      type: type ?? difficulty.type,
       icon: cachedIcon,
-      emoji: emoji || difficulty.emoji,
-      color: color || difficulty.color,
-      baseScore: baseScore || difficulty.baseScore,
-      sortOrder: sortOrder || difficulty.sortOrder,
-      legacy: legacy || difficulty.legacy,
+      emoji: emoji ?? difficulty.emoji,
+      color: color ?? difficulty.color,
+      baseScore: baseScore ?? difficulty.baseScore,
+      sortOrder: sortOrder ?? difficulty.sortOrder,
+      legacy: legacy ?? difficulty.legacy,
       legacyIcon: cachedLegacyIcon,
-      legacyEmoji: legacyEmoji || difficulty.legacyEmoji,
+      legacyEmoji: legacyEmoji ?? difficulty.legacyEmoji,
       updatedAt: new Date()
     });
 

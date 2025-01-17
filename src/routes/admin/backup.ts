@@ -13,7 +13,8 @@ const backupService = new BackupService();
 const upload = multer({ 
   dest: os.tmpdir(),
   limits: {
-    fileSize: 1024 * 1024 * 100 // 100MB limit
+    fileSize: 1024 * 1024 * 500, // 500MB limit
+    files: 1
   }
 });
 
