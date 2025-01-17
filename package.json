@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node dist/app.js",
     "build": "rimraf dist && tsc",
-    "dev": "nodemon src/app.ts",
+    "dev": "tsx watch src/app.ts",
     "staging": "cross-env NODE_ENV=staging tsx watch src/app.ts",
     "staging:prod": "npm run build && cross-env NODE_ENV=staging node dist/app.js",
     "production": "npm run build && cross-env NODE_ENV=production node dist/app.js",
@@ -53,6 +53,7 @@
     "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.9.16",
+    "nodemon": "^3.1.9",
     "pnpm": "^9.12.3",
     "sequelize": "^6.37.5",
     "sequelize-cli": "^6.6.2",

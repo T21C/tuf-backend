@@ -85,12 +85,10 @@ export class PlayerStatsService {
 
       // Prepare bulk update data
       const bulkStats = players.map(player => {
-        //console.log(`Processing player ${player.id} with ${player.passes?.length || 0} passes`);
-        
+
         // Convert passes to scores and get highest score per level
         const scores = this.convertPassesToScores(player.passes || []);
         const uniqueScores = this.getHighestScorePerLevel(scores);
-        
         return {
           playerId: player.id,
           rankedScore: calculateRankedScore(uniqueScores),

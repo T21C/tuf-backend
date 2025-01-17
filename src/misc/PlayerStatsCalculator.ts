@@ -32,7 +32,7 @@ export function calculatePPScore(scores: Score[]): number {
 }
 
 export function calculateWFScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
+  if (!scores) return 0;
   return scores
     .filter(score => score.isWorldsFirst)
     .reduce((sum, score) => sum + score.baseScore, 0);

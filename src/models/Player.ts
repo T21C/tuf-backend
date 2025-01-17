@@ -42,7 +42,7 @@ class Player
   declare averageXacc?: number;
   declare totalPasses?: number;
   declare universalPasses?: number;
-  declare worldsFirstPasses?: number;
+  declare worldsFirstCount?: number;
   declare topDiff?: IDifficulty;
   declare top12kDiff?: IDifficulty;
 }

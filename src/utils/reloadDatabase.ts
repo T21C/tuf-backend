@@ -774,6 +774,7 @@ async function reloadDatabase() {
       ),
     );
 
+    await initializeReferences(difficultyDocs, transaction);
     updateProgress(95, 'Finalizing', 'Creating ratings for unranked levels');
     const unrankedLevels = await db.models.Level.findAll({
       where: { 
@@ -1086,7 +1087,6 @@ export async function partialReload() {
         }
       );
     }
-
     updateProgress(90, 'Finalizing', 'Creating ratings');
     const unrankedLevels = await db.models.Level.findAll({
       where: { 

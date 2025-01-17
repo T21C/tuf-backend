@@ -102,7 +102,7 @@ export interface IPlayer extends IBaseModel {
   averageXacc?: number;
   totalPasses?: number;
   universalPasses?: number;
-  worldsFirstPasses?: number;
+  worldsFirstCount?: number;
   topDiff?: IDifficulty;
   top12kDiff?: IDifficulty;
 }

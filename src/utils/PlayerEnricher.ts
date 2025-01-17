@@ -37,7 +37,7 @@ interface PlayerStats {
   score12K: number;
   averageXacc: number;
   universalPasses: number;
-  worldsFirstPasses: number;
+  worldsFirstCount: number;
   topDiff: any;
   top12kDiff: any;
 }
@@ -47,10 +47,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Rate limiting settings
-const CONCURRENT_BATCH_SIZE = 100; // Increased for better throughput
-const PLAYER_LOAD_BATCH_SIZE = 200; // Increased batch size for initial load
-const PASS_LOAD_BATCH_SIZE = 500; // Batch size for loading passes
-const DELAY_BETWEEN_BATCHES = 50; // Small delay between batches
+const CONCURRENT_BATCH_SIZE = 200; // Increased for better throughput
+const PLAYER_LOAD_BATCH_SIZE = 300; // Increased batch size for initial load
+const DELAY_BETWEEN_BATCHES = 0; // Small delay between batches
 
 // Progress bar configuration
 const progressBar = new cliProgress.MultiBar({
@@ -78,7 +77,7 @@ function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
     score12K: calculate12KScore(scores),
     averageXacc: calculateAverageXacc(scores),
     universalPasses: countUniversalPasses(passes),
-    worldsFirstPasses: countWorldsFirstPasses(passes),
+    worldsFirstCount: countWorldsFirstPasses(passes),
     topDiff: calculateTopDiff(passes),
     top12kDiff: calculateTop12KDiff(passes)
   };
@@ -142,7 +141,7 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
       speed: pass.speed || 0,
       isWorldsFirst: pass.isWorldsFirst || false,
       is12K: pass.is12K || false,
-      baseScore: pass.level?.baseScore || 0,
+      baseScore: pass.level?.baseScore || pass.level?.difficulty?.baseScore || 0,
       isDeleted: pass.isDeleted || false,
       isHidden: pass.level?.isHidden || false,
       pguDiff: pass.level?.difficulty?.name,
@@ -292,8 +291,7 @@ async function loadPlayersInBatches(mainBar: cliProgress.SingleBar): Promise<Pla
             as: 'passes',
             required: false,
             where: { isDeleted: false },
-            attributes: ['videoLink', 'isDeleted'],
-            limit: 20, // Only need first 20 passes for pfp
+            attributes: ['videoLink', 'isDeleted']
           },
         ],
         limit: PLAYER_LOAD_BATCH_SIZE,

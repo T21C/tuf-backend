@@ -4,6 +4,8 @@ import fs from 'fs/promises';
 import cron from 'node-cron';
 import config from '../config/backup.config.js';
 import db from '../models/index.js';
+import dotenv from 'dotenv';
+dotenv.config();
 
 export class BackupService {
   private config: typeof config;
@@ -11,7 +13,7 @@ export class BackupService {
 
   constructor() {
     this.config = config;
-    this.isWindows = process.env.OS?.toUpperCase() === 'WINDOWS';
+    this.isWindows = process.env.OS === 'Windows_NT';
     console.log(`BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`);
   }
 
@@ -169,6 +171,22 @@ export class BackupService {
     if (removedCount > 0) {
       console.log(`Cleaned up ${removedCount} old ${type} backups`);
     }
+  }
+
+  async uploadBackup(file: Express.Multer.File, type: 'mysql' | 'files'): Promise<string> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const originalExt = path.extname(file.originalname);
+    const newFileName = `Upload_${type}-backup-${timestamp}${originalExt}`;
+    const targetDir = type === 'mysql' ? this.config.mysql.backupPath : this.config.files.backupPath;
+    const targetPath = path.join(targetDir, newFileName);
+
+    // Ensure backup directory exists
+    await fs.mkdir(targetDir, { recursive: true });
+
+    // Move uploaded file to backup directory
+    await fs.rename(file.path, targetPath);
+
+    return newFileName;
   }
 
   async initializeSchedules() {

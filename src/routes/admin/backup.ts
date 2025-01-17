@@ -3,12 +3,48 @@ import { Auth } from '../../middleware/auth.js';
 import { BackupService } from '../../services/BackupService.js';
 import fs from 'fs/promises';
 import path from 'path';
+import multer from 'multer';
+import os from 'os';
 
 const router: Router = Router();
 const backupService = new BackupService();
 
+// Configure multer for file uploads
+const upload = multer({ 
+  dest: os.tmpdir(),
+  limits: {
+    fileSize: 1024 * 1024 * 100 // 100MB limit
+  }
+});
+
 // Initialize backup schedules
 backupService.initializeSchedules().catch(console.error);
+
+// Upload backup
+router.post('/upload/:type', Auth.superAdminPassword(), upload.single('backup'), async (req: Request, res: Response) => {
+  try {
+    const { type } = req.params;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    if (!['mysql', 'files'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid backup type' });
+    }
+
+    const newFileName = await backupService.uploadBackup(req.file, type as 'mysql' | 'files');
+    
+    return res.json({ 
+      success: true, 
+      message: 'Backup uploaded successfully',
+      fileName: newFileName
+    });
+  } catch (error) {
+    console.error('Failed to upload backup:', error);
+    return res.status(500).json({ error: 'Failed to upload backup' });
+  }
+});
 
 // Trigger manual backup
 router.post('/create/:target', Auth.superAdminPassword(), async (req: Request, res: Response) => {

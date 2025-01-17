@@ -113,8 +113,8 @@ async function startServer() {
       origin: clientUrl || 'http://localhost:5173',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD', 'CONNECT', 'TRACE'],
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type'],
-      exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type']
+      allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type', 'X-Super-Admin-Password'],
+      exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type', 'X-Super-Admin-Password']
     };
 
     // Enable pre-flight requests for all routes

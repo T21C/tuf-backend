@@ -184,7 +184,10 @@ export const Auth = {
       try {
         // First ensure user is a super admin
         await Auth.superAdmin()(req, res, () => {
-          const { superAdminPassword } = req.body;
+          const { superAdminPassword: superAdminPasswordBody } = req.body;
+          const superAdminPasswordHeader = req.headers['x-super-admin-password'];
+          const superAdminPassword = superAdminPasswordBody || superAdminPasswordHeader;
+          console.log(superAdminPassword, process.env.SUPER_ADMIN_KEY);
           if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
             res.status(403).json({ message: 'Invalid super admin password' });
             return;
