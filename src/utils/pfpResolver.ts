@@ -5,7 +5,7 @@ dotenv.config();
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
-const ENABLE_FETCHING = true;
+const ENABLE_FETCHING = process.env.LOAD_PFPS === 'true';
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
