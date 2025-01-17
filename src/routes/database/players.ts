@@ -134,27 +134,80 @@ router.put(
   '/:id/discord',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
-      const {discordId, discordUsername, discordAvatar} = req.body;
+      const {discordId, discordUsername, discordAvatar, profile} = req.body;
 
-      const player = await Player.findByPk(id);
+      const player = await Player.findByPk(id, {
+        include: [{
+          model: User,
+          as: 'user',
+          include: [{
+            model: OAuthProvider,
+            as: 'providers',
+            where: { provider: 'discord' },
+            required: false
+          }]
+        }],
+        transaction
+      });
+
       if (!player) {
+        await transaction.rollback();
         return res.status(404).json({error: 'Player not found'});
       }
 
-      await player.update({
-        discordId,
-        discordUsername,
-        discordAvatar,
-        discordAvatarId: discordAvatar.split('/').pop(),
-      });
+      const avatarUrl = profile.avatar ? `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png` : null;
 
+      // Update player's Discord info using data from the profile
+      await player.update({
+        discordId: profile.id,
+        discordUsername: profile.username,
+        discordAvatar: avatarUrl,
+        discordAvatarId: profile.avatar || null,
+        pfp: avatarUrl, // Update player's pfp
+      }, { transaction });
+
+      // Handle OAuth provider update/creation if player has a user
+      if (player.user) {
+        // Update user's avatarUrl
+        await player.user.update({
+          avatarUrl
+        }, { transaction });
+
+        const discordProvider = player.user.providers?.[0];
+        const providerData = {
+          provider: 'discord',
+          providerId: profile.id,
+          profile: profile // Store the complete Discord profile
+        };
+
+        if (discordProvider) {
+          // Update existing provider
+          await discordProvider.update(providerData, { transaction });
+        } else {
+          // Create new provider
+          await OAuthProvider.create({
+            ...providerData,
+            userId: player.user.id,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }, { transaction });
+        }
+      }
+
+      await transaction.commit();
+
+      // Force cache update and broadcast changes
+      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
+      sseManager.broadcast({ type: 'playerUpdate' });
 
       return res.json({message: 'Discord info updated successfully'});
     } catch (error) {
+      await transaction.rollback();
       console.error('Error updating player discord info:', error);
       return res.status(500).json({
         error: 'Failed to update player discord info',
@@ -289,35 +342,88 @@ router.put(
   '/:id/discord/:discordId',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
     try {
       const {id, discordId} = req.params;
       const {username, avatar} = req.body;
 
-      const player = await Player.findByPk(id);
+      const player = await Player.findByPk(id, {
+        include: [{
+          model: User,
+          as: 'user',
+          include: [{
+            model: OAuthProvider,
+            as: 'providers',
+            where: { provider: 'discord' },
+            required: false
+          }]
+        }],
+        transaction
+      });
+
       if (!player) {
+        await transaction.rollback();
         return res.status(404).json({error: 'Player not found'});
       }
+
+      const avatarUrl = `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`;
+      const profile = {
+        id: discordId,
+        username,
+        avatar,
+        avatarUrl,
+      };
 
       await player.update({
         discordId,
         discordUsername: username,
         discordAvatarId: avatar,
-        discordAvatar: `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`,
-      });
+        discordAvatar: avatarUrl,
+        pfp: avatarUrl, // Update player's pfp
+      }, { transaction });
 
+      // Handle OAuth provider update/creation if player has a user
+      if (player.user) {
+        // Update user's avatarUrl
+        await player.user.update({
+          avatarUrl
+        }, { transaction });
+
+        const discordProvider = player.user.providers?.[0];
+        const providerData = {
+          provider: 'discord',
+          providerId: discordId,
+          profile: profile // Store the complete Discord profile
+        };
+
+        if (discordProvider) {
+          // Update existing provider
+          await discordProvider.update(providerData, { transaction });
+        } else {
+          // Create new provider
+          await OAuthProvider.create({
+            ...providerData,
+            userId: player.user.id,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }, { transaction });
+        }
+      }
+
+      await transaction.commit();
+
+      // Force cache update and broadcast changes
+      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
       const io = getIO();
       io.emit('leaderboardUpdated');
+      sseManager.broadcast({ type: 'playerUpdate' });
 
       return res.json({
         message: 'Discord info updated successfully',
-        discordInfo: {
-          id: discordId,
-          username,
-          avatar,
-          avatarUrl: `https://cdn.discordapp.com/avatars/${discordId}/${avatar}.png`,
-        },
+        discordInfo: profile
       });
     } catch (error) {
+      await transaction.rollback();
       console.error('Error updating Discord info:', error);
       return res.status(500).json({
         error: 'Failed to update Discord info',

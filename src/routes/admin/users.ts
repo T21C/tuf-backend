@@ -127,7 +127,7 @@ const requiresPassword = (req: Request, res: Response, next: NextFunction) => {
   return next();
 };
 
-router.get('/raters', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get('/raters', async (req: Request, res: Response) => {
   try {
     const raters = await User.findAll({
       where: {
