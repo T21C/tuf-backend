@@ -95,10 +95,6 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
       playerId: playerIds,
       isDeleted: false
     },
-    attributes: [
-      'id', 'scoreV2', 'accuracy', 'isWorldsFirst', 
-      'is12K', 'isDeleted', 'levelId', 'playerId'
-    ],
     include: [{
       model: Level,
       as: 'level',
