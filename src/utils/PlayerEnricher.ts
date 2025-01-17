@@ -34,12 +34,12 @@ interface PlayerStats {
   generalScore: number;
   ppScore: number;
   wfScore: number;
-  score12K: number;
+  score12k: number;
   averageXacc: number;
   universalPasses: number;
   worldsFirstPasses: number;
   topDiff: any;
-  top12KDiff: any;
+  top12kDiff: any;
 }
 
 // Get current file's directory
@@ -75,12 +75,12 @@ function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
     generalScore: calculateGeneralScore(scores),
     ppScore: calculatePPScore(scores),
     wfScore: calculateWFScore(scores),
-    score12K: calculate12KScore(scores),
+    score12k: calculate12KScore(scores),
     averageXacc: calculateAverageXacc(scores),
     universalPasses: countUniversalPasses(passes),
     worldsFirstPasses: countWorldsFirstPasses(passes),
     topDiff: calculateTopDiff(passes),
-    top12KDiff: calculateTop12KDiff(passes)
+    top12kDiff: calculateTop12KDiff(passes)
   };
 }
 
