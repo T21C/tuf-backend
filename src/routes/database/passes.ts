@@ -418,7 +418,6 @@ router.post('/', async (req: Request, res: Response) => {
           model: Level,
           as: 'level',
           where: { isHidden: false },
-          attributes: ['song', 'artist', 'baseScore'],
           include: [
             {
               model: Difficulty,
