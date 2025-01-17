@@ -34,7 +34,7 @@ interface PlayerStats {
   generalScore: number;
   ppScore: number;
   wfScore: number;
-  score12k: number;
+  score12K: number;
   averageXacc: number;
   universalPasses: number;
   worldsFirstPasses: number;
@@ -75,7 +75,7 @@ function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
     generalScore: calculateGeneralScore(scores),
     ppScore: calculatePPScore(scores),
     wfScore: calculateWFScore(scores),
-    score12k: calculate12KScore(scores),
+    score12K: calculate12KScore(scores),
     averageXacc: calculateAverageXacc(scores),
     universalPasses: countUniversalPasses(passes),
     worldsFirstPasses: countWorldsFirstPasses(passes),

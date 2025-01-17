@@ -38,7 +38,7 @@ class Player
   declare generalScore?: number;
   declare ppScore?: number;
   declare wfScore?: number;
-  declare score12k?: number;
+  declare score12K?: number;
   declare averageXacc?: number;
   declare totalPasses?: number;
   declare universalPasses?: number;

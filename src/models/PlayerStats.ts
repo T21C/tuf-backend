@@ -9,12 +9,12 @@ class PlayerStats extends Model {
   declare generalScore: number;
   declare ppScore: number;
   declare wfScore: number;
-  declare score12k: number;
+  declare score12K: number;
   declare rankedScoreRank: number;
   declare generalScoreRank: number;
   declare ppScoreRank: number;
   declare wfScoreRank: number;
-  declare score12kRank: number;
+  declare score12KRank: number;
   declare averageXacc: number;
   declare universalPassCount: number;
   declare worldsFirstCount: number;
@@ -62,7 +62,7 @@ PlayerStats.init(
       allowNull: false,
       defaultValue: 0,
     },
-    score12k: {
+    score12K: {
       type: DataTypes.FLOAT,
       allowNull: false,
       defaultValue: 0,
@@ -87,7 +87,7 @@ PlayerStats.init(
       allowNull: false,
       defaultValue: 0,
     },
-    score12kRank: {
+    score12KRank: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,

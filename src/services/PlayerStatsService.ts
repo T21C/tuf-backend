@@ -97,7 +97,7 @@ export class PlayerStatsService {
           generalScore: calculateGeneralScore(uniqueScores),
           ppScore: calculatePPScore(uniqueScores),
           wfScore: calculateWFScore(uniqueScores),
-          score12k: calculate12KScore(uniqueScores),
+          score12K: calculate12KScore(uniqueScores),
           averageXacc: calculateAverageXacc(uniqueScores),
           universalPassCount: countUniversalPasses(player.passes || []),
           worldsFirstCount: countWorldsFirstPasses(player.passes || []),
@@ -112,7 +112,7 @@ export class PlayerStatsService {
           'generalScore',
           'ppScore',
           'wfScore',
-          'score12k',
+          'score12K',
           'averageXacc',
           'universalPassCount',
           'worldsFirstCount',
@@ -127,7 +127,7 @@ export class PlayerStatsService {
         'generalScore',
         'ppScore',
         'wfScore',
-        'score12k',
+        'score12K',
       ];
 
       for (const scoreType of scoreTypes) {
@@ -245,7 +245,7 @@ export class PlayerStatsService {
         generalScore: calculateGeneralScore(uniqueScores),
         ppScore: calculatePPScore(uniqueScores),
         wfScore: calculateWFScore(uniqueScores),
-        score12k: calculate12KScore(uniqueScores),
+        score12K: calculate12KScore(uniqueScores),
         averageXacc: calculateAverageXacc(uniqueScores),
         universalPassCount: countUniversalPasses(player.passes),
         worldsFirstCount: countWorldsFirstPasses(player.passes),
@@ -290,7 +290,7 @@ export class PlayerStatsService {
       'generalScore',
       'ppScore',
       'wfScore',
-      'score12k',
+      'score12K',
     ];
 
     for (const scoreType of scoreTypes) {
@@ -390,7 +390,7 @@ export class PlayerStatsService {
       'generalScore': 'generalScore',
       'ppScore': 'ppScore',
       'wfScore': 'wfScore',
-      'score12k': 'score12k',
+      'score12K': 'score12K',
       'averageXacc': 'averageXacc',
       'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = PlayerStats.playerId AND passes.isDeleted = false)'),
       'universalPasses': 'universalPassCount',

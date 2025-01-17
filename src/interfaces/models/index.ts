@@ -98,7 +98,7 @@ export interface IPlayer extends IBaseModel {
   generalScore?: number;
   ppScore?: number;
   wfScore?: number;
-  score12k?: number;
+  score12K?: number;
   averageXacc?: number;
   totalPasses?: number;
   universalPasses?: number;

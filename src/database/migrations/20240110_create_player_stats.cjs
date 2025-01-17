@@ -39,7 +39,7 @@ module.exports = {
         allowNull: false,
         defaultValue: 0,
       },
-      score12k: {
+      score12K: {
         type: Sequelize.FLOAT,
         allowNull: false,
         defaultValue: 0,
@@ -64,7 +64,7 @@ module.exports = {
         allowNull: false,
         defaultValue: 0,
       },
-      score12kRank: {
+      score12KRank: {
         type: Sequelize.INTEGER,
         allowNull: false,
         defaultValue: 0,
@@ -105,7 +105,7 @@ module.exports = {
     await queryInterface.addIndex('player_stats', ['generalScore']);
     await queryInterface.addIndex('player_stats', ['ppScore']);
     await queryInterface.addIndex('player_stats', ['wfScore']);
-    await queryInterface.addIndex('player_stats', ['score12k']);
+    await queryInterface.addIndex('player_stats', ['score12K']);
   },
   
   down: async (queryInterface, Sequelize) => {

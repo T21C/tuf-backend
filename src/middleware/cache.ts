@@ -36,7 +36,7 @@ interface PlayerRanks {
   generalScoreRank: number;
   ppScoreRank: number;
   wfScoreRank: number;
-  score12kRank: number;
+  score12KRank: number;
 }
 
 export class LeaderboardCache {
@@ -83,10 +83,6 @@ export class LeaderboardCache {
           include: [{
             model: Pass,
             as: 'passes',
-            attributes: [
-              'id', 'levelId', 'speed', 'playerId',
-              'is12K', 'isWorldsFirst', 'accuracy', 'scoreV2', 'isDeleted'
-            ],
             include: [{
               model: Level,
               as: 'level',
@@ -198,7 +194,7 @@ export class LeaderboardCache {
       }
 
       // Update cache with processed players
-      const sortOptions = ['rankedScore', 'generalScore', 'ppScore', 'wfScore', 'score12k'];
+      const sortOptions = ['rankedScore', 'generalScore', 'ppScore', 'wfScore', 'score12K'];
       const orders = ['asc', 'desc'];
       const includeScoresOptions = [true, false];
 
@@ -277,7 +273,7 @@ export class LeaderboardCache {
       generalScoreRank: 0,
       ppScoreRank: 0,
       wfScoreRank: 0,
-      score12kRank: 0,
+      score12KRank: 0,
     };
 
     const rankedScoreLeaderboard = await this.get('rankedScore', 'desc', false);
@@ -288,7 +284,7 @@ export class LeaderboardCache {
     );
     const ppScoreLeaderboard = await this.get('ppScore', 'desc', false);
     const wfScoreLeaderboard = await this.get('wfScore', 'desc', false);
-    const score12kLeaderboard = await this.get('score12k', 'desc', false);
+    const score12KLeaderboard = await this.get('score12K', 'desc', false);
 
     ranks.rankedScoreRank =
       rankedScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
@@ -298,15 +294,15 @@ export class LeaderboardCache {
       ppScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
     ranks.wfScoreRank =
       wfScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.score12kRank =
-      score12kLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.score12KRank =
+      score12KLeaderboard.findIndex(p => p.id === playerId) + 1;
 
     const totalPlayers = rankedScoreLeaderboard.length;
     ranks.rankedScoreRank = ranks.rankedScoreRank || totalPlayers + 1;
     ranks.generalScoreRank = ranks.generalScoreRank || totalPlayers + 1;
     ranks.ppScoreRank = ranks.ppScoreRank || totalPlayers + 1;
     ranks.wfScoreRank = ranks.wfScoreRank || totalPlayers + 1;
-    ranks.score12kRank = ranks.score12kRank || totalPlayers + 1;
+    ranks.score12KRank = ranks.score12KRank || totalPlayers + 1;
 
     return ranks;
   }
