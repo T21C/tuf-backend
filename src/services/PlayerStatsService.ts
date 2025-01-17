@@ -135,11 +135,11 @@ export class PlayerStatsService {
         
         // MySQL-compatible rank update query
         await sequelize.query(`
-          UPDATE PlayerStats ps
+          UPDATE player_stats ps
           JOIN (
             SELECT id, 
                    @rank := @rank + 1 as new_rank
-            FROM PlayerStats, (SELECT @rank := 0) r
+            FROM player_stats, (SELECT @rank := 0) r
             ORDER BY ${scoreType} DESC
           ) ranked ON ps.id = ranked.id
           SET ps.${rankField} = ranked.new_rank
