@@ -358,28 +358,34 @@ export class PlayerStatsService {
     const playerStats = await PlayerStats.findOne({
       attributes: {
         include: [
+          [
+            sequelize.literal(`(
+              SELECT difficulties.sortOrder 
+              FROM passes 
+              JOIN levels ON levels.id = passes.levelId 
+              JOIN difficulties ON difficulties.id = levels.diffId 
+              WHERE passes.playerId = "PlayerStats".playerId 
+              AND passes.isDeleted = false 
+              ORDER BY difficulties.sortOrder DESC 
+              LIMIT 1
+            )`),
+            'topDiff'
+          ],
+          [
+            sequelize.literal(`(
+              SELECT difficulties.sortOrder 
+              FROM passes 
+              JOIN levels ON levels.id = passes.levelId 
+              JOIN difficulties ON difficulties.id = levels.diffId 
+              WHERE passes.playerId = "PlayerStats".playerId 
+              AND passes.isDeleted = false 
+              AND passes.is12K = true 
+              ORDER BY difficulties.sortOrder DESC 
+              LIMIT 1
+            )`),
+            'top12kDiff'
+          ],
           [sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = player_stats.playerId AND passes.isDeleted = false)'), 'totalPasses'],
-          [sequelize.literal(`(
-            SELECT difficulties.sortOrder 
-            FROM passes 
-            JOIN levels ON levels.id = passes.levelId 
-            JOIN difficulties ON difficulties.id = levels.diffId 
-            WHERE passes.playerId = player_stats.playerId 
-            AND passes.isDeleted = false 
-            ORDER BY difficulties.sortOrder DESC 
-            LIMIT 1
-          )`), 'topDiff'],
-          [sequelize.literal(`(
-            SELECT difficulties.sortOrder 
-            FROM passes 
-            JOIN levels ON levels.id = passes.levelId 
-            JOIN difficulties ON difficulties.id = levels.diffId 
-            WHERE passes.playerId = player_stats.playerId 
-            AND passes.isDeleted = false 
-            AND passes.is12K = true 
-            ORDER BY difficulties.sortOrder DESC 
-            LIMIT 1
-          )`), 'top12kDiff'],
         ],
       },
       where: {playerId},
