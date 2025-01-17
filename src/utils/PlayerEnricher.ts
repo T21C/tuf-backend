@@ -145,6 +145,7 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
     const scores = passesData.map(pass => ({
       score: pass.scoreV2 || 0,
       xacc: pass.accuracy || 0,
+      speed: pass.speed || 0,
       isWorldsFirst: pass.isWorldsFirst || false,
       is12K: pass.is12K || false,
       baseScore: pass.level?.baseScore || 0,
