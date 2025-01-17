@@ -3,6 +3,7 @@ import {IDifficulty, IPass} from '../interfaces/models';
 export interface Score {
   score: number;
   xacc: number;
+  speed: number;
   isWorldsFirst: boolean;
   is12K: boolean;
   baseScore: number;

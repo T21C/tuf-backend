@@ -196,6 +196,7 @@ export class PlayerStatsService {
         score: pass.scoreV2 || 0,
         baseScore: pass.level?.baseScore || 0,
         xacc: pass.accuracy || 0,
+        speed: pass.speed || 0,
         isWorldsFirst: pass.isWorldsFirst || false,
         is12K: pass.is12K || false,
         isDeleted: pass.isDeleted || false,
