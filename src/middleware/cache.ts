@@ -86,11 +86,9 @@ export class LeaderboardCache {
             include: [{
               model: Level,
               as: 'level',
-              attributes: ['id', 'baseScore', 'diffId'],
               include: [{
                 model: Difficulty,
-                as: 'difficulty',
-                attributes: ['name', 'sortOrder']
+                as: 'difficulty'
               }]
             }]
           }],
