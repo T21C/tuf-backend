@@ -129,9 +129,4 @@ PlayerStats.init(
   },
 );
 
-PlayerStats.belongsTo(Player, {
-  foreignKey: 'playerId',
-  as: 'player',
-});
-
 export default PlayerStats; 
