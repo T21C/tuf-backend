@@ -178,11 +178,11 @@ export class PlayerStatsService {
         
         const rankField = `${scoreType}Rank`;
         await sequelize.query(`
-          UPDATE player_stats ps
+          UPDATE PlayerStats ps
           JOIN (
             SELECT id, 
                    @rank := @rank + 1 as new_rank
-            FROM player_stats, (SELECT @rank := 0) r
+            FROM PlayerStats, (SELECT @rank := 0) r
             ORDER BY ${scoreType} DESC
           ) ranked ON ps.id = ranked.id
           SET ps.${rankField} = ranked.new_rank
@@ -342,11 +342,11 @@ export class PlayerStatsService {
     for (const scoreType of scoreTypes) {
       const rankField = `${scoreType}Rank`;
       await sequelize.query(`
-        UPDATE player_stats ps
+        UPDATE PlayerStats ps
         JOIN (
           SELECT id, 
                  @rank := @rank + 1 as new_rank
-          FROM player_stats, (SELECT @rank := 0) r
+          FROM PlayerStats, (SELECT @rank := 0) r
           ORDER BY ${scoreType} DESC
         ) ranked ON ps.id = ranked.id
         SET ps.${rankField} = ranked.new_rank
@@ -358,6 +358,15 @@ export class PlayerStatsService {
     const playerStats = await PlayerStats.findOne({
       attributes: {
         include: [
+          [
+            sequelize.literal(`(
+              SELECT COUNT(*) 
+              FROM passes 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false
+            )`),
+            'totalPasses'
+          ],
           [
             sequelize.literal(`(
               SELECT difficulties.sortOrder 
@@ -390,10 +399,40 @@ export class PlayerStatsService {
               SELECT COUNT(*) 
               FROM passes 
               WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false 
+              AND passes.is12K = true
+            )`),
+            'total12kPasses'
+          ],
+          [
+            sequelize.literal(`(
+              SELECT COUNT(*) 
+              FROM passes 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false 
+              AND passes.isWorldsFirst = true
+            )`),
+            'worldsFirstCount'
+          ],
+          [
+            sequelize.literal(`(
+              SELECT COUNT(DISTINCT levels.diffId) 
+              FROM passes 
+              JOIN levels ON levels.id = passes.levelId 
+              WHERE passes.playerId = PlayerStats.playerId 
               AND passes.isDeleted = false
             )`),
-            'totalPasses'
+            'uniqueDifficultiesCleared'
           ],
+          [
+            sequelize.literal(`(
+              SELECT AVG(accuracy) 
+              FROM passes 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false
+            )`),
+            'averageAccuracy'
+          ]
         ],
       },
       where: { playerId },
@@ -447,7 +486,7 @@ export class PlayerStatsService {
       'wfScore': 'wfScore',
       'score12k': 'score12k',
       'averageXacc': 'averageXacc',
-      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = player_stats.playerId AND passes.isDeleted = false)'),
+      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = PlayerStats.playerId AND passes.isDeleted = false)'),
       'universalPasses': 'universalPassCount',
       'worldsFirstCount': 'worldsFirstCount',
       'topDiff': sequelize.literal(`(
@@ -455,7 +494,7 @@ export class PlayerStatsService {
         FROM passes 
         JOIN levels ON levels.id = passes.levelId 
         JOIN difficulties ON difficulties.id = levels.diffId 
-        WHERE passes.playerId = player_stats.playerId 
+        WHERE passes.playerId = PlayerStats.playerId 
         AND passes.isDeleted = false 
         ORDER BY difficulties.sortOrder DESC 
         LIMIT 1
@@ -465,7 +504,7 @@ export class PlayerStatsService {
         FROM passes 
         JOIN levels ON levels.id = passes.levelId 
         JOIN difficulties ON difficulties.id = levels.diffId 
-        WHERE passes.playerId = player_stats.playerId 
+        WHERE passes.playerId = PlayerStats.playerId 
         AND passes.isDeleted = false 
         AND passes.is12K = true 
         ORDER BY difficulties.sortOrder DESC 
