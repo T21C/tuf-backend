@@ -299,13 +299,6 @@ async function loadPlayersInBatches(mainBar: cliProgress.SingleBar): Promise<Pla
             where: { isDeleted: false },
             attributes: ['videoLink', 'isDeleted'],
             limit: 20, // Only need first 20 passes for pfp
-            include: [
-              {
-                model: Level,
-                as: 'level',
-                attributes: ['id'],
-              },
-            ],
           },
         ],
         limit: PLAYER_LOAD_BATCH_SIZE,
