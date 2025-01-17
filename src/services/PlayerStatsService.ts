@@ -364,7 +364,7 @@ export class PlayerStatsService {
               FROM passes 
               JOIN levels ON levels.id = passes.levelId 
               JOIN difficulties ON difficulties.id = levels.diffId 
-              WHERE passes.playerId = "PlayerStats".playerId 
+              WHERE passes.playerId = PlayerStats.playerId 
               AND passes.isDeleted = false 
               ORDER BY difficulties.sortOrder DESC 
               LIMIT 1
@@ -377,7 +377,7 @@ export class PlayerStatsService {
               FROM passes 
               JOIN levels ON levels.id = passes.levelId 
               JOIN difficulties ON difficulties.id = levels.diffId 
-              WHERE passes.playerId = "PlayerStats".playerId 
+              WHERE passes.playerId = PlayerStats.playerId 
               AND passes.isDeleted = false 
               AND passes.is12K = true 
               ORDER BY difficulties.sortOrder DESC 
@@ -385,10 +385,18 @@ export class PlayerStatsService {
             )`),
             'top12kDiff'
           ],
-          [sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = player_stats.playerId AND passes.isDeleted = false)'), 'totalPasses'],
+          [
+            sequelize.literal(`(
+              SELECT COUNT(*) 
+              FROM passes 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false
+            )`),
+            'totalPasses'
+          ],
         ],
       },
-      where: {playerId},
+      where: { playerId },
       include: [
         {
           model: Player,
