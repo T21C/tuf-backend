@@ -358,26 +358,26 @@ export class PlayerStatsService {
     const playerStats = await PlayerStats.findOne({
       attributes: {
         include: [
-          [sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = player_stats.playerId AND Passes.isDeleted = false)'), 'totalPasses'],
+          [sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = player_stats.playerId AND passes.isDeleted = false)'), 'totalPasses'],
           [sequelize.literal(`(
-            SELECT Difficulties.sortOrder 
-            FROM Passes 
-            JOIN Levels ON Levels.id = Passes.levelId 
-            JOIN Difficulties ON Difficulties.id = Levels.diffId 
-            WHERE Passes.playerId = player_stats.playerId 
-            AND Passes.isDeleted = false 
-            ORDER BY Difficulties.sortOrder DESC 
+            SELECT difficulties.sortOrder 
+            FROM passes 
+            JOIN levels ON levels.id = passes.levelId 
+            JOIN difficulties ON difficulties.id = levels.diffId 
+            WHERE passes.playerId = player_stats.playerId 
+            AND passes.isDeleted = false 
+            ORDER BY difficulties.sortOrder DESC 
             LIMIT 1
           )`), 'topDiff'],
           [sequelize.literal(`(
-            SELECT Difficulties.sortOrder 
-            FROM Passes 
-            JOIN Levels ON Levels.id = Passes.levelId 
-            JOIN Difficulties ON Difficulties.id = Levels.diffId 
-            WHERE Passes.playerId = player_stats.playerId 
-            AND Passes.isDeleted = false 
-            AND Passes.is12K = true 
-            ORDER BY Difficulties.sortOrder DESC 
+            SELECT difficulties.sortOrder 
+            FROM passes 
+            JOIN levels ON levels.id = passes.levelId 
+            JOIN difficulties ON difficulties.id = levels.diffId 
+            WHERE passes.playerId = player_stats.playerId 
+            AND passes.isDeleted = false 
+            AND passes.is12K = true 
+            ORDER BY difficulties.sortOrder DESC 
             LIMIT 1
           )`), 'top12kDiff'],
         ],
@@ -433,28 +433,28 @@ export class PlayerStatsService {
       'wfScore': 'wfScore',
       'score12k': 'score12k',
       'averageXacc': 'averageXacc',
-      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM Passes WHERE Passes.playerId = player_stats.playerId AND Passes.isDeleted = false)'),
+      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = player_stats.playerId AND passes.isDeleted = false)'),
       'universalPasses': 'universalPassCount',
       'worldsFirstCount': 'worldsFirstCount',
       'topDiff': sequelize.literal(`(
-        SELECT Difficulties.sortOrder 
-        FROM Passes 
-        JOIN Levels ON Levels.id = Passes.levelId 
-        JOIN Difficulties ON Difficulties.id = Levels.diffId 
-        WHERE Passes.playerId = player_stats.playerId 
-        AND Passes.isDeleted = false 
-        ORDER BY Difficulties.sortOrder DESC 
+        SELECT difficulties.sortOrder 
+        FROM passes 
+        JOIN levels ON levels.id = passes.levelId 
+        JOIN difficulties ON difficulties.id = levels.diffId 
+        WHERE passes.playerId = player_stats.playerId 
+        AND passes.isDeleted = false 
+        ORDER BY difficulties.sortOrder DESC 
         LIMIT 1
       )`),
       'top12kDiff': sequelize.literal(`(
-        SELECT Difficulties.sortOrder 
-        FROM Passes 
-        JOIN Levels ON Levels.id = Passes.levelId 
-        JOIN Difficulties ON Difficulties.id = Levels.diffId 
-        WHERE Passes.playerId = player_stats.playerId 
-        AND Passes.isDeleted = false 
-        AND Passes.is12K = true 
-        ORDER BY Difficulties.sortOrder DESC 
+        SELECT difficulties.sortOrder 
+        FROM passes 
+        JOIN levels ON levels.id = passes.levelId 
+        JOIN difficulties ON difficulties.id = levels.diffId 
+        WHERE passes.playerId = player_stats.playerId 
+        AND passes.isDeleted = false 
+        AND passes.is12K = true 
+        ORDER BY difficulties.sortOrder DESC 
         LIMIT 1
       )`),
     };
