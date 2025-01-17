@@ -20,6 +20,7 @@ import Creator from './Creator';
 import LevelCredit from './LevelCredit';
 import Team from './Team';
 import TeamMember from './TeamMember';
+import PlayerStats from './PlayerStats';
 
 // Create db object with models first
 export const db = {
@@ -42,6 +43,7 @@ export const db = {
     LevelCredit,
     Team,
     TeamMember,
+    PlayerStats,
   },
 };
 

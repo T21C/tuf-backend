@@ -14,6 +14,7 @@ import LevelCredit from './LevelCredit';
 import Team from './Team';
 import TeamMember from './TeamMember';
 import LevelAlias from './LevelAlias';
+import PlayerStats from './PlayerStats';
 
 export function initializeAssociations() {
   // User <-> Player associations
@@ -25,6 +26,17 @@ export function initializeAssociations() {
   Player.hasOne(User, {
     foreignKey: 'playerId',
     as: 'user'
+  });
+
+  // Player <-> PlayerStats associations
+  Player.hasOne(PlayerStats, {
+    foreignKey: 'playerId',
+    as: 'stats'
+  });
+
+  PlayerStats.belongsTo(Player, {
+    foreignKey: 'playerId',
+    as: 'player'
   });
 
   // User <-> OAuthProvider associations

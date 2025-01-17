@@ -19,6 +19,11 @@ class PlayerStats extends Model {
   declare universalPassCount: number;
   declare worldsFirstCount: number;
   declare lastUpdated: Date;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+
+  // Virtual fields from associations
+  declare player?: Player;
 }
 
 PlayerStats.init(
@@ -107,6 +112,14 @@ PlayerStats.init(
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
+    createdAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    updatedAt: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
   },
   {
     sequelize,
@@ -119,11 +132,6 @@ PlayerStats.init(
 PlayerStats.belongsTo(Player, {
   foreignKey: 'playerId',
   as: 'player',
-});
-
-Player.hasOne(PlayerStats, {
-  foreignKey: 'playerId',
-  as: 'stats',
 });
 
 export default PlayerStats; 
