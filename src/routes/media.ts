@@ -13,29 +13,175 @@ import { initializeFonts } from '../utils/fontLoader.js';
 import Pass from '../models/Pass.js';
 import { IDifficulty, ILevel } from '../interfaces/models/index.js';
 import User from '../models/User.js';
+import { Buffer } from 'buffer';
 
 // Initialize fonts
 initializeFonts();
 
 const router: Router = express.Router();
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, lineHeight: number) {
-  const words = text.split('');
+function wrapText(text: string, maxChars: number): { lines: string[], isWrapped: boolean } {
+  const chars = text.split('');
   const lines = [];
-  let currentLine = words[0] || '';
+  let currentLine = chars[0] || '';
 
-  for (let i = 1; i < words.length; i++) {
-    const word = words[i];
-    const width = ctx.measureText(currentLine + word).width;
-    if (width < maxWidth) {
-      currentLine += word;
+  for (let i = 1; i < chars.length; i++) {
+    const char = chars[i];
+    if (currentLine.length < maxChars) {
+      currentLine += char;
     } else {
+      // If this is the last line and there are more characters
+      if (lines.length === 1 && i < chars.length - 1) {
+        currentLine = currentLine.slice(0, -3) + '...';
+        lines.push(currentLine);
+        break;
+      }
       lines.push(currentLine);
-      currentLine = word;
+      currentLine = char;
     }
   }
-  lines.push(currentLine);
-  return lines.slice(0, 2); // Return maximum 2 lines
+  if (currentLine && lines.length < 2) {
+    lines.push(currentLine);
+  }
+  return { 
+    lines: lines.slice(0, 2),
+    isWrapped: lines.length > 1 
+  };
+}
+
+function createHeaderSVG(config: {
+  width: number,
+  height: number,
+  headerHeight: number,
+  song: string,
+  artist: string,
+  levelId: number,
+  iconSize: number,
+  iconPadding: number,
+  titleFontSize: number,
+  artistFontSize: number,
+  idFontSize: number
+}): { svg: string, isWrapped: boolean } {
+  const { lines, isWrapped } = wrapText(config.song, 25);
+  
+  // Adjust sizes if text is wrapped
+  const titleFontSize = isWrapped ? Math.floor(config.titleFontSize * 0.85) : config.titleFontSize;
+  const headerHeight = isWrapped ? Math.floor(config.headerHeight * 1.15) : config.headerHeight;
+  const titleY = Math.floor(config.height * (isWrapped ? 0.1 : 0.12));
+  const artistY = isWrapped ? Math.floor(config.height * 0.25) : Math.floor(config.height * 0.201);
+  const textX = config.iconSize + (config.iconPadding * 2);
+
+  return {
+    svg: `
+      <svg width="${config.width}" height="${config.height}">
+        <defs>
+          <style>
+            @font-face {
+              font-family: 'Noto Sans KR';
+              font-weight: 800;
+              src: url('path/to/NotoSansKR-Bold.otf');
+            }
+            @font-face {
+              font-family: 'Noto Sans KR';
+              font-weight: 400;
+              src: url('path/to/NotoSansKR-Regular.otf');
+            }
+          </style>
+        </defs>
+        <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
+        ${lines.map((line, index) => `
+          <text
+            x="${textX}"
+            y="${titleY + (index * titleFontSize * 1.2)}"
+            font-family="Noto Sans KR"
+            font-weight="800"
+            font-size="${titleFontSize}px"
+            fill="white"
+          >${line}</text>
+        `).join('')}
+        <text
+          x="${textX}"
+          y="${artistY}"
+          font-family="Noto Sans KR"
+          font-weight="400"
+          font-size="${config.artistFontSize}px"
+          fill="white"
+        >${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>
+        <text
+          x="${config.width - config.iconPadding * 1.5}"
+          y="${titleY}"
+          font-family="Noto Sans KR"
+          font-weight="700"
+          font-size="${config.idFontSize}px"
+          fill="#bbbbbb"
+          text-anchor="end"
+        >#${config.levelId}</text>
+      </svg>
+    `,
+    isWrapped
+  };
+}
+
+function createFooterSVG(config: {
+  width: number,
+  height: number,
+  footerHeight: number,
+  baseScore: number | null,
+  passCount: number,
+  creator: string | null,
+  charter: string | null,
+  vfxer: string | null,
+  team: string | null,
+  fontSize: number,
+  idFontSize: number,
+  padding: number
+}): string {
+  const footerY = config.height - config.footerHeight;
+  let creatorText = '';
+  
+  const truncate = (text: string, maxLength: number) => 
+    text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
+  
+  if (config.team) {
+    creatorText = `By ${truncate(config.team, 25)}`;
+  } else if (config.charter && config.vfxer) {
+    creatorText = `Chart: ${truncate(config.charter, 20)}&#10;VFX: ${truncate(config.vfxer, 20)}`;
+  } else if (config.charter) {
+    creatorText = `By ${truncate(config.charter, 25)}`;
+  } else if (config.creator) {
+    creatorText = `By ${truncate(config.creator, 25)}`;
+  }
+
+  return `
+    <svg width="${config.width}" height="${config.height}">
+      <rect x="0" y="${footerY}" width="${config.width}" height="${config.footerHeight}" fill="black" opacity="0.73"/>
+      <text
+        x="${config.padding}"
+        y="${config.height - config.padding * 2.5}"
+        font-family="Noto Sans JP"
+        font-weight="700"
+        font-size="${config.idFontSize}px"
+        fill="#bbbbbb"
+      >${config.baseScore || 0}PP</text>
+      <text
+        x="${config.padding}"
+        y="${config.height - config.padding}"
+        font-family="Noto Sans JP"
+        font-weight="700"
+        font-size="${config.idFontSize}px"
+        fill="#bbbbbb"
+      >${config.passCount} pass${config.passCount.toString().endsWith('1') ? '' : 'es'}</text>
+      <text
+        x="${config.width - config.padding}"
+        y="${config.height - config.padding}"
+        font-family="Noto Sans JP"
+        font-weight="600"
+        font-size="${config.fontSize}px"
+        fill="white"
+        text-anchor="end"
+      >${creatorText}</text>
+    </svg>
+  `;
 }
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
@@ -195,165 +341,6 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
   }
 });
 
-interface HeaderConfig {
-  song: string;
-  artist: string;
-  levelId: number;
-  difficultyIcon: string;
-  maxWidth?: number;
-  lineHeight?: number;
-}
-
-interface FooterConfig {
-  preset: 'level' | 'profile' | 'leaderboard';
-  data: {
-    level?: ILevel;
-    baseScore?: number | null;
-    difficulty?: IDifficulty;
-    rating?: number;
-    creator?: string;
-    passCount?: number;
-    [key: string]: any;
-  };
-}
-
-async function drawHeader(ctx: CanvasRenderingContext2D, config: HeaderConfig) {
-  const { song, artist, levelId, difficultyIcon } = config;
-  const width = ctx.canvas.width;
-  const height = ctx.canvas.height;
-
-  // Calculate relative sizes (increased by 15%)
-  const iconSize = Math.floor(height * 0.184);
-  const titleFontSize = Math.floor(height * 0.09);
-  const artistFontSize = Math.floor(height * 0.06);
-  const idFontSize = Math.floor(height * 0.072);
-  const maxWidth = width - Math.floor(width * 0.288);
-  const lineHeight = Math.floor(height * 0.095);
-
-  // Title text wrapping
-  ctx.font = `800 ${titleFontSize}px "Noto Sans KR"`;
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'left';
-  const lines = wrapText(ctx, song, maxWidth, lineHeight);
-  
-  // Adjust background height based on lines
-  const headerHeight = lines.length > 1 ? Math.floor(height * 0.329) : Math.floor(height * 0.255);
-
-  // Draw semi-transparent black background
-  ctx.save();
-  ctx.fillStyle = '#000000';
-  ctx.globalAlpha = 0.73;
-  ctx.fillRect(0, 0, width, headerHeight);
-  ctx.restore();
-
-  // Draw difficulty icon
-  const iconPadding = Math.floor(height * 0.037);
-  ctx.drawImage(await loadImage(difficultyIcon), iconPadding, iconPadding, iconSize, iconSize);
-
-  // Draw song title lines
-  const titleY = Math.floor(height * 0.12);
-  lines.forEach((line, index) => {
-    const y = titleY + (index * lineHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(line, iconSize + iconPadding * 2, y);
-  });
-
-  // Draw artist name
-  const artistY = lines.length > 1 ? Math.floor(height * 0.29) : Math.floor(height * 0.201);
-  ctx.font = `400 ${artistFontSize}px "Noto Sans KR"`;
-  ctx.fillText(artist, iconSize + iconPadding * 2, artistY);
-
-  // Draw level ID
-  ctx.font = `700 ${idFontSize}px "Noto Sans KR"`;
-  ctx.fillStyle = '#bbbbbb';
-  ctx.textAlign = 'right';
-  ctx.fillText("#"+levelId.toString(), width - iconPadding * 1.5, titleY);
-
-  return headerHeight;
-}
-
-async function drawFooter(ctx: CanvasRenderingContext2D, config: FooterConfig) {
-  const width = ctx.canvas.width;
-  const height = ctx.canvas.height;
-  
-  const level = config.data.level;
-  const team = level?.team ? level?.team : null;
-  const charter = level?.charter ? level?.charter : null;
-  const creator = level?.creator ? level?.creator : null;
-  const vfxer = level?.vfxer ? level?.vfxer : null;
-
-  // Calculate relative sizes
-  const footerHeight = Math.floor(height * 0.255);
-  const fontSize = Math.floor(height * 0.06);
-  const padding = Math.floor(height * 0.055);
-  const idFontSize = Math.floor(height * 0.072);
-  
-  switch(config.preset) {
-    case 'level':
-      // Draw footer background with semi-transparent black
-      ctx.save();
-      ctx.fillStyle = '#000000';
-      ctx.globalAlpha = 0.73;
-      ctx.fillRect(0, height - footerHeight, width, footerHeight);
-      ctx.restore();
-      
-      // Draw baseScore with same styling as ID
-      ctx.font = `700 ${idFontSize}px "Noto Sans JP"`;
-      ctx.fillStyle = '#bbbbbb';
-      ctx.textAlign = 'left';
-      ctx.fillText(
-        (config.data.baseScore || config.data.difficulty?.baseScore || '0') + 'PP',
-        padding,
-        height - padding*2.5
-      );     
-      ctx.fillText(
-        `${config.data.passCount || 0} pass${config.data.passCount?.toString().endsWith('1') ? '' : 'es'}`, 
-        padding,
-        height - padding
-      );
-      
-      // Draw creator and pass count
-      ctx.font = `600 ${fontSize}px "Noto Sans JP"`;
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'right';
-
-      if (team)
-      ctx.fillText(
-        `By ${team}`, 
-        width - padding, 
-        height - padding
-      );
-      else if (charter && vfxer) {
-        ctx.fillText(
-          `Chart: ${charter}\nVFX: ${vfxer}`, 
-          width - padding, 
-          height - padding * 2
-        );
-      }
-      else if (charter) {
-        ctx.fillText(
-          `By ${charter}`, 
-          width - padding, 
-          height - padding
-        );
-      }
-      else {
-        ctx.fillText(
-          `By ${creator}`, 
-          width - padding, 
-          height - padding
-        );
-      }
-      break;
-      
-    case 'profile':
-      break;
-      
-    case 'leaderboard':
-      break;
-  }
-}
-
 // Define size presets
 const THUMBNAIL_SIZES = {
   SMALL: { width: 400, height: 210 },    // 16:9 ratio
@@ -366,7 +353,6 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
 
-    // If not cached, generate the thumbnail
     const level = await Level.findOne({ 
       where: { id: levelId }, 
       include: [
@@ -389,65 +375,72 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       return res.status(404).send('Video details not found');
     }
 
-    const { image } = details;
     const { width, height } = THUMBNAIL_SIZES[size];
     
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
+    // Calculate dimensions
+    const iconSize = Math.floor(height * 0.184);
+    const titleFontSize = Math.floor(height * 0.09);
+    const artistFontSize = Math.floor(height * 0.06);
+    const idFontSize = Math.floor(height * 0.072);
+    const iconPadding = Math.floor(height * 0.037);
+    const headerHeight = Math.floor(height * 0.255);
+    const footerHeight = Math.floor(height * 0.255);
+    const fontSize = Math.floor(height * 0.06);
+    const padding = Math.floor(height * 0.055);
 
-    // Draw background image
-    const img = await loadImage(image);
-    const imgAspectRatio = img.width / img.height;
-    const canvasAspectRatio = width / height;
-    
-    let drawWidth = width;
-    let drawHeight = height;
-    let offsetX = 0;
-    let offsetY = 0;
-    
-    if (imgAspectRatio > canvasAspectRatio) {
-      // Image is wider than canvas
-      drawWidth = height * imgAspectRatio;
-      offsetX = -(drawWidth - width) / 2;
-    } else {
-      // Image is taller than canvas
-      drawHeight = width / imgAspectRatio;
-      offsetY = -(drawHeight - height) / 2;
-    }
-    
-    ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+    // Download background image
+    const backgroundBuffer = await axios.get(details.image, { responseType: 'arraybuffer' })
+      .then(response => response.data);
 
-    // Draw header
-    await drawHeader(ctx, {
-      song,
-      artist,
-      levelId,
-      difficultyIcon: diff.icon,
-      maxWidth: width - Math.floor(width / 5), // 20% margin
-      lineHeight: Math.floor(height / 9) // Scale lineHeight based on height
+    // Download difficulty icon
+    const iconBuffer = await axios.get(diff.icon, { responseType: 'arraybuffer' })
+      .then(response => response.data);
+
+    // Create SVGs for text overlays
+    const { svg: headerSvg, isWrapped } = createHeaderSVG({
+      width, height, headerHeight, song, artist, levelId,
+      iconSize, iconPadding, titleFontSize, artistFontSize, idFontSize
     });
 
-    // Draw footer
-    await drawFooter(ctx, {
-      preset: 'level',
-      data: {
-        level,
-        difficulty: diff,
-        creator,
-        passCount: level.passes?.length || 0
-      }
+    const footerSvg = createFooterSVG({
+      width, height, footerHeight,
+      baseScore: diff.baseScore,
+      passCount: level.passes?.length || 0,
+      creator, charter: level.charter,
+      vfxer: level.vfxer, team: level.team,
+      fontSize, idFontSize, padding
     });
 
-    // Save to cache
-    const buffer = await sharp(canvas.toBuffer())
-      .jpeg({ quality: 85 })
-      .toBuffer();
+    // Create the final image using sharp
+    const image = await sharp(backgroundBuffer)
+      .resize(width, height, {
+        fit: 'cover',
+        position: 'center'
+      })
+      .composite([
+        {
+          input: Buffer.from(headerSvg),
+          top: 0,
+          left: 0
+        },
+        {
+          input: await sharp(iconBuffer)
+            .resize(iconSize, iconSize)
+            .toBuffer(),
+          top: isWrapped ? Math.floor(iconPadding * 1.5) : iconPadding,
+          left: iconPadding
+        },
+        {
+          input: Buffer.from(footerSvg),
+          top: 0,
+          left: 0
+        }
+      ])
+      .jpeg({ quality: 85 });
 
-    res.set({
-      'Content-Type': 'image/jpeg',
-      //'Cache-Control': 'public, max-age=3600' // Cache for 24 hours
-    });
+    const buffer = await image.toBuffer();
 
+    res.set('Content-Type', 'image/jpeg');
     res.send(buffer);
     return;
   } catch (error) {
