@@ -18,6 +18,7 @@ import { sseManager } from '../../utils/sse';
 import User from '../../models/User';
 import { excludePlaceholder } from '../../middleware/excludePlaceholder';
 import {PlayerStatsService} from '../../services/PlayerStatsService';
+import { createMultiFieldSearchCondition, createSearchCondition } from '../../utils/searchHelpers';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -156,20 +157,23 @@ const buildWhereClause = async (query: {
 
   // Player name filter
   if (query.player) {
-    where['$player.name$'] = {[Op.like]: `%${escapeRegExp(query.player)}%`};
+    const playerSearch = createSearchCondition('$player.name$', query.player);
+    Object.assign(where, playerSearch);
   }
 
   // General search
   if (query.query) {
-    const searchTerm = escapeRegExp(query.query);
-    where[Op.or] = [
-      {'$player.name$': {[Op.like]: `%${searchTerm}%`}},
-      {'$level.song$': {[Op.like]: `%${searchTerm}%`}},
-      {'$level.artist$': {[Op.like]: `%${searchTerm}%`}},
-      {'$level.difficulty.name$': {[Op.like]: `%${searchTerm}%`}},
-      {levelId: {[Op.like]: `%${searchTerm}%`}},
-      {id: {[Op.like]: `%${searchTerm}%`}},
-    ];
+    const searchTerm = query.query.toString();
+    const multiSearch = createMultiFieldSearchCondition([
+      '$player.name$',
+      '$level.song$',
+      '$level.artist$',
+      '$level.difficulty.name$',
+      'levelId',
+      'id'
+    ], searchTerm);
+    
+    where[Op.or] = multiSearch.conditions;
   }
 
   return where;
@@ -350,20 +354,22 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Add player name filter
     if (player) {
-      where['$player.name$'] = {[Op.like]: `%${escapeRegExp(player)}%`};
+      const playerSearch = createSearchCondition('$player.name$', player);
+      Object.assign(where, playerSearch);
     }
 
     // Add general search
     if (searchQuery) {
-      const searchTerm = escapeRegExp(searchQuery);
-      where[Op.or] = [
-        {'$player.name$': {[Op.like]: `%${searchTerm}%`}},
-        {'$level.song$': {[Op.like]: `%${searchTerm}%`}},
-        {'$level.artist$': {[Op.like]: `%${searchTerm}%`}},
-        {'$level.difficulty.name$': {[Op.like]: `%${searchTerm}%`}},
-        {levelId: {[Op.like]: `%${searchTerm}%`}},
-        {id: {[Op.like]: `%${searchTerm}%`}},
-      ];
+      const multiSearch = createMultiFieldSearchCondition([
+        '$player.name$',
+        '$level.song$',
+        '$level.artist$',
+        '$level.difficulty.name$',
+        'levelId',
+        'id'
+      ], searchQuery);
+      
+      where[Op.or] = multiSearch.conditions;
     }
 
     const order = getSortOptions(sort);

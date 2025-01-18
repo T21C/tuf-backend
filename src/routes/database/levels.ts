@@ -97,14 +97,23 @@ const parseSearchQuery = (query: string): SearchGroup[] => {
 // Helper function to build field-specific search condition
 const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any> => {
   const { field, value, exact } = fieldSearch;
-  const searchValue = exact ? value : `%${value}%`;
-  const operator = exact ? Op.eq : Op.like;
+  
+  // Handle special characters in the search value
+  const searchValue = exact ? 
+    value : 
+    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+
+  // Create the base search condition
+  const searchCondition = { [exact ? Op.eq : Op.like]: searchValue };
+
+  console.log('Building search for:', { field, value, searchValue, exact });
 
   // For field-specific searches
   if (field !== 'any') {
     const condition = {
-      [field]: { [operator]: searchValue }
+      [field]: searchCondition
     };
+    console.log('Field-specific condition:', JSON.stringify(condition));
 
     // Also search in aliases for song and artist fields
     if (field === 'song' || field === 'artist') {
@@ -112,8 +121,8 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
         where: {
           field,
           [Op.or]: [
-            { alias: { [operator]: searchValue } },
-            { originalValue: { [operator]: searchValue } }
+            { alias: searchCondition },
+            { originalValue: searchCondition }
           ]
         },
         attributes: ['levelId']
@@ -126,6 +135,7 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
             { id: { [Op.in]: aliasMatches.map(a => a.levelId) } }
           ]
         };
+        console.log('Field-specific with aliases result:', JSON.stringify(result));
         return result;
       }
     }
@@ -137,8 +147,8 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
   const aliasMatches = await LevelAlias.findAll({
     where: {
       [Op.or]: [
-        { alias: { [operator]: searchValue } },
-        { originalValue: { [operator]: searchValue } }
+        { alias: searchCondition },
+        { originalValue: searchCondition }
       ]
     },
     attributes: ['levelId']
@@ -146,12 +156,13 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
 
   const result = {
     [Op.or]: [
-      { song: { [operator]: searchValue } },
-      { artist: { [operator]: searchValue } },
-      { charter: { [operator]: searchValue } },
+      { song: searchCondition },
+      { artist: searchCondition },
+      { charter: searchCondition },
       ...(aliasMatches.length > 0 ? [{ id: { [Op.in]: aliasMatches.map(a => a.levelId) } }] : [])
     ]
   };
+  console.log('General search result:', JSON.stringify(result));
   return result;
 };
 
@@ -334,6 +345,7 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
+    // For non-random sorting
     const allIds = await Level.findAll({
       where,
       include: [
@@ -374,7 +386,7 @@ router.get('/', async (req: Request, res: Response) => {
           attributes: ['id'],
         },
       ],
-      order // Maintain consistent ID ordering within the paginated results
+      order
     });
 
     return res.json({
@@ -1161,74 +1173,21 @@ interface DifficultyFilterBody {
 // Add the new filtering endpoint
 router.post('/filter', async (req: Request, res: Response) => {
   try {
-
-    const { pguRange, specialDifficulties } = req.body as DifficultyFilterBody;
+    const { pguRange, specialDifficulties } = req.body;
     const { query, sort, offset, limit, deletedFilter, clearedFilter } = req.query;
 
-    // Build the base where clause
-    const where: any = {};
-    const conditions: any[] = [];
+    // Build the base where clause using the shared function
+    const where = await buildWhereClause({
+      query,
+      deletedFilter,
+      clearedFilter
+    });
 
-    // Handle deleted filter
-    if (deletedFilter === 'hide') {
-      conditions.push({
-        [Op.and]: [
-          {isDeleted: false},
-          {isHidden: false}
-        ]
-      });
-    } else if (deletedFilter === 'only') {
-      conditions.push({
-        [Op.or]: [
-          {isDeleted: true},
-          {isHidden: true}
-        ]
-      });
-    }
-
-    // Handle cleared filter
-    if (clearedFilter && clearedFilter === 'hide') {
-      conditions.push({
-        clears: 0
-      });
-    } else if (clearedFilter && clearedFilter === 'only') {
-      conditions.push({
-        clears: {
-          [Op.gt]: 0
-        }
-      });
-    }
-
-    // Handle text search
-    if (query) {
-      const searchGroups = parseSearchQuery(query.toString().trim());
-      
-      if (searchGroups.length > 0) {
-        const orConditions = await Promise.all(
-          searchGroups.map(async group => {
-            const andConditions = await Promise.all(
-              group.terms.map(term => buildFieldSearchCondition(term))
-            );
-            
-            const result = andConditions.length === 1 
-              ? andConditions[0] 
-              : { [Op.and]: andConditions };
-            return result;
-          })
-        );
-
-        const searchCondition = orConditions.length === 1 
-          ? orConditions[0] 
-          : { [Op.or]: orConditions };
-        conditions.push(searchCondition);
-      }
-    }
-
-    // Handle difficulty filtering
+    // Add difficulty filtering conditions
     const difficultyConditions: any[] = [];
 
     // Handle PGU range if provided
-    if (pguRange.from || pguRange.to) {
+    if (pguRange?.from || pguRange?.to) {
       const [fromDiff, toDiff] = await Promise.all([
         pguRange.from ? Difficulty.findOne({
           where: { name: pguRange.from, type: 'PGU' },
@@ -1239,7 +1198,6 @@ router.post('/filter', async (req: Request, res: Response) => {
           attributes: ['id', 'sortOrder']
         }) : null
       ]);
-
 
       if (fromDiff || toDiff) {
         const pguDifficulties = await Difficulty.findAll({
@@ -1262,7 +1220,7 @@ router.post('/filter', async (req: Request, res: Response) => {
     }
 
     // Handle special difficulties if provided
-    if (specialDifficulties && specialDifficulties.length > 0) {
+    if (specialDifficulties?.length > 0) {
       const specialDiffs = await Difficulty.findAll({
         where: {
           name: { [Op.in]: specialDifficulties },
@@ -1278,29 +1236,13 @@ router.post('/filter', async (req: Request, res: Response) => {
       }
     }
 
-    // Combine difficulty conditions with OR if both exist
+    // Add difficulty conditions to the where clause if any exist
     if (difficultyConditions.length > 0) {
-      conditions.push({
-        [Op.or]: difficultyConditions
-      });
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { [Op.or]: difficultyConditions }
+      ];
     }
-
-    // Add placeholder exclusion
-    conditions.push({
-      [Op.and]: [
-        {song: {[Op.ne]: 'Placeholder'}},
-        {artist: {[Op.ne]: 'Placeholder'}},
-        {charter: {[Op.ne]: 'Placeholder'}},
-        {creator: {[Op.ne]: 'Placeholder'}},
-        {publicComments: {[Op.ne]: 'Placeholder'}},
-      ]
-    });
-
-    // Combine all conditions
-    if (conditions.length > 0) {
-      where[Op.and] = conditions;
-    }
-
 
     // Get sort options
     const order = getSortOptions(sort as string);

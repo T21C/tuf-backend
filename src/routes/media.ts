@@ -62,13 +62,13 @@ function createHeaderSVG(config: {
   artistFontSize: number,
   idFontSize: number
 }): { svg: string, isWrapped: boolean } {
-  const { lines, isWrapped } = wrapText(config.song, 25);
+  const { lines, isWrapped } = wrapText(config.song, 27);
   
   // Adjust sizes if text is wrapped
   const titleFontSize = isWrapped ? Math.floor(config.titleFontSize * 0.85) : config.titleFontSize;
   const headerHeight = isWrapped ? Math.floor(config.headerHeight * 1.15) : config.headerHeight;
   const titleY = Math.floor(config.height * (isWrapped ? 0.1 : 0.12));
-  const artistY = isWrapped ? Math.floor(config.height * 0.25) : Math.floor(config.height * 0.201);
+  const artistY = isWrapped ? Math.floor(config.height * 0.265) : Math.floor(config.height * 0.201);
   const textX = config.iconSize + (config.iconPadding * 2);
 
   return {

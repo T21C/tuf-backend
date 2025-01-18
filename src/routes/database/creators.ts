@@ -10,6 +10,7 @@ import Team from '../../models/Team';
 import TeamMember from '../../models/TeamMember';
 import { excludePlaceholder } from '../../middleware/excludePlaceholder';
 import User from '../../models/User';
+import { createMultiFieldSearchCondition, createSearchCondition } from '../../utils/searchHelpers';
 
 const router: Router = Router();
 
@@ -44,14 +45,16 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
     
     // Build where clause
     const where: any = {};
-    if (search) {
-      where[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { id: { [Op.like]: `%${search}%` } }
-      ];
+    if (search && typeof search === 'string') {
+      const nameIdSearch = createMultiFieldSearchCondition(['name', 'id'], search);
+      const searchConditions = [...nameIdSearch.conditions];
+      
       if (excludeAliases !== 'true') {
-        where[Op.or].push({ aliases: { [Op.like]: `%${search}%` } });
+        const aliasCondition = createSearchCondition('aliases', search);
+        searchConditions.push(aliasCondition);
       }
+      
+      where[Op.or] = searchConditions;
     }
     if (hideVerified === 'true') {
       where.isVerified = false;

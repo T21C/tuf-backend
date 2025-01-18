@@ -1,0 +1,58 @@
+import { Op, WhereOptions } from 'sequelize';
+
+type SearchCondition = {
+  [key: string]: {
+    [Op.like]?: string;
+    [Op.eq]?: string;
+  };
+};
+
+type MultiSearchResult = {
+  conditions: SearchCondition[];
+};
+
+/**
+ * Creates a search condition for a field that properly handles special characters
+ * @param field The field to search in
+ * @param value The search value
+ * @param exact Whether to do an exact match or a LIKE search
+ * @returns A Sequelize where condition
+ */
+export function createSearchCondition(field: string, value: string, exact: boolean = false): SearchCondition {
+  // Handle special characters in the search value
+  const searchValue = exact ? 
+    value : 
+    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+
+  return {
+    [field]: { [exact ? Op.eq : Op.like]: searchValue }
+  };
+}
+
+/**
+ * Creates a multi-field search condition that properly handles special characters
+ * @param fields Array of fields to search in
+ * @param value The search value
+ * @param exact Whether to do an exact match or a LIKE search
+ * @returns A Sequelize where condition with OR conditions
+ */
+export function createMultiFieldSearchCondition(fields: string[], value: string, exact: boolean = false): MultiSearchResult {
+  const searchValue = exact ? 
+    value : 
+    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+
+  return {
+    conditions: fields.map(field => ({
+      [field]: { [exact ? Op.eq : Op.like]: searchValue }
+    }))
+  };
+}
+
+/**
+ * Safely escapes a string for use in LIKE queries
+ * @param value The string to escape
+ * @returns The escaped string
+ */
+export function escapeLikeValue(value: string): string {
+  return value.replace(/(_|%|\\)/g, '\\$1');
+} 
