@@ -223,12 +223,12 @@ async function drawHeader(ctx: CanvasRenderingContext2D, config: HeaderConfig) {
   const height = ctx.canvas.height;
 
   // Calculate relative sizes (increased by 15%)
-  const iconSize = Math.floor(height * 0.184);      // was 0.16
-  const titleFontSize = Math.floor(height * 0.09); // was 0.087
-  const artistFontSize = Math.floor(height * 0.06); // was 0.048
-  const idFontSize = Math.floor(height * 0.072);    // was 0.063
-  const maxWidth = width - Math.floor(width * 0.288); // was 0.25
-  const lineHeight = Math.floor(height * 0.095); // was 0.095
+  const iconSize = Math.floor(height * 0.184);
+  const titleFontSize = Math.floor(height * 0.09);
+  const artistFontSize = Math.floor(height * 0.06);
+  const idFontSize = Math.floor(height * 0.072);
+  const maxWidth = width - Math.floor(width * 0.288);
+  const lineHeight = Math.floor(height * 0.095);
 
   // Title text wrapping
   ctx.font = `800 ${titleFontSize}px "Noto Sans KR"`;
@@ -237,17 +237,21 @@ async function drawHeader(ctx: CanvasRenderingContext2D, config: HeaderConfig) {
   const lines = wrapText(ctx, song, maxWidth, lineHeight);
   
   // Adjust background height based on lines
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.73)';
   const headerHeight = lines.length > 1 ? Math.floor(height * 0.329) : Math.floor(height * 0.255);
 
+  // Draw semi-transparent black background
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.globalAlpha = 0.73;
   ctx.fillRect(0, 0, width, headerHeight);
+  ctx.restore();
 
   // Draw difficulty icon
-  const iconPadding = Math.floor(height * 0.037); // was 0.032
+  const iconPadding = Math.floor(height * 0.037);
   ctx.drawImage(await loadImage(difficultyIcon), iconPadding, iconPadding, iconSize, iconSize);
 
   // Draw song title lines
-  const titleY = Math.floor(height * 0.12); // was 0.111
+  const titleY = Math.floor(height * 0.12);
   lines.forEach((line, index) => {
     const y = titleY + (index * lineHeight);
     ctx.fillStyle = '#ffffff';
@@ -255,7 +259,7 @@ async function drawHeader(ctx: CanvasRenderingContext2D, config: HeaderConfig) {
   });
 
   // Draw artist name
-  const artistY = lines.length > 1 ? Math.floor(height * 0.29) : Math.floor(height * 0.201); // was 0.238 and 0.175
+  const artistY = lines.length > 1 ? Math.floor(height * 0.29) : Math.floor(height * 0.201);
   ctx.font = `400 ${artistFontSize}px "Noto Sans KR"`;
   ctx.fillText(artist, iconSize + iconPadding * 2, artistY);
 
@@ -278,18 +282,20 @@ async function drawFooter(ctx: CanvasRenderingContext2D, config: FooterConfig) {
   const creator = level?.creator ? level?.creator : null;
   const vfxer = level?.vfxer ? level?.vfxer : null;
 
-  // Calculate relative sizes (increased by 15%)
+  // Calculate relative sizes
   const footerHeight = Math.floor(height * 0.255);
   const fontSize = Math.floor(height * 0.06);
   const padding = Math.floor(height * 0.055);
-  
   const idFontSize = Math.floor(height * 0.072);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.73)';
   
   switch(config.preset) {
     case 'level':
-      // Draw footer background
+      // Draw footer background with semi-transparent black
+      ctx.save();
+      ctx.fillStyle = '#000000';
+      ctx.globalAlpha = 0.73;
       ctx.fillRect(0, height - footerHeight, width, footerHeight);
+      ctx.restore();
       
       // Draw baseScore with same styling as ID
       ctx.font = `700 ${idFontSize}px "Noto Sans JP"`;
@@ -338,8 +344,6 @@ async function drawFooter(ctx: CanvasRenderingContext2D, config: FooterConfig) {
           height - padding
         );
       }
-
-      
       break;
       
     case 'profile':
