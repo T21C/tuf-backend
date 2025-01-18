@@ -237,8 +237,8 @@ async function drawHeader(ctx: CanvasRenderingContext2D, config: HeaderConfig) {
   const lines = wrapText(ctx, song, maxWidth, lineHeight);
   
   // Adjust background height based on lines
-  ctx.fillStyle = '#000000bb';
-  const headerHeight = lines.length > 1 ? Math.floor(height * 0.329) : Math.floor(height * 0.255); // was 0.286 and 0.222
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.73)';
+  const headerHeight = lines.length > 1 ? Math.floor(height * 0.329) : Math.floor(height * 0.255);
 
   ctx.fillRect(0, 0, width, headerHeight);
 
@@ -279,12 +279,12 @@ async function drawFooter(ctx: CanvasRenderingContext2D, config: FooterConfig) {
   const vfxer = level?.vfxer ? level?.vfxer : null;
 
   // Calculate relative sizes (increased by 15%)
-  const footerHeight = Math.floor(height * 0.255); // was 0.222
-  const fontSize = Math.floor(height * 0.06);     // was 0.048
-  const padding = Math.floor(height * 0.055);      // was 0.048
+  const footerHeight = Math.floor(height * 0.255);
+  const fontSize = Math.floor(height * 0.06);
+  const padding = Math.floor(height * 0.055);
   
-  const idFontSize = Math.floor(height * 0.072);    // was 0.063
-  ctx.fillStyle = '#000000bb';
+  const idFontSize = Math.floor(height * 0.072);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.73)';
   
   switch(config.preset) {
     case 'level':

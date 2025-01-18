@@ -9,11 +9,9 @@ import Difficulty from '../models/Difficulty';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
 
-// Constants for cache management
-const CACHE_BATCH_SIZE = 50;
+// Constants for cache maagement
+const CACHE_BATCH_SIZE = 200;
 const CACHE_UPDATE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-const CACHE_BATCH_TIMEOUT = 30 * 1000; // 30 seconds per batch
-
 // Progress bar for cache updates
 const progressBar = new cliProgress.SingleBar({
   format: colors.cyan('{bar}') + ' | {percentage}% | Cache Update | {status}',
@@ -167,29 +165,72 @@ export class LeaderboardCache {
         this.abortController?.abort();
       }, CACHE_UPDATE_TIMEOUT);
 
-      // Load all players in batches
-      const players = await this.loadPlayersInBatches(this.abortController.signal);
-      
+      // Get total count first
+      const totalCount = await Player.count();
+      const totalBatches = Math.ceil(totalCount / CACHE_BATCH_SIZE);
+      const batchPromises: Promise<IPlayer[]>[] = [];
+
+      // Create promises for all batches
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        if (this.abortController.signal.aborted) break;
+
+        const batchPromise = (async () => {
+          try {
+            // Load and process batch in one go
+            const batchPlayers = await Player.findAll({
+              include: [{
+                model: Pass,
+                as: 'passes',
+                include: [{
+                  model: Level,
+                  as: 'level',
+                  include: [{
+                    model: Difficulty,
+                    as: 'difficulty'
+                  }]
+                }]
+              }],
+              limit: CACHE_BATCH_SIZE,
+              offset: batchIndex * CACHE_BATCH_SIZE,
+              order: [['id', 'ASC']]
+            });
+
+            // Process the batch
+            const enrichedBatch = await Promise.all(
+              batchPlayers.map(async player => {
+                try {
+                  return await enrichPlayerData(player);
+                } catch (error) {
+                  console.error(`Error processing player ${player.id}:`, error);
+                  return null;
+                }
+              })
+            );
+
+            // Update progress
+            const progress = Math.min(95, ((batchIndex + 1) / totalBatches) * 95);
+            progressBar.update(progress, { 
+              status: `Processing batch ${batchIndex + 1}/${totalBatches}` 
+            });
+
+            return enrichedBatch.filter((player): player is IPlayer => player !== null);
+          } catch (error) {
+            console.error(`Error processing batch ${batchIndex}:`, error);
+            return [];
+          }
+        })();
+
+        batchPromises.push(batchPromise);
+      }
+
+      // Wait for all batches to complete
+      const batchResults = await Promise.all(batchPromises);
       if (this.abortController.signal.aborted) {
         throw new Error('Cache update aborted');
       }
 
-      // Process players in batches
-      const enrichedPlayers: IPlayer[] = [];
-      for (let i = 0; i < players.length; i += CACHE_BATCH_SIZE) {
-        const batch = players.slice(i, Math.min(i + CACHE_BATCH_SIZE, players.length));
-        const batchResults = await this.processPlayerBatch(
-          batch,
-          i,
-          players.length,
-          this.abortController.signal
-        );
-        enrichedPlayers.push(...batchResults);
-
-        if (this.abortController.signal.aborted) {
-          throw new Error('Cache update aborted');
-        }
-      }
+      // Combine all results
+      const enrichedPlayers = batchResults.flat();
 
       // Update cache with processed players
       const sortOptions = ['rankedScore', 'generalScore', 'ppScore', 'wfScore', 'score12K'];

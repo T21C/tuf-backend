@@ -54,13 +54,7 @@ export function getLevelAnnouncementConfig(level: Level, isRerate: boolean = fal
   if (isRerate) {
     config.channels.push('rerates');
     // Add ping based on difficulty type
-    if (diffName.startsWith('P')) {
-      config.pings['rerates'] = `<@&${process.env.PLANETARY_PING_ROLE_ID}>`;
-    } else if (diffName.startsWith('G')) {
-      config.pings['rerates'] = `<@&${process.env.GALACTIC_PING_ROLE_ID}>`;
-    } else if (diffName.startsWith('U')) {
-      config.pings['rerates'] = `<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`;
-    }
+    config.pings['rerates'] = `<@&${process.env.RERATE_PING_ROLE_ID}>`;
     return config;
   }
 

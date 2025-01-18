@@ -726,8 +726,13 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
 
       // Then delete the rating and update level
       await existingRating.destroy({transaction});
+      
+      // Update level with consistent announcement flag handling
       await Level.update(
-        {toRate: false},
+        {
+          toRate: false,
+          isAnnounced: false // Reset announcement flag when removing from rating
+        },
         {
           where: {id: levelId},
           transaction,
@@ -757,9 +762,12 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
         {transaction},
       );
 
-      // Update level to mark for rating
+      // Update level to mark for rating with consistent announcement flag handling
       await Level.update(
-        {toRate: true},
+        {
+          toRate: true,
+          isAnnounced: true // Set announcement flag when adding to rating
+        },
         {
           where: {id: levelId},
           transaction,
