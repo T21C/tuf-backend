@@ -81,7 +81,6 @@ export class PlayerStatsService {
         transaction,
       });
 
-      console.log(`Found ${players.length} players to process`);
 
       // Prepare bulk update data
       const bulkStats = players.map(player => {
@@ -145,7 +144,6 @@ export class PlayerStatsService {
       }
 
       await transaction.commit();
-      console.log('Successfully reloaded all player stats');
 
       // Notify clients about the update
       const io = getIO();
@@ -166,7 +164,7 @@ export class PlayerStatsService {
     }
   }
 
-  private getHighestScorePerLevel(scores: Score[], doLog: boolean = false): Score[] {
+  private getHighestScorePerLevel(scores: Score[]): Score[] {
     const levelScores = new Map<number, Score>();
     scores.forEach(score => {
       const levelId = score.levelId;
@@ -174,14 +172,8 @@ export class PlayerStatsService {
       
       const existingScore = levelScores.get(levelId);
       if (!existingScore || score.score > existingScore.score) {
-        if (existingScore && doLog) {
-          console.log(`Replacing score for level ${levelId}: ${existingScore.score} with higher score: ${score.score}`);
-        }
+
         levelScores.set(levelId, score);
-      } else {
-        if (doLog) {
-          console.log(`Ignoring lower score for level ${levelId}: ${score.score} (keeping ${existingScore.score})`);
-        }
       }
     });
     return Array.from(levelScores.values());
@@ -193,12 +185,12 @@ export class PlayerStatsService {
       .map(pass => ({
         score: pass.scoreV2 || 0,
         baseScore: pass.level?.baseScore || 0,
-        xacc: pass.accuracy || 0,
-        speed: pass.speed || 0,
+        xacc: pass.accuracy || 0.95,
+        speed: pass.speed || 1,
         isWorldsFirst: pass.isWorldsFirst || false,
         is12K: pass.is12K || false,
         isDeleted: pass.isDeleted || false,
-        levelId: pass.level?.id || 0,
+        levelId: pass.levelId
       }));
   }
 
@@ -251,7 +243,6 @@ export class PlayerStatsService {
         lastUpdated: new Date(),
       };
 
-      console.log('Calculated stats:', JSON.stringify(stats, null, 2));
 
       // Update or create player stats
       await PlayerStats.upsert(stats, {transaction});
@@ -511,7 +502,6 @@ export class PlayerStatsService {
         {
           model: Player,
           as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned', 'pfp'],
           include: [
             {
               model: User,
@@ -523,7 +513,6 @@ export class PlayerStatsService {
         {
           model: Level,
           as: 'level',
-          attributes: ['id', 'song', 'artist', 'team', 'charter', 'vfxer', 'baseScore'],
           include: [
             {
               model: Difficulty,
@@ -561,7 +550,7 @@ export class PlayerStatsService {
     const scores = this.convertPassesToScores(playerPasses);
     const uniqueScores = this.getHighestScorePerLevel(scores);
 
-    // Calculate current and previous ranked scores
+    // Calculate current and previou
     const currentRankedScore = calculateRankedScore(uniqueScores);
     const previousRankedScore = calculateRankedScore(
       this.getHighestScorePerLevel(
