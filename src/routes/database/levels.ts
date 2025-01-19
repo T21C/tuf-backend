@@ -222,17 +222,6 @@ const buildWhereClause = async (query: any) => {
     }
   }
 
-  // Add placeholder exclusion
-  conditions.push({
-    [Op.and]: [
-      {song: {[Op.ne]: 'Placeholder'}},
-      {artist: {[Op.ne]: 'Placeholder'}},
-      {charter: {[Op.ne]: 'Placeholder'}},
-      {creator: {[Op.ne]: 'Placeholder'}},
-      {publicComments: {[Op.ne]: 'Placeholder'}},
-    ]
-  });
-
   // Combine all conditions
   if (conditions.length > 0) {
     where[Op.and] = conditions;
@@ -634,22 +623,22 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Clean up the update data to handle null values correctly
     const updateData = {
-      song: req.body.song || null,
-      artist: req.body.artist || null,
-      creator: req.body.creator || null,
-      charter: req.body.charter || null,
-      vfxer: req.body.vfxer === '' ? null : req.body.vfxer,
-      team: req.body.team === '' ? null : req.body.team,
+      song: req.body.song,
+      artist: req.body.artist,
+      creator: req.body.creator,
+      charter: req.body.charter,
+      vfxer: req.body.vfxer,
+      team: req.body.team,
       diffId: req.body.diffId || 0,
-      previousDiffId: req.body.previousDiffId || null,
+      previousDiffId: req.body.previousDiffId || 0,
       baseScore: req.body.baseScore === '' ? null : (req.body.baseScore ?? level.baseScore),
-      videoLink: req.body.videoLink || null,
+      videoLink: req.body.videoLink,
       dlLink: req.body.dlLink || null,
-      workshopLink: req.body.workshopLink || null,
-      publicComments: req.body.publicComments || null,
-      rerateNum: req.body.rerateNum || null,
+      workshopLink: req.body.workshopLink,
+      publicComments: req.body.publicComments,
+      rerateNum: req.body.rerateNum,
       toRate: req.body.toRate ?? level.toRate,
-      rerateReason: req.body.rerateReason || null,
+      rerateReason: req.body.rerateReason,
       isDeleted,
       isHidden,
       isAnnounced,
