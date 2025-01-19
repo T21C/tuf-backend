@@ -192,9 +192,9 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       return res.json({
         message: 'Submission approved, level and rating created successfully',
       });
-    } else if (action === 'reject') {
+    } else if (action === 'decline') {
       await LevelSubmission.update(
-        {status: 'rejected'},
+        {status: 'declined'},
         {
           where: {id},
           transaction,
@@ -208,13 +208,13 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       sseManager.broadcast({
         type: 'submissionUpdate',
         data: {
-          action: 'reject',
+          action: 'decline',
           submissionId: id,
           submissionType: 'level',
         },
       });
 
-      return res.json({message: 'Submission rejected successfully'});
+      return res.json({message: 'Submission declined successfully'});
     } else {
       await transaction.rollback();
       return res.status(400).json({error: 'Invalid action'});
@@ -376,9 +376,9 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         message: 'Pass submission approved successfully',
         pass,
       });
-    } else if (action === 'reject') {
+    } else if (action === 'decline') {
       await PassSubmission.update(
-        {status: 'rejected'},
+        {status: 'declined'},
         {
           where: {id},
           transaction,
@@ -392,7 +392,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       sseManager.broadcast({
         type: 'submissionUpdate',
         data: {
-          action: 'reject',
+          action: 'decline',
           submissionId: id,
           submissionType: 'pass',
         },
