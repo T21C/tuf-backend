@@ -18,6 +18,7 @@ import Team from '../../models/Team';
 import Creator from '../../models/Creator';
 import LevelCredit from '../../models/LevelCredit';
 import LevelAlias from '../../models/LevelAlias';
+import CreatorAlias from '../../models/CreatorAlias';
 import {PlayerStatsService} from '../../services/PlayerStatsService';
 
 const router: Router = Router();
@@ -381,6 +382,17 @@ router.get('/', async (req: Request, res: Response) => {
           required: false,
           attributes: ['id'],
         },
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          required: false,
+          include: [
+            {
+              model: Creator,
+              as: 'creator'
+            }
+          ]
+        }
       ],
       order
     });
@@ -448,6 +460,22 @@ router.get('/:id', async (req: Request, res: Response) => {
           as: 'aliases',
           required: false,
         },
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          required: false,
+          include: [
+            {
+              model: Creator,
+              as: 'creator'
+            }
+          ]
+        },
+        {
+          model: Team,
+          as: 'teamObject',
+          required: false
+        }
       ],
     });
 
@@ -1282,6 +1310,17 @@ router.post('/filter', async (req: Request, res: Response) => {
           required: false,
           attributes: ['id'],
         },
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          required: false,
+          include: [
+            {
+              model: Creator,
+              as: 'creator'
+            }
+          ]
+        }
       ],
       order
     });
