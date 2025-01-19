@@ -106,15 +106,13 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
   // Create the base search condition
   const searchCondition = { [exact ? Op.eq : Op.like]: searchValue };
 
-  console.log('Building search for:', { field, value, searchValue, exact });
-
+  
   // For field-specific searches
   if (field !== 'any') {
     const condition = {
       [field]: searchCondition
     };
-    console.log('Field-specific condition:', JSON.stringify(condition));
-
+    
     // Also search in aliases for song and artist fields
     if (field === 'song' || field === 'artist') {
       const aliasMatches = await LevelAlias.findAll({
@@ -135,7 +133,6 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
             { id: { [Op.in]: aliasMatches.map(a => a.levelId) } }
           ]
         };
-        console.log('Field-specific with aliases result:', JSON.stringify(result));
         return result;
       }
     }
@@ -162,7 +159,6 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
       ...(aliasMatches.length > 0 ? [{ id: { [Op.in]: aliasMatches.map(a => a.levelId) } }] : [])
     ]
   };
-  console.log('General search result:', JSON.stringify(result));
   return result;
 };
 
