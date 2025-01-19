@@ -42,17 +42,19 @@ export class LeaderboardCache {
   private lastUpdate: Date;
   private updateInterval: number;
   private isUpdating: boolean;
-  private updateTimeout: NodeJS.Timeout | null;
+  private updateTimeout: NodeJS.Timeout | null = null;
+  private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
   private static instance: LeaderboardCache;
   private abortController: AbortController | null;
+  private updatePromise: Promise<void> | null;
 
   private constructor() {
     this.cache = new Map();
     this.lastUpdate = new Date(0);
     this.updateInterval = 5 * 60 * 1000; // 5 minutes
     this.isUpdating = false;
-    this.updateTimeout = null;
     this.abortController = null;
+    this.updatePromise = null;
 
     // Handle process termination
     process.on('SIGINT', () => this.handleShutdown());
@@ -149,12 +151,17 @@ export class LeaderboardCache {
     }
   }
 
-  private async updateCache() {
+  private async updateCache(): Promise<void> {
     if (this.isUpdating) {
-      return;
+      return this.updatePromise || Promise.resolve();
     }
 
     this.isUpdating = true;
+    this.updatePromise = this._updateCache();
+    return this.updatePromise;
+  }
+
+  private async _updateCache(): Promise<void> {
     this.abortController = new AbortController();
     progressBar.start(100, 0, { status: 'Starting cache update' });
 
@@ -278,6 +285,7 @@ export class LeaderboardCache {
       }
       this.abortController = null;
       this.isUpdating = false;
+      this.updatePromise = null;
       progressBar.stop();
     }
   }
@@ -294,19 +302,23 @@ export class LeaderboardCache {
     order = 'desc',
     includeAllScores = false,
   ): Promise<any[]> {
-    if (this.needsUpdate()) {
-      await this.updateCache();
-    }
-
     const key = this.getCacheKey(sortBy, order, includeAllScores);
-    return this.cache.get(key) || [];
+    
+    // Return stale data if we have it
+    const staleData = this.cache.get(key) || [];
+    
+    // Start update in background if needed
+    if (this.needsUpdate()) {
+      this.updateCache().catch(error => {
+        console.error('Background cache update failed:', error);
+      });
+    }
+    
+    return staleData;
   }
 
   public async getRanks(playerId: number): Promise<PlayerRanks> {
-    if (this.needsUpdate()) {
-      await this.updateCache();
-    }
-
+    // Use stale data for ranks too
     const ranks: PlayerRanks = {
       rankedScoreRank: 0,
       generalScoreRank: 0,
@@ -316,25 +328,16 @@ export class LeaderboardCache {
     };
 
     const rankedScoreLeaderboard = await this.get('rankedScore', 'desc', false);
-    const generalScoreLeaderboard = await this.get(
-      'generalScore',
-      'desc',
-      false,
-    );
+    const generalScoreLeaderboard = await this.get('generalScore', 'desc', false);
     const ppScoreLeaderboard = await this.get('ppScore', 'desc', false);
     const wfScoreLeaderboard = await this.get('wfScore', 'desc', false);
     const score12KLeaderboard = await this.get('score12K', 'desc', false);
 
-    ranks.rankedScoreRank =
-      rankedScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.generalScoreRank =
-      generalScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.ppScoreRank =
-      ppScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.wfScoreRank =
-      wfScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.score12KRank =
-      score12KLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.rankedScoreRank = rankedScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.generalScoreRank = generalScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.ppScoreRank = ppScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.wfScoreRank = wfScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.score12KRank = score12KLeaderboard.findIndex(p => p.id === playerId) + 1;
 
     const totalPlayers = rankedScoreLeaderboard.length;
     ranks.rankedScoreRank = ranks.rankedScoreRank || totalPlayers + 1;
@@ -347,11 +350,40 @@ export class LeaderboardCache {
   }
 
   public async initialize() {
-    await this.updateCache();
+    return this.updateCache();
   }
 
-  public async forceUpdate() {
-    await this.updateCache();
+  public async forceUpdate(immediate = true): Promise<void> {
+    // Clear any pending scheduled update
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+      this.updateTimeout = null;
+    }
+
+    if (immediate) {
+      return this._updateCache();
+    } else {
+      this.scheduleUpdate();
+      return Promise.resolve();
+    }
+  }
+
+  public scheduleUpdate(): void {
+    // Clear any existing timeout
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+    }
+
+    // Set a new timeout
+    this.updateTimeout = setTimeout(async () => {
+      try {
+        await this._updateCache();
+      } catch (error) {
+        console.error('Error in scheduled cache update:', error);
+      } finally {
+        this.updateTimeout = null;
+      }
+    }, this.UPDATE_DELAY);
   }
 
   private needsUpdate(): boolean {

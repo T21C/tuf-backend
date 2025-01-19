@@ -25,6 +25,9 @@ import Judgement from '../models/Judgement';
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized: boolean = false;
+  private updateTimeout: NodeJS.Timeout | null = null;
+  private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
+  private pendingPlayerIds: Set<number> = new Set();
 
   private constructor() {
     // Remove automatic initialization
@@ -51,7 +54,68 @@ export class PlayerStatsService {
     return PlayerStatsService.instance;
   }
 
+  public scheduleUpdate(playerId: number): void {
+    // Add player to pending updates
+    this.pendingPlayerIds.add(playerId);
+
+    // Clear any existing timeout
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+    }
+
+    // Set a new timeout
+    this.updateTimeout = setTimeout(async () => {
+      try {
+        const playerIds = Array.from(this.pendingPlayerIds);
+        this.pendingPlayerIds.clear();
+        
+        // Start a transaction for all updates
+        const transaction = await sequelize.transaction();
+        
+        try {
+          // Update each player's stats
+          for (const id of playerIds) {
+            await this.updatePlayerStats(id, transaction);
+          }
+          
+          // Update ranks for all players once
+          await this.updateRanks(transaction);
+          
+          await transaction.commit();
+
+          // Notify clients about the update
+          const io = getIO();
+          io.emit('leaderboardUpdated');
+          
+          // Emit SSE event
+          sseManager.broadcast({
+            type: 'statsUpdate',
+            data: {
+              playerIds,
+              action: 'batchUpdate'
+            }
+          });
+        } catch (error) {
+          await transaction.rollback();
+          throw error;
+        }
+      } catch (error) {
+        console.error('Error in scheduled stats update:', error);
+      } finally {
+        this.updateTimeout = null;
+      }
+    }, this.UPDATE_DELAY);
+  }
+
   public async reloadAllStats(): Promise<void> {
+    // Clear any pending scheduled updates
+    if (this.updateTimeout) {
+      clearTimeout(this.updateTimeout);
+      this.updateTimeout = null;
+    }
+    this.pendingPlayerIds.clear();
+
+    // Proceed with the full reload
     let transaction;
     try {
       transaction = await sequelize.transaction();
