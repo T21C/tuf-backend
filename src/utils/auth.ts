@@ -70,7 +70,7 @@ export const tokenUtils = {
   generatePasswordResetToken: (): { token: string; expires: Date } => {
     const token = crypto.randomBytes(32).toString('hex');
     const expires = new Date();
-    expires.setHours(expires.getHours() + 1); // Token expires in 1 hour
+    expires.setHours(expires.getHours() + 10); // Token expires in 10 hours
 
     return { token, expires };
   }
