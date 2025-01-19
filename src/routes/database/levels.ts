@@ -544,6 +544,94 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       }
     }
 
+    // Handle rating creation/deletion if toRate is changing
+    if (typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate) {
+      if (req.body.toRate) {
+        // Create new rating if toRate is being set to true
+        const existingRating = await Rating.findOne({
+          where: {levelId},
+          transaction,
+        });
+
+        if (!existingRating) {
+          // Check if rerateNum starts with 'p' or 'P' followed by a number
+          const lowDiff = req.body.rerateNum ? /^[pP]\d/.test(req.body.rerateNum) : false;
+
+          await Rating.create(
+            {
+              levelId,
+              currentDifficultyId: 0,
+              lowDiff,
+              requesterFR: '',
+              averageDifficultyId: null,
+            },
+            {transaction},
+          );
+        }
+      } else {
+        // Delete rating if toRate is being set to false
+        const existingRating = await Rating.findOne({
+          where: {levelId},
+          transaction,
+        });
+
+        if (existingRating) {
+          // Delete rating details first
+          await RatingDetail.destroy({
+            where: {ratingId: existingRating.id},
+            transaction,
+          });
+          // Then delete the rating
+          await existingRating.destroy({transaction});
+        }
+      }
+    }
+
+    // Update lowDiff flag if there's an existing rating
+    const existingRating = await Rating.findOne({
+      where: {levelId},
+      transaction,
+    });
+
+    if (existingRating) {
+      const lowDiff = /^[pP]\d/.test(req.body.rerateNum) || /^[pP]\d/.test(existingRating.dataValues.requesterFR);
+      await existingRating.update({ lowDiff }, { transaction });
+    }
+
+    // Handle flag changes
+    let isDeleted = level.isDeleted;
+    let isHidden = level.isHidden;
+    let isAnnounced = level.isAnnounced;
+
+    // If isDeleted is being set to true, also set isHidden to true
+    if (req.body.isDeleted === true) {
+      isDeleted = true;
+      isHidden = true;
+    } 
+    // If isDeleted is being set to false, also set isHidden to false
+    else if (req.body.isDeleted === false) {
+      isDeleted = false;
+      isHidden = false;
+    }
+    // If only isHidden is being changed, respect that change
+    else if (req.body.isHidden !== undefined) {
+      isHidden = req.body.isHidden;
+    }
+
+    // Handle isAnnounced logic
+    if (req.body.isAnnounced !== undefined) {
+      isAnnounced = req.body.isAnnounced;
+    } else {
+      // Set isAnnounced to true if toRate is being set to true
+      if (req.body.toRate === true) {
+        isAnnounced = true;
+      }
+      // Set isAnnounced to false if toRate is being set to false and it was previously true
+      else if (req.body.toRate === false && level.toRate === true) {
+        isAnnounced = false;
+      }
+    }
+
     // Clean up the update data to handle null values correctly
     const updateData = {
       song: req.body.song || null,
@@ -562,8 +650,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       rerateNum: req.body.rerateNum || null,
       toRate: req.body.toRate ?? level.toRate,
       rerateReason: req.body.rerateReason || null,
-      isDeleted: req.body.isDeleted ?? level.isDeleted,
-      isHidden: req.body.isHidden ?? level.isHidden,
+      isDeleted,
+      isHidden,
+      isAnnounced,
       updatedAt: new Date()
     };
 
