@@ -244,7 +244,6 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
         {
           model: Player,
           as: 'player',
-          attributes: ['name', 'country', 'isBanned'],
           include: [
             {
               model: User,
