@@ -60,12 +60,26 @@ const progressBar = new cliProgress.MultiBar({
   clearOnComplete: true,
   noTTYOutput: !process.stdout.isTTY,
   stream: process.stdout,
-  fps: 10,
-  forceRedraw: true,
+  fps: 2,
+  forceRedraw: false,
+  stopOnComplete: true
 }, cliProgress.Presets.shades_classic);
+
+// Track last update time for throttling
+let lastUpdateTime = Date.now();
+const THROTTLE_INTERVAL = 100; // ms
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to update progress with throttling
+const updateProgress = (bar: cliProgress.SingleBar, progress: number, task: string, subtask: string) => {
+  const now = Date.now();
+  if (now - lastUpdateTime >= THROTTLE_INTERVAL) {
+    bar.update(progress, { task, subtask });
+    lastUpdateTime = now;
+  }
+};
 
 // Calculate stats directly without worker
 function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {

@@ -123,19 +123,30 @@ const progressBar = new cliProgress.MultiBar({
   clearOnComplete: true,
   noTTYOutput: !process.stdout.isTTY,
   stream: process.stdout,
-  fps: 10,
-  forceRedraw: true,
+  fps: 2,
+  forceRedraw: false,
+  stopOnComplete: true
 }, cliProgress.Presets.shades_classic);
+
+// Track last update time for throttling
+let lastUpdateTime = Date.now();
+const THROTTLE_INTERVAL = 100; // ms
 
 // Helper function to log without corrupting progress bar
 function safeLog(message: string, bar?: cliProgress.SingleBar) {
   if (process.stdout.isTTY) {
     if (bar) {
-      const currentValue = (bar as any).value || 0;
-      bar.update(currentValue, { subtask: message });
+      const now = Date.now();
+      if (now - lastUpdateTime >= THROTTLE_INTERVAL) {
+        const currentValue = (bar as any).value || 0;
+        bar.update(currentValue, { subtask: message });
+        lastUpdateTime = now;
+      }
     } else {
       progressBar.log(message);
     }
+  } else {
+    console.log(message);
   }
 }
 
