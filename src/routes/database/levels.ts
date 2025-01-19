@@ -696,32 +696,40 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     await transaction.commit();
 
-    // Force cache update since level data affects pass calculations
-    if (!req.leaderboardCache) {
-      throw new Error('LeaderboardCache not initialized');
-    }
-    await req.leaderboardCache.forceUpdate();
-    
-    // Broadcast updates
-    sseManager.broadcast({ type: 'ratingUpdate' });
-    sseManager.broadcast({ type: 'levelUpdate' });
-    sseManager.broadcast({ 
-      type: 'passUpdate',
-      data: {
-        levelId,
-        action: 'levelUpdate'
-      }
-    });
-
-    // Reload stats if baseScore or difficulty was changed
-    if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
-      await handleLevelUpdate();
-    }
-
-    return res.json({
+    // Send response immediately after commit
+    const response = {
       message: 'Level updated successfully',
       level: updatedLevel,
-    });
+    };
+    res.json(response);
+
+    // Handle cache updates and broadcasts asynchronously
+    (async () => {
+      try {
+        if (req.leaderboardCache) {
+          await req.leaderboardCache.forceUpdate();
+        }
+        
+        // Broadcast updates
+        sseManager.broadcast({ type: 'ratingUpdate' });
+        sseManager.broadcast({ type: 'levelUpdate' });
+        sseManager.broadcast({ 
+          type: 'passUpdate',
+          data: {
+            levelId,
+            action: 'levelUpdate'
+          }
+        });
+
+        // Reload stats if needed
+        if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+          await handleLevelUpdate();
+        }
+      } catch (error) {
+        console.error('Error in async operations after level update:', error);
+      }
+    })();
+    return;
   } catch (error) {
     await transaction.rollback();
     console.error('Error updating level:', error);
@@ -832,92 +840,81 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
   }
 });
 
-router.delete(
-  '/:id',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
-
-    try {
-      const {id} = req.params;
-
-      const level = await Level.findOne({
-        where: {id: parseInt(id)},
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-          {
-            model: Pass,
-            as: 'passes',
-            required: false,
-            attributes: ['id'],
-          },
-        ],
-        transaction,
-      });
-
-      if (!level) {
-        await transaction.rollback();
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Soft delete the level
-      await Level.update(
-        {isDeleted: true},
-        {
-          where: {id: parseInt(id)},
-          transaction,
-        },
-      );
-
-      // Reload the level to get updated data
-      await level.reload({
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-          {
-            model: Pass,
-            as: 'passes',
-            required: false,
-            attributes: ['id'],
-          },
-        ],
-        transaction,
-      });
-
-      await transaction.commit();
-
-      // Force cache update since level deletion affects pass calculations
-      if (!req.leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await req.leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('ratingsUpdated');
-
-      // Broadcast updates
-      sseManager.broadcast({ type: 'levelUpdate' });
-      sseManager.broadcast({ type: 'ratingUpdate' });
-
-      // Reload stats after level deletion
-      await handleLevelUpdate();
-
-      return res.json({
-        message: 'Level soft deleted successfully',
-        level: level,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error('Error soft deleting level:', error);
-      return res.status(500).json({error: 'Failed to soft delete level'});
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).json({error: 'Invalid level ID'});
     }
-  },
-);
+
+    const level = await Level.findOne({
+      where: {id: levelId.toString()},
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+        {
+          model: Pass,
+          as: 'passes',
+          required: false,
+          attributes: ['id'],
+        },
+      ],
+      transaction,
+    });
+
+    if (!level) {
+      return res.status(404).json({error: 'Level not found'});
+    }
+
+    await Level.update(
+      {isDeleted: true},
+      {
+        where: {id: levelId.toString()},
+        transaction,
+      },
+    );
+
+    await transaction.commit();
+
+    // Send response immediately after commit
+    const response = {
+      message: 'Level soft deleted successfully',
+      level: level,
+    };
+    res.json(response);
+
+    // Handle cache updates and broadcasts asynchronously
+    (async () => {
+      try {
+        if (req.leaderboardCache) {
+          await req.leaderboardCache.forceUpdate();
+        }
+
+        const io = getIO();
+        io.emit('leaderboardUpdated');
+        io.emit('ratingsUpdated');
+
+        // Broadcast updates
+        sseManager.broadcast({ type: 'levelUpdate' });
+        sseManager.broadcast({ type: 'ratingUpdate' });
+
+        // Reload stats after level deletion
+        await handleLevelUpdate();
+      } catch (error) {
+        console.error('Error in async operations after level deletion:', error);
+      }
+    })();
+    return;
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error soft deleting level:', error);
+    return res.status(500).json({error: 'Failed to soft delete level'});
+  }
+});
 
 router.patch(
   '/:id/restore',
