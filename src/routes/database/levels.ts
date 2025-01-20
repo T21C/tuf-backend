@@ -52,15 +52,26 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
   const trimmedTerm = term.trim();
   if (!trimmedTerm) return null;
 
-  const fieldMatch = trimmedTerm.match(/^(song|artist|charter):(.+)$/i);
-  if (fieldMatch) {
-    const result = {
-      field: fieldMatch[1].toLowerCase(),
-      value: fieldMatch[2].trim(),
+  // Check for exact match with equals sign
+  const exactMatch = trimmedTerm.match(/^(song|artist|charter)=(.+)$/i);
+  if (exactMatch) {
+    return {
+      field: exactMatch[1].toLowerCase(),
+      value: exactMatch[2].trim(),
       exact: true
     };
-    return result;
   }
+
+  // Check for partial match with colon
+  const partialMatch = trimmedTerm.match(/^(song|artist|charter):(.+)$/i);
+  if (partialMatch) {
+    return {
+      field: partialMatch[1].toLowerCase(),
+      value: partialMatch[2].trim(),
+      exact: false
+    };
+  }
+
   return null;
 };
 
