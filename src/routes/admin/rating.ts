@@ -242,7 +242,7 @@ async function calculateAverageRating(detailObject: RatingDetail[], transaction:
 }
 
 // Get all ratings
-router.get('/', Auth.rater(), async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const ratings = await Rating.findAll({
       include: [
