@@ -30,7 +30,7 @@ class OAuthProvider extends Model<OAuthProviderAttributes, OAuthProviderCreation
   declare updatedAt: Date;
 
   // Virtual fields
-  declare user?: User;
+  declare oauthUser?: User;
 }
 
 OAuthProvider.init(

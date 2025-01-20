@@ -5,6 +5,7 @@ import Player from '../../models/Player';
 import { fetchDiscordUserInfo } from '../../utils/discord';
 import { CreationAttributes, Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
+import { tokenUtils } from '../../utils/auth';
 
 const router: Router = Router();
 
@@ -83,6 +84,7 @@ async function findOrCreateUserByDiscordId(discordId: string, discordInfo: any) 
     isEmailVerified: false,
     isRater: false,
     isSuperAdmin: false,
+    permissionVersion: 1,
     status: 'active',
     playerId: player.id,
     createdAt: now,
@@ -309,18 +311,11 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
       },
       include: [{
         model: User,
-        as: 'user',
-        required: true,
-        include: [{
-          model: OAuthProvider,
-          as: 'providers',
-          where: { provider: 'discord' },
-          required: false
-        }]
+        as: 'oauthUser'
       }]
     });
-
-    if (!provider?.user) {
+    console.log(provider?.dataValues);
+    if (!provider?.oauthUser) {
       console.log('No user found for role revocation, Discord ID:', discordId);
       return res.status(404).json({ error: 'User not found' });
     }
@@ -329,36 +324,56 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
     if (role === 'superadmin') {
       const superAdminCount = await User.count({ where: { isSuperAdmin: true } });
       console.log('Super admin count:', superAdminCount);
-      if (superAdminCount <= 1 && provider.user.isSuperAdmin) {
+      if (superAdminCount <= 1 && provider?.oauthUser?.isSuperAdmin) {
         return res.status(400).json({ error: 'Cannot remove last super admin' });
       }
     }
 
-    // Update user's roles
-    await provider.user.update({
-      isRater: role === 'rater' ? false : provider.user.isRater,
-      isSuperAdmin: role === 'superadmin' ? false : provider.user.isSuperAdmin
+    // Update user's roles and increment permission version
+    await provider.oauthUser.update({
+      isRater: role === 'rater' ? false : provider.oauthUser.isRater,
+      isSuperAdmin: role === 'superadmin' ? false : provider.oauthUser.isSuperAdmin,
+      permissionVersion: provider.oauthUser.permissionVersion + 1
     });
 
+    // Fetch updated user to ensure we have the latest data
+    const updatedUser = await User.findByPk(provider.oauthUser.id, {
+      include: [{
+        model: OAuthProvider,
+        as: 'providers',
+        where: { provider: 'discord' },
+        required: true
+      }]
+    });
+
+    if (!updatedUser) {
+      throw new Error('Failed to fetch updated user');
+    }
+
+    // Generate new token with updated permissions
+    const newToken = tokenUtils.generateJWT(updatedUser);
+
     console.log('Role revoked successfully:', {
-      userId: provider.user.id,
-      username: provider.user.username,
+      userId: updatedUser.id,
+      username: updatedUser.username,
       role,
       newRoles: {
-        isRater: provider.user.isRater,
-        isSuperAdmin: provider.user.isSuperAdmin
-      }
+        isRater: updatedUser.isRater,
+        isSuperAdmin: updatedUser.isSuperAdmin
+      },
+      permissionVersion: updatedUser.permissionVersion
     });
 
     return res.json({
       message: 'Role revoked successfully',
       user: {
-        id: provider.user.id,
-        username: provider.user.username,
+        id: updatedUser.id,
+        username: updatedUser.username,
         discordId,
-        isRater: provider.user.isRater,
-        isSuperAdmin: provider.user.isSuperAdmin
-      }
+        isRater: updatedUser.isRater,
+        isSuperAdmin: updatedUser.isSuperAdmin
+      },
+      token: newToken
     });
   } catch (error: any) {
     console.error('Failed to revoke role:', error);
@@ -529,5 +544,6 @@ router.get('/discord/:discordId', Auth.superAdmin(), async (req: Request, res: R
     return res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
+
 
 export default router; 

@@ -40,7 +40,8 @@ export const tokenUtils = {
       username: user.username,
       isRater: user.isRater,
       isSuperAdmin: user.isSuperAdmin,
-      playerId: user.playerId
+      playerId: user.playerId,
+      permissionVersion: user.permissionVersion
     };
 
     return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -51,10 +52,27 @@ export const tokenUtils = {
    */
   verifyJWT: (token: string): any => {
     try {
-      return jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, JWT_SECRET);
+      return decoded;
     } catch (error) {
       return null;
     }
+  },
+
+  /**
+   * Verify if token permissions are up to date
+   */
+  verifyTokenPermissions: (decoded: any): Promise<boolean> => {
+    return (async () => {
+      try {
+        const user = await User.findByPk(decoded.id);
+        if (!user) return false;
+        
+        return user.permissionVersion === decoded.permissionVersion;
+      } catch (error) {
+        return false;
+      }
+    })();
   },
 
   /**

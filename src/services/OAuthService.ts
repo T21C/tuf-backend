@@ -37,22 +37,22 @@ class OAuthService {
       ]
     });
 
-    if (provider?.user) {
+    if (provider?.oauthUser) {
       // Update user profile if needed
       const updates: Partial<UserAttributes> = {};
-      if (profile.nickname && (!provider.user.nickname || provider.user.nickname !== profile.nickname)) {
+      if (profile.nickname && (!provider.oauthUser.nickname || provider.oauthUser.nickname !== profile.nickname)) {
         updates.nickname = profile.nickname;
       }
-      if (profile.avatarId && (!provider.user.avatarId || provider.user.avatarId !== profile.avatarId)) {
+      if (profile.avatarId && (!provider.oauthUser.avatarId || provider.oauthUser.avatarId !== profile.avatarId)) {
         updates.avatarId = profile.avatarId;
         updates.avatarUrl = profile.avatarUrl;
       }
       
       if (Object.keys(updates).length > 0) {
-        await provider.user.update(updates);
+        await provider.oauthUser.update(updates);
       }
 
-      return [provider.user, false];
+      return [provider.oauthUser, false];
     }
 
     // If no provider link exists, check for existing user by email
@@ -117,6 +117,7 @@ class OAuthService {
       isRater,
       isSuperAdmin,
       status: 'active',
+      permissionVersion: 1,
       createdAt: now,
       updatedAt: now
     });
@@ -238,7 +239,7 @@ class OAuthService {
       include: [{ model: User, as: 'user' }]
     });
 
-    return oauthProvider?.user || null;
+    return oauthProvider?.oauthUser || null;
   }
 }
 

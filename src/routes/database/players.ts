@@ -70,20 +70,20 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Player not found'});
     }
 
-    const enrichedPlayer = await enrichPlayerData(player);
-    const playerStats = await playerStatsService.getPlayerStats(player.id);
+    // Wait for both enriched data and stats in parallel
+    const [enrichedPlayer, playerStats] = await Promise.all([
+      enrichPlayerData(player),
+      playerStatsService.getPlayerStats(player.id)
+    ]);
 
     // Calculate impact values for top 20 scores
     const topScores = (enrichedPlayer.passes || [])
       .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
       .slice(0, 20)
-      .map((pass, index) => {
-        console.log(pass);
-        return {
-          id: pass.id,
-          impact: (pass.scoreV2 || 0) * Math.pow(0.9, index)
-        }
-      });
+      .map((pass, index) => ({
+        id: pass.id,
+        impact: (pass.scoreV2 || 0) * Math.pow(0.9, index)
+      }));
 
     return res.json({
       ...enrichedPlayer,

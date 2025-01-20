@@ -56,8 +56,16 @@ export const Auth = {
         return;
       }
 
+      // Check if permissions are up to date
+      const permissionsValid = await tokenUtils.verifyTokenPermissions(decoded);
+      if (!permissionsValid) {
+        // Generate new token with updated permissions
+        const newToken = tokenUtils.generateJWT(user);
+        res.setHeader('X-New-Token', newToken);
+        res.setHeader('X-Permission-Changed', 'true');
+      }
       // If token is about to expire, generate a new one
-      if (shouldRefresh) {
+      else if (shouldRefresh) {
         const newToken = tokenUtils.generateJWT(user);
         res.setHeader('X-New-Token', newToken);
       }
