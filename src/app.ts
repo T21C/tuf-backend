@@ -72,10 +72,8 @@ setIO(io);
 
 // Socket connection handler
 io.on('connection', socket => {
-  console.log('Client connected:', socket.id);
 
   socket.on('disconnect', reason => {
-    console.log('Client disconnected:', socket.id, 'Reason:', reason);
   });
 });
 

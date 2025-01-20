@@ -95,7 +95,6 @@ router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => 
         lateSingle: Math.max(0, parseInt(req.body.lateSingle?.slice(0, 15) || '0')),
         lateDouble: Math.max(0, parseInt(req.body.lateDouble?.slice(0, 15) || '0')),
       };
-      console.log(sanitizedJudgements);
       
       const discordProvider = req.user?.providers?.find(provider => provider.dataValues.provider === 'discord');
 

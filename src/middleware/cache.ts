@@ -63,7 +63,6 @@ export class LeaderboardCache {
 
   private async handleShutdown() {
     if (this.isUpdating) {
-      console.log('\nGracefully stopping cache update...');
       this.abortController?.abort();
       if (this.updateTimeout) {
         clearTimeout(this.updateTimeout);
@@ -168,7 +167,6 @@ export class LeaderboardCache {
     try {
       // Set overall timeout
       this.updateTimeout = setTimeout(() => {
-        console.log('\nCache update timeout reached, aborting...');
         this.abortController?.abort();
       }, CACHE_UPDATE_TIMEOUT);
 
@@ -273,7 +271,6 @@ export class LeaderboardCache {
       progressBar.update(100, { status: 'Cache update complete' });
     } catch (error: unknown) {
       if (error instanceof Error && error.message === 'Cache update aborted') {
-        console.log('\nCache update was aborted');
       } else {
         console.error('\nError updating leaderboard cache:', error);
         throw error;

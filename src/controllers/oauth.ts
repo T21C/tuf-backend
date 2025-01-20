@@ -150,8 +150,6 @@ export const OAuthController = {
         });
       }
 
-      // New user - need to handle player assignment first
-      console.log('New Discord user, checking for existing player');
       
       // First try to find player by Discord username
       let player = await Player.findOne({ 
@@ -225,6 +223,7 @@ export const OAuthController = {
         isEmailVerified: !!profile.email,
         isRater,
         isSuperAdmin,
+        permissionVersion: 1,
         status: 'active',
         createdAt: now,
         updatedAt: now

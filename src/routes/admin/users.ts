@@ -298,7 +298,6 @@ router.post('/grant-role', [Auth.superAdmin(), requiresPassword], async (req: Re
 router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: Request, res: Response) => {
   try {
     const { discordId, role } = req.body;
-    console.log('Revoking role:', { discordId, role });
     
     if (!discordId || !['rater', 'superadmin'].includes(role)) {
       return res.status(400).json({ error: 'Discord ID and valid role (rater/superadmin) are required' });
@@ -314,16 +313,13 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
         as: 'oauthUser'
       }]
     });
-    console.log(provider?.dataValues);
     if (!provider?.oauthUser) {
-      console.log('No user found for role revocation, Discord ID:', discordId);
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Prevent revoking last super admin
     if (role === 'superadmin') {
       const superAdminCount = await User.count({ where: { isSuperAdmin: true } });
-      console.log('Super admin count:', superAdminCount);
       if (superAdminCount <= 1 && provider?.oauthUser?.isSuperAdmin) {
         return res.status(400).json({ error: 'Cannot remove last super admin' });
       }
@@ -353,16 +349,6 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
     // Generate new token with updated permissions
     const newToken = tokenUtils.generateJWT(updatedUser);
 
-    console.log('Role revoked successfully:', {
-      userId: updatedUser.id,
-      username: updatedUser.username,
-      role,
-      newRoles: {
-        isRater: updatedUser.isRater,
-        isSuperAdmin: updatedUser.isSuperAdmin
-      },
-      permissionVersion: updatedUser.permissionVersion
-    });
 
     return res.json({
       message: 'Role revoked successfully',
@@ -389,8 +375,6 @@ router.post('/revoke-role', [Auth.superAdmin(), requiresPassword], async (req: R
 // Update user's Discord info
 router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
-    console.log('Starting Discord info sync');
-
     const users = await User.findAll({
       include: [{
         model: OAuthProvider,
@@ -400,21 +384,17 @@ router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Respon
       }]
     });
 
-    console.log(`Found ${users.length} users to sync`);
 
     const updates = [];
     const errors = [];
 
     for (const user of users) {
       const discordId = user.providers![0].providerId;
-      console.log(`Processing user ${user.username} with Discord ID ${discordId}`);
       
       try {
         const discordInfo = await fetchDiscordUserInfo(discordId);
-        console.log('Fetched Discord info:', discordInfo);
         
         if (discordInfo.username && discordInfo.username !== user.username) {
-          console.log(`Updating username from ${user.username} to ${discordInfo.username}`);
           await user.update({ username: discordInfo.username });
           updates.push(discordId);
         }
@@ -424,12 +404,6 @@ router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Respon
       }
     }
 
-    console.log('Sync completed:', {
-      updatedCount: updates.length,
-      failedCount: errors.length,
-      updatedIds: updates,
-      failedIds: errors
-    });
 
     return res.json({
       message: 'Discord info sync completed',
@@ -451,7 +425,6 @@ router.post('/sync-discord', Auth.superAdmin(), async (req: Request, res: Respon
 router.get('/check/:discordId', async (req: Request, res: Response) => {
   try {
     const { discordId } = req.params;
-    console.log('Checking roles for Discord ID:', discordId);
 
     const users = await User.findAll({
       include: [{
@@ -462,19 +435,12 @@ router.get('/check/:discordId', async (req: Request, res: Response) => {
       }]
     });
 
-    console.log(`Found ${users.length} users to search through`);
 
     const user = users.find(user => user.providers![0].providerId === discordId);
-    console.log('Search result:', user ? `Found user ${user.username}` : 'No user found');
 
     if (!user) {
       return res.json({ isRater: false, isSuperAdmin: false });
     }
-
-    console.log('Found user roles:', {
-      isRater: user.isRater,
-      isSuperAdmin: user.isSuperAdmin
-    });
 
     return res.json({
       isRater: user.isRater,
@@ -496,7 +462,6 @@ router.get('/check/:discordId', async (req: Request, res: Response) => {
 router.get('/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { discordId } = req.params;
-    console.log('Searching for Discord ID:', discordId);
 
     const users = await User.findAll({
       include: [{
@@ -507,10 +472,8 @@ router.get('/discord/:discordId', Auth.superAdmin(), async (req: Request, res: R
       }]
     });
 
-    console.log(`Found ${users.length} users to search through`);
 
     const user = users.find(user => user.providers![0].providerId === discordId);
-    console.log('Search result:', user ? `Found user ${user.username}` : 'No user found');
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -522,12 +485,6 @@ router.get('/discord/:discordId', Auth.superAdmin(), async (req: Request, res: R
       avatar?: string;
     } || {};
 
-    console.log('Found user details:', {
-      id: user.id,
-      username: user.username,
-      avatarUrl: user.avatarUrl,
-      discordProfile
-    });
 
     return res.json({
       id: user.id,

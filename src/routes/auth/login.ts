@@ -29,9 +29,6 @@ const isCaptchaRequired = (identifier: string): boolean => {
 // Helper to verify reCAPTCHA token
 const verifyCaptcha = async (token: string): Promise<boolean> => {
   try {
-    console.log('Verifying reCAPTCHA token:', token.substring(0, 20) + '...');
-    console.log('Using secret key:', process.env.RECAPTCHA_SECRET_KEY ? 'Present (length: ' + process.env.RECAPTCHA_SECRET_KEY.length + ')' : 'Missing');
-    
     if (!process.env.RECAPTCHA_SECRET_KEY) {
       console.error('RECAPTCHA_SECRET_KEY is not set in environment variables');
       return false;
@@ -43,15 +40,11 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       response: token
     });
 
-    console.log('Sending verification request to:', verifyURL);
-    
     const response = await axios.post(verifyURL, params.toString(), {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       }
     });
-
-    console.log('Full reCAPTCHA verification response:', response.data);
 
     if (!response.data.success) {
       console.error('reCAPTCHA verification failed with error codes:', response.data['error-codes']);
