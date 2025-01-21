@@ -961,14 +961,48 @@ export async function partialReload() {
     let lastValidUploadTime = new Date('2000-01-01 00:00:00');
 
     const levelFirstPasses = new Map<number, {uploadTime: Date; id: number}>();
+
+    // First, get existing passes for all affected levels
+    const existingPassesForLevels = await db.models.Pass.findAll({
+      where: {
+        levelId: newPasses.map(p => p.levelId),
+        isDeleted: false
+      },
+      attributes: ['id', 'levelId', 'vidUploadTime'],
+      transaction
+    });
+
+    // Initialize levelFirstPasses with existing passes
+    existingPassesForLevels.forEach(pass => {
+      const uploadTime = new Date(pass.vidUploadTime);
+      const currentFirst = levelFirstPasses.get(pass.levelId);
+      if (!currentFirst || uploadTime < currentFirst.uploadTime) {
+        levelFirstPasses.set(pass.levelId, {uploadTime, id: pass.id});
+      }
+    });
+
+    // Then check new passes
     for (const pass of newPasses) {
       const uploadTime = new Date(pass.vidUploadTime);
       const currentFirst = levelFirstPasses.get(pass.levelId);
 
+      // Only consider this pass for world's first if:
+      // 1. No existing world's first OR
+      // 2. This pass is earlier than current world's first
       if (!currentFirst || uploadTime < currentFirst.uploadTime) {
         levelFirstPasses.set(pass.levelId, {uploadTime, id: pass.id});
       }
     }
+
+    // Get clear counts for existing levels
+    const existingLevelClearCounts = await db.models.Level.findAll({
+      where: {
+        id: newPasses.map(p => p.levelId)
+      },
+      attributes: ['id', 'clears'],
+      transaction
+    });
+    const clearCountMap = new Map(existingLevelClearCounts.map(l => [l.id, l.clears]));
 
     for (const pass of newPasses) {
       const playerId = playerNameToId.get(pass.player);
@@ -1027,7 +1061,8 @@ export async function partialReload() {
         },
       );
 
-      const isWorldsFirst = levelFirstPasses.get(pass.levelId)?.id === pass.id;
+      const isWorldsFirst = levelFirstPasses.get(pass.levelId)?.id === pass.id || 
+                           (clearCountMap.get(pass.levelId) === 0);
 
       passDocs.push({
         id: pass.id,

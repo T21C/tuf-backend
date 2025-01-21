@@ -475,7 +475,21 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
-    const {judgements, isDeleted} = req.body;
+    const {
+      vidUploadTime,
+      speed,
+      feelingRating,
+      vidTitle,
+      videoLink,
+      is12K,
+      is16K,
+      isNoHoldTap,
+      isWorldsFirst,
+      accuracy,
+      scoreV2,
+      isDeleted,
+      judgements
+    } = req.body;
 
     // Update pass
     const pass = await Pass.findOne({
@@ -498,13 +512,33 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Pass not found'});
     }
 
-    if (isDeleted !== undefined) {
-      await pass.update({isDeleted}, {transaction});
-    }
+    // Update pass fields
+    await pass.update({
+      vidUploadTime: vidUploadTime || pass.vidUploadTime,
+      speed: speed || pass.speed,
+      feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
+      vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
+      videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+      is12K: is12K !== undefined ? is12K : pass.is12K,
+      is16K: is16K !== undefined ? is16K : pass.is16K,
+      isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
+      isWorldsFirst: isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
+      accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
+      scoreV2: scoreV2!== undefined ? scoreV2 : pass.scoreV2,
+      isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+    }, {transaction});
 
-    // Update judgements
+    // Update judgements if provided
     if (judgements) {
-      await Judgement.update(judgements, {
+      await Judgement.update({
+        earlyDouble: judgements.earlyDouble,
+        earlySingle: judgements.earlySingle,
+        ePerfect: judgements.ePerfect,
+        perfect: judgements.perfect,
+        lPerfect: judgements.lPerfect,
+        lateSingle: judgements.lateSingle,
+        lateDouble: judgements.lateDouble,
+      }, {
         where: {id: parseInt(id)},
         transaction,
       });
