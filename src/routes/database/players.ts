@@ -77,7 +77,14 @@ router.get('/:id', async (req: Request, res: Response) => {
     ]);
 
     // Calculate impact values for top 20 scores
-    const topScores = (enrichedPlayer.passes || [])
+    const uniquePasses = new Map();
+    (enrichedPlayer.passes || []).forEach(pass => {
+      if (!uniquePasses.has(pass.levelId) || (pass.scoreV2 || 0) > (uniquePasses.get(pass.levelId).scoreV2 || 0)) {
+        uniquePasses.set(pass.levelId, pass);
+      }
+    });
+
+    const topScores = Array.from(uniquePasses.values())
       .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
       .slice(0, 20)
       .map((pass, index) => ({
