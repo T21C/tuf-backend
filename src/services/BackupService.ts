@@ -7,6 +7,12 @@ import db from '../models/index.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
+const DATABASE_NAME =
+process.env.NODE_ENV === 'staging'
+? process.env.DB_STAGING_DATABASE
+: process.env.DB_DATABASE;
+
+
 export class BackupService {
   private config: typeof config;
   private isWindows: boolean;
@@ -32,10 +38,10 @@ export class BackupService {
     if (this.isWindows) {
       const mysqlDumpPath = path.join(process.env.MYSQL_PATH || '', 'mysqldump.exe');
       const outputPath = filePath.replace(/\\/g, '/');
-      cmd = `"${mysqlDumpPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} > "${outputPath}"`;
+      cmd = `"${mysqlDumpPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
     } else {
       // Linux command
-      cmd = `mysqldump -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} > "${filePath}"`;
+      cmd = `mysqldump -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${filePath}"`;
     }
 
     return new Promise((resolve, reject) => {
@@ -51,10 +57,10 @@ export class BackupService {
     if (this.isWindows) {
       const mysqlPath = path.join(process.env.MYSQL_PATH || '', 'mysql.exe');
       const inputPath = backupPath.replace(/\\/g, '/');
-      cmd = `"${mysqlPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} < "${inputPath}"`;
+      cmd = `"${mysqlPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${inputPath}"`;
     } else {
       // Linux command
-      cmd = `mysql -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${process.env.DB_DATABASE} < "${backupPath}"`;
+      cmd = `mysql -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${backupPath}"`;
     }
 
     return new Promise((resolve, reject) => {
