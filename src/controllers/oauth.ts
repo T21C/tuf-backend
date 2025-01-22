@@ -93,7 +93,7 @@ export const OAuthController = {
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&redirect_uri=${
-        encodeURIComponent(process.env.DISCORD_REDIRECT_URI!)
+        encodeURIComponent(clientUrlEnv + '/callback')
       }&response_type=code&scope=${
         scopes.join('%20')
       }`;
