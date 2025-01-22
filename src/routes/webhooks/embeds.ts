@@ -134,6 +134,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
   const creator = level?.creator ? level?.creator : null;
   const vfxer = level?.vfxer ? level?.vfxer : null;
   const videoInfo = await getVideoDetails(level.videoLink).then(details => details);
+  const comment = level?.publicComments ? level?.publicComments : "(Unspecified)";
 
   const embed = new MessageBuilder()
       .setColor(level?.difficulty?.color || '#000000')
@@ -144,6 +145,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     .addField('Rerate', `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`, true)
     .addField("", "", false)
     
+    
     if (team) embed
       .addField('', `Team\n**${formatString(team)}**`, true)
     if (vfxer) embed
@@ -152,7 +154,9 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .addField('', `Chart\n**${formatString(charter)}**`, true);
     else if (creator) embed
       .addField('', `Creator\n**${formatString(creator)}**`, true);
-    
+    if (comment && level.difficulty?.name == '-2') embed
+        .addField('Reason', `**${formatString(comment)}**`, false)
+
     embed.addField('', `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`, false)
     /*.setFooter(
       team || credit, 
