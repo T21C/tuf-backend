@@ -28,6 +28,23 @@ interface ProfileResponse {
 
 dotenv.config();
 
+const ownUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.DEV_URL
+: 'http://localhost:3002';
+
+const clientUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_CLIENT_URL
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_CLIENT_URL
+: process.env.NODE_ENV === 'development'
+? process.env.CLIENT_URL
+: 'http://localhost:5173';
+
+
 interface Provider {
   provider: string;
   providerId: string;
@@ -45,7 +62,7 @@ async function handleDiscordOAuth(code: string): Promise<{
       client_secret: process.env.DISCORD_CLIENT_SECRET!,
       code: code.toString(),
       grant_type: 'authorization_code',
-      redirect_uri: process.env.DISCORD_REDIRECT_URI!,
+      redirect_uri: clientUrlEnv + '/callback',
     }), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     }
@@ -278,7 +295,7 @@ export const OAuthController = {
       const providers = await OAuthService.getUserProviders(req.user!.id);
       
       const avatarUrl = req.user!.avatarUrl ? 
-        `${process.env.OWN_URL}/v2/media/avatar/${req.user!.id}` : 
+        `${ownUrlEnv}/v2/media/avatar/${req.user!.id}` : 
         null;
 
       const response: ProfileResponse = {

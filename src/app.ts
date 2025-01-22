@@ -32,7 +32,7 @@ const app: Express = express();
 const httpServer = createServer(app);
 
 // Get environment-specific configuration
-const clientUrl = process.env.NODE_ENV === 'production' 
+const clientUrlEnv = process.env.NODE_ENV === 'production' 
 ? process.env.PROD_CLIENT_URL 
 : process.env.NODE_ENV === 'staging'
 ? process.env.STAGING_CLIENT_URL
@@ -54,13 +54,13 @@ const ownUrl = process.env.NODE_ENV === 'production'
 : process.env.NODE_ENV === 'staging'
 ? process.env.STAGING_API_URL
 : process.env.NODE_ENV === 'development'
-? process.env.OWN_URL
+? process.env.DEV_URL
 : 'http://localhost:3002';
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
   cors: {
-    origin: clientUrl || 'http://localhost:5173',
+    origin: clientUrlEnv || 'http://localhost:5173',
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -108,7 +108,7 @@ async function startServer() {
 
     // Set up Express middleware
     const corsOptions = {
-      origin: clientUrl || 'http://localhost:5173',
+      origin: clientUrlEnv || 'http://localhost:5173',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD', 'CONNECT', 'TRACE'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type', 'X-Super-Admin-Password'],

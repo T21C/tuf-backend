@@ -2,10 +2,10 @@ export default {
     mysql: {
       backupPath: './backups/mysql',
       retention: {
-        hourly: 1, // Keep hourly backups for 1 day
-        daily: 7,    // Keep daily backups for 7 days
-        weekly: 4,   // Keep weekly backups for 4 weeks
-        monthly: 3   // Keep monthly backups for 3 months
+        hourly: 10,
+        daily: 10,
+        weekly: 10,
+        monthly: 10 
       },
       schedule: {
         hourly: '0 */1 * * *',    // Every 1 hour
@@ -17,10 +17,10 @@ export default {
     files: {
       backupPath: './backups/files',
       retention: {
-        hourly: 1, // Keep hourly backups for 1 day
-        daily: 7,    // Keep daily backups for 7 days
-        weekly: 4,   // Keep weekly backups for 4 weeks
-        monthly: 3   // Keep monthly backups for 3 months
+        hourly: 10,
+        daily: 10,
+        weekly: 10,
+        monthly: 10 
       },
       schedule: {
         hourly: '0 */1 * * *',    // Every 1 hour

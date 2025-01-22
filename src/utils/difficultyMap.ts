@@ -387,7 +387,13 @@ const qDiffConst = 10000;
 // Cache directory path using resolved dirname
 const ICON_CACHE_DIR = path.join(__dirname, '../../cache/icons');
 const IMAGE_API = process.env.IMAGE_API || '/api/images';
-const OWN_URL = process.env.OWN_URL || 'http://localhost:3000';
+const ownUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.DEV_URL
+: 'http://localhost:3002';
 
 // Helper function to download and cache icons
 async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
@@ -401,7 +407,7 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
       await fs.writeFile(filePath, Buffer.from(response.data));
     }
 
-    return `${OWN_URL}${IMAGE_API}/icon/${fileName}`;
+    return `${ownUrlEnv}${IMAGE_API}/icon/${fileName}`;
   } catch (error) {
     console.error(`Failed to cache icon for ${diffName}:`, error);
     return iconUrl;

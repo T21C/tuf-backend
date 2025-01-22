@@ -5,6 +5,13 @@ import { MessageBuilder } from "../../webhook";
 import { Score, calculateRankedScore } from "../../misc/PlayerStatsCalculator";
 import { getVideoDetails } from "../../utils/videoDetailParser";
 
+const ownUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.DEV_URL
+: 'http://localhost:3002';
 
 export async function getDifficultyEmojis(levelInfo: Level | null, rerate: boolean = false): Promise<string | null> {
     if (!levelInfo) return null;
@@ -115,7 +122,7 @@ export function trim(str: string, maxLength: number): string {
 
 
 
-const placeHolder = process.env.OWN_URL + '/v2/media/image/soggycat.png';
+const placeHolder = ownUrlEnv + '/v2/media/image/soggycat.png';
 
 
 

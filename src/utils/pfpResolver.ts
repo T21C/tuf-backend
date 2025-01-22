@@ -7,6 +7,14 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 const ENABLE_FETCHING = process.env.LOAD_PFPS === 'true';
 
+const ownUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.DEV_URL
+: 'http://localhost:3002';
+
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -23,7 +31,7 @@ async function getBilibiliVideoDetails(
     return null;
   }
 
-  const apiUrl = `${process.env.OWN_URL}/v2/media/bilibili?bvid=${videoId}`;
+  const apiUrl = `${ownUrlEnv}/v2/media/bilibili?bvid=${videoId}`;
   try {
     const response = await axios.get(apiUrl);
     const resp = response.data;
@@ -33,7 +41,7 @@ async function getBilibiliVideoDetails(
     }
 
     const data = resp.data;
-    const pfpUrl = `${process.env.OWN_URL}/v2/media/image-proxy?url=${encodeURIComponent(
+    const pfpUrl = `${ownUrlEnv}/v2/media/image-proxy?url=${encodeURIComponent(
       data.owner.face,
     )}`;
 

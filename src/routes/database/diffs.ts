@@ -17,12 +17,12 @@ const __dirname = dirname(__filename);
 // Cache directory path
 const ICON_CACHE_DIR = path.join(__dirname, '../../../cache/icons');
 const IMAGE_API = process.env.IMAGE_API || '/api/images';
-const OWN_URL = process.env.NODE_ENV === 'production' 
+const ownUrlEnv = process.env.NODE_ENV === 'production' 
 ? process.env.PROD_API_URL 
 : process.env.NODE_ENV === 'staging'
 ? process.env.STAGING_API_URL
 : process.env.NODE_ENV === 'development'
-? process.env.OWN_URL
+? process.env.DEV_URL
 : 'http://localhost:3002';
 
 // Helper function to download and cache icons
@@ -31,7 +31,7 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
     await fs.mkdir(ICON_CACHE_DIR, { recursive: true });
     const fileName = `${diffName.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
     const filePath = path.join(ICON_CACHE_DIR, fileName);
-    const newUrl = `${OWN_URL}${IMAGE_API}/icon/${fileName}`;
+    const newUrl = `${ownUrlEnv}${IMAGE_API}/icon/${fileName}`;
 
     // Always attempt to cache the icon, even if it's already a cached URL
     try {

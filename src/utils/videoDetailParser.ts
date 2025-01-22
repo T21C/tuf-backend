@@ -69,6 +69,14 @@ interface YouTubeChannelResponse {
   }>;
 }
 
+const ownUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_API_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_API_URL
+: process.env.NODE_ENV === 'development'
+? process.env.DEV_URL
+: 'http://localhost:3002';
+
 function getBilibiliEmbedUrl(data: BilibiliData): string | null {
   const { aid, bvid, cid } = data;
 
@@ -109,8 +117,8 @@ async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null
     return null;
   }
 
-  const IMAGE_API = (process.env.OWN_URL || 'http://localhost:3000') + process.env.IMAGE_API;
-  const BILIBILI_API = (process.env.OWN_URL || 'http://localhost:3000') + process.env.BILIBILI_API;
+  const IMAGE_API = `${ownUrlEnv}${process.env.IMAGE_API}`;
+  const BILIBILI_API = `${ownUrlEnv}${process.env.BILIBILI_API}`;
 
   const apiUrl = `${BILIBILI_API}?bvid=${videoId}`;
 

@@ -26,7 +26,7 @@ const ownUrlEnv = process.env.NODE_ENV === 'production'
 : process.env.NODE_ENV === 'staging'
 ? process.env.STAGING_API_URL
 : process.env.NODE_ENV === 'development'
-? process.env.OWN_URL
+? process.env.DEV_URL
 : 'http://localhost:3002';
 
 

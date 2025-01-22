@@ -23,7 +23,16 @@ import { Auth } from '../../middleware/auth';
 
 const router: Router = express.Router();
 
-const placeHolder = process.env.OWN_URL + '/v2/media/image/soggycat.png';
+const clientUrlEnv = process.env.NODE_ENV === 'production' 
+? process.env.PROD_CLIENT_URL 
+: process.env.NODE_ENV === 'staging'
+? process.env.STAGING_CLIENT_URL
+: process.env.NODE_ENV === 'development'
+? process.env.CLIENT_URL 
+: 'http://localhost:5173';
+
+const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
+
 // Helper function to process items in batches
 async function processBatches<T>(
   items: T[],
@@ -106,7 +115,7 @@ export async function passSubmissionHook(passSubmission: PassSubmission, sanitiz
 
     const videoInfo = pass?.videoLink ? await getVideoDetails(pass.videoLink).then(details => details) : null;
 
-    const levelLink = `${process.env.CLIENT_URL}/levels/${level?.id}`;
+    const levelLink = `${clientUrlEnv}/levels/${level?.id}`;
 
     const showAddInfo = pass.flags?.is12K || pass.flags?.is16K || pass.flags?.isNoHoldTap;
     const additionalInfo = (
