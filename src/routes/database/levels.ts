@@ -632,6 +632,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       }
     }
 
+    let previousDiffId = req.body.previousDiffId ?? level.diffId ?? 0;
+    previousDiffId = previousDiffId === req.body.diffId ? level.previousDiffId : previousDiffId;
     // Clean up the update data to handle null values correctly
     const updateData = {
       song: req.body.song,
@@ -641,7 +643,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       vfxer: req.body.vfxer,
       team: req.body.team,
       diffId: req.body.diffId || 0,
-      previousDiffId: req.body.previousDiffId || 0,
+      previousDiffId,
       baseScore: req.body.baseScore === '' ? null : (req.body.baseScore ?? level.baseScore),
       videoLink: req.body.videoLink,
       dlLink: req.body.dlLink || null,
