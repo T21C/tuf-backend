@@ -115,6 +115,7 @@ async function startServer() {
       exposedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type', 'X-Super-Admin-Password']
     };
 
+    console.log("corsOptions:",corsOptions);
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
 
