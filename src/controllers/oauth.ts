@@ -282,7 +282,7 @@ export const OAuthController = {
         token
       });
     } catch (error) {
-      console.error('OAuth callback error:', error);
+      //console.error('OAuth callback error:', error);
       return res.status(500).json({ message: 'Authentication failed' });
     }
   },
