@@ -151,56 +151,86 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 });
 
 router.put(
-  '/:id/discord',
+  '/:userId/discord',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
-      const {id} = req.params;
-      const {discordId, discordUsername, discordAvatar, profile} = req.body;
+      const {userId} = req.params;
+      const {id: discordId, username, avatar} = req.body;
 
-      const player = await Player.findByPk(id, {
-        include: [{
-          model: User,
-          as: 'user',
+      // Find player and any existing user with this Discord ID
+      const [player, existingUserWithDiscord] = await Promise.all([
+        Player.findByPk(userId, {
+          include: [{
+            model: User,
+            as: 'user',
+            include: [{
+              model: OAuthProvider,
+              as: 'providers',
+              where: { provider: 'discord' },
+              required: false
+            }]
+          }],
+          transaction
+        }),
+        User.findOne({
           include: [{
             model: OAuthProvider,
             as: 'providers',
-            where: { provider: 'discord' },
-            required: false
-          }]
-        }],
-        transaction
-      });
+            where: { 
+              provider: 'discord',
+              providerId: discordId
+            }
+          }],
+          transaction
+        })
+      ]);
 
       if (!player) {
         await transaction.rollback();
         return res.status(404).json({error: 'Player not found'});
       }
 
-      const avatarUrl = profile.avatar ? `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png` : null;
+      // If another user already has this Discord ID, prevent the update
+      if (existingUserWithDiscord && (!player.user || existingUserWithDiscord.id !== player.user.id)) {
+        await transaction.rollback();
+        return res.status(409).json({
+          error: 'Discord account already linked',
+          details: 'This Discord account is already linked to another user'
+        });
+      }
 
-      // Update player's Discord info using data from the profile
+      const profile = {
+        id: discordId,
+        username,
+        avatar
+      };
+
+      // Only update avatar if it's "none" or null
+      const avatarUrl = profile.avatar === "none" ? null : profile.avatar;
+      
+      // Update player's Discord info
       await player.update({
         discordId: profile.id,
         discordUsername: profile.username,
-        discordAvatar: avatarUrl,
-        discordAvatarId: profile.avatar || null,
-        pfp: avatarUrl, // Update player's pfp
+        pfp: avatarUrl || player.pfp // Only update pfp if new avatar is available
       }, { transaction });
 
       // Handle OAuth provider update/creation if player has a user
       if (player.user) {
-        // Update user's avatarUrl
-        await player.user.update({
-          avatarUrl
-        }, { transaction });
+        // Update user's avatarUrl only if new avatar is available
+        if (avatarUrl) {
+          await player.user.update({
+            avatarUrl
+          }, { transaction });
+        }
 
         const discordProvider = player.user.providers?.[0];
         const providerData = {
           provider: 'discord',
           providerId: profile.id,
-          profile: profile // Store the complete Discord profile
+          profile: profile
         };
 
         if (discordProvider) {

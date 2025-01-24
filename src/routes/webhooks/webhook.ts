@@ -170,6 +170,12 @@ export async function passSubmissionHook(passSubmission: PassSubmission, sanitiz
 }
 
 
+function shouldAnnouncePass(pass: Pass): boolean {
+  return pass.level?.diffId !== 0 
+  && pass.level?.difficulty?.name !== "-2"
+  && pass.level?.difficulty?.name.startsWith("P") === false;
+}
+
 router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { passIds } = req.body;
@@ -227,8 +233,9 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
             as: 'judgements',
           }
         ],
-      });
+      }).then(passes => passes.filter(pass => shouldAnnouncePass(pass)));
 
+      console.log(JSON.stringify(passes, null, 2));
       // Group passes by their announcement config
       const universalPingPasses: Pass[] = [];
       const universalEveryonePasses: Pass[] = [];

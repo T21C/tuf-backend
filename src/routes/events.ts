@@ -19,7 +19,10 @@ const corsOptions = {
   credentials: true,
   methods: ['GET'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Range', 'Content-Type', 'Authorization'],
 };
+
+console.log("SSE corsOptions", corsOptions);
 
 // SSE endpoint
 router.get('/', cors(corsOptions), (req, res) => {
