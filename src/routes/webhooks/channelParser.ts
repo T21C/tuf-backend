@@ -82,7 +82,7 @@ function isNoMiss(pass: Pass): boolean {
 
 export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
   const difficulty = pass.level?.difficulty;
-  if (!difficulty || difficulty.name === "-2") {
+  if (!difficulty || difficulty.name === "-2" || difficulty.name === "0") {
     return { channels: [], pings: {} };
   }
 
@@ -100,14 +100,14 @@ export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
   // Add channels based on flags and determine their pings
   if (isWF) {
     config.channels.push('wf-clears');
-    if (diffName !== "P") {
+    if (diffType !== "P") {
       config.pings['wf-clears'] = '@wf ping';
     }
   }
 
   if (isPP) {
     config.channels.push('pp-clears');
-    if (diffName !== "P") {
+    if (diffType !== "P") {
       config.pings['pp-clears'] = '@pp ping';
     }
   }
