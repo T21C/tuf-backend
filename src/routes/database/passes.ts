@@ -1,5 +1,5 @@
 import {Request, Response, Router} from 'express';
-import {Op, OrderItem, WhereOptions} from 'sequelize';
+import {Op, OrderItem, Sequelize} from 'sequelize';
 import {escapeRegExp} from '../../misc/Utility';
 import Pass from '../../models/Pass';
 import Level from '../../models/Level';
@@ -10,7 +10,6 @@ import {getIO} from '../../utils/socket';
 import {calcAcc, IJudgements} from '../../misc/CalcAcc';
 import {getScoreV2} from '../../misc/CalcScore';
 import sequelize from '../../config/db';
-import {IPass as PassInterface} from '../../interfaces/models';
 import Difficulty from '../../models/Difficulty';
 import {Cache} from '../../middleware/cache';
 import { calculateRankedScore } from '../../misc/PlayerStatsCalculator';
@@ -61,22 +60,6 @@ export async function updateWorldsFirstStatus(levelId: number, transaction?: any
   }
 }
 
-type WhereClause = {
-  isDeleted?: boolean;
-  levelId?: number | { [Op.in]: number[] };
-  is12K?: boolean;
-  '$player.name$'?: {[Op.like]: string};
-  '$level.diffId$'?: {[Op.in]: number[]};
-  [Op.or]?: Array<{
-    '$player.name$'?: {[Op.like]: string};
-    '$level.song$'?: {[Op.like]: string};
-    '$level.artist$'?: {[Op.like]: string};
-    '$level.difficulty.name$'?: {[Op.like]: string};
-    levelId?: {[Op.like]: string};
-    id?: {[Op.like]: string};
-  }>;
-} & WhereOptions<PassInterface>;
-
 const difficultyNameToSortOrder: { [key: string]: number } = {
   'P1': 1, 'P2': 3, 'P3': 4, 'P4': 5, 'P5': 6,
   'P6': 7, 'P7': 8, 'P8': 9, 'P9': 10, 'P10': 11,
@@ -93,27 +76,19 @@ const difficultyNameToSortOrder: { [key: string]: number } = {
 };
 
 // Helper function to build where clause
-const buildWhereClause = async (query: {
-  deletedFilter?: string;
-  minDiff?: string;
-  maxDiff?: string;
-  only12k?: string | boolean;
-  levelId?: string;
-  player?: string;
-  query?: string;
-}): Promise<WhereClause> => {
-  const where: WhereClause = {};
+const buildWhereClause = async (query: any) => {
+  const where: any = {};
+  const conditions: any[] = [];
 
   // Handle deleted filter
   if (query.deletedFilter === 'hide') {
-    where.isDeleted = false;
+    conditions.push({ isDeleted: false });
   } else if (query.deletedFilter === 'only') {
-    where.isDeleted = true;
+    conditions.push({ isDeleted: true });
   }
 
   // Update difficulty range filter
   if (query.minDiff || query.maxDiff) {
-    // Find difficulties by name and get their sortOrder values
     const [minDiff, maxDiff] = await Promise.all([
       query.minDiff ? Difficulty.findOne({
         where: { name: query.minDiff, type: 'PGU' },
@@ -138,42 +113,81 @@ const buildWhereClause = async (query: {
       });
       
       if (pguDifficulties.length > 0) {
-        where['$level.difficulty.id$'] = pguDifficulties.map(d => d.id);
+        conditions.push({
+          '$level.diffId$': {
+            [Op.in]: pguDifficulties.map(d => d.id)
+          }
+        });
       }
     }
   }
 
-  // Add 12k filter
-  if (query.only12k === 'true' || query.only12k === true) {
-    where.is12K = true;
-  } else {
-    where.is12K = false;
+  // Add key flag filter
+  if (query.keyFlag) {
+    switch (query.keyFlag) {
+      case '12k':
+        conditions.push({ is12K: true, is16K: false });
+        break;
+      case '16k':
+        conditions.push({ is16K: true });
+        break;
+      case 'all':
+      default:
+        // Don't add any conditions - allow all flags
+        break;
+    }
   }
 
   // Level ID filter
   if (query.levelId) {
-    where.levelId = Number(query.levelId);
+    conditions.push({ levelId: Number(query.levelId) });
   }
 
   // Player name filter
   if (query.player) {
-    const playerSearch = createSearchCondition('$player.name$', query.player);
-    Object.assign(where, playerSearch);
+    conditions.push(
+      sequelize.where(
+        sequelize.fn('LOWER', sequelize.col('player.name')),
+        Op.like,
+        sequelize.fn('LOWER', `%${escapeRegExp(query.player)}%`)
+      )
+    );
   }
 
   // General search
   if (query.query) {
-    const searchTerm = query.query.toString();
-    const multiSearch = createMultiFieldSearchCondition([
-      '$player.name$',
-      '$level.song$',
-      '$level.artist$',
-      '$level.difficulty.name$',
-      'levelId',
-      'id'
-    ], searchTerm);
-    
-    where[Op.or] = multiSearch.conditions;
+    const searchTerm = escapeRegExp(query.query.toString());
+    conditions.push({
+      [Op.or]: [
+        sequelize.where(
+          sequelize.fn('LOWER', sequelize.col('player.name')),
+          Op.like,
+          sequelize.fn('LOWER', `%${searchTerm}%`)
+        ),
+        sequelize.where(
+          sequelize.fn('LOWER', sequelize.col('level.song')),
+          Op.like,
+          sequelize.fn('LOWER', `%${searchTerm}%`)
+        ),
+        sequelize.where(
+          sequelize.fn('LOWER', sequelize.col('level.artist')),
+          Op.like,
+          sequelize.fn('LOWER', `%${searchTerm}%`)
+        ),
+        sequelize.where(
+          sequelize.fn('LOWER', sequelize.col('level.difficulty.name')),
+          Op.like,
+          sequelize.fn('LOWER', `%${searchTerm}%`)
+        ),
+        {levelId: {[Op.eq]: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm)}},
+        {id: {[Op.eq]: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm)}}
+      ]
+    });
+  }
+
+  // Combine all conditions
+  if (conditions.length > 0) {
+    where[Op.and] = conditions;
   }
 
   return where;
@@ -268,12 +282,11 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const routeStart = performance.now();
     const {
       deletedFilter,
       minDiff,
       maxDiff,
-      only12k,
+      keyFlag,
       levelId,
       player,
       query: searchQuery,
@@ -282,94 +295,15 @@ router.post('/', async (req: Request, res: Response) => {
       sort
     } = req.body;
 
-    // Step 1: Get matching difficulty IDs if difficulty filter is applied
-    let matchingLevelIds: number[] | undefined;
-    if (minDiff || maxDiff) {
-      const [minDiffObj, maxDiffObj] = await Promise.all([
-        minDiff ? Difficulty.findOne({
-          where: { name: minDiff, type: 'PGU' },
-          attributes: ['id', 'sortOrder']
-        }) : null,
-        maxDiff ? Difficulty.findOne({
-          where: { name: maxDiff, type: 'PGU' },
-          attributes: ['id', 'sortOrder']
-        }) : null
-      ]);
-
-      if (minDiffObj || maxDiffObj) {
-        const pguDifficulties = await Difficulty.findAll({
-          where: {
-            type: 'PGU',
-            sortOrder: {
-              ...(minDiffObj && { [Op.gte]: minDiffObj.sortOrder }),
-              ...(maxDiffObj && { [Op.lte]: maxDiffObj.sortOrder })
-            }
-          },
-          attributes: ['id']
-        });
-
-        if (pguDifficulties.length > 0) {
-          const levels = await Level.findAll({
-            where: {
-              diffId: {
-                [Op.in]: pguDifficulties.map(d => d.id)
-              }
-            },
-            attributes: ['id']
-          });
-          matchingLevelIds = levels.map(l => l.id);
-        }
-      }
-    }
-
-    // Build base where clause
-    const where: WhereClause = {};
-
-    // Handle deleted filter
-    if (deletedFilter === 'hide') {
-      where.isDeleted = false;
-    } else if (deletedFilter === 'only') {
-      where.isDeleted = true;
-    }
-
-    // Add 12k filter
-    if (only12k === 'true' || only12k === true) {
-      where.is12K = true;
-    } else {
-      where.is12K = false;
-    }
-
-    // Add level ID filter from difficulty matching
-    if (matchingLevelIds) {
-      where.levelId = {
-        [Op.in]: matchingLevelIds
-      };
-    }
-
-    // Add specific level ID filter if provided
-    if (levelId) {
-      where.levelId = Number(levelId);
-    }
-
-    // Add player name filter
-    if (player) {
-      const playerSearch = createSearchCondition('$player.name$', player);
-      Object.assign(where, playerSearch);
-    }
-
-    // Add general search
-    if (searchQuery) {
-      const multiSearch = createMultiFieldSearchCondition([
-        '$player.name$',
-        '$level.song$',
-        '$level.artist$',
-        '$level.difficulty.name$',
-        'levelId',
-        'id'
-      ], searchQuery);
-      
-      where[Op.or] = multiSearch.conditions;
-    }
+    const where = await buildWhereClause({
+      deletedFilter,
+      minDiff,
+      maxDiff,
+      keyFlag,
+      levelId,
+      player,
+      query: searchQuery
+    });
 
     const order = getSortOptions(sort);
     // First get all IDs in correct order
@@ -406,7 +340,6 @@ router.post('/', async (req: Request, res: Response) => {
 
     const results = await Pass.findAll({
       where: {
-        ...where,
         id: {
           [Op.in]: paginatedIds,
         },
@@ -437,7 +370,6 @@ router.post('/', async (req: Request, res: Response) => {
       ],
       order,
     });
-
 
     return res.json({
       count: allIds.length,
@@ -1020,7 +952,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
       deletedFilter,
       minDiff,
       maxDiff,
-      only12k,
+      keyFlag,
       levelId,
       player,
       query: searchQuery,
@@ -1029,96 +961,15 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
       sort
     } = req.query;
 
-    // Step 1: Get matching difficulty IDs if difficulty filter is applied
-    let matchingLevelIds: number[] | undefined;
-    const minDiffStr = ensureString(minDiff);
-    const maxDiffStr = ensureString(maxDiff);
-
-    if (minDiffStr || maxDiffStr) {
-      const [minDiffObj, maxDiffObj] = await Promise.all([
-        minDiffStr ? Difficulty.findOne({
-          where: { name: minDiffStr, type: 'PGU' },
-          attributes: ['id', 'sortOrder']
-        }) : null,
-        maxDiffStr ? Difficulty.findOne({
-          where: { name: maxDiffStr, type: 'PGU' },
-          attributes: ['id', 'sortOrder']
-        }) : null
-      ]);
-
-      if (minDiffObj || maxDiffObj) {
-        const pguDifficulties = await Difficulty.findAll({
-          where: {
-            type: 'PGU',
-            sortOrder: {
-              ...(minDiffObj && { [Op.gte]: minDiffObj.sortOrder }),
-              ...(maxDiffObj && { [Op.lte]: maxDiffObj.sortOrder })
-            }
-          },
-          attributes: ['id']
-        });
-
-        if (pguDifficulties.length > 0) {
-          const levels = await Level.findAll({
-            where: {
-              diffId: {
-                [Op.in]: pguDifficulties.map(d => d.id)
-              }
-            },
-            attributes: ['id']
-          });
-          matchingLevelIds = levels.map(l => l.id);
-        }
-      }
-    }
-
-    // Build base where clause
-    const where: WhereClause = {};
-
-    // Handle deleted filter
-    const deletedFilterStr = ensureString(deletedFilter);
-    if (deletedFilterStr === 'hide') {
-      where.isDeleted = false;
-    } else if (deletedFilterStr === 'only') {
-      where.isDeleted = true;
-    }
-
-    // Add 12k filter
-    const only12kStr = ensureString(only12k);
-    where.is12K = only12kStr === 'true';
-
-    // Add level ID filter from difficulty matching
-    if (matchingLevelIds) {
-      where.levelId = {
-        [Op.in]: matchingLevelIds
-      };
-    }
-
-    // Add specific level ID filter if provided
-    const levelIdStr = ensureString(levelId);
-    if (levelIdStr) {
-      where.levelId = Number(levelIdStr);
-    }
-
-    // Add player name filter
-    const playerStr = ensureString(player);
-    if (playerStr) {
-      where['$player.name$'] = {[Op.like]: `%${escapeRegExp(playerStr)}%`};
-    }
-
-    // Add general search
-    const searchQueryStr = ensureString(searchQuery);
-    if (searchQueryStr) {
-      const searchTerm = escapeRegExp(searchQueryStr);
-      where[Op.or] = [
-        {'$player.name$': {[Op.like]: `%${searchTerm}%`}},
-        {'$level.song$': {[Op.like]: `%${searchTerm}%`}},
-        {'$level.artist$': {[Op.like]: `%${searchTerm}%`}},
-        {'$level.difficulty.name$': {[Op.like]: `%${searchTerm}%`}},
-        {levelId: {[Op.like]: `%${searchTerm}%`}},
-        {id: {[Op.like]: `%${searchTerm}%`}},
-      ];
-    }
+    const where = await buildWhereClause({
+      deletedFilter: ensureString(deletedFilter),
+      minDiff: ensureString(minDiff),
+      maxDiff: ensureString(maxDiff),
+      keyFlag: ensureString(keyFlag),
+      levelId: ensureString(levelId),
+      player: ensureString(player),
+      query: ensureString(searchQuery)
+    });
 
     const order = getSortOptions(ensureString(sort));
     // First get all IDs in correct order
