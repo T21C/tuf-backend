@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { OAuthController } from '../../controllers/oauth';
 import { Auth } from '../../middleware/auth';
+import {Cache} from '../../middleware/cache';
 
 const router: Router = Router();
 
 // OAuth callback
-router.post('/callback/:provider', OAuthController.handleCallback);
+router.post('/callback/:provider', Cache.leaderboard(), OAuthController.handleCallback);
 
 // Get OAuth profile
 router.get('/me', Auth.user(), OAuthController.getProfile);

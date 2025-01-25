@@ -9,6 +9,10 @@ import { type RESTPostOAuth2AccessTokenResult, type RESTGetAPIUserResult } from 
 import dotenv from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import { raterList, SUPER_ADMINS } from '../config/constants';
+import { PlayerStatsService } from '../services/PlayerStatsService';
+import { LeaderboardCache } from '../middleware/cache';
+
+const playerStatsService = PlayerStatsService.getInstance();
 
 interface ProfileResponse {
   user: {
@@ -268,7 +272,7 @@ export const OAuthController = {
       // Generate JWT
       const token = tokenUtils.generateJWT(user);
 
-      return res.json({
+      res.json({
         user: {
           id: user.id,
           username: user.username,
@@ -281,6 +285,14 @@ export const OAuthController = {
         isNew: true,
         token
       });
+      
+      if (!req.leaderboardCache) {
+        throw new Error('LeaderboardCache not initialized');
+      }
+      req.leaderboardCache.forceUpdate();
+      playerStatsService.updatePlayerStats(player.id);
+
+      return
     } catch (error) {
       //console.error('OAuth callback error:', error);
       return res.status(500).json({ message: 'Authentication failed' });
