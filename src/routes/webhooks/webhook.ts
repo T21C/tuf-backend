@@ -234,8 +234,6 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
           }
         ],
       }).then(passes => passes.filter(pass => shouldAnnouncePass(pass)));
-
-      console.log(JSON.stringify(passes, null, 2));
       // Group passes by their announcement config
       const universalPingPasses: Pass[] = [];
       const universalEveryonePasses: Pass[] = [];
