@@ -19,6 +19,18 @@ import { excludePlaceholder } from '../../middleware/excludePlaceholder';
 import {PlayerStatsService} from '../../services/PlayerStatsService';
 import { createMultiFieldSearchCondition, createSearchCondition } from '../../utils/searchHelpers';
 
+// Search query types and interfaces
+interface FieldSearch {
+  field: string;
+  value: string;
+  exact: boolean;
+}
+
+interface SearchGroup {
+  terms: FieldSearch[];
+  operation: 'AND' | 'OR';
+}
+
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -75,114 +87,139 @@ const difficultyNameToSortOrder: { [key: string]: number } = {
   'U16': 21.39, 'U17': 21.4, 'U18': 21.44, 'U19': 21.45, 'U20': 21.49
 };
 
-// Helper function to build where clause
+// Helper function to parse field-specific searches (e.g., "video:Example")
+const parseFieldSearch = (term: string): FieldSearch | null => {
+  // Trim the term here when parsing
+  const trimmedTerm = term.trim();
+  if (!trimmedTerm) return null;
+
+  // Check for exact match with equals sign
+  const exactMatch = trimmedTerm.match(/^(video|player)=(.+)$/i);
+  if (exactMatch) {
+    return {
+      field: exactMatch[1].toLowerCase(),
+      value: exactMatch[2].trim(),
+      exact: true
+    };
+  }
+
+  // Check for partial match with colon
+  const partialMatch = trimmedTerm.match(/^(video|player):(.+)$/i);
+  if (partialMatch) {
+    return {
+      field: partialMatch[1].toLowerCase(),
+      value: partialMatch[2].trim(),
+      exact: false
+    };
+  }
+
+  return null;
+};
+
+// Helper function to parse the entire search query
+const parseSearchQuery = (query: string): SearchGroup[] => {
+  if (!query) return [];
+  
+  // Split by | for OR groups and handle trimming here
+  const groups = query.split('|').map(group => {
+    // Split by comma for AND terms within each group
+    const terms = group.split(',')
+      .map(term => term.trim())
+      .filter(term => term.length > 0)
+      .map(term => {
+        const fieldSearch = parseFieldSearch(term);
+        if (fieldSearch) {
+          return fieldSearch;
+        }
+        return {
+          field: 'any',
+          value: term.trim(),
+          exact: false
+        };
+      });
+
+    return {
+      terms,
+      operation: 'AND' as const
+    };
+  }).filter(group => group.terms.length > 0); // Remove empty groups
+
+  return groups;
+};
+
+// Helper function to build field-specific search condition
+const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any> => {
+  const { field, value, exact } = fieldSearch;
+  
+  // Handle special characters in the search value
+  const searchValue = exact ? 
+    value : 
+    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+
+  // Create the base search condition
+  const searchCondition = { [exact ? Op.eq : Op.like]: searchValue };
+
+  // For field-specific searches
+  if (field === 'video') {
+    return { videoLink: searchCondition };
+  }
+  
+  if (field === 'player') {
+    return sequelize.where(
+      sequelize.fn('LOWER', sequelize.col('player.name')),
+      exact ? Op.eq : Op.like,
+      sequelize.fn('LOWER', searchValue)
+    );
+  }
+
+  // For general searches (field === 'any')
+  return {
+    [Op.or]: [
+      sequelize.where(
+        sequelize.fn('LOWER', sequelize.col('player.name')),
+        Op.like,
+        sequelize.fn('LOWER', `%${value}%`)
+      ),
+      { videoLink: { [Op.like]: `%${value}%` } }
+    ]
+  };
+};
+
+// Build where clause
 const buildWhereClause = async (query: any) => {
   const where: any = {};
   const conditions: any[] = [];
 
   // Handle deleted filter
   if (query.deletedFilter === 'hide') {
-    conditions.push({ isDeleted: false });
+    conditions.push({isDeleted: false});
   } else if (query.deletedFilter === 'only') {
-    conditions.push({ isDeleted: true });
+    conditions.push({isDeleted: true});
   }
 
-  // Update difficulty range filter
-  if (query.minDiff || query.maxDiff) {
-    const [minDiff, maxDiff] = await Promise.all([
-      query.minDiff ? Difficulty.findOne({
-        where: { name: query.minDiff, type: 'PGU' },
-        attributes: ['id', 'sortOrder']
-      }) : null,
-      query.maxDiff ? Difficulty.findOne({
-        where: { name: query.maxDiff, type: 'PGU' },
-        attributes: ['id', 'sortOrder']
-      }) : null
-    ]);
-
-    if (minDiff || maxDiff) {
-      const pguDifficulties = await Difficulty.findAll({
-        where: {
-          type: 'PGU',
-          sortOrder: {
-            ...(minDiff && { [Op.gte]: minDiff.sortOrder }),
-            ...(maxDiff && { [Op.lte]: maxDiff.sortOrder })
-          }
-        },
-        attributes: ['id']
-      });
-      
-      if (pguDifficulties.length > 0) {
-        conditions.push({
-          '$level.diffId$': {
-            [Op.in]: pguDifficulties.map(d => d.id)
-          }
-        });
-      }
-    }
-  }
-
-  // Add key flag filter
-  if (query.keyFlag) {
-    switch (query.keyFlag) {
-      case '12k':
-        conditions.push({ is12K: true, is16K: false });
-        break;
-      case '16k':
-        conditions.push({ is16K: true });
-        break;
-      case 'all':
-      default:
-        // Don't add any conditions - allow all flags
-        break;
-    }
-  }
-
-  // Level ID filter
-  if (query.levelId) {
-    conditions.push({ levelId: Number(query.levelId) });
-  }
-
-  // Player name filter
-  if (query.player) {
-    conditions.push(
-      sequelize.where(
-        sequelize.fn('LOWER', sequelize.col('player.name')),
-        Op.like,
-        sequelize.fn('LOWER', `%${escapeRegExp(query.player)}%`)
-      )
-    );
-  }
-
-  // General search
+  // Handle text search with new parsing
   if (query.query) {
-    const searchTerm = escapeRegExp(query.query.toString());
-    conditions.push({
-      [Op.or]: [
-        sequelize.where(
-          sequelize.fn('LOWER', sequelize.col('player.name')),
-          Op.like,
-          sequelize.fn('LOWER', `%${searchTerm}%`)
-        ),
-        sequelize.where(
-          sequelize.fn('LOWER', sequelize.col('level.song')),
-          Op.like,
-          sequelize.fn('LOWER', `%${searchTerm}%`)
-        ),
-        sequelize.where(
-          sequelize.fn('LOWER', sequelize.col('level.artist')),
-          Op.like,
-          sequelize.fn('LOWER', `%${searchTerm}%`)
-        ),
-        sequelize.where(
-          sequelize.fn('LOWER', sequelize.col('level.difficulty.name')),
-          Op.like,
-          sequelize.fn('LOWER', `%${searchTerm}%`)
-        ),
-        {levelId: {[Op.eq]: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm)}},
-        {id: {[Op.eq]: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm)}}
-      ]
-    });
+    const searchGroups = parseSearchQuery(query.query.trim());
+    
+    if (searchGroups.length > 0) {
+      const orConditions = await Promise.all(
+        searchGroups.map(async group => {
+          const andConditions = await Promise.all(
+            group.terms.map(term => buildFieldSearchCondition(term))
+          );
+          
+          return andConditions.length === 1 
+            ? andConditions[0] 
+            : { [Op.and]: andConditions };
+        })
+      );
+
+      conditions.push(
+        orConditions.length === 1 
+          ? orConditions[0] 
+          : { [Op.or]: orConditions }
+      );
+    }
   }
 
   // Combine all conditions

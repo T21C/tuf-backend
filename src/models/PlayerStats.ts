@@ -21,6 +21,8 @@ class PlayerStats extends Model {
   declare lastUpdated: Date;
   declare createdAt: Date;
   declare updatedAt: Date;
+  declare topDiff: number;
+  declare top12kDiff: number;
 
   // Virtual fields from associations
   declare player?: Player;
@@ -41,6 +43,16 @@ PlayerStats.init(
         model: 'players',
         key: 'id',
       },
+    },
+    topDiff: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    top12kDiff: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     rankedScore: {
       type: DataTypes.FLOAT,

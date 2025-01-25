@@ -21,6 +21,8 @@ import {getIO} from '../utils/socket';
 import {sseManager} from '../utils/sse';
 import User from '../models/User';
 import Judgement from '../models/Judgement';
+import { calcAcc } from '../misc/CalcAcc';
+import { getScoreV2 } from '../misc/CalcScore';
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
@@ -145,13 +147,15 @@ export class PlayerStatsService {
         transaction,
       });
 
-
       // Prepare bulk update data
       const bulkStats = players.map(player => {
-
         // Convert passes to scores and get highest score per level
         const scores = this.convertPassesToScores(player.passes || []);
         const uniqueScores = this.getHighestScorePerLevel(scores);
+        
+        // Calculate top difficulties
+        const { topDiff, top12kDiff } = this.calculateTopDiffs(player.passes || []);
+
         return {
           playerId: player.id,
           rankedScore: calculateRankedScore(uniqueScores),
@@ -162,6 +166,8 @@ export class PlayerStatsService {
           averageXacc: calculateAverageXacc(uniqueScores),
           universalPassCount: countUniversalPasses(player.passes || []),
           worldsFirstCount: countWorldsFirstPasses(player.passes || []),
+          topDiff,
+          top12kDiff,
           lastUpdated: new Date(),
         };
       });
@@ -177,6 +183,8 @@ export class PlayerStatsService {
           'averageXacc',
           'universalPassCount',
           'worldsFirstCount',
+          'topDiff',
+          'top12kDiff',
           'lastUpdated',
         ],
         transaction,
@@ -258,6 +266,44 @@ export class PlayerStatsService {
       }));
   }
 
+  private calculateTopDiffs(passes: Pass[] | IPass[]): { topDiff: number, top12kDiff: number } {
+    // Filter out deleted passes and those with difficulty ID >= 100
+    const validPasses = passes.filter(pass => 
+      !pass.isDeleted && 
+      pass.level?.difficulty?.id !== undefined &&
+      pass.level.difficulty.id < 100
+    );
+
+    if (validPasses.length === 0) {
+      return { topDiff: 0, top12kDiff: 0 };
+    }
+
+    // Sort passes by difficulty sortOrder in descending order
+    const sortedPasses = validPasses.sort((a, b) => {
+      const diffA = a.level?.difficulty?.sortOrder || 0;
+      const diffB = b.level?.difficulty?.sortOrder || 0;
+      return diffB - diffA;
+    });
+
+    // Get highest difficulty ID for regular passes
+    const topDiff = sortedPasses[0]?.level?.difficulty?.id ?? 0;
+
+    // Get highest difficulty ID for 12k passes
+    const valid12kPasses = validPasses.filter(pass => 
+      pass.is12K && !pass.is16K
+    );
+
+    const top12kDiff = valid12kPasses.length > 0 
+      ? valid12kPasses.sort((a, b) => {
+          const diffA = a.level?.difficulty?.sortOrder || 0;
+          const diffB = b.level?.difficulty?.sortOrder || 0;
+          return diffB - diffA;
+        })[0]?.level?.difficulty?.id ?? 0
+      : 0;
+
+    return { topDiff, top12kDiff };
+  }
+
   public async updatePlayerStats(playerId: number, existingTransaction?: any): Promise<void> {
     const transaction = existingTransaction || await sequelize.transaction();
     const shouldCommit = !existingTransaction;
@@ -293,6 +339,9 @@ export class PlayerStatsService {
       const scores = this.convertPassesToScores(player.passes);
       const uniqueScores = this.getHighestScorePerLevel(scores);
 
+      // Calculate top difficulties
+      const { topDiff, top12kDiff } = this.calculateTopDiffs(player.passes);
+
       // Calculate all scores using the filtered scores
       const stats = {
         playerId,
@@ -304,9 +353,10 @@ export class PlayerStatsService {
         averageXacc: calculateAverageXacc(uniqueScores),
         universalPassCount: countUniversalPasses(player.passes),
         worldsFirstCount: countWorldsFirstPasses(player.passes),
+        topDiff,
+        top12kDiff,
         lastUpdated: new Date(),
       };
-
 
       // Update or create player stats
       await PlayerStats.upsert(stats, {transaction});
@@ -432,129 +482,99 @@ export class PlayerStatsService {
     sortBy: string = 'rankedScore',
     order: 'asc' | 'desc' = 'desc',
     showBanned: 'show' | 'hide' | 'only' = 'show',
+    playerId?: number
   ): Promise<PlayerStats[]> {
-    const whereClause: any = {};
-    if (showBanned !== 'show') {
-      whereClause['$player.isBanned$'] = showBanned === 'only';
-    }
+    try {
+      const whereClause: any = {};
+      if (showBanned === 'hide') {
+        whereClause['$player.isBanned$'] = false;
+      } else if (showBanned === 'only') {
+        whereClause['$player.isBanned$'] = true;
+      }
 
-    // Map frontend sort fields to database fields
-    const sortFieldMap: { [key: string]: any } = {
-      'rankedScore': 'rankedScore',
-      'generalScore': 'generalScore',
-      'ppScore': 'ppScore',
-      'wfScore': 'wfScore',
-      'score12K': 'score12K',
-      'averageXacc': 'averageXacc',
-      'totalPasses': sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = PlayerStats.playerId AND passes.isDeleted = false)'),
-      'universalPasses': 'universalPassCount',
-      'worldsFirstCount': 'worldsFirstCount',
-      'topDiff': sequelize.literal(`(
-        SELECT difficulties.sortOrder 
-        FROM passes 
-        JOIN levels ON levels.id = passes.levelId 
-        JOIN difficulties ON difficulties.id = levels.diffId 
-        WHERE passes.playerId = PlayerStats.playerId 
-        AND passes.isDeleted = false 
-        ORDER BY difficulties.sortOrder DESC 
-        LIMIT 1
-      )`),
-      'top12kDiff': sequelize.literal(`(
-        SELECT difficulties.sortOrder 
-        FROM passes 
-        JOIN levels ON levels.id = passes.levelId 
-        JOIN difficulties ON difficulties.id = levels.diffId 
-        WHERE passes.playerId = PlayerStats.playerId 
-        AND passes.isDeleted = false 
-        AND passes.is12K = true 
-        ORDER BY difficulties.sortOrder DESC 
-        LIMIT 1
-      )`),
-    };
+      // Add player ID filter if provided
+      if (playerId) {
+        whereClause['$player.id$'] = playerId;
+      }
 
-    // First get all players ordered by rankedScore for rank calculation
-    const rankedPlayers = await PlayerStats.findAll({
-      attributes: {
-        include: [
-          [sortFieldMap['totalPasses'], 'totalPasses'],
-          [sortFieldMap['topDiff'], 'topDiff'],
-          [sortFieldMap['top12kDiff'], 'top12kDiff'],
-        ],
-      },
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned', 'pfp'],
-          required: true,
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['avatarUrl'],
-              required: false,
-            },
-          ],
+      // Map frontend sort fields to database fields and their corresponding rank fields
+      const sortFieldMap: { [key: string]: { field: any, rankField: string | null } } = {
+        'rankedScore': { field: 'rankedScore', rankField: 'rankedScoreRank' },
+        'generalScore': { field: 'generalScore', rankField: 'generalScoreRank' },
+        'ppScore': { field: 'ppScore', rankField: 'ppScoreRank' },
+        'wfScore': { field: 'wfScore', rankField: 'wfScoreRank' },
+        'score12K': { field: 'score12K', rankField: 'score12KRank' },
+        'averageXacc': { field: 'averageXacc', rankField: null },
+        'totalPasses': { 
+          field: sequelize.literal('(SELECT COUNT(*) FROM passes WHERE passes.playerId = player.id AND passes.isDeleted = false)'),
+          rankField: null
         },
-      ],
-      where: whereClause,
-      order: [['rankedScore', 'DESC']],
-    });
-
-    // Create a map of player ID to rank
-    const rankMap = new Map(rankedPlayers.map((playerStat, index) => {
-      const player = playerStat.get({ plain: true });
-      return [player.player.id, index + 1];
-    }));
-
-    // Get the actual leaderboard with the requested sorting
-    const orderField = sortFieldMap[sortBy] || 'rankedScore';
-    const orderItem: [any, string] = [
-      typeof orderField === 'string' ? orderField : sequelize.literal(orderField),
-      order.toUpperCase()
-    ];
-
-    const leaderboard = await PlayerStats.findAll({
-      attributes: {
-        include: [
-          [sortFieldMap['totalPasses'], 'totalPasses'],
-          [sortFieldMap['topDiff'], 'topDiff'],
-          [sortFieldMap['top12kDiff'], 'top12kDiff'],
-        ],
-      },
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned', 'pfp'],
-          required: true,
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['avatarUrl'],
-              required: false,
-            },
-          ],
+        'universalPasses': { field: 'universalPassCount', rankField: null },
+        'worldsFirstCount': { field: 'worldsFirstCount', rankField: null },
+        'topDiff': { 
+          field: sequelize.literal('(SELECT difficulties.sortOrder FROM difficulties INNER JOIN levels ON levels.diffId = difficulties.id INNER JOIN passes ON passes.levelId = levels.id WHERE passes.playerId = player.id AND passes.isDeleted = false AND difficulties.id < 100 ORDER BY difficulties.sortOrder DESC LIMIT 1)'),
+          rankField: null
         },
-      ],
-      where: whereClause,
-      order: [orderItem],
-    });
-
-    // Add rank and rename fields to match frontend expectations
-    return leaderboard.map(player => {
-      const plainPlayer = player.get({ plain: true });
-      return {
-        ...plainPlayer,
-        id: plainPlayer.player.id,
-        rank: rankMap.get(plainPlayer.player.id),
-        player: {
-          ...plainPlayer.player,
-          pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null,
-        },
+        'top12kDiff': { 
+          field: sequelize.literal('(SELECT difficulties.sortOrder FROM difficulties INNER JOIN levels ON levels.diffId = difficulties.id INNER JOIN passes ON passes.levelId = levels.id WHERE passes.playerId = player.id AND passes.isDeleted = false AND passes.is12K = true AND difficulties.id < 100 ORDER BY difficulties.sortOrder DESC LIMIT 1)'),
+          rankField: null
+        }
       };
-    });
+
+      const sortInfo = sortFieldMap[sortBy] || sortFieldMap['rankedScore'];
+      const orderField = sortInfo.field;
+      const orderItem: [any, string] = [
+        orderField,
+        order.toUpperCase()
+      ];
+
+      // Single efficient query with all needed data
+      const players = await PlayerStats.findAll({
+        attributes: {
+          include: [
+            [sortFieldMap['totalPasses'].field, 'totalPasses'],
+            [sortFieldMap['topDiff'].field, 'topDiff'],
+            [sortFieldMap['top12kDiff'].field, 'top12kDiff'],
+          ],
+        },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned', 'pfp'],
+            required: true,
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['avatarUrl'],
+                required: false,
+              },
+            ],
+          },
+        ],
+        where: whereClause,
+        order: [orderItem],
+      });
+
+      // Map the results using either stored ranks or calculated ranks
+      return players.map(player => {
+        const plainPlayer = player.get({ plain: true });
+        return {
+          ...plainPlayer,
+          id: plainPlayer.player.id,
+          // Always use rankedScoreRank for consistency
+          rank: plainPlayer.rankedScoreRank,
+          player: {
+            ...plainPlayer.player,
+            pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null,
+          },
+        };
+      });
+    } catch (error) {
+      console.error('Error in getLeaderboard:', error);
+      throw error;
+    }
   }
 
   public async getPassDetails(passId: number): Promise<any> {
