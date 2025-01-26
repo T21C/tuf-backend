@@ -276,6 +276,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
           is12K: submission.flags?.is12K || false,
           is16K: submission.flags?.is16K || false,
           isNoHoldTap: submission.flags?.isNoHoldTap || false,
+          feelingRating: submission.feelingDifficulty || null,
           accuracy: calcAcc(submission.judgements || {
             earlyDouble: 0,
             earlySingle: 0,
