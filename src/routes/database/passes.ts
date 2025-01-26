@@ -197,6 +197,19 @@ const buildWhereClause = async (query: any) => {
     conditions.push({isDeleted: true});
   }
 
+  // Handle key flag filter
+  if (query.keyFlag) {
+    switch (query.keyFlag) {
+      case '12k':
+        conditions.push({ is12K: true });
+        break;
+      case '16k':
+        conditions.push({ is16K: true });
+        break;
+      // 'all' case doesn't need a condition as it means no filtering
+    }
+  }
+
   // Handle text search with new parsing
   if (query.query) {
     const searchGroups = parseSearchQuery(query.query.trim());
