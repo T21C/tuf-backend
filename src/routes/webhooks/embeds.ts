@@ -147,7 +147,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
   const embed = new MessageBuilder()
       .setColor(level?.difficulty?.color || '#000000')
       .setAuthor(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`, '', `${clientUrlEnv}/levels/${level.id}`)
-    .setTitle(`ID: #${level.id}`)
+    .setTitle(`ID: ${level.id}`)
     .setThumbnail(level.difficulty?.icon || placeHolder)
     .addField("", "", false)
     .addField('Rerate', `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`, true)
@@ -167,7 +167,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
 
     embed.addField('', `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`, false)
     .setFooter(
-      `ID: #${level.id}`, 
+      `ID: ${level.id}`, 
       ''
     )
     //.setImage(videoInfo?.image || "")
@@ -191,7 +191,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
     const embed = new MessageBuilder()
         .setColor(level.difficulty?.color || '#000000')
         .setAuthor(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`, '', `${clientUrlEnv}/levels/${level.id}`)
-      .setTitle(`ID: #${level.id}`)
+      .setTitle(`ID: ${level.id}`)
       .setThumbnail(level.difficulty?.icon || placeHolder)
       .addField("", "", false)
       .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo)}**`, true)
@@ -209,7 +209,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       
       embed.addField('', `**${level.videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${level.videoLink})` : 'No video link'}**`, false)
       .setFooter(
-        `ID: #${level.id}`, 
+        `ID: ${level.id}`, 
         ''
       )
       //.setImage(videoInfo?.image || "")
@@ -298,7 +298,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       )*/
       .setImage(videoInfo?.image || "")
       .setFooter(
-        `${team || credit} | ID: #${level?.id}`, 
+        `${team || credit} | ID: ${level?.id}`, 
         ''
       )
       .setTimestamp();
