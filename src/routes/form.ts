@@ -108,12 +108,19 @@ router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => 
         ],
       });
       if (!level) return res.status(404).json({error: 'Level not found'});
+      if (!level.difficulty) return res.status(404).json({error: 'Difficulty not found'});
+
+      // Create properly structured level data for score calculation
+      const levelData = {
+        baseScore: level.baseScore,
+        difficulty: level.difficulty
+      };
 
       const score = getScoreV2({
         speed: parseFloat(req.body.speed || '1'),
         judgements: sanitizedJudgements,
         isNoHoldTap: req.body.isNoHoldTap === 'true',
-      }, level.dataValues);
+      }, levelData);
       
       const accuracy = calcAcc(sanitizedJudgements);
       // Create the pass submission

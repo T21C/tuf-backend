@@ -547,7 +547,7 @@ export class PlayerStatsService {
               {
                 model: User,
                 as: 'user',
-                attributes: ['avatarUrl'],
+                attributes: ['avatarUrl', 'username'],
                 required: false,
               },
             ],

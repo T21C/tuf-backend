@@ -480,10 +480,21 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              attributes: ['baseScore'],
+            },
+          ],
         },
         {
           model: Player,
           as: 'player',
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
         },
       ],
       transaction,
@@ -493,22 +504,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       await transaction.rollback();
       return res.status(404).json({error: 'Pass not found'});
     }
-
-    // Update pass fields
-    await pass.update({
-      vidUploadTime: vidUploadTime || pass.vidUploadTime,
-      speed: speed || pass.speed,
-      feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
-      vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
-      videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
-      is12K: is12K !== undefined ? is12K : pass.is12K,
-      is16K: is16K !== undefined ? is16K : pass.is16K,
-      isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
-      isWorldsFirst: isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
-      accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
-      scoreV2: scoreV2!== undefined ? scoreV2 : pass.scoreV2,
-      isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
-    }, {transaction});
 
     // Update judgements if provided
     if (judgements) {
@@ -524,6 +519,77 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         where: {id: parseInt(id)},
         transaction,
       });
+
+      // Recalculate accuracy and score
+      const updatedJudgements: IJudgements = {
+        earlyDouble: judgements.earlyDouble,
+        earlySingle: judgements.earlySingle,
+        ePerfect: judgements.ePerfect,
+        perfect: judgements.perfect,
+        lPerfect: judgements.lPerfect,
+        lateSingle: judgements.lateSingle,
+        lateDouble: judgements.lateDouble,
+      };
+
+      const calculatedAccuracy = calcAcc(updatedJudgements);
+      
+      // Create pass data for score calculation with proper type handling
+      const passData = {
+        speed: pass.speed || 1.0, // Default to 1.0 if null
+        judgements: updatedJudgements,
+        isNoHoldTap: pass.isNoHoldTap || false // Default to false if null
+      } as const;
+
+      // Check if level exists before calculating score
+      if (!pass.level) {
+        await transaction.rollback();
+        return res.status(500).json({error: 'Level data not found for pass'});
+      }
+
+      if (!pass.level.difficulty) {
+        await transaction.rollback();
+        return res.status(500).json({error: 'Difficulty data not found for pass'});
+      }
+
+      // Create properly structured level data for score calculation
+      const levelData = {
+        baseScore: pass.level.baseScore,
+        difficulty: pass.level.difficulty
+      };
+
+      const calculatedScore = getScoreV2(passData, levelData);
+
+      // Update pass fields with calculated values
+      await pass.update({
+        vidUploadTime: vidUploadTime || pass.vidUploadTime,
+        speed: speed || pass.speed,
+        feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
+        vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
+        videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+        is12K: is12K !== undefined ? is12K : pass.is12K,
+        is16K: is16K !== undefined ? is16K : pass.is16K,
+        isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
+        isWorldsFirst: isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
+        accuracy: calculatedAccuracy,
+        scoreV2: calculatedScore,
+        isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+      }, {transaction});
+    } else {
+      // Update pass fields without recalculating if no judgements provided
+      await pass.update({
+        vidUploadTime: vidUploadTime || pass.vidUploadTime,
+        speed: speed || pass.speed,
+        feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
+        vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
+        videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+        is12K: is12K !== undefined ? is12K : pass.is12K,
+        is16K: is16K !== undefined ? is16K : pass.is16K,
+        isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
+        isWorldsFirst: isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
+        accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
+        scoreV2: scoreV2!== undefined ? scoreV2 : pass.scoreV2,
+        isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+      }, {transaction});
     }
 
     // Fetch the updated pass

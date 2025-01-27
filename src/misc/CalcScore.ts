@@ -104,7 +104,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
 interface LevelData {
   baseScore: number | null;
   diff?: number;
-  difficulty?: {
+  difficulty: {
     baseScore: number;
   };
 }

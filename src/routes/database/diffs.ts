@@ -1,6 +1,8 @@
 import express, { Router, Request, Response } from 'express';
 import Difficulty from '../../models/Difficulty';
 import Level from '../../models/Level';
+import Pass from '../../models/Pass';
+import Judgement from '../../models/Judgement';
 import { Auth } from '../../middleware/auth';
 import { Op } from 'sequelize';
 import { IDifficulty } from '../../interfaces/models';
@@ -9,6 +11,14 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { getIO } from '../../utils/socket';
+import { sseManager } from '../../utils/sse';
+import { getScoreV2 } from '../../misc/CalcScore';
+import { PlayerStatsService } from '../../services/PlayerStatsService';
+import { Cache } from '../../middleware/cache';
+import sequelize from '../../config/db';
+
+const playerStatsService = PlayerStatsService.getInstance();
 
 // Fix __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -125,6 +135,7 @@ router.post('/', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: Req
 
 // Update difficulty
 router.put('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
   try {
     const diffId = parseInt(req.params.id);
     const {
@@ -143,6 +154,7 @@ router.put('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: R
 
     const difficulty = await Difficulty.findByPk(diffId);
     if (!difficulty) {
+      await transaction.rollback();
       return res.status(404).json({ error: 'Difficulty not found' });
     }
 
@@ -150,6 +162,7 @@ router.put('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: R
     if (name && name !== difficulty.name) {
       const existingDiffName = await Difficulty.findOne({ where: { name } });
       if (existingDiffName) {
+        await transaction.rollback();
         return res.status(400).json({ error: 'A difficulty with this name already exists' });
       }
     }
@@ -159,6 +172,9 @@ router.put('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: R
     const cachedLegacyIcon = legacyIcon && legacyIcon !== difficulty.legacyIcon ? 
       await cacheIcon(legacyIcon, `legacy_${name || difficulty.name}`) : 
       difficulty.legacyIcon;
+
+    // Check if base score is being changed
+    const isBaseScoreChanged = baseScore !== undefined && baseScore !== difficulty.baseScore;
 
     // Update the difficulty with nullish coalescing
     await difficulty.update({
@@ -173,10 +189,134 @@ router.put('/:id', [Auth.superAdmin(), Auth.superAdminPassword()], async (req: R
       legacyIcon: cachedLegacyIcon,
       legacyEmoji: legacyEmoji ?? difficulty.legacyEmoji,
       updatedAt: new Date()
-    });
+    }, { transaction });
+
+    // If base score changed, recalculate scores for all affected passes
+    let affectedPasses: Pass[] = [];
+    let affectedPlayerIds: Set<number> = new Set();
+    
+    if (isBaseScoreChanged) {
+      // Get all levels with this difficulty
+      const levels = await Level.findAll({
+        where: { diffId: diffId },
+        transaction
+      });
+
+      const levelIds = levels.map(level => level.id);
+
+      // Get all non-deleted passes for these levels
+      affectedPasses = await Pass.findAll({
+        where: {
+          levelId: { [Op.in]: levelIds },
+          isDeleted: false
+        },
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        transaction
+      });
+
+      // Recalculate scores for each pass
+      for (const pass of affectedPasses) {
+        if (!pass.level || !pass.level.difficulty || !pass.judgements) continue;
+
+        const levelData = {
+          baseScore: pass.level.baseScore,
+          difficulty: pass.level.difficulty
+        };
+
+        const passData = {
+          speed: pass.speed || 1.0,
+          judgements: pass.judgements,
+          isNoHoldTap: pass.isNoHoldTap || false
+        };
+
+        const newScore = getScoreV2(passData, levelData);
+
+        await pass.update({
+          scoreV2: newScore
+        }, { transaction });
+
+        // Collect affected player IDs
+        if (pass.playerId) {
+          affectedPlayerIds.add(pass.playerId);
+        }
+      }
+
+      // Update level stats
+      await Promise.all(
+        levelIds.map(levelId =>
+          Level.update(
+            { isCleared: affectedPasses.some(p => p.levelId === levelId) },
+            { where: { id: levelId }, transaction }
+          )
+        )
+      );
+    }
+
+    // Commit the transaction first to ensure all updates are saved
+    await transaction.commit();
+
+    // If base score was changed, reload all stats after the transaction is committed
+    if (isBaseScoreChanged) {
+      try {
+        // Reload all stats since this is a critical update affecting scores
+        await playerStatsService.reloadAllStats();
+
+        // Emit events for frontend updates after stats are reloaded
+        const io = getIO();
+        io.emit('leaderboardUpdated');
+        io.emit('difficultyUpdated', { difficultyId: diffId });
+
+        // Broadcast SSE events
+        sseManager.broadcast({
+          type: 'difficultyUpdate',
+          data: {
+            difficultyId: diffId,
+            action: 'update',
+            affectedPasses: affectedPasses.length,
+            affectedPlayers: affectedPlayerIds.size
+          }
+        });
+      } catch (error) {
+        console.error('Error reloading stats:', error);
+        return res.status(500).json({ 
+          error: 'Difficulty updated but failed to reload stats. Please reload manually.',
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    } else {
+      // If no base score change, just emit the difficulty update
+      const io = getIO();
+      io.emit('difficultyUpdated', { difficultyId: diffId });
+
+      sseManager.broadcast({
+        type: 'difficultyUpdate',
+        data: {
+          difficultyId: diffId,
+          action: 'update',
+          affectedPasses: 0,
+          affectedPlayers: 0
+        }
+      });
+    }
 
     return res.json(difficulty);
   } catch (error) {
+    await transaction.rollback();
     console.error('Error updating difficulty:', error);
     return res.status(500).json({ error: 'Failed to update difficulty' });
   }

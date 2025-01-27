@@ -18,6 +18,8 @@ import LevelSubmission from '../../models/LevelSubmission';
 import Rating from '../../models/Rating';
 import Player from '../../models/Player';
 import {Op} from 'sequelize';
+import {migrateNewCredits} from '../../utils/migrateCredits';
+import Team from '../../models/Team';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -131,6 +133,24 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       });
       const nextId = lastLevel ? lastLevel.id + 1 : 1;
 
+      // Check if credits are simple (no brackets or parentheses)
+      const complexChars = ['[', '(', '{', '}', ']', ')'];
+      const hasSimpleCredits = !complexChars.some(char => 
+        submission.charter.includes(char) || 
+        submission.vfxer.includes(char)
+      );
+
+      // Find or create team if team name is provided
+      let teamId = null;
+      if (submission.team && submission.team.trim() !== '') {
+        const [team] = await Team.findOrCreate({
+          where: { name: submission.team.trim() },
+          defaults: { aliases: [] },
+          transaction
+        });
+        teamId = team.id;
+      }
+
       const newLevel = await Level.create({
         id: nextId,
         song: submission.song,
@@ -147,7 +167,7 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         diffId: 0,
         baseScore: 0,
         isCleared: false,
-        isVerified: false,
+        isVerified: hasSimpleCredits,
         clears: 0,
         publicComments: '',
         submitterDiscordId: submission.submitterDiscordId,
@@ -156,6 +176,7 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         previousDiffId: 0,
         isAnnounced: false,
         isHidden: false,
+        teamId: teamId
       }, {transaction});
 
       // Create rating since toRate is true
@@ -166,6 +187,37 @@ router.put('/levels/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         requesterFR: submission.diff,
         averageDifficultyId: null,
       }, {transaction});
+
+      // Process creator credits
+      const levelDocs = [{
+        id: newLevel.id,
+        song: submission.song,
+        artist: submission.artist,
+        creator: submission.charter,
+        charter: submission.charter,
+        vfxer: submission.vfxer,
+        team: submission.team,
+        teamId: null,
+        diffId: 0,
+        baseScore: 0,
+        isCleared: false,
+        clears: 0,
+        videoLink: submission.videoLink,
+        dlLink: submission.directDL,
+        workshopLink: submission.wsLink,
+        publicComments: '',
+        toRate: true,
+        rerateReason: '',
+        rerateNum: '',
+        isDeleted: false,
+        isAnnounced: false,
+        previousDiffId: 0,
+        isHidden: false,
+        isVerified: hasSimpleCredits
+      }];
+
+      // Use migrateNewCredits to handle creator management
+      await migrateNewCredits(levelDocs, transaction);
 
       await LevelSubmission.update(
         {status: 'approved', toRate: true},
@@ -264,6 +316,23 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
         return res.status(404).json({error: 'Submission not found'});
       }
 
+      // Validate level and difficulty data
+      if (!submission.level) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Level data not found'});
+      }
+
+      if (!submission.level.difficulty) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Difficulty data not found'});
+      }
+
+      // Create properly structured level data for score calculation
+      const levelData = {
+        baseScore: submission.level.baseScore,
+        difficulty: submission.level.difficulty
+      };
+
       // Create pass
       const pass = await Pass.create(
         {
@@ -300,10 +369,7 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
               } as IPassSubmissionJudgements,
               isNoHoldTap: submission.flags?.isNoHoldTap || false,
             },
-            {
-              baseScore: submission.level?.baseScore || 0,
-              difficulty: submission.level?.difficulty,
-            },
+            levelData
           ),
           isAnnounced: false,
           isDeleted: false,
@@ -509,6 +575,23 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
     const approvalResults = await Promise.all(
       validSubmissions.map(async (submission) => {
         try {
+          // Validate level and difficulty data
+          if (!submission.level) {
+            await transaction.rollback();
+            return {id: submission.id, success: false, error: 'Level data not found'};
+          }
+
+          if (!submission.level.difficulty) {
+            await transaction.rollback();
+            return {id: submission.id, success: false, error: 'Difficulty data not found'};
+          }
+
+          // Create properly structured level data for score calculation
+          const levelData = {
+            baseScore: submission.level.baseScore,
+            difficulty: submission.level.difficulty
+          };
+
           // Create pass
           const pass = await Pass.create(
             {
@@ -544,10 +627,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
                   } as IPassSubmissionJudgements,
                   isNoHoldTap: submission.flags?.isNoHoldTap || false,
                 },
-                {
-                  baseScore: submission.level?.baseScore || 0,
-                  difficulty: submission.level?.difficulty,
-                },
+                levelData
               ),
               isAnnounced: false,
               isDeleted: false,

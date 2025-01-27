@@ -723,17 +723,30 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
                 if (!pass.judgements) return;
 
                 const accuracy = calcAcc(pass.judgements);
+
+                // Get the current difficulty data
+                const currentDifficulty = await Difficulty.findByPk(updateData.diffId || pass.level?.diffId, {
+                  transaction: recalcTransaction
+                });
+
+                if (!currentDifficulty) {
+                  console.error(`No difficulty found for pass ${pass.id}`);
+                  return;
+                }
+
+                // Create properly structured level data for score calculation
+                const levelData = {
+                  baseScore: updateData.baseScore || pass.level?.baseScore || 0,
+                  difficulty: currentDifficulty
+                };
+
                 const scoreV2 = getScoreV2(
                   {
                     speed: pass.speed || 1,
                     judgements: pass.judgements,
                     isNoHoldTap: pass.isNoHoldTap || false,
                   },
-                  {
-                    baseScore: updateData.baseScore ||
-                    difficulty?.baseScore ||
-                    level.difficulty?.baseScore || 0,
-                  }
+                  levelData
                 );
 
                 await Pass.update(
