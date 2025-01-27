@@ -146,8 +146,8 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
 
   const embed = new MessageBuilder()
       .setColor(level?.difficulty?.color || '#000000')
-      //.setAuthor('New level!', '', '')
-    .setTitle(`[${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}](${clientUrlEnv}/levels/${level.id})`)
+      .setAuthor(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`, '', `${clientUrlEnv}/levels/${level.id}`)
+    .setTitle(`ID: #${level.id}`)
     .setThumbnail(level.difficulty?.icon || placeHolder)
     .addField("", "", false)
     .addField('Rerate', `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`, true)
