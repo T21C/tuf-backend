@@ -468,7 +468,33 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Pass submission rejected successfully'});
     } else if (action === 'assign-player') {
       const {playerId} = req.body;
-      const submission = await PassSubmission.findByPk(id, {transaction});
+      const submission = await PassSubmission.findByPk(id, {
+        include: [
+          {
+            model: Player,
+            as: 'assignedPlayer',
+          },
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: PassSubmissionJudgements,
+            as: 'judgements',
+          },
+          {
+            model: PassSubmissionFlags,
+            as: 'flags',
+          },
+        ],
+        transaction
+      });
 
       if (!submission) {
         await transaction.rollback();
@@ -476,9 +502,52 @@ router.put('/passes/:id/:action', Auth.superAdmin(), async (req: Request, res: R
       }
 
       await submission.update({assignedPlayerId: playerId}, {transaction});
+      
+      // Reload the submission to get the fresh player data
+      await submission.reload({
+        include: [
+          {
+            model: Player,
+            as: 'assignedPlayer',
+          },
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: PassSubmissionJudgements,
+            as: 'judgements',
+          },
+          {
+            model: PassSubmissionFlags,
+            as: 'flags',
+          },
+        ],
+        transaction
+      });
+
       await transaction.commit();
 
-      return res.json({message: 'Player assigned successfully'});
+      // Broadcast the update
+      sseManager.broadcast({
+        type: 'submissionUpdate',
+        data: {
+          action: 'assign-player',
+          submissionId: id,
+          submissionType: 'pass',
+        },
+      });
+
+      return res.json({
+        message: 'Player assigned successfully',
+        submission
+      });
     } else {
       await transaction.rollback();
       return res.status(400).json({error: 'Invalid action'});
@@ -512,39 +581,21 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           ],
           required: true,
         },
+        {
+          model: Player,
+          as: 'assignedPlayer',
+          required: false
+        }
       ],
       transaction,
     });
 
     const matchingSubmissions = await Promise.all(
       pendingSubmissions.map(async (submission) => {
-        // First check if there's already an assigned player
-        if (submission.assignedPlayerId) {
-          return submission;
-        }
-
-        // If no assigned player, try to match by Discord ID
-        if (!submission.submitterDiscordId) {
+        // Only process submissions that have an assigned player
+        if (!submission.assignedPlayerId) {
           return null;
         }
-
-        // Find player with matching Discord ID
-        const matchingPlayer = await Player.findOne({
-          where: {
-            discordId: submission.submitterDiscordId,
-          },
-          transaction,
-        });
-
-        if (!matchingPlayer) {
-          return null;
-        }
-
-        // Assign the player
-        await submission.update(
-          {assignedPlayerId: matchingPlayer.id},
-          {transaction},
-        );
 
         // Reload submission to get fresh data
         await submission.reload({

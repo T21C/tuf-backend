@@ -190,8 +190,8 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
 
     const embed = new MessageBuilder()
         .setColor(level.difficulty?.color || '#000000')
-        //.setAuthor('New level!', '', '')
-      .setTitle(`[${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}](${clientUrlEnv}/levels/${level.id})`)
+        .setAuthor(`${wrap(level?.song || 'Unknown Song', 30)} — ${wrap(level?.artist || 'Unknown Artist', 30)}`, '', `${clientUrlEnv}/levels/${level.id}`)
+      .setTitle(`ID: #${level.id}`)
       .setThumbnail(level.difficulty?.icon || placeHolder)
       .addField("", "", false)
       .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo)}**`, true)
@@ -266,7 +266,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       .setAuthor(
         `${trim(level?.song || 'Unknown Song', 27)}\n— ${trim(level?.artist || 'Unknown Artist', 30)}`,
         pass.level?.difficulty?.icon || '',
-        `${ownUrlEnv}/v2/passes/${pass.id}`
+        `${clientUrlEnv}/passes/${pass.id}`
       )
       .setTitle(`Clear by ${trim(pass.player?.name || 'Unknown Player', 25)}`)
       .setColor(level?.difficulty?.color || '#000000')
@@ -298,7 +298,7 @@ export async function createRerateEmbed(levelInfo: Level | null): Promise<Messag
       )*/
       .setImage(videoInfo?.image || "")
       .setFooter(
-        `[${team || credit} #${level?.id}](${clientUrlEnv}/levels/${level?.id})`, 
+        `${team || credit} | ID: #${level?.id}`, 
         ''
       )
       .setTimestamp();
