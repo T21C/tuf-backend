@@ -138,7 +138,7 @@ router.post('/form-submit', Auth.user(), async (req: Request, res: Response) => 
         submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
         submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
         status: 'pending',
-        assignedPlayerId: null, // Will be assigned during review
+        assignedPlayerId: req.user?.playerId, // Will be assigned during review
       });
 
       await PassSubmissionJudgements.create({
