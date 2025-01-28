@@ -60,7 +60,9 @@ const ownUrl = process.env.NODE_ENV === 'production'
 // Create Socket.IO instance
 const io = new Server(httpServer, {
   cors: {
-    origin: clientUrlEnv || 'http://localhost:5173',
+    origin: [clientUrlEnv || 'http://localhost:5173',
+    'https://tuforums.com',
+    'https://api.tuforums.com'],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -108,7 +110,11 @@ async function startServer() {
 
     // Set up Express middleware
     const corsOptions = {
-      origin: clientUrlEnv || 'http://localhost:5173',
+      origin: [
+        clientUrlEnv || 'http://localhost:5173',
+        'https://tuforums.com',
+        'https://api.tuforums.com'
+      ],
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD', 'CONNECT', 'TRACE'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Last-Event-ID', 'X-Form-Type', 'X-Super-Admin-Password'],
