@@ -1,4 +1,4 @@
-import {IDifficulty, IPass} from '../interfaces/models';
+import {IDifficulty, IPass} from '../interfaces/models/index.js';
 
 export interface Score {
   score: number;

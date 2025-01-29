@@ -1,23 +1,19 @@
-import {Request, Response, Router} from 'express';
-import {Op, OrderItem, Sequelize} from 'sequelize';
-import {escapeRegExp} from '../../misc/Utility';
-import Pass from '../../models/Pass';
-import Level from '../../models/Level';
-import Player from '../../models/Player';
-import Judgement from '../../models/Judgement';
-import {Auth} from '../../middleware/auth';
-import {getIO} from '../../utils/socket';
-import {calcAcc, IJudgements} from '../../misc/CalcAcc';
-import {getScoreV2} from '../../misc/CalcScore';
-import sequelize from '../../config/db';
-import Difficulty from '../../models/Difficulty';
-import {Cache} from '../../middleware/cache';
-import { calculateRankedScore } from '../../misc/PlayerStatsCalculator';
-import { sseManager } from '../../utils/sse';
-import User from '../../models/User';
-import { excludePlaceholder } from '../../middleware/excludePlaceholder';
-import {PlayerStatsService} from '../../services/PlayerStatsService';
-import { createMultiFieldSearchCondition, createSearchCondition } from '../../utils/searchHelpers';
+import {Op, OrderItem} from 'sequelize';
+import Pass from '../../models/Pass.js';
+import Level from '../../models/Level.js';
+import Player from '../../models/Player.js';
+import Judgement from '../../models/Judgement.js';
+import {Auth} from '../../middleware/auth.js';
+import {getIO} from '../../utils/socket.js';
+import {calcAcc, IJudgements} from '../../misc/CalcAcc.js';
+import {getScoreV2} from '../../misc/CalcScore.js';
+import sequelize from '../../config/db.js';
+import Difficulty from '../../models/Difficulty.js';
+import {sseManager} from '../../utils/sse.js';
+import User from '../../models/User.js';
+import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
+import {PlayerStatsService} from '../../services/PlayerStatsService.js';
+import {Router, Request, Response} from 'express';
 
 // Search query types and interfaces
 interface FieldSearch {
@@ -34,58 +30,48 @@ interface SearchGroup {
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
-export async function updateWorldsFirstStatus(levelId: number, transaction?: any) {
+export async function updateWorldsFirstStatus(
+  levelId: number,
+  transaction?: any,
+) {
   // Find the earliest non-deleted pass for this level from non-banned players
   const earliestPass = await Pass.findOne({
     where: {
       levelId,
-      isDeleted: false
+      isDeleted: false,
     },
-    include: [{
-      model: Player,
-      as: 'player',
-      where: { isBanned: false },
-      required: true
-    }],
+    include: [
+      {
+        model: Player,
+        as: 'player',
+        where: {isBanned: false},
+        required: true,
+      },
+    ],
     order: [['vidUploadTime', 'ASC']],
-    transaction
+    transaction,
   });
 
   // Reset all passes for this level to not be world's first
   await Pass.update(
-    { isWorldsFirst: false },
-    { 
-      where: { levelId },
-      transaction
-    }
+    {isWorldsFirst: false},
+    {
+      where: {levelId},
+      transaction,
+    },
   );
 
   // If we found an earliest pass, mark it as world's first
   if (earliestPass) {
     await Pass.update(
-      { isWorldsFirst: true },
-      { 
-        where: { id: earliestPass.id },
-        transaction
-      }
+      {isWorldsFirst: true},
+      {
+        where: {id: earliestPass.id},
+        transaction,
+      },
     );
   }
 }
-
-const difficultyNameToSortOrder: { [key: string]: number } = {
-  'P1': 1, 'P2': 3, 'P3': 4, 'P4': 5, 'P5': 6,
-  'P6': 7, 'P7': 8, 'P8': 9, 'P9': 10, 'P10': 11,
-  'P11': 12, 'P12': 13, 'P13': 14, 'P14': 15, 'P15': 16,
-  'P16': 17, 'P17': 18, 'P18': 18.5, 'P19': 19, 'P20': 19.5,
-  'G1': 20, 'G2': 20.05, 'G3': 20.1, 'G4': 20.15, 'G5': 20.2,
-  'G6': 20.25, 'G7': 20.3, 'G8': 20.35, 'G9': 20.4, 'G10': 20.45,
-  'G11': 20.5, 'G12': 20.55, 'G13': 20.6, 'G14': 20.65, 'G15': 20.7,
-  'G16': 20.75, 'G17': 20.8, 'G18': 20.85, 'G19': 20.9, 'G20': 20.95,
-  'U1': 21, 'U2': 21.04, 'U3': 21.05, 'U4': 21.09, 'U5': 21.1,
-  'U6': 21.14, 'U7': 21.15, 'U8': 21.19, 'U9': 21.2, 'U10': 21.24,
-  'U11': 21.25, 'U12': 21.29, 'U13': 21.3, 'U14': 21.34, 'U15': 21.35,
-  'U16': 21.39, 'U17': 21.4, 'U18': 21.44, 'U19': 21.45, 'U20': 21.49
-};
 
 // Helper function to parse field-specific searches (e.g., "video:Example")
 const parseFieldSearch = (term: string): FieldSearch | null => {
@@ -99,7 +85,7 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
     return {
       field: exactMatch[1].toLowerCase(),
       value: exactMatch[2].trim(),
-      exact: true
+      exact: true,
     };
   }
 
@@ -109,7 +95,7 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
     return {
       field: partialMatch[1].toLowerCase(),
       value: partialMatch[2].trim(),
-      exact: false
+      exact: false,
     };
   }
 
@@ -119,56 +105,60 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
 // Helper function to parse the entire search query
 const parseSearchQuery = (query: string): SearchGroup[] => {
   if (!query) return [];
-  
-  // Split by | for OR groups and handle trimming here
-  const groups = query.split('|').map(group => {
-    // Split by comma for AND terms within each group
-    const terms = group.split(',')
-      .map(term => term.trim())
-      .filter(term => term.length > 0)
-      .map(term => {
-        const fieldSearch = parseFieldSearch(term);
-        if (fieldSearch) {
-          return fieldSearch;
-        }
-        return {
-          field: 'any',
-          value: term.trim(),
-          exact: false
-        };
-      });
 
-    return {
-      terms,
-      operation: 'AND' as const
-    };
-  }).filter(group => group.terms.length > 0); // Remove empty groups
+  // Split by | for OR groups and handle trimming here
+  const groups = query
+    .split('|')
+    .map(group => {
+      // Split by comma for AND terms within each group
+      const terms = group
+        .split(',')
+        .map(term => term.trim())
+        .filter(term => term.length > 0)
+        .map(term => {
+          const fieldSearch = parseFieldSearch(term);
+          if (fieldSearch) {
+            return fieldSearch;
+          }
+          return {
+            field: 'any',
+            value: term.trim(),
+            exact: false,
+          };
+        });
+
+      return {
+        terms,
+        operation: 'AND' as const,
+      };
+    })
+    .filter(group => group.terms.length > 0); // Remove empty groups
 
   return groups;
 };
 
 // Helper function to build field-specific search condition
-const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any> => {
-  const { field, value, exact } = fieldSearch;
-  
+const buildFieldSearchCondition = async (
+  fieldSearch: FieldSearch,
+): Promise<any> => {
+  const {field, value, exact} = fieldSearch;
+
   // Handle special characters in the search value
-  const searchValue = exact ? 
-    value : 
-    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
 
   // Create the base search condition
-  const searchCondition = { [exact ? Op.eq : Op.like]: searchValue };
+  const searchCondition = {[exact ? Op.eq : Op.like]: searchValue};
 
   // For field-specific searches
   if (field === 'video') {
-    return { videoLink: searchCondition };
+    return {videoLink: searchCondition};
   }
-  
+
   if (field === 'player') {
     return sequelize.where(
       sequelize.fn('LOWER', sequelize.col('player.name')),
       exact ? Op.eq : Op.like,
-      sequelize.fn('LOWER', searchValue)
+      sequelize.fn('LOWER', searchValue),
     );
   }
 
@@ -178,10 +168,10 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
       sequelize.where(
         sequelize.fn('LOWER', sequelize.col('player.name')),
         Op.like,
-        sequelize.fn('LOWER', `%${value}%`)
+        sequelize.fn('LOWER', `%${value}%`),
       ),
-      { videoLink: { [Op.like]: `%${value}%` } }
-    ]
+      {videoLink: {[Op.like]: `%${value}%`}},
+    ],
   };
 };
 
@@ -201,10 +191,10 @@ const buildWhereClause = async (query: any) => {
   if (query.keyFlag) {
     switch (query.keyFlag) {
       case '12k':
-        conditions.push({ is12K: true });
+        conditions.push({is12K: true});
         break;
       case '16k':
-        conditions.push({ is16K: true });
+        conditions.push({is16K: true});
         break;
       // 'all' case doesn't need a condition as it means no filtering
     }
@@ -213,24 +203,22 @@ const buildWhereClause = async (query: any) => {
   // Handle text search with new parsing
   if (query.query) {
     const searchGroups = parseSearchQuery(query.query.trim());
-    
+
     if (searchGroups.length > 0) {
       const orConditions = await Promise.all(
         searchGroups.map(async group => {
           const andConditions = await Promise.all(
-            group.terms.map(term => buildFieldSearchCondition(term))
+            group.terms.map(term => buildFieldSearchCondition(term)),
           );
-          
-          return andConditions.length === 1 
-            ? andConditions[0] 
-            : { [Op.and]: andConditions };
-        })
+
+          return andConditions.length === 1
+            ? andConditions[0]
+            : {[Op.and]: andConditions};
+        }),
       );
 
       conditions.push(
-        orConditions.length === 1 
-          ? orConditions[0] 
-          : { [Op.or]: orConditions }
+        orConditions.length === 1 ? orConditions[0] : {[Op.or]: orConditions},
       );
     }
   }
@@ -312,7 +300,14 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
             {
               model: User,
               as: 'user',
-              attributes: ['id', 'username', 'nickname', 'avatarUrl', 'isSuperAdmin', 'isRater'],
+              attributes: [
+                'id',
+                'username',
+                'nickname',
+                'avatarUrl',
+                'isSuperAdmin',
+                'isRater',
+              ],
             },
           ],
         },
@@ -342,7 +337,7 @@ router.post('/', async (req: Request, res: Response) => {
       query: searchQuery,
       offset = 0,
       limit = 30,
-      sort
+      sort,
     } = req.body;
 
     const where = await buildWhereClause({
@@ -352,7 +347,7 @@ router.post('/', async (req: Request, res: Response) => {
       keyFlag,
       levelId,
       player,
-      query: searchQuery
+      query: searchQuery,
     });
 
     const order = getSortOptions(sort);
@@ -363,7 +358,7 @@ router.post('/', async (req: Request, res: Response) => {
         {
           model: Player,
           as: 'player',
-          where: { isBanned: false },
+          where: {isBanned: false},
           required: true,
         },
         {
@@ -399,13 +394,13 @@ router.post('/', async (req: Request, res: Response) => {
           model: Player,
           as: 'player',
           attributes: ['name', 'country', 'isBanned'],
-          where: { isBanned: false },
+          where: {isBanned: false},
           required: true,
         },
         {
           model: Level,
           as: 'level',
-          where: { isHidden: false },
+          where: {isHidden: false},
           include: [
             {
               model: Difficulty,
@@ -435,12 +430,12 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId)) {
-      return res.status(400).json({ error: 'Invalid pass ID' });
+      return res.status(400).json({error: 'Invalid pass ID'});
     }
 
     const pass = await playerStatsService.getPassDetails(passId);
     if (!pass) {
-      return res.status(404).json({ error: 'Pass not found' });
+      return res.status(404).json({error: 'Pass not found'});
     }
 
     return res.json(pass);
@@ -471,7 +466,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       accuracy,
       scoreV2,
       isDeleted,
-      judgements
+      judgements,
     } = req.body;
 
     // First fetch the pass with its current level data
@@ -510,7 +505,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     let newLevel = null;
     if (levelId && levelId !== pass.levelId) {
       newLevel = await Level.findOne({
-        where: { id: levelId },
+        where: {id: levelId},
         include: [
           {
             model: Difficulty,
@@ -529,18 +524,21 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Update judgements if provided
     if (judgements) {
-      await Judgement.update({
-        earlyDouble: judgements.earlyDouble,
-        earlySingle: judgements.earlySingle,
-        ePerfect: judgements.ePerfect,
-        perfect: judgements.perfect,
-        lPerfect: judgements.lPerfect,
-        lateSingle: judgements.lateSingle,
-        lateDouble: judgements.lateDouble,
-      }, {
-        where: {id: parseInt(id)},
-        transaction,
-      });
+      await Judgement.update(
+        {
+          earlyDouble: judgements.earlyDouble,
+          earlySingle: judgements.earlySingle,
+          ePerfect: judgements.ePerfect,
+          perfect: judgements.perfect,
+          lPerfect: judgements.lPerfect,
+          lateSingle: judgements.lateSingle,
+          lateDouble: judgements.lateDouble,
+        },
+        {
+          where: {id: parseInt(id)},
+          transaction,
+        },
+      );
 
       // Recalculate accuracy and score
       const updatedJudgements: IJudgements = {
@@ -554,12 +552,13 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       };
 
       const calculatedAccuracy = calcAcc(updatedJudgements);
-      
+
       // Create pass data for score calculation with proper type handling
       const passData = {
         speed: speed || pass.speed || 1.0,
         judgements: updatedJudgements,
-        isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap || false
+        isNoHoldTap:
+          isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap || false,
       } as const;
 
       // Use the new level data if levelId changed, otherwise use existing level data
@@ -567,50 +566,64 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
       if (!levelData || !levelData.difficulty) {
         await transaction.rollback();
-        return res.status(500).json({error: 'Level or difficulty data not found'});
+        return res
+          .status(500)
+          .json({error: 'Level or difficulty data not found'});
       }
 
       // Create properly structured level data for score calculation
       const levelDataForScore = {
         baseScore: levelData.baseScore,
-        difficulty: levelData.difficulty
+        difficulty: levelData.difficulty,
       };
 
       const calculatedScore = getScoreV2(passData, levelDataForScore);
 
       // Update pass with all fields including the new levelId if provided
-      await pass.update({
-        levelId: levelId || pass.levelId,
-        vidUploadTime: vidUploadTime || pass.vidUploadTime,
-        speed: speed || pass.speed,
-        feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
-        vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
-        videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
-        is12K: is12K !== undefined ? is12K : pass.is12K,
-        is16K: is16K !== undefined ? is16K : pass.is16K,
-        isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
-        isWorldsFirst: isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
-        accuracy: calculatedAccuracy,
-        scoreV2: calculatedScore,
-        isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
-      }, {transaction});
+      await pass.update(
+        {
+          levelId: levelId || pass.levelId,
+          vidUploadTime: vidUploadTime || pass.vidUploadTime,
+          speed: speed || pass.speed,
+          feelingRating:
+            feelingRating !== undefined ? feelingRating : pass.feelingRating,
+          vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
+          videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+          is12K: is12K !== undefined ? is12K : pass.is12K,
+          is16K: is16K !== undefined ? is16K : pass.is16K,
+          isNoHoldTap:
+            isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
+          isWorldsFirst:
+            isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
+          accuracy: calculatedAccuracy,
+          scoreV2: calculatedScore,
+          isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+        },
+        {transaction},
+      );
     } else {
       // Update pass fields without recalculating if no judgements provided
-      await pass.update({
-        levelId: levelId || pass.levelId,
-        vidUploadTime: vidUploadTime || pass.vidUploadTime,
-        speed: speed || pass.speed,
-        feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
-        vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
-        videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
-        is12K: is12K !== undefined ? is12K : pass.is12K,
-        is16K: is16K !== undefined ? is16K : pass.is16K,
-        isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
-        isWorldsFirst: isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
-        accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
-        scoreV2: scoreV2!== undefined ? scoreV2 : pass.scoreV2,
-        isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
-      }, {transaction});
+      await pass.update(
+        {
+          levelId: levelId || pass.levelId,
+          vidUploadTime: vidUploadTime || pass.vidUploadTime,
+          speed: speed || pass.speed,
+          feelingRating:
+            feelingRating !== undefined ? feelingRating : pass.feelingRating,
+          vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
+          videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+          is12K: is12K !== undefined ? is12K : pass.is12K,
+          is16K: is16K !== undefined ? is16K : pass.is16K,
+          isNoHoldTap:
+            isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
+          isWorldsFirst:
+            isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
+          accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
+          scoreV2: scoreV2 !== undefined ? scoreV2 : pass.scoreV2,
+          isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+        },
+        {transaction},
+      );
     }
 
     // Fetch the updated pass
@@ -652,7 +665,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Get player's new stats
     if (updatedPass && updatedPass.player) {
-      const playerStats = await playerStatsService.getPlayerStats(updatedPass.player.id);
+      const playerStats = await playerStatsService.getPlayerStats(
+        updatedPass.player.id,
+      );
 
       // Emit SSE event with pass update data
       sseManager.broadcast({
@@ -677,300 +692,312 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+router.delete(
+  '/:id',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
 
-  try {
-    const {id} = req.params;
+    try {
+      const {id} = req.params;
 
-    const pass = await Pass.findOne({
-      where: {id: parseInt(id)},
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
-        },
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned'],
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-      transaction,
-    });
-
-    if (!pass) {
-      await transaction.rollback();
-      return res.status(404).json({error: 'Pass not found'});
-    }
-
-    // Store levelId and playerId before deleting
-    const levelId = pass.levelId;
-    const playerId = pass.player?.id;
-
-    // Soft delete the pass
-    await Pass.update(
-      { isDeleted: true },
-      {
-        where: { id: parseInt(id) },
+      const pass = await Pass.findOne({
+        where: {id: parseInt(id)},
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned'],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
         transaction,
+      });
+
+      if (!pass) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Pass not found'});
       }
-    );
 
-    // Update world's first status for this level
-    await updateWorldsFirstStatus(levelId, transaction);
+      // Store levelId and playerId before deleting
+      const levelId = pass.levelId;
+      const playerId = pass.player?.id;
 
-    // Update level clear count
-    await Level.decrement('clears', {
-      where: {id: pass.levelId},
-      transaction,
-    });
-
-    // If this was the last clear, update isCleared status
-    const remainingClears = await Pass.count({
-      where: {
-        levelId: pass.levelId,
-        isDeleted: false,
-      },
-      transaction,
-    });
-
-    if (remainingClears === 0) {
-      await Level.update(
-        {isCleared: false},
+      // Soft delete the pass
+      await Pass.update(
+        {isDeleted: true},
         {
-          where: {id: pass.levelId},
+          where: {id: parseInt(id)},
           transaction,
         },
       );
-    }
 
-    // Reload the pass to get updated data
-    await pass.reload({
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
-        },
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned'],
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-      transaction,
-    });
+      // Update world's first status for this level
+      await updateWorldsFirstStatus(levelId, transaction);
 
-    await transaction.commit();
-
-    // Update player stats
-    if (playerId) {
-      await playerStatsService.updatePlayerStats(playerId);
-    }
-
-    const io = getIO();
-    io.emit('leaderboardUpdated');
-    io.emit('passesUpdated');
-
-    // Get player's new stats and emit SSE event
-    if (playerId) {
-      const playerStats = await playerStatsService.getPlayerStats(playerId);
-
-      sseManager.broadcast({
-        type: 'passUpdate',
-        data: {
-          playerId,
-          passedLevelId: levelId,
-          newScore: playerStats?.rankedScore || 0,
-          action: 'delete'
-        }
-      });
-    }
-
-    return res.json({
-      message: 'Pass soft deleted successfully',
-      pass: pass,
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error soft deleting pass:', error);
-    return res.status(500).json({error: 'Failed to soft delete pass'});
-  }
-});
-
-router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
-
-  try {
-    const {id} = req.params;
-
-    const pass = await Pass.findOne({
-      where: {id: parseInt(id)},
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
-        },
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['id', 'name', 'country', 'isBanned'],
-        },
-      ],
-      transaction,
-    });
-
-    if (!pass) {
-      await transaction.rollback();
-      return res.status(404).json({error: 'Pass not found'});
-    }
-
-    // Store levelId and playerId
-    const levelId = pass.levelId;
-    const playerId = pass.player?.id;
-
-    // Restore the pass
-    await Pass.update(
-      { isDeleted: false },
-      {
-        where: { id: parseInt(id) },
-        transaction,
-      }
-    );
-
-    // Update world's first status for this level
-    await updateWorldsFirstStatus(levelId, transaction);
-
-    // Update level clear count and status
-    await Promise.all([
-      Level.increment('clears', {
+      // Update level clear count
+      await Level.decrement('clears', {
         where: {id: pass.levelId},
         transaction,
-      }),
-      Level.update(
-        {isCleared: true},
+      });
+
+      // If this was the last clear, update isCleared status
+      const remainingClears = await Pass.count({
+        where: {
+          levelId: pass.levelId,
+          isDeleted: false,
+        },
+        transaction,
+      });
+
+      if (remainingClears === 0) {
+        await Level.update(
+          {isCleared: false},
+          {
+            where: {id: pass.levelId},
+            transaction,
+          },
+        );
+      }
+
+      // Reload the pass to get updated data
+      await pass.reload({
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned'],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        transaction,
+      });
+
+      await transaction.commit();
+
+      // Update player stats
+      if (playerId) {
+        await playerStatsService.updatePlayerStats(playerId);
+      }
+
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+      io.emit('passesUpdated');
+
+      // Get player's new stats and emit SSE event
+      if (playerId) {
+        const playerStats = await playerStatsService.getPlayerStats(playerId);
+
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId,
+            passedLevelId: levelId,
+            newScore: playerStats?.rankedScore || 0,
+            action: 'delete',
+          },
+        });
+      }
+
+      return res.json({
+        message: 'Pass soft deleted successfully',
+        pass: pass,
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error soft deleting pass:', error);
+      return res.status(500).json({error: 'Failed to soft delete pass'});
+    }
+  },
+);
+
+router.patch(
+  '/:id/restore',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const {id} = req.params;
+
+      const pass = await Pass.findOne({
+        where: {id: parseInt(id)},
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id', 'name', 'country', 'isBanned'],
+          },
+        ],
+        transaction,
+      });
+
+      if (!pass) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Pass not found'});
+      }
+
+      // Store levelId and playerId
+      const levelId = pass.levelId;
+      const playerId = pass.player?.id;
+
+      // Restore the pass
+      await Pass.update(
+        {isDeleted: false},
         {
-          where: {id: pass.levelId},
+          where: {id: parseInt(id)},
           transaction,
         },
-      ),
-    ]);
+      );
 
-    await transaction.commit();
+      // Update world's first status for this level
+      await updateWorldsFirstStatus(levelId, transaction);
 
-    // Update player stats
-    if (playerId) {
-      await playerStatsService.updatePlayerStats(playerId);
-    }
+      // Update level clear count and status
+      await Promise.all([
+        Level.increment('clears', {
+          where: {id: pass.levelId},
+          transaction,
+        }),
+        Level.update(
+          {isCleared: true},
+          {
+            where: {id: pass.levelId},
+            transaction,
+          },
+        ),
+      ]);
 
-    const io = getIO();
-    io.emit('leaderboardUpdated');
-    io.emit('passesUpdated');
+      await transaction.commit();
 
-    // Get player's new stats and emit SSE event
-    if (playerId) {
-      const playerStats = await playerStatsService.getPlayerStats(playerId);
+      // Update player stats
+      if (playerId) {
+        await playerStatsService.updatePlayerStats(playerId);
+      }
 
-      sseManager.broadcast({
-        type: 'passUpdate',
-        data: {
-          playerId,
-          passedLevelId: levelId,
-          newScore: playerStats?.rankedScore || 0,
-          action: 'restore'
-        }
+      const io = getIO();
+      io.emit('leaderboardUpdated');
+      io.emit('passesUpdated');
+
+      // Get player's new stats and emit SSE event
+      if (playerId) {
+        const playerStats = await playerStatsService.getPlayerStats(playerId);
+
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId,
+            passedLevelId: levelId,
+            newScore: playerStats?.rankedScore || 0,
+            action: 'restore',
+          },
+        });
+      }
+
+      return res.json({
+        message: 'Pass restored successfully',
+        pass: pass,
       });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error restoring pass:', error);
+      return res.status(500).json({error: 'Failed to restore pass'});
     }
-
-    return res.json({
-      message: 'Pass restored successfully',
-      pass: pass,
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error restoring pass:', error);
-    return res.status(500).json({error: 'Failed to restore pass'});
-  }
-});
+  },
+);
 
 // Add new route for getting pass by ID as a list
-router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
-  try {
-    const passId = parseInt(req.params.id);
-    if (!passId || isNaN(passId) || passId <= 0) {
-      return res.status(400).json({ error: 'Invalid pass ID' });
+router.get(
+  '/byId/:id',
+  excludePlaceholder.fromResponse(),
+  async (req: Request, res: Response) => {
+    try {
+      const passId = parseInt(req.params.id);
+      if (!passId || isNaN(passId) || passId <= 0) {
+        return res.status(400).json({error: 'Invalid pass ID'});
+      }
+
+      const pass = await Pass.findOne({
+        where: {
+          id: passId,
+          isDeleted: false,
+        },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['name', 'country', 'isBanned'],
+            where: {isBanned: false},
+            required: true,
+          },
+          {
+            model: Level,
+            as: 'level',
+            required: true,
+            attributes: ['song', 'artist', 'baseScore'],
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+                required: true,
+              },
+            ],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+            required: false,
+          },
+        ],
+      });
+
+      if (!pass) {
+        return res.json({count: 0, results: []});
+      }
+
+      return res.json({count: 1, results: [pass]});
+    } catch (error) {
+      console.error('Error fetching pass by ID:', error);
+      return res.status(500).json({error: 'Failed to fetch pass'});
     }
-
-    const pass = await Pass.findOne({
-      where: {
-        id: passId,
-        isDeleted: false,
-      },
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['name', 'country', 'isBanned'],
-          where: { isBanned: false },
-          required: true,
-        },
-        {
-          model: Level,
-          as: 'level',
-          required: true,
-          attributes: ['song', 'artist', 'baseScore'],
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-              required: true,
-            },
-          ],
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-          required: false,
-        },
-      ],
-    });
-
-    if (!pass) {
-      return res.json({count: 0, results: []});
-    }
-
-    return res.json({count: 1, results: [pass]});
-  } catch (error) {
-    console.error('Error fetching pass by ID:', error);
-    return res.status(500).json({error: 'Failed to fetch pass'});
-  }
-});
+  },
+);
 
 // Get unannounced passes
 router.get('/unannounced/new', async (req: Request, res: Response) => {
@@ -985,7 +1012,7 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
           model: Player,
           as: 'player',
           attributes: ['name', 'country', 'isBanned'],
-          where: { isBanned: false },
+          where: {isBanned: false},
           required: true,
         },
         {
@@ -1006,41 +1033,46 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
           required: false,
         },
       ],
-      order: [['updatedAt', 'DESC']]
+      order: [['updatedAt', 'DESC']],
     });
 
     return res.json(passes);
   } catch (error) {
     console.error('Error fetching unannounced passes:', error);
-    return res.status(500).json({ error: 'Failed to fetch unannounced passes' });
+    return res.status(500).json({error: 'Failed to fetch unannounced passes'});
   }
 });
 
 // Mark passes as announced
 router.post('/announce', async (req: Request, res: Response) => {
   try {
-    const { passIds } = req.body;
-    
-    if (!Array.isArray(passIds) || !passIds.every(id => Number.isInteger(id) && id > 0)) {
-      return res.status(400).json({ error: 'passIds must be an array of valid IDs' });
+    const {passIds} = req.body;
+
+    if (
+      !Array.isArray(passIds) ||
+      !passIds.every(id => Number.isInteger(id) && id > 0)
+    ) {
+      return res
+        .status(400)
+        .json({error: 'passIds must be an array of valid IDs'});
     }
 
     await Pass.update(
-      { isAnnounced: true },
+      {isAnnounced: true},
       {
         where: {
           id: {
-            [Op.in]: passIds
+            [Op.in]: passIds,
           },
-          isDeleted: false
-        }
-      }
+          isDeleted: false,
+        },
+      },
     );
 
-    return res.json({ success: true, message: 'Passes marked as announced' });
+    return res.json({success: true, message: 'Passes marked as announced'});
   } catch (error) {
     console.error('Error marking passes as announced:', error);
-    return res.status(500).json({ error: 'Failed to mark passes as announced' });
+    return res.status(500).json({error: 'Failed to mark passes as announced'});
   }
 });
 
@@ -1049,27 +1081,27 @@ router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId) || passId <= 0) {
-      return res.status(400).json({ error: 'Invalid pass ID' });
+      return res.status(400).json({error: 'Invalid pass ID'});
     }
 
     const pass = await Pass.findOne({
       where: {
         id: passId,
-        isDeleted: false
-      }
+        isDeleted: false,
+      },
     });
-    
+
     if (!pass) {
-      return res.status(404).json({ error: 'Pass not found' });
+      return res.status(404).json({error: 'Pass not found'});
     }
 
-    await pass.update({ isAnnounced: true });
-    return res.json({ success: true });
+    await pass.update({isAnnounced: true});
+    return res.json({success: true});
   } catch (error) {
     console.error('Error marking pass as announced:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to mark pass as announced',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -1083,109 +1115,116 @@ const ensureString = (value: any): string | undefined => {
 };
 
 // Main GET endpoint with search
-router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
-  try {
-    const {
-      deletedFilter,
-      minDiff,
-      maxDiff,
-      keyFlag,
-      levelId,
-      player,
-      query: searchQuery,
-      offset = '0',
-      limit = '30',
-      sort
-    } = req.query;
+router.get(
+  '/',
+  excludePlaceholder.fromResponse(),
+  async (req: Request, res: Response) => {
+    try {
+      const {
+        deletedFilter,
+        minDiff,
+        maxDiff,
+        keyFlag,
+        levelId,
+        player,
+        query: searchQuery,
+        offset = '0',
+        limit = '30',
+        sort,
+      } = req.query;
 
-    const where = await buildWhereClause({
-      deletedFilter: ensureString(deletedFilter),
-      minDiff: ensureString(minDiff),
-      maxDiff: ensureString(maxDiff),
-      keyFlag: ensureString(keyFlag),
-      levelId: ensureString(levelId),
-      player: ensureString(player),
-      query: ensureString(searchQuery)
-    });
+      const where = await buildWhereClause({
+        deletedFilter: ensureString(deletedFilter),
+        minDiff: ensureString(minDiff),
+        maxDiff: ensureString(maxDiff),
+        keyFlag: ensureString(keyFlag),
+        levelId: ensureString(levelId),
+        player: ensureString(player),
+        query: ensureString(searchQuery),
+      });
 
-    const order = getSortOptions(ensureString(sort));
-    // First get all IDs in correct order
-    const allIds = await Pass.findAll({
-      where,
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          where: { isBanned: false },
-          required: true,
-        },
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-              required: false,
-            },
-          ],
-        },
-      ],
-      order,
-      attributes: ['id'],
-      raw: true,
-    });
+      const order = getSortOptions(ensureString(sort));
+      // First get all IDs in correct order
+      const allIds = await Pass.findAll({
+        where,
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            where: {isBanned: false},
+            required: true,
+          },
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+                required: false,
+              },
+            ],
+          },
+        ],
+        order,
+        attributes: ['id'],
+        raw: true,
+      });
 
-    // Then get paginated results using those IDs in their original order
-    const offsetNum = Math.max(0, Number(ensureString(offset)) || 0);
-    const limitNum = Math.max(1, Math.min(100, Number(ensureString(limit)) || 30));
-    const paginatedIds = allIds
-      .map((pass: any) => pass.id)
-      .slice(offsetNum, offsetNum + limitNum);
+      // Then get paginated results using those IDs in their original order
+      const offsetNum = Math.max(0, Number(ensureString(offset)) || 0);
+      const limitNum = Math.max(
+        1,
+        Math.min(100, Number(ensureString(limit)) || 30),
+      );
+      const paginatedIds = allIds
+        .map((pass: any) => pass.id)
+        .slice(offsetNum, offsetNum + limitNum);
 
-    const results = await Pass.findAll({
-      where: {
-        ...where,
-        id: {
-          [Op.in]: paginatedIds,
+      const results = await Pass.findAll({
+        where: {
+          ...where,
+          id: {
+            [Op.in]: paginatedIds,
+          },
         },
-      },
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['name', 'country', 'isBanned'],
-          where: { isBanned: false },
-          required: true,
-        },
-        {
-          model: Level,
-          as: 'level',
-          where: { isHidden: false },
-          attributes: ['song', 'artist', 'baseScore'],
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-      order,
-    });
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['name', 'country', 'isBanned'],
+            where: {isBanned: false},
+            required: true,
+          },
+          {
+            model: Level,
+            as: 'level',
+            where: {isHidden: false},
+            attributes: ['song', 'artist', 'baseScore'],
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        order,
+      });
 
-    return res.json({
-      count: allIds.length,
-      results,
-    });
-  } catch (error) {
-    console.error('Error fetching passes:', error);
-    return res.status(500).json({error: 'Failed to fetch passes'});
-  }
-});
+      return res.json({
+        count: allIds.length,
+        results,
+      });
+    } catch (error) {
+      console.error('Error fetching passes:', error);
+      return res.status(500).json({error: 'Failed to fetch passes'});
+    }
+  },
+);
 
 export default router;

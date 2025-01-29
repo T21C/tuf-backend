@@ -1,7 +1,7 @@
-import { Model, DataTypes } from 'sequelize';
-import sequelize from '../config/db';
-import Player from './Player';
-import OAuthProvider from './OAuthProvider';
+import {Model, DataTypes} from 'sequelize';
+import sequelize from '../config/db.js';
+import Player from './Player.js';
+import OAuthProvider from './OAuthProvider.js';
 
 export interface UserAttributes {
   id: string;
@@ -55,99 +55,99 @@ User.init(
     id: {
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
-      primaryKey: true
+      primaryKey: true,
     },
     username: {
       type: DataTypes.STRING,
       allowNull: false,
-      unique: true
+      unique: true,
     },
     email: {
       type: DataTypes.STRING,
       unique: true,
       allowNull: true,
       validate: {
-        isEmail: true
-      }
+        isEmail: true,
+      },
     },
     password: {
       type: DataTypes.STRING,
-      allowNull: true
+      allowNull: true,
     },
     passwordResetToken: {
       type: DataTypes.STRING,
-      allowNull: true
+      allowNull: true,
     },
     passwordResetExpires: {
       type: DataTypes.DATE,
-      allowNull: true
+      allowNull: true,
     },
     isEmailVerified: {
       type: DataTypes.BOOLEAN,
-      defaultValue: false
+      defaultValue: false,
     },
     isRater: {
       type: DataTypes.BOOLEAN,
-      defaultValue: false
+      defaultValue: false,
     },
     isSuperAdmin: {
       type: DataTypes.BOOLEAN,
-      defaultValue: false
+      defaultValue: false,
     },
     status: {
       type: DataTypes.ENUM('active', 'suspended', 'banned'),
-      defaultValue: 'active'
+      defaultValue: 'active',
     },
     playerId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: 'players',
-        key: 'id'
-      }
+        key: 'id',
+      },
     },
     lastLogin: {
       type: DataTypes.DATE,
-      allowNull: true
+      allowNull: true,
     },
     nickname: {
       type: DataTypes.STRING,
       allowNull: true,
-      defaultValue: null
+      defaultValue: null,
     },
     avatarId: {
       type: DataTypes.STRING,
       allowNull: true,
-      defaultValue: null
+      defaultValue: null,
     },
     avatarUrl: {
       type: DataTypes.STRING,
       allowNull: true,
-      defaultValue: null
+      defaultValue: null,
     },
     permissionVersion: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 1
+      defaultValue: 1,
     },
     createdAt: {
       type: DataTypes.DATE,
-      allowNull: false
+      allowNull: false,
     },
     updatedAt: {
       type: DataTypes.DATE,
-      allowNull: false
-    }
+      allowNull: false,
+    },
   },
   {
     sequelize,
     tableName: 'users',
     indexes: [
-      { unique: true, fields: ['email'] },
-      { unique: true, fields: ['username'] },
-      { fields: ['playerId'] }
-    ]
-  }
+      {unique: true, fields: ['email']},
+      {unique: true, fields: ['username']},
+      {fields: ['playerId']},
+    ],
+  },
 );
 
-export default User; 
+export default User;

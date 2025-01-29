@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../config/db';
-import {IDifficulty, ILevel} from '../interfaces/models';
+import sequelize from '../config/db.js';
+import {IDifficulty, ILevel} from '../interfaces/models/index.js';
 
 class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare id: number;
@@ -44,11 +44,14 @@ Difficulty.init(
       defaultValue: '<:OnemustimagineSisyphushappy:1201714114582286417>',
       set(value: string) {
         if (!value) {
-          this.setDataValue('emoji', '<:OnemustimagineSisyphushappy:1201714114582286417>');
+          this.setDataValue(
+            'emoji',
+            '<:OnemustimagineSisyphushappy:1201714114582286417>',
+          );
         } else {
           this.setDataValue('emoji', value);
         }
-      }
+      },
     },
     color: {
       type: DataTypes.STRING,
@@ -86,7 +89,7 @@ Difficulty.init(
         if (value) {
           this.setDataValue('legacyEmoji', value);
         }
-      }
+      },
     },
   },
   {

@@ -1,9 +1,9 @@
 import {DataTypes, Model, Optional} from 'sequelize';
-import sequelize from '../config/db';
-import {IPass} from '../interfaces/models';
-import Level from './Level';
-import Player from './Player';
-import Judgement from './Judgement';
+import sequelize from '../config/db.js';
+import {IPass} from '../interfaces/models/index.js';
+import Level from './Level.js';
+import Player from './Player.js';
+import Judgement from './Judgement.js';
 
 type PassAttributes = IPass;
 type PassCreationAttributes = Optional<

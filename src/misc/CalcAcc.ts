@@ -1,4 +1,4 @@
-import { PassSubmissionJudgements } from "../models/PassSubmission";
+import {PassSubmissionJudgements} from '../models/PassSubmission.js';
 
 export interface IJudgements {
   earlyDouble: number;
@@ -32,7 +32,8 @@ export function calcAcc(inp: IJudgements | PassSubmissionJudgements): number {
   // Handle array format (from client)
   if (!inp) return 0.95;
 
-  const judgements = inp instanceof PassSubmissionJudgements ? inp.dataValues : inp;
+  const judgements =
+    inp instanceof PassSubmissionJudgements ? inp.dataValues : inp;
 
   const result =
     (judgements.perfect + // perfect

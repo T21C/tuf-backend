@@ -1,38 +1,38 @@
-import { Router } from 'express';
-import { Op, fn, col, literal, Sequelize } from 'sequelize';
-import Level from '../../models/Level';
-import Pass from '../../models/Pass';
-import Player from '../../models/Player';
-import Difficulty from '../../models/Difficulty';
-import { Cache } from '../../middleware/cache';
-import LevelSubmission from '../../models/LevelSubmission';
-import { PassSubmission } from '../../models/PassSubmission';
-import Rating from '../../models/Rating';
+import {Router} from 'express';
+import {Op, fn, col, literal, Sequelize} from 'sequelize';
+import Level from '../../models/Level.js';
+import Pass from '../../models/Pass.js';
+import Player from '../../models/Player.js';
+import Difficulty from '../../models/Difficulty.js';
+import {Cache} from '../../middleware/cache.js';
+import LevelSubmission from '../../models/LevelSubmission.js';
+import {PassSubmission} from '../../models/PassSubmission.js';
 
 const router: Router = Router();
 
 // Get overall statistics
 router.get('/', Cache.leaderboard(), async (req, res) => {
   try {
-
     try {
       const totalLevels = await Level.count({
-        where: { isDeleted: false }
+        where: {isDeleted: false},
       });
 
       const totalPasses = await Pass.count({
-        where: { isDeleted: false }
+        where: {isDeleted: false},
       });
 
       const totalPlayers = await Player.count();
 
       const totalActivePlayers = await Player.count({
-        include: [{
-          model: Pass,
-          as: 'passes',
-          required: true,
-          where: { isDeleted: false }
-        }]
+        include: [
+          {
+            model: Pass,
+            as: 'passes',
+            required: true,
+            where: {isDeleted: false},
+          },
+        ],
       });
 
       const difficultyStats = await Difficulty.findAll({
@@ -42,34 +42,47 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
           'type',
           'sortOrder',
           'color',
-          [fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))), 'levelCount'],
-          [fn('COUNT', col('levels.passes.id')), 'passCount']
+          [
+            fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))),
+            'levelCount',
+          ],
+          [fn('COUNT', col('levels.passes.id')), 'passCount'],
         ],
-        include: [{
-          model: Level,
-          as: 'levels',
-          attributes: [],
-          required: false,
-          include: [{
-            model: Pass,
-            as: 'passes',
+        include: [
+          {
+            model: Level,
+            as: 'levels',
             attributes: [],
-            where: { isDeleted: false },
-            required: false
-          }]
-        }],
-        group: ['Difficulty.id', 'Difficulty.name', 'Difficulty.type', 'Difficulty.sortOrder', 'Difficulty.color'],
+            required: false,
+            include: [
+              {
+                model: Pass,
+                as: 'passes',
+                attributes: [],
+                where: {isDeleted: false},
+                required: false,
+              },
+            ],
+          },
+        ],
+        group: [
+          'Difficulty.id',
+          'Difficulty.name',
+          'Difficulty.type',
+          'Difficulty.sortOrder',
+          'Difficulty.color',
+        ],
         order: [['sortOrder', 'ASC']],
-        subQuery: false
+        subQuery: false,
       });
 
       const recentPassStats = await Pass.count({
         where: {
           isDeleted: false,
           vidUploadTime: {
-            [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-          }
-        }
+            [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          },
+        },
       });
 
       const topDifficulties = await Difficulty.findAll({
@@ -79,39 +92,52 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
           'type',
           'sortOrder',
           'color',
-          [fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))), 'levelCount'],
-          [fn('COUNT', col('levels.passes.id')), 'passCount']
+          [
+            fn('COUNT', Sequelize.fn('DISTINCT', col('levels.id'))),
+            'levelCount',
+          ],
+          [fn('COUNT', col('levels.passes.id')), 'passCount'],
         ],
-        include: [{
-          model: Level,
-          as: 'levels',
-          attributes: [],
-          required: true,
-          include: [{
-            model: Pass,
-            as: 'passes',
+        include: [
+          {
+            model: Level,
+            as: 'levels',
             attributes: [],
-            where: { isDeleted: false },
-            required: true
-          }]
-        }],
-        group: ['Difficulty.id', 'Difficulty.name', 'Difficulty.type', 'Difficulty.sortOrder', 'Difficulty.color'],
+            required: true,
+            include: [
+              {
+                model: Pass,
+                as: 'passes',
+                attributes: [],
+                where: {isDeleted: false},
+                required: true,
+              },
+            ],
+          },
+        ],
+        group: [
+          'Difficulty.id',
+          'Difficulty.name',
+          'Difficulty.type',
+          'Difficulty.sortOrder',
+          'Difficulty.color',
+        ],
         order: [[fn('COUNT', col('levels.passes.id')), 'DESC']],
         limit: 5,
-        subQuery: false
+        subQuery: false,
       });
 
       // Level Submission Stats
       const levelSubmissionStats = await LevelSubmission.count({
-        where: { status: 'pending' }
+        where: {status: 'pending'},
       });
 
       // Pass Submission Stats
       const [pendingPassSubmissions, totalPassSubmissions] = await Promise.all([
         PassSubmission.count({
-          where: { status: 'pending' }
+          where: {status: 'pending'},
         }),
-        PassSubmission.count()
+        PassSubmission.count(),
       ]);
 
       return res.json({
@@ -120,50 +146,51 @@ router.get('/', Cache.leaderboard(), async (req, res) => {
           totalPasses,
           totalPlayers,
           totalActivePlayers,
-          passesLast30Days: recentPassStats
+          passesLast30Days: recentPassStats,
         },
         difficulties: {
           all: difficultyStats.map(diff => ({
             ...diff.get(),
             levelCount: Number(diff.get('levelCount')),
-            passCount: Number(diff.get('passCount'))
+            passCount: Number(diff.get('passCount')),
           })),
-          byType: difficultyStats.reduce((acc, diff) => {
-            const type = diff.type;
-            if (!acc[type]) {
-              acc[type] = [];
-            }
-            acc[type].push({
-              ...diff.get(),
-              levelCount: Number(diff.get('levelCount')),
-              passCount: Number(diff.get('passCount'))
-            });
-            return acc;
-          }, {} as Record<string, Array<any>>),
+          byType: difficultyStats.reduce(
+            (acc, diff) => {
+              const type = diff.type;
+              if (!acc[type]) {
+                acc[type] = [];
+              }
+              acc[type].push({
+                ...diff.get(),
+                levelCount: Number(diff.get('levelCount')),
+                passCount: Number(diff.get('passCount')),
+              });
+              return acc;
+            },
+            {} as Record<string, Array<any>>,
+          ),
           top: topDifficulties.map(diff => ({
             ...diff.get(),
-            passCount: Number(diff.get('passCount'))
-          }))
+            passCount: Number(diff.get('passCount')),
+          })),
         },
         submissions: {
           pendingLevels: levelSubmissionStats,
           passes: {
             pending: pendingPassSubmissions,
-            total: totalPassSubmissions
-          }
-        }
+            total: totalPassSubmissions,
+          },
+        },
       });
-
     } catch (queryError) {
       console.error('Query execution failed:', queryError);
       throw queryError;
     }
-
   } catch (error) {
     console.error('Error fetching statistics:', error);
     return res.status(500).json({
       error: 'Failed to fetch statistics',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -174,12 +201,9 @@ router.get('/players', async (req, res) => {
     const [playerCountByCountry, topPlayersByPasses] = await Promise.all([
       // Players by country
       Player.findAll({
-        attributes: [
-          'country',
-          [fn('COUNT', col('id')), 'playerCount']
-        ],
+        attributes: ['country', [fn('COUNT', col('id')), 'playerCount']],
         group: ['country'],
-        order: [[literal('playerCount'), 'DESC']]
+        order: [[literal('playerCount'), 'DESC']],
       }),
 
       // Top players by number of passes
@@ -187,38 +211,40 @@ router.get('/players', async (req, res) => {
         attributes: [
           'name',
           'country',
-          [fn('COUNT', literal('passes.id')), 'passCount']
+          [fn('COUNT', literal('passes.id')), 'passCount'],
         ],
-        include: [{
-          model: Pass,
-          as: 'passes',
-          attributes: [],
-          where: { isDeleted: false }
-        }],
+        include: [
+          {
+            model: Pass,
+            as: 'passes',
+            attributes: [],
+            where: {isDeleted: false},
+          },
+        ],
         group: ['Player.id'],
         order: [[literal('passCount'), 'DESC']],
-        limit: 10
-      })
+        limit: 10,
+      }),
     ]);
 
     return res.json({
       countryStats: playerCountByCountry.map(stat => ({
         country: stat.country,
-        playerCount: Number(stat.get('playerCount'))
+        playerCount: Number(stat.get('playerCount')),
       })),
       topPassers: topPlayersByPasses.map(player => ({
         name: player.name,
         country: player.country,
-        passCount: Number(player.get('passCount'))
-      }))
+        passCount: Number(player.get('passCount')),
+      })),
     });
   } catch (error) {
     console.error('Error fetching player statistics:', error);
     return res.status(500).json({
       error: 'Failed to fetch player statistics',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
 
-export default router; 
+export default router;

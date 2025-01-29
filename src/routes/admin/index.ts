@@ -1,9 +1,9 @@
-import express, {Router} from 'express';
-import ratingRoutes from './rating';
-import submissionRoutes from './submissions';
-import backupRoutes from './backup';
-import usersRoutes from './users';
-import statisticsRoutes from './statistics';
+import {Router} from 'express';
+import ratingRoutes from './rating.js';
+import submissionRoutes from './submissions.js';
+import backupRoutes from './backup.js';
+import usersRoutes from './users.js';
+import statisticsRoutes from './statistics.js';
 // Import other admin routes here
 
 const router: Router = Router();

@@ -7,12 +7,16 @@ interface ParsedCredits {
   teamMembers?: string[];
 }
 
-export function parseCredits(team: string, charter: string, vfxer: string): ParsedCredits {
+export function parseCredits(
+  team: string,
+  charter: string,
+  vfxer: string,
+): ParsedCredits {
   const credits: ParsedCredits = {
     charters: [],
     vfxers: [],
     team: undefined,
-    teamMembers: []
+    teamMembers: [],
   };
 
   // Helper function to split names considering multiple separators
@@ -34,7 +38,7 @@ export function parseCredits(team: string, charter: string, vfxer: string): Pars
     // Check if team name contains member list
     const memberListStart = team.indexOf('(');
     const memberListEnd = team.lastIndexOf(')');
-    
+
     if (memberListStart !== -1 && memberListEnd !== -1) {
       // Extract team name and member list
       teamName = team.substring(0, memberListStart).trim();
@@ -57,4 +61,4 @@ export function parseCredits(team: string, charter: string, vfxer: string): Pars
   credits.vfxers = splitNames(vfxer);
 
   return credits;
-} 
+}

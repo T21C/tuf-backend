@@ -1,10 +1,8 @@
-import { User, OAuthProvider } from '../models';
-import { Op } from 'sequelize';
-import { v4 as uuidv4 } from 'uuid';
-import { UserAttributes } from '../models/User';
-import { raterList, SUPER_ADMINS } from '../config/constants';
-import Player from '../models/Player';
-
+import {User, OAuthProvider} from '../models/index.js';
+import {v4 as uuidv4} from 'uuid';
+import {UserAttributes} from '../models/User.js';
+import {raterList, SUPER_ADMINS} from '../config/constants.js';
+import Player from '../models/Player.js';
 
 interface OAuthProfile {
   id: string;
@@ -26,28 +24,30 @@ class OAuthService {
     const provider = await OAuthProvider.findOne({
       where: {
         provider: profile.provider,
-        providerId: profile.id
+        providerId: profile.id,
       },
-      include: [
-        { model: User, 
-          include: [
-            { model: Player, as: 'player' }
-          ]
-        }
-      ]
+      include: [{model: User, include: [{model: Player, as: 'player'}]}],
     });
 
     if (provider?.oauthUser) {
       // Update user profile if needed
       const updates: Partial<UserAttributes> = {};
-      if (profile.nickname && (!provider.oauthUser.nickname || provider.oauthUser.nickname !== profile.nickname)) {
+      if (
+        profile.nickname &&
+        (!provider.oauthUser.nickname ||
+          provider.oauthUser.nickname !== profile.nickname)
+      ) {
         updates.nickname = profile.nickname;
       }
-      if (profile.avatarId && (!provider.oauthUser.avatarId || provider.oauthUser.avatarId !== profile.avatarId)) {
+      if (
+        profile.avatarId &&
+        (!provider.oauthUser.avatarId ||
+          provider.oauthUser.avatarId !== profile.avatarId)
+      ) {
         updates.avatarId = profile.avatarId;
         updates.avatarUrl = profile.avatarUrl;
       }
-      
+
       if (Object.keys(updates).length > 0) {
         await provider.oauthUser.update(updates);
       }
@@ -59,16 +59,17 @@ class OAuthService {
     let user: User | null = null;
     if (profile.email) {
       user = await User.findOne({
-        where: { email: profile.email },
-        include: [{ model: OAuthProvider, as: 'providers' }]
+        where: {email: profile.email},
+        include: [{model: OAuthProvider, as: 'providers'}],
       });
     }
 
     // If user exists, link the provider if not already linked
     if (user) {
       // Check if this provider is already linked
-      const existingProvider = user.providers?.find(p => 
-        p.provider === profile.provider && p.providerId === profile.id
+      const existingProvider = user.providers?.find(
+        (p: any) =>
+          p.provider === profile.provider && p.providerId === profile.id,
       );
 
       if (!existingProvider) {
@@ -78,20 +79,26 @@ class OAuthService {
           providerId: profile.id,
           profile: profile,
           createdAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
         });
       }
 
       // Update user profile if needed
       const updates: Partial<UserAttributes> = {};
-      if (profile.nickname && (!user.nickname || user.nickname !== profile.nickname)) {
+      if (
+        profile.nickname &&
+        (!user.nickname || user.nickname !== profile.nickname)
+      ) {
         updates.nickname = profile.nickname;
       }
-      if (profile.avatarId && (!user.avatarId || user.avatarId !== profile.avatarId)) {
+      if (
+        profile.avatarId &&
+        (!user.avatarId || user.avatarId !== profile.avatarId)
+      ) {
         updates.avatarId = profile.avatarId;
         updates.avatarUrl = profile.avatarUrl;
       }
-      
+
       if (Object.keys(updates).length > 0) {
         await user.update(updates);
       }
@@ -101,10 +108,12 @@ class OAuthService {
 
     // Create new user
     const now = new Date();
-    const isRater = profile.provider === 'discord' && 
-      (raterList.includes(profile.id) || SUPER_ADMINS.includes(profile.username));
-    const isSuperAdmin = profile.provider === 'discord' && 
-      SUPER_ADMINS.includes(profile.username);
+    const isRater =
+      profile.provider === 'discord' &&
+      (raterList.includes(profile.id) ||
+        SUPER_ADMINS.includes(profile.username));
+    const isSuperAdmin =
+      profile.provider === 'discord' && SUPER_ADMINS.includes(profile.username);
 
     user = await User.create({
       id: uuidv4(),
@@ -119,7 +128,7 @@ class OAuthService {
       status: 'active',
       permissionVersion: 1,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     });
 
     // Create OAuth provider link
@@ -129,7 +138,7 @@ class OAuthService {
       providerId: profile.id,
       profile: profile,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     });
 
     return [user, true];
@@ -138,35 +147,41 @@ class OAuthService {
   /**
    * Link an OAuth provider to existing user
    */
-  async linkProvider(userId: string, profile: OAuthProfile): Promise<OAuthProvider> {
+  async linkProvider(
+    userId: string,
+    profile: OAuthProfile,
+  ): Promise<OAuthProvider> {
     // Check if provider is already linked to another user
     const existingProvider = await OAuthProvider.findOne({
       where: {
         provider: profile.provider,
-        providerId: profile.id
-      }
+        providerId: profile.id,
+      },
     });
 
     if (existingProvider) {
-      throw new Error('This provider account is already linked to another user');
+      throw new Error(
+        'This provider account is already linked to another user',
+      );
     }
 
     // Update permissions if linking Discord account
     if (profile.provider === 'discord') {
-      
-      const isRater = raterList.includes(profile.id) || SUPER_ADMINS.includes(profile.username);
+      const isRater =
+        raterList.includes(profile.id) ||
+        SUPER_ADMINS.includes(profile.username);
       const isSuperAdmin = SUPER_ADMINS.includes(profile.username);
       if (isRater || isSuperAdmin) {
-        await User.update({
-          isRater,
-          isSuperAdmin
-        }, {
-          where: { id: userId }
-        });
+        await User.update(
+          {
+            isRater,
+            isSuperAdmin,
+          },
+          {
+            where: {id: userId},
+          },
+        );
       }
-
-      
-
     }
 
     const now = new Date();
@@ -176,7 +191,7 @@ class OAuthService {
       providerId: profile.id,
       profile: profile,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     });
   }
 
@@ -188,20 +203,20 @@ class OAuthService {
     providerId: string,
     accessToken: string,
     refreshToken?: string,
-    tokenExpiry?: Date
+    tokenExpiry?: Date,
   ): Promise<void> {
     await OAuthProvider.update(
       {
         accessToken,
         refreshToken,
-        tokenExpiry
+        tokenExpiry,
       },
       {
         where: {
           provider,
-          providerId
-        }
-      }
+          providerId,
+        },
+      },
     );
   }
 
@@ -210,7 +225,7 @@ class OAuthService {
    */
   async getUserProviders(userId: string): Promise<OAuthProvider[]> {
     return OAuthProvider.findAll({
-      where: { userId }
+      where: {userId},
     });
   }
 
@@ -221,8 +236,8 @@ class OAuthService {
     const result = await OAuthProvider.destroy({
       where: {
         userId,
-        provider
-      }
+        provider,
+      },
     });
     return result > 0;
   }
@@ -230,17 +245,20 @@ class OAuthService {
   /**
    * Find user by provider details
    */
-  async findUserByProvider(provider: string, providerId: string): Promise<User | null> {
+  async findUserByProvider(
+    provider: string,
+    providerId: string,
+  ): Promise<User | null> {
     const oauthProvider = await OAuthProvider.findOne({
       where: {
         provider,
-        providerId
+        providerId,
       },
-      include: [{ model: User, as: 'user' }]
+      include: [{model: User, as: 'user'}],
     });
 
     return oauthProvider?.oauthUser || null;
   }
 }
 
-export default new OAuthService(); 
+export default new OAuthService();

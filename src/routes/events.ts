@@ -1,5 +1,5 @@
-import { Router } from 'express';
-import { sseManager } from '../utils/sse';
+import {Router} from 'express';
+import {sseManager} from '../utils/sse.js';
 
 const router: Router = Router();
 
@@ -9,9 +9,9 @@ router.get('/', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  
+
   res.flushHeaders();
-  
+
   const keepAlive = setInterval(() => {
     res.write(': keepalive\n\n');
   }, 15000);
@@ -24,4 +24,4 @@ router.get('/', (req, res) => {
   });
 });
 
-export default router; 
+export default router;

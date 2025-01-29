@@ -1,19 +1,20 @@
 // videoDetails.js
 import dotenv from 'dotenv';
-import axios, {type AxiosError} from 'axios';
+import axios from 'axios';
 dotenv.config();
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 const ENABLE_FETCHING = process.env.LOAD_PFPS === 'true';
 
-const ownUrlEnv = process.env.NODE_ENV === 'production' 
-? process.env.PROD_API_URL 
-: process.env.NODE_ENV === 'staging'
-? process.env.STAGING_API_URL
-: process.env.NODE_ENV === 'development'
-? process.env.DEV_URL
-: 'http://localhost:3002';
+const ownUrlEnv =
+  process.env.NODE_ENV === 'production'
+    ? process.env.PROD_API_URL
+    : process.env.NODE_ENV === 'staging'
+      ? process.env.STAGING_API_URL
+      : process.env.NODE_ENV === 'development'
+        ? process.env.DEV_URL
+        : 'http://localhost:3002';
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));

@@ -1,13 +1,13 @@
-import { Model, DataTypes } from 'sequelize';
-import sequelize from '../config/db';
-import Level from './Level';
-import Creator from './Creator';
+import {Model, DataTypes} from 'sequelize';
+import sequelize from '../config/db.js';
+import Level from './Level.js';
+import Creator from './Creator.js';
 
 export enum CreditRole {
   CREATOR = 'creator',
   CHARTER = 'charter',
   VFXER = 'vfxer',
-  TEAM_MEMBER = 'team_member'
+  TEAM_MEMBER = 'team_member',
 }
 
 class LevelCredit extends Model {
@@ -27,7 +27,7 @@ LevelCredit.init(
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement: true
+      autoIncrement: true,
     },
     levelId: {
       type: DataTypes.INTEGER,
@@ -52,14 +52,14 @@ LevelCredit.init(
     isVerified: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
-      defaultValue: false
-    }
+      defaultValue: false,
+    },
   },
   {
     sequelize,
     tableName: 'level_credits',
     timestamps: false,
-  }
+  },
 );
 
-export default LevelCredit; 
+export default LevelCredit;

@@ -1,7 +1,5 @@
-import {Sequelize} from 'sequelize';
-import db from '../models/index';
-import reloadDatabase from './reloadDatabase';
-import sequelize from '../config/db';
+import db from '../models/index.js';
+import reloadDatabase from './reloadDatabase.js';
 
 async function initializeDatabase() {
   try {

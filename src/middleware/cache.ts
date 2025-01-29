@@ -1,11 +1,10 @@
 import {Request, Response, NextFunction} from 'express';
-import Player from '../models/Player';
-import Pass from '../models/Pass';
-import Level from '../models/Level';
-import Judgement from '../models/Judgement';
-import {enrichPlayerData} from '../utils/PlayerEnricher';
-import {IPlayer} from '../interfaces/models';
-import Difficulty from '../models/Difficulty';
+import Player from '../models/Player.js';
+import Pass from '../models/Pass.js';
+import Level from '../models/Level.js';
+import {enrichPlayerData} from '../utils/PlayerEnricher.js';
+import {IPlayer} from '../interfaces/models/index.js';
+import Difficulty from '../models/Difficulty.js';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
 
@@ -13,12 +12,15 @@ import colors from 'ansi-colors';
 const CACHE_BATCH_SIZE = 200;
 const CACHE_UPDATE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 // Progress bar for cache updates
-const progressBar = new cliProgress.SingleBar({
-  format: colors.cyan('{bar}') + ' | {percentage}% | Cache Update | {status}',
-  barCompleteChar: '\u2588',
-  barIncompleteChar: '\u2591',
-  hideCursor: true,
-}, cliProgress.Presets.shades_classic);
+const progressBar = new cliProgress.SingleBar(
+  {
+    format: colors.cyan('{bar}') + ' | {percentage}% | Cache Update | {status}',
+    barCompleteChar: '\u2588',
+    barIncompleteChar: '\u2591',
+    hideCursor: true,
+  },
+  cliProgress.Presets.shades_classic,
+);
 
 // Define the middleware function type with initialize property
 type CacheMiddleware = ((
@@ -69,31 +71,37 @@ export class LeaderboardCache {
       }
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    process.exit(0);
+    throw new Error('Cache update aborted');
   }
 
   private async loadPlayersInBatches(signal: AbortSignal): Promise<Player[]> {
     const allPlayers: Player[] = [];
     let offset = 0;
-    
+
     while (!signal.aborted) {
       try {
         const batchPlayers = await Player.findAll({
-          include: [{
-            model: Pass,
-            as: 'passes',
-            include: [{
-              model: Level,
-              as: 'level',
-              include: [{
-                model: Difficulty,
-                as: 'difficulty'
-              }]
-            }]
-          }],
+          include: [
+            {
+              model: Pass,
+              as: 'passes',
+              include: [
+                {
+                  model: Level,
+                  as: 'level',
+                  include: [
+                    {
+                      model: Difficulty,
+                      as: 'difficulty',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
           limit: CACHE_BATCH_SIZE,
           offset: offset,
-          order: [['id', 'ASC']]
+          order: [['id', 'ASC']],
         });
 
         if (batchPlayers.length === 0) break;
@@ -101,9 +109,13 @@ export class LeaderboardCache {
         offset += CACHE_BATCH_SIZE;
 
         // Update progress
-        const progress = Math.min(100, (offset / (offset + CACHE_BATCH_SIZE)) * 100);
-        progressBar.update(progress, { status: `Loading players (${allPlayers.length} loaded)` });
-
+        const progress = Math.min(
+          100,
+          (offset / (offset + CACHE_BATCH_SIZE)) * 100,
+        );
+        progressBar.update(progress, {
+          status: `Loading players (${allPlayers.length} loaded)`,
+        });
       } catch (error) {
         if (signal.aborted) break;
         console.error('Error loading player batch:', error);
@@ -118,7 +130,7 @@ export class LeaderboardCache {
     players: Player[],
     start: number,
     total: number,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<IPlayer[]> {
     if (signal.aborted) {
       return [];
@@ -131,19 +143,21 @@ export class LeaderboardCache {
           try {
             const enriched = await enrichPlayerData(player);
             const progress = Math.min(100, ((start + index + 1) / total) * 100);
-            progressBar.update(progress, { 
-              status: `Processing players (${start + index + 1}/${total})` 
+            progressBar.update(progress, {
+              status: `Processing players (${start + index + 1}/${total})`,
             });
             return enriched;
           } catch (error) {
             console.error(`Error processing player ${player.id}:`, error);
             return null;
           }
-        })
+        }),
       );
 
       // Filter out failed entries
-      return enrichedPlayers.filter((player): player is IPlayer => player !== null);
+      return enrichedPlayers.filter(
+        (player): player is IPlayer => player !== null,
+      );
     } catch (error) {
       console.error('Batch processing error:', error);
       return [];
@@ -162,7 +176,7 @@ export class LeaderboardCache {
 
   private async _updateCache(): Promise<void> {
     this.abortController = new AbortController();
-    progressBar.start(100, 0, { status: 'Starting cache update' });
+    progressBar.start(100, 0, {status: 'Starting cache update'});
 
     try {
       // Set overall timeout
@@ -183,21 +197,27 @@ export class LeaderboardCache {
           try {
             // Load and process batch in one go
             const batchPlayers = await Player.findAll({
-              include: [{
-                model: Pass,
-                as: 'passes',
-                include: [{
-                  model: Level,
-                  as: 'level',
-                  include: [{
-                    model: Difficulty,
-                    as: 'difficulty'
-                  }]
-                }]
-              }],
+              include: [
+                {
+                  model: Pass,
+                  as: 'passes',
+                  include: [
+                    {
+                      model: Level,
+                      as: 'level',
+                      include: [
+                        {
+                          model: Difficulty,
+                          as: 'difficulty',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
               limit: CACHE_BATCH_SIZE,
               offset: batchIndex * CACHE_BATCH_SIZE,
-              order: [['id', 'ASC']]
+              order: [['id', 'ASC']],
             });
 
             // Process the batch
@@ -209,16 +229,21 @@ export class LeaderboardCache {
                   console.error(`Error processing player ${player.id}:`, error);
                   return null;
                 }
-              })
+              }),
             );
 
             // Update progress
-            const progress = Math.min(95, ((batchIndex + 1) / totalBatches) * 95);
-            progressBar.update(progress, { 
-              status: `Processing batch ${batchIndex + 1}/${totalBatches}` 
+            const progress = Math.min(
+              95,
+              ((batchIndex + 1) / totalBatches) * 95,
+            );
+            progressBar.update(progress, {
+              status: `Processing batch ${batchIndex + 1}/${totalBatches}`,
             });
 
-            return enrichedBatch.filter((player): player is IPlayer => player !== null);
+            return enrichedBatch.filter(
+              (player): player is IPlayer => player !== null,
+            );
           } catch (error) {
             console.error(`Error processing batch ${batchIndex}:`, error);
             return [];
@@ -238,11 +263,17 @@ export class LeaderboardCache {
       const enrichedPlayers = batchResults.flat();
 
       // Update cache with processed players
-      const sortOptions = ['rankedScore', 'generalScore', 'ppScore', 'wfScore', 'score12K'];
+      const sortOptions = [
+        'rankedScore',
+        'generalScore',
+        'ppScore',
+        'wfScore',
+        'score12K',
+      ];
       const orders = ['asc', 'desc'];
       const includeScoresOptions = [true, false];
 
-      progressBar.update(95, { status: 'Updating cache entries' });
+      progressBar.update(95, {status: 'Updating cache entries'});
 
       for (const sortBy of sortOptions) {
         for (const order of orders) {
@@ -256,7 +287,7 @@ export class LeaderboardCache {
                 ? (valueA as number) - (valueB as number)
                 : (valueB as number) - (valueA as number);
             });
-
+            /* eslint-disable @typescript-eslint/no-unused-vars */
             const finalPlayers = includeScores
               ? sortedPlayers
               : sortedPlayers.map(({passes, ...player}) => player);
@@ -268,9 +299,10 @@ export class LeaderboardCache {
       }
 
       this.lastUpdate = new Date();
-      progressBar.update(100, { status: 'Cache update complete' });
+      progressBar.update(100, {status: 'Cache update complete'});
     } catch (error: unknown) {
       if (error instanceof Error && error.message === 'Cache update aborted') {
+        console.log('Cache update aborted');
       } else {
         console.error('\nError updating leaderboard cache:', error);
         throw error;
@@ -300,17 +332,17 @@ export class LeaderboardCache {
     includeAllScores = false,
   ): Promise<any[]> {
     const key = this.getCacheKey(sortBy, order, includeAllScores);
-    
+
     // Return stale data if we have it
     const staleData = this.cache.get(key) || [];
-    
+
     // Start update in background if needed
     if (this.needsUpdate()) {
       this.updateCache().catch(error => {
         console.error('Background cache update failed:', error);
       });
     }
-    
+
     return staleData;
   }
 
@@ -325,16 +357,25 @@ export class LeaderboardCache {
     };
 
     const rankedScoreLeaderboard = await this.get('rankedScore', 'desc', false);
-    const generalScoreLeaderboard = await this.get('generalScore', 'desc', false);
+    const generalScoreLeaderboard = await this.get(
+      'generalScore',
+      'desc',
+      false,
+    );
     const ppScoreLeaderboard = await this.get('ppScore', 'desc', false);
     const wfScoreLeaderboard = await this.get('wfScore', 'desc', false);
     const score12KLeaderboard = await this.get('score12K', 'desc', false);
 
-    ranks.rankedScoreRank = rankedScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.generalScoreRank = generalScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.ppScoreRank = ppScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.wfScoreRank = wfScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
-    ranks.score12KRank = score12KLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.rankedScoreRank =
+      rankedScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.generalScoreRank =
+      generalScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.ppScoreRank =
+      ppScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.wfScoreRank =
+      wfScoreLeaderboard.findIndex(p => p.id === playerId) + 1;
+    ranks.score12KRank =
+      score12KLeaderboard.findIndex(p => p.id === playerId) + 1;
 
     const totalPlayers = rankedScoreLeaderboard.length;
     ranks.rankedScoreRank = ranks.rankedScoreRank || totalPlayers + 1;

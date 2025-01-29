@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import {Request} from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -6,7 +6,7 @@ import fs from 'fs';
 // Ensure uploads directory exists
 const uploadDir = 'uploads';
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.mkdirSync(uploadDir, {recursive: true});
 }
 
 // Configure storage
@@ -15,13 +15,20 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(
+      null,
+      file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname),
+    );
+  },
 });
 
 // File filter
-const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const fileFilter = (
+  req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) => {
   // Allow common archive formats
   const allowedExtensions = ['.zip', '.7z', '.rar', '.tar', '.gz'];
   const allowedMimeTypes = [
@@ -29,11 +36,13 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
     'application/x-7z-compressed',
     'application/x-rar-compressed',
     'application/x-tar',
-    'application/gzip'
+    'application/gzip',
   ];
 
-  if (allowedMimeTypes.includes(file.mimetype) || 
-      allowedExtensions.some(ext => file.originalname.toLowerCase().endsWith(ext))) {
+  if (
+    allowedMimeTypes.includes(file.mimetype) ||
+    allowedExtensions.some(ext => file.originalname.toLowerCase().endsWith(ext))
+  ) {
     cb(null, true);
   } else {
     cb(null, false);
@@ -45,8 +54,8 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  }
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
 });
 
-export default upload; 
+export default upload;

@@ -1,13 +1,12 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import sequelize from '../config/db';
-import {ILevel, IPass, IDifficulty, ICreator, ITeam} from '../interfaces/models';
-import Pass from './Pass';
-import Difficulty from './Difficulty';
-import Creator from './Creator';
-import LevelAlias from './LevelAlias';
-import Rating from './Rating';
-import LevelCredit from './LevelCredit';
-import Team from './Team';
+import sequelize from '../config/db.js';
+import {
+  ILevel,
+  IPass,
+  IDifficulty,
+  ICreator,
+  ITeam,
+} from '../interfaces/models/index.js';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -180,8 +179,8 @@ Level.init(
       allowNull: true,
       references: {
         model: 'teams',
-        key: 'id'
-      }
+        key: 'id',
+      },
     },
   },
   {

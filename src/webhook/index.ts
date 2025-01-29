@@ -1,4 +1,4 @@
-import Webhook from './classes/webhook';
-import MessageBuilder from './classes/messageBuilder';
+import Webhook from './classes/webhook.js';
+import MessageBuilder from './classes/messageBuilder.js';
 
 export {Webhook, MessageBuilder};

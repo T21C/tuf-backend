@@ -7,8 +7,8 @@ const transporter = nodemailer.createTransport({
   secure: false,
   auth: {
     user: process.env.MAILERSEND_SMTP_USER,
-    pass: process.env.MAILERSEND_SMTP_PASSWORD
-  }
+    pass: process.env.MAILERSEND_SMTP_PASSWORD,
+  },
 });
 
 interface EmailOptions {
@@ -22,17 +22,17 @@ export const emailService = {
   /**
    * Send an email using MailerSend SMTP
    */
-  async sendEmail({ to, subject, text, html }: EmailOptions): Promise<boolean> {
+  async sendEmail({to, subject, text, html}: EmailOptions): Promise<boolean> {
     try {
       await transporter.sendMail({
         from: {
           name: 'TUF Community',
-          address: process.env.MAILERSEND_FROM_EMAIL || 'noreply@tuf.community'
+          address: process.env.MAILERSEND_FROM_EMAIL || 'noreply@tuf.community',
         },
         to,
         subject,
         text,
-        html
+        html,
       });
       return true;
     } catch (error) {
@@ -46,7 +46,7 @@ export const emailService = {
    */
   async sendVerificationEmail(to: string, token: string): Promise<boolean> {
     const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
-    
+
     const subject = 'Verify your email address';
     const text = `
       Welcome to TUF!
@@ -84,7 +84,7 @@ export const emailService = {
       <p><small>If you didn't create an account, you can safely ignore this email.</small></p>
     `;
 
-    return this.sendEmail({ to, subject, text, html });
+    return this.sendEmail({to, subject, text, html});
   },
 
   /**
@@ -92,7 +92,7 @@ export const emailService = {
    */
   async sendPasswordResetEmail(to: string, token: string): Promise<boolean> {
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
-    
+
     const subject = 'Reset your password';
     const text = `
       You requested to reset your password.
@@ -131,6 +131,6 @@ export const emailService = {
       <p><small>If you didn't request a password reset, you can safely ignore this email.</small></p>
     `;
 
-    return this.sendEmail({ to, subject, text, html });
-  }
-}; 
+    return this.sendEmail({to, subject, text, html});
+  },
+};

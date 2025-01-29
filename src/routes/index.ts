@@ -1,8 +1,8 @@
-import { Router } from 'express';
-import authRoutes from './auth/index';
-import adminRoutes from './admin';
-import databaseRoutes from './database';
-import webhookRoutes from './webhooks';
+import {Router} from 'express';
+import authRoutes from './auth/index.js';
+import adminRoutes from './admin/index.js';
+import databaseRoutes from './database/index.js';
+import webhookRoutes from './webhooks/index.js';
 
 const router: Router = Router();
 
@@ -18,4 +18,4 @@ router.use('/database', databaseRoutes);
 // Webhook routes
 router.use('/webhooks', webhookRoutes);
 
-export default router; 
+export default router;

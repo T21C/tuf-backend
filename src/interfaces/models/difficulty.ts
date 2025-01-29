@@ -1,4 +1,4 @@
-import { IBaseModel } from './base';
+import {IBaseModel} from './base.js';
 
 export interface IDifficulty extends IBaseModel {
   name: string;
@@ -6,4 +6,4 @@ export interface IDifficulty extends IBaseModel {
   sortOrder: number;
   baseScore: number;
   color: string;
-} 
+}

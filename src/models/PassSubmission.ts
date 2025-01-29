@@ -1,8 +1,8 @@
 import {DataTypes} from 'sequelize';
-import sequelize from '../config/db';
-import BaseModel from './BaseModel';
-import Player from './Player';
-import Level from './Level';
+import sequelize from '../config/db.js';
+import BaseModel from './BaseModel.js';
+import Player from './Player.js';
+import Level from './Level.js';
 
 class PassSubmission extends BaseModel {
   declare passer: string;

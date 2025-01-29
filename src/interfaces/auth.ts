@@ -32,4 +32,4 @@ export interface DiscordUser extends AuthUser {
   locale: string;
   premium_type: number;
   verified: boolean;
-} 
+}

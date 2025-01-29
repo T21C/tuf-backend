@@ -1,9 +1,9 @@
-import { Router } from 'express';
-import loginRoutes from './login';
-import registerRoutes from './register';
-import verificationRoutes from './verification';
-import oauthRoutes from './oauth';
-import profileRoutes from './profile';
+import {Router} from 'express';
+import loginRoutes from './login.js';
+import registerRoutes from './register.js';
+import verificationRoutes from './verification.js';
+import oauthRoutes from './oauth.js';
+import profileRoutes from './profile.js';
 
 const router: Router = Router();
 
@@ -13,4 +13,4 @@ router.use('/verify', verificationRoutes);
 router.use('/oauth', oauthRoutes);
 router.use('/profile', profileRoutes);
 
-export default router; 
+export default router;

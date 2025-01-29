@@ -1,15 +1,10 @@
-import {ILevel, IPass, IPlayer} from '../interfaces/models';
-import Player from '../models/Player';
-import Pass from '../models/Pass';
-import Level from '../models/Level';
-import Difficulty from '../models/Difficulty';
-import Judgement from '../models/Judgement';
-import { User } from '../models';
-import OAuthProvider from '../models/OAuthProvider';
-import {Worker} from 'worker_threads';
-import path from 'path';
-import os from 'os';
-import { fileURLToPath } from 'url';
+import {IPass, IPlayer} from '../interfaces/models/index.js';
+import Player from '../models/Player.js';
+import Pass from '../models/Pass.js';
+import Level from '../models/Level.js';
+import Difficulty from '../models/Difficulty.js';
+import {User} from '../models/index.js';
+import OAuthProvider from '../models/OAuthProvider.js';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -21,13 +16,11 @@ import {
   countWorldsFirstPasses,
   calculateTopDiff,
   calculateTop12KDiff,
-} from '../misc/PlayerStatsCalculator';
-import {getPfpUrl} from './pfpResolver';
-import {getBaseScore} from './parseBaseScore';
+} from '../misc/PlayerStatsCalculator.js';
+import {getPfpUrl} from './pfpResolver.js';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
-import sequelize from '../config/db';
-import { Score } from '../misc/PlayerStatsCalculator';
+import {Score} from '../misc/PlayerStatsCalculator.js';
 
 interface PlayerStats {
   rankedScore: number;
@@ -42,44 +35,30 @@ interface PlayerStats {
   top12kDiff: any;
 }
 
-// Get current file's directory
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // Rate limiting settings
 const CONCURRENT_BATCH_SIZE = 200; // Increased for better throughput
 const PLAYER_LOAD_BATCH_SIZE = 300; // Increased batch size for initial load
 const DELAY_BETWEEN_BATCHES = 0; // Small delay between batches
 
 // Progress bar configuration
-const progressBar = new cliProgress.MultiBar({
-  format: colors.cyan('{bar}') + ' | {percentage}% | {task} | {subtask}',
-  barCompleteChar: '\u2588',
-  barIncompleteChar: '\u2591',
-  hideCursor: true,
-  clearOnComplete: true,
-  noTTYOutput: !process.stdout.isTTY,
-  stream: process.stdout,
-  fps: 2,
-  forceRedraw: false,
-  stopOnComplete: true
-}, cliProgress.Presets.shades_classic);
-
-// Track last update time for throttling
-let lastUpdateTime = Date.now();
-const THROTTLE_INTERVAL = 100; // ms
+const progressBar = new cliProgress.MultiBar(
+  {
+    format: colors.cyan('{bar}') + ' | {percentage}% | {task} | {subtask}',
+    barCompleteChar: '\u2588',
+    barIncompleteChar: '\u2591',
+    hideCursor: true,
+    clearOnComplete: true,
+    noTTYOutput: !process.stdout.isTTY,
+    stream: process.stdout,
+    fps: 2,
+    forceRedraw: false,
+    stopOnComplete: true,
+  },
+  cliProgress.Presets.shades_classic,
+);
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Helper function to update progress with throttling
-const updateProgress = (bar: cliProgress.SingleBar, progress: number, task: string, subtask: string) => {
-  const now = Date.now();
-  if (now - lastUpdateTime >= THROTTLE_INTERVAL) {
-    bar.update(progress, { task, subtask });
-    lastUpdateTime = now;
-  }
-};
 
 // Calculate stats directly without worker
 function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
@@ -93,7 +72,7 @@ function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
     universalPasses: countUniversalPasses(passes),
     worldsFirstCount: countWorldsFirstPasses(passes),
     topDiff: calculateTopDiff(passes),
-    top12kDiff: calculateTop12KDiff(passes)
+    top12kDiff: calculateTop12KDiff(passes),
   };
 }
 
@@ -104,31 +83,37 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
 
   // Load all passes for these players in one query
   const allPasses = await Pass.findAll({
-    where: { 
+    where: {
       playerId: playerIds,
-      isDeleted: false
+      isDeleted: false,
     },
-    include: [{
-      model: Level,
-      as: 'level',
-      include: [{
-        model: Difficulty,
-        as: 'difficulty'
-      }]
-    }]
+    include: [
+      {
+        model: Level,
+        as: 'level',
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+        ],
+      },
+    ],
   });
 
   // Load all user data in one query
   const allUserData = await User.findAll({
-    where: { playerId: playerIds },
-    include: [{
-      model: OAuthProvider,
-      as: 'providers',
-      where: { provider: 'discord' },
-      attributes: ['profile'],
-      required: false
-    }],
-    attributes: ['playerId', 'nickname', 'avatarUrl', 'username']
+    where: {playerId: playerIds},
+    include: [
+      {
+        model: OAuthProvider,
+        as: 'providers',
+        where: {provider: 'discord'},
+        attributes: ['profile'],
+        required: false,
+      },
+    ],
+    attributes: ['playerId', 'nickname', 'avatarUrl', 'username'],
   });
 
   // Create lookup maps for faster access
@@ -140,57 +125,62 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
     passesMap.get(pass.playerId)?.push(pass);
   });
 
-  const userDataMap = new Map(allUserData.map(user => [user.playerId, user]));
+  const userDataMap = new Map(
+    allUserData.map((user: any) => [user.playerId, user]),
+  );
 
   // Process each player with the pre-loaded data
-  return Promise.all(players.map(async (player) => {
-    const playerData = player.get({plain: true});
-    const passesData = passesMap.get(player.id) || [];
-    const userData = userDataMap.get(player.id);
-    
-    // Process passes data
-    const scores = passesData.map(pass => ({
-      score: pass.scoreV2 || 0,
-      xacc: pass.accuracy || 0,
-      speed: pass.speed || 0,
-      isWorldsFirst: pass.isWorldsFirst || false,
-      is12K: pass.is12K || false,
-      baseScore: pass.level?.baseScore || pass.level?.difficulty?.baseScore || 0,
-      isDeleted: pass.isDeleted || false,
-      isHidden: pass.level?.isHidden || false,
-      pguDiff: pass.level?.difficulty?.name,
-      diffSortOrder: pass.level?.difficulty?.sortOrder
-    }));
+  return Promise.all(
+    players.map(async player => {
+      const playerData = player.get({plain: true});
+      const passesData = passesMap.get(player.id) || [];
+      const userData = userDataMap.get(player.id) as any;
 
-    // Process Discord data
-    let discordProvider: any;
-    if (userData?.dataValues.providers) {
-      discordProvider = userData.dataValues.providers[0].dataValues;
-      discordProvider.profile.avatarUrl = discordProvider.profile.avatar ? 
-        `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png` :
-        null;
-    }
+      // Process passes data
+      const scores = passesData.map(pass => ({
+        score: pass.scoreV2 || 0,
+        xacc: pass.accuracy || 0,
+        speed: pass.speed || 0,
+        isWorldsFirst: pass.isWorldsFirst || false,
+        is12K: pass.is12K || false,
+        baseScore:
+          pass.level?.baseScore || pass.level?.difficulty?.baseScore || 0,
+        isDeleted: pass.isDeleted || false,
+        isHidden: pass.level?.isHidden || false,
+        pguDiff: pass.level?.difficulty?.name,
+        diffSortOrder: pass.level?.difficulty?.sortOrder,
+      }));
 
-    // Calculate stats directly
-    const stats = calculateStats(scores, passesData);
+      // Process Discord data
+      let discordProvider: any;
+      if (userData?.dataValues.providers) {
+        discordProvider = userData.dataValues.providers[0].dataValues;
+        discordProvider.profile.avatarUrl = discordProvider.profile.avatar
+          ? `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png`
+          : null;
+      }
 
-    return {
-      id: playerData.id,
-      name: playerData.name,
-      country: playerData.country,
-      isBanned: playerData.isBanned,
-      pfp: userData?.avatarUrl || playerData.pfp,
-      discordUsername: userData?.username,
-      discordAvatar: discordProvider?.profile.avatarUrl,
-      discordAvatarId: discordProvider?.profile.avatar,
-      discordId: discordProvider?.profile.id,
-      ...stats,
-      totalPasses: scores.length,
-      createdAt: playerData.createdAt,
-      updatedAt: playerData.updatedAt,
-      passes: passesData,
-    } as IPlayer;
-  }));
+      // Calculate stats directly
+      const stats = calculateStats(scores, passesData);
+
+      return {
+        id: playerData.id,
+        name: playerData.name,
+        country: playerData.country,
+        isBanned: playerData.isBanned,
+        pfp: userData?.avatarUrl || playerData.pfp,
+        discordUsername: userData?.username,
+        discordAvatar: discordProvider?.profile.avatarUrl,
+        discordAvatarId: discordProvider?.profile.avatar,
+        discordId: discordProvider?.profile.id,
+        ...stats,
+        totalPasses: scores.length,
+        createdAt: playerData.createdAt,
+        updatedAt: playerData.updatedAt,
+        passes: passesData,
+      } as IPlayer;
+    }),
+  );
 }
 
 export async function enrichPlayerData(player: Player): Promise<IPlayer> {
@@ -278,10 +268,12 @@ async function updatePlayerPfp(player: Player): Promise<{
   }
 }
 
-async function loadPlayersInBatches(mainBar: cliProgress.SingleBar): Promise<Player[]> {
+async function loadPlayersInBatches(
+  mainBar: cliProgress.SingleBar,
+): Promise<Player[]> {
   // First get total count and IDs
   const totalCount = await Player.count({
-    where: { pfp: null }
+    where: {pfp: null},
   });
 
   if (totalCount === 0) {
@@ -293,19 +285,21 @@ async function loadPlayersInBatches(mainBar: cliProgress.SingleBar): Promise<Pla
 
   // Load players in batches with optimized includes
   for (let batch = 0; batch < totalBatches; batch++) {
-    const progress = 10 + ((batch / totalBatches) * 10);
-    mainBar.update(progress, { subtask: `Loading players (batch ${batch + 1}/${totalBatches})` });
+    const progress = 10 + (batch / totalBatches) * 10;
+    mainBar.update(progress, {
+      subtask: `Loading players (batch ${batch + 1}/${totalBatches})`,
+    });
 
     try {
       const batchPlayers = await Player.findAll({
-        where: { pfp: null },
+        where: {pfp: null},
         include: [
           {
             model: Pass,
             as: 'passes',
             required: false,
-            where: { isDeleted: false },
-            attributes: ['videoLink', 'isDeleted']
+            where: {isDeleted: false},
+            attributes: ['videoLink', 'isDeleted'],
           },
         ],
         limit: PLAYER_LOAD_BATCH_SIZE,
@@ -330,22 +324,26 @@ async function loadPlayersInBatches(mainBar: cliProgress.SingleBar): Promise<Pla
 }
 
 async function processBatch(
-  players: Player[], 
-  progressBar: cliProgress.SingleBar, 
-  startProgress: number, 
-  endProgress: number
-): Promise<Array<{
-  playerId: number;
-  playerName: string;
-  success: boolean;
-  pfpUrl: string | null;
-  error?: string;
-}>> {
+  players: Player[],
+  progressBar: cliProgress.SingleBar,
+  startProgress: number,
+  endProgress: number,
+): Promise<
+  Array<{
+    playerId: number;
+    playerName: string;
+    success: boolean;
+    pfpUrl: string | null;
+    error?: string;
+  }>
+> {
   const results = await Promise.all(
     players.map(async (player, index) => {
-      const progress = startProgress + ((index / players.length) * (endProgress - startProgress));
-      progressBar.update(progress, { subtask: `Processing ${player.name}` });
-      
+      const progress =
+        startProgress +
+        (index / players.length) * (endProgress - startProgress);
+      progressBar.update(progress, {subtask: `Processing ${player.name}`});
+
       try {
         return await updatePlayerPfp(player);
       } catch (error) {
@@ -354,10 +352,10 @@ async function processBatch(
           playerName: player.name,
           success: false,
           pfpUrl: null,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: error instanceof Error ? error.message : 'Unknown error',
         };
       }
-    })
+    }),
   );
   return results;
 }
@@ -365,19 +363,19 @@ async function processBatch(
 export async function updateAllPlayerPfps(): Promise<void> {
   const mainBar = progressBar.create(100, 0, {
     task: 'PFP Update',
-    subtask: 'Starting...'
+    subtask: 'Starting...',
   });
 
   try {
-    mainBar.update(10, { subtask: 'Loading players' });
+    mainBar.update(10, {subtask: 'Loading players'});
     const players = await loadPlayersInBatches(mainBar);
 
     if (players.length === 0) {
-      mainBar.update(100, { subtask: 'No updates needed' });
+      mainBar.update(100, {subtask: 'No updates needed'});
       return;
     }
 
-    mainBar.update(20, { subtask: `Processing ${players.length} players` });
+    mainBar.update(20, {subtask: `Processing ${players.length} players`});
 
     // Process players in smaller batches to manage memory and connection load
     const batches = [];
@@ -390,15 +388,20 @@ export async function updateAllPlayerPfps(): Promise<void> {
     let totalFailures = 0;
 
     for (let i = 0; i < batches.length; i++) {
-      const startProgress = 20 + ((i / batches.length) * 70);
-      const endProgress = 20 + (((i + 1) / batches.length) * 70);
-      
-      mainBar.update(startProgress, { 
-        subtask: `Processing batch ${i + 1}/${batches.length}` 
+      const startProgress = 20 + (i / batches.length) * 70;
+      const endProgress = 20 + ((i + 1) / batches.length) * 70;
+
+      mainBar.update(startProgress, {
+        subtask: `Processing batch ${i + 1}/${batches.length}`,
       });
 
       try {
-        const results = await processBatch(batches[i], mainBar, startProgress, endProgress);
+        const results = await processBatch(
+          batches[i],
+          mainBar,
+          startProgress,
+          endProgress,
+        );
         const batchSuccesses = results.filter(r => r.success).length;
         totalSuccesses += batchSuccesses;
         totalFailures += results.length - batchSuccesses;
@@ -411,18 +414,18 @@ export async function updateAllPlayerPfps(): Promise<void> {
         console.error(`Error processing batch ${i + 1}:`, error);
         // Log error but continue with next batch
         totalFailures += batches[i].length;
-        mainBar.update(endProgress, { 
-          subtask: `Batch ${i + 1} failed, continuing...` 
+        mainBar.update(endProgress, {
+          subtask: `Batch ${i + 1} failed, continuing...`,
         });
       }
     }
 
-    mainBar.update(100, { 
-      subtask: `Complete (${totalSuccesses} updated, ${totalFailures} failed)` 
+    mainBar.update(100, {
+      subtask: `Complete (${totalSuccesses} updated, ${totalFailures} failed)`,
     });
   } catch (error) {
     console.error('Error in updateAllPlayerPfps:', error);
-    mainBar.update(100, { subtask: 'Failed' });
+    mainBar.update(100, {subtask: 'Failed'});
     throw error;
   } finally {
     mainBar.stop();

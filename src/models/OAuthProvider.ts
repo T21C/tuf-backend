@@ -1,6 +1,6 @@
-import { Model, DataTypes, Optional } from 'sequelize';
-import sequelize from '../config/db';
-import User from './User';
+import {Model, DataTypes, Optional} from 'sequelize';
+import sequelize from '../config/db.js';
+import User from './User.js';
 
 interface OAuthProviderAttributes {
   id: number;
@@ -17,7 +17,10 @@ interface OAuthProviderAttributes {
 
 type OAuthProviderCreationAttributes = Optional<OAuthProviderAttributes, 'id'>;
 
-class OAuthProvider extends Model<OAuthProviderAttributes, OAuthProviderCreationAttributes> implements OAuthProviderAttributes {
+class OAuthProvider
+  extends Model<OAuthProviderAttributes, OAuthProviderCreationAttributes>
+  implements OAuthProviderAttributes
+{
   declare id: number;
   declare userId: string;
   declare provider: string;
@@ -38,59 +41,59 @@ OAuthProvider.init(
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement: true
+      autoIncrement: true,
     },
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
       references: {
         model: 'users',
-        key: 'id'
-      }
+        key: 'id',
+      },
     },
     provider: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: false,
     },
     providerId: {
       type: DataTypes.STRING,
-      allowNull: false
+      allowNull: false,
     },
     accessToken: {
       type: DataTypes.TEXT,
-      allowNull: true
+      allowNull: true,
     },
     refreshToken: {
       type: DataTypes.TEXT,
-      allowNull: true
+      allowNull: true,
     },
     tokenExpiry: {
       type: DataTypes.DATE,
-      allowNull: true
+      allowNull: true,
     },
     profile: {
       type: DataTypes.JSON,
       allowNull: false,
-      defaultValue: {}
+      defaultValue: {},
     },
     createdAt: {
       type: DataTypes.DATE,
-      allowNull: false
+      allowNull: false,
     },
     updatedAt: {
       type: DataTypes.DATE,
-      allowNull: false
-    }
+      allowNull: false,
+    },
   },
   {
     sequelize,
     tableName: 'user_oauth_providers',
     indexes: [
-      { unique: true, fields: ['provider', 'providerId'] },
-      { fields: ['userId'] },
-      { fields: ['provider'] }
-    ]
-  }
+      {unique: true, fields: ['provider', 'providerId']},
+      {fields: ['userId']},
+      {fields: ['provider']},
+    ],
+  },
 );
 
-export default OAuthProvider; 
+export default OAuthProvider;

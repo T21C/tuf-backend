@@ -1,4 +1,4 @@
-import {formatColor} from '../utils/index';
+import {formatColor} from '../utils/index.js';
 
 export default class MessageBuilder {
   private payload: {
@@ -27,7 +27,7 @@ export default class MessageBuilder {
 
   setText(text: string) {
     this.payload.content = text;
-    
+
     return this;
   }
 
@@ -117,7 +117,7 @@ export default class MessageBuilder {
     if (contents.length > 0) {
       combined.payload.content = contents.join(' ');
     }
-    
+
     // Combine embeds
     for (const builder of builders) {
       combined.payload.embeds.push(...builder.payload.embeds);

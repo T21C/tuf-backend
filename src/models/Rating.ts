@@ -1,8 +1,8 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import sequelize from '../config/db';
-import Level from './Level';
-import Difficulty from './Difficulty';
-import RatingDetail from './RatingDetail';
+import sequelize from '../config/db.js';
+import Level from './Level.js';
+import Difficulty from './Difficulty.js';
+import RatingDetail from './RatingDetail.js';
 
 interface RatingAttributes {
   id: number;
@@ -13,7 +13,10 @@ interface RatingAttributes {
   averageDifficultyId: number | null;
 }
 
-type RatingCreationAttributes = Optional<RatingAttributes, 'id' | 'averageDifficultyId' | 'currentDifficultyId'>;
+type RatingCreationAttributes = Optional<
+  RatingAttributes,
+  'id' | 'averageDifficultyId' | 'currentDifficultyId'
+>;
 
 class Rating
   extends Model<RatingAttributes, RatingCreationAttributes>

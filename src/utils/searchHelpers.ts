@@ -1,4 +1,4 @@
-import { Op, WhereOptions } from 'sequelize';
+import {Op} from 'sequelize';
 
 type SearchCondition = {
   [key: string]: {
@@ -18,14 +18,16 @@ type MultiSearchResult = {
  * @param exact Whether to do an exact match or a LIKE search
  * @returns A Sequelize where condition
  */
-export function createSearchCondition(field: string, value: string, exact: boolean = false): SearchCondition {
+export function createSearchCondition(
+  field: string,
+  value: string,
+  exact = false,
+): SearchCondition {
   // Handle special characters in the search value
-  const searchValue = exact ? 
-    value : 
-    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
 
   return {
-    [field]: { [exact ? Op.eq : Op.like]: searchValue }
+    [field]: {[exact ? Op.eq : Op.like]: searchValue},
   };
 }
 
@@ -36,15 +38,17 @@ export function createSearchCondition(field: string, value: string, exact: boole
  * @param exact Whether to do an exact match or a LIKE search
  * @returns A Sequelize where condition with OR conditions
  */
-export function createMultiFieldSearchCondition(fields: string[], value: string, exact: boolean = false): MultiSearchResult {
-  const searchValue = exact ? 
-    value : 
-    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+export function createMultiFieldSearchCondition(
+  fields: string[],
+  value: string,
+  exact = false,
+): MultiSearchResult {
+  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
 
   return {
     conditions: fields.map(field => ({
-      [field]: { [exact ? Op.eq : Op.like]: searchValue }
-    }))
+      [field]: {[exact ? Op.eq : Op.like]: searchValue},
+    })),
   };
 }
 
@@ -55,4 +59,4 @@ export function createMultiFieldSearchCondition(fields: string[], value: string,
  */
 export function escapeLikeValue(value: string): string {
   return value.replace(/(_|%|\\)/g, '\\$1');
-} 
+}

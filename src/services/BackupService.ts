@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import {exec} from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import cron from 'node-cron';
@@ -8,10 +8,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const DATABASE_NAME =
-process.env.NODE_ENV === 'staging'
-? process.env.DB_STAGING_DATABASE
-: process.env.DB_DATABASE;
-
+  process.env.NODE_ENV === 'staging'
+    ? process.env.DB_STAGING_DATABASE
+    : process.env.DB_DATABASE;
 
 export class BackupService {
   private config: typeof config;
@@ -20,7 +19,9 @@ export class BackupService {
   constructor() {
     this.config = config;
     this.isWindows = process.env.OS === 'Windows_NT';
-    console.log(`BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`);
+    console.log(
+      `BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`,
+    );
   }
 
   public getConfig() {
@@ -32,11 +33,14 @@ export class BackupService {
     const fileName = `mysql-backup-${type}-${timestamp}.sql`;
     const filePath = path.join(this.config.mysql.backupPath, fileName);
 
-    await fs.mkdir(this.config.mysql.backupPath, { recursive: true });
+    await fs.mkdir(this.config.mysql.backupPath, {recursive: true});
 
     let cmd: string;
     if (this.isWindows) {
-      const mysqlDumpPath = path.join(process.env.MYSQL_PATH || '', 'mysqldump.exe');
+      const mysqlDumpPath = path.join(
+        process.env.MYSQL_PATH || '',
+        'mysqldump.exe',
+      );
       const outputPath = filePath.replace(/\\/g, '/');
       cmd = `"${mysqlDumpPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
     } else {
@@ -45,7 +49,7 @@ export class BackupService {
     }
 
     return new Promise((resolve, reject) => {
-      exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, (error, stdout, stderr) => {
+      exec(cmd, {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'}, error => {
         if (error) reject(error);
         else resolve(filePath);
       });
@@ -64,18 +68,24 @@ export class BackupService {
     }
 
     return new Promise((resolve, reject) => {
-      exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, async (error, stdout, stderr) => {
-        if (error) reject(error);
-        else {
-          try {
-            await db.sequelize.sync({ force: false });
-            console.log(`MySQL backup restored successfully from: ${path.basename(backupPath)}`);
-            resolve(true);
-          } catch (syncError) {
-            reject(syncError);
+      exec(
+        cmd,
+        {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'},
+        async error => {
+          if (error) reject(error);
+          else {
+            try {
+              await db.sequelize.sync({force: false});
+              console.log(
+                `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
+              );
+              resolve(true);
+            } catch (syncError) {
+              reject(syncError);
+            }
           }
-        }
-      });
+        },
+      );
     });
   }
 
@@ -84,7 +94,7 @@ export class BackupService {
     const fileName = `files-backup-${timestamp}.zip`;
     const filePath = path.join(this.config.files.backupPath, fileName);
 
-    await fs.mkdir(this.config.files.backupPath, { recursive: true });
+    await fs.mkdir(this.config.files.backupPath, {recursive: true});
 
     let cmd: string;
     if (this.isWindows) {
@@ -99,7 +109,7 @@ export class BackupService {
     }
 
     return new Promise((resolve, reject) => {
-      exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, (error, stdout, stderr) => {
+      exec(cmd, {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'}, error => {
         if (error) reject(error);
         else resolve(filePath);
       });
@@ -108,7 +118,7 @@ export class BackupService {
 
   async restoreFileBackup(backupPath: string) {
     const extractPath = path.join(this.config.files.backupPath, 'temp_restore');
-    await fs.mkdir(extractPath, { recursive: true });
+    await fs.mkdir(extractPath, {recursive: true});
 
     try {
       let cmd: string;
@@ -120,7 +130,7 @@ export class BackupService {
       }
 
       await new Promise((resolve, reject) => {
-        exec(cmd, { shell: this.isWindows ? 'cmd.exe' : '/bin/bash' }, (error, stdout, stderr) => {
+        exec(cmd, {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'}, error => {
           if (error) reject(error);
           else resolve(true);
         });
@@ -130,26 +140,31 @@ export class BackupService {
       for (const destination of this.config.files.include) {
         const source = path.join(extractPath, path.basename(destination));
         const destDir = path.dirname(destination);
-        
+
         // Ensure destination directory exists
-        await fs.mkdir(destDir, { recursive: true });
-        
+        await fs.mkdir(destDir, {recursive: true});
+
         // Remove existing files/directory
         try {
-          await fs.rm(destination, { recursive: true, force: true });
+          await fs.rm(destination, {recursive: true, force: true});
         } catch (error) {
-          console.warn(`Warning: Could not remove existing files at ${destination}:`, error);
+          console.warn(
+            `Warning: Could not remove existing files at ${destination}:`,
+            error,
+          );
         }
 
         // Copy restored files
-        await fs.cp(source, destination, { recursive: true });
+        await fs.cp(source, destination, {recursive: true});
       }
 
-      console.log(`Files backup restored successfully from: ${path.basename(backupPath)}`);
+      console.log(
+        `Files backup restored successfully from: ${path.basename(backupPath)}`,
+      );
     } finally {
       // Clean up temporary directory
       try {
-        await fs.rm(extractPath, { recursive: true, force: true });
+        await fs.rm(extractPath, {recursive: true, force: true});
       } catch (error) {
         console.warn('Warning: Could not clean up temporary directory:', error);
       }
@@ -179,15 +194,21 @@ export class BackupService {
     }
   }
 
-  async uploadBackup(file: Express.Multer.File, type: 'mysql' | 'files'): Promise<string> {
+  async uploadBackup(
+    file: Express.Multer.File,
+    type: 'mysql' | 'files',
+  ): Promise<string> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const originalExt = path.extname(file.originalname);
     const newFileName = `Upload_${type}-backup-${timestamp}${originalExt}`;
-    const targetDir = type === 'mysql' ? this.config.mysql.backupPath : this.config.files.backupPath;
+    const targetDir =
+      type === 'mysql'
+        ? this.config.mysql.backupPath
+        : this.config.files.backupPath;
     const targetPath = path.join(targetDir, newFileName);
 
     // Ensure backup directory exists
-    await fs.mkdir(targetDir, { recursive: true });
+    await fs.mkdir(targetDir, {recursive: true});
 
     // Move uploaded file to backup directory
     await fs.rename(file.path, targetPath);
@@ -201,7 +222,9 @@ export class BackupService {
       cron.schedule(schedule, async () => {
         try {
           await this.createMySQLBackup(type);
-          await this.cleanOldBackups(type as keyof typeof config.mysql.retention);
+          await this.cleanOldBackups(
+            type as keyof typeof config.mysql.retention,
+          );
         } catch (error) {
           console.error(`Scheduled ${type} backup failed:`, error);
         }
@@ -218,6 +241,5 @@ export class BackupService {
         }
       });
     });
-
   }
 }

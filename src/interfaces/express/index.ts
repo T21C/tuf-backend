@@ -1,6 +1,5 @@
-import type { LeaderboardCache } from '../../middleware/cache';
-import type { AuthUser } from '../auth';
-import type { UserAttributes } from '../../models/User';
+import type {LeaderboardCache} from '../../middleware/cache.js';
+import type {UserAttributes} from '../../models/User.js';
 
 declare global {
   namespace Express {
@@ -11,7 +10,7 @@ declare global {
       };
       leaderboardCache?: LeaderboardCache;
     }
-    
+
     interface User extends UserAttributes {
       provider?: string;
       providerId?: string;

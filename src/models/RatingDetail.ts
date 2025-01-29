@@ -1,20 +1,46 @@
-import {DataTypes} from 'sequelize';
-import sequelize from '../config/db';
-import BaseModel from './BaseModel';
-import User from './User';
+import {Model, DataTypes, Optional} from 'sequelize';
+import sequelize from '../config/db.js';
+import User from './User.js';
 
-class RatingDetail extends BaseModel {
+interface RatingDetailAttributes {
+  id: number;
+  ratingId: number;
+  userId: string;
+  rating: string;
+  comment: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  user?: User;
+}
+
+type RatingDetailCreationAttributes = Optional<
+  RatingDetailAttributes,
+  'id' | 'comment'
+>;
+
+class RatingDetail
+  extends Model<RatingDetailAttributes, RatingDetailCreationAttributes>
+  implements RatingDetailAttributes
+{
+  declare id: number;
   declare ratingId: number;
   declare userId: string;
   declare rating: string;
   declare comment: string;
-  
+  declare createdAt: Date;
+  declare updatedAt: Date;
+
   // Virtual fields
   declare user?: User;
 }
 
 RatingDetail.init(
   {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
     ratingId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -50,7 +76,7 @@ RatingDetail.init(
 // Add association
 RatingDetail.belongsTo(User, {
   foreignKey: 'userId',
-  as: 'user'
+  as: 'user',
 });
 
 export default RatingDetail;

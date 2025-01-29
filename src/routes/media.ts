@@ -5,22 +5,23 @@ import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
 import sharp from 'sharp';
-import { CanvasRenderingContext2D, createCanvas, loadImage } from 'canvas';
 import Level from '../models/Level.js';
 import Difficulty from '../models/Difficulty.js';
-import { getVideoDetails } from '../utils/videoDetailParser.js';
-import { initializeFonts } from '../utils/fontLoader.js';
+import {getVideoDetails} from '../utils/videoDetailParser.js';
+import {initializeFonts} from '../utils/fontLoader.js';
 import Pass from '../models/Pass.js';
-import { IDifficulty, ILevel } from '../interfaces/models/index.js';
 import User from '../models/User.js';
-import { Buffer } from 'buffer';
+import {Buffer} from 'buffer';
 
 // Initialize fonts
 initializeFonts();
 
 const router: Router = express.Router();
 
-function wrapText(text: string, maxChars: number): { lines: string[], isWrapped: boolean } {
+function wrapText(
+  text: string,
+  maxChars: number,
+): {lines: string[]; isWrapped: boolean} {
   const chars = text.split('');
   const lines = [];
   let currentLine = chars[0] || '';
@@ -43,33 +44,39 @@ function wrapText(text: string, maxChars: number): { lines: string[], isWrapped:
   if (currentLine && lines.length < 2) {
     lines.push(currentLine);
   }
-  return { 
+  return {
     lines: lines.slice(0, 2),
-    isWrapped: lines.length > 1 
+    isWrapped: lines.length > 1,
   };
 }
 
 function createHeaderSVG(config: {
-  width: number,
-  height: number,
-  headerHeight: number,
-  song: string,
-  artist: string,
-  levelId: number,
-  iconSize: number,
-  iconPadding: number,
-  titleFontSize: number,
-  artistFontSize: number,
-  idFontSize: number
-}): { svg: string, isWrapped: boolean } {
-  const { lines, isWrapped } = wrapText(config.song, 27);
-  
+  width: number;
+  height: number;
+  headerHeight: number;
+  song: string;
+  artist: string;
+  levelId: number;
+  iconSize: number;
+  iconPadding: number;
+  titleFontSize: number;
+  artistFontSize: number;
+  idFontSize: number;
+}): {svg: string; isWrapped: boolean} {
+  const {lines, isWrapped} = wrapText(config.song, 27);
+
   // Adjust sizes if text is wrapped
-  const titleFontSize = isWrapped ? Math.floor(config.titleFontSize * 0.85) : config.titleFontSize;
-  const headerHeight = isWrapped ? Math.floor(config.headerHeight * 1.15) : config.headerHeight;
+  const titleFontSize = isWrapped
+    ? Math.floor(config.titleFontSize * 0.85)
+    : config.titleFontSize;
+  const headerHeight = isWrapped
+    ? Math.floor(config.headerHeight * 1.15)
+    : config.headerHeight;
   const titleY = Math.floor(config.height * (isWrapped ? 0.1 : 0.12));
-  const artistY = isWrapped ? Math.floor(config.height * 0.265) : Math.floor(config.height * 0.201);
-  const textX = config.iconSize + (config.iconPadding * 2);
+  const artistY = isWrapped
+    ? Math.floor(config.height * 0.265)
+    : Math.floor(config.height * 0.201);
+  const textX = config.iconSize + config.iconPadding * 2;
 
   return {
     svg: `
@@ -89,16 +96,20 @@ function createHeaderSVG(config: {
           </style>
         </defs>
         <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
-        ${lines.map((line, index) => `
+        ${lines
+          .map(
+            (line, index) => `
           <text
             x="${textX}"
-            y="${titleY + (index * titleFontSize * 1.2)}"
+            y="${titleY + index * titleFontSize * 1.2}"
             font-family="Noto Sans KR"
             font-weight="800"
             font-size="${titleFontSize}px"
             fill="white"
           >${line}</text>
-        `).join('')}
+        `,
+          )
+          .join('')}
         <text
           x="${textX}"
           y="${artistY}"
@@ -118,30 +129,30 @@ function createHeaderSVG(config: {
         >#${config.levelId}</text>
       </svg>
     `,
-    isWrapped
+    isWrapped,
   };
 }
 
 function createFooterSVG(config: {
-  width: number,
-  height: number,
-  footerHeight: number,
-  baseScore: number | null,
-  passCount: number,
-  creator: string | null,
-  charter: string | null,
-  vfxer: string | null,
-  team: string | null,
-  fontSize: number,
-  idFontSize: number,
-  padding: number
+  width: number;
+  height: number;
+  footerHeight: number;
+  baseScore: number | null;
+  passCount: number;
+  creator: string | null;
+  charter: string | null;
+  vfxer: string | null;
+  team: string | null;
+  fontSize: number;
+  idFontSize: number;
+  padding: number;
 }): string {
   const footerY = config.height - config.footerHeight;
   let creatorText = '';
-  
-  const truncate = (text: string, maxLength: number) => 
+
+  const truncate = (text: string, maxLength: number) =>
     text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
-  
+
   if (config.team) {
     creatorText = `By ${truncate(config.team, 25)}`;
   } else if (config.charter && config.vfxer) {
@@ -232,7 +243,7 @@ router.get('/pfp', async (req: Request, res: Response) => {
 });
 
 router.get('/avatar/:userId', async (req: Request, res: Response) => {
-  const { userId } = req.params;
+  const {userId} = req.params;
   try {
     const user = await User.findByPk(userId);
     if (!user || !user.avatarUrl) {
@@ -242,7 +253,7 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
     // Create cache directory if it doesn't exist
     const cacheDir = path.join(process.cwd(), 'cache', 'avatars');
     if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.mkdirSync(cacheDir, {recursive: true});
     }
 
     const avatarPath = path.join(cacheDir, `${userId}.png`);
@@ -250,14 +261,14 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
     // If avatar is not cached, download it
     if (!fs.existsSync(avatarPath)) {
       const response = await axios.get(user.avatarUrl, {
-        responseType: 'arraybuffer'
+        responseType: 'arraybuffer',
       });
 
       // Process and save the image
       await sharp(response.data)
         .resize(256, 256, {
           fit: 'cover',
-          position: 'center'
+          position: 'center',
         })
         .png()
         .toFile(avatarPath);
@@ -292,7 +303,7 @@ router.get('/github-asset', async (req: Request, res: Response) => {
   }
 });
 router.get('/image/:type/:path', async (req: Request, res: Response) => {
-  const { type, path: imagePath } = req.params;
+  const {type, path: imagePath} = req.params;
   try {
     if (!imagePath || typeof imagePath !== 'string') {
       return res.status(400).send('Invalid image path');
@@ -343,9 +354,9 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
 
 // Define size presets
 const THUMBNAIL_SIZES = {
-  SMALL: { width: 400, height: 210 },    // 16:9 ratio
-  MEDIUM: { width: 800, height: 420 },
-  LARGE: { width: 1200, height: 630 }
+  SMALL: {width: 400, height: 210}, // 16:9 ratio
+  MEDIUM: {width: 800, height: 420},
+  LARGE: {width: 1200, height: 630},
 } as const;
 
 router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
@@ -353,19 +364,19 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
 
-    const level = await Level.findOne({ 
-      where: { id: levelId }, 
+    const level = await Level.findOne({
+      where: {id: levelId},
       include: [
-        { model: Difficulty, as: 'difficulty' },
-        { model: Pass, as: 'passes', attributes: ['id'] }
-      ] 
+        {model: Difficulty, as: 'difficulty'},
+        {model: Pass, as: 'passes', attributes: ['id']},
+      ],
     });
 
     if (!level) {
       return res.status(404).send('Level or difficulty not found');
     }
 
-    const { song, artist, creator, difficulty: diff } = level.dataValues;
+    const {song, artist, creator, difficulty: diff} = level.dataValues;
     if (!diff) {
       return res.status(404).send('Difficulty not found');
     }
@@ -375,8 +386,8 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       return res.status(404).send('Video details not found');
     }
 
-    const { width, height } = THUMBNAIL_SIZES[size];
-    
+    const {width, height} = THUMBNAIL_SIZES[size];
+
     // Calculate dimensions
     const iconSize = Math.floor(height * 0.184);
     const titleFontSize = Math.floor(height * 0.09);
@@ -389,54 +400,69 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     const padding = Math.floor(height * 0.055);
 
     // Download background image
-    const backgroundBuffer = await axios.get(details.image, { responseType: 'arraybuffer' })
+    const backgroundBuffer = await axios
+      .get(details.image, {responseType: 'arraybuffer'})
       .then(response => response.data);
 
     // Download difficulty icon
-    const iconBuffer = await axios.get(diff.icon, { responseType: 'arraybuffer' })
+    const iconBuffer = await axios
+      .get(diff.icon, {responseType: 'arraybuffer'})
       .then(response => response.data);
 
     // Create SVGs for text overlays
-    const { svg: headerSvg, isWrapped } = createHeaderSVG({
-      width, height, headerHeight, song, artist, levelId,
-      iconSize, iconPadding, titleFontSize, artistFontSize, idFontSize
+    const {svg: headerSvg, isWrapped} = createHeaderSVG({
+      width,
+      height,
+      headerHeight,
+      song,
+      artist,
+      levelId,
+      iconSize,
+      iconPadding,
+      titleFontSize,
+      artistFontSize,
+      idFontSize,
     });
 
     const footerSvg = createFooterSVG({
-      width, height, footerHeight,
+      width,
+      height,
+      footerHeight,
       baseScore: diff.baseScore,
       passCount: level.passes?.length || 0,
-      creator, charter: level.charter,
-      vfxer: level.vfxer, team: level.team,
-      fontSize, idFontSize, padding
+      creator,
+      charter: level.charter,
+      vfxer: level.vfxer,
+      team: level.team,
+      fontSize,
+      idFontSize,
+      padding,
     });
 
     // Create the final image using sharp
     const image = await sharp(backgroundBuffer)
       .resize(width, height, {
         fit: 'cover',
-        position: 'center'
+        position: 'center',
       })
       .composite([
         {
           input: Buffer.from(headerSvg),
           top: 0,
-          left: 0
+          left: 0,
         },
         {
-          input: await sharp(iconBuffer)
-            .resize(iconSize, iconSize)
-            .toBuffer(),
+          input: await sharp(iconBuffer).resize(iconSize, iconSize).toBuffer(),
           top: isWrapped ? Math.floor(iconPadding * 1.5) : iconPadding,
-          left: iconPadding
+          left: iconPadding,
         },
         {
           input: Buffer.from(footerSvg),
           top: 0,
-          left: 0
-        }
+          left: 0,
+        },
       ])
-      .jpeg({ quality: 85 });
+      .jpeg({quality: 85});
 
     const buffer = await image.toBuffer();
 

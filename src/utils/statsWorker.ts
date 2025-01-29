@@ -1,4 +1,4 @@
-import { parentPort, isMainThread, threadId } from 'worker_threads';
+import {parentPort, isMainThread, threadId} from 'worker_threads';
 import {
   calculateRankedScore,
   calculateGeneralScore,
@@ -10,7 +10,7 @@ import {
   countWorldsFirstPasses,
   calculateTopDiff,
   calculateTop12KDiff,
-} from '../misc/PlayerStatsCalculator';
+} from '../misc/PlayerStatsCalculator.js';
 
 // Ensure we're in a worker thread
 if (isMainThread) {
@@ -27,18 +27,22 @@ console.log(`Worker ${threadId} initialized`);
 const port = parentPort;
 
 // Handle uncaught errors
-process.on('unhandledRejection', (error) => {
+process.on('unhandledRejection', error => {
   console.error(`Worker ${threadId} unhandled rejection:`, error);
-  port.postMessage({ error: error instanceof Error ? error.message : 'Unknown error in worker' });
+  port.postMessage({
+    error: error instanceof Error ? error.message : 'Unknown error in worker',
+  });
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   console.error(`Worker ${threadId} uncaught exception:`, error);
-  port.postMessage({ error: error instanceof Error ? error.message : 'Unknown error in worker' });
+  port.postMessage({
+    error: error instanceof Error ? error.message : 'Unknown error in worker',
+  });
 });
 
 // Main worker message handler
-port.on('message', async ({ scores, passes }) => {
+port.on('message', async ({scores, passes}) => {
   try {
     console.log(`Worker ${threadId} processing ${scores.length} scores`);
 
@@ -51,16 +55,36 @@ port.on('message', async ({ scores, passes }) => {
 
     // Calculate all stats in parallel with error handling
     const results = await Promise.all([
-      Promise.resolve().then(() => calculateRankedScore(validScores)).catch(() => 0),
-      Promise.resolve().then(() => calculateGeneralScore(validScores)).catch(() => 0),
-      Promise.resolve().then(() => calculatePPScore(validScores)).catch(() => 0),
-      Promise.resolve().then(() => calculateWFScore(validScores)).catch(() => 0),
-      Promise.resolve().then(() => calculate12KScore(validScores)).catch(() => 0),
-      Promise.resolve().then(() => calculateAverageXacc(validScores)).catch(() => 0),
-      Promise.resolve().then(() => countUniversalPasses(passes)).catch(() => 0),
-      Promise.resolve().then(() => countWorldsFirstPasses(passes)).catch(() => 0),
-      Promise.resolve().then(() => calculateTopDiff(passes)).catch(() => null),
-      Promise.resolve().then(() => calculateTop12KDiff(passes)).catch(() => null)
+      Promise.resolve()
+        .then(() => calculateRankedScore(validScores))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => calculateGeneralScore(validScores))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => calculatePPScore(validScores))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => calculateWFScore(validScores))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => calculate12KScore(validScores))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => calculateAverageXacc(validScores))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => countUniversalPasses(passes))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => countWorldsFirstPasses(passes))
+        .catch(() => 0),
+      Promise.resolve()
+        .then(() => calculateTopDiff(passes))
+        .catch(() => null),
+      Promise.resolve()
+        .then(() => calculateTop12KDiff(passes))
+        .catch(() => null),
     ]);
 
     const [
@@ -73,7 +97,7 @@ port.on('message', async ({ scores, passes }) => {
       universalPassCount,
       worldsFirstCount,
       topDiff,
-      top12kDiff
+      top12kDiff,
     ] = results;
 
     console.log(`Worker ${threadId} completed processing`);
@@ -88,12 +112,12 @@ port.on('message', async ({ scores, passes }) => {
       universalPasses: universalPassCount,
       worldsFirstCount,
       topDiff,
-      top12kDiff
+      top12kDiff,
     });
   } catch (error) {
     console.error(`Worker ${threadId} calculation error:`, error);
     port.postMessage({
-      error: error instanceof Error ? error.message : 'Unknown error in worker'
+      error: error instanceof Error ? error.message : 'Unknown error in worker',
     });
   }
-}); 
+});

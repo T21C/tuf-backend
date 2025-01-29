@@ -2,29 +2,38 @@
   "extends": "./node_modules/gts/tsconfig-google.json",
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
     "rootDir": "src",
-    "outDir": "build",
+    "outDir": "dist",
     "types": ["node", "express"],
     "sourceMap": true,
     "declaration": true,
     "allowJs": true,
     "resolveJsonModule": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
     "typeRoots": [
-      "./src/interfaces",
-      "./node_modules/@types"
+      "./node_modules/@types",
+      "./src/interfaces"
     ]
   },
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  },
   "include": [
-    "src/**/*"
+    "src/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.mts",
+    "src/**/*.mjs"
   ],
   "exclude": [
     "node_modules",
-    "build"
+    "dist"
   ]
 }

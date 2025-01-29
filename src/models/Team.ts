@@ -1,6 +1,6 @@
-import { DataTypes, Model } from 'sequelize';
-import sequelize from '../config/db';
-import { ICreator, ITeam } from '../interfaces/models';
+import {DataTypes, Model} from 'sequelize';
+import sequelize from '../config/db.js';
+import {ICreator, ITeam} from '../interfaces/models/index.js';
 
 class Team extends Model implements ITeam {
   declare id: number;
@@ -33,7 +33,7 @@ Team.init(
       },
       set(value: string[]) {
         this.setDataValue('aliases', JSON.stringify(value));
-      }
+      },
     },
     description: {
       type: DataTypes.TEXT,
@@ -46,13 +46,13 @@ Team.init(
     updatedAt: {
       type: DataTypes.DATE,
       allowNull: false,
-    }
+    },
   },
   {
     sequelize,
     modelName: 'Team',
     tableName: 'teams',
-  }
+  },
 );
 
-export default Team; 
+export default Team;

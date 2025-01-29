@@ -10,13 +10,7 @@ export const PATHS = {
   passesJson: './cache/passes.json',
 };
 
-export const SUPER_ADMINS = [
-  'teo_72',
-  'v0w4n',
-  'sjk04',
-  'dehznik',
-  'willtrm',
-];
+export const SUPER_ADMINS = ['teo_72', 'v0w4n', 'sjk04', 'dehznik', 'willtrm'];
 
 export const raterList = [
   '141348892204597248',
@@ -56,8 +50,8 @@ export const raterList = [
   '517921690307526656',
   '503447721839951884',
   '504996186487259157',
-  '899574858516672552'
-]
+  '899574858516672552',
+];
 
 export const emailBanList = [
   'bannedUser@example.com',

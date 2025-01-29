@@ -1,13 +1,12 @@
-import express, { Request, Response, Router } from 'express';
+import express, {Request, Response, Router} from 'express';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import { Auth } from '../middleware/auth';
-import upload from '../middleware/upload';
+import {fileURLToPath} from 'url';
+import upload from '../middleware/upload.js';
 import AdmZip from 'adm-zip';
-import { initializeFonts } from '../utils/fontLoader.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import {initializeFonts} from '../utils/fontLoader.js';
+import {exec} from 'child_process';
+import {promisify} from 'util';
 
 const execAsync = promisify(exec);
 
@@ -31,45 +30,47 @@ interface MulterRequest extends Request {
 function getAllJsonFiles(dir: string): string[] {
   let results: string[] = [];
   const list = fs.readdirSync(dir);
-  
+
   list.forEach(file => {
     const filePath = path.join(dir, file);
     const stat = fs.statSync(filePath);
-    
+
     if (stat.isDirectory()) {
       results = results.concat(getAllJsonFiles(filePath));
     } else if (path.extname(file) === '.json') {
       results.push(filePath);
     }
   });
-  
+
   return results;
 }
 
 // Get object keys recursively
 function getKeysRecursively(obj: any, prefix = ''): string[] {
   let keys: string[] = [];
-  
+
   for (const key in obj) {
     if (typeof obj[key] === 'object' && obj[key] !== null) {
-      keys = keys.concat(getKeysRecursively(obj[key], prefix ? `${prefix}.${key}` : key));
+      keys = keys.concat(
+        getKeysRecursively(obj[key], prefix ? `${prefix}.${key}` : key),
+      );
     } else {
       keys.push(prefix ? `${prefix}.${key}` : key);
     }
   }
-  
+
   return keys;
 }
 
 // Utility to find the first directory containing JSON files
 function findTranslationRoot(dir: string): string | null {
   const list = fs.readdirSync(dir);
-  
+
   // First check if current directory has JSON files
   if (list.some(file => path.extname(file) === '.json')) {
     return dir;
   }
-  
+
   // Then check immediate subdirectories
   for (const item of list) {
     const itemPath = path.join(dir, item);
@@ -80,18 +81,25 @@ function findTranslationRoot(dir: string): string | null {
       }
     }
   }
-  
+
   return null;
 }
 
 // Extract archive using 7z
-async function extractArchive(archivePath: string, outputDir: string): Promise<void> {
+async function extractArchive(
+  archivePath: string,
+  outputDir: string,
+): Promise<void> {
   try {
     // Use full path to 7z executable
-    await execAsync(`"${SEVEN_ZIP_PATH}" x "${archivePath}" -o"${outputDir}" -y`);
+    await execAsync(
+      `"${SEVEN_ZIP_PATH}" x "${archivePath}" -o"${outputDir}" -y`,
+    );
   } catch (error) {
     console.error('7z extraction error:', error);
-    throw new Error(`Failed to extract archive: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to extract archive: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -99,12 +107,12 @@ async function extractArchive(archivePath: string, outputDir: string): Promise<v
 function cleanupFiles(...paths: (string | undefined | null)[]): void {
   for (const path of paths) {
     if (!path) continue;
-    
+
     try {
       if (fs.existsSync(path)) {
         const stats = fs.statSync(path);
         if (stats.isDirectory()) {
-          fs.rmSync(path, { recursive: true, force: true });
+          fs.rmSync(path, {recursive: true, force: true});
         } else {
           fs.unlinkSync(path);
         }
@@ -115,139 +123,164 @@ function cleanupFiles(...paths: (string | undefined | null)[]): void {
   }
 }
 
+// Add all files from the English translations directory
+function addFilesToZip(currentPath: string, baseDir: string, zip: AdmZip) {
+  const files = fs.readdirSync(currentPath);
+
+  files.forEach(file => {
+    const filePath = path.join(currentPath, file);
+    const stat = fs.statSync(filePath);
+
+    if (stat.isDirectory()) {
+      addFilesToZip(filePath, baseDir, zip);
+    } else if (path.extname(file) === '.json') {
+      const relativePath = path.relative(baseDir, filePath);
+      zip.addLocalFile(filePath, path.dirname(relativePath));
+    }
+  });
+}
+
 // Verify translations endpoint
-router.post('/verify-translations', upload.single('translationZip'), async (req: MulterRequest, res: Response) => {
-  let tempDir: string | null = null;
-  const uploadedFile = req.file?.path;
-  
-  try {
-    if (!req.file || !uploadedFile) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
+router.post(
+  '/verify-translations',
+  upload.single('translationZip'),
+  async (req: MulterRequest, res: Response) => {
+    let tempDir: string | null = null;
+    const uploadedFile = req.file?.path;
 
-    // Create temporary directory with timestamp to avoid collisions
-    tempDir = path.join('uploads', 'temp_' + Date.now() + '_' + Math.random().toString(36).substring(7));
-    fs.mkdirSync(tempDir, { recursive: true });
-    
-    // Try to extract the archive using 7z
     try {
-      await extractArchive(uploadedFile, tempDir);
-    } catch (error) {
-      // If 7z fails, try adm-zip as fallback for zip files
+      if (!req.file || !uploadedFile) {
+        return res.status(400).json({error: 'No file uploaded'});
+      }
+
+      // Create temporary directory with timestamp to avoid collisions
+      tempDir = path.join(
+        'uploads',
+        'temp_' + Date.now() + '_' + Math.random().toString(36).substring(7),
+      );
+      fs.mkdirSync(tempDir, {recursive: true});
+
+      // Try to extract the archive using 7z
       try {
-        const zip = new AdmZip(uploadedFile);
-        zip.extractAllTo(tempDir, true);
-      } catch (zipError) {
+        await extractArchive(uploadedFile, tempDir);
+      } catch (error) {
+        // If 7z fails, try adm-zip as fallback for zip files
+        try {
+          const zip = new AdmZip(uploadedFile);
+          zip.extractAllTo(tempDir, true);
+        } catch (zipError) {
+          cleanupFiles(tempDir, uploadedFile);
+          throw new Error(
+            'Failed to extract archive with both 7z and zip methods. Please check the archive format.',
+          );
+        }
+      }
+
+      // Find the actual translation root directory
+      const translationRoot = findTranslationRoot(tempDir);
+      if (!translationRoot) {
         cleanupFiles(tempDir, uploadedFile);
-        throw new Error('Failed to extract archive with both 7z and zip methods. Please check the archive format.');
+        throw new Error(
+          'No translation files found in the archive. Make sure the archive contains JSON files either directly or in an immediate subdirectory',
+        );
       }
-    }
 
-    // Find the actual translation root directory
-    const translationRoot = findTranslationRoot(tempDir);
-    if (!translationRoot) {
+      // Get base English translations with correct path resolution
+      const enTranslationsDir = path.resolve(
+        __dirname,
+        '../../../client/src/translations/languages/en',
+      );
+
+      // Get all JSON files from both directories
+      const enFiles = getAllJsonFiles(enTranslationsDir);
+
+      const missingFiles: string[] = [];
+      const missingKeys: {[file: string]: string[]} = {};
+      const extraKeys: {[file: string]: string[]} = {};
+
+      // Compare files
+      enFiles.forEach(enFile => {
+        const relativePath = path.relative(enTranslationsDir, enFile);
+        const uploadedFile = path.join(translationRoot, relativePath);
+
+        if (!fs.existsSync(uploadedFile)) {
+          missingFiles.push(relativePath);
+          return;
+        }
+
+        // Compare keys in each file
+        const enContent = JSON.parse(fs.readFileSync(enFile, 'utf8'));
+        const uploadedContent = JSON.parse(
+          fs.readFileSync(uploadedFile, 'utf8'),
+        );
+
+        const enKeys = getKeysRecursively(enContent);
+        const uploadedKeys = getKeysRecursively(uploadedContent);
+
+        const missing = enKeys.filter(key => !uploadedKeys.includes(key));
+        const extra = uploadedKeys.filter(key => !enKeys.includes(key));
+
+        if (missing.length > 0) {
+          missingKeys[relativePath] = missing;
+        }
+        if (extra.length > 0) {
+          extraKeys[relativePath] = extra;
+        }
+      });
+
+      const result = {
+        missingFiles,
+        missingKeys,
+        extraKeys,
+        isValid:
+          missingFiles.length === 0 && Object.keys(missingKeys).length === 0,
+      };
+
+      // Clean up before sending response
       cleanupFiles(tempDir, uploadedFile);
-      throw new Error('No translation files found in the archive. Make sure the archive contains JSON files either directly or in an immediate subdirectory');
+
+      return res.json(result);
+    } catch (error) {
+      // Clean up on error
+      cleanupFiles(tempDir, uploadedFile);
+
+      console.error('Error verifying translations:', error);
+      return res.status(500).json({
+        error: 'Failed to verify translations',
+        details: error instanceof Error ? error.message : String(error),
+      });
     }
-
-    // Get base English translations with correct path resolution
-    const enTranslationsDir = path.resolve(__dirname, '../../../client/src/translations/languages/en');
-    
-    // Get all JSON files from both directories
-    const enFiles = getAllJsonFiles(enTranslationsDir);
-    const uploadedFiles = getAllJsonFiles(translationRoot);
-
-    const missingFiles: string[] = [];
-    const missingKeys: { [file: string]: string[] } = {};
-    const extraKeys: { [file: string]: string[] } = {};
-
-    // Compare files
-    enFiles.forEach(enFile => {
-      const relativePath = path.relative(enTranslationsDir, enFile);
-      const uploadedFile = path.join(translationRoot, relativePath);
-
-      if (!fs.existsSync(uploadedFile)) {
-        missingFiles.push(relativePath);
-        return;
-      }
-
-      // Compare keys in each file
-      const enContent = JSON.parse(fs.readFileSync(enFile, 'utf8'));
-      const uploadedContent = JSON.parse(fs.readFileSync(uploadedFile, 'utf8'));
-
-      const enKeys = getKeysRecursively(enContent);
-      const uploadedKeys = getKeysRecursively(uploadedContent);
-
-      const missing = enKeys.filter(key => !uploadedKeys.includes(key));
-      const extra = uploadedKeys.filter(key => !enKeys.includes(key));
-
-      if (missing.length > 0) {
-        missingKeys[relativePath] = missing;
-      }
-      if (extra.length > 0) {
-        extraKeys[relativePath] = extra;
-      }
-    });
-
-    const result = {
-      missingFiles,
-      missingKeys,
-      extraKeys,
-      isValid: missingFiles.length === 0 && Object.keys(missingKeys).length === 0
-    };
-
-    // Clean up before sending response
-    cleanupFiles(tempDir, uploadedFile);
-    
-    return res.json(result);
-
-  } catch (error) {
-    // Clean up on error
-    cleanupFiles(tempDir, uploadedFile);
-    
-    console.error('Error verifying translations:', error);
-    return res.status(500).json({
-      error: 'Failed to verify translations',
-      details: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
+  },
+);
 
 // Download English translations endpoint
 router.get('/download-translations', async (req: Request, res: Response) => {
   let tempZipPath: string | null = null;
-  
+
   try {
     // Update path resolution for English translations
-    const enTranslationsDir = path.resolve(__dirname, '../../../client/src/translations/languages/en');
-    tempZipPath = path.join('uploads', 'en-translations-' + Date.now() + '_' + Math.random().toString(36).substring(7) + '.zip');
-    
+    const enTranslationsDir = path.resolve(
+      __dirname,
+      '../../../client/src/translations/languages/en',
+    );
+    tempZipPath = path.join(
+      'uploads',
+      'en-translations-' +
+        Date.now() +
+        '_' +
+        Math.random().toString(36).substring(7) +
+        '.zip',
+    );
+
     const zip = new AdmZip();
-    
-    // Add all files from the English translations directory
-    function addFilesToZip(currentPath: string, baseDir: string) {
-      const files = fs.readdirSync(currentPath);
-      
-      files.forEach(file => {
-        const filePath = path.join(currentPath, file);
-        const stat = fs.statSync(filePath);
-        
-        if (stat.isDirectory()) {
-          addFilesToZip(filePath, baseDir);
-        } else if (path.extname(file) === '.json') {
-          const relativePath = path.relative(baseDir, filePath);
-          zip.addLocalFile(filePath, path.dirname(relativePath));
-        }
-      });
-    }
-    
-    addFilesToZip(enTranslationsDir, enTranslationsDir);
-    
+
+    addFilesToZip(enTranslationsDir, enTranslationsDir, zip);
+
     // Write the zip file
     zip.writeZip(tempZipPath);
-    
+
     // Send the file and ensure cleanup
-    res.download(tempZipPath, 'en-translations.zip', (err) => {
+    res.download(tempZipPath, 'en-translations.zip', err => {
       cleanupFiles(tempZipPath);
       if (err) {
         console.error('Error sending translations zip:', err);
@@ -258,22 +291,22 @@ router.get('/download-translations', async (req: Request, res: Response) => {
     console.error('Error creating translations zip:', error);
     res.status(500).json({
       error: 'Failed to create translations zip',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
 
 // Language configuration
 const languages = {
-  en: { display: "English", countryCode: "us", implemented: true },
-  kr: { display: "한국어", countryCode: "kr", implemented: false },
-  cn: { display: "中文", countryCode: "cn", implemented: false },
-  id: { display: "Bahasa Indonesia", countryCode: "id", implemented: false },
-  jp: { display: "日本語", countryCode: "jp", implemented: false },
-  ru: { display: "Русский", countryCode: "ru", implemented: false },
-  de: { display: "Deutsch", countryCode: "de", implemented: false },
-  fr: { display: "Français", countryCode: "fr", implemented: false },
-  es: { display: "Español", countryCode: "es", implemented: false }
+  en: {display: 'English', countryCode: 'us', implemented: true},
+  kr: {display: '한국어', countryCode: 'kr', implemented: false},
+  cn: {display: '中文', countryCode: 'cn', implemented: false},
+  id: {display: 'Bahasa Indonesia', countryCode: 'id', implemented: false},
+  jp: {display: '日本語', countryCode: 'jp', implemented: false},
+  ru: {display: 'Русский', countryCode: 'ru', implemented: false},
+  de: {display: 'Deutsch', countryCode: 'de', implemented: false},
+  fr: {display: 'Français', countryCode: 'fr', implemented: false},
+  es: {display: 'Español', countryCode: 'es', implemented: false},
 };
 
 // Get list of available languages
@@ -281,15 +314,15 @@ router.get('/languages', (req: Request, res: Response) => {
   try {
     const languagesInfo = Object.entries(languages).map(([code, info]) => ({
       code,
-      ...info
+      ...info,
     }));
-    
+
     res.json(languagesInfo);
   } catch (error) {
     console.error('Error getting languages list:', error);
     res.status(500).json({
       error: 'Failed to get languages list',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -298,65 +331,59 @@ router.get('/languages', (req: Request, res: Response) => {
 type LanguageCode = keyof typeof languages;
 
 // Download translations for a specific language
-router.get('/download-translations/:lang', async (req: Request, res: Response) => {
-  const { lang } = req.params;
-  let tempZipPath: string | null = null;
-  
-  try {
-    if (!languages[lang as LanguageCode]) {
-      return res.status(404).json({ error: 'Language not found' });
-    }
+router.get(
+  '/download-translations/:lang',
+  async (req: Request, res: Response) => {
+    const {lang} = req.params;
+    let tempZipPath: string | null = null;
 
-    // Update path resolution for translations
-    const translationsDir = path.resolve(__dirname, `../../../client/src/translations/languages/${lang}`);
-    
-    // Check if directory exists
-    if (!fs.existsSync(translationsDir)) {
-      return res.status(404).json({ error: 'Translations not found for this language' });
-    }
-    
-    tempZipPath = path.join('uploads', `${lang}-translations-${Date.now()}_${Math.random().toString(36).substring(7)}.zip`);
-    
-    const zip = new AdmZip();
-    
-    // Add all files from the translations directory
-    function addFilesToZip(currentPath: string, baseDir: string) {
-      const files = fs.readdirSync(currentPath);
-      
-      files.forEach(file => {
-        const filePath = path.join(currentPath, file);
-        const stat = fs.statSync(filePath);
-        
-        if (stat.isDirectory()) {
-          addFilesToZip(filePath, baseDir);
-        } else if (path.extname(file) === '.json') {
-          const relativePath = path.relative(baseDir, filePath);
-          zip.addLocalFile(filePath, path.dirname(relativePath));
+    try {
+      if (!languages[lang as LanguageCode]) {
+        return res.status(404).json({error: 'Language not found'});
+      }
+
+      // Update path resolution for translations
+      const translationsDir = path.resolve(
+        __dirname,
+        `../../../client/src/translations/languages/${lang}`,
+      );
+
+      // Check if directory exists
+      if (!fs.existsSync(translationsDir)) {
+        return res
+          .status(404)
+          .json({error: 'Translations not found for this language'});
+      }
+
+      tempZipPath = path.join(
+        'uploads',
+        `${lang}-translations-${Date.now()}_${Math.random().toString(36).substring(7)}.zip`,
+      );
+
+      const zip = new AdmZip();
+
+      addFilesToZip(translationsDir, translationsDir, zip);
+
+      // Write the zip file
+      zip.writeZip(tempZipPath);
+
+      // Send the file and ensure cleanup
+      return res.download(tempZipPath, `${lang}-translations.zip`, err => {
+        cleanupFiles(tempZipPath);
+        if (err) {
+          console.error(`Error sending ${lang} translations zip:`, err);
         }
       });
-    }
-    
-    addFilesToZip(translationsDir, translationsDir);
-    
-    // Write the zip file
-    zip.writeZip(tempZipPath);
-    
-    // Send the file and ensure cleanup
-    return res.download(tempZipPath, `${lang}-translations.zip`, (err) => {
+    } catch (error) {
       cleanupFiles(tempZipPath);
-      if (err) {
-        console.error(`Error sending ${lang} translations zip:`, err);
-      }
-    });
-  } catch (error) {
-    cleanupFiles(tempZipPath);
-    console.error(`Error creating ${lang} translations zip:`, error);
-    res.status(500).json({
-      error: 'Failed to create translations zip',
-      details: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
+      console.error(`Error creating ${lang} translations zip:`, error);
+      res.status(500).json({
+        error: 'Failed to create translations zip',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
 
 // Serve the utility navigation page
 router.get('/', (req: Request, res: Response) => {
@@ -844,4 +871,4 @@ router.get('/', (req: Request, res: Response) => {
   `);
 });
 
-export default router; 
+export default router;

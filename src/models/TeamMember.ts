@@ -1,5 +1,5 @@
-import { DataTypes, Model, Optional } from 'sequelize';
-import sequelize from '../config/db';
+import {DataTypes, Model, Optional} from 'sequelize';
+import sequelize from '../config/db.js';
 
 interface TeamMemberAttributes {
   id: number;
@@ -9,9 +9,15 @@ interface TeamMemberAttributes {
   updatedAt: Date;
 }
 
-type TeamMemberCreationAttributes = Optional<TeamMemberAttributes, 'id' | 'createdAt' | 'updatedAt'>;
+type TeamMemberCreationAttributes = Optional<
+  TeamMemberAttributes,
+  'id' | 'createdAt' | 'updatedAt'
+>;
 
-class TeamMember extends Model<TeamMemberAttributes, TeamMemberCreationAttributes> implements TeamMemberAttributes {
+class TeamMember
+  extends Model<TeamMemberAttributes, TeamMemberCreationAttributes>
+  implements TeamMemberAttributes
+{
   declare id: number;
   declare teamId: number;
   declare creatorId: number;
@@ -31,16 +37,16 @@ TeamMember.init(
       allowNull: false,
       references: {
         model: 'teams',
-        key: 'id'
-      }
+        key: 'id',
+      },
     },
     creatorId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
         model: 'creators',
-        key: 'id'
-      }
+        key: 'id',
+      },
     },
     createdAt: {
       type: DataTypes.DATE,
@@ -49,7 +55,7 @@ TeamMember.init(
     updatedAt: {
       type: DataTypes.DATE,
       allowNull: false,
-    }
+    },
   },
   {
     sequelize,
@@ -57,10 +63,10 @@ TeamMember.init(
     indexes: [
       {
         unique: true,
-        fields: ['teamId', 'creatorId']
-      }
-    ]
-  }
+        fields: ['teamId', 'creatorId'],
+      },
+    ],
+  },
 );
 
-export default TeamMember; 
+export default TeamMember;

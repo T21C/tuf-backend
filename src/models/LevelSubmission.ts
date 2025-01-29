@@ -1,6 +1,6 @@
 import {DataTypes} from 'sequelize';
-import sequelize from '../config/db';
-import BaseModel from './BaseModel';
+import sequelize from '../config/db.js';
+import BaseModel from './BaseModel.js';
 
 class LevelSubmission extends BaseModel {
   declare artist: string;

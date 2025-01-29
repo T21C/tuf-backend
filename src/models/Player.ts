@@ -5,10 +5,10 @@ import {
   HasManyGetAssociationsMixin,
   HasOneGetAssociationMixin,
 } from 'sequelize';
-import sequelize from '../config/db';
-import {IDifficulty, IPass, IPlayer} from '../interfaces/models';
-import Pass from './Pass';
-import User from './User';
+import sequelize from '../config/db.js';
+import {IDifficulty, IPass, IPlayer} from '../interfaces/models/index.js';
+import Pass from './Pass.js';
+import User from './User.js';
 
 type PlayerCreationAttributes = Optional<
   IPlayer,

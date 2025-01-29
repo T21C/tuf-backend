@@ -1,6 +1,12 @@
 {
-  "extends": [
-    "./node_modules/gts/"
-  ],
+  "extends": "./node_modules/gts/",
+  "rules": {
+    "@typescript-eslint/no-namespace": "off",
+    "@typescript-eslint/no-explicit-any": "off",
+    // Add any other rules you want to disable here
+    "prettier/prettier": ["error", {
+      "endOfLine": "auto"
+    }]
+  },
   "ignorePatterns": ["dist/**/*", "build/**/*", "node_modules/**/*"]
 }

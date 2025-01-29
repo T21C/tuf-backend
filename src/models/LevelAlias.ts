@@ -6,8 +6,8 @@ import {
   CreationOptional,
   ForeignKey,
 } from 'sequelize';
-import sequelize from '../config/db';
-import Level from './Level';
+import sequelize from '../config/db.js';
+import Level from './Level.js';
 
 class LevelAlias extends Model<
   InferAttributes<LevelAlias>,
@@ -67,4 +67,4 @@ LevelAlias.init(
   },
 );
 
-export default LevelAlias; 
+export default LevelAlias;

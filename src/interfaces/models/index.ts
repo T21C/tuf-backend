@@ -1,5 +1,5 @@
 import {Model} from 'sequelize';
-import { UserAttributes } from '../../models/User';
+import {UserAttributes} from '../../models/User.js';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -17,7 +17,7 @@ export interface IBaseModelAttributes {
 export interface ICreator extends IBaseModel {
   name: string;
   aliases: string[];
-} 
+}
 
 // Level interface
 export interface ILevel extends IBaseModel {
@@ -190,7 +190,7 @@ export interface IPassSubmission extends IBaseModel {
   submitterDiscordPfp?: string;
   status: 'pending' | 'approved' | 'declined';
   assignedPlayerId?: number | null;
-  
+
   // Associations
   assignedPlayer?: IPlayer;
   judgements?: IPassSubmissionJudgements;
@@ -202,5 +202,5 @@ export interface ITeam extends IBaseModel {
   name: string;
   members: ICreator[];
   aliases: string[];
-  description?: string | null; 
+  description?: string | null;
 }

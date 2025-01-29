@@ -1,26 +1,23 @@
-import {Request, Response, Router} from 'express';
-import {Op, Order, OrderItem, Sequelize, fn, literal, col, Transaction} from 'sequelize';
-import Level from '../../models/Level';
-import Pass from '../../models/Pass';
-import Rating from '../../models/Rating';
-import Player from '../../models/Player';
-import Judgement from '../../models/Judgement';
-import {Auth} from '../../middleware/auth';
-import {getIO} from '../../utils/socket';
-import sequelize from '../../config/db';
-import RatingDetail from '../../models/RatingDetail';
-import Difficulty from '../../models/Difficulty';
-import {Cache} from '../../middleware/cache';
-import { sseManager } from '../../utils/sse';
-import { getScoreV2 } from '../../misc/CalcScore';
-import { calcAcc } from '../../misc/CalcAcc';
-import Team from '../../models/Team';
-import Creator from '../../models/Creator';
-import LevelCredit from '../../models/LevelCredit';
-import LevelAlias from '../../models/LevelAlias';
-import CreatorAlias from '../../models/CreatorAlias';
-import {PlayerStatsService} from '../../services/PlayerStatsService';
-
+import {Op, Order, OrderItem, literal, Transaction} from 'sequelize';
+import Level from '../../models/Level.js';
+import Pass from '../../models/Pass.js';
+import Rating from '../../models/Rating.js';
+import Player from '../../models/Player.js';
+import Judgement from '../../models/Judgement.js';
+import {Auth} from '../../middleware/auth.js';
+import {getIO} from '../../utils/socket.js';
+import sequelize from '../../config/db.js';
+import RatingDetail from '../../models/RatingDetail.js';
+import Difficulty from '../../models/Difficulty.js';
+import {sseManager} from '../../utils/sse.js';
+import {getScoreV2} from '../../misc/CalcScore.js';
+import {calcAcc} from '../../misc/CalcAcc.js';
+import Team from '../../models/Team.js';
+import Creator from '../../models/Creator.js';
+import LevelCredit from '../../models/LevelCredit.js';
+import LevelAlias from '../../models/LevelAlias.js';
+import {PlayerStatsService} from '../../services/PlayerStatsService.js';
+import {Router, Request, Response} from 'express';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -58,7 +55,7 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
     return {
       field: exactMatch[1].toLowerCase(),
       value: exactMatch[2].trim(),
-      exact: true
+      exact: true,
     };
   }
 
@@ -68,7 +65,7 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
     return {
       field: partialMatch[1].toLowerCase(),
       value: partialMatch[2].trim(),
-      exact: false
+      exact: false,
     };
   }
 
@@ -78,72 +75,72 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
 // Helper function to parse the entire search query
 const parseSearchQuery = (query: string): SearchGroup[] => {
   if (!query) return [];
-  
-  // Split by | for OR groups and handle trimming here
-  const groups = query.split('|').map(group => {
-    // Split by comma for AND terms within each group
-    const terms = group.split(',')
-      .map(term => term.trim())
-      .filter(term => term.length > 0)
-      .map(term => {
-        const fieldSearch = parseFieldSearch(term);
-        if (fieldSearch) {
-          return fieldSearch;
-        }
-        return {
-          field: 'any',
-          value: term.trim(),
-          exact: false
-        };
-      });
 
-    return {
-      terms,
-      operation: 'AND' as const
-    };
-  }).filter(group => group.terms.length > 0); // Remove empty groups
+  // Split by | for OR groups and handle trimming here
+  const groups = query
+    .split('|')
+    .map(group => {
+      // Split by comma for AND terms within each group
+      const terms = group
+        .split(',')
+        .map(term => term.trim())
+        .filter(term => term.length > 0)
+        .map(term => {
+          const fieldSearch = parseFieldSearch(term);
+          if (fieldSearch) {
+            return fieldSearch;
+          }
+          return {
+            field: 'any',
+            value: term.trim(),
+            exact: false,
+          };
+        });
+
+      return {
+        terms,
+        operation: 'AND' as const,
+      };
+    })
+    .filter(group => group.terms.length > 0); // Remove empty groups
 
   return groups;
 };
 
 // Helper function to build field-specific search condition
-const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any> => {
-  const { field, value, exact } = fieldSearch;
-  
+const buildFieldSearchCondition = async (
+  fieldSearch: FieldSearch,
+): Promise<any> => {
+  const {field, value, exact} = fieldSearch;
+
   // Handle special characters in the search value
-  const searchValue = exact ? 
-    value : 
-    `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
 
   // Create the base search condition
-  const searchCondition = { [exact ? Op.eq : Op.like]: searchValue };
+  const searchCondition = {[exact ? Op.eq : Op.like]: searchValue};
 
-  
   // For field-specific searches
   if (field !== 'any') {
     const condition = {
-      [field]: searchCondition
+      [field]: searchCondition,
     };
-    
+
     // Also search in aliases for song and artist fields
     if (field === 'song' || field === 'artist') {
       const aliasMatches = await LevelAlias.findAll({
         where: {
           field,
-          [Op.or]: [
-            { alias: searchCondition },
-            { originalValue: searchCondition }
-          ]
+          [Op.or]: [{alias: searchCondition}, {originalValue: searchCondition}],
         },
-        attributes: ['levelId']
+        attributes: ['levelId'],
       });
 
       if (aliasMatches.length > 0) {
         const result = {
           [Op.or]: [
             condition,
-            { id: { [Op.in]: aliasMatches.map(a => a.levelId) } }
-          ]
+            {id: {[Op.in]: aliasMatches.map(a => a.levelId)}},
+          ],
         };
         return result;
       }
@@ -155,21 +152,20 @@ const buildFieldSearchCondition = async (fieldSearch: FieldSearch): Promise<any>
   // For general searches (field === 'any')
   const aliasMatches = await LevelAlias.findAll({
     where: {
-      [Op.or]: [
-        { alias: searchCondition },
-        { originalValue: searchCondition }
-      ]
+      [Op.or]: [{alias: searchCondition}, {originalValue: searchCondition}],
     },
-    attributes: ['levelId']
+    attributes: ['levelId'],
   });
 
   const result = {
     [Op.or]: [
-      { song: searchCondition },
-      { artist: searchCondition },
-      { charter: searchCondition },
-      ...(aliasMatches.length > 0 ? [{ id: { [Op.in]: aliasMatches.map(a => a.levelId) } }] : [])
-    ]
+      {song: searchCondition},
+      {artist: searchCondition},
+      {charter: searchCondition},
+      ...(aliasMatches.length > 0
+        ? [{id: {[Op.in]: aliasMatches.map(a => a.levelId)}}]
+        : []),
+    ],
   };
   return result;
 };
@@ -181,54 +177,46 @@ const buildWhereClause = async (query: any) => {
   // Handle deleted filter
   if (query.deletedFilter === 'hide') {
     conditions.push({
-      [Op.and]: [
-        {isDeleted: false},
-        {isHidden: false}
-      ]
+      [Op.and]: [{isDeleted: false}, {isHidden: false}],
     });
   } else if (query.deletedFilter === 'only') {
     conditions.push({
-      [Op.or]: [
-        {isDeleted: true},
-        {isHidden: true}
-      ]
+      [Op.or]: [{isDeleted: true}, {isHidden: true}],
     });
   }
 
   // Handle cleared filter
   if (query.clearedFilter && query.clearedFilter === 'hide') {
     conditions.push({
-      clears: 0
+      clears: 0,
     });
   } else if (query.clearedFilter && query.clearedFilter === 'only') {
     conditions.push({
       clears: {
-        [Op.gt]: 0
-      }
+        [Op.gt]: 0,
+      },
     });
   }
 
   // Handle text search with new parsing
   if (query.query) {
     const searchGroups = parseSearchQuery(query.query.trim());
-    
+
     if (searchGroups.length > 0) {
       const orConditions = await Promise.all(
         searchGroups.map(async group => {
           const andConditions = await Promise.all(
-            group.terms.map(term => buildFieldSearchCondition(term))
+            group.terms.map(term => buildFieldSearchCondition(term)),
           );
-          
-          return andConditions.length === 1 
-            ? andConditions[0] 
-            : { [Op.and]: andConditions };
-        })
+
+          return andConditions.length === 1
+            ? andConditions[0]
+            : {[Op.and]: andConditions};
+        }),
       );
 
       conditions.push(
-        orConditions.length === 1 
-          ? orConditions[0] 
-          : { [Op.or]: orConditions }
+        orConditions.length === 1 ? orConditions[0] : {[Op.or]: orConditions},
       );
     }
   }
@@ -240,9 +228,6 @@ const buildWhereClause = async (query: any) => {
 
   return where;
 };
-
-// Update the type definition
-type OrderOption = OrderItem | OrderItem[];
 
 // Get sort options
 const getSortOptions = (sort?: string): Order => {
@@ -297,8 +282,12 @@ router.get('/', async (req: Request, res: Response) => {
 
       // Generate a random seed based on the current hour to maintain consistency for a period
       const now = new Date();
-      let seedValue = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate() + now.getHours();
-      
+      let seedValue =
+        now.getFullYear() * 10000 +
+        (now.getMonth() + 1) * 100 +
+        now.getDate() +
+        now.getHours();
+
       // Use the seed to shuffle the array consistently
       const shuffledIds = allIds
         .map(level => level.id)
@@ -333,7 +322,9 @@ router.get('/', async (req: Request, res: Response) => {
           },
         ],
         // Use FIELD function to maintain the shuffled order
-        order: [[literal(`FIELD(id, ${paginatedIds.join(',')})`), 'ASC']] as OrderItem[],
+        order: [
+          [literal(`FIELD(id, ${paginatedIds.join(',')})`), 'ASC'],
+        ] as OrderItem[],
       });
 
       return res.json({
@@ -389,12 +380,12 @@ router.get('/', async (req: Request, res: Response) => {
           include: [
             {
               model: Creator,
-              as: 'creator'
-            }
-          ]
-        }
+              as: 'creator',
+            },
+          ],
+        },
       ],
-      order
+      order,
     });
 
     return res.json({
@@ -413,7 +404,7 @@ router.get('/byId/:id', async (req: Request, res: Response) => {
   }
   const level = await Level.findOne({
     where: {id: parseInt(req.params.id)},
-    
+
     include: [
       {
         model: Difficulty,
@@ -436,7 +427,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     // Use a READ COMMITTED transaction to avoid locks from updates
     const transaction = await sequelize.transaction({
-      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED
+      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
     });
 
     try {
@@ -473,17 +464,17 @@ router.get('/:id', async (req: Request, res: Response) => {
             include: [
               {
                 model: Creator,
-                as: 'creator'
-              }
-            ]
+                as: 'creator',
+              },
+            ],
           },
           {
             model: Team,
             as: 'teamObject',
-            required: false
-          }
+            required: false,
+          },
         ],
-        transaction
+        transaction,
       });
 
       await transaction.commit();
@@ -507,7 +498,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   // Start a transaction with REPEATABLE READ to ensure consistency during the update
   const transaction = await sequelize.transaction({
-    isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ
+    isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ,
   });
 
   try {
@@ -524,10 +515,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           model: Difficulty,
           as: 'difficulty',
           required: false,
-        }
+        },
       ],
       transaction,
-      lock: true // Lock this row for update
+      lock: true, // Lock this row for update
     });
 
     if (!level) {
@@ -535,17 +526,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // Get the new difficulty if it's being changed
-    let difficulty = level.difficulty;
-    if (req.body.diffId !== undefined && req.body.diffId !== level.diffId) {
-      const newDifficulty = await Difficulty.findByPk(req.body.diffId, { transaction });
-      if (newDifficulty) {
-        difficulty = newDifficulty;
-      }
-    }
-
     // Handle rating creation/deletion if toRate is changing
-    if (typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate) {
+    if (
+      typeof req.body.toRate === 'boolean' &&
+      req.body.toRate !== level.toRate
+    ) {
       if (req.body.toRate) {
         // Create new rating if toRate is being set to true
         const existingRating = await Rating.findOne({
@@ -555,7 +540,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
         if (!existingRating) {
           // Check if rerateNum starts with 'p' or 'P' followed by a number
-          const lowDiff = req.body.rerateNum ? /^[pP]\d/.test(req.body.rerateNum) : false;
+          const lowDiff = req.body.rerateNum
+            ? /^[pP]\d/.test(req.body.rerateNum)
+            : false;
 
           await Rating.create(
             {
@@ -594,8 +581,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     });
 
     if (existingRating) {
-      const lowDiff = /^[pP]\d/.test(req.body.rerateNum) || /^[pP]\d/.test(existingRating.dataValues.requesterFR);
-      await existingRating.update({ lowDiff }, { transaction });
+      const lowDiff =
+        /^[pP]\d/.test(req.body.rerateNum) ||
+        /^[pP]\d/.test(existingRating.dataValues.requesterFR);
+      await existingRating.update({lowDiff}, {transaction});
     }
 
     // Handle flag changes
@@ -607,7 +596,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     if (req.body.isDeleted === true) {
       isDeleted = true;
       isHidden = true;
-    } 
+    }
     // If isDeleted is being set to false, also set isHidden to false
     else if (req.body.isDeleted === false) {
       isDeleted = false;
@@ -633,7 +622,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     }
 
     let previousDiffId = req.body.previousDiffId ?? level.diffId ?? 0;
-    previousDiffId = previousDiffId === req.body.diffId ? level.previousDiffId : previousDiffId;
+    previousDiffId =
+      previousDiffId === req.body.diffId
+        ? level.previousDiffId
+        : previousDiffId;
     // Clean up the update data to handle null values correctly
     const updateData = {
       song: req.body.song,
@@ -644,7 +636,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       team: req.body.team,
       diffId: req.body.diffId || 0,
       previousDiffId,
-      baseScore: req.body.baseScore === '' ? null : (req.body.baseScore ?? level.baseScore),
+      baseScore:
+        req.body.baseScore === ''
+          ? null
+          : (req.body.baseScore ?? level.baseScore),
       videoLink: req.body.videoLink,
       dlLink: req.body.dlLink || null,
       workshopLink: req.body.workshopLink,
@@ -655,13 +650,13 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       isDeleted,
       isHidden,
       isAnnounced,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
 
     // Update the level
     await Level.update(updateData, {
       where: {id: levelId},
-      transaction
+      transaction,
     });
 
     // Fetch the updated record with minimal associations for the response
@@ -697,70 +692,81 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       try {
         // Start a new transaction for score recalculations
         const recalcTransaction = await sequelize.transaction({
-          isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED
+          isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
         });
 
         try {
           // If baseScore or diffId changed, recalculate all passes for this level
-          if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+          if (
+            req.body.baseScore !== undefined ||
+            req.body.diffId !== undefined
+          ) {
             const passes = await Pass.findAll({
-              where: { levelId },
+              where: {levelId},
               include: [
                 {
                   model: Judgement,
-                  as: 'judgements'
-                }
+                  as: 'judgements',
+                },
               ],
-              transaction: recalcTransaction
+              transaction: recalcTransaction,
             });
 
             // Process passes in batches to avoid memory issues
             const batchSize = 100;
             for (let i = 0; i < passes.length; i += batchSize) {
               const batch = passes.slice(i, i + batchSize);
-              await Promise.all(batch.map(async (passData) => {
-                const pass = passData.dataValues;
-                if (!pass.judgements) return;
+              await Promise.all(
+                batch.map(async passData => {
+                  const pass = passData.dataValues;
+                  if (!pass.judgements) return;
 
-                const accuracy = calcAcc(pass.judgements);
+                  const accuracy = calcAcc(pass.judgements);
 
-                // Get the current difficulty data
-                const currentDifficulty = await Difficulty.findByPk(updateData.diffId || pass.level?.diffId, {
-                  transaction: recalcTransaction
-                });
+                  // Get the current difficulty data
+                  const currentDifficulty = await Difficulty.findByPk(
+                    updateData.diffId || pass.level?.diffId,
+                    {
+                      transaction: recalcTransaction,
+                    },
+                  );
 
-                if (!currentDifficulty) {
-                  console.error(`No difficulty found for pass ${pass.id}`);
-                  return;
-                }
-
-                // Create properly structured level data for score calculation
-                const levelData = {
-                  baseScore: updateData.baseScore || pass.level?.baseScore || 0,
-                  difficulty: currentDifficulty
-                };
-
-                const scoreV2 = getScoreV2(
-                  {
-                    speed: pass.speed || 1,
-                    judgements: pass.judgements,
-                    isNoHoldTap: pass.isNoHoldTap || false,
-                  },
-                  levelData
-                );
-
-                await Pass.update(
-                  { accuracy, scoreV2 },
-                  {
-                    where: { id: pass.id },
-                    transaction: recalcTransaction
+                  if (!currentDifficulty) {
+                    console.error(`No difficulty found for pass ${pass.id}`);
+                    return;
                   }
-                );
-              }));
+
+                  // Create properly structured level data for score calculation
+                  const levelData = {
+                    baseScore:
+                      updateData.baseScore || pass.level?.baseScore || 0,
+                    difficulty: currentDifficulty,
+                  };
+
+                  const scoreV2 = getScoreV2(
+                    {
+                      speed: pass.speed || 1,
+                      judgements: pass.judgements,
+                      isNoHoldTap: pass.isNoHoldTap || false,
+                    },
+                    levelData,
+                  );
+
+                  await Pass.update(
+                    {accuracy, scoreV2},
+                    {
+                      where: {id: pass.id},
+                      transaction: recalcTransaction,
+                    },
+                  );
+                }),
+              );
             }
 
             // Schedule stats update for affected players
-            const affectedPlayerIds = new Set(passes.map(pass => pass.playerId));
+            const affectedPlayerIds = new Set(
+              passes.map(pass => pass.playerId),
+            );
             affectedPlayerIds.forEach(playerId => {
               playerStatsService.scheduleUpdate(playerId);
             });
@@ -770,18 +776,26 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
           // Schedule cache update instead of forcing immediate update
           if (req.leaderboardCache) {
-            req.leaderboardCache.forceUpdate(false);
+            req.leaderboardCache
+              .forceUpdate(false)
+              .then(() => {
+                return;
+              })
+              .catch(error => {
+                console.error('Error updating leaderboard cache:', error);
+                return;
+              });
           }
-          
+
           // Broadcast updates
-          sseManager.broadcast({ type: 'ratingUpdate' });
-          sseManager.broadcast({ type: 'levelUpdate' });
-          sseManager.broadcast({ 
+          sseManager.broadcast({type: 'ratingUpdate'});
+          sseManager.broadcast({type: 'levelUpdate'});
+          sseManager.broadcast({
             type: 'passUpdate',
             data: {
               levelId,
-              action: 'levelUpdate'
-            }
+              action: 'levelUpdate',
+            },
           });
         } catch (error) {
           await recalcTransaction.rollback();
@@ -790,7 +804,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       } catch (error) {
         console.error('Error in async operations after level update:', error);
       }
-    })();
+    })()
+      .then(() => {
+        return;
+      })
+      .catch(error => {
+        console.error('Error in async operations after level update:', error);
+        return;
+      });
     return;
   } catch (error) {
     await transaction.rollback();
@@ -832,12 +853,12 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
 
       // Then delete the rating and update level
       await existingRating.destroy({transaction});
-      
+
       // Update level with consistent announcement flag handling
       await Level.update(
         {
           toRate: false,
-          isAnnounced: false // Reset announcement flag when removing from rating
+          isAnnounced: false, // Reset announcement flag when removing from rating
         },
         {
           where: {id: levelId},
@@ -846,11 +867,11 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
       );
 
       await transaction.commit();
-      
+
       // Broadcast updates
-      sseManager.broadcast({ type: 'ratingUpdate' });
-      sseManager.broadcast({ type: 'levelUpdate' });
-      
+      sseManager.broadcast({type: 'ratingUpdate'});
+      sseManager.broadcast({type: 'levelUpdate'});
+
       return res.json({
         message: 'Rating removed successfully',
         toRate: false,
@@ -872,7 +893,7 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
       await Level.update(
         {
           toRate: true,
-          isAnnounced: true // Set announcement flag when adding to rating
+          isAnnounced: true, // Set announcement flag when adding to rating
         },
         {
           where: {id: levelId},
@@ -881,11 +902,11 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
       );
 
       await transaction.commit();
-      
+
       // Broadcast updates
-      sseManager.broadcast({ type: 'ratingUpdate' });
-      sseManager.broadcast({ type: 'levelUpdate' });
-      
+      sseManager.broadcast({type: 'ratingUpdate'});
+      sseManager.broadcast({type: 'levelUpdate'});
+
       return res.json({
         message: 'Rating created successfully',
         toRate: true,
@@ -902,91 +923,118 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
-  try {
-    const levelId = parseInt(req.params.id);
-    if (isNaN(levelId)) {
-      return res.status(400).json({error: 'Invalid level ID'});
-    }
-
-    const level = await Level.findOne({
-      where: {id: levelId.toString()},
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: Pass,
-          as: 'passes',
-          required: false,
-          attributes: ['id'],
-        },
-      ],
-      transaction,
-    });
-
-    if (!level) {
-      return res.status(404).json({error: 'Level not found'});
-    }
-
-    await Level.update(
-      {isDeleted: true},
-      {
-        where: {id: levelId.toString()},
-        transaction,
-      },
-    );
-
-    await transaction.commit();
-
-    // Send response immediately after commit
-    const response = {
-      message: 'Level soft deleted successfully',
-      level: level,
-    };
-    res.json(response);
-
-    // Handle cache updates and broadcasts asynchronously
-    (async () => {
-      try {
-        // Get affected players before deletion
-        const affectedPasses = await Pass.findAll({
-          where: { levelId },
-          attributes: ['playerId']
-        });
-        
-        const affectedPlayerIds = new Set(affectedPasses.map(pass => pass.playerId));
-        
-        // Schedule stats update for affected players
-        affectedPlayerIds.forEach(playerId => {
-          playerStatsService.scheduleUpdate(playerId);
-        });
-
-        if (req.leaderboardCache) {
-          req.leaderboardCache.forceUpdate(false);
-        }
-
-        const io = getIO();
-        io.emit('leaderboardUpdated');
-        io.emit('ratingsUpdated');
-
-        // Broadcast updates
-        sseManager.broadcast({ type: 'levelUpdate' });
-        sseManager.broadcast({ type: 'ratingUpdate' });
-      } catch (error) {
-        console.error('Error in async operations after level deletion:', error);
+router.delete(
+  '/:id',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const levelId = parseInt(req.params.id);
+      if (isNaN(levelId)) {
+        return res.status(400).json({error: 'Invalid level ID'});
       }
-    })();
-    return;
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error soft deleting level:', error);
-    return res.status(500).json({error: 'Failed to soft delete level'});
-  }
-});
+
+      const level = await Level.findOne({
+        where: {id: levelId.toString()},
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+            required: false,
+          },
+          {
+            model: Pass,
+            as: 'passes',
+            required: false,
+            attributes: ['id'],
+          },
+        ],
+        transaction,
+      });
+
+      if (!level) {
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      await Level.update(
+        {isDeleted: true},
+        {
+          where: {id: levelId.toString()},
+          transaction,
+        },
+      );
+
+      await transaction.commit();
+
+      // Send response immediately after commit
+      const response = {
+        message: 'Level soft deleted successfully',
+        level: level,
+      };
+      res.json(response);
+
+      // Handle cache updates and broadcasts asynchronously
+      (async () => {
+        try {
+          // Get affected players before deletion
+          const affectedPasses = await Pass.findAll({
+            where: {levelId},
+            attributes: ['playerId'],
+          });
+
+          const affectedPlayerIds = new Set(
+            affectedPasses.map(pass => pass.playerId),
+          );
+
+          // Schedule stats update for affected players
+          affectedPlayerIds.forEach(playerId => {
+            playerStatsService.scheduleUpdate(playerId);
+          });
+
+          if (req.leaderboardCache) {
+            req.leaderboardCache
+              .forceUpdate(false)
+              .then(() => {
+                return;
+              })
+              .catch(error => {
+                console.error('Error updating leaderboard cache:', error);
+                return;
+              });
+          }
+
+          const io = getIO();
+          io.emit('leaderboardUpdated');
+          io.emit('ratingsUpdated');
+
+          // Broadcast updates
+          sseManager.broadcast({type: 'levelUpdate'});
+          sseManager.broadcast({type: 'ratingUpdate'});
+        } catch (error) {
+          console.error(
+            'Error in async operations after level deletion:',
+            error,
+          );
+        }
+      })()
+        .then(() => {
+          return;
+        })
+        .catch(error => {
+          console.error(
+            'Error in async operations after level deletion:',
+            error,
+          );
+          return;
+        });
+      return;
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error soft deleting level:', error);
+      return res.status(500).json({error: 'Failed to soft delete level'});
+    }
+  },
+);
 
 router.patch(
   '/:id/restore',
@@ -1011,7 +1059,7 @@ router.patch(
       await Level.update(
         {
           isDeleted: false,
-          isHidden: false
+          isHidden: false,
         },
         {
           where: {id: parseInt(id)},
@@ -1045,8 +1093,8 @@ router.patch(
       await req.leaderboardCache.forceUpdate();
 
       // Broadcast updates
-      sseManager.broadcast({ type: 'levelUpdate' });
-      sseManager.broadcast({ type: 'ratingUpdate' });
+      sseManager.broadcast({type: 'levelUpdate'});
+      sseManager.broadcast({type: 'ratingUpdate'});
 
       // Reload stats for new level
       await handleLevelUpdate();
@@ -1070,28 +1118,28 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
       where: {
         isAnnounced: false,
         diffId: {
-          [Op.ne]: 0
+          [Op.ne]: 0,
         },
         previousDiffId: {
-          [Op.or]: [
-            { [Op.eq]: 0 }
-          ]
+          [Op.or]: [{[Op.eq]: 0}],
         },
-        isDeleted: false
+        isDeleted: false,
       },
       include: [
         {
           model: Difficulty,
           as: 'difficulty',
-        }
+        },
       ],
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
     });
 
     return res.json(levels);
   } catch (error) {
     console.error('Error fetching unannounced new levels:', error);
-    return res.status(500).json({ error: 'Failed to fetch unannounced new levels' });
+    return res
+      .status(500)
+      .json({error: 'Failed to fetch unannounced new levels'});
   }
 });
 
@@ -1102,14 +1150,12 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
       where: {
         isAnnounced: false,
         diffId: {
-          [Op.ne]: 0
+          [Op.ne]: 0,
         },
         previousDiffId: {
-          [Op.and]: [
-            { [Op.ne]: 0 }
-          ]
+          [Op.and]: [{[Op.ne]: 0}],
         },
-        isDeleted: false
+        isDeleted: false,
       },
       include: [
         {
@@ -1127,45 +1173,45 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
         {
           model: Team,
           as: 'teamObject',
-        }
+        },
       ],
-      order: [['updatedAt', 'DESC']]
+      order: [['updatedAt', 'DESC']],
     });
 
     return res.json(levels);
   } catch (error) {
     console.error('Error fetching unannounced rerates:', error);
-    return res.status(500).json({ error: 'Failed to fetch unannounced rerates' });
+    return res.status(500).json({error: 'Failed to fetch unannounced rerates'});
   }
 });
 
 // Mark levels as announced - single endpoint for all announcement operations
 router.post('/announce', async (req: Request, res: Response) => {
   try {
-    const { levelIds } = req.body;
-    
+    const {levelIds} = req.body;
+
     if (!Array.isArray(levelIds)) {
-      return res.status(400).json({ error: 'levelIds must be an array' });
+      return res.status(400).json({error: 'levelIds must be an array'});
     }
 
     await Level.update(
-      { isAnnounced: true },
+      {isAnnounced: true},
       {
         where: {
           id: {
-            [Op.in]: levelIds
-          }
-        }
-      }
+            [Op.in]: levelIds,
+          },
+        },
+      },
     );
 
     // Broadcast level update
-    sseManager.broadcast({ type: 'levelUpdate' });
+    sseManager.broadcast({type: 'levelUpdate'});
 
-    return res.json({ success: true, message: 'Levels marked as announced' });
+    return res.json({success: true, message: 'Levels marked as announced'});
   } catch (error) {
     console.error('Error marking levels as announced:', error);
-    return res.status(500).json({ error: 'Failed to mark levels as announced' });
+    return res.status(500).json({error: 'Failed to mark levels as announced'});
   }
 });
 
@@ -1174,25 +1220,25 @@ router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId)) {
-      return res.status(400).json({ error: 'Invalid level ID' });
+      return res.status(400).json({error: 'Invalid level ID'});
     }
 
     const level = await Level.findByPk(levelId);
     if (!level) {
-      return res.status(404).json({ error: 'Level not found' });
+      return res.status(404).json({error: 'Level not found'});
     }
 
-    await level.update({ isAnnounced: true });
-    
+    await level.update({isAnnounced: true});
+
     // Broadcast level update
-    sseManager.broadcast({ type: 'levelUpdate' });
-    
-    return res.json({ success: true });
+    sseManager.broadcast({type: 'levelUpdate'});
+
+    return res.json({success: true});
   } catch (error) {
     console.error('Error marking level as announced:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to mark level as announced',
-      details: error instanceof Error ? error.message : String(error)
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -1237,7 +1283,7 @@ router.patch(
       io.emit('leaderboardUpdated');
 
       // Broadcast updates
-      sseManager.broadcast({ type: 'levelUpdate' });
+      sseManager.broadcast({type: 'levelUpdate'});
 
       return res.json({
         message: `Level ${level.isHidden ? 'unhidden' : 'hidden'} successfully`,
@@ -1254,26 +1300,18 @@ router.patch(
   },
 );
 
-// Add type definitions for the request body
-interface DifficultyFilterBody {
-  pguRange: {
-    from: string | null;
-    to: string | null;
-  };
-  specialDifficulties: string[];
-}
-
 // Add the new filtering endpoint
 router.post('/filter', async (req: Request, res: Response) => {
   try {
-    const { pguRange, specialDifficulties } = req.body;
-    const { query, sort, offset, limit, deletedFilter, clearedFilter } = req.query;
+    const {pguRange, specialDifficulties} = req.body;
+    const {query, sort, offset, limit, deletedFilter, clearedFilter} =
+      req.query;
 
     // Build the base where clause using the shared function
     const where = await buildWhereClause({
       query,
       deletedFilter,
-      clearedFilter
+      clearedFilter,
     });
 
     // Add difficulty filtering conditions
@@ -1282,14 +1320,18 @@ router.post('/filter', async (req: Request, res: Response) => {
     // Handle PGU range if provided
     if (pguRange?.from || pguRange?.to) {
       const [fromDiff, toDiff] = await Promise.all([
-        pguRange.from ? Difficulty.findOne({
-          where: { name: pguRange.from, type: 'PGU' },
-          attributes: ['id', 'sortOrder']
-        }) : null,
-        pguRange.to ? Difficulty.findOne({
-          where: { name: pguRange.to, type: 'PGU' },
-          attributes: ['id', 'sortOrder']
-        }) : null
+        pguRange.from
+          ? Difficulty.findOne({
+              where: {name: pguRange.from, type: 'PGU'},
+              attributes: ['id', 'sortOrder'],
+            })
+          : null,
+        pguRange.to
+          ? Difficulty.findOne({
+              where: {name: pguRange.to, type: 'PGU'},
+              attributes: ['id', 'sortOrder'],
+            })
+          : null,
       ]);
 
       if (fromDiff || toDiff) {
@@ -1297,16 +1339,16 @@ router.post('/filter', async (req: Request, res: Response) => {
           where: {
             type: 'PGU',
             sortOrder: {
-              ...(fromDiff && { [Op.gte]: fromDiff.sortOrder }),
-              ...(toDiff && { [Op.lte]: toDiff.sortOrder })
-            }
+              ...(fromDiff && {[Op.gte]: fromDiff.sortOrder}),
+              ...(toDiff && {[Op.lte]: toDiff.sortOrder}),
+            },
           },
-          attributes: ['id']
+          attributes: ['id'],
         });
-        
+
         if (pguDifficulties.length > 0) {
           difficultyConditions.push({
-            diffId: { [Op.in]: pguDifficulties.map(d => d.id) }
+            diffId: {[Op.in]: pguDifficulties.map(d => d.id)},
           });
         }
       }
@@ -1316,15 +1358,15 @@ router.post('/filter', async (req: Request, res: Response) => {
     if (specialDifficulties?.length > 0) {
       const specialDiffs = await Difficulty.findAll({
         where: {
-          name: { [Op.in]: specialDifficulties },
-          type: 'SPECIAL'
+          name: {[Op.in]: specialDifficulties},
+          type: 'SPECIAL',
         },
-        attributes: ['id']
+        attributes: ['id'],
       });
 
       if (specialDiffs.length > 0) {
         difficultyConditions.push({
-          diffId: { [Op.in]: specialDiffs.map(d => d.id) }
+          diffId: {[Op.in]: specialDiffs.map(d => d.id)},
         });
       }
     }
@@ -1333,7 +1375,7 @@ router.post('/filter', async (req: Request, res: Response) => {
     if (difficultyConditions.length > 0) {
       where[Op.and] = [
         ...(where[Op.and] || []),
-        { [Op.or]: difficultyConditions }
+        {[Op.or]: difficultyConditions},
       ];
     }
 
@@ -1358,7 +1400,10 @@ router.post('/filter', async (req: Request, res: Response) => {
     // Then get paginated results
     const paginatedIds = allIds
       .map(level => level.id)
-      .slice(Number(offset) || 0, (Number(offset) || 0) + (Number(limit) || 30));
+      .slice(
+        Number(offset) || 0,
+        (Number(offset) || 0) + (Number(limit) || 30),
+      );
 
     const results = await Level.findAll({
       where: {
@@ -1386,12 +1431,12 @@ router.post('/filter', async (req: Request, res: Response) => {
           include: [
             {
               model: Creator,
-              as: 'creator'
-            }
-          ]
-        }
+              as: 'creator',
+            },
+          ],
+        },
       ],
-      order
+      order,
     });
 
     return res.json({
@@ -1409,240 +1454,267 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId)) {
-      return res.status(400).json({ error: 'Invalid level ID' });
+      return res.status(400).json({error: 'Invalid level ID'});
     }
 
     const aliases = await LevelAlias.findAll({
-      where: { levelId },
+      where: {levelId},
     });
 
     return res.json(aliases);
   } catch (error) {
     console.error('Error fetching level aliases:', error);
-    return res.status(500).json({ error: 'Failed to fetch level aliases' });
+    return res.status(500).json({error: 'Failed to fetch level aliases'});
   }
 });
 
 // Add new alias(es) for a level with optional propagation
-router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+router.post(
+  '/:id/aliases',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
 
-  try {
-    const levelId = parseInt(req.params.id);
-    if (isNaN(levelId)) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid level ID' });
-    }
+    try {
+      const levelId = parseInt(req.params.id);
+      if (isNaN(levelId)) {
+        await transaction.rollback();
+        return res.status(400).json({error: 'Invalid level ID'});
+      }
 
-    const { field, alias, matchType = 'exact', propagate = false } = req.body;
+      const {field, alias, matchType = 'exact', propagate = false} = req.body;
 
-    if (!field || !alias || !['song', 'artist'].includes(field)) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid field or alias' });
-    }
+      if (!field || !alias || !['song', 'artist'].includes(field)) {
+        await transaction.rollback();
+        return res.status(400).json({error: 'Invalid field or alias'});
+      }
 
-    // Get the original level to get the original value
-    const level = await Level.findByPk(levelId);
-    if (!level) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Level not found' });
-    }
+      // Get the original level to get the original value
+      const level = await Level.findByPk(levelId);
+      if (!level) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Level not found'});
+      }
 
-    const originalValue = level[field as 'song' | 'artist'];
-    
-    // Create alias for the current level
-    await LevelAlias.create({
-      levelId,
-      field,
-      originalValue,
-      alias,
-    }, { transaction });
+      const originalValue = level[field as 'song' | 'artist'];
 
-    let propagatedCount = 0;
-    let propagatedLevels: Array<Level & { id: number; [key: string]: any }> = [];
-    
-    // If propagation is requested, find other levels with matching field value
-    if (propagate) {
-      const whereClause = {
-        id: { [Op.ne]: levelId }, // Exclude the current level
-        [field]: matchType === 'exact' 
-          ? originalValue
-          : { [Op.like]: `%${originalValue}%` }
-      };
+      // Create alias for the current level
+      await LevelAlias.create(
+        {
+          levelId,
+          field,
+          originalValue,
+          alias,
+        },
+        {transaction},
+      );
 
-      propagatedLevels = await Level.findAll({
-        where: whereClause,
-        attributes: ['id', field],
-      });
+      let propagatedCount = 0;
+      let propagatedLevels: Array<Level & {id: number; [key: string]: any}> =
+        [];
 
-      if (propagatedLevels.length > 0) {
-        // Create the aliases one by one to ensure they're all created
-        for (const matchingLevel of propagatedLevels) {
-          try {
-            await LevelAlias.create({
-              levelId: matchingLevel.id,
-              field,
-              originalValue: matchingLevel[field as 'song' | 'artist'],
-              alias,
-            }, { 
-              transaction,
-            });
-            propagatedCount++;
-          } catch (err) {
-            console.error(`Failed to create alias for level ${matchingLevel.id}:`, err);
-            // Continue with other levels even if one fails
+      // If propagation is requested, find other levels with matching field value
+      if (propagate) {
+        const whereClause = {
+          id: {[Op.ne]: levelId}, // Exclude the current level
+          [field]:
+            matchType === 'exact'
+              ? originalValue
+              : {[Op.like]: `%${originalValue}%`},
+        };
+
+        propagatedLevels = await Level.findAll({
+          where: whereClause,
+          attributes: ['id', field],
+        });
+
+        if (propagatedLevels.length > 0) {
+          // Create the aliases one by one to ensure they're all created
+          for (const matchingLevel of propagatedLevels) {
+            try {
+              await LevelAlias.create(
+                {
+                  levelId: matchingLevel.id,
+                  field,
+                  originalValue: matchingLevel[field as 'song' | 'artist'],
+                  alias,
+                },
+                {
+                  transaction,
+                },
+              );
+              propagatedCount++;
+            } catch (err) {
+              console.error(
+                `Failed to create alias for level ${matchingLevel.id}:`,
+                err,
+              );
+              // Continue with other levels even if one fails
+            }
           }
         }
       }
+
+      await transaction.commit();
+
+      // Return all created/updated aliases for the original level
+      const aliases = await LevelAlias.findAll({
+        where: {levelId},
+      });
+
+      return res.json({
+        message: 'Alias(es) added successfully',
+        aliases,
+        propagatedCount,
+        propagatedLevels: propagatedLevels.map(l => l.id),
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error adding level alias:', error);
+      return res.status(500).json({error: 'Failed to add level alias'});
     }
-
-    await transaction.commit();
-    
-    // Return all created/updated aliases for the original level
-    const aliases = await LevelAlias.findAll({
-      where: { levelId },
-    });
-
-    return res.json({
-      message: 'Alias(es) added successfully',
-      aliases,
-      propagatedCount,
-      propagatedLevels: propagatedLevels.map(l => l.id)
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error adding level alias:', error);
-    return res.status(500).json({ error: 'Failed to add level alias' });
-  }
-});
+  },
+);
 
 // Update an alias
-router.put('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+router.put(
+  '/:levelId/aliases/:aliasId',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
 
-  try {
-    const levelId = parseInt(req.params.levelId);
-    const aliasId = parseInt(req.params.aliasId);
-    if (isNaN(levelId) || isNaN(aliasId)) {
+    try {
+      const levelId = parseInt(req.params.levelId);
+      const aliasId = parseInt(req.params.aliasId);
+      if (isNaN(levelId) || isNaN(aliasId)) {
+        await transaction.rollback();
+        return res.status(400).json({error: 'Invalid ID'});
+      }
+
+      const {alias} = req.body;
+      if (!alias) {
+        await transaction.rollback();
+        return res.status(400).json({error: 'Alias is required'});
+      }
+
+      const levelAlias = await LevelAlias.findOne({
+        where: {
+          id: aliasId,
+          levelId,
+        },
+      });
+
+      if (!levelAlias) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Alias not found'});
+      }
+
+      await levelAlias.update({alias}, {transaction});
+      await transaction.commit();
+
+      return res.json({
+        message: 'Alias updated successfully',
+        alias: levelAlias,
+      });
+    } catch (error) {
       await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid ID' });
+      console.error('Error updating level alias:', error);
+      return res.status(500).json({error: 'Failed to update level alias'});
     }
-
-    const { alias } = req.body;
-    if (!alias) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Alias is required' });
-    }
-
-    const levelAlias = await LevelAlias.findOne({
-      where: {
-        id: aliasId,
-        levelId,
-      },
-    });
-
-    if (!levelAlias) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Alias not found' });
-    }
-
-    await levelAlias.update({ alias }, { transaction });
-    await transaction.commit();
-
-    return res.json({
-      message: 'Alias updated successfully',
-      alias: levelAlias,
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error updating level alias:', error);
-    return res.status(500).json({ error: 'Failed to update level alias' });
-  }
-});
+  },
+);
 
 // Delete an alias
-router.delete('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+router.delete(
+  '/:levelId/aliases/:aliasId',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
 
-  try {
-    const levelId = parseInt(req.params.levelId);
-    const aliasId = parseInt(req.params.aliasId);
-    if (isNaN(levelId) || isNaN(aliasId)) {
+    try {
+      const levelId = parseInt(req.params.levelId);
+      const aliasId = parseInt(req.params.aliasId);
+      if (isNaN(levelId) || isNaN(aliasId)) {
+        await transaction.rollback();
+        return res.status(400).json({error: 'Invalid ID'});
+      }
+
+      const deleted = await LevelAlias.destroy({
+        where: {
+          id: aliasId,
+          levelId,
+        },
+        transaction,
+      });
+
+      if (!deleted) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Alias not found'});
+      }
+
+      await transaction.commit();
+
+      return res.json({
+        message: 'Alias deleted successfully',
+      });
+    } catch (error) {
       await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid ID' });
+      console.error('Error deleting level alias:', error);
+      return res.status(500).json({error: 'Failed to delete level alias'});
     }
-
-    const deleted = await LevelAlias.destroy({
-      where: {
-        id: aliasId,
-        levelId,
-      },
-      transaction,
-    });
-
-    if (!deleted) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Alias not found' });
-    }
-
-    await transaction.commit();
-
-    return res.json({
-      message: 'Alias deleted successfully',
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error('Error deleting level alias:', error);
-    return res.status(500).json({ error: 'Failed to delete level alias' });
-  }
-});
+  },
+);
 
 // Get count of levels that would be affected by alias propagation
-router.get('/alias-propagation-count/:levelId', async (req: Request, res: Response) => {
-  try {
-    const { field, matchType = 'exact' } = req.query;
-    const levelId = parseInt(req.params.levelId);
+router.get(
+  '/alias-propagation-count/:levelId',
+  async (req: Request, res: Response) => {
+    try {
+      const {field, matchType = 'exact'} = req.query;
+      const levelId = parseInt(req.params.levelId);
 
-    if (!field || !['song', 'artist'].includes(field as string)) {
-      return res.status(400).json({ error: 'Invalid field' });
+      if (!field || !['song', 'artist'].includes(field as string)) {
+        return res.status(400).json({error: 'Invalid field'});
+      }
+
+      if (isNaN(levelId)) {
+        return res.status(400).json({error: 'Invalid level ID'});
+      }
+
+      // First get the source level
+      const sourceLevel = await Level.findByPk(levelId);
+      if (!sourceLevel) {
+        return res.status(404).json({error: 'Level not found'});
+      }
+
+      const fieldValue = sourceLevel[field as 'song' | 'artist'];
+      if (!fieldValue) {
+        return res.json({count: 0});
+      }
+
+      // Then count matching levels
+      const whereClause = {
+        id: {[Op.ne]: levelId}, // Exclude the source level
+        [field as string]:
+          matchType === 'exact' ? fieldValue : {[Op.like]: `%${fieldValue}%`},
+      };
+
+      const count = await Level.count({
+        where: whereClause,
+      });
+
+      return res.json({
+        count,
+        fieldValue,
+        matchType,
+      });
+    } catch (error) {
+      console.error('Error getting alias propagation count:', error);
+      return res
+        .status(500)
+        .json({error: 'Failed to get alias propagation count'});
     }
-
-    if (isNaN(levelId)) {
-      return res.status(400).json({ error: 'Invalid level ID' });
-    }
-
-    // First get the source level
-    const sourceLevel = await Level.findByPk(levelId);
-    if (!sourceLevel) {
-      return res.status(404).json({ error: 'Level not found' });
-    }
-
-    const fieldValue = sourceLevel[field as 'song' | 'artist'];
-    if (!fieldValue) {
-      return res.json({ count: 0 });
-    }
-
-    // Then count matching levels
-    const whereClause = {
-      id: { [Op.ne]: levelId }, // Exclude the source level
-      [field as string]: matchType === 'exact'
-        ? fieldValue
-        : { [Op.like]: `%${fieldValue}%` }
-    };
-
-    const count = await Level.count({
-      where: whereClause
-    });
-
-    return res.json({ 
-      count,
-      fieldValue,
-      matchType
-    });
-  } catch (error) {
-    console.error('Error getting alias propagation count:', error);
-    return res.status(500).json({ error: 'Failed to get alias propagation count' });
-  }
-});
+  },
+);
 
 export default router;

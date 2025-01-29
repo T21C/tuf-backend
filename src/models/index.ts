@@ -1,26 +1,25 @@
-import {Sequelize} from 'sequelize';
-import Level from './Level';
-import Pass from './Pass';
-import Player from './Player';
-import Rating from './Rating';
-import RatingDetail from './RatingDetail';
-import Judgement from './Judgement';
-import LevelSubmission from './LevelSubmission';
-import Difficulty from './Difficulty';
+import Level from './Level.js';
+import Pass from './Pass.js';
+import Player from './Player.js';
+import Rating from './Rating.js';
+import RatingDetail from './RatingDetail.js';
+import Judgement from './Judgement.js';
+import LevelSubmission from './LevelSubmission.js';
+import Difficulty from './Difficulty.js';
 import {
   PassSubmission,
   PassSubmissionJudgements,
   PassSubmissionFlags,
-} from './PassSubmission';
-import sequelize from '../config/db';
-import {initializeAssociations} from './associations';
-import User from './User';
-import OAuthProvider from './OAuthProvider';
-import Creator from './Creator';
-import LevelCredit from './LevelCredit';
-import Team from './Team';
-import TeamMember from './TeamMember';
-import PlayerStats from './PlayerStats';
+} from './PassSubmission.js';
+import sequelize from '../config/db.js';
+import {initializeAssociations} from './associations.js';
+import User from './User.js';
+import OAuthProvider from './OAuthProvider.js';
+import Creator from './Creator.js';
+import LevelCredit from './LevelCredit.js';
+import Team from './Team.js';
+import TeamMember from './TeamMember.js';
+import PlayerStats from './PlayerStats.js';
 
 // Create db object with models first
 export const db = {
@@ -53,14 +52,14 @@ initializeAssociations();
 // Define associations
 User.hasMany(OAuthProvider, {
   foreignKey: 'userId',
-  as: 'oauthProviders'
+  as: 'oauthProviders',
 });
 
 OAuthProvider.belongsTo(User, {
-  foreignKey: 'userId'
+  foreignKey: 'userId',
 });
 
 export default db;
 
 // Also export User and OAuthProvider directly for convenience
-export { User, OAuthProvider };
+export {User, OAuthProvider};

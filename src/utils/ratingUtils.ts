@@ -1,4 +1,4 @@
-import RatingDetail from '../models/RatingDetail';
+import RatingDetail from '../models/RatingDetail.js';
 
 type PguRatingMap = {[key: string]: number};
 type SpecialRatingCounts = {[rating: string]: number};
@@ -70,7 +70,7 @@ export function calculateAverageRating(details: RatingDetail[]): string | null {
   const numericRatings: number[] = [];
 
   // Process all ratings
-  details.forEach(detail => {
+  details.forEach((detail: any) => {
     const rating = detail.dataValues?.rating;
     if (!rating) return;
 

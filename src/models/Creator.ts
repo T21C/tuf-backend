@@ -1,8 +1,8 @@
-import { Model, DataTypes } from 'sequelize';
-import sequelize from '../config/db';
-import { ICreator } from '../interfaces/models';
-import User from './User';
-import LevelCredit from './LevelCredit';
+import {Model, DataTypes} from 'sequelize';
+import sequelize from '../config/db.js';
+import {ICreator} from '../interfaces/models/index.js';
+import User from './User.js';
+import LevelCredit from './LevelCredit.js';
 
 class Creator extends Model implements ICreator {
   declare id: number;
@@ -37,7 +37,7 @@ Creator.init(
       },
       set(value: string[]) {
         this.setDataValue('aliases', JSON.stringify(value));
-      }
+      },
     },
     createdAt: {
       type: DataTypes.DATE,
@@ -50,21 +50,21 @@ Creator.init(
     isVerified: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
-      defaultValue: false
+      defaultValue: false,
     },
     userId: {
       type: DataTypes.UUID,
       allowNull: true,
       references: {
         model: 'users',
-        key: 'id'
-      }
-    }
+        key: 'id',
+      },
+    },
   },
   {
     sequelize,
     tableName: 'creators',
-  }
+  },
 );
 
-export default Creator; 
+export default Creator;

@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import {Response} from 'express';
 
 interface SSEClient {
   id: string;
@@ -26,10 +26,12 @@ class SSEManager {
       this.clients.forEach((client, clientId) => {
         try {
           // Send ping to client
-          client.res.write(`data: ${JSON.stringify({ type: 'ping' })}\n\n`);
+          client.res.write(`data: ${JSON.stringify({type: 'ping'})}\n\n`);
           client.lastPing = now;
         } catch (error) {
-          console.debug(`SSE: Error sending heartbeat to client ${clientId}, removing client`);
+          console.debug(
+            `SSE: Error sending heartbeat to client ${clientId}, removing client`,
+          );
           this.removeClient(clientId);
         }
       });
@@ -46,16 +48,16 @@ class SSEManager {
 
   addClient(res: Response): string {
     const clientId = Math.random().toString(36).substring(7);
-    
+
     // Send initial connection message
-    res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
-    
-    this.clients.set(clientId, { 
-      id: clientId, 
+    res.write(`data: ${JSON.stringify({type: 'connected', clientId})}\n\n`);
+
+    this.clients.set(clientId, {
+      id: clientId,
       res,
-      lastPing: Date.now()
+      lastPing: Date.now(),
     });
-    
+
     res.on('close', () => {
       //console.debug(`SSE: Client ${clientId} connection closed`);
       this.removeClient(clientId);
@@ -76,9 +78,9 @@ class SSEManager {
     }
   }
 
-  broadcast(event: { type: string; data?: any }) {
+  broadcast(event: {type: string; data?: any}) {
     const failedClients: string[] = [];
-    
+
     this.clients.forEach((client, clientId) => {
       try {
         client.res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -106,4 +108,4 @@ class SSEManager {
   }
 }
 
-export const sseManager = new SSEManager(); 
+export const sseManager = new SSEManager();

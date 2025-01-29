@@ -1,4 +1,4 @@
-import fetch, { Headers as NodeFetchHeaders } from 'node-fetch';
+import fetch, {Headers as NodeFetchHeaders} from 'node-fetch';
 
 interface DiscordUserInfo {
   id: string;
@@ -17,7 +17,9 @@ interface RateLimitInfo {
 // Track rate limits per bucket
 const rateLimits = new Map<string, RateLimitInfo>();
 
-function parseRateLimitHeaders(headers: NodeFetchHeaders): RateLimitInfo | null {
+function parseRateLimitHeaders(
+  headers: NodeFetchHeaders,
+): RateLimitInfo | null {
   const limit = headers.get('x-ratelimit-limit');
   const remaining = headers.get('x-ratelimit-remaining');
   const reset = headers.get('x-ratelimit-reset');
@@ -33,7 +35,7 @@ function parseRateLimitHeaders(headers: NodeFetchHeaders): RateLimitInfo | null 
     remaining: parseInt(remaining),
     reset: parseInt(reset),
     resetAfter: parseFloat(resetAfter),
-    bucket
+    bucket,
   };
 }
 
@@ -43,7 +45,7 @@ async function handleRateLimit(bucket: string): Promise<void> {
 
   const now = Date.now() / 1000;
   const waitTime = Math.max(0, rateLimit.reset - now) * 1000;
-  
+
   if (waitTime > 0) {
     console.log(`Rate limit hit for bucket ${bucket}, waiting ${waitTime}ms`);
     await new Promise(resolve => setTimeout(resolve, waitTime + 100)); // Add 100ms buffer
@@ -55,15 +57,15 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
   avatar: string | null;
 }> {
   const endpoint = `https://discord.com/api/v10/users/${userId}`;
-  
+
   // Get the current bucket's rate limit info
   const bucket = `users-${userId}`;
   await handleRateLimit(bucket);
 
   const response = await fetch(endpoint, {
     headers: {
-      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`
-    }
+      Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+    },
   });
 
   // Update rate limit info
@@ -84,10 +86,12 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
   }
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch Discord user info: ${response.statusText}`);
+    throw new Error(
+      `Failed to fetch Discord user info: ${response.statusText}`,
+    );
   }
 
   const data = (await response.json()) as DiscordUserInfo;
-  
+
   return data;
-} 
+}

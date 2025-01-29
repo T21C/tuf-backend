@@ -1,5 +1,5 @@
-import {sendWebhook, sendFile} from '../api/index';
-import MessageBuilder from './messageBuilder';
+import {sendWebhook, sendFile} from '../api/index.js';
+import MessageBuilder from './messageBuilder.js';
 
 export default class Webhook {
   private payload: any;

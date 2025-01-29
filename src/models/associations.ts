@@ -1,64 +1,68 @@
-import Level from './Level';
-import Pass from './Pass';
-import Player from './Player';
-import Judgement from './Judgement';
-import Rating from './Rating';
-import RatingDetail from './RatingDetail';
-import Difficulty from './Difficulty';
-import {PassSubmission, PassSubmissionJudgements, PassSubmissionFlags} from './PassSubmission';
-import Reference from './References';
-import User from './User';
-import OAuthProvider from './OAuthProvider';
-import Creator from './Creator';
-import LevelCredit from './LevelCredit';
-import Team from './Team';
-import TeamMember from './TeamMember';
-import LevelAlias from './LevelAlias';
-import PlayerStats from './PlayerStats';
+import Level from './Level.js';
+import Pass from './Pass.js';
+import Player from './Player.js';
+import Judgement from './Judgement.js';
+import Rating from './Rating.js';
+import RatingDetail from './RatingDetail.js';
+import Difficulty from './Difficulty.js';
+import {
+  PassSubmission,
+  PassSubmissionJudgements,
+  PassSubmissionFlags,
+} from './PassSubmission.js';
+import Reference from './References.js';
+import User from './User.js';
+import OAuthProvider from './OAuthProvider.js';
+import Creator from './Creator.js';
+import LevelCredit from './LevelCredit.js';
+import Team from './Team.js';
+import TeamMember from './TeamMember.js';
+import LevelAlias from './LevelAlias.js';
+import PlayerStats from './PlayerStats.js';
 
 export function initializeAssociations() {
   // User <-> Player associations
   User.belongsTo(Player, {
     foreignKey: 'playerId',
-    as: 'player'
+    as: 'player',
   });
 
   Player.hasOne(User, {
     foreignKey: 'playerId',
-    as: 'user'
+    as: 'user',
   });
 
   // Player <-> PlayerStats associations
   Player.hasOne(PlayerStats, {
     foreignKey: 'playerId',
-    as: 'stats'
+    as: 'stats',
   });
 
   PlayerStats.belongsTo(Player, {
     foreignKey: 'playerId',
-    as: 'player'
+    as: 'player',
   });
 
   // User <-> OAuthProvider associations
   User.hasMany(OAuthProvider, {
     foreignKey: 'userId',
-    as: 'providers'
+    as: 'providers',
   });
 
   OAuthProvider.belongsTo(User, {
     foreignKey: 'userId',
-    as: 'oauthUser'
+    as: 'oauthUser',
   });
 
   // User <-> Creator associations
   User.hasOne(Creator, {
     foreignKey: 'userId',
-    as: 'creator'
+    as: 'creator',
   });
 
   Creator.belongsTo(User, {
     foreignKey: 'userId',
-    as: 'user'
+    as: 'user',
   });
 
   // Level <-> Difficulty associations
@@ -120,7 +124,7 @@ export function initializeAssociations() {
 
   Team.hasMany(Level, {
     foreignKey: 'teamId',
-    as: 'levels'
+    as: 'levels',
   });
 
   // Level <-> LevelAlias associations
@@ -158,14 +162,14 @@ export function initializeAssociations() {
     through: LevelCredit,
     as: 'levelCreators',
     foreignKey: 'levelId',
-    otherKey: 'creatorId'
+    otherKey: 'creatorId',
   });
 
   Creator.belongsToMany(Level, {
     through: LevelCredit,
     as: 'createdLevels',
     foreignKey: 'creatorId',
-    otherKey: 'levelId'
+    otherKey: 'levelId',
   });
 
   // Level <-> LevelCredit direct associations
@@ -178,7 +182,7 @@ export function initializeAssociations() {
 
   LevelCredit.belongsTo(Level, {
     foreignKey: 'levelId',
-    as: 'level'
+    as: 'level',
   });
 
   // Level <-> Difficulty (through Reference) associations
@@ -186,14 +190,14 @@ export function initializeAssociations() {
     through: Reference,
     foreignKey: 'levelId',
     otherKey: 'difficultyId',
-    as: 'referenceDifficulties'
+    as: 'referenceDifficulties',
   });
 
   Difficulty.belongsToMany(Level, {
     through: Reference,
     foreignKey: 'difficultyId',
     otherKey: 'levelId',
-    as: 'referenceLevels'
+    as: 'referenceLevels',
   });
 
   // Reference associations
@@ -313,12 +317,12 @@ export function initializeAssociations() {
   // Creator <-> LevelCredit associations
   Creator.hasMany(LevelCredit, {
     foreignKey: 'creatorId',
-    as: 'credits'
+    as: 'credits',
   });
 
   LevelCredit.belongsTo(Creator, {
     foreignKey: 'creatorId',
-    as: 'creator'
+    as: 'creator',
   });
 
   // Team <-> Creator (through TeamMember) associations
@@ -326,13 +330,13 @@ export function initializeAssociations() {
     through: TeamMember,
     foreignKey: 'teamId',
     otherKey: 'creatorId',
-    as: 'members'
+    as: 'members',
   });
 
   Creator.belongsToMany(Team, {
     through: TeamMember,
     foreignKey: 'creatorId',
     otherKey: 'teamId',
-    as: 'teams'
+    as: 'teams',
   });
 }

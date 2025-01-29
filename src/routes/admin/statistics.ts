@@ -1,13 +1,12 @@
-import { Router, Request, Response } from 'express';
-import { Auth } from '../../middleware/auth';
-import Rating from '../../models/Rating';
-import LevelSubmission from '../../models/LevelSubmission';
-import { PassSubmission } from '../../models/PassSubmission';
-import Level from '../../models/Level';
-import RatingDetail from '../../models/RatingDetail';
-import { Op, Sequelize } from 'sequelize';
-import { UserAttributes } from '../../models/User';
-
+import {Router, Request, Response} from 'express';
+import {Auth} from '../../middleware/auth.js';
+import Rating from '../../models/Rating.js';
+import LevelSubmission from '../../models/LevelSubmission.js';
+import {PassSubmission} from '../../models/PassSubmission.js';
+import Level from '../../models/Level.js';
+import RatingDetail from '../../models/RatingDetail.js';
+import {Sequelize} from 'sequelize';
+import {UserAttributes} from '../../models/User.js';
 
 const router: Router = Router();
 
@@ -15,63 +14,64 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
   try {
     const user = req.user as UserAttributes;
     if (!user) {
-      return res.status(401).json({ error: 'User not authenticated' });
+      return res.status(401).json({error: 'User not authenticated'});
     }
 
     const currentRatingsCount = await RatingDetail.count({
       where: {
-        userId: user.id
-      }
+        userId: user.id,
+      },
     });
     // Get unrated ratings count using a proper subquery
     const unratedRatings = await Rating.findAll({
-      include: [{
-        model: Level,
-        as: 'level',
-        where: {
-          toRate: true
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          where: {
+            toRate: true,
+          },
+          attributes: [],
+          required: true,
         },
-        attributes: [],
-        required: true
-      }, {
-        model: RatingDetail,
-        as: 'details',
-        attributes: []
-      }],
+        {
+          model: RatingDetail,
+          as: 'details',
+          attributes: [],
+        },
+      ],
       attributes: ['id'],
       group: ['Rating.id'],
-      having: Sequelize.literal("COUNT(`details`.`id`) < 4")
+      having: Sequelize.literal('COUNT(`details`.`id`) < 4'),
     });
-
 
     // Get pending level submissions count
     const pendingLevelSubmissions = await LevelSubmission.count({
       where: {
-        status: 'pending'
-      }
+        status: 'pending',
+      },
     });
 
     // Get pending pass submissions count
     const pendingPassSubmissions = await PassSubmission.count({
       where: {
-        status: 'pending'
-      }
+        status: 'pending',
+      },
     });
-
 
     // Calculate total pending submissions
-    const totalPendingSubmissions = pendingLevelSubmissions + pendingPassSubmissions;
+    const totalPendingSubmissions =
+      pendingLevelSubmissions + pendingPassSubmissions;
 
     return res.json({
-      unratedRatings: unratedRatings.length-currentRatingsCount,
+      unratedRatings: unratedRatings.length - currentRatingsCount,
       pendingLevelSubmissions,
       pendingPassSubmissions,
-      totalPendingSubmissions
+      totalPendingSubmissions,
     });
-
   } catch (error) {
     console.error('Error fetching statistics:', error);
-    return res.status(500).json({ error: 'Failed to fetch statistics' });
+    return res.status(500).json({error: 'Failed to fetch statistics'});
   }
 });
 

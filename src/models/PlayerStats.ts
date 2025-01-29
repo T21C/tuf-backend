@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../config/db';
-import Player from './Player';
+import sequelize from '../config/db.js';
+import Player from './Player.js';
 
 class PlayerStats extends Model {
   declare id: number;
@@ -141,4 +141,4 @@ PlayerStats.init(
   },
 );
 
-export default PlayerStats; 
+export default PlayerStats;

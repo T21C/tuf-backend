@@ -31,30 +31,30 @@ interface YouTubeResponse {
           url: string;
           width: number;
           height: number;
-        }
+        };
         high: {
           url: string;
           width: number;
           height: number;
-        },
+        };
         medium: {
           url: string;
           width: number;
           height: number;
-        },
+        };
         default: {
           url: string;
           width: number;
           height: number;
-        },
         };
+      };
       channelId: string;
       title: string;
       channelTitle: string;
       publishedAt: string;
       description: string;
-    }
-  }>
+    };
+  }>;
 }
 
 interface YouTubeChannelResponse {
@@ -69,16 +69,17 @@ interface YouTubeChannelResponse {
   }>;
 }
 
-const ownUrlEnv = process.env.NODE_ENV === 'production' 
-? process.env.PROD_API_URL 
-: process.env.NODE_ENV === 'staging'
-? process.env.STAGING_API_URL
-: process.env.NODE_ENV === 'development'
-? process.env.DEV_URL
-: 'http://localhost:3002';
+const ownUrlEnv =
+  process.env.NODE_ENV === 'production'
+    ? process.env.PROD_API_URL
+    : process.env.NODE_ENV === 'staging'
+      ? process.env.STAGING_API_URL
+      : process.env.NODE_ENV === 'development'
+        ? process.env.DEV_URL
+        : 'http://localhost:3002';
 
 function getBilibiliEmbedUrl(data: BilibiliData): string | null {
-  const { aid, bvid, cid } = data;
+  const {aid, bvid, cid} = data;
 
   if (bvid) {
     return `//player.bilibili.com/player.html?isOutside=true&aid=${aid}&bvid=${bvid}&cid=${cid}&p=1`;
@@ -108,8 +109,11 @@ function getYouTubeEmbedUrl(url: string): string | null {
   return null;
 }
 
-async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null> {
-  const urlRegex = /https?:\/\/(www\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)\/?/;
+async function getBilibiliVideoDetails(
+  url: string,
+): Promise<VideoDetails | null> {
+  const urlRegex =
+    /https?:\/\/(www\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)\/?/;
   const match = url.match(urlRegex);
   const videoId = match ? match[2] : null;
 
@@ -123,12 +127,12 @@ async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null
   const apiUrl = `${BILIBILI_API}?bvid=${videoId}`;
 
   try {
-    const response = await axios.get<{ data: BilibiliData }>(apiUrl);
+    const response = await axios.get<{data: BilibiliData}>(apiUrl);
     if (response.status !== 200) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
-    const { data } = response.data;
+    const {data} = response.data;
     const unix = data.pubdate;
     const date = new Date(unix * 1000);
     const imageUrl = `${IMAGE_API}?url=${encodeURIComponent(data.pic)}`;
@@ -140,7 +144,7 @@ async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null
       timestamp: date.toISOString(),
       image: imageUrl,
       embed: getBilibiliEmbedUrl(data),
-      pfp: pfpUrl
+      pfp: pfpUrl,
     };
   } catch (error) {
     console.error('Error fetching Bilibili video details:', error);
@@ -148,13 +152,15 @@ async function getBilibiliVideoDetails(url: string): Promise<VideoDetails | null
   }
 }
 
-async function getYouTubeVideoDetails(url: string): Promise<VideoDetails | null> {
+async function getYouTubeVideoDetails(
+  url: string,
+): Promise<VideoDetails | null> {
   const shortUrlRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
   const longUrlRegex = /youtube\.com\/.*[?&]v=([a-zA-Z0-9_-]{11})/;
 
   const shortMatch = url.match(shortUrlRegex);
   const longMatch = url.match(longUrlRegex);
-  const videoId = shortMatch ? shortMatch[1] : (longMatch ? longMatch[1] : null);
+  const videoId = shortMatch ? shortMatch[1] : longMatch ? longMatch[1] : null;
 
   if (!videoId) {
     return null;
@@ -162,7 +168,7 @@ async function getYouTubeVideoDetails(url: string): Promise<VideoDetails | null>
 
   const apiKey = process.env.YOUTUBE_API_KEY;
   const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${apiKey}&part=snippet,contentDetails`;
-  let channelApiUrl = `https://www.googleapis.com/youtube/v3/channels`;
+  let channelApiUrl = 'https://www.googleapis.com/youtube/v3/channels';
 
   try {
     const response = await axios.get<YouTubeResponse>(apiUrl);
@@ -175,22 +181,24 @@ async function getYouTubeVideoDetails(url: string): Promise<VideoDetails | null>
     channelApiUrl = `${channelApiUrl}?${new URLSearchParams({
       id: channelId,
       key: apiKey as string,
-      part: "snippet"
+      part: 'snippet',
     }).toString()}`;
 
-    const channelResponse = await axios.get<YouTubeChannelResponse>(channelApiUrl);
+    const channelResponse =
+      await axios.get<YouTubeChannelResponse>(channelApiUrl);
     const channelData = channelResponse.data;
 
     return {
       title: data.items[0].snippet.title,
       channelName: data.items[0].snippet.channelTitle,
       timestamp: data.items[0].snippet.publishedAt,
-      image: data.items[0].snippet.thumbnails?.maxres?.url || 
-             data.items[0].snippet.thumbnails?.high?.url ||
-             data.items[0].snippet.thumbnails?.medium?.url ||
-             data.items[0].snippet.thumbnails?.default?.url,
+      image:
+        data.items[0].snippet.thumbnails?.maxres?.url ||
+        data.items[0].snippet.thumbnails?.high?.url ||
+        data.items[0].snippet.thumbnails?.medium?.url ||
+        data.items[0].snippet.thumbnails?.default?.url,
       embed: getYouTubeEmbedUrl(url),
-      pfp: channelData.items[0].snippet.thumbnails.default.url
+      pfp: channelData.items[0].snippet.thumbnails.default.url,
     };
   } catch (error) {
     console.error('Error fetching YouTube video details:', error);
@@ -202,7 +210,7 @@ async function getVideoDetails(url: string): Promise<VideoDetails | null> {
   if (!url) {
     return null;
   }
-  
+
   const details = await getYouTubeVideoDetails(url);
   if (!details) {
     return await getBilibiliVideoDetails(url);
@@ -216,24 +224,24 @@ interface DriveResult {
 }
 
 async function getDriveFromYt(link: string): Promise<DriveResult | null> {
-  let yoon = "";
-  let drive = "";
+  let yoon = '';
+  let drive = '';
   let dsc: string | null = null;
-  let id = "";
+  let id = '';
 
   if (!link) {
     return null;
-  } else if (link.split("/")[0].includes("youtu.be")) {
+  } else if (link.split('/')[0].includes('youtu.be')) {
     id = link.split('/').join(',').split('?').join(',').split(',')[1];
-  } else if (link.split("/")[2].includes("youtu.be")) {
-    id = link.split("/").join(',').split('?').join(',').split(',')[3];
+  } else if (link.split('/')[2].includes('youtu.be')) {
+    id = link.split('/').join(',').split('?').join(',').split(',')[3];
   } else {
     id = link.split('?v=')[1];
   }
 
   try {
     const response = await axios.get<YouTubeResponse>(
-      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.VITE_YOUTUBE_API_KEY}`
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.VITE_YOUTUBE_API_KEY}`,
     );
     const data = response.data;
 
@@ -242,19 +250,19 @@ async function getDriveFromYt(link: string): Promise<DriveResult | null> {
       const format = desc.split('\n').join(',').split('/').join(',').split(',');
       dsc = desc;
 
-      if (desc.includes("drive.google.com/file/d")) {
+      if (desc.includes('drive.google.com/file/d')) {
         for (let i = 0; i < format.length; i++) {
-          if (format[i].includes("drive.google.com")) {
+          if (format[i].includes('drive.google.com')) {
             drive += `https://${format[i]}/file/d/${format[i + 3]}/${format[i + 4]}\n`;
           }
         }
       }
 
-      if (desc.includes("hyonsu.com/") || desc.includes("cdn.discordapp.com")) {
+      if (desc.includes('hyonsu.com/') || desc.includes('cdn.discordapp.com')) {
         for (let i = 0; i < format.length; i++) {
-          if (format[i].includes("hyonsu.com")) {
+          if (format[i].includes('hyonsu.com')) {
             yoon += `https://${format[i]}/attachments/${format[i + 2]}/${format[i + 3]}/${format[i + 4]}\n`;
-          } else if (format[i].includes("cdn.discordapp.com")) {
+          } else if (format[i].includes('cdn.discordapp.com')) {
             yoon += `https://fixcdn.hyonsu.com/attachments/${format[i + 2]}/${format[i + 3]}/${format[i + 4]}\n`;
           }
         }
@@ -262,11 +270,11 @@ async function getDriveFromYt(link: string): Promise<DriveResult | null> {
 
       return {
         drive: drive || yoon,
-        desc: dsc
+        desc: dsc,
       };
     }
   } catch (error) {
-    console.error("Error fetching YouTube video details:", error);
+    console.error('Error fetching YouTube video details:', error);
     return null;
   }
 
@@ -274,12 +282,14 @@ async function getDriveFromYt(link: string): Promise<DriveResult | null> {
 }
 
 function isoToEmoji(code: string): string | null {
-  const htmlString = twemoji.parse(code
-    .toLowerCase()
-    .split("")
-    .map((letter: string) => letter.charCodeAt(0) % 32 + 0x1F1E5)
-    .map((n: number) => String.fromCodePoint(n))
-    .join(""));
+  const htmlString = twemoji.parse(
+    code
+      .toLowerCase()
+      .split('')
+      .map((letter: string) => (letter.charCodeAt(0) % 32) + 0x1f1e5)
+      .map((n: number) => String.fromCodePoint(n))
+      .join(''),
+  );
 
   const srcRegex = /src\s*=\s*"(.+?)"/;
   const match = htmlString.match(srcRegex);
@@ -287,9 +297,4 @@ function isoToEmoji(code: string): string | null {
   return match ? match[1] : null;
 }
 
-export {
-  getYouTubeVideoDetails,
-  getDriveFromYt,
-  isoToEmoji,
-  getVideoDetails,
-};
+export {getYouTubeVideoDetails, getDriveFromYt, isoToEmoji, getVideoDetails};

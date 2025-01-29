@@ -1,13 +1,13 @@
 import {Router} from 'express';
-import levelRoutes from './levels';
-import passRoutes from './passes';
-import playerRoutes from './players';
-import leaderboardRoutes from './leaderboard';
-import difficultyRoutes from './diffs';
-import referenceRoutes from './references';
-import statisticsRoutes from './statistics';
-import creatorRoutes from './creators';
-import {Cache} from '../../middleware/cache';
+import levelRoutes from './levels.js';
+import passRoutes from './passes.js';
+import playerRoutes from './players.js';
+import leaderboardRoutes from './leaderboard.js';
+import difficultyRoutes from './diffs.js';
+import referenceRoutes from './references.js';
+import statisticsRoutes from './statistics.js';
+import creatorRoutes from './creators.js';
+import {Cache} from '../../middleware/cache.js';
 
 export default function createDatabaseRouter(): Router {
   const router = Router();

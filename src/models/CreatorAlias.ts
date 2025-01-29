@@ -1,5 +1,5 @@
-import { Model, DataTypes } from 'sequelize';
-import sequelize from '../config/db';
+import {Model, DataTypes} from 'sequelize';
+import sequelize from '../config/db.js';
 
 class CreatorAlias extends Model {
   declare id: number;
@@ -7,27 +7,30 @@ class CreatorAlias extends Model {
   declare creatorId: number;
 }
 
-CreatorAlias.init({
-  id: {
-    type: DataTypes.INTEGER,
-    autoIncrement: true,
-    primaryKey: true
+CreatorAlias.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    creatorId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'creators',
+        key: 'id',
+      },
+    },
   },
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false
+  {
+    sequelize,
+    tableName: 'creator_aliases',
   },
-  creatorId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'creators',
-      key: 'id'
-    }
-  }
-}, {
-  sequelize,
-  tableName: 'creator_aliases'
-});
+);
 
-export default CreatorAlias; 
+export default CreatorAlias;

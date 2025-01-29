@@ -1,5 +1,5 @@
 import fs from 'fs';
-import {PATHS} from '../config/constants';
+import {PATHS} from '../config/constants.js';
 
 export const loadPfpList = () => {
   try {

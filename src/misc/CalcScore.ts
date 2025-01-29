@@ -1,4 +1,4 @@
-import { IPassSubmission } from '../interfaces/models/index.js';
+import {IPassSubmission} from '../interfaces/models/index.js';
 import {calcAcc, IJudgements, tilecount} from './CalcAcc.js';
 
 const gmConst = 315;
@@ -117,15 +117,19 @@ interface PassData {
 
 // Declare the overloads
 export function getScoreV2(passData: PassData, levelData: LevelData): number;
-export function getScoreV2(passSubmission: IPassSubmission, levelData: LevelData): number;
+export function getScoreV2(
+  passSubmission: IPassSubmission,
+  levelData: LevelData,
+): number;
 // Implement the function with a union type
 export function getScoreV2(
-  input: PassData | IPassSubmission, 
-  levelData: LevelData
+  input: PassData | IPassSubmission,
+  levelData: LevelData,
 ): number {
   // Type guard to determine which type we're dealing with
-  const isPassSubmission = (input: PassData | IPassSubmission): input is IPassSubmission => 
-    'judgements' in input && 'flags' in input;
+  const isPassSubmission = (
+    input: PassData | IPassSubmission,
+  ): input is IPassSubmission => 'judgements' in input && 'flags' in input;
 
   if (isPassSubmission(input)) {
     const inputs: IJudgements = input.judgements || {
@@ -135,13 +139,13 @@ export function getScoreV2(
       perfect: 40,
       lPerfect: 5,
       lateSingle: 0,
-      lateDouble: 0
+      lateDouble: 0,
     };
     const passData = {
       speed: input.speed || 1,
       judgements: inputs,
-      isNoHoldTap: input.flags?.isNoHoldTap || false
-    }
+      isNoHoldTap: input.flags?.isNoHoldTap || false,
+    };
     const scoreOrig = getScore(passData, levelData);
     let mtp = getScoreV2Mtp(inputs);
     if (input.flags?.isNoHoldTap === true) {

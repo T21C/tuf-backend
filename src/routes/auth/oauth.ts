@@ -1,12 +1,16 @@
-import { Router, Request, Response } from 'express';
-import { OAuthController } from '../../controllers/oauth';
-import { Auth } from '../../middleware/auth';
-import {Cache} from '../../middleware/cache';
+import {Router} from 'express';
+import {OAuthController} from '../../controllers/oauth.js';
+import {Auth} from '../../middleware/auth.js';
+import {Cache} from '../../middleware/cache.js';
 
 const router: Router = Router();
 
 // OAuth callback
-router.post('/callback/:provider', Cache.leaderboard(), OAuthController.handleCallback);
+router.post(
+  '/callback/:provider',
+  Cache.leaderboard(),
+  OAuthController.handleCallback,
+);
 
 // Get OAuth profile
 router.get('/me', Auth.user(), OAuthController.getProfile);
@@ -20,4 +24,4 @@ router.post('/unlink/:provider', Auth.user(), OAuthController.unlinkProvider);
 // Refresh OAuth token
 router.post('/refresh/:provider', Auth.user(), OAuthController.refreshToken);
 
-export default router; 
+export default router;
