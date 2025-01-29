@@ -253,9 +253,9 @@ export class PlayerStatsService {
   }
 
   private convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
-    return passes
-      .filter(pass => !pass.isDeleted)
-      .map(pass => ({
+    return (passes as any)
+      .filter((pass: any) => !pass.isDeleted)
+      .map((pass: any) => ({
         score: pass.scoreV2 || 0,
         baseScore: pass.level?.baseScore || 0,
         xacc: pass.accuracy || 0.95,
@@ -272,8 +272,8 @@ export class PlayerStatsService {
     top12kDiff: number;
   } {
     // Filter out deleted passes and those with difficulty ID >= 100
-    const validPasses = passes.filter(
-      pass =>
+    const validPasses = (passes as any).filter(
+      (pass: any) =>
         !pass.isDeleted &&
         pass.level?.difficulty?.id !== undefined &&
         pass.level.difficulty.id < 100,
@@ -284,7 +284,7 @@ export class PlayerStatsService {
     }
 
     // Sort passes by difficulty sortOrder in descending order
-    const sortedPasses = validPasses.sort((a, b) => {
+    const sortedPasses = validPasses.sort((a: any, b: any) => {
       const diffA = a.level?.difficulty?.sortOrder || 0;
       const diffB = b.level?.difficulty?.sortOrder || 0;
       return diffB - diffA;
@@ -295,12 +295,12 @@ export class PlayerStatsService {
 
     // Get highest difficulty ID for 12k passes
     const valid12kPasses = validPasses.filter(
-      pass => pass.is12K && !pass.is16K,
+      (pass: any) => pass.is12K && !pass.is16K,
     );
 
     const top12kDiff =
       valid12kPasses.length > 0
-        ? (valid12kPasses.sort((a, b) => {
+        ? (valid12kPasses.sort((a: any, b: any) => {
             const diffA = a.level?.difficulty?.sortOrder || 0;
             const diffB = b.level?.difficulty?.sortOrder || 0;
             return diffB - diffA;
