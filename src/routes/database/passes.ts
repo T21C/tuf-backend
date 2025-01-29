@@ -458,6 +458,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {
+      levelId,
       vidUploadTime,
       speed,
       feelingRating,
@@ -473,7 +474,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       judgements
     } = req.body;
 
-    // Update pass
+    // First fetch the pass with its current level data
     const pass = await Pass.findOne({
       where: {id: parseInt(id)},
       include: [
@@ -503,6 +504,27 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     if (!pass) {
       await transaction.rollback();
       return res.status(404).json({error: 'Pass not found'});
+    }
+
+    // If levelId is changing, fetch the new level data
+    let newLevel = null;
+    if (levelId && levelId !== pass.levelId) {
+      newLevel = await Level.findOne({
+        where: { id: levelId },
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+            attributes: ['baseScore'],
+          },
+        ],
+        transaction,
+      });
+
+      if (!newLevel) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'New level not found'});
+      }
     }
 
     // Update judgements if provided
@@ -535,32 +557,30 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       
       // Create pass data for score calculation with proper type handling
       const passData = {
-        speed: pass.speed || 1.0, // Default to 1.0 if null
+        speed: speed || pass.speed || 1.0,
         judgements: updatedJudgements,
-        isNoHoldTap: pass.isNoHoldTap || false // Default to false if null
+        isNoHoldTap: isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap || false
       } as const;
 
-      // Check if level exists before calculating score
-      if (!pass.level) {
-        await transaction.rollback();
-        return res.status(500).json({error: 'Level data not found for pass'});
-      }
+      // Use the new level data if levelId changed, otherwise use existing level data
+      const levelData = newLevel || pass.level;
 
-      if (!pass.level.difficulty) {
+      if (!levelData || !levelData.difficulty) {
         await transaction.rollback();
-        return res.status(500).json({error: 'Difficulty data not found for pass'});
+        return res.status(500).json({error: 'Level or difficulty data not found'});
       }
 
       // Create properly structured level data for score calculation
-      const levelData = {
-        baseScore: pass.level.baseScore,
-        difficulty: pass.level.difficulty
+      const levelDataForScore = {
+        baseScore: levelData.baseScore,
+        difficulty: levelData.difficulty
       };
 
-      const calculatedScore = getScoreV2(passData, levelData);
+      const calculatedScore = getScoreV2(passData, levelDataForScore);
 
-      // Update pass fields with calculated values
+      // Update pass with all fields including the new levelId if provided
       await pass.update({
+        levelId: levelId || pass.levelId,
         vidUploadTime: vidUploadTime || pass.vidUploadTime,
         speed: speed || pass.speed,
         feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
@@ -577,6 +597,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     } else {
       // Update pass fields without recalculating if no judgements provided
       await pass.update({
+        levelId: levelId || pass.levelId,
         vidUploadTime: vidUploadTime || pass.vidUploadTime,
         speed: speed || pass.speed,
         feelingRating: feelingRating !== undefined ? feelingRating : pass.feelingRating,
