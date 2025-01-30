@@ -1,5 +1,9 @@
 import path from 'path';
+import { fileURLToPath } from 'url';
 import {registerFont} from 'canvas';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 interface FontWeight {
   name: string;
@@ -24,15 +28,22 @@ export function initializeFonts() {
   fontFamilies.forEach(family => {
     FONT_WEIGHTS.forEach(({name, weight}) => {
       const fontPath = path.join(
-        process.cwd(),
-        'assets',
-        'fonts',
+        __dirname,
+        '../../assets/fonts',  // Adjust this path
         `${family}-${name}.ttf`,
       );
+      console.log('Loading font:', fontPath); 
       registerFont(fontPath, {
         family: family.replace('Noto', 'Noto Sans'),
         weight,
       });
     });
   });
+}
+
+try {
+  initializeFonts();
+  console.log('Fonts initialized successfully');
+} catch (error) {
+  console.error('Error loading fonts:', error);
 }
