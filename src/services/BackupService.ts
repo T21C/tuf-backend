@@ -207,13 +207,26 @@ export class BackupService {
         : this.config.files.backupPath;
     const targetPath = path.join(targetDir, newFileName);
 
-    // Ensure backup directory exists
-    await fs.mkdir(targetDir, {recursive: true});
+    try {
+      // Ensure backup directory exists
+      await fs.mkdir(targetDir, {recursive: true});
 
-    // Move uploaded file to backup directory
-    await fs.rename(file.path, targetPath);
+      // Copy the file instead of renaming
+      await fs.copyFile(file.path, targetPath);
+      
+      // Delete the temporary file after successful copy
+      await fs.unlink(file.path);
 
-    return newFileName;
+      return newFileName;
+    } catch (error) {
+      // Clean up if something goes wrong
+      try {
+        await fs.unlink(file.path);
+      } catch (cleanupError) {
+        console.warn('Failed to clean up temporary file:', cleanupError);
+      }
+      throw new Error(`Failed to upload backup: ${(error as Error).message}`);
+    }
   }
 
   async initializeSchedules() {
