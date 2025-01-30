@@ -20,7 +20,6 @@ const router: Router = express.Router();
 
 function getFontFallbackString(baseFontSize: number): string {
   return [
-    'Noto Sans',      // Latin
     'Noto Sans KR',   // Korean
     'Noto Sans JP',   // Japanese
     'Noto Sans SC',   // Simplified Chinese
