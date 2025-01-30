@@ -18,6 +18,16 @@ initializeFonts();
 
 const router: Router = express.Router();
 
+function getFontFallbackString(baseFontSize: number): string {
+  return [
+    'Noto Sans',      // Latin
+    'Noto Sans KR',   // Korean
+    'Noto Sans JP',   // Japanese
+    'Noto Sans SC',   // Simplified Chinese
+    'Noto Sans TC'    // Traditional Chinese
+  ].map(font => `${font} ${baseFontSize}px`).join(', ');
+}
+
 function wrapText(
   text: string,
   maxChars: number,
@@ -84,46 +94,39 @@ function createHeaderSVG(config: {
         <defs>
           <style>
             @font-face {
-              font-family: 'Noto Sans KR';
+              font-family: 'Noto Sans';
               font-weight: 800;
-              src: url('path/to/NotoSansKR-Bold.otf');
+              src: url('path/to/NotoSans-Bold.ttf');
             }
             @font-face {
-              font-family: 'Noto Sans KR';
+              font-family: 'Noto Sans';
               font-weight: 400;
-              src: url('path/to/NotoSansKR-Regular.otf');
+              src: url('path/to/NotoSans-Regular.ttf');
             }
           </style>
         </defs>
         <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
-        ${lines
-          .map(
-            (line, index) => `
+        ${lines.map((line, index) => `
           <text
             x="${textX}"
             y="${titleY + index * titleFontSize * 1.2}"
-            font-family="Noto Sans KR"
+            font-family="${getFontFallbackString(titleFontSize)}"
             font-weight="800"
-            font-size="${titleFontSize}px"
             fill="white"
           >${line}</text>
-        `,
-          )
-          .join('')}
+        `).join('')}
         <text
           x="${textX}"
           y="${artistY}"
-          font-family="Noto Sans KR"
+          font-family="${getFontFallbackString(config.artistFontSize)}"
           font-weight="400"
-          font-size="${config.artistFontSize}px"
           fill="white"
         >${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>
         <text
           x="${config.width - config.iconPadding * 1.5}"
           y="${titleY}"
-          font-family="Noto Sans KR"
+          font-family="${getFontFallbackString(config.idFontSize)}"
           font-weight="700"
-          font-size="${config.idFontSize}px"
           fill="#bbbbbb"
           text-anchor="end"
         >#${config.levelId}</text>
