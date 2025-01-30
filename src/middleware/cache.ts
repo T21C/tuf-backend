@@ -58,9 +58,6 @@ export class LeaderboardCache {
     this.abortController = null;
     this.updatePromise = null;
 
-    // Handle process termination
-    process.on('SIGINT', () => this.handleShutdown());
-    process.on('SIGTERM', () => this.handleShutdown());
   }
 
   private async handleShutdown() {
