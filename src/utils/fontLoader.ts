@@ -96,7 +96,6 @@ export async function renderText(text: string) {
 // Initialize fonts when module loads
 try {
   initializeFonts();
-  console.log('Fonts initialized successfully');
 } catch (error) {
   console.error('Error initializing fonts:', error);
 }

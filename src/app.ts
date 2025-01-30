@@ -156,7 +156,6 @@ async function startServer() {
       ],
     };
 
-    console.log('corsOptions:', corsOptions);
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
 
@@ -187,8 +186,6 @@ async function startServer() {
       process.env.NODE_ENV === 'production'
         ? path.join(__dirname, '../../client/dist')
         : path.join(__dirname, '../../client/dist');
-
-    console.log('Serving static files from:', clientBuildPath);
 
     // Serve static assets (but not index.html)
     app.use(

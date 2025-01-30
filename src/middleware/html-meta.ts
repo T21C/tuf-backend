@@ -73,14 +73,6 @@ export const htmlMetaMiddleware = async (
   next: NextFunction,
 ) => {
   try {
-    console.log('=== HTML Meta Middleware ===');
-    console.log('Request path:', req.path);
-    console.log('Request URL:', req.url);
-    console.log('Request headers:', req.headers);
-    console.log('Client URL:', clientUrlEnv);
-    console.log('Own URL:', ownUrlEnv);
-    console.log('========================');
-
     const id = req.params.id;
     let metaTags = `
     <meta name="description" content="The Universal Forum - A community for rhythm game players" />
