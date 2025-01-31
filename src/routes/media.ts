@@ -18,13 +18,41 @@ initializeFonts();
 
 const router: Router = express.Router();
 
-function getFontFallbackString(baseFontSize: number): string {
-  return [
-    'Noto Sans KR',   // Korean
-    'Noto Sans JP',   // Japanese
-    'Noto Sans SC',   // Simplified Chinese
-    'Noto Sans TC'    // Traditional Chinese
-  ].map(font => `${font} ${baseFontSize}px`).join(', ');
+// Add this helper function to detect character ranges
+function detectCharacterSet(text: string): string {
+  // Unicode ranges
+  const ranges = {
+    latin: /^[\u0000-\u007F\u0080-\u00FF\u0100-\u017F]+$/,
+    korean: /[\u3131-\u314E\u314F-\u3163\uAC00-\uD7A3]/,
+    japanese: /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/,
+    simplifiedChinese: /[\u4E00-\u9FFF\u3400-\u4DBF]/,
+    traditionalChinese: /[\u4E00-\u9FFF\u3400-\u4DBF]/
+  };
+
+  // Check for specific character ranges
+  if (ranges.korean.test(text)) return 'Noto Sans KR';
+  if (ranges.japanese.test(text)) return 'Noto Sans JP';
+  if (ranges.simplifiedChinese.test(text)) return 'Noto Sans SC';
+  if (ranges.traditionalChinese.test(text)) return 'Noto Sans TC';
+  return 'Noto Sans'; // Default to regular Noto Sans for Latin and others
+}
+
+function getFontFallbackString(baseFontSize: number, text: string): string {
+  const primaryFont = detectCharacterSet(text);
+  
+  // Create a prioritized font stack starting with the detected font
+  const fontStack = [
+    `"${primaryFont}"`,
+    '"Noto Sans"',
+    '"Noto Sans KR"',
+    '"Noto Sans JP"',
+    '"Noto Sans SC"',
+    '"Noto Sans TC"',
+    'Arial',
+    'sans-serif'
+  ];
+
+  return `${fontStack.join(', ')} ${baseFontSize}px`;
 }
 
 function wrapText(
@@ -90,26 +118,12 @@ function createHeaderSVG(config: {
   return {
     svg: `
       <svg width="${config.width}" height="${config.height}">
-        <defs>
-          <style>
-            @font-face {
-              font-family: 'Noto Sans';
-              font-weight: 800;
-              src: url('path/to/NotoSans-Bold.ttf');
-            }
-            @font-face {
-              font-family: 'Noto Sans';
-              font-weight: 400;
-              src: url('path/to/NotoSans-Regular.ttf');
-            }
-          </style>
-        </defs>
         <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
         ${lines.map((line, index) => `
           <text
             x="${textX}"
             y="${titleY + index * titleFontSize * 1.2}"
-            font-family="${getFontFallbackString(titleFontSize)}"
+            font-family="${getFontFallbackString(titleFontSize, line)}"
             font-weight="800"
             fill="white"
           >${line}</text>
@@ -117,14 +131,14 @@ function createHeaderSVG(config: {
         <text
           x="${textX}"
           y="${artistY}"
-          font-family="${getFontFallbackString(config.artistFontSize)}"
+          font-family="${getFontFallbackString(config.artistFontSize, config.artist)}"
           font-weight="400"
           fill="white"
         >${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>
         <text
           x="${config.width - config.iconPadding * 1.5}"
           y="${titleY}"
-          font-family="${getFontFallbackString(config.idFontSize)}"
+          font-family="${getFontFallbackString(config.idFontSize, config.levelId.toString())}"
           font-weight="700"
           fill="#bbbbbb"
           text-anchor="end"
