@@ -180,10 +180,6 @@ export const htmlMetaMiddleware = async (
       'Permissions-Policy',
       'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()',
     );
-    res.setHeader(
-      'Content-Security-Policy',
-      "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'"
-    );
 
     // Cache control headers
     res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
