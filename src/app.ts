@@ -85,15 +85,6 @@ io.on('connection', socket => {
   });
 });
 
-// Security middleware to set consistent CSP headers
-app.use((req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy',
-    "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self'"
-  );
-  next();
-});
-
 // Initialize database and start server
 async function startServer() {
   try {

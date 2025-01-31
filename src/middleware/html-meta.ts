@@ -166,25 +166,6 @@ export const htmlMetaMiddleware = async (
       metaTags,
     );
 
-    // Set headers to match production
-    res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader(
-      'Strict-Transport-Security',
-      'max-age=31536000; includeSubDomains',
-    );
-    res.setHeader(
-      'Permissions-Policy',
-      'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()',
-    );
-
-    // Cache control headers
-    res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
-    res.setHeader('ETag', `W/"${Date.now().toString(16)}"`);
-    res.setHeader('Vary', 'Accept-Encoding');
 
     res.send(html);
   } catch (error) {
