@@ -349,7 +349,7 @@ export async function createClearEmbed(
       true,
     )
     .addField(
-      '<:1384060:1317995999355994112>',
+      `${pass.videoLink?.includes('bilibili') || pass.videoLink?.includes('b32.tv') ? '<:icons8bilibili48:1334853728905330738>' : '<:1384060:1317995999355994112>'}`,
       `**[Go to video](${pass.videoLink})**`,
       true,
     )
