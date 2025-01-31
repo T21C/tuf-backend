@@ -108,39 +108,26 @@ function createHeaderSVG(config: {
   const artistY = isWrapped ? Math.floor(config.height * 0.265) : Math.floor(config.height * 0.201);
   const textX = config.iconSize + config.iconPadding * 2;
 
-  const svg = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<svg width="' + config.width + '" height="' + config.height + '" xmlns="http://www.w3.org/2000/svg">',
-    '  <rect x="0" y="0" width="' + config.width + '" height="' + headerHeight + '" fill="black" opacity="0.73"/>',
-    ...lines.map((line, index) => 
-      '  <text' +
-      ' x="' + textX + '"' +
-      ' y="' + (titleY + index * titleFontSize * 1.2) + '"' +
-      ' font-family="' + getFontFallbackString(titleFontSize, line) + '"' +
-      ' font-weight="800"' +
-      ' fill="white"' +
-      '>' + line + '</text>'
-    ),
-    '  <text' +
-    ' x="' + textX + '"' +
-    ' y="' + artistY + '"' +
-    ' font-family="' + getFontFallbackString(config.artistFontSize, config.artist) + '"' +
-    ' font-weight="400"' +
-    ' fill="white"' +
-    '>' + (config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist) + '</text>',
-    '  <text' +
-    ' x="' + (config.width - config.iconPadding * 1.5) + '"' +
-    ' y="' + titleY + '"' +
-    ' font-family="' + getFontFallbackString(config.idFontSize, config.levelId.toString()) + '"' +
-    ' font-weight="700"' +
-    ' fill="#bbbbbb"' +
-    ' text-anchor="end"' +
-    '>#' + config.levelId + '</text>',
-    '</svg>'
-  ].join('\n');
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${config.width}" height="${config.height}" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>`;
 
+  // Add title lines
+  lines.forEach((line, index) => {
+    svg += `<text x="${textX}" y="${titleY + index * titleFontSize * 1.2}" font-family="${getFontFallbackString(titleFontSize, line)}" font-weight="800" fill="white">${line}</text>`;
+  });
+
+  // Add artist
+  const truncatedArtist = config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist;
+  svg += `<text x="${textX}" y="${artistY}" font-family="${getFontFallbackString(config.artistFontSize, config.artist)}" font-weight="400" fill="white">${truncatedArtist}</text>`;
+
+  // Add level ID
+  svg += `<text x="${config.width - config.iconPadding * 1.5}" y="${titleY}" font-family="${getFontFallbackString(config.idFontSize, config.levelId.toString())}" font-weight="700" fill="#bbbbbb" text-anchor="end">#${config.levelId}</text>`;
+
+  svg += '</svg>';
+  console.log(svg.trim());
   return {
-    svg: svg,
+    svg: svg.trim(),
     isWrapped,
   };
 }
@@ -204,6 +191,7 @@ function createFooterSVG(config: {
     '</svg>'
   ].join('\n');
 
+  console.log(svg.trim());
   return svg;
 }
 
