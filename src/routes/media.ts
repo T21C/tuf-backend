@@ -102,35 +102,45 @@ function createHeaderSVG(config: {
 }): {svg: string; isWrapped: boolean} {
   const {lines, isWrapped} = wrapText(config.song, 27);
 
-  const titleFontSize = isWrapped
-    ? Math.floor(config.titleFontSize * 0.85)
-    : config.titleFontSize;
-  const headerHeight = isWrapped
-    ? Math.floor(config.headerHeight * 1.15)
-    : config.headerHeight;
+  const titleFontSize = isWrapped ? Math.floor(config.titleFontSize * 0.85) : config.titleFontSize;
+  const headerHeight = isWrapped ? Math.floor(config.headerHeight * 1.15) : config.headerHeight;
   const titleY = Math.floor(config.height * (isWrapped ? 0.1 : 0.12));
-  const artistY = isWrapped
-    ? Math.floor(config.height * 0.265)
-    : Math.floor(config.height * 0.201);
+  const artistY = isWrapped ? Math.floor(config.height * 0.265) : Math.floor(config.height * 0.201);
   const textX = config.iconSize + config.iconPadding * 2;
 
-  // Create the lines SVG elements separately
-  const linesElements = lines
-    .map((line, index) => 
-      `<text x="${textX}" y="${titleY + index * titleFontSize * 1.2}" font-family="${getFontFallbackString(titleFontSize, line)}" font-weight="800" fill="white">${line}</text>`
-    )
-    .join('');
-
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${config.width}" height="${config.height}" xmlns="http://www.w3.org/2000/svg">
-  <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
-  ${linesElements}
-  <text x="${textX}" y="${artistY}" font-family="${getFontFallbackString(config.artistFontSize, config.artist)}" font-weight="400" fill="white">${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>
-  <text x="${config.width - config.iconPadding * 1.5}" y="${titleY}" font-family="${getFontFallbackString(config.idFontSize, config.levelId.toString())}" font-weight="700" fill="#bbbbbb" text-anchor="end">#${config.levelId}</text>
-</svg>`;
+  const svg = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<svg width="' + config.width + '" height="' + config.height + '" xmlns="http://www.w3.org/2000/svg">',
+    '  <rect x="0" y="0" width="' + config.width + '" height="' + headerHeight + '" fill="black" opacity="0.73"/>',
+    ...lines.map((line, index) => 
+      '  <text' +
+      ' x="' + textX + '"' +
+      ' y="' + (titleY + index * titleFontSize * 1.2) + '"' +
+      ' font-family="' + getFontFallbackString(titleFontSize, line) + '"' +
+      ' font-weight="800"' +
+      ' fill="white"' +
+      '>' + line + '</text>'
+    ),
+    '  <text' +
+    ' x="' + textX + '"' +
+    ' y="' + artistY + '"' +
+    ' font-family="' + getFontFallbackString(config.artistFontSize, config.artist) + '"' +
+    ' font-weight="400"' +
+    ' fill="white"' +
+    '>' + (config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist) + '</text>',
+    '  <text' +
+    ' x="' + (config.width - config.iconPadding * 1.5) + '"' +
+    ' y="' + titleY + '"' +
+    ' font-family="' + getFontFallbackString(config.idFontSize, config.levelId.toString()) + '"' +
+    ' font-weight="700"' +
+    ' fill="#bbbbbb"' +
+    ' text-anchor="end"' +
+    '>#' + config.levelId + '</text>',
+    '</svg>'
+  ].join('\n');
 
   return {
-    svg: svg.trim(),
+    svg: svg,
     isWrapped,
   };
 }
@@ -153,7 +163,7 @@ function createFooterSVG(config: {
   let creatorText = '';
 
   const truncate = (text: string, maxLength: number) =>
-    text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
+    text?.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 
   if (config.team) {
     creatorText = `By ${truncate(config.team, 25)}`;
@@ -165,36 +175,36 @@ function createFooterSVG(config: {
     creatorText = `By ${truncate(config.creator, 25)}`;
   }
 
-  return `
-    <svg width="${config.width}" height="${config.height}">
-      <rect x="0" y="${footerY}" width="${config.width}" height="${config.footerHeight}" fill="black" opacity="0.73"/>
-      <text
-        x="${config.padding}"
-        y="${config.height - config.padding * 2.5}"
-        font-family="Noto Sans JP"
-        font-weight="700"
-        font-size="${config.idFontSize}px"
-        fill="#bbbbbb"
-      >${config.baseScore || 0}PP</text>
-      <text
-        x="${config.padding}"
-        y="${config.height - config.padding}"
-        font-family="Noto Sans JP"
-        font-weight="700"
-        font-size="${config.idFontSize}px"
-        fill="#bbbbbb"
-      >${config.passCount} pass${config.passCount.toString().endsWith('1') ? '' : 'es'}</text>
-      <text
-        x="${config.width - config.padding}"
-        y="${config.height - config.padding}"
-        font-family="Noto Sans JP"
-        font-weight="600"
-        font-size="${config.fontSize}px"
-        fill="white"
-        text-anchor="end"
-      >${creatorText}</text>
-    </svg>
-  `;
+  const svg = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<svg width="' + config.width + '" height="' + config.height + '" xmlns="http://www.w3.org/2000/svg">',
+    '  <rect x="0" y="' + footerY + '" width="' + config.width + '" height="' + config.footerHeight + '" fill="black" opacity="0.73"/>',
+    '  <text' +
+    ' x="' + config.padding + '"' +
+    ' y="' + (config.height - config.padding * 2.5) + '"' +
+    ' font-family="' + getFontFallbackString(config.idFontSize, (config.baseScore || 0).toString()) + '"' +
+    ' font-weight="700"' +
+    ' fill="#bbbbbb"' +
+    '>' + (config.baseScore || 0) + 'PP</text>',
+    '  <text' +
+    ' x="' + config.padding + '"' +
+    ' y="' + (config.height - config.padding) + '"' +
+    ' font-family="' + getFontFallbackString(config.idFontSize, config.passCount.toString()) + '"' +
+    ' font-weight="700"' +
+    ' fill="#bbbbbb"' +
+    '>' + config.passCount + ' pass' + (config.passCount.toString().endsWith('1') ? '' : 'es') + '</text>',
+    '  <text' +
+    ' x="' + (config.width - config.padding) + '"' +
+    ' y="' + (config.height - config.padding) + '"' +
+    ' font-family="' + getFontFallbackString(config.fontSize, creatorText) + '"' +
+    ' font-weight="600"' +
+    ' fill="white"' +
+    ' text-anchor="end"' +
+    '>' + creatorText + '</text>',
+    '</svg>'
+  ].join('\n');
+
+  return svg;
 }
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
