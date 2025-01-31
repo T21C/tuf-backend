@@ -429,17 +429,24 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
     // Find or create rating detail without validation
     const [ratingDetail] = await RatingDetail.findOrCreate({
       where: {
-        ratingId: id,
-        userId: userId,
+        ratingId: Number(id),  // Ensure ratingId is a number
+        userId: userId,        // userId is already UUID from auth
+      },
+      defaults: {
+        ratingId: Number(id),  // Required for creation
+        userId: userId,        // Required for creation
+        rating: rating || '',  // rating is required and must be string
+        comment: comment || '' // comment can be null but we'll default to empty string
       },
       transaction,
     });
 
-    if (ratingDetail) {
+    // Only update if the detail already existed and values changed
+    if (ratingDetail && (ratingDetail.rating !== rating || ratingDetail.comment !== comment)) {
       await ratingDetail.update(
         {
-          rating: rating,
-          comment: comment || ratingDetail.comment,
+          rating: rating || '',
+          comment: comment || ''
         },
         {transaction},
       );
