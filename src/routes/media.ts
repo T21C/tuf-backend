@@ -18,43 +18,6 @@ initializeFonts();
 
 const router: Router = express.Router();
 
-// Add this helper function to detect character ranges
-function detectCharacterSet(text: string): string {
-  // Unicode ranges
-  const ranges = {
-    latin: /^[\u0000-\u007F\u0080-\u00FF\u0100-\u017F]+$/,
-    korean: /[\u3131-\u314E\u314F-\u3163\uAC00-\uD7A3]/,
-    japanese: /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/,
-    simplifiedChinese: /[\u4E00-\u9FFF\u3400-\u4DBF]/,
-    traditionalChinese: /[\u4E00-\u9FFF\u3400-\u4DBF]/
-  };
-
-  // Check for specific character ranges
-  if (ranges.korean.test(text)) return 'Noto Sans KR';
-  if (ranges.japanese.test(text)) return 'Noto Sans JP';
-  if (ranges.simplifiedChinese.test(text)) return 'Noto Sans SC';
-  if (ranges.traditionalChinese.test(text)) return 'Noto Sans TC';
-  return 'Noto Sans'; // Default to regular Noto Sans for Latin and others
-}
-
-function getFontFallbackString(baseFontSize: number, text: string): string {
-  const primaryFont = detectCharacterSet(text);
-  
-  // Create a prioritized font stack starting with the detected font
-  const fontStack = [
-    `"${primaryFont}"`,
-    '"Noto Sans"',
-    '"Noto Sans KR"',
-    '"Noto Sans JP"',
-    '"Noto Sans SC"',
-    '"Noto Sans TC"',
-    'Arial',
-    'sans-serif'
-  ];
-
-  return `${fontStack.join(', ')} ${baseFontSize}px`;
-}
-
 function wrapText(
   text: string,
   maxChars: number,
@@ -102,26 +65,70 @@ function createHeaderSVG(config: {
 }): {svg: string; isWrapped: boolean} {
   const {lines, isWrapped} = wrapText(config.song, 27);
 
-  const titleFontSize = isWrapped ? Math.floor(config.titleFontSize * 0.85) : config.titleFontSize;
-  const headerHeight = isWrapped ? Math.floor(config.headerHeight * 1.15) : config.headerHeight;
+  // Adjust sizes if text is wrapped
+  const titleFontSize = isWrapped
+    ? Math.floor(config.titleFontSize * 0.85)
+    : config.titleFontSize;
+  const headerHeight = isWrapped
+    ? Math.floor(config.headerHeight * 1.15)
+    : config.headerHeight;
   const titleY = Math.floor(config.height * (isWrapped ? 0.1 : 0.12));
-  const artistY = isWrapped ? Math.floor(config.height * 0.265) : Math.floor(config.height * 0.201);
+  const artistY = isWrapped
+    ? Math.floor(config.height * 0.265)
+    : Math.floor(config.height * 0.201);
   const textX = config.iconSize + config.iconPadding * 2;
 
-  const svg = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    `<svg width="${config.width}" height="${config.height}" xmlns="http://www.w3.org/2000/svg">`,
-    `  <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>`,
-    ...lines.map((line, index) => 
-      `  <text x="${textX}" y="${titleY + index * titleFontSize * 1.2}" font-family="${getFontFallbackString(titleFontSize, line).replace(/"/g, "'")}" font-weight="800" fill="white">${line}</text>`
-    ),
-    `  <text x="${textX}" y="${artistY}" font-family="${getFontFallbackString(config.artistFontSize, config.artist).replace(/"/g, "'")}" font-weight="400" fill="white">${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>`,
-    `  <text x="${config.width - config.iconPadding * 1.5}" y="${titleY}" font-family="${getFontFallbackString(config.idFontSize, config.levelId.toString()).replace(/"/g, "'")}" font-weight="700" fill="#bbbbbb" text-anchor="end">#${config.levelId}</text>`,
-    '</svg>'
-  ].join('\n');
-
   return {
-    svg: svg.trim(),
+    svg: `
+      <svg width="${config.width}" height="${config.height}">
+        <defs>
+          <style>
+            @font-face {
+              font-family: 'Noto Sans KR';
+              font-weight: 800;
+              src: url('path/to/NotoSansKR-Bold.otf');
+            }
+            @font-face {
+              font-family: 'Noto Sans KR';
+              font-weight: 400;
+              src: url('path/to/NotoSansKR-Regular.otf');
+            }
+          </style>
+        </defs>
+        <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
+        ${lines
+          .map(
+            (line, index) => `
+          <text
+            x="${textX}"
+            y="${titleY + index * titleFontSize * 1.2}"
+            font-family="Noto Sans KR"
+            font-weight="800"
+            font-size="${titleFontSize}px"
+            fill="white"
+          >${line}</text>
+        `,
+          )
+          .join('')}
+        <text
+          x="${textX}"
+          y="${artistY}"
+          font-family="Noto Sans KR"
+          font-weight="400"
+          font-size="${config.artistFontSize}px"
+          fill="white"
+        >${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>
+        <text
+          x="${config.width - config.iconPadding * 1.5}"
+          y="${titleY}"
+          font-family="Noto Sans KR"
+          font-weight="700"
+          font-size="${config.idFontSize}px"
+          fill="#bbbbbb"
+          text-anchor="end"
+        >#${config.levelId}</text>
+      </svg>
+    `,
     isWrapped,
   };
 }
@@ -144,7 +151,7 @@ function createFooterSVG(config: {
   let creatorText = '';
 
   const truncate = (text: string, maxLength: number) =>
-    text?.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
+    text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 
   if (config.team) {
     creatorText = `By ${truncate(config.team, 25)}`;
@@ -156,37 +163,36 @@ function createFooterSVG(config: {
     creatorText = `By ${truncate(config.creator, 25)}`;
   }
 
-  const svg = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<svg width="' + config.width + '" height="' + config.height + '" xmlns="http://www.w3.org/2000/svg">',
-    '  <rect x="0" y="' + footerY + '" width="' + config.width + '" height="' + config.footerHeight + '" fill="black" opacity="0.73"/>',
-    '  <text' +
-    ' x="' + config.padding + '"' +
-    ' y="' + (config.height - config.padding * 2.5) + '"' +
-    ' font-family="' + getFontFallbackString(config.idFontSize, (config.baseScore || 0).toString()) + '"' +
-    ' font-weight="700"' +
-    ' fill="#bbbbbb"' +
-    '>' + (config.baseScore || 0) + 'PP</text>',
-    '  <text' +
-    ' x="' + config.padding + '"' +
-    ' y="' + (config.height - config.padding) + '"' +
-    ' font-family="' + getFontFallbackString(config.idFontSize, config.passCount.toString()) + '"' +
-    ' font-weight="700"' +
-    ' fill="#bbbbbb"' +
-    '>' + config.passCount + ' pass' + (config.passCount.toString().endsWith('1') ? '' : 'es') + '</text>',
-    '  <text' +
-    ' x="' + (config.width - config.padding) + '"' +
-    ' y="' + (config.height - config.padding) + '"' +
-    ' font-family="' + getFontFallbackString(config.fontSize, creatorText) + '"' +
-    ' font-weight="600"' +
-    ' fill="white"' +
-    ' text-anchor="end"' +
-    '>' + creatorText + '</text>',
-    '</svg>'
-  ].join('\n');
-
-  console.log(svg.trim());
-  return svg;
+  return `
+    <svg width="${config.width}" height="${config.height}">
+      <rect x="0" y="${footerY}" width="${config.width}" height="${config.footerHeight}" fill="black" opacity="0.73"/>
+      <text
+        x="${config.padding}"
+        y="${config.height - config.padding * 2.5}"
+        font-family="Noto Sans JP"
+        font-weight="700"
+        font-size="${config.idFontSize}px"
+        fill="#bbbbbb"
+      >${config.baseScore || 0}PP</text>
+      <text
+        x="${config.padding}"
+        y="${config.height - config.padding}"
+        font-family="Noto Sans JP"
+        font-weight="700"
+        font-size="${config.idFontSize}px"
+        fill="#bbbbbb"
+      >${config.passCount} pass${config.passCount.toString().endsWith('1') ? '' : 'es'}</text>
+      <text
+        x="${config.width - config.padding}"
+        y="${config.height - config.padding}"
+        font-family="Noto Sans JP"
+        font-weight="600"
+        font-size="${config.fontSize}px"
+        fill="white"
+        text-anchor="end"
+      >${creatorText}</text>
+    </svg>
+  `;
 }
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
