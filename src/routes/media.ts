@@ -18,6 +18,15 @@ initializeFonts();
 
 const router: Router = express.Router();
 
+function escapeXml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 function wrapText(
   text: string,
   maxChars: number,
@@ -63,7 +72,7 @@ function createHeaderSVG(config: {
   artistFontSize: number;
   idFontSize: number;
 }): {svg: string; isWrapped: boolean} {
-  const {lines, isWrapped} = wrapText(config.song, 27);
+  const {lines, isWrapped} = wrapText(escapeXml(config.song), 27);
 
   // Adjust sizes if text is wrapped
   const titleFontSize = isWrapped
@@ -77,6 +86,8 @@ function createHeaderSVG(config: {
     ? Math.floor(config.height * 0.265)
     : Math.floor(config.height * 0.201);
   const textX = config.iconSize + config.iconPadding * 2;
+
+  const escapedArtist = escapeXml(config.artist);
 
   return {
     svg: `
@@ -117,7 +128,7 @@ function createHeaderSVG(config: {
           font-weight="400"
           font-size="${config.artistFontSize}px"
           fill="white"
-        >${config.artist.length > 30 ? config.artist.slice(0, 27) + '...' : config.artist}</text>
+        >${escapedArtist.length > 30 ? escapedArtist.slice(0, 27) + '...' : escapedArtist}</text>
         <text
           x="${config.width - config.iconPadding * 1.5}"
           y="${titleY}"
@@ -154,13 +165,13 @@ function createFooterSVG(config: {
     text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
 
   if (config.team) {
-    creatorText = `By ${truncate(config.team, 25)}`;
+    creatorText = `By ${truncate(escapeXml(config.team), 25)}`;
   } else if (config.charter && config.vfxer) {
-    creatorText = `Chart: ${truncate(config.charter, 20)}&#10;VFX: ${truncate(config.vfxer, 20)}`;
+    creatorText = `Chart: ${truncate(escapeXml(config.charter), 20)}&#10;VFX: ${truncate(escapeXml(config.vfxer), 20)}`;
   } else if (config.charter) {
-    creatorText = `By ${truncate(config.charter, 25)}`;
+    creatorText = `By ${truncate(escapeXml(config.charter), 25)}`;
   } else if (config.creator) {
-    creatorText = `By ${truncate(config.creator, 25)}`;
+    creatorText = `By ${truncate(escapeXml(config.creator), 25)}`;
   }
 
   return `
