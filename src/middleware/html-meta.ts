@@ -4,19 +4,6 @@ import Level from '../models/Level.js';
 import Player from '../models/Player.js';
 import Difficulty from '../models/Difficulty.js';
 import Creator from '../models/Creator.js';
-import fs from 'fs';
-import path from 'path';
-
-interface ManifestEntry {
-  file: string;
-  src: string;
-  isEntry?: boolean;
-  isDynamicEntry?: boolean;
-}
-
-interface ViteManifest {
-  [key: string]: ManifestEntry;
-}
 
 const clientUrlEnv =
   process.env.NODE_ENV === 'production'
@@ -46,43 +33,14 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
-// Function to get asset paths from manifest
-const getAssetPaths = () => {
-  try {
-    const manifestPath = path.resolve(process.cwd(), '../client/dist/manifest.json');
-    if (fs.existsSync(manifestPath)) {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as ViteManifest;
-      const entries = Object.values(manifest);
-      return {
-        css: entries.find(file => file.file.endsWith('.css'))?.file || 'assets/index.css',
-        js: entries.find(file => file.file.endsWith('.js') && file.file.includes('index'))?.file || 'assets/index.js',
-        vendorReact: entries.find(file => file.file.endsWith('.js') && file.file.includes('vendor-react'))?.file || 'assets/vendor-react.js',
-        vendorUi: entries.find(file => file.file.endsWith('.js') && file.file.includes('vendor-ui'))?.file || 'assets/vendor-ui.js'
-      };
-    }
-  } catch (error) {
-    console.error('Error reading manifest:', error);
-  }
-  return {
-    css: 'assets/index.css',
-    js: 'assets/index.js',
-    vendorReact: 'assets/vendor-react.js',
-    vendorUi: 'assets/vendor-ui.js'
-  };
-};
-
 // Base HTML template with Vite client
-const getBaseHtml = (clientUrl: string) => {
-  const assets = getAssetPaths();
-  // Remove trailing slash from clientUrl if it exists
-  const baseUrl = clientUrl.endsWith('/') ? clientUrl.slice(0, -1) : clientUrl;
-  
-  return `
+const getBaseHtml = (clientUrl: string) => `
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="${baseUrl}/assets/logo.png" />
+    <base href="${clientUrl}/" />
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- METADATA_PLACEHOLDER -->
@@ -90,25 +48,24 @@ const getBaseHtml = (clientUrl: string) => {
     ${
       process.env.NODE_ENV === 'development'
         ? `<script type="module">
-          import RefreshRuntime from '${baseUrl}/@react-refresh'
+          import RefreshRuntime from '${clientUrl}/@react-refresh'
           RefreshRuntime.injectIntoGlobalHook(window)
           window.$RefreshReg$ = () => {}
           window.$RefreshSig$ = () => (type) => type
           window.__vite_plugin_react_preamble_installed__ = true
         </script>
-        <script type="module" src="${baseUrl}/@vite/client"></script>
-        <script type="module" src="${baseUrl}/src/main.jsx"></script>`
-        : `<link rel="stylesheet" href="${baseUrl}/${assets.css}" />
-         <script type="module" crossorigin src="${baseUrl}/${assets.js}"></script>
-         <link rel="modulepreload" href="${baseUrl}/${assets.vendorReact}" />
-         <link rel="modulepreload" href="${baseUrl}/${assets.vendorUi}" />`
+        <script type="module" src="${clientUrl}/@vite/client"></script>
+        <script type="module" src="${clientUrl}/src/main.jsx"></script>`
+        : `<link rel="stylesheet" href="/assets/index.css" />
+         <script type="module" crossorigin src="/assets/index.js"></script>
+         <link rel="modulepreload" href="/assets/vendor.js" />
+         <link rel="modulepreload" href="/assets/ui.js" />`
     }
   </head>
   <body>
     <div id="root"></div>
   </body>
 </html>`;
-};
 
 export const htmlMetaMiddleware = async (
   req: Request,
@@ -121,8 +78,7 @@ export const htmlMetaMiddleware = async (
     <meta name="description" content="The Universal Forum - A community for rhythm game players" />
     <meta property="og:site_name" content="The Universal Forum" />
     <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#090909" />
-    <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
+    <meta name="theme-color" content="#090909" />`;
 
     if (req.path.startsWith('/passes/')) {
       const pass = await Pass.findByPk(id, {
@@ -210,8 +166,7 @@ export const htmlMetaMiddleware = async (
       metaTags,
     );
 
-    // Set cache control headers for meta responses
-    res.setHeader('Cache-Control', 'public, max-age=300'); // Cache for 5 minutes
+
     res.send(html);
   } catch (error) {
     console.error('Error serving HTML:', error);
