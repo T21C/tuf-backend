@@ -74,13 +74,15 @@ const getAssetPaths = () => {
 // Base HTML template with Vite client
 const getBaseHtml = (clientUrl: string) => {
   const assets = getAssetPaths();
+  // Remove trailing slash from clientUrl if it exists
+  const baseUrl = clientUrl.endsWith('/') ? clientUrl.slice(0, -1) : clientUrl;
+  
   return `
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <base href="${clientUrl}/" />
-    <link rel="icon" type="image/svg+xml" href="/assets/logo.png" />
+    <link rel="icon" type="image/svg+xml" href="${baseUrl}/assets/logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- METADATA_PLACEHOLDER -->
@@ -88,18 +90,18 @@ const getBaseHtml = (clientUrl: string) => {
     ${
       process.env.NODE_ENV === 'development'
         ? `<script type="module">
-          import RefreshRuntime from '${clientUrl}/@react-refresh'
+          import RefreshRuntime from '${baseUrl}/@react-refresh'
           RefreshRuntime.injectIntoGlobalHook(window)
           window.$RefreshReg$ = () => {}
           window.$RefreshSig$ = () => (type) => type
           window.__vite_plugin_react_preamble_installed__ = true
         </script>
-        <script type="module" src="${clientUrl}/@vite/client"></script>
-        <script type="module" src="${clientUrl}/src/main.jsx"></script>`
-        : `<link rel="stylesheet" href="/${assets.css}" />
-         <script type="module" crossorigin src="/${assets.js}"></script>
-         <link rel="modulepreload" href="/${assets.vendorReact}" />
-         <link rel="modulepreload" href="/${assets.vendorUi}" />`
+        <script type="module" src="${baseUrl}/@vite/client"></script>
+        <script type="module" src="${baseUrl}/src/main.jsx"></script>`
+        : `<link rel="stylesheet" href="${baseUrl}/${assets.css}" />
+         <script type="module" crossorigin src="${baseUrl}/${assets.js}"></script>
+         <link rel="modulepreload" href="${baseUrl}/${assets.vendorReact}" />
+         <link rel="modulepreload" href="${baseUrl}/${assets.vendorUi}" />`
     }
   </head>
   <body>
