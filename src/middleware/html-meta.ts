@@ -56,8 +56,8 @@ const getAssetPaths = () => {
       return {
         css: entries.find(file => file.file.endsWith('.css'))?.file || 'assets/index.css',
         js: entries.find(file => file.file.endsWith('.js') && file.file.includes('index'))?.file || 'assets/index.js',
-        vendor: entries.find(file => file.file.endsWith('.js') && file.file.includes('vendor'))?.file || 'assets/vendor.js',
-        ui: entries.find(file => file.file.endsWith('.js') && file.file.includes('ui'))?.file || 'assets/ui.js'
+        vendorReact: entries.find(file => file.file.endsWith('.js') && file.file.includes('vendor-react'))?.file || 'assets/vendor-react.js',
+        vendorUi: entries.find(file => file.file.endsWith('.js') && file.file.includes('vendor-ui'))?.file || 'assets/vendor-ui.js'
       };
     }
   } catch (error) {
@@ -66,8 +66,8 @@ const getAssetPaths = () => {
   return {
     css: 'assets/index.css',
     js: 'assets/index.js',
-    vendor: 'assets/vendor.js',
-    ui: 'assets/ui.js'
+    vendorReact: 'assets/vendor-react.js',
+    vendorUi: 'assets/vendor-ui.js'
   };
 };
 
@@ -98,8 +98,8 @@ const getBaseHtml = (clientUrl: string) => {
         <script type="module" src="${clientUrl}/src/main.jsx"></script>`
         : `<link rel="stylesheet" href="/${assets.css}" />
          <script type="module" crossorigin src="/${assets.js}"></script>
-         <link rel="modulepreload" href="/${assets.vendor}" />
-         <link rel="modulepreload" href="/${assets.ui}" />`
+         <link rel="modulepreload" href="/${assets.vendorReact}" />
+         <link rel="modulepreload" href="/${assets.vendorUi}" />`
     }
   </head>
   <body>
