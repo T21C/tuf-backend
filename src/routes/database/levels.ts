@@ -398,13 +398,14 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/byId/:id', async (req: Request, res: Response) => {
+router.get('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   if (isNaN(parseInt(req.params.id))) {
     return res.status(400).json({error: 'Invalid level ID'});
   }
-  const level = await Level.findOne({
-    where: {id: parseInt(req.params.id)},
+  
 
+  const level = await Level.findOne({
+    where: { id: parseInt(req.params.id) },
     include: [
       {
         model: Difficulty,
@@ -419,11 +420,51 @@ router.get('/byId/:id', async (req: Request, res: Response) => {
       },
     ],
   });
+
+  if (!level) {    
+    return res.status(404).json({ error: 'Level not found' });
+  }
+
+  // If level is deleted and user is not super admin, return 404
+  if (level.isDeleted && !req.user?.isSuperAdmin) {
+    return res.status(404).json({ error: 'Level not found' });
+  }
+
   return res.json(level);
 });
 
+// Add HEAD endpoint for byId permission check
+router.head('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    
+    if (isNaN(levelId)) {
+      return res.status(400).end();
+    }
+
+    const level = await Level.findOne({
+      where: { id: levelId },
+      attributes: ['isDeleted']
+    });
+
+    if (!level) {
+      return res.status(404).end();
+    }
+
+    // If level is deleted and user is not super admin, return 403
+    if (level.isDeleted && !req.user?.isSuperAdmin) {
+      return res.status(403).end();
+    }
+
+    return res.status(200).end();
+  } catch (error) {
+    console.error('Error checking level permissions:', error);
+    return res.status(500).end();
+  }
+});
+
 // Get a single level by ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     // Use a READ COMMITTED transaction to avoid locks from updates
     const transaction = await sequelize.transaction({
@@ -432,7 +473,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     try {
       const level = await Level.findOne({
-        where: {id: parseInt(req.params.id)},
+        where: { id: parseInt(req.params.id) },
         include: [
           {
             model: Pass,
@@ -480,7 +521,12 @@ router.get('/:id', async (req: Request, res: Response) => {
       await transaction.commit();
 
       if (!level) {
-        return res.status(404).json({error: 'Level not found'});
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      // If level is deleted and user is not super admin, return 404
+      if (level.isDeleted && !req.user?.isSuperAdmin) {
+        return res.status(404).json({ error: 'Level not found' });
       }
 
       return res.json(level);
@@ -490,7 +536,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
   } catch (error) {
     console.error('Error fetching level:', error);
-    return res.status(500).json({error: 'Failed to fetch level'});
+    return res.status(500).json({ error: 'Failed to fetch level' });
   }
 });
 
@@ -1716,5 +1762,34 @@ router.get(
     }
   },
 );
+
+// Add HEAD endpoint for permission check
+router.head('/:id', async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).end();
+    }
+
+    const level = await Level.findOne({
+      where: { id: levelId },
+      attributes: ['isDeleted']
+    });
+
+    if (!level) {
+      return res.status(404).end();
+    }
+
+    // If level is deleted and user is not super admin, return 403
+    if (level.isDeleted && !req.user?.isSuperAdmin) {
+      return res.status(403).end();
+    }
+
+    return res.status(200).end();
+  } catch (error) {
+    console.error('Error checking level permissions:', error);
+    return res.status(500).end();
+  }
+});
 
 export default router;

@@ -276,4 +276,39 @@ export const Auth = {
       }
     };
   },
+
+  /**
+   * Optionally add user to request without blocking
+   * Returns true if user was added, false otherwise
+   */
+  addUserToRequest:
+    (): MiddlewareFunction =>
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+          next();
+          return;
+        }
+
+        const decoded = tokenUtils.verifyJWT(token);
+        if (!decoded) {
+          next();
+          return;
+        }
+
+        const user = await User.findByPk(decoded.id);
+        if (!user) {
+          next();
+          return;
+        }
+
+        req.user = user;
+        next();
+      } catch (error) {
+        // On any error, just continue without user
+        console.error('Optional auth middleware error:', error);
+        next();
+      }
+    },
 };
