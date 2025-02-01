@@ -11,7 +11,7 @@ import {
   calculateWFScore,
   calculate12KScore,
   calculateAverageXacc,
-  countUniversalPasses,
+  countuniversalPassCount,
   countWorldsFirstPasses,
 } from '../misc/PlayerStatsCalculator.js';
 import {Score} from '../misc/PlayerStatsCalculator.js';
@@ -163,7 +163,7 @@ export class PlayerStatsService {
           wfScore: calculateWFScore(uniqueScores),
           score12K: calculate12KScore(uniqueScores),
           averageXacc: calculateAverageXacc(uniqueScores),
-          universalPassCount: countUniversalPasses(player.passes || []),
+          universalPassCount: countuniversalPassCount(player.passes || []),
           worldsFirstCount: countWorldsFirstPasses(player.passes || []),
           topDiff,
           top12kDiff,
@@ -360,7 +360,7 @@ export class PlayerStatsService {
         wfScore: calculateWFScore(uniqueScores),
         score12K: calculate12KScore(uniqueScores),
         averageXacc: calculateAverageXacc(uniqueScores),
-        universalPassCount: countUniversalPasses(player.passes),
+        universalPassCount: countuniversalPassCount(player.passes),
         worldsFirstCount: countWorldsFirstPasses(player.passes),
         topDiff,
         top12kDiff,
@@ -530,7 +530,7 @@ export class PlayerStatsService {
           ),
           rankField: null,
         },
-        universalPasses: {field: 'universalPassCount', rankField: null},
+        universalPassCount: {field: 'universalPassCount', rankField: null},
         worldsFirstCount: {field: 'worldsFirstCount', rankField: null},
         topDiff: {
           field: sequelize.literal(

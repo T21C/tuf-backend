@@ -55,7 +55,7 @@ export function calculateAverageXacc(scores: Score[]): number {
   );
 }
 
-export function countUniversalPasses(passes: IPass[]): number {
+export function countuniversalPassCount(passes: IPass[]): number {
   return passes.filter(
     pass => !pass.isDeleted && pass.level?.difficulty?.name?.startsWith('U'),
   ).length;

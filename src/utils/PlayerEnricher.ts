@@ -12,7 +12,7 @@ import {
   calculateWFScore,
   calculate12KScore,
   calculateAverageXacc,
-  countUniversalPasses,
+  countuniversalPassCount,
   countWorldsFirstPasses,
   calculateTopDiff,
   calculateTop12KDiff,
@@ -29,7 +29,7 @@ interface PlayerStats {
   wfScore: number;
   score12K: number;
   averageXacc: number;
-  universalPasses: number;
+  universalPassCount: number;
   worldsFirstCount: number;
   topDiff: any;
   top12kDiff: any;
@@ -69,7 +69,7 @@ function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
     wfScore: calculateWFScore(scores),
     score12K: calculate12KScore(scores),
     averageXacc: calculateAverageXacc(scores),
-    universalPasses: countUniversalPasses(passes),
+    universalPassCount: countuniversalPassCount(passes),
     worldsFirstCount: countWorldsFirstPasses(passes),
     topDiff: calculateTopDiff(passes),
     top12kDiff: calculateTop12KDiff(passes),

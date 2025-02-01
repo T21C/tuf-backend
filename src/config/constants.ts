@@ -64,7 +64,7 @@ export const validSortOptions = [
   'ppScore',
   'wfScore',
   'score12K',
-  'universalPasses',
+  'universalPassCount',
   'averageXacc',
   'worldsFirstCount',
   'totalPasses',

@@ -21,6 +21,24 @@ const upload = multer({
 // Initialize backup schedules
 backupService.initializeSchedules().catch(console.error);
 
+// Validate upload credentials
+router.head(
+  '/upload/:type/validate',
+  Auth.superAdminPassword(),
+  async (req: Request, res: Response) => {
+    try {
+      const {type} = req.params;
+      if (!['mysql', 'files'].includes(type)) {
+        return res.status(400).json({error: 'Invalid backup type'});
+      }
+      return res.status(200).end();
+    } catch (error) {
+      console.error('Upload validation failed:', error);
+      return res.status(500).json({error: 'Upload validation failed'});
+    }
+  },
+);
+
 // Upload backup
 router.post(
   '/upload/:type',
@@ -250,7 +268,7 @@ router.post(
 // Download backup
 router.get(
   '/download/:type/:filename',
-  Auth.superAdmin(),
+  Auth.superAdminPassword(),
   async (req: Request, res: Response) => {
     try {
       const {type, filename} = req.params;
@@ -268,6 +286,11 @@ router.get(
         await fs.access(filePath);
       } catch {
         return res.status(404).json({error: 'Backup file not found'});
+      }
+
+      // If it's a HEAD request, just validate access and return success
+      if (req.method === 'HEAD') {
+        return res.status(200).end();
       }
 
       return res.download(filePath);

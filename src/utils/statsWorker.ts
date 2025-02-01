@@ -6,7 +6,7 @@ import {
   calculateWFScore,
   calculate12KScore,
   calculateAverageXacc,
-  countUniversalPasses,
+  countuniversalPassCount,
   countWorldsFirstPasses,
   calculateTopDiff,
   calculateTop12KDiff,
@@ -74,7 +74,7 @@ port.on('message', async ({scores, passes}) => {
         .then(() => calculateAverageXacc(validScores))
         .catch(() => 0),
       Promise.resolve()
-        .then(() => countUniversalPasses(passes))
+        .then(() => countuniversalPassCount(passes))
         .catch(() => 0),
       Promise.resolve()
         .then(() => countWorldsFirstPasses(passes))
@@ -109,7 +109,7 @@ port.on('message', async ({scores, passes}) => {
       wfScore,
       score12K,
       averageXacc,
-      universalPasses: universalPassCount,
+      universalPassCount: universalPassCount,
       worldsFirstCount,
       topDiff,
       top12kDiff,
