@@ -36,7 +36,7 @@ const ownUrlEnv =
         : 'http://localhost:3002';
 
 // Add this near the top with other constants
-const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', 'manifest.json');
+const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', '.vite', 'manifest.json');
 let manifest: Record<string, { file: string }> = {};
 
 try {
