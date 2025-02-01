@@ -4,6 +4,8 @@ import Level from '../models/Level.js';
 import Player from '../models/Player.js';
 import Difficulty from '../models/Difficulty.js';
 import Creator from '../models/Creator.js';
+import fs from 'fs';
+import path from 'path';
 
 const clientUrlEnv =
   process.env.NODE_ENV === 'production'
@@ -33,6 +35,17 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
+// Add this near the top with other constants
+const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', 'manifest.json');
+let manifest: Record<string, { file: string }> = {};
+
+try {
+  const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+  manifest = JSON.parse(manifestContent);
+} catch (error) {
+  console.error('Error reading manifest file:', error);
+}
+
 // Base HTML template with Vite client
 const getBaseHtml = (clientUrl: string) => `
 <!DOCTYPE html>
@@ -56,10 +69,10 @@ const getBaseHtml = (clientUrl: string) => `
         </script>
         <script type="module" src="${clientUrl}/@vite/client"></script>
         <script type="module" src="${clientUrl}/src/main.jsx"></script>`
-        : `<link rel="stylesheet" href="/assets/index.css" />
-         <script type="module" crossorigin src="/assets/index.js"></script>
-         <link rel="modulepreload" href="/assets/vendor.js" />
-         <link rel="modulepreload" href="/assets/ui.js" />`
+        : `<link rel="stylesheet" href="${manifest['index.css']?.file ? '/' + manifest['index.css'].file : '/assets/index.css'}" />
+         <script type="module" crossorigin src="${manifest['index.html']?.file ? '/' + manifest['index.html'].file : '/assets/index.js'}"></script>
+         <link rel="modulepreload" href="${manifest['vendor']?.file ? '/' + manifest['vendor'].file : '/assets/vendor.js'}" />
+         <link rel="modulepreload" href="${manifest['ui']?.file ? '/' + manifest['ui'].file : '/assets/ui.js'}" />`
     }
   </head>
   <body>
