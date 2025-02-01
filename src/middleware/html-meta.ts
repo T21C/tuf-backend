@@ -4,6 +4,19 @@ import Level from '../models/Level.js';
 import Player from '../models/Player.js';
 import Difficulty from '../models/Difficulty.js';
 import Creator from '../models/Creator.js';
+import fs from 'fs';
+import path from 'path';
+
+interface ManifestEntry {
+  file: string;
+  src: string;
+  isEntry?: boolean;
+  isDynamicEntry?: boolean;
+}
+
+interface ViteManifest {
+  [key: string]: ManifestEntry;
+}
 
 const clientUrlEnv =
   process.env.NODE_ENV === 'production'
@@ -33,8 +46,35 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
+// Function to get asset paths from manifest
+const getAssetPaths = () => {
+  try {
+    const manifestPath = path.resolve(process.cwd(), '../client/dist/manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as ViteManifest;
+      const entries = Object.values(manifest);
+      return {
+        css: entries.find(file => file.file.endsWith('.css'))?.file || 'assets/index.css',
+        js: entries.find(file => file.file.endsWith('.js') && file.file.includes('index'))?.file || 'assets/index.js',
+        vendor: entries.find(file => file.file.endsWith('.js') && file.file.includes('vendor'))?.file || 'assets/vendor.js',
+        ui: entries.find(file => file.file.endsWith('.js') && file.file.includes('ui'))?.file || 'assets/ui.js'
+      };
+    }
+  } catch (error) {
+    console.error('Error reading manifest:', error);
+  }
+  return {
+    css: 'assets/index.css',
+    js: 'assets/index.js',
+    vendor: 'assets/vendor.js',
+    ui: 'assets/ui.js'
+  };
+};
+
 // Base HTML template with Vite client
-const getBaseHtml = (clientUrl: string) => `
+const getBaseHtml = (clientUrl: string) => {
+  const assets = getAssetPaths();
+  return `
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -56,16 +96,17 @@ const getBaseHtml = (clientUrl: string) => `
         </script>
         <script type="module" src="${clientUrl}/@vite/client"></script>
         <script type="module" src="${clientUrl}/src/main.jsx"></script>`
-        : `<link rel="stylesheet" href="/assets/index.css" />
-         <script type="module" crossorigin src="/assets/index.js"></script>
-         <link rel="modulepreload" href="/assets/vendor.js" />
-         <link rel="modulepreload" href="/assets/ui.js" />`
+        : `<link rel="stylesheet" href="/${assets.css}" />
+         <script type="module" crossorigin src="/${assets.js}"></script>
+         <link rel="modulepreload" href="/${assets.vendor}" />
+         <link rel="modulepreload" href="/${assets.ui}" />`
     }
   </head>
   <body>
     <div id="root"></div>
   </body>
 </html>`;
+};
 
 export const htmlMetaMiddleware = async (
   req: Request,
@@ -78,7 +119,8 @@ export const htmlMetaMiddleware = async (
     <meta name="description" content="The Universal Forum - A community for rhythm game players" />
     <meta property="og:site_name" content="The Universal Forum" />
     <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#090909" />`;
+    <meta name="theme-color" content="#090909" />
+    <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
 
     if (req.path.startsWith('/passes/')) {
       const pass = await Pass.findByPk(id, {
@@ -166,7 +208,8 @@ export const htmlMetaMiddleware = async (
       metaTags,
     );
 
-
+    // Set cache control headers for meta responses
+    res.setHeader('Cache-Control', 'public, max-age=300'); // Cache for 5 minutes
     res.send(html);
   } catch (error) {
     console.error('Error serving HTML:', error);
