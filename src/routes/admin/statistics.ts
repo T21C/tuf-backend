@@ -31,7 +31,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
           where: {
             toRate: true,
           },
-          attributes: [],
+          attributes: ['rerateNum'],
           required: true,
         },
         {
@@ -43,6 +43,8 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       attributes: ['id'],
       group: ['Rating.id'],
       having: Sequelize.literal('COUNT(`details`.`id`) < 4'),
+    }).then(ratings => {
+      return ratings.filter(rating => !/^vote/i.test(rating.level?.rerateNum || ''));
     });
 
     // Get pending level submissions count
