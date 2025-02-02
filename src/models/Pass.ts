@@ -31,6 +31,7 @@ class Pass
   declare scoreV2: number | null;
   declare isDeleted: boolean | null;
   declare isAnnounced: boolean | null;
+  declare isDuplicate: boolean | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -133,6 +134,12 @@ Pass.init(
       type: DataTypes.BOOLEAN,
       allowNull: true,
     },
+    isDuplicate: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: false,
+      comment: 'Indicates if this pass is a duplicate clear of another level',
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -149,6 +156,7 @@ Pass.init(
       {fields: ['playerId']},
       {fields: ['levelId']},
       {fields: ['isWorldsFirst']},
+      {fields: ['isDuplicate']},
     ],
   },
 );

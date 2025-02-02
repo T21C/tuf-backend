@@ -170,6 +170,11 @@ const buildFieldSearchCondition = async (
         Op.like,
         sequelize.fn('LOWER', `%${value}%`),
       ),
+      sequelize.where(
+        sequelize.fn('LOWER', sequelize.col('level.song')),
+        Op.like,
+        sequelize.fn('LOWER', `%${value}%`),
+      ),
       {videoLink: {[Op.like]: `%${value}%`}},
     ],
   };
@@ -530,6 +535,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       judgements,
       playerId,
       isAnnounced,
+      isDuplicate,
     } = req.body;
 
     // First fetch the pass with its current level data
@@ -564,7 +570,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Pass not found'});
     }
 
-    // If levelId is changing, fetch the new level data
+    // If levelId is changing, fetch the new level data and check for duplicates
     let newLevel = null;
     if (levelId && levelId !== pass.levelId) {
       newLevel = await Level.findOne({
@@ -642,7 +648,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
       const calculatedScore = getScoreV2(passData, levelDataForScore);
 
-      // Update pass with all fields including the new levelId if provided
+      // Update pass with all fields including isDuplicate
       await pass.update(
         {
           levelId: levelId || pass.levelId,
@@ -661,11 +667,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
           playerId: playerId || pass.playerId,
           isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
+          isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
         },
         {transaction},
       );
     } else {
-      // Update pass fields without recalculating if no judgements provided
+      // Update pass fields without recalculating
       await pass.update(
         {
           levelId: levelId || pass.levelId,
@@ -684,6 +691,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
           playerId: playerId || pass.playerId,
           isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
+          isDuplicate: isDuplicate !== undefined ? isDuplicate : pass.isDuplicate,
         },
         {transaction},
       );

@@ -254,7 +254,7 @@ export class PlayerStatsService {
 
   private convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
     return (passes as any)
-      .filter((pass: any) => !pass.isDeleted)
+      .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
       .map((pass: any) => ({
         score: pass.scoreV2 || 0,
         baseScore: pass.level?.baseScore || 0,

@@ -72,7 +72,9 @@ export interface IPass extends IBaseModel {
   scoreV2: number | null;
   isAnnounced: boolean | null;
   isDeleted: boolean | null;
-  // Associations
+  isDuplicate: boolean | null;
+  createdAt: Date;
+  updatedAt: Date;
   level?: ILevel;
   player?: IPlayer;
   judgements?: IJudgement;

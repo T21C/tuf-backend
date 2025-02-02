@@ -137,7 +137,9 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
       const userData = userDataMap.get(player.id) as any;
 
       // Process passes data
-      const scores = passesData.map(pass => ({
+      const scores = passesData
+        .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
+        .map(pass => ({
         score: pass.scoreV2 || 0,
         xacc: pass.accuracy || 0,
         speed: pass.speed || 0,

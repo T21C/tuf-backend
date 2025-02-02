@@ -18,7 +18,11 @@
     "lint": "gts lint",
     "type-check": "tsc --noEmit",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "migrate": "sequelize-cli db:migrate",
+    "migrate:undo": "sequelize-cli db:migrate:undo",
+    "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
+    "migrate:create": "sequelize-cli migration:create --name"
   },
   "keywords": [],
   "author": "",

@@ -95,6 +95,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     });
 
     const topScores = Array.from(uniquePasses.values())
+      .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
       .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
       .slice(0, 20)
       .map((pass, index) => ({
