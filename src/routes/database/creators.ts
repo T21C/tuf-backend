@@ -274,10 +274,65 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {name, aliases} = req.body;
 
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({error: 'Creator name is required'});
+    }
+
+    // Check for existing creator with the same name (case insensitive)
+    const existingCreator = await Creator.findOne({
+      where: {
+        [Op.or]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            sequelize.fn('LOWER', name.trim())
+          ),
+          // For MySQL, we need to use JSON_CONTAINS to check array contents
+          sequelize.literal(`JSON_CONTAINS(aliases, '"${name.trim()}"', '$')`)
+        ]
+      },
+      transaction
+    });
+
+    if (existingCreator) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: `A creator with the name "${name}" already exists (ID: ${existingCreator.id})`
+      });
+    }
+
+    // Check if any of the aliases match existing creator names
+    if (aliases && Array.isArray(aliases)) {
+      const aliasConditions = aliases.map(alias => ({
+        [Op.or]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            sequelize.fn('LOWER', alias.trim())
+          ),
+          // Use JSON_CONTAINS for each alias
+          sequelize.literal(`JSON_CONTAINS(aliases, '"${alias.trim()}"', '$')`)
+        ]
+      }));
+
+      const existingAliases = await Creator.findOne({
+        where: {
+          [Op.or]: aliasConditions
+        },
+        transaction
+      });
+
+      if (existingAliases) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: `One of the aliases conflicts with an existing creator (ID: ${existingAliases.id})`
+        });
+      }
+    }
+
     const creator = await Creator.create(
       {
-        name,
-        aliases: aliases || [],
+        name: name.trim(),
+        aliases: aliases?.map((a: string) => a.trim()) || [],
       },
       {transaction},
     );

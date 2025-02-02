@@ -101,6 +101,10 @@ export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
     pings: {},
   };
 
+  if (diffName === 'MA' && pass.level?.baseScore && pass.level?.baseScore >= 5000) {
+    return {channels: [], pings: {}}
+  }
+
   // Add channels based on flags and determine their pings
   if (isWF) {
     config.channels.push('wf-clears');
