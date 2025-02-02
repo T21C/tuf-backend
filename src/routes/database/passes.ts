@@ -200,6 +200,68 @@ const buildWhereClause = async (query: any) => {
     }
   }
 
+  // Handle difficulty filtering
+  const difficultyConditions: any[] = [];
+
+  // Handle PGU range if provided
+  if (query.minDiff || query.maxDiff) {
+    const [fromDiff, toDiff] = await Promise.all([
+      query.minDiff
+        ? Difficulty.findOne({
+            where: {name: query.minDiff, type: 'PGU'},
+            attributes: ['id', 'sortOrder'],
+          })
+        : null,
+      query.maxDiff
+        ? Difficulty.findOne({
+            where: {name: query.maxDiff, type: 'PGU'},
+            attributes: ['id', 'sortOrder'],
+          })
+        : null,
+    ]);
+
+    if (fromDiff || toDiff) {
+      const pguDifficulties = await Difficulty.findAll({
+        where: {
+          type: 'PGU',
+          sortOrder: {
+            ...(fromDiff && {[Op.gte]: fromDiff.sortOrder}),
+            ...(toDiff && {[Op.lte]: toDiff.sortOrder}),
+          },
+        },
+        attributes: ['id'],
+      });
+
+      if (pguDifficulties.length > 0) {
+        difficultyConditions.push({
+          '$level.diffId$': {[Op.in]: pguDifficulties.map(d => d.id)},
+        });
+      }
+    }
+  }
+
+  // Handle special difficulties if provided
+  if (query.specialDifficulties?.length > 0) {
+    const specialDiffs = await Difficulty.findAll({
+      where: {
+        name: {[Op.in]: query.specialDifficulties},
+        type: 'SPECIAL',
+      },
+      attributes: ['id'],
+    });
+
+    if (specialDiffs.length > 0) {
+      difficultyConditions.push({
+        '$level.diffId$': {[Op.in]: specialDiffs.map(d => d.id)},
+      });
+    }
+  }
+
+  // Add difficulty conditions to the where clause if any exist
+  if (difficultyConditions.length > 0) {
+    conditions.push({[Op.or]: difficultyConditions});
+  }
+
   // Handle text search with new parsing
   if (query.query) {
     const searchGroups = parseSearchQuery(query.query.trim());
@@ -467,6 +529,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       isDeleted,
       judgements,
       playerId,
+      isAnnounced,
     } = req.body;
 
     // First fetch the pass with its current level data
@@ -597,6 +660,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           scoreV2: calculatedScore,
           isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
           playerId: playerId || pass.playerId,
+          isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
         },
         {transaction},
       );
@@ -619,6 +683,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           scoreV2: scoreV2 !== undefined ? scoreV2 : pass.scoreV2,
           isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
           playerId: playerId || pass.playerId,
+          isAnnounced: isAnnounced !== undefined ? isAnnounced : pass.isAnnounced,
         },
         {transaction},
       );
