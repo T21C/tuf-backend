@@ -15,6 +15,38 @@ import {getScoreV2} from '../misc/CalcScore.js';
 import {calcAcc} from '../misc/CalcAcc.js';
 const router: Router = express.Router();
 
+const cleanVideoUrl = (url: string) => {
+  // Match various video URL formats
+  const patterns = [
+    // YouTube patterns
+    /https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+    /https?:\/\/(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/,
+    /https?:\/\/(?:www\.)?youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
+    // Bilibili patterns
+    /https?:\/\/(?:www\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
+    /https?:\/\/(?:www\.)?b23\.tv\/(BV[a-zA-Z0-9]+)/,
+    /https?:\/\/(?:www\.)?bilibili\.com\/.*?(BV[a-zA-Z0-9]+)/
+  ];
+
+  // Try each pattern
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) {
+      // For Bilibili links, construct the standard URL format
+      if (match[1] && match[1].startsWith('BV')) {
+        return `https://www.bilibili.com/video/${match[1]}`;
+      }
+      // For YouTube links, construct based on the first pattern
+      if (match[1]) {
+        return `https://www.youtube.com/watch?v=${match[1]}`;
+      }
+    }
+  }
+
+  // If no pattern matches, return the original URL
+  return url;
+};
+
 // Form submission endpoint
 router.post(
   '/form-submit',
@@ -46,7 +78,7 @@ router.post(
           song: req.body['song'],
           team: req.body['team'] || '',
           vfxer: req.body['vfxer'] || '',
-          videoLink: req.body['videoLink'],
+          videoLink: cleanVideoUrl(req.body['videoLink']),
           directDL: req.body['directDL'],
           wsLink: req.body['wsLink'] || '',
           baseScore,
@@ -164,7 +196,7 @@ router.post(
           passer: req.body.passer,
           feelingDifficulty: req.body.feelingDifficulty,
           title: req.body.title,
-          videoLink: req.body.videoLink,
+          videoLink: cleanVideoUrl(req.body.videoLink),
           rawTime: new Date(req.body.rawTime),
           submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
             .username,
