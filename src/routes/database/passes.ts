@@ -462,11 +462,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       is12K,
       is16K,
       isNoHoldTap,
-      isWorldsFirst,
       accuracy,
       scoreV2,
       isDeleted,
       judgements,
+      playerId,
     } = req.body;
 
     // First fetch the pass with its current level data
@@ -593,11 +593,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           is16K: is16K !== undefined ? is16K : pass.is16K,
           isNoHoldTap:
             isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
-          isWorldsFirst:
-            isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
           accuracy: calculatedAccuracy,
           scoreV2: calculatedScore,
           isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+          playerId: playerId || pass.playerId,
         },
         {transaction},
       );
@@ -616,14 +615,62 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           is16K: is16K !== undefined ? is16K : pass.is16K,
           isNoHoldTap:
             isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap,
-          isWorldsFirst:
-            isWorldsFirst !== undefined ? isWorldsFirst : pass.isWorldsFirst,
           accuracy: accuracy !== undefined ? accuracy : pass.accuracy,
           scoreV2: scoreV2 !== undefined ? scoreV2 : pass.scoreV2,
           isDeleted: isDeleted !== undefined ? isDeleted : pass.isDeleted,
+          playerId: playerId || pass.playerId,
         },
         {transaction},
       );
+    }
+
+    // If vidUploadTime changed or levelId changed, recalculate isWorldsFirst for all passes of this level
+    if (vidUploadTime || levelId) {
+      // Get the target level ID (either new levelId or current one)
+      const targetLevelId = levelId || pass.levelId;
+      
+      // Find the earliest non-deleted pass for this level from non-banned players
+      const earliestPass = await Pass.findOne({
+        where: {
+          levelId: targetLevelId,
+          isDeleted: false,
+        },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            where: {isBanned: false},
+            required: true,
+          },
+        ],
+        order: [['vidUploadTime', 'ASC']],
+        transaction,
+      });
+
+      // Reset all passes for this level to not be world's first
+      await Pass.update(
+        {isWorldsFirst: false},
+        {
+          where: {levelId: targetLevelId},
+          transaction,
+        },
+      );
+
+      // If we found an earliest pass, mark it as world's first
+      if (earliestPass) {
+        await Pass.update(
+          {isWorldsFirst: true},
+          {
+            where: {id: earliestPass.id},
+            transaction,
+          },
+        );
+      }
+
+      // If levelId changed, also update world's first for the old level
+      if (levelId && levelId !== pass.levelId) {
+        await updateWorldsFirstStatus(pass.levelId, transaction);
+      }
     }
 
     // Fetch the updated pass
