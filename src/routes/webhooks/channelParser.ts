@@ -46,7 +46,7 @@ export function getLevelAnnouncementConfig(
   };
 
   // Handle censored levels (-2)
-  if (diffName === '-2') {
+  if (diffName === '-2' || diffName === '-21') {
     config.channels.push('censored-levels');
     return config;
   }
