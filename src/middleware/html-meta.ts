@@ -35,9 +35,21 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
-// Add this near the top with other constants
+// Add type for manifest entries
+type ManifestEntry = {
+  file: string;
+  css?: string[];
+  imports?: string[];
+  assets?: string[];
+};
+
+type Manifest = {
+  [key: string]: ManifestEntry;
+};
+
+// Read manifest once at startup
 const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', '.vite', 'manifest.json');
-let manifest: Record<string, { file: string }> = {};
+let manifest: Manifest = {};
 
 try {
   const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
@@ -46,39 +58,81 @@ try {
   console.error('Error reading manifest file:', error);
 }
 
-// Base HTML template with Vite client
-const getBaseHtml = (clientUrl: string) => `
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <base href="${clientUrl}/" />
-    <link rel="icon" type="image/svg+xml" href="/assets/logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
-    <!-- METADATA_PLACEHOLDER -->
+// Helper function to get all required assets
+const getRequiredAssets = () => {
+  const entry = manifest['index.html'];
+  if (!entry) return { js: [], css: [], imports: [] };
 
-    ${
-      process.env.NODE_ENV === 'development'
-        ? `<script type="module">
-          import RefreshRuntime from '${clientUrl}/@react-refresh'
-          RefreshRuntime.injectIntoGlobalHook(window)
-          window.$RefreshReg$ = () => {}
-          window.$RefreshSig$ = () => (type) => type
-          window.__vite_plugin_react_preamble_installed__ = true
-        </script>
-        <script type="module" src="${clientUrl}/@vite/client"></script>
-        <script type="module" src="${clientUrl}/src/main.jsx"></script>`
-        : `<link rel="stylesheet" href="${manifest['index.css']?.file ? '/' + manifest['index.css'].file : '/assets/index.css'}" />
-         <script type="module" crossorigin src="${manifest['index.html']?.file ? '/' + manifest['index.html'].file : '/assets/index.js'}"></script>
-         <link rel="modulepreload" href="${manifest['vendor']?.file ? '/' + manifest['vendor'].file : '/assets/vendor.js'}" />
-         <link rel="modulepreload" href="${manifest['ui']?.file ? '/' + manifest['ui'].file : '/assets/ui.js'}" />`
-    }
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
-</html>`;
+  const js = [entry.file];
+  const css = entry.css || [];
+  const imports = entry.imports?.map(imp => manifest[imp]?.file).filter(Boolean) || [];
+
+  return { js, css, imports };
+};
+
+// Base HTML template with Vite client
+const getBaseHtml = (clientUrl: string) => {
+  if (process.env.NODE_ENV === 'development') {
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <link rel="icon" type="image/svg+xml" href="/assets/logo.png" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          
+          <!-- METADATA_PLACEHOLDER -->
+
+          <script type="module">
+            import RefreshRuntime from '${clientUrl}/@react-refresh'
+            RefreshRuntime.injectIntoGlobalHook(window)
+            window.$RefreshReg$ = () => {}
+            window.$RefreshSig$ = () => (type) => type
+            window.__vite_plugin_react_preamble_installed__ = true
+          </script>
+          <script type="module" src="${clientUrl}/@vite/client"></script>
+          <script type="module" src="${clientUrl}/src/main.jsx"></script>
+        </head>
+        <body>
+          <div id="root"></div>
+        </body>
+      </html>
+    `;
+  }
+
+  // Production mode - use manifest
+  const { js, css, imports } = getRequiredAssets();
+  
+  const cssLinks = css.map(file => 
+    `<link rel="stylesheet" href="/${file}">`
+  ).join('\n');
+  
+  const jsScripts = [
+    ...imports.map(file => 
+      `<script type="module" crossorigin src="/${file}"></script>`
+    ),
+    `<script type="module" crossorigin src="/${js[0]}"></script>`
+  ].join('\n');
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <link rel="icon" type="image/svg+xml" href="/assets/${manifest['src/assets/tuf-logo/logo.png']?.file || 'logo.png'}" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        
+        <!-- METADATA_PLACEHOLDER -->
+
+        ${cssLinks}
+        ${jsScripts}
+      </head>
+      <body>
+        <div id="root"></div>
+      </body>
+    </html>
+  `;
+};
 
 export const htmlMetaMiddleware = async (
   req: Request,
