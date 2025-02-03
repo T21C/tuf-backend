@@ -399,13 +399,15 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 router.get('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-  if (isNaN(parseInt(req.params.id))) {
+  const levelId = parseInt(req.params.id);
+  
+  // Check if levelId is not a valid number
+  if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
     return res.status(400).json({error: 'Invalid level ID'});
   }
-  
 
   const level = await Level.findOne({
-    where: { id: parseInt(req.params.id) },
+    where: { id: levelId },
     include: [
       {
         model: Difficulty,
