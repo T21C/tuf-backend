@@ -798,4 +798,46 @@ router.post(
   },
 );
 
+// Add profile request endpoint
+router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const { name, discordId, country } = req.body;
+
+    // Validate required fields
+    if (!name || !discordId || !country) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Check if player already exists with this name
+    const existingPlayer = await Player.findOne({
+      where: {
+        name: {
+          [Op.iLike]: name
+        }
+      }
+    });
+
+    if (existingPlayer) {
+      return res.status(409).json({ error: 'Player with this name already exists' });
+    }
+
+    // Create new player
+    const player = await Player.create({
+      name,
+      country,
+      isBanned: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    return res.status(201).json({
+      id: player.id,
+      name: player.name
+    });
+  } catch (error) {
+    console.error('Error creating player profile:', error);
+    return res.status(500).json({ error: 'Failed to create player profile' });
+  }
+});
+
 export default router;

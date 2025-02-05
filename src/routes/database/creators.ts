@@ -1108,4 +1108,86 @@ router.delete(
   },
 );
 
+// Add search endpoint for creators
+router.get('/search/:name', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    
+    // Search in both name and aliases using MySQL-compatible case-insensitive search
+    const creators = await Creator.findAll({
+      where: {
+        [Op.or]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            'LIKE',
+            `%${name.toLowerCase()}%`
+          ),
+          // For MySQL JSON search
+          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${name}')) IS NOT NULL`)
+        ]
+      },
+      limit: 10,
+      attributes: ['id', 'name', 'isVerified']
+    });
+
+    // Format response to match ProfileSelector expectations
+    return res.json(creators.map(creator => ({
+      id: creator.id,
+      name: creator.name,
+      type: creator.isVerified ? 'verified' : 'unverified'
+    })));
+
+  } catch (error) {
+    console.error('Error searching creators:', error);
+    return res.status(500).json({ error: 'Failed to search creators' });
+  }
+});
+
+// Add search endpoint for teams
+router.get('/teams/search/:name', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    
+    const teams = await Team.findAll({
+      where: {
+        [Op.or]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            'LIKE',
+            `%${name.toLowerCase()}%`
+          ),
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('description')),
+            'LIKE',
+            `%${name.toLowerCase()}%`
+          )
+        ]
+      },
+      include: [
+        {
+          model: Creator,
+          as: 'members',
+          through: { attributes: [] }
+        }
+      ],
+      limit: 10
+    });
+
+    // Format response to match ProfileSelector expectations
+    return res.json(teams.map(team => ({
+      id: team.id,
+      name: team.name,
+      type: 'team',
+      members: team.members?.map(member => ({
+        id: member.id,
+        name: member.name
+      }))
+    })));
+
+  } catch (error) {
+    console.error('Error searching teams:', error);
+    return res.status(500).json({ error: 'Failed to search teams' });
+  }
+});
+
 export default router;
