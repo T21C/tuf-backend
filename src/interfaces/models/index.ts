@@ -85,6 +85,7 @@ export interface IPlayer extends IBaseModel {
   name: string;
   country: string;
   isBanned: boolean;
+  isSubmissionsPaused: boolean;
   pfp?: string | null;
   discordId?: string | null;
   discordUsername?: string | null;

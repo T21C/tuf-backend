@@ -13,6 +13,7 @@ import Difficulty from '../models/Difficulty.js';
 import {sseManager} from '../utils/sse.js';
 import {getScoreV2} from '../misc/CalcScore.js';
 import {calcAcc} from '../misc/CalcAcc.js';
+import Player from '../models/Player.js';
 const router: Router = express.Router();
 
 const cleanVideoUrl = (url: string) => {
@@ -55,6 +56,17 @@ router.post(
     try {
       if (req.user?.email && emailBanList.includes(req.user.email)) {
         return res.status(403).json({error: 'User is banned'});
+      }
+
+      // Check if user's player is banned or submissions are paused
+      if (req.user?.playerId) {
+        const player = await Player.findByPk(req.user.playerId);
+        if (player?.isBanned) {
+          return res.status(403).json({error: 'User is banned'});
+        }
+        if (player?.isSubmissionsPaused) {
+          return res.status(403).json({error: 'User submissions are paused'});
+        }
       }
 
       const formType = req.headers['x-form-type'];

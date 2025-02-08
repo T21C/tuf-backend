@@ -23,6 +23,7 @@ class Player
   declare name: string;
   declare country: string;
   declare isBanned: boolean;
+  declare isSubmissionsPaused: boolean;
   declare pfp: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -64,6 +65,10 @@ Player.init(
       allowNull: false,
     },
     isBanned: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    isSubmissionsPaused: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },

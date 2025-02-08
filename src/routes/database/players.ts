@@ -355,6 +355,7 @@ router.post(
         name,
         country: 'XX', // Default country code
         isBanned: false,
+        isSubmissionsPaused: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -679,6 +680,43 @@ router.patch(
       return res
         .status(500)
         .json({error: 'Failed to update player ban status'});
+    }
+  },
+);
+
+// Add this new endpoint after the ban endpoint
+router.patch(
+  '/:id/pause-submissions',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const {id} = req.params;
+      const {isSubmissionsPaused} = req.body;
+
+      const player = await Player.findByPk(id, {transaction});
+      if (!player) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Player not found'});
+      }
+
+      await player.update({isSubmissionsPaused}, {transaction});
+      await transaction.commit();
+
+      // Force cache update and broadcast changes
+      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
+      sseManager.broadcast({type: 'playerUpdate'});
+
+      return res.json({
+        message: `Player submissions ${isSubmissionsPaused ? 'paused' : 'resumed'} successfully`,
+        player,
+      });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error updating player submission pause status:', error);
+      return res
+        .status(500)
+        .json({error: 'Failed to update player submission pause status'});
     }
   },
 );
