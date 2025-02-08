@@ -199,6 +199,7 @@ export const OAuthController = {
               name: playerMapping.name,
               country: playerMapping.region || 'XX',
               isBanned: false,
+              isSubmissionsPaused: false,
               createdAt: new Date(),
               updatedAt: new Date(),
             });
@@ -217,6 +218,7 @@ export const OAuthController = {
             name: profile.username,
             country: 'XX',
             isBanned: false,
+            isSubmissionsPaused: false,
             createdAt: new Date(),
             updatedAt: new Date(),
           });
