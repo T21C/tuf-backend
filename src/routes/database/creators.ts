@@ -1113,6 +1113,9 @@ router.get('/search/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     
+    // Escape special characters in the search term
+    const escapedName = name.replace(/[%_]/g, '\\$&');
+    
     // Search in both name and aliases using MySQL-compatible case-insensitive search
     const creators = await Creator.findAll({
       where: {
@@ -1120,26 +1123,23 @@ router.get('/search/:name', async (req: Request, res: Response) => {
           sequelize.where(
             sequelize.fn('LOWER', sequelize.col('name')),
             'LIKE',
-            `%${name.toLowerCase()}%`
+            `%${escapedName.toLowerCase()}%`
           ),
-          // For MySQL JSON search
-          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${name}')) IS NOT NULL`)
+          // For MySQL JSON search with escaped characters
+          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${escapedName}'), NULL, '$[*]') IS NOT NULL`)
         ]
       },
       limit: 10,
       attributes: ['id', 'name', 'isVerified']
     });
 
-    // Format response to match ProfileSelector expectations
-    return res.json(creators.map(creator => ({
-      id: creator.id,
-      name: creator.name,
-      type: creator.isVerified ? 'verified' : 'unverified'
-    })));
-
+    return res.json(creators);
   } catch (error) {
     console.error('Error searching creators:', error);
-    return res.status(500).json({ error: 'Failed to search creators' });
+    return res.status(500).json({
+      error: 'Failed to search creators',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
@@ -1147,6 +1147,8 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 router.get('/teams/search/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
+
+    const escapedName = name.replace(/[%_]/g, '\\$&');
     
     const teams = await Team.findAll({
       where: {
@@ -1154,12 +1156,12 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
           sequelize.where(
             sequelize.fn('LOWER', sequelize.col('name')),
             'LIKE',
-            `%${name.toLowerCase()}%`
+            `%${escapedName.toLowerCase()}%`
           ),
           sequelize.where(
             sequelize.fn('LOWER', sequelize.col('description')),
             'LIKE',
-            `%${name.toLowerCase()}%`
+            `%${escapedName.toLowerCase()}%`
           )
         ]
       },

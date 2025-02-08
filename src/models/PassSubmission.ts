@@ -9,6 +9,7 @@ class PassSubmission extends BaseModel {
   declare videoLink: string;
   declare status: 'pending' | 'approved' | 'declined';
   declare assignedPlayerId: number | null;
+  declare passerRequest: boolean;
   declare levelId: number;
   declare speed: number | null;
   declare is12K: boolean;
@@ -70,6 +71,10 @@ PassSubmission.init(
         model: 'players',
         key: 'id',
       },
+    },
+    passerRequest: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     levelId: {
       type: DataTypes.INTEGER,

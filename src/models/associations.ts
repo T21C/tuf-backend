@@ -19,6 +19,9 @@ import Team from './Team.js';
 import TeamMember from './TeamMember.js';
 import LevelAlias from './LevelAlias.js';
 import PlayerStats from './PlayerStats.js';
+import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
+import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
+import LevelSubmission from './LevelSubmission.js';
 
 export function initializeAssociations() {
   // User <-> Player associations
@@ -338,5 +341,43 @@ export function initializeAssociations() {
     foreignKey: 'creatorId',
     otherKey: 'teamId',
     as: 'teams',
+  });
+
+  // LevelSubmission <-> LevelSubmissionCreatorRequest associations
+  LevelSubmission.hasMany(LevelSubmissionCreatorRequest, {
+    foreignKey: 'submissionId',
+    as: 'creatorRequests',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  LevelSubmissionCreatorRequest.belongsTo(LevelSubmission, {
+    foreignKey: 'submissionId',
+    as: 'submission'
+  });
+
+  // LevelSubmissionCreatorRequest <-> Creator associations
+  LevelSubmissionCreatorRequest.belongsTo(Creator, {
+    foreignKey: 'creatorId',
+    as: 'creator'
+  });
+
+  // LevelSubmission <-> LevelSubmissionTeamRequest associations
+  LevelSubmission.hasOne(LevelSubmissionTeamRequest, {
+    foreignKey: 'submissionId',
+    as: 'teamRequestData',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  LevelSubmissionTeamRequest.belongsTo(LevelSubmission, {
+    foreignKey: 'submissionId',
+    as: 'submission'
+  });
+
+  // LevelSubmissionTeamRequest <-> Team associations
+  LevelSubmissionTeamRequest.belongsTo(Team, {
+    foreignKey: 'teamId',
+    as: 'team'
   });
 }

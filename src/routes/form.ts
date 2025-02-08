@@ -13,6 +13,8 @@ import Difficulty from '../models/Difficulty.js';
 import {sseManager} from '../utils/sse.js';
 import {getScoreV2} from '../misc/CalcScore.js';
 import {calcAcc} from '../misc/CalcAcc.js';
+import LevelSubmissionCreatorRequest from '../models/LevelSubmissionCreatorRequest.js';
+import LevelSubmissionTeamRequest from '../models/LevelSubmissionTeamRequest.js';
 const router: Router = express.Router();
 
 const cleanVideoUrl = (url: string) => {
@@ -51,6 +53,7 @@ const cleanVideoUrl = (url: string) => {
 router.post(
   '/form-submit',
   Auth.user(),
+  express.json(),
   async (req: Request, res: Response) => {
     try {
       if (req.user?.email && emailBanList.includes(req.user.email)) {
@@ -59,35 +62,49 @@ router.post(
 
       const formType = req.headers['x-form-type'];
       if (formType === 'level') {
-        // Sanitize baseScore if present
-        const baseScore = req.body['baseScore']
-          ? Math.min(
-              0,
-              Math.max(0, parseFloat(req.body['baseScore'].slice(0, 9))),
-            )
-          : null;
-
         const discordProvider = req.user?.providers?.find(
           (provider: any) => provider.dataValues.provider === 'discord',
         );
 
+        // Create the base level submission
         const submission = await LevelSubmission.create({
-          artist: req.body['artist'],
-          charter: req.body['charter'],
-          diff: req.body['diff'],
-          song: req.body['song'],
-          team: req.body['team'] || '',
-          vfxer: req.body['vfxer'] || '',
-          videoLink: cleanVideoUrl(req.body['videoLink']),
-          directDL: req.body['directDL'],
-          wsLink: req.body['wsLink'] || '',
-          baseScore,
-          submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
-            .username,
+          artist: req.body.artist,
+          song: req.body.song,
+          diff: req.body.diff,
+          videoLink: cleanVideoUrl(req.body.videoLink),
+          directDL: req.body.directDL || '',
+          wsLink: req.body.wsLink || '',
+          submitterDiscordUsername: (discordProvider?.dataValues.profile as any).username,
           submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
           submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
           status: 'pending',
+          charter: '',
+          vfxer: '',
+          team: ''
         });
+
+        // Create the creator request records
+        if (Array.isArray(req.body.creatorRequests)) {
+          await Promise.all(req.body.creatorRequests.map(async (request: any) => {
+            return LevelSubmissionCreatorRequest.create({
+              submissionId: submission.id,
+              creatorName: request.creatorName,
+              creatorId: request.creatorId || null,
+              role: request.role,
+              isNewRequest: request.isNewRequest
+            });
+          }));
+        }
+
+        // Create team request record if present
+        if (req.body.teamRequest && req.body.teamRequest.teamName) {
+          await LevelSubmissionTeamRequest.create({
+            submissionId: submission.id,
+            teamName: req.body.teamRequest.teamName,
+            teamId: req.body.teamRequest.teamId || null,
+            isNewRequest: req.body.teamRequest.isNewRequest
+          });
+        }
 
         await levelSubmissionHook(submission);
 
@@ -194,6 +211,8 @@ router.post(
           scoreV2: score,
           accuracy,
           passer: req.body.passer,
+          assignedPlayerId: req.body.passerId || null,
+          passerRequest: req.body.passerRequest === 'true',
           feelingDifficulty: req.body.feelingDifficulty,
           title: req.body.title,
           videoLink: cleanVideoUrl(req.body.videoLink),
@@ -203,7 +222,6 @@ router.post(
           submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
           submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
           status: 'pending',
-          assignedPlayerId: req.user?.playerId, // Will be assigned during review
         });
 
         await PassSubmissionJudgements.create({
@@ -262,11 +280,6 @@ router.post(
           success: true,
           message: 'Pass submission saved successfully',
           submissionId: submission.id,
-          data: {
-            ...submission.toJSON(),
-            judgements: sanitizedJudgements,
-            flags,
-          },
         });
       }
 

@@ -23,6 +23,8 @@ import Rating from '../../models/Rating.js';
 import Player from '../../models/Player.js';
 import {migrateNewCredits} from '../../utils/migrateCredits.js';
 import Team from '../../models/Team.js';
+import LevelSubmissionCreatorRequest from '../../models/LevelSubmissionCreatorRequest.js';
+import LevelSubmissionTeamRequest from '../../models/LevelSubmissionTeamRequest.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -46,14 +48,22 @@ router.get(
 router.get('/levels/pending', async (req: Request, res: Response) => {
   try {
     const pendingLevelSubmissions = await LevelSubmission.findAll({
-      where: {status: 'pending'},
+      where: { status: 'pending' },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests'
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData'
+        }
+      ]
     });
     return res.json(pendingLevelSubmissions);
   } catch (error) {
     console.error('Error fetching pending level submissions:', error);
-    return res
-      .status(500)
-      .json({error: 'Failed to fetch pending level submissions'});
+    return res.status(500).json({ error: 'Failed to fetch pending level submissions' });
   }
 });
 
@@ -140,6 +150,16 @@ router.put(
       if (action === 'approve') {
         const submissionObj = await LevelSubmission.findOne({
           where: {id},
+          include: [
+            {
+              model: LevelSubmissionCreatorRequest,
+              as: 'creatorRequests'
+            },
+            {
+              model: LevelSubmissionTeamRequest,
+              as: 'teamRequest'
+            }
+          ],
           transaction,
         });
 
@@ -155,19 +175,23 @@ router.put(
         });
         const nextId = lastLevel ? lastLevel.id + 1 : 1;
 
+        // Get first charter and vfxer from creator requests
+        const firstCharter = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'charter');
+        const firstVfxer = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'vfxer');
+
         // Check if credits are simple (no brackets or parentheses)
         const complexChars = ['[', '(', '{', '}', ']', ')'];
         const hasSimpleCredits = !complexChars.some(
           char =>
-            submission.charter.includes(char) ||
-            submission.vfxer.includes(char),
+            (firstCharter?.creatorName || '').includes(char) ||
+            (firstVfxer?.creatorName || '').includes(char),
         );
 
-        // Find or create team if team name is provided
+        // Find or create team if team request exists
         let teamId = null;
-        if (submission.team && submission.team.trim() !== '') {
+        if (submission.teamRequest) {
           const [team] = await Team.findOrCreate({
-            where: {name: submission.team.trim()},
+            where: {name: submission.teamRequest.teamName.trim()},
             defaults: {aliases: []},
             transaction,
           });
@@ -179,10 +203,10 @@ router.put(
             id: nextId,
             song: submission.song,
             artist: submission.artist,
-            creator: submission.charter,
-            charter: submission.charter,
-            vfxer: submission.vfxer,
-            team: submission.team,
+            creator: firstCharter?.creatorName || '',
+            charter: firstCharter?.creatorName || '',
+            vfxer: firstVfxer?.creatorName || '',
+            team: submission.teamRequest?.teamName || '',
             videoLink: submission.videoLink,
             dlLink: submission.directDL,
             workshopLink: submission.wsLink,
@@ -223,11 +247,11 @@ router.put(
             id: newLevel.id,
             song: submission.song,
             artist: submission.artist,
-            creator: submission.charter,
-            charter: submission.charter,
-            vfxer: submission.vfxer,
-            team: submission.team,
-            teamId: null,
+            creator: firstCharter?.creatorName || '',
+            charter: firstCharter?.creatorName || '',
+            vfxer: firstVfxer?.creatorName || '',
+            team: submission.teamRequest?.teamName || '',
+            teamId: teamId,
             diffId: 0,
             baseScore: 0,
             isCleared: false,
@@ -852,6 +876,67 @@ router.post(
       });
     }
   },
+);
+
+// Add endpoint to update profiles
+router.put(
+  '/levels/:id/profiles',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+
+    try {
+      const { id } = req.params;
+      const { creatorRequests, teamRequest } = req.body;
+
+      const submission = await LevelSubmission.findByPk(id, { transaction });
+      if (!submission) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      // Update creator requests
+      if (creatorRequests) {
+        await Promise.all(creatorRequests.map(async (request: any) => {
+          await LevelSubmissionCreatorRequest.update(
+            {
+              creatorId: request.creatorId,
+              isNewRequest: request.isNewRequest
+            },
+            {
+              where: {
+                submissionId: id,
+                creatorName: request.creatorName,
+                role: request.role
+              },
+              transaction
+            }
+          );
+        }));
+      }
+
+      // Update team request
+      if (teamRequest) {
+        await LevelSubmissionTeamRequest.update(
+          {
+            teamId: teamRequest.teamId,
+            isNewRequest: teamRequest.isNewRequest
+          },
+          {
+            where: { submissionId: id },
+            transaction
+          }
+        );
+      }
+
+      await transaction.commit();
+      return res.json({ message: 'Profiles updated successfully' });
+    } catch (error) {
+      await transaction.rollback();
+      console.error('Error updating profiles:', error);
+      return res.status(500).json({ error: 'Failed to update profiles' });
+    }
+  }
 );
 
 export default router;
