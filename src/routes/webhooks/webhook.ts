@@ -45,7 +45,8 @@ async function processBatches<T>(
 ): Promise<void> {
   for (let i = 0; i < items.length; i += batchSize) {
     const batch = items.slice(i, i + batchSize);
-    const isFirstBatch = i === 0;
+    // const isFirstBatch = i === 0;
+    const isFirstBatch = true;
     await processor(batch, isFirstBatch);
     // Add a small delay between batches to avoid rate limiting
     if (i + batchSize < items.length) {
