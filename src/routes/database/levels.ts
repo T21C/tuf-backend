@@ -399,8 +399,9 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 router.get('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-  const levelId = parseInt(req.params.id);
-  
+  try {
+    const levelId = parseInt(req.params.id);
+    
   // Check if levelId is not a valid number
   if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
     return res.status(400).json({error: 'Invalid level ID'});
@@ -432,7 +433,11 @@ router.get('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Respo
     return res.status(404).json({ error: 'Level not found' });
   }
 
-  return res.json(level);
+    return res.json(level);
+  } catch (error) {
+    console.error(`Error fetching level by ID ${req.params.id}:`, (error instanceof Error ? error.toString() : String(error)).slice(0, 1000));
+    return res.status(500).json({ error: 'Failed to fetch level by ID' });
+  }
 });
 
 // Add HEAD endpoint for byId permission check

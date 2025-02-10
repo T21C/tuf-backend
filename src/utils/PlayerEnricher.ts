@@ -170,6 +170,7 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
         name: playerData.name,
         country: playerData.country,
         isBanned: playerData.isBanned,
+        isSubmissionsPaused: playerData.isSubmissionsPaused,
         pfp: userData?.avatarUrl || playerData.pfp,
         discordUsername: userData?.username,
         discordAvatar: discordProvider?.profile.avatarUrl,

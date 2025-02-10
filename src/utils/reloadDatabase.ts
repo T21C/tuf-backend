@@ -62,6 +62,7 @@ interface RawPlayer {
   name: string;
   country: string;
   isBanned: boolean;
+  isSubmissionsPaused: boolean;
 }
 
 interface LevelDoc {
@@ -324,6 +325,7 @@ async function getOrCreatePlayers(
         name: player.name,
         country: player.country || 'XX',
         isBanned: player.isBanned || false,
+        isSubmissionsPaused: player.isSubmissionsPaused || false,
       });
     }
   }
