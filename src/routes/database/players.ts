@@ -36,15 +36,46 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
+    
+    // First check if player exists at all
+    const playerExists = await Player.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: [
+            'id',
+            'username',
+            'nickname',
+            'avatarUrl',
+            'isSuperAdmin',
+            'isRater',
+          ],
+        },
+      ],
+    });
+
+    if (!playerExists) {
+      return res.status(404).json({error: 'Player not found'});
+    }
+
+    // Then get player with valid passes
     const player = await Player.findByPk(id, {
       include: [
         {
           model: Pass,
           as: 'passes',
+          where: {
+            isDeleted: false,
+          },
           include: [
             {
               model: Level,
               as: 'level',
+              where: {
+                isDeleted: false,
+                isHidden: false
+              },
               include: [
                 {
                   model: Difficulty,
@@ -73,19 +104,20 @@ router.get('/:id', async (req: Request, res: Response) => {
       ],
     });
 
-    if (!player) {
-      return res.status(404).json({error: 'Player not found'});
-    }
+    // If no player with passes found, but player exists, return player with empty passes
+    console.log(playerExists);
+    console.log(player);  
+    const playerData = player || playerExists;
 
     // Wait for both enriched data and stats in parallel
     const [enrichedPlayer, playerStats] = await Promise.all([
-      enrichPlayerData(player),
-      playerStatsService.getPlayerStats(player.id),
+      enrichPlayerData(playerData),
+      playerStatsService.getPlayerStats(parseInt(id)),
     ]);
 
     // Calculate impact values for top 20 scores
     const uniquePasses = new Map();
-    (enrichedPlayer.passes || []).forEach(pass => {
+    (playerData.passes || []).forEach(pass => {
       if (
         !uniquePasses.has(pass.levelId) ||
         (pass.scoreV2 || 0) > (uniquePasses.get(pass.levelId).scoreV2 || 0)
@@ -130,10 +162,18 @@ router.get('/search/:name', async (req: Request, res: Response) => {
         {
           model: Pass,
           as: 'passes',
+          required: false,
+          where: {
+            isDeleted: false
+          },
           include: [
             {
               model: Level,
               as: 'level',
+              where: {
+                isDeleted: false,
+                isHidden: false
+              },
             },
             {
               model: Judgement,
@@ -864,6 +904,7 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
       name,
       country,
       isBanned: false,
+      isSubmissionsPaused: false,
       createdAt: new Date(),
       updatedAt: new Date()
     });

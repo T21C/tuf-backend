@@ -91,6 +91,10 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
       {
         model: Level,
         as: 'level',
+        where: {
+          isDeleted: false,
+          isHidden: false,
+        },
         include: [
           {
             model: Difficulty,

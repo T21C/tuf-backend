@@ -127,6 +127,35 @@ router.get(
   },
 );
 
+router.get('/byId/:creatorId', async (req: Request, res: Response) => {
+  try {
+    const {creatorId} = req.params;
+    const creator = await Creator.findByPk(creatorId, {
+      include: [
+        {
+          model: Level,
+          as: 'createdLevels',
+          attributes: ['id', 'isVerified'],
+        },
+        {
+          model: LevelCredit,
+          as: 'credits',
+          attributes: ['id', 'role', 'levelId'],
+        }
+      ],
+    });
+
+    if (!creator) {
+      return res.status(404).json({ error: 'Creator not found' });
+    }
+
+    return res.json(creator);
+  } catch (error) {
+    console.error('Error fetching creator:', error);
+    return res.status(500).json({ error: 'Failed to fetch creator details' });
+  }
+}); 
+
 // Get levels with their legacy and current creators
 router.get(
   '/levels-audit',

@@ -131,6 +131,10 @@ export class PlayerStatsService {
               {
                 model: Level,
                 as: 'level',
+                where: {
+                  isDeleted: false,
+                  isHidden: false
+                },
                 include: [
                   {
                     model: Difficulty,
@@ -143,7 +147,6 @@ export class PlayerStatsService {
         ],
         transaction,
       });
-
       // Prepare bulk update data
       const bulkStats = players.map((player: any) => {
         // Convert passes to scores and get highest score per level
@@ -254,7 +257,12 @@ export class PlayerStatsService {
 
   private convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
     return (passes as any)
-      .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
+      .filter((pass: any) => 
+        !pass.isDeleted 
+        && !pass.isDuplicate 
+        && !pass.level?.isHidden 
+        && !pass.level?.isDeleted
+      )
       .map((pass: any) => ({
         score: pass.scoreV2 || 0,
         baseScore: pass.level?.baseScore || 0,
@@ -327,6 +335,10 @@ export class PlayerStatsService {
               {
                 model: Level,
                 as: 'level',
+                where: {
+                  isDeleted: false,
+                  isHidden: false
+                },
                 include: [
                   {
                     model: Difficulty,
@@ -428,36 +440,46 @@ export class PlayerStatsService {
       attributes: {
         include: [
           [
-            sequelize.literal(
-              '(SELECT COUNT(*) FROM passes WHERE passes.playerId = PlayerStats.playerId AND passes.isDeleted = false)',
-            ),
+            sequelize.literal(`(
+              SELECT COUNT(*) 
+              FROM passes 
+              JOIN levels ON levels.id = passes.levelId 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false 
+              AND levels.isDeleted = false 
+              AND levels.isHidden = false
+            )`),
             'totalPasses',
           ],
           [
             sequelize.literal(`(
-            SELECT difficulties.sortOrder 
-            FROM passes 
-            JOIN levels ON levels.id = passes.levelId 
-            JOIN difficulties ON difficulties.id = levels.diffId 
-            WHERE passes.playerId = PlayerStats.playerId 
-            AND passes.isDeleted = false 
-            ORDER BY difficulties.sortOrder DESC 
-            LIMIT 1
-          )`),
+              SELECT difficulties.sortOrder 
+              FROM passes 
+              JOIN levels ON levels.id = passes.levelId 
+              JOIN difficulties ON difficulties.id = levels.diffId 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false 
+              AND levels.isDeleted = false 
+              AND levels.isHidden = false 
+              ORDER BY difficulties.sortOrder DESC 
+              LIMIT 1
+            )`),
             'topDiff',
           ],
           [
             sequelize.literal(`(
-            SELECT difficulties.sortOrder 
-            FROM passes 
-            JOIN levels ON levels.id = passes.levelId 
-            JOIN difficulties ON difficulties.id = levels.diffId 
-            WHERE passes.playerId = PlayerStats.playerId 
-            AND passes.isDeleted = false 
-            AND passes.is12K = true 
-            ORDER BY difficulties.sortOrder DESC 
-            LIMIT 1
-          )`),
+              SELECT difficulties.sortOrder 
+              FROM passes 
+              JOIN levels ON levels.id = passes.levelId 
+              JOIN difficulties ON difficulties.id = levels.diffId 
+              WHERE passes.playerId = PlayerStats.playerId 
+              AND passes.isDeleted = false 
+              AND passes.is12K = true 
+              AND levels.isDeleted = false 
+              AND levels.isHidden = false 
+              ORDER BY difficulties.sortOrder DESC 
+              LIMIT 1
+            )`),
             'top12kDiff',
           ],
         ],
@@ -526,7 +548,12 @@ export class PlayerStatsService {
         averageXacc: {field: 'averageXacc', rankField: null},
         totalPasses: {
           field: sequelize.literal(
-            '(SELECT COUNT(*) FROM passes WHERE passes.playerId = player.id AND passes.isDeleted = false)',
+            '(SELECT COUNT(*) FROM passes ' +
+            'JOIN levels ON levels.id = passes.levelId ' +
+            'WHERE passes.playerId = player.id ' + 
+            'AND passes.isDeleted = false ' +
+            'AND levels.isDeleted = false ' +
+            'AND levels.isHidden = false)'
           ),
           rankField: null,
         },
@@ -534,13 +561,30 @@ export class PlayerStatsService {
         worldsFirstCount: {field: 'worldsFirstCount', rankField: null},
         topDiff: {
           field: sequelize.literal(
-            '(SELECT difficulties.sortOrder FROM difficulties INNER JOIN levels ON levels.diffId = difficulties.id INNER JOIN passes ON passes.levelId = levels.id WHERE passes.playerId = player.id AND passes.isDeleted = false AND difficulties.id < 100 ORDER BY difficulties.sortOrder DESC LIMIT 1)',
+            '(SELECT difficulties.sortOrder FROM difficulties ' +
+            'INNER JOIN levels ON levels.diffId = difficulties.id ' +
+            'INNER JOIN passes ON passes.levelId = levels.id ' +
+            'WHERE passes.playerId = player.id ' +
+            'AND passes.isDeleted = false ' +
+            'AND difficulties.id < 100 ' +
+            'AND levels.isDeleted = false ' +
+            'AND levels.isHidden = false ' +
+            'ORDER BY difficulties.sortOrder DESC LIMIT 1)',
           ),
           rankField: null,
         },
         top12kDiff: {
           field: sequelize.literal(
-            '(SELECT difficulties.sortOrder FROM difficulties INNER JOIN levels ON levels.diffId = difficulties.id INNER JOIN passes ON passes.levelId = levels.id WHERE passes.playerId = player.id AND passes.isDeleted = false AND passes.is12K = true AND difficulties.id < 100 ORDER BY difficulties.sortOrder DESC LIMIT 1)',
+            '(SELECT difficulties.sortOrder FROM difficulties ' +
+            'INNER JOIN levels ON levels.diffId = difficulties.id ' +
+            'INNER JOIN passes ON passes.levelId = levels.id ' +
+            'WHERE passes.playerId = player.id ' +
+            'AND passes.isDeleted = false ' +
+            'AND passes.is12K = true ' +
+            'AND difficulties.id < 100 ' +
+            'AND levels.isDeleted = false ' +
+            'AND levels.isHidden = false ' +
+            'ORDER BY difficulties.sortOrder DESC LIMIT 1)',
           ),
           rankField: null,
         },
@@ -622,6 +666,10 @@ export class PlayerStatsService {
         {
           model: Level,
           as: 'level',
+          where: {
+            isDeleted: false,
+            isHidden: false
+          },
           include: [
             {
               model: Difficulty,
@@ -651,6 +699,10 @@ export class PlayerStatsService {
           model: Level,
           as: 'level',
           attributes: ['baseScore'],
+          where: {
+            isDeleted: false,
+            isHidden: false
+          }
         },
       ],
     });

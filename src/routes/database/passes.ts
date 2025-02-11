@@ -47,6 +47,15 @@ export async function updateWorldsFirstStatus(
         where: {isBanned: false},
         required: true,
       },
+      {
+        model: Level,
+        as: 'level',
+        where: {
+          isDeleted: false,
+          isHidden: false
+        },
+        required: true
+      }
     ],
     order: [['vidUploadTime', 'ASC']],
     transaction,
@@ -186,11 +195,16 @@ const buildWhereClause = async (query: any) => {
   const conditions: any[] = [];
 
   // Handle deleted filter
-  if (query.deletedFilter === 'hide') {
+  if (query.deletedFilter) {
+    if (query.deletedFilter === 'hide') {
+      conditions.push({isDeleted: false});
+    } else if (query.deletedFilter === 'only') {
+      conditions.push({isDeleted: true});
+    }
+  } else {
     conditions.push({isDeleted: false});
-  } else if (query.deletedFilter === 'only') {
-    conditions.push({isDeleted: true});
   }
+  
 
   // Handle key flag filter
   if (query.keyFlag) {
@@ -379,6 +393,15 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
           ],
         },
         {
+          model: Level,
+          as: 'level',
+          where: {
+            isDeleted: false,
+            isHidden: false
+          },
+          required: true
+        },
+        {
           model: Judgement,
           as: 'judgements',
         },
@@ -431,6 +454,7 @@ router.post('/', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'level',
+          where: {isHidden: false, isDeleted: false},
           include: [
             {
               model: Difficulty,
@@ -1139,6 +1163,10 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
           model: Level,
           as: 'level',
           required: true,
+          where: {
+            isDeleted: false,
+            isHidden: false
+          },
           include: [
             {
               model: Difficulty,
