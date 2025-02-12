@@ -2,7 +2,7 @@ import {Router, Request, Response} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import Rating from '../../models/Rating.js';
 import LevelSubmission from '../../models/LevelSubmission.js';
-import {PassSubmission} from '../../models/PassSubmission.js';
+import {PassSubmission, PassSubmissionFlags, PassSubmissionJudgements} from '../../models/PassSubmission.js';
 import Level from '../../models/Level.js';
 import RatingDetail from '../../models/RatingDetail.js';
 import {Sequelize} from 'sequelize';
@@ -59,6 +59,20 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       where: {
         status: 'pending',
       },
+      include: [
+        {
+          model: PassSubmissionJudgements,
+          attributes: [],
+          as: 'judgements',
+          required: true,
+        },
+        {
+          model: PassSubmissionFlags,
+          attributes: [],
+          as: 'flags',
+          required: true,
+        },
+      ],
     });
 
     // Calculate total pending submissions
