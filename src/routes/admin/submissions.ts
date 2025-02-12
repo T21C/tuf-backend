@@ -99,10 +99,12 @@ router.get(
           {
             model: PassSubmissionJudgements,
             as: 'judgements',
+            required: true,
           },
           {
             model: PassSubmissionFlags,
             as: 'flags',
+            required: true,
           },
           {
             model: Level,
@@ -425,34 +427,13 @@ router.put(
           await Judgement.create(
             {
               id: pass.id,
-              earlyDouble:
-                submission.judgements.earlyDouble < 100000000
-                  ? submission.judgements.earlyDouble
-                  : 1,
-              earlySingle:
-                submission.judgements.earlySingle < 100000000
-                  ? submission.judgements.earlySingle
-                  : 1,
-              ePerfect:
-                submission.judgements.ePerfect < 100000000
-                  ? submission.judgements.ePerfect
-                  : 1,
-              perfect:
-                submission.judgements.perfect < 100000000
-                  ? submission.judgements.perfect
-                  : 1,
-              lPerfect:
-                submission.judgements.lPerfect < 100000000
-                  ? submission.judgements.lPerfect
-                  : 1,
-              lateSingle:
-                submission.judgements.lateSingle < 100000000
-                  ? submission.judgements.lateSingle
-                  : 1,
-              lateDouble:
-                submission.judgements.lateDouble < 100000000
-                  ? submission.judgements.lateDouble
-                  : 1,
+              earlyDouble: submission.judgements.earlyDouble || 0,
+              earlySingle: submission.judgements.earlySingle || 0,
+              ePerfect: submission.judgements.ePerfect || 0,
+              perfect: submission.judgements.perfect || 0,
+              lPerfect: submission.judgements.lPerfect || 0,
+              lateSingle: submission.judgements.lateSingle || 0,
+              lateDouble: submission.judgements.lateDouble || 0,
               createdAt: now,
               updatedAt: now,
             },
