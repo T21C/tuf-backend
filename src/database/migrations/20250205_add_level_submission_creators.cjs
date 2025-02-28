@@ -93,12 +93,22 @@ module.exports = {
       }
     });
 
-    // Add indexes for better query performance
-    await queryInterface.addIndex('level_submission_creator_requests', ['submissionId']);
-    await queryInterface.addIndex('level_submission_creator_requests', ['creatorId']);
-    await queryInterface.addIndex('level_submission_creator_requests', ['role']);
-    await queryInterface.addIndex('level_submission_team_requests', ['submissionId']);
-    await queryInterface.addIndex('level_submission_team_requests', ['teamId']);
+    // Add indexes with unique names for better query performance
+    await queryInterface.addIndex('level_submission_creator_requests', ['submissionId'], {
+      name: 'idx_creator_requests_submission_id_20250205'
+    });
+    await queryInterface.addIndex('level_submission_creator_requests', ['creatorId'], {
+      name: 'idx_creator_requests_creator_id_20250205'
+    });
+    await queryInterface.addIndex('level_submission_creator_requests', ['role'], {
+      name: 'idx_creator_requests_role_20250205'
+    });
+    await queryInterface.addIndex('level_submission_team_requests', ['submissionId'], {
+      name: 'idx_team_requests_submission_id_20250205'
+    });
+    await queryInterface.addIndex('level_submission_team_requests', ['teamId'], {
+      name: 'idx_team_requests_team_id_20250205'
+    });
 
     // Remove old columns from level_submissions
     const columns = await queryInterface.describeTable('level_submissions');
@@ -161,7 +171,7 @@ module.exports = {
       defaultValue: false
     });
 
-    // Drop junction tables
+    // Drop tables (this will automatically remove the indexes)
     await queryInterface.dropTable('level_submission_creator_requests');
     await queryInterface.dropTable('level_submission_team_requests');
   }
