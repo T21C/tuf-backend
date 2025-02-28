@@ -159,28 +159,28 @@ router.post(
         const sanitizedJudgements = {
           earlyDouble: Math.max(
             0,
-            parseInt(req.body.earlyDouble?.slice(0, 15) || '0'),
+            parseInt(req.body.earlyDouble?.toString().slice(0, 15) || '0'),
           ),
           earlySingle: Math.max(
             0,
-            parseInt(req.body.earlySingle?.slice(0, 15) || '0'),
+            parseInt(req.body.earlySingle?.toString().slice(0, 15) || '0'),
           ),
           ePerfect: Math.max(
             0,
-            parseInt(req.body.ePerfect?.slice(0, 15) || '0'),
+            parseInt(req.body.ePerfect?.toString().slice(0, 15) || '0'),
           ),
-          perfect: Math.max(0, parseInt(req.body.perfect?.slice(0, 15) || '0')),
+          perfect: Math.max(0, parseInt(req.body.perfect?.toString().slice(0, 15) || '0')),
           lPerfect: Math.max(
             0,
-            parseInt(req.body.lPerfect?.slice(0, 15) || '0'),
+            parseInt(req.body.lPerfect?.toString().slice(0, 15) || '0'),
           ),
           lateSingle: Math.max(
             0,
-            parseInt(req.body.lateSingle?.slice(0, 15) || '0'),
+            parseInt(req.body.lateSingle?.toString().slice(0, 15) || '0'),
           ),
           lateDouble: Math.max(
             0,
-            parseInt(req.body.lateDouble?.slice(0, 15) || '0'),
+            parseInt(req.body.lateDouble?.toString().slice(0, 15) || '0'),
           ),
         };
 
@@ -216,25 +216,28 @@ router.post(
         );
 
         const accuracy = calcAcc(sanitizedJudgements);
-        // Create the pass submission
-        const submission = await PassSubmission.create({
-          levelId: req.body.levelId,
-          speed: parseFloat(req.body.speed || '1'),
-          scoreV2: score,
-          accuracy,
-          passer: req.body.passer,
-          assignedPlayerId: req.body.passerId || null,
-          passerRequest: req.body.passerRequest === 'true',
-          feelingDifficulty: req.body.feelingDifficulty,
-          title: req.body.title,
-          videoLink: cleanVideoUrl(req.body.videoLink),
-          rawTime: new Date(req.body.rawTime),
-          submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
-            .username,
-          submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
-          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
-          status: 'pending',
-        });
+        
+        try {
+          // Create the pass submission
+          const submission = await PassSubmission.create({
+            levelId: req.body.levelId,
+            speed: req.body.speed ? parseFloat(req.body.speed) : 1,
+            scoreV2: score,
+            accuracy,
+            passer: req.body.passer,
+            passerId: req.body.passerId,
+            passerRequest: req.body.passerRequest === true,
+            feelingDifficulty: req.body.feelingDifficulty,
+            title: req.body.title,
+            videoLink: cleanVideoUrl(req.body.videoLink),
+            rawTime: new Date(req.body.rawTime),
+            submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
+              .username,
+            submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
+            submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
+            status: 'pending',
+            assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
+          }, { transaction });
 
         await PassSubmissionJudgements.create({
           ...sanitizedJudgements,

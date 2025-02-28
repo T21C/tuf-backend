@@ -6,6 +6,8 @@ import Level from './Level.js';
 
 class PassSubmission extends BaseModel {
   declare passer: string;
+  declare passerId: number | null;
+  declare passerRequest: boolean;
   declare videoLink: string;
   declare status: 'pending' | 'approved' | 'declined';
   declare assignedPlayerId: number | null;
@@ -27,6 +29,7 @@ class PassSubmission extends BaseModel {
 
   // Virtual fields from associations
   declare assignedPlayer?: Player;
+  declare passerPlayer?: Player;
   declare level?: Level;
   declare judgements?: PassSubmissionJudgements;
   declare flags?: PassSubmissionFlags;
@@ -55,6 +58,19 @@ PassSubmission.init(
     passer: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+    passerId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'players',
+        key: 'id',
+      },
+    },
+    passerRequest: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     videoLink: {
       type: DataTypes.STRING,
@@ -146,6 +162,7 @@ PassSubmission.init(
     tableName: 'pass_submissions',
     indexes: [
       {fields: ['passer']},
+      {fields: ['passerId']},
       {fields: ['videoLink']},
       {fields: ['status']},
       {fields: ['assignedPlayerId']},
