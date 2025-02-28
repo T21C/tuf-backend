@@ -159,28 +159,31 @@ router.post(
         const sanitizedJudgements = {
           earlyDouble: Math.max(
             0,
-            parseInt(req.body.earlyDouble?.toString().slice(0, 15) || '0'),
+            parseInt(req.body.earlyDouble?.toString().slice(0, 9) || '0'),
           ),
           earlySingle: Math.max(
             0,
-            parseInt(req.body.earlySingle?.toString().slice(0, 15) || '0'),
+            parseInt(req.body.earlySingle?.toString().slice(0,9) || '0'),
           ),
           ePerfect: Math.max(
             0,
-            parseInt(req.body.ePerfect?.toString().slice(0, 15) || '0'),
+            parseInt(req.body.ePerfect?.toString().slice(0, 9) || '0'),
           ),
-          perfect: Math.max(0, parseInt(req.body.perfect?.toString().slice(0, 15) || '0')),
+          perfect: Math.max(
+            0,
+            parseInt(req.body.perfect?.toString().slice(0, 9) || '0'),
+          ),
           lPerfect: Math.max(
             0,
-            parseInt(req.body.lPerfect?.toString().slice(0, 15) || '0'),
+            parseInt(req.body.lPerfect?.toString().slice(0, 9) || '0'),
           ),
           lateSingle: Math.max(
             0,
-            parseInt(req.body.lateSingle?.toString().slice(0, 15) || '0'),
+            parseInt(req.body.lateSingle?.toString().slice(0, 9) || '0'),
           ),
           lateDouble: Math.max(
             0,
-            parseInt(req.body.lateDouble?.toString().slice(0, 15) || '0'),
+            parseInt(req.body.lateDouble?.toString().slice(0, 9) || '0'),
           ),
         };
 
@@ -217,7 +220,6 @@ router.post(
 
         const accuracy = calcAcc(sanitizedJudgements);
         
-        try {
           // Create the pass submission
           const submission = await PassSubmission.create({
             levelId: req.body.levelId,
@@ -237,7 +239,7 @@ router.post(
             submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
             status: 'pending',
             assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
-          }, { transaction });
+          });
 
         await PassSubmissionJudgements.create({
           ...sanitizedJudgements,

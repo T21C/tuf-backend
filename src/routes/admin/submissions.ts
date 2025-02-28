@@ -529,9 +529,9 @@ router.put(
               ({
                 earlyDouble: 0,
                 earlySingle: 0,
-                ePerfect: 0,
-                perfect: 0,
-                lPerfect: 0,
+                ePerfect: 5,
+                perfect: 40,
+                lPerfect: 5,
                 lateSingle: 0,
                 lateDouble: 0,
               } as IPassSubmissionJudgements),
@@ -540,15 +540,14 @@ router.put(
             {
               speed: submission.speed || 1,
               judgements:
-                submission.judgements ||
                 ({
-                  earlyDouble: 0,
-                  earlySingle: 0,
-                  ePerfect: 0,
-                  perfect: 0,
-                  lPerfect: 0,
-                  lateSingle: 0,
-                  lateDouble: 0,
+                  earlyDouble: submission.judgements?.earlyDouble || 0,
+                  earlySingle: submission.judgements?.earlySingle || 0,
+                  ePerfect: submission.judgements?.ePerfect || 0,
+                  perfect: submission.judgements?.perfect || 0,
+                  lPerfect: submission.judgements?.lPerfect || 0,
+                  lateSingle: submission.judgements?.lateSingle || 0,
+                  lateDouble: submission.judgements?.lateDouble || 0,
                 } as IPassSubmissionJudgements),
               isNoHoldTap: submission.flags?.isNoHoldTap || false,
             },
