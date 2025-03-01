@@ -27,6 +27,8 @@ import LevelSubmissionCreatorRequest from '../../models/LevelSubmissionCreatorRe
 import LevelSubmissionTeamRequest from '../../models/LevelSubmissionTeamRequest.js';
 import Creator from '../../models/Creator.js';
 import LevelCredit from '../../models/LevelCredit.js';
+import User from '../../models/User.js';
+import TeamMember from '../../models/TeamMember.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -1075,134 +1077,140 @@ router.post(
 );
 
 // Add endpoint to update profiles
-router.put(
-  '/levels/:id/profiles',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
 
-    try {
-      const { id } = req.params;
-      const { creatorRequests, teamRequestData } = req.body;
+  try {
+    const { id } = req.params;
+    const { creatorRequests, teamRequestData } = req.body;
 
-      const submission = await LevelSubmission.findByPk(id, {
-        include: [
-          {
-            model: LevelSubmissionTeamRequest,
-            as: 'teamRequestData'
+    // Simple updates without complex logic
+    if (creatorRequests) {
+      await Promise.all(creatorRequests.map(async (request: any) => {
+        if (!request.id) return;
+        
+        await LevelSubmissionCreatorRequest.update({
+          creatorId: request.creatorId,
+          creatorName: request.creatorName,
+          isNewRequest: false
+        }, {
+          where: {
+            id: request.id,
+            submissionId: id
           },
-          {
-            model: LevelSubmissionCreatorRequest,
-            as: 'creatorRequests'
-          }
-        ],
-        transaction
-      });
-
-      if (!submission) {
-        await transaction.rollback();
-        return res.status(404).json({ error: 'Submission not found' });
-      }
-
-      // Update creator requests
-      if (creatorRequests) {
-        await Promise.all(creatorRequests.map(async (request: any) => {
-          await LevelSubmissionCreatorRequest.update(
-            {
-              creatorId: request.creatorId,
-              creatorName: request.creatorName,
-              isNewRequest: request.isNewRequest
-            },
-            {
-              where: {
-                submissionId: id,
-                role: request.role
-              },
-              transaction
-            }
-          );
-        }));
-      }
-
-      // Update team request
-      if (teamRequestData) {
-        const existingTeamRequest = await LevelSubmissionTeamRequest.findOne({
-          where: { submissionId: id },
           transaction
         });
+      }));
+    }
 
-        if (existingTeamRequest) {
-          await existingTeamRequest.update({
-            teamId: teamRequestData.teamId,
-            teamName: teamRequestData.teamName,
-            isNewRequest: teamRequestData.isNewRequest
-          }, { transaction });
-        } else {
-          await LevelSubmissionTeamRequest.create({
-            submissionId: id,
-            teamId: teamRequestData.teamId,
-            teamName: teamRequestData.teamName,
-            isNewRequest: teamRequestData.isNewRequest
-          }, { transaction });
-        }
-      }
+    if (teamRequestData) {
+      await LevelSubmissionTeamRequest.update({
+        teamId: teamRequestData.teamId,
+        teamName: teamRequestData.teamName,
+        isNewRequest: false
+      }, {
+        where: { submissionId: id },
+        transaction
+      });
+    }
 
-      await transaction.commit();
-
-      // Fetch updated submission with all associations
-      const updatedSubmission = await LevelSubmission.findByPk(id, {
-        include: [
-          {
-            model: LevelSubmissionCreatorRequest,
-            as: 'creatorRequests',
+    // Fetch fresh complete object with all associations
+    const updatedSubmission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests',
+          include: [{
+            model: Creator,
+            as: 'creator',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              },
+              {
+                model: Level,
+                as: 'createdLevels',
+                attributes: ['id', 'isVerified']
+              },
+              {
+                model: LevelCredit,
+                as: 'credits',
+                attributes: ['id', 'role']
+              }
+            ]
+          }]
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData',
+          include: [{
+            model: Team,
+            as: 'team',
             include: [
               {
                 model: Creator,
-                as: 'creator',
-                include: [
-                  {
-                    model: LevelCredit,
-                    as: 'credits',
-                    required: false
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            model: LevelSubmissionTeamRequest,
-            as: 'teamRequestData',
-            include: [
+                as: 'members',
+                through: { attributes: [] },
+                required: false
+              },
               {
-                model: Team,
-                as: 'team',
-                include: [
-                  {
-                    model: Level,
-                    as: 'levels',
-                    required: false
-                  },
-                  {
-                    model: Creator,
-                    as: 'members',
-                    through: { attributes: [] },
-                    required: false
-                  }
-                ]
+                model: Level,
+                as: 'levels',
+                attributes: ['id', 'isVerified'],
+                required: false
               }
             ]
-          }
-        ]
-      });
+          }]
+        }
+      ]
+    });
 
-      return res.json(updatedSubmission);
-    } catch (error) {
+    if (!updatedSubmission) {
       await transaction.rollback();
-      console.error('Error updating profiles:', error);
-      return res.status(500).json({ error: 'Failed to update profiles' });
+      return res.status(404).json({ error: 'Submission not found' });
     }
+
+    // Process the submission data to match the format used in pending submissions
+    const submissionData = updatedSubmission.toJSON();
+      
+    // Process creator requests
+    submissionData.creatorRequests = submissionData.creatorRequests?.map((request: any) => {
+      if (request.creator?.credits) {
+        const credits = request.creator.credits;
+        const creditStats = {
+          charterCount: credits.filter((credit: any) => credit.role === 'charter').length,
+          vfxerCount: credits.filter((credit: any) => credit.role === 'vfxer').length,
+          totalCredits: credits.length
+        };
+        request.creator.credits = creditStats;
+      }
+      return request;
+    });
+
+    // Process team request data
+    if (submissionData.teamRequestData?.team) {
+      const team = submissionData.teamRequestData.team;
+      team.credits = {
+        totalLevels: team.levels?.length || 0,
+        verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
+        memberCount: team.members?.length || 0
+      };
+      // Clean up levels array to avoid sending too much data
+      delete team.levels;
+    }
+
+    await transaction.commit();
+    return res.json(submissionData);
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error updating submission profiles:', error);
+    return res.status(500).json({ error: 'Failed to update submission profiles' });
   }
-);
+});
 
 // Assign creator to submission
 router.put(
@@ -1279,5 +1287,197 @@ router.put(
     }
   }
 );
+
+// Add endpoint to create and assign creator in one step
+router.post('/levels/:id/creators', async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { name, aliases, role } = req.body;
+
+    if (!name || !role) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Name and role are required' });
+    }
+
+    // Find the submission with both creator and team requests
+    const submission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests'
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData'
+        }
+      ],
+      transaction
+    });
+
+    if (!submission) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    if (role === 'team') {
+      // Handle team creation/assignment
+      if (!submission.teamRequestData?.isNewRequest) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'No pending team request found' });
+      }
+
+      // Create or find team
+      const [team] = await Team.findOrCreate({
+        where: { name: name.trim() },
+        defaults: {
+          aliases: aliases || []
+        },
+        transaction
+      });
+
+      // Update the team request
+      await LevelSubmissionTeamRequest.update({
+        teamId: team.id,
+        teamName: team.name,
+        isNewRequest: false
+      }, {
+        where: { submissionId: id },
+        transaction
+      });
+    } else {
+      // Handle creator creation/assignment
+      const existingRequest = submission.creatorRequests?.find(
+        (request: any) => request.role === role && request.isNewRequest
+      );
+
+      if (!existingRequest) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'No pending creator request found for this role' });
+      }
+
+      // Create or find creator
+      const [creator] = await Creator.findOrCreate({
+        where: { name: name.trim() },
+        defaults: {
+          aliases: aliases || [],
+          isVerified: false
+        },
+        transaction
+      });
+
+      // Update the credit request
+      await LevelSubmissionCreatorRequest.update({
+        creatorId: creator.id,
+        creatorName: creator.name,
+        isNewRequest: false
+      }, {
+        where: {
+          id: existingRequest.id,
+          submissionId: id
+        },
+        transaction
+      });
+    }
+
+    await transaction.commit();
+
+    // Fetch fresh complete object with all associations AFTER committing the transaction
+    const updatedSubmission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests',
+          include: [{
+            model: Creator,
+            as: 'creator',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              },
+              {
+                model: Level,
+                as: 'createdLevels',
+                attributes: ['id', 'isVerified']
+              },
+              {
+                model: LevelCredit,
+                as: 'credits',
+                attributes: ['id', 'role']
+              }
+            ]
+          }]
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData',
+          include: [{
+            model: Team,
+            as: 'team',
+            include: [
+              {
+                model: Creator,
+                as: 'members',
+                through: { attributes: [] },
+                required: false
+              },
+              {
+                model: Level,
+                as: 'levels',
+                attributes: ['id', 'isVerified'],
+                required: false
+              }
+            ]
+          }]
+        }
+      ]
+    });
+
+    if (!updatedSubmission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Process the submission data to match the format used in pending submissions
+    const submissionData = updatedSubmission.toJSON();
+      
+    // Process creator requests
+    submissionData.creatorRequests = submissionData.creatorRequests?.map((request: any) => {
+      if (request.creator?.credits) {
+        const credits = request.creator.credits;
+        const creditStats = {
+          charterCount: credits.filter((credit: any) => credit.role === 'charter').length,
+          vfxerCount: credits.filter((credit: any) => credit.role === 'vfxer').length,
+          totalCredits: credits.length
+        };
+        request.creator.credits = creditStats;
+      }
+      return request;
+    });
+
+    // Process team request data
+    if (submissionData.teamRequestData?.team) {
+      const team = submissionData.teamRequestData.team;
+      team.credits = {
+        totalLevels: team.levels?.length || 0,
+        verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
+        memberCount: team.members?.length || 0
+      };
+      // Clean up levels array to avoid sending too much data
+      delete team.levels;
+    }
+
+    return res.json(submissionData);
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error creating and assigning creator:', error);
+    return res.status(500).json({ error: 'Failed to create and assign creator' });
+  }
+});
 
 export default router;
