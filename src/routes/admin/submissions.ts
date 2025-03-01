@@ -1253,32 +1253,23 @@ router.put(
       }
 
       // Find and update the specific creator request
-      const creatorRequest = await LevelSubmissionCreatorRequest.findOne({
-        where: {
-          id: creditRequestId,
-          submissionId: parseInt(id),
-          role
-        },
-        transaction
-      });
-
-      if (!creatorRequest) {
+      const existingRequest = submission.creatorRequests?.find(r => r.id === creditRequestId);
+      if (existingRequest) {
+        await existingRequest.update({
+          creatorId,
+          creatorName: creator.name,
+          isNewRequest: false
+        }, { transaction });
+      } else {
         await transaction.rollback();
         return res.status(404).json({ error: 'Credit request not found' });
       }
-
-      // Update the request
-      await creatorRequest.update({
-        creatorId,
-        creatorName: creator.name,
-        isNewRequest: false
-      }, { transaction });
 
       await transaction.commit();
 
       return res.json({
         message: 'Creator assigned successfully',
-        creatorRequest
+        creatorRequest: existingRequest
       });
     } catch (error) {
       await transaction.rollback();
@@ -1294,7 +1285,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
 
   try {
     const { id } = req.params;
-    const { name, aliases, role } = req.body;
+    const { name, aliases, role, creditRequestId } = req.body;
 
     if (!name || !role) {
       await transaction.rollback();
@@ -1322,69 +1313,61 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    // Create new entity based on role
     if (role === 'team') {
-      // Handle team creation/assignment
-      if (!submission.teamRequestData?.isNewRequest) {
-        await transaction.rollback();
-        return res.status(404).json({ error: 'No pending team request found' });
+      // Create new team
+      const team = await Team.create({
+        name,
+        aliases: aliases || [],
+      }, { transaction });
+
+      // Update submission's team request data
+      if (submission.teamRequestData) {
+        await submission.teamRequestData.update({
+          teamId: team.id,
+          teamName: name,
+          isNewRequest: false
+        }, { transaction });
+      } else {
+        // Create new team request if none exists
+        await LevelSubmissionTeamRequest.create({
+          submissionId: submission.id,
+          teamId: team.id,
+          teamName: name,
+          isNewRequest: false
+        }, { transaction });
       }
-
-      // Create or find team
-      const [team] = await Team.findOrCreate({
-        where: { name: name.trim() },
-        defaults: {
-          aliases: aliases || []
-        },
-        transaction
-      });
-
-      // Update the team request
-      await LevelSubmissionTeamRequest.update({
-        teamId: team.id,
-        teamName: team.name,
-        isNewRequest: false
-      }, {
-        where: { submissionId: id },
-        transaction
-      });
     } else {
-      // Handle creator creation/assignment
-      const existingRequest = submission.creatorRequests?.find(
-        (request: any) => request.role === role && request.isNewRequest
-      );
+      // Create new creator
+      const creator = await Creator.create({
+        name,
+        aliases: aliases || [],
+        type: role
+      }, { transaction });
 
-      if (!existingRequest) {
-        await transaction.rollback();
-        return res.status(404).json({ error: 'No pending creator request found for this role' });
+      if (creditRequestId) {
+        // Update existing request if creditRequestId is provided
+        const existingRequest = submission.creatorRequests?.find(r => r.id === creditRequestId);
+        if (existingRequest) {
+          await existingRequest.update({
+            creatorId: creator.id,
+            creatorName: name,
+            isNewRequest: false
+          }, { transaction });
+        }
+      } else {
+        // Create new creator request if no creditRequestId
+        await LevelSubmissionCreatorRequest.create({
+          submissionId: submission.id,
+          creatorId: creator.id,
+          creatorName: name,
+          role,
+          isNewRequest: false
+        }, { transaction });
       }
-
-      // Create or find creator
-      const [creator] = await Creator.findOrCreate({
-        where: { name: name.trim() },
-        defaults: {
-          aliases: aliases || [],
-          isVerified: false
-        },
-        transaction
-      });
-
-      // Update the credit request
-      await LevelSubmissionCreatorRequest.update({
-        creatorId: creator.id,
-        creatorName: creator.name,
-        isNewRequest: false
-      }, {
-        where: {
-          id: existingRequest.id,
-          submissionId: id
-        },
-        transaction
-      });
     }
 
-    await transaction.commit();
-
-    // Fetch fresh complete object with all associations AFTER committing the transaction
+    // Fetch updated submission with all associations
     const updatedSubmission = await LevelSubmission.findOne({
       where: { id },
       include: [
@@ -1393,24 +1376,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
           as: 'creatorRequests',
           include: [{
             model: Creator,
-            as: 'creator',
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ['id', 'username']
-              },
-              {
-                model: Level,
-                as: 'createdLevels',
-                attributes: ['id', 'isVerified']
-              },
-              {
-                model: LevelCredit,
-                as: 'credits',
-                attributes: ['id', 'role']
-              }
-            ]
+            as: 'creator'
           }]
         },
         {
@@ -1418,65 +1384,19 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
           as: 'teamRequestData',
           include: [{
             model: Team,
-            as: 'team',
-            include: [
-              {
-                model: Creator,
-                as: 'members',
-                through: { attributes: [] },
-                required: false
-              },
-              {
-                model: Level,
-                as: 'levels',
-                attributes: ['id', 'isVerified'],
-                required: false
-              }
-            ]
+            as: 'team'
           }]
         }
-      ]
+      ],
+      transaction
     });
 
-    if (!updatedSubmission) {
-      return res.status(404).json({ error: 'Submission not found' });
-    }
-
-    // Process the submission data to match the format used in pending submissions
-    const submissionData = updatedSubmission.toJSON();
-      
-    // Process creator requests
-    submissionData.creatorRequests = submissionData.creatorRequests?.map((request: any) => {
-      if (request.creator?.credits) {
-        const credits = request.creator.credits;
-        const creditStats = {
-          charterCount: credits.filter((credit: any) => credit.role === 'charter').length,
-          vfxerCount: credits.filter((credit: any) => credit.role === 'vfxer').length,
-          totalCredits: credits.length
-        };
-        request.creator.credits = creditStats;
-      }
-      return request;
-    });
-
-    // Process team request data
-    if (submissionData.teamRequestData?.team) {
-      const team = submissionData.teamRequestData.team;
-      team.credits = {
-        totalLevels: team.levels?.length || 0,
-        verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
-        memberCount: team.members?.length || 0
-      };
-      // Clean up levels array to avoid sending too much data
-      delete team.levels;
-    }
-
-    return res.json(submissionData);
-
+    await transaction.commit();
+    return res.json(updatedSubmission);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error creating and assigning creator:', error);
-    return res.status(500).json({ error: 'Failed to create and assign creator' });
+    console.error('Error creating/assigning creator:', error);
+    return res.status(500).json({ error: 'Failed to create/assign creator' });
   }
 });
 
