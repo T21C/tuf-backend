@@ -104,9 +104,6 @@ router.get('/:id', async (req: Request, res: Response) => {
       ],
     });
 
-    // If no player with passes found, but player exists, return player with empty passes
-    console.log(playerExists);
-    console.log(player);  
     const playerData = player || playerExists;
 
     // Wait for both enriched data and stats in parallel

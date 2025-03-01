@@ -184,17 +184,14 @@ export const OAuthController = {
 
       if (!player) {
         // Check player mapping as fallback
-        console.log('No existing player found, checking player mapping');
         const playerMapping = findPlayerByDiscordId(profile.id);
 
         if (playerMapping) {
-          console.log(`Found player mapping for ID ${profile.id}`);
 
           // Try to find existing player by mapping ID
           player = await Player.findOne({where: {name: playerMapping.name}});
 
           if (!player) {
-            console.log('Creating new player with mapping data');
             player = await Player.create({
               name: playerMapping.name,
               country: playerMapping.region || 'XX',
@@ -203,11 +200,9 @@ export const OAuthController = {
               createdAt: new Date(),
               updatedAt: new Date(),
             });
-            console.log('Created new player:', player.id);
           }
         } else {
           // Create new player with next available ID
-          console.log('No player mapping found, creating new player');
           const lastPlayer = await Player.findOne({
             order: [['id', 'DESC']],
           });
@@ -222,14 +217,9 @@ export const OAuthController = {
             createdAt: new Date(),
             updatedAt: new Date(),
           });
-          console.log('Created new player with ID:', player.id);
         }
-      } else {
-        console.log(`Found existing player with name ${player.name}`);
-      }
+      } 
 
-      // Now create user directly since we need to include the player ID
-      console.log('Creating new user with player ID:', player.id);
       const now = new Date();
       const isRater =
         provider === 'discord' &&
