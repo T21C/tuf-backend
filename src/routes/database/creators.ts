@@ -156,6 +156,36 @@ router.get('/byId/:creatorId', async (req: Request, res: Response) => {
   }
 }); 
 
+// Get team by ID with members and levels
+router.get('/teams/byId/:teamId', async (req: Request, res: Response) => {
+  try {
+    const {teamId} = req.params;
+    const team = await Team.findByPk(teamId, {
+      include: [
+        {
+          model: Creator,
+          as: 'members',
+          through: { attributes: [] }
+        },
+        {
+          model: Level,
+          as: 'levels',
+          attributes: ['id', 'isVerified']
+        }
+      ],
+    });
+
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    return res.json(team);
+  } catch (error) {
+    console.error('Error fetching team:', error);
+    return res.status(500).json({ error: 'Failed to fetch team details' });
+  }
+});
+
 // Get levels with their legacy and current creators
 router.get(
   '/levels-audit',
@@ -925,10 +955,14 @@ router.put(
             {
               model: Creator,
               as: 'members',
-              through: {attributes: []},
+              through: { attributes: [] }
             },
-          ],
+          ]
         });
+      }
+
+      if (!updatedTeam) {
+        return res.status(500).json({ error: 'Failed to fetch created team' });
       }
 
       return res.json({
@@ -1169,6 +1203,114 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       error: 'Failed to search creators',
       details: error instanceof Error ? error.message : String(error)
     });
+  }
+});
+
+// Create new team
+router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { name, aliases, description } = req.body;
+
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Team name is required' });
+    }
+
+    // Check for existing team with the same name (case insensitive)
+    const existingTeam = await Team.findOne({
+      where: {
+        [Op.or]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            sequelize.fn('LOWER', name.trim())
+          ),
+          // For MySQL JSON search with escaped characters
+          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${name.trim()}'), NULL, '$[*]') IS NOT NULL`)
+        ]
+      },
+      transaction
+    });
+
+    if (existingTeam) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: `A team with the name "${name}" already exists (ID: ${existingTeam.id})`
+      });
+    }
+
+    // Check if any of the aliases match existing team names
+    if (aliases && Array.isArray(aliases)) {
+      const aliasConditions = aliases.map(alias => ({
+        [Op.or]: [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            sequelize.fn('LOWER', alias.trim())
+          ),
+          // For MySQL JSON search with escaped characters
+          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${alias.trim()}'), NULL, '$[*]') IS NOT NULL`)
+        ]
+      }));
+
+      const existingAliases = await Team.findOne({
+        where: {
+          [Op.or]: aliasConditions
+        },
+        transaction
+      });
+
+      if (existingAliases) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: `One of the aliases conflicts with an existing team (ID: ${existingAliases.id})`
+        });
+      }
+    }
+
+    // Create the team with all fields from the model
+    const team = await Team.create(
+      {
+        name: name.trim(),
+        aliases: aliases?.map((a: string) => a.trim()) || [],
+        description: description?.trim() || null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    // Return the team with its members
+    const teamWithMembers = await Team.findByPk(team.id, {
+      include: [
+        {
+          model: Creator,
+          as: 'members',
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    if (!teamWithMembers) {
+      return res.status(500).json({ error: 'Failed to fetch created team' });
+    }
+
+    return res.json({
+      id: teamWithMembers.id,
+      name: teamWithMembers.name,
+      aliases: teamWithMembers.aliases,
+      description: teamWithMembers.description,
+      type: 'team',
+      members: teamWithMembers.members?.map(member => ({
+        id: member.id,
+        name: member.name
+      }))
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error creating team:', error);
+    return res.status(500).json({ error: 'Failed to create team' });
   }
 });
 

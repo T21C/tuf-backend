@@ -94,13 +94,34 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
         },
         {
           model: LevelSubmissionTeamRequest,
-          as: 'teamRequestData'
+          as: 'teamRequestData',
+          include: [
+            {
+              model: Team,
+              as: 'team',
+              include: [
+                {
+                  model: Level,
+                  as: 'levels',
+                  required: false
+                },
+                {
+                  model: Creator,
+                  as: 'members',
+                  through: { attributes: [] },
+                  required: false
+                }
+              ]
+            }
+          ]
         }
       ]
     });
 
     const submissionsWithStats = pendingLevelSubmissions.map(submission => {
       const submissionData = submission.toJSON();
+      
+      // Process creator requests
       submissionData.creatorRequests = submissionData.creatorRequests?.map((request: CreatorRequest) => {
         if (request.creator?.credits) {
           const credits = request.creator.credits;
@@ -113,6 +134,19 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
         }
         return request;
       });
+
+      // Process team request data
+      if (submissionData.teamRequestData?.team) {
+        const team = submissionData.teamRequestData.team;
+        team.credits = {
+          totalLevels: team.levels?.length || 0,
+          verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
+          memberCount: team.members?.length || 0
+        };
+        // Clean up levels array to avoid sending too much data
+        delete team.levels;
+      }
+
       return submissionData;
     });
 
@@ -348,14 +382,26 @@ router.put(
         for (const request of submission.creatorRequests || []) {
           if (request.creatorId) {
             // For existing creators
-            await LevelCredit.create({
-              levelId: newLevel.id,
-              creatorId: request.creatorId,
-              role: request.role,
-              isVerified: existingCreators.find(c => c.id === request.creatorId)?.isVerified || false
-            }, {
+            // Check if credit already exists
+            const existingCredit = await LevelCredit.findOne({
+              where: {
+                levelId: newLevel.id,
+                creatorId: request.creatorId,
+                role: request.role
+              },
               transaction
             });
+
+            if (!existingCredit) {
+              await LevelCredit.create({
+                levelId: newLevel.id,
+                creatorId: request.creatorId,
+                role: request.role,
+                isVerified: existingCreators.find(c => c.id === request.creatorId)?.isVerified || false
+              }, {
+                transaction
+              });
+            }
           } else if (request.isNewRequest) {
             // For new creators
             const [creator] = await Creator.findOrCreate({
@@ -367,14 +413,26 @@ router.put(
               transaction
             });
 
-            await LevelCredit.create({
-              levelId: newLevel.id,
-              creatorId: creator.id,
-              role: request.role,
-              isVerified: false
-            }, {
+            // Check if credit already exists
+            const existingCredit = await LevelCredit.findOne({
+              where: {
+                levelId: newLevel.id,
+                creatorId: creator.id,
+                role: request.role
+              },
               transaction
             });
+
+            if (!existingCredit) {
+              await LevelCredit.create({
+                levelId: newLevel.id,
+                creatorId: creator.id,
+                role: request.role,
+                isVerified: false
+              }, {
+                transaction
+              });
+            }
           }
         }
 
@@ -1025,9 +1083,22 @@ router.put(
 
     try {
       const { id } = req.params;
-      const { creatorRequests, teamRequest } = req.body;
+      const { creatorRequests, teamRequestData } = req.body;
 
-      const submission = await LevelSubmission.findByPk(id, { transaction });
+      const submission = await LevelSubmission.findByPk(id, {
+        include: [
+          {
+            model: LevelSubmissionTeamRequest,
+            as: 'teamRequestData'
+          },
+          {
+            model: LevelSubmissionCreatorRequest,
+            as: 'creatorRequests'
+          }
+        ],
+        transaction
+      });
+
       if (!submission) {
         await transaction.rollback();
         return res.status(404).json({ error: 'Submission not found' });
@@ -1039,12 +1110,12 @@ router.put(
           await LevelSubmissionCreatorRequest.update(
             {
               creatorId: request.creatorId,
+              creatorName: request.creatorName,
               isNewRequest: request.isNewRequest
             },
             {
               where: {
                 submissionId: id,
-                creatorName: request.creatorName,
                 role: request.role
               },
               transaction
@@ -1054,21 +1125,77 @@ router.put(
       }
 
       // Update team request
-      if (teamRequest) {
-        await LevelSubmissionTeamRequest.update(
-          {
-            teamId: teamRequest.teamId,
-            isNewRequest: teamRequest.isNewRequest
-          },
-          {
-            where: { submissionId: id },
-            transaction
-          }
-        );
+      if (teamRequestData) {
+        const existingTeamRequest = await LevelSubmissionTeamRequest.findOne({
+          where: { submissionId: id },
+          transaction
+        });
+
+        if (existingTeamRequest) {
+          await existingTeamRequest.update({
+            teamId: teamRequestData.teamId,
+            teamName: teamRequestData.teamName,
+            isNewRequest: teamRequestData.isNewRequest
+          }, { transaction });
+        } else {
+          await LevelSubmissionTeamRequest.create({
+            submissionId: id,
+            teamId: teamRequestData.teamId,
+            teamName: teamRequestData.teamName,
+            isNewRequest: teamRequestData.isNewRequest
+          }, { transaction });
+        }
       }
 
       await transaction.commit();
-      return res.json({ message: 'Profiles updated successfully' });
+
+      // Fetch updated submission with all associations
+      const updatedSubmission = await LevelSubmission.findByPk(id, {
+        include: [
+          {
+            model: LevelSubmissionCreatorRequest,
+            as: 'creatorRequests',
+            include: [
+              {
+                model: Creator,
+                as: 'creator',
+                include: [
+                  {
+                    model: LevelCredit,
+                    as: 'credits',
+                    required: false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            model: LevelSubmissionTeamRequest,
+            as: 'teamRequestData',
+            include: [
+              {
+                model: Team,
+                as: 'team',
+                include: [
+                  {
+                    model: Level,
+                    as: 'levels',
+                    required: false
+                  },
+                  {
+                    model: Creator,
+                    as: 'members',
+                    through: { attributes: [] },
+                    required: false
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      });
+
+      return res.json(updatedSubmission);
     } catch (error) {
       await transaction.rollback();
       console.error('Error updating profiles:', error);
