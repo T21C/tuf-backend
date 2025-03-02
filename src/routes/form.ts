@@ -16,6 +16,7 @@ import {calcAcc} from '../misc/CalcAcc.js';
 import LevelSubmissionCreatorRequest from '../models/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '../models/LevelSubmissionTeamRequest.js';
 import Player from '../models/Player.js';
+import sequelize from "../config/db.js";
 const router: Router = express.Router();
 
 const cleanVideoUrl = (url: string) => {
@@ -56,6 +57,9 @@ router.post(
   Auth.user(),
   express.json(),
   async (req: Request, res: Response) => {
+    // Start a transaction
+    const transaction = await sequelize.transaction();
+
     try {
       if (req.user?.email && emailBanList.includes(req.user.email)) {
         return res.status(403).json({error: 'User is banned'});
@@ -78,7 +82,7 @@ router.post(
           (provider: any) => provider.dataValues.provider === 'discord',
         );
 
-        // Create the base level submission
+        // Create the base level submission within transaction
         const submission = await LevelSubmission.create({
           artist: req.body.artist,
           song: req.body.song,
@@ -93,9 +97,9 @@ router.post(
           charter: '',
           vfxer: '',
           team: ''
-        });
+        }, { transaction });
 
-        // Create the creator request records
+        // Create the creator request records within transaction
         if (Array.isArray(req.body.creatorRequests)) {
           await Promise.all(req.body.creatorRequests.map(async (request: any) => {
             return LevelSubmissionCreatorRequest.create({
@@ -104,21 +108,41 @@ router.post(
               creatorId: request.creatorId || null,
               role: request.role,
               isNewRequest: request.isNewRequest
-            });
+            }, { transaction });
           }));
         }
 
-        // Create team request record if present
+        // Create team request record if present within transaction
         if (req.body.teamRequest && req.body.teamRequest.teamName) {
           await LevelSubmissionTeamRequest.create({
             submissionId: submission.id,
             teamName: req.body.teamRequest.teamName,
             teamId: req.body.teamRequest.teamId || null,
             isNewRequest: req.body.teamRequest.isNewRequest
-          });
+          }, { transaction });
         }
 
-        await levelSubmissionHook(submission);
+        // Fetch the submission with associations before sending to webhook
+        const submissionWithAssociations = await LevelSubmission.findByPk(submission.id, {
+          include: [
+            {
+              model: LevelSubmissionCreatorRequest,
+              as: 'creatorRequests'
+            },
+            {
+              model: LevelSubmissionTeamRequest,
+              as: 'teamRequestData'
+            }
+          ],
+          transaction
+        });
+
+        // Commit the transaction
+        await transaction.commit();
+
+        if (submissionWithAssociations) {
+          await levelSubmissionHook(submissionWithAssociations);
+        }
 
         // Broadcast submission update
         sseManager.broadcast({
@@ -150,6 +174,7 @@ router.post(
 
         for (const field of requiredFields) {
           if (!req.body[field]) {
+            await transaction.rollback();
             return res.status(400).json({
               error: `Missing required field: ${field}`,
             });
@@ -198,10 +223,17 @@ router.post(
               as: 'difficulty',
             },
           ],
+          transaction
         });
-        if (!level) return res.status(404).json({error: 'Level not found'});
-        if (!level.difficulty)
+        
+        if (!level) {
+          await transaction.rollback();
+          return res.status(404).json({error: 'Level not found'});
+        }
+        if (!level.difficulty) {
+          await transaction.rollback();
           return res.status(404).json({error: 'Difficulty not found'});
+        }
 
         // Create properly structured level data for score calculation
         const levelData = {
@@ -220,31 +252,31 @@ router.post(
 
         const accuracy = calcAcc(sanitizedJudgements);
         
-          // Create the pass submission
-          const submission = await PassSubmission.create({
-            levelId: req.body.levelId,
-            speed: req.body.speed ? parseFloat(req.body.speed) : 1,
-            scoreV2: score,
-            accuracy,
-            passer: req.body.passer,
-            passerId: req.body.passerId,
-            passerRequest: req.body.passerRequest === true,
-            feelingDifficulty: req.body.feelingDifficulty,
-            title: req.body.title,
-            videoLink: cleanVideoUrl(req.body.videoLink),
-            rawTime: new Date(req.body.rawTime),
-            submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
-              .username,
-            submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
-            submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
-            status: 'pending',
-            assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
-          });
+        // Create the pass submission within transaction
+        const submission = await PassSubmission.create({
+          levelId: req.body.levelId,
+          speed: req.body.speed ? parseFloat(req.body.speed) : 1,
+          scoreV2: score,
+          accuracy,
+          passer: req.body.passer,
+          passerId: req.body.passerId,
+          passerRequest: req.body.passerRequest === true,
+          feelingDifficulty: req.body.feelingDifficulty,
+          title: req.body.title,
+          videoLink: cleanVideoUrl(req.body.videoLink),
+          rawTime: new Date(req.body.rawTime),
+          submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
+            .username,
+          submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
+          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
+          status: 'pending',
+          assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
+        }, { transaction });
 
         await PassSubmissionJudgements.create({
           ...sanitizedJudgements,
           passSubmissionId: submission.id,
-        });
+        }, { transaction });
 
         // Create flags with proper validation
         const flags = {
@@ -254,7 +286,8 @@ router.post(
           is16K: req.body.is16K === 'true',
         };
 
-        await PassSubmissionFlags.create(flags);
+        await PassSubmissionFlags.create(flags, { transaction });
+        
         const passObj = await PassSubmission.findByPk(submission.id, {
           include: [
             {
@@ -276,11 +309,17 @@ router.post(
               ],
             },
           ],
+          transaction
         });
-        if (!passObj)
-          return res
-            .status(500)
-            .json({error: 'Failed to create pass submission'});
+
+        if (!passObj) {
+          await transaction.rollback();
+          return res.status(500).json({error: 'Failed to create pass submission'});
+        }
+
+        // Commit the transaction
+        await transaction.commit();
+
         await passSubmissionHook(passObj, sanitizedJudgements);
 
         // Broadcast submission update
@@ -300,8 +339,11 @@ router.post(
         });
       }
 
+      await transaction.rollback();
       return res.status(400).json({error: 'Invalid form type'});
     } catch (error) {
+      // Rollback transaction on error
+      await transaction.rollback();
       console.error('Submission error:', error);
       return res.status(500).json({
         error: 'Failed to process submission',

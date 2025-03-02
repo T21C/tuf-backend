@@ -67,9 +67,6 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const song = level?.song || null;
   const diff = level?.diff || null;
   const artist = level?.artist || null;
-  const team = level?.team || null;
-  const charter = level?.charter || null;
-  const vfxer = level?.vfxer || null;
   const videoLink = level?.videoLink || null;
   const videoInfo = videoLink
     ? await getVideoDetails(videoLink).then(details => details)
@@ -77,18 +74,29 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const submitterDiscordPfp = level?.submitterDiscordPfp || null;
   const submitterDiscordId = level?.submitterDiscordId || null;
 
+  // Process creators by role
+  const charters = level.creatorRequests
+    ?.filter(req => req.role === 'charter')
+    .map(req => req.creatorName) || [];
+  const vfxers = level.creatorRequests
+    ?.filter(req => req.role === 'vfxer')
+    .map(req => req.creatorName) || [];
+  
+  const chartersString = charters.length > 0 ? charters.join(' & ') : 'Unknown';
+  const vfxersString = vfxers.length > 0 ? vfxers.join(' & ') : null;
+  const teamName = level.teamRequestData?.teamName || null;
+
   const embed = new MessageBuilder()
     .setColor('#000000')
     .setAuthor('New level submission', submitterDiscordPfp || placeHolder, '')
     .setTitle(`${song || 'Unknown Song'} — ${artist || 'Unknown Artist'}`)
-    //.setThumbnail(submitterDiscordPfp || placeHolder)
     .addField('', `<@${submitterDiscordId}>`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
     .addField('', '', false);
 
-  if (team) embed.addField('', `Team\n**${formatString(team)}**`, true);
-  if (vfxer) embed.addField('', `VFX\n**${formatString(vfxer)}**`, true);
-  if (charter) embed.addField('', `Chart\n**${formatString(charter)}**`, true);
+  if (teamName) embed.addField('', `Team\n**${formatString(teamName)}**`, true);
+  if (vfxersString) embed.addField('', `VFX\n**${formatString(vfxersString)}**`, true);
+  embed.addField('', `Chart\n**${formatString(chartersString)}**`, true);
 
   embed
     .addField(
@@ -96,11 +104,6 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
       `**${videoLink ? `[${wrap(videoInfo?.title || 'No title', 45)}](${videoLink})` : 'No video link'}**`,
       false,
     )
-    /*.setFooter(
-      team || credit,
-      ''
-    )*/
-    //.setImage(videoInfo?.image || "")
     .setTimestamp();
 
   hook

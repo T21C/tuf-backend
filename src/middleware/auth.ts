@@ -112,7 +112,7 @@ export const Auth = {
             const newToken = tokenUtils.generateJWT(user);
             res.setHeader('X-New-Token', newToken);
           } catch (error) {
-            console.error('Failed to refresh Discord token:', error);
+            //console.error('Failed to refresh Discord token:', error);
             // Continue with request even if refresh fails
           }
         }
