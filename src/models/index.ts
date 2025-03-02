@@ -20,7 +20,7 @@ import LevelCredit from './LevelCredit.js';
 import Team from './Team.js';
 import TeamMember from './TeamMember.js';
 import PlayerStats from './PlayerStats.js';
-
+import UsernameChange from './UsernameChange.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -43,6 +43,7 @@ export const db = {
     Team,
     TeamMember,
     PlayerStats,
+    UsernameChange,
   },
 };
 

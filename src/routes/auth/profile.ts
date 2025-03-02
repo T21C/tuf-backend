@@ -2,6 +2,8 @@ import {Router, Request, Response} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {OAuthProvider, User} from '../../models/index.js';
 import bcrypt from 'bcrypt';
+import sequelize from "../../config/db.js";
+import UsernameChange from '../../models/UsernameChange.js';
 
 const router: Router = Router();
 
@@ -30,6 +32,8 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
         isSuperAdmin: user.isSuperAdmin,
         playerId: user.playerId,
         password: user.password ? true : null,
+        lastUsernameChange: user.lastUsernameChange,
+        previousUsername: user.previousUsername,
         providers: providers.map(p => ({
           name: p.provider,
           profile: p.profile,
@@ -44,46 +48,102 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
 
 // Update user profile
 router.put('/me', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
   try {
-    const {username, email} = req.body;
+    const {username} = req.body;
     const user = req.user;
 
     if (!user) {
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    // Check if username is taken
+    // Check if username is being changed
     if (username && username !== user.username) {
-      const existingUser = await User.findOne({where: {username}});
+      // Check if username is taken
+      const existingUser = await User.findOne({
+        where: {username},
+        transaction
+      });
+      
       if (existingUser) {
+        await transaction.rollback();
         return res.status(400).json({error: 'Username already taken'});
       }
-    }
 
-    // Check if email is taken
-    if (email && email !== user.email) {
-      const existingUser = await User.findOne({where: {email}});
-      if (existingUser) {
-        return res.status(400).json({error: 'Email already taken'});
+      // Check rate limit if user has changed username before
+      if (user.lastUsernameChange) {
+        const msSinceLastChange = Date.now() - new Date(user.lastUsernameChange).getTime();
+        const msRemaining = (24 * 60 * 60 * 1000) - msSinceLastChange;
+        
+        if (msRemaining > 0) {
+          const hours = Math.floor(msRemaining / (60 * 60 * 1000));
+          const minutes = Math.floor((msRemaining % (60 * 60 * 1000)) / (60 * 1000));
+          const seconds = Math.floor((msRemaining % (60 * 1000)) / 1000);
+          
+          const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+          const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + (24 * 60 * 60 * 1000));
+          
+          await transaction.rollback();
+          return res.status(429).json({
+            error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
+            nextAvailableChange,
+            timeRemaining: {
+              hours,
+              minutes,
+              seconds,
+              formatted: timeString
+            }
+          });
+        }
       }
-    }
+      
+      // Create username change record
+      await UsernameChange.create({
+        userId: user.id,
+        oldUsername: user.username,
+        newUsername: username,
+        updatedAt: new Date()
+      }, { transaction });
 
-    // Update user
-    await User.update(
-      {username, email, nickname: req.body.nickname},
-      {where: {id: user.id}},
-    );
+      // Update user with new username and tracking info
+      await User.update(
+        {
+          username,
+          nickname: req.body.nickname,
+          previousUsername: user.username,
+          lastUsernameChange: new Date()
+        },
+        {
+          where: {id: user.id},
+          transaction
+        }
+      );
+    } else {
+      // Just update nickname if username isn't changing
+      await User.update(
+        { nickname: req.body.nickname },
+        {
+          where: {id: user.id},
+          transaction
+        }
+      );
+    }
 
     // Fetch updated user data with providers
-    const updatedUser = await User.findByPk(user.id);
+    const updatedUser = await User.findByPk(user.id, { transaction });
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
       attributes: ['provider', 'providerId', 'profile'],
+      transaction
     });
 
     if (!updatedUser) {
+      await transaction.rollback();
       return res.status(404).json({error: 'User not found after update'});
     }
+
+    await transaction.commit();
 
     return res.json({
       message: 'Profile updated successfully',
@@ -96,10 +156,13 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         isRater: updatedUser.isRater,
         isSuperAdmin: updatedUser.isSuperAdmin,
         playerId: updatedUser.playerId,
+        lastUsernameChange: updatedUser.lastUsernameChange,
+        previousUsername: updatedUser.previousUsername,
         providers: providers.map(p => p.provider),
       },
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Error updating user profile:', error);
     return res.status(500).json({error: 'Failed to update profile'});
   }

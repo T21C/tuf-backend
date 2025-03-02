@@ -20,6 +20,8 @@ export interface UserAttributes {
   avatarId?: string | null;
   avatarUrl?: string | null;
   permissionVersion: number;
+  lastUsernameChange?: Date | null;
+  previousUsername?: string | null;
   createdAt: Date;
   updatedAt: Date;
   providers?: OAuthProvider[];
@@ -42,6 +44,8 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare avatarId?: string | null;
   declare avatarUrl?: string | null;
   declare permissionVersion: number;
+  declare lastUsernameChange?: Date | null;
+  declare previousUsername?: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -129,6 +133,16 @@ User.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
+    },
+    lastUsernameChange: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    previousUsername: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
     },
     createdAt: {
       type: DataTypes.DATE,
