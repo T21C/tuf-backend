@@ -33,6 +33,12 @@ import TeamMember from '../../models/TeamMember.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
+enum CreditRole {
+  CHARTER = 'charter',
+  VFXER = 'vfxer',
+  TEAM = 'team'
+}
+
 interface CreditStats {
   charterCount: number;
   vfxerCount: number;
@@ -1114,7 +1120,9 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
       });
     }
 
-    // Fetch fresh complete object with all associations
+    await transaction.commit();
+
+    // Fetch fresh complete object with all associations AFTER committing the transaction
     const updatedSubmission = await LevelSubmission.findOne({
       where: { id },
       include: [
@@ -1169,7 +1177,6 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
     });
 
     if (!updatedSubmission) {
-      await transaction.rollback();
       return res.status(404).json({ error: 'Submission not found' });
     }
 
@@ -1202,7 +1209,6 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
       delete team.levels;
     }
 
-    await transaction.commit();
     return res.json(submissionData);
 
   } catch (error) {
@@ -1253,23 +1259,32 @@ router.put(
       }
 
       // Find and update the specific creator request
-      const existingRequest = submission.creatorRequests?.find(r => r.id === creditRequestId);
-      if (existingRequest) {
-        await existingRequest.update({
-          creatorId,
-          creatorName: creator.name,
-          isNewRequest: false
-        }, { transaction });
-      } else {
+      const creatorRequest = await LevelSubmissionCreatorRequest.findOne({
+        where: {
+          id: creditRequestId,
+          submissionId: parseInt(id),
+          role
+        },
+        transaction
+      });
+
+      if (!creatorRequest) {
         await transaction.rollback();
         return res.status(404).json({ error: 'Credit request not found' });
       }
+
+      // Update the request
+      await creatorRequest.update({
+        creatorId,
+        creatorName: creator.name,
+        isNewRequest: false
+      }, { transaction });
 
       await transaction.commit();
 
       return res.json({
         message: 'Creator assigned successfully',
-        creatorRequest: existingRequest
+        creatorRequest
       });
     } catch (error) {
       await transaction.rollback();
@@ -1287,9 +1302,9 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { name, aliases, role, creditRequestId } = req.body;
 
-    if (!name || !role) {
+    if (!name || !role || !creditRequestId) {
       await transaction.rollback();
-      return res.status(400).json({ error: 'Name and role are required' });
+      return res.status(400).json({ error: 'Name, role, and credit request ID are required' });
     }
 
     // Find the submission with both creator and team requests
@@ -1313,61 +1328,53 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // Create new entity based on role
     if (role === 'team') {
-      // Create new team
-      const team = await Team.create({
-        name,
-        aliases: aliases || [],
-      }, { transaction });
+      // Create or find team without checking isNewRequest
+      const [team] = await Team.findOrCreate({
+        where: { name: name.trim() },
+        defaults: {
+          aliases: aliases || []
+        },
+        transaction
+      });
 
-      // Update submission's team request data
-      if (submission.teamRequestData) {
-        await submission.teamRequestData.update({
-          teamId: team.id,
-          teamName: name,
-          isNewRequest: false
-        }, { transaction });
-      } else {
-        // Create new team request if none exists
-        await LevelSubmissionTeamRequest.create({
-          submissionId: submission.id,
-          teamId: team.id,
-          teamName: name,
-          isNewRequest: false
-        }, { transaction });
-      }
+      // Update team request
+      await LevelSubmissionTeamRequest.update({
+        teamId: team.id,
+        teamName: team.name,
+        isNewRequest: false
+      }, {
+        where: { submissionId: parseInt(id) },
+        transaction
+      });
     } else {
-      // Create new creator
-      const creator = await Creator.create({
-        name,
-        aliases: aliases || [],
-        type: role
-      }, { transaction });
+      // Create or find creator without checking isNewRequest
+      const [creator] = await Creator.findOrCreate({
+        where: { name: name.trim() },
+        defaults: {
+          aliases: aliases || [],
+          isVerified: false
+        },
+        transaction
+      });
 
-      if (creditRequestId) {
-        // Update existing request if creditRequestId is provided
-        const existingRequest = submission.creatorRequests?.find(r => r.id === creditRequestId);
-        if (existingRequest) {
-          await existingRequest.update({
-            creatorId: creator.id,
-            creatorName: name,
-            isNewRequest: false
-          }, { transaction });
-        }
-      } else {
-        // Create new creator request if no creditRequestId
-        await LevelSubmissionCreatorRequest.create({
-          submissionId: submission.id,
-          creatorId: creator.id,
-          creatorName: name,
-          role,
-          isNewRequest: false
-        }, { transaction });
-      }
+      // Update the existing credit request
+      await LevelSubmissionCreatorRequest.update({
+        creatorId: creator.id,
+        creatorName: creator.name,
+        isNewRequest: false
+      }, {
+        where: {
+          id: creditRequestId,
+          submissionId: parseInt(id)
+        },
+        transaction
+      });
     }
 
-    // Fetch updated submission with all associations
+    await transaction.commit();
+
+    // Fetch fresh complete object with all associations AFTER committing the transaction
     const updatedSubmission = await LevelSubmission.findOne({
       where: { id },
       include: [
@@ -1376,7 +1383,24 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
           as: 'creatorRequests',
           include: [{
             model: Creator,
-            as: 'creator'
+            as: 'creator',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              },
+              {
+                model: Level,
+                as: 'createdLevels',
+                attributes: ['id', 'isVerified']
+              },
+              {
+                model: LevelCredit,
+                as: 'credits',
+                attributes: ['id', 'role']
+              }
+            ]
           }]
         },
         {
@@ -1384,19 +1408,268 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
           as: 'teamRequestData',
           include: [{
             model: Team,
-            as: 'team'
+            as: 'team',
+            include: [
+              {
+                model: Creator,
+                as: 'members',
+                through: { attributes: [] },
+                required: false
+              },
+              {
+                model: Level,
+                as: 'levels',
+                attributes: ['id', 'isVerified'],
+                required: false
+              }
+            ]
           }]
+        }
+      ]
+    });
+
+    if (!updatedSubmission) {
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Process the submission data to match the format used in pending submissions
+    const submissionData = updatedSubmission.toJSON();
+      
+    // Process creator requests
+    submissionData.creatorRequests = submissionData.creatorRequests?.map((request: any) => {
+      if (request.creator?.credits) {
+        const credits = request.creator.credits;
+        const creditStats = {
+          charterCount: credits.filter((credit: any) => credit.role === 'charter').length,
+          vfxerCount: credits.filter((credit: any) => credit.role === 'vfxer').length,
+          totalCredits: credits.length
+        };
+        request.creator.credits = creditStats;
+      }
+      return request;
+    });
+
+    // Process team request data
+    if (submissionData.teamRequestData?.team) {
+      const team = submissionData.teamRequestData.team;
+      team.credits = {
+        totalLevels: team.levels?.length || 0,
+        verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
+        memberCount: team.members?.length || 0
+      };
+      // Clean up levels array to avoid sending too much data
+      delete team.levels;
+    }
+
+    return res.json(submissionData);
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error creating and assigning creator:', error);
+    return res.status(500).json({ error: 'Failed to create and assign creator' });
+  }
+});
+
+// Add a new creator request
+router.post('/levels/:id/creator-requests', async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!role) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Role is required' });
+    }
+
+    // Find the submission
+    const submission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests'
         }
       ],
       transaction
     });
 
+    if (!submission) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // Create a new creator request with a placeholder name
+    const placeholderName = `New ${role.charAt(0).toUpperCase() + role.slice(1)}`;
+    const newRequest = 
+    role === 'team' 
+
+    ? await LevelSubmissionTeamRequest.create({
+      submissionId: parseInt(id),
+      teamName: placeholderName,
+      isNewRequest: true
+    }, { transaction }) 
+    
+    : await LevelSubmissionCreatorRequest.create({
+      submissionId: parseInt(id),
+      role,
+      creatorName: placeholderName,
+      isNewRequest: true
+    }, { transaction });
+
     await transaction.commit();
+
+    // Fetch updated submission
+    const updatedSubmission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests',
+          include: [{
+            model: Creator,
+            as: 'creator',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['id', 'username']
+              },
+              {
+                model: Level,
+                as: 'createdLevels',
+                attributes: ['id', 'isVerified']
+              },
+              {
+                model: LevelCredit,
+                as: 'credits',
+                attributes: ['id', 'role']
+              }
+            ]
+          }]
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData',
+          include: [{
+            model: Team,
+            as: 'team',
+            include: [
+              {
+                model: Creator,
+                as: 'members',
+                through: { attributes: [] },
+                required: false
+              },
+              {
+                model: Level,
+                as: 'levels',
+                attributes: ['id', 'isVerified'],
+                required: false
+              }
+            ]
+          }]
+        }
+      ]
+    });
+
     return res.json(updatedSubmission);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error creating/assigning creator:', error);
-    return res.status(500).json({ error: 'Failed to create/assign creator' });
+    console.error('Error adding creator request:', error);
+    return res.status(500).json({ error: 'Failed to add creator request' });
+  }
+});
+
+// Remove a creator request
+router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id, requestId } = req.params;
+
+    // Find the submission
+    const submission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests'
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData'
+        }
+      ],
+      transaction
+    });
+
+    if (!submission || !submission.creatorRequests) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // First check if this is a team request
+    const teamRequest = await LevelSubmissionTeamRequest.findOne({
+      where: { id: parseInt(requestId), submissionId: id },
+      transaction
+    });
+
+    if (teamRequest) {
+      // Handle team request deletion
+      await LevelSubmissionTeamRequest.destroy({
+        where: {
+          id: requestId,
+          submissionId: id
+        },
+        transaction
+      });
+    } else {
+      // Handle creator request deletion
+      const request = submission.creatorRequests.find(r => r.id === parseInt(requestId));
+      const isCharter = request?.role === CreditRole.CHARTER;
+      
+      if (isCharter) {
+        const charterCount = submission.creatorRequests.filter(r => r.role === CreditRole.CHARTER).length;
+        if (charterCount <= 1) {
+          await transaction.rollback();
+          return res.status(400).json({ error: 'Cannot remove the last charter' });
+        }
+      }
+
+      // Delete the creator request
+      await LevelSubmissionCreatorRequest.destroy({
+        where: {
+          id: requestId,
+          submissionId: id
+        },
+        transaction
+      });
+    }
+
+    await transaction.commit();
+
+    // Return the updated submission
+    const updatedSubmission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: LevelSubmissionCreatorRequest,
+          as: 'creatorRequests'
+        },
+        {
+          model: LevelSubmissionTeamRequest,
+          as: 'teamRequestData'
+        }
+      ]
+    });
+
+    return res.json(updatedSubmission);
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error removing creator request:', error);
+    return res.status(500).json({ error: 'Failed to remove creator request' });
   }
 });
 

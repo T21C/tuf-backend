@@ -31,7 +31,6 @@ LevelCredit.init(
     },
     levelId: {
       type: DataTypes.INTEGER,
-      primaryKey: true,
       references: {
         model: 'levels',
         key: 'id',
@@ -39,7 +38,6 @@ LevelCredit.init(
     },
     creatorId: {
       type: DataTypes.INTEGER,
-      primaryKey: true,
       references: {
         model: 'creators',
         key: 'id',
@@ -47,7 +45,6 @@ LevelCredit.init(
     },
     role: {
       type: DataTypes.ENUM(...Object.values(CreditRole)),
-      primaryKey: true,
     },
     isVerified: {
       type: DataTypes.BOOLEAN,
@@ -59,6 +56,13 @@ LevelCredit.init(
     sequelize,
     tableName: 'level_credits',
     timestamps: false,
+    indexes: [
+      {
+        unique: true,
+        fields: ['levelId', 'creatorId', 'role'],
+        name: 'level_credits_levelId_creatorId_role_unique'
+      }
+    ]
   },
 );
 
