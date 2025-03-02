@@ -51,7 +51,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const {username} = req.body;
+    const username = ""; //req.body;
     const user = req.user;
 
     if (!user) {
