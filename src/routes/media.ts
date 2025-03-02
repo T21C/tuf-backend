@@ -12,6 +12,7 @@ import {initializeFonts} from '../utils/fontLoader.js';
 import Pass from '../models/Pass.js';
 import User from '../models/User.js';
 import {Buffer} from 'buffer';
+import { CDN_PATHS } from '../config/constants.js';
 
 // Initialize fonts
 initializeFonts();
@@ -261,31 +262,39 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
       return res.status(404).send('Avatar not found');
     }
 
-    // Create cache directory if it doesn't exist
-    const cacheDir = path.join(process.cwd(), 'cache', 'avatars');
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, {recursive: true});
-    }
+    // Create CDN directories if they don't exist
+    await fs.promises.mkdir(CDN_PATHS.avatars.original, { recursive: true });
+    await fs.promises.mkdir(CDN_PATHS.avatars.thumbnails, { recursive: true });
 
-    const avatarPath = path.join(cacheDir, `${userId}.png`);
+    const originalPath = path.join(CDN_PATHS.avatars.original, `${userId}.png`);
+    const thumbnailPath = path.join(CDN_PATHS.avatars.thumbnails, `${userId}.png`);
 
-    // If avatar is not cached, download it
-    if (!fs.existsSync(avatarPath)) {
+    // If avatar is not in CDN, download it
+    if (!fs.existsSync(thumbnailPath)) {
       const response = await axios.get(user.avatarUrl, {
         responseType: 'arraybuffer',
       });
 
-      // Process and save the image
+      // Save original
+      await fs.promises.writeFile(originalPath, response.data);
+
+      // Process and save the thumbnail
       await sharp(response.data)
         .resize(256, 256, {
           fit: 'cover',
           position: 'center',
         })
         .png()
-        .toFile(avatarPath);
+        .toFile(thumbnailPath);
     }
 
-    return res.sendFile(avatarPath);
+    // Update user's avatarUrl to use CDN path
+    const cdnUrl = `${process.env.CDN_URL}/avatars/thumbnails/${userId}.png`;
+    if (user.avatarUrl !== cdnUrl) {
+      await user.update({ avatarUrl: cdnUrl });
+    }
+
+    return res.sendFile(thumbnailPath);
   } catch (error) {
     console.error('Error serving avatar:', error);
     return res.status(500).send('Error serving avatar');
@@ -313,6 +322,7 @@ router.get('/github-asset', async (req: Request, res: Response) => {
     return;
   }
 });
+
 router.get('/image/:type/:path', async (req: Request, res: Response) => {
   const {type, path: imagePath} = req.params;
   try {
@@ -327,9 +337,9 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
 
     let basePath;
     if (type === 'icon') {
-      basePath = path.join(process.cwd(), 'cache', 'icons');
+      basePath = path.join(CDN_PATHS.misc, 'icons');
     } else {
-      basePath = path.join(process.cwd(), 'cache');
+      basePath = CDN_PATHS.misc;
     }
 
     const fullPath = path.join(basePath, sanitizedPath);
@@ -338,6 +348,9 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
     if (!fullPath.startsWith(basePath)) {
       return res.status(403).send('Access denied');
     }
+
+    // Create directory if it doesn't exist
+    await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
 
     // Check if file exists
     if (!fs.existsSync(fullPath)) {
