@@ -363,8 +363,8 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
       return res.status(403).json({error: 'User is not a rater'});
     }
 
-    // If both rating and comment are empty, treat it as a deletion request
-    if (!rating && !comment) {
+    // If rating is empty or null, treat it as a deletion request
+    if (!rating || rating.trim() === '') {
       // Delete the rating detail
       await RatingDetail.destroy({
         where: {
