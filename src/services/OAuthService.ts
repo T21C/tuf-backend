@@ -125,6 +125,7 @@ class OAuthService {
       isEmailVerified: !!profile.email,
       isRater,
       isSuperAdmin,
+      isRatingBanned: false,
       status: 'active',
       permissionVersion: 1,
       createdAt: now,

@@ -47,6 +47,7 @@ export const authController = {
         isEmailVerified: false,
         isRater: false,
         isSuperAdmin: false,
+        isRatingBanned: false,
         status: 'active',
         lastLogin: now,
         updatedAt: now,

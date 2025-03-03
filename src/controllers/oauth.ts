@@ -241,6 +241,7 @@ export const OAuthController = {
         isEmailVerified: !!profile.email,
         isRater,
         isSuperAdmin,
+        isRatingBanned: false,
         permissionVersion: 1,
         status: 'active',
         createdAt: now,
