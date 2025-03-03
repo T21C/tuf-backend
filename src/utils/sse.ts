@@ -46,6 +46,15 @@ class SSEManager {
     }, this.HEARTBEAT_INTERVAL);
   }
 
+  private broadcastUserCount() {
+    this.broadcast({
+      type: 'userCount',
+      data: {
+        count: this.getClientCount()
+      }
+    });
+  }
+
   addClient(res: Response): string {
     const clientId = Math.random().toString(36).substring(7);
 
@@ -57,6 +66,9 @@ class SSEManager {
       res,
       lastPing: Date.now(),
     });
+
+    // Broadcast updated user count
+    this.broadcastUserCount();
 
     res.on('close', () => {
       //console.debug(`SSE: Client ${clientId} connection closed`);
@@ -75,6 +87,8 @@ class SSEManager {
         console.debug(`SSE: Error ending response for client ${clientId}`);
       }
       this.clients.delete(clientId);
+      // Broadcast updated user count after removing client
+      this.broadcastUserCount();
     }
   }
 
