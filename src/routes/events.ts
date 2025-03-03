@@ -83,12 +83,6 @@ router.get('/', async (req: SSERequest, res: Response) => {
   const user = await User.findByPk(userId);
   const isManager = user?.isRater || user?.isSuperAdmin || false;
 
-  // Log connection details
-  console.debug(`SSE Rating: New connection request from ${isManager ? 'manager' : 'user'}`, {
-    userId,
-    source,
-  });
-
   // Add client to SSE manager
   const clientId = sseManager.addClient(res, {
     userId: userId as string,
@@ -98,11 +92,6 @@ router.get('/', async (req: SSERequest, res: Response) => {
 
   // Clean up on connection close
   res.on('close', () => {
-    console.debug(`SSE Rating: Connection closed for client ${clientId}`, {
-      userId,
-      source,
-      isManager
-    });
     clearInterval(keepAlive);
     sseManager.removeClient(clientId);
   });
