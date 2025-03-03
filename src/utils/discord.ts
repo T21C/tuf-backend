@@ -52,6 +52,16 @@ async function handleRateLimit(bucket: string): Promise<void> {
   }
 }
 
+class DiscordAPIError extends Error {
+  status: number;
+  
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'DiscordAPIError';
+    this.status = status;
+  }
+}
+
 export async function fetchDiscordUserInfo(userId: string): Promise<{
   username: string;
   avatar: string | null;
@@ -62,6 +72,7 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
   const bucket = `users-${userId}`;
   await handleRateLimit(bucket);
 
+  console.log(process.env.DISCORD_BOT_TOKEN);
   const response = await fetch(endpoint, {
     headers: {
       Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
@@ -86,8 +97,10 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
   }
 
   if (!response.ok) {
-    throw new Error(
+    console.error(response);
+    throw new DiscordAPIError(
       `Failed to fetch Discord user info: ${response.statusText}`,
+      response.status
     );
   }
 

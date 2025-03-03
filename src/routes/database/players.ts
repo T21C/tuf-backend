@@ -16,6 +16,7 @@ import OAuthProvider from '../../models/OAuthProvider.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import PlayerStats from '../../models/PlayerStats.js';
 import {Router, Request, Response} from 'express';
+import {fetchDiscordUserInfo} from '../../utils/discord.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -419,39 +420,26 @@ router.get(
     try {
       const {discordId} = req.params;
 
-      // Fetch Discord user data
-      const response = await fetch(
-        `https://discord.com/api/v10/users/${discordId}`,
-        {
-          headers: {
-            Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-          },
-        },
-      );
-      if (!response.ok) {
-        return res.status(response.status).json({
-          error: 'Failed to fetch Discord user',
-          details: `Discord API returned status ${response.status}`,
-        });
-      }
-
-      const discordUser: {id: string; username: string; avatar: string} =
-        (await response.json()) as any;
+      // Use the utility function instead of direct API call
+      const discordUser = await fetchDiscordUserInfo(discordId);
 
       return res.json({
         message: 'Discord info fetched successfully',
         discordUser: {
-          id: discordUser.id,
+          id: discordId,
           username: discordUser.username,
           avatar: discordUser.avatar,
-          avatarUrl: `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`,
+          avatarUrl: discordUser.avatar ? 
+            `https://cdn.discordapp.com/avatars/${discordId}/${discordUser.avatar}.png` : 
+            null
         },
       });
-    } catch (error) {
+    } catch (error: any) {
+      // Don't expose internal errors that might contain sensitive info
       console.error('Error fetching Discord user:', error);
-      return res.status(500).json({
+      return res.status(error?.status || 500).json({
         error: 'Failed to fetch Discord user',
-        details: error instanceof Error ? error.message : String(error),
+        details: error?.status === 404 ? 'Discord user not found' : 'Error fetching Discord user information'
       });
     }
   },

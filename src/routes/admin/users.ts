@@ -321,6 +321,55 @@ router.post(
   },
 );
 
+// Toggle rating ban for user
+router.patch(
+  '/:playerId/rating-ban',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    try {
+      const {playerId} = req.params;
+      const {isRatingBanned} = req.body;
+
+      if (typeof isRatingBanned !== 'boolean') {
+        return res.status(400).json({error: 'isRatingBanned must be a boolean'});
+      }
+
+      // Find player and their associated user
+      const player = await Player.findByPk(playerId, {
+        include: [{
+          model: User,
+          as: 'user',
+          required: true
+        }]
+      });
+
+      if (!player || !player.user) {
+        return res.status(404).json({error: 'Player or associated user not found'});
+      }
+
+      // Update the user's rating ban status
+      await player.user.update({isRatingBanned});
+
+      return res.json({
+        message: 'Rating ban status updated successfully',
+        user: {
+          id: player.user.id,
+          username: player.user.username,
+          isRatingBanned: player.user.isRatingBanned,
+        },
+      });
+    } catch (error: any) {
+      console.error('Failed to update rating ban status:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      return res.status(500).json({error: 'Failed to update rating ban status'});
+    }
+  },
+);
+
 // Check user roles
 router.get('/check/:discordId', async (req: Request, res: Response) => {
   try {

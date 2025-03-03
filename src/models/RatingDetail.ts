@@ -8,6 +8,7 @@ interface RatingDetailAttributes {
   userId: string;
   rating: string;
   comment: string;
+  isCommunityRating: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   user?: User;
@@ -27,6 +28,7 @@ class RatingDetail
   declare userId: string;
   declare rating: string;
   declare comment: string;
+  declare isCommunityRating: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -64,6 +66,11 @@ RatingDetail.init(
     comment: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    isCommunityRating: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
   },
   {

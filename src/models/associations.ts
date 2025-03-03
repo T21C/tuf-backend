@@ -264,6 +264,16 @@ export function initializeAssociations() {
     as: 'averageRatings',
   });
 
+  Difficulty.hasMany(Rating, {
+    foreignKey: 'communityDifficultyId',
+    as: 'communityRatings',
+  });
+
+  Rating.belongsTo(Difficulty, {
+    foreignKey: 'communityDifficultyId',
+    as: 'communityDifficulty',
+  });
+
   // Rating <-> RatingDetail associations
   Rating.hasMany(RatingDetail, {
     foreignKey: 'ratingId',

@@ -193,9 +193,12 @@ async function normalizeRating(
 async function calculateAverageRating(
   detailObject: RatingDetail[],
   transaction: any,
+  isCommunity: boolean = false,
 ) {
   const {map: difficultyMap} = await getDifficulties(transaction);
-  const details = detailObject.map((d: any) => d.dataValues);
+  const details = detailObject
+    .filter(d => d.isCommunityRating === isCommunity)
+    .map((d: any) => d.dataValues);
 
   // Count votes for each difficulty
   const voteCounts = new Map<string, {count: number; difficulty: any}>();
@@ -236,13 +239,16 @@ async function calculateAverageRating(
     .filter(([_, data]) => data.difficulty.type === 'SPECIAL')
     .sort((a, b) => b[1].count - a[1].count);
 
+  // For community ratings, require only 2 votes instead of 4
+  const requiredVotes = isCommunity ? 2 : 4;
+
   for (const [_, data] of specialRatings) {
-    if (data.count >= 4) {
+    if (data.count >= requiredVotes) {
       return data.difficulty;
     }
   }
 
-  // If no special rating has 4+ votes, calculate PGU average
+  // If no special rating has enough votes, calculate PGU average
   if (pguVotes.size > 0) {
     const totalVotes = Array.from(pguVotes.values()).reduce(
       (sum, count) => sum + count,
@@ -313,6 +319,11 @@ router.get('/', async (req: Request, res: Response) => {
           as: 'averageDifficulty',
           required: false,
         },
+        {
+          model: Difficulty,
+          as: 'communityDifficulty',
+          required: false,
+        },
       ],
       order: [['levelId', 'ASC']],
     });
@@ -325,17 +336,31 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Update rating
-router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
+router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
     const {id} = req.params;
-    const {rating, comment} = req.body;
+    const {rating, comment, isCommunityRating = false} = req.body;
     const userId = req.user?.id;
 
-    if (!userId) {
+    // Get user to check permissions
+    const user = await User.findByPk(userId);
+    if (!user) {
       await transaction.rollback();
-      return res.status(401).json({error: 'User not authenticated'});
+      return res.status(401).json({error: 'User not found'});
+    }
+
+    // Check if user is banned from rating
+    if (user.isRatingBanned) {
+      await transaction.rollback();
+      return res.status(403).json({error: 'User is banned from rating'});
+    }
+
+    // For non-community ratings, require rater permission
+    if (!isCommunityRating && !user.isRater) {
+      await transaction.rollback();
+      return res.status(403).json({error: 'User is not a rater'});
     }
 
     // If both rating and comment are empty, treat it as a deletion request
@@ -355,16 +380,19 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
         transaction,
       });
 
-      // Calculate new average difficulty
-      const averageDifficulty = await calculateAverageRating(
+      // Calculate new average difficulties for both rater and community ratings
+      const averageDifficulty = await calculateAverageRating(details, transaction);
+      const communityDifficulty = await calculateAverageRating(
         details,
         transaction,
+        true,
       );
 
       // Update the main rating record
       await Rating.update(
         {
           averageDifficultyId: averageDifficulty?.id || null,
+          communityDifficultyId: communityDifficulty?.id || null,
         },
         {
           where: {id: id},
@@ -411,6 +439,11 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
             as: 'averageDifficulty',
             required: false,
           },
+          {
+            model: Difficulty,
+            as: 'communityDifficulty',
+            required: false,
+          },
         ],
         transaction,
       });
@@ -426,27 +459,34 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
       });
     }
 
-    // Find or create rating detail without validation
+    // Find or create rating detail
     const [ratingDetail] = await RatingDetail.findOrCreate({
       where: {
-        ratingId: Number(id),  // Ensure ratingId is a number
-        userId: userId,        // userId is already UUID from auth
+        ratingId: Number(id),
+        userId: user.id,
       },
       defaults: {
-        ratingId: Number(id),  // Required for creation
-        userId: userId,        // Required for creation
-        rating: rating || '',  // rating is required and must be string
-        comment: comment || '' // comment can be null but we'll default to empty string
+        ratingId: Number(id),
+        userId: user.id,
+        rating: rating || '',
+        comment: comment || '',
+        isCommunityRating,
       },
       transaction,
     });
 
     // Only update if the detail already existed and values changed
-    if (ratingDetail && (ratingDetail.rating !== rating || ratingDetail.comment !== comment)) {
+    if (
+      ratingDetail &&
+      (ratingDetail.rating !== rating ||
+        ratingDetail.comment !== comment ||
+        ratingDetail.isCommunityRating !== isCommunityRating)
+    ) {
       await ratingDetail.update(
         {
           rating: rating || '',
-          comment: comment || ''
+          comment: comment || '',
+          isCommunityRating,
         },
         {transaction},
       );
@@ -458,10 +498,12 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
       transaction,
     });
 
-    // Calculate new average difficulty (this will only use valid difficulty ratings)
-    const averageDifficulty = await calculateAverageRating(
+    // Calculate new average difficulties for both rater and community ratings
+    const averageDifficulty = await calculateAverageRating(details, transaction);
+    const communityDifficulty = await calculateAverageRating(
       details,
       transaction,
+      true,
     );
 
     // Find the rating record
@@ -503,6 +545,11 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
           as: 'averageDifficulty',
           required: false,
         },
+        {
+          model: Difficulty,
+          as: 'communityDifficulty',
+          required: false,
+        },
       ],
       transaction,
     });
@@ -521,8 +568,10 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
     // Update the main rating record with current and average difficulties
     await ratingRecord.update(
       {
-        currentDifficultyId: difficulty?.id || null,
+        currentDifficultyId:
+          !isCommunityRating && difficulty ? difficulty.id : null,
         averageDifficultyId: averageDifficulty?.id || null,
+        communityDifficultyId: communityDifficulty?.id || null,
       },
       {transaction},
     );
@@ -564,6 +613,11 @@ router.put('/:id', Auth.rater(), async (req: Request, res: Response) => {
         {
           model: Difficulty,
           as: 'averageDifficulty',
+          required: false,
+        },
+        {
+          model: Difficulty,
+          as: 'communityDifficulty',
           required: false,
         },
       ],

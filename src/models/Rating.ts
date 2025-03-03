@@ -11,11 +11,12 @@ interface RatingAttributes {
   lowDiff: boolean;
   requesterFR: string;
   averageDifficultyId: number | null;
+  communityDifficultyId: number | null;
 }
 
 type RatingCreationAttributes = Optional<
   RatingAttributes,
-  'id' | 'averageDifficultyId' | 'currentDifficultyId'
+  'id' | 'averageDifficultyId' | 'currentDifficultyId' | 'communityDifficultyId'
 >;
 
 class Rating
@@ -28,12 +29,14 @@ class Rating
   declare lowDiff: boolean;
   declare requesterFR: string;
   declare averageDifficultyId: number | null;
+  declare communityDifficultyId: number | null;
 
   // Virtual fields from associations
   declare level?: Level;
   declare details?: RatingDetail[];
   declare currentDifficulty?: Difficulty;
   declare averageDifficulty?: Difficulty;
+  declare communityDifficulty?: Difficulty;
 }
 
 Rating.init(
@@ -68,6 +71,14 @@ Rating.init(
       defaultValue: '',
     },
     averageDifficultyId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'difficulties',
+        key: 'id',
+      },
+    },
+    communityDifficultyId: {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
