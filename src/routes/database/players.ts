@@ -149,11 +149,15 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.get('/search/:name', async (req: Request, res: Response) => {
   try {
-    const {name} = req.params;
+    const name = decodeURIComponent(req.params.name);
+
+
+    const escapedName = name.replace(/[%_]/g, '\\$&');
+
     const players = await Player.findAll({
       where: {
         name: {
-          [Op.like]: `%${name}%`,
+          [Op.like]: `%${escapedName}%`,
         },
       },
       include: [

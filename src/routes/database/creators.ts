@@ -1123,7 +1123,8 @@ router.delete(
 // Add search endpoint for creators
 router.get('/search/:name', async (req: Request, res: Response) => {
   try {
-    const { name } = req.params;
+    // Decode the URI encoded search term
+    const name = decodeURIComponent(req.params.name);
     
     // Escape special characters in the search term
     const escapedName = name.replace(/[%_]/g, '\\$&');
