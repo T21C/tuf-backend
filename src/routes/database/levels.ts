@@ -474,6 +474,9 @@ router.head('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Resp
 router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     // Use a READ COMMITTED transaction to avoid locks from updates
+    if (isNaN(parseInt(req.params.id))) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
     const transaction = await sequelize.transaction({
       isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
     });
