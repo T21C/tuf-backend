@@ -37,6 +37,9 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
         {
           model: RatingDetail,
           as: 'details',
+          where: {
+            isCommunityRating: false,
+          },
           attributes: [],
         },
       ],

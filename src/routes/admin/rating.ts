@@ -239,8 +239,7 @@ async function calculateAverageRating(
     .filter(([_, data]) => data.difficulty.type === 'SPECIAL')
     .sort((a, b) => b[1].count - a[1].count);
 
-  // For community ratings, require only 2 votes instead of 4
-  const requiredVotes = isCommunity ? 2 : 4;
+  const requiredVotes = isCommunity ? 6 : 4;
 
   for (const [_, data] of specialRatings) {
     if (data.count >= requiredVotes) {
