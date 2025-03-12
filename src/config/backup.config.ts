@@ -17,8 +17,8 @@ export default {
   files: {
     backupPath: './backups/files',
     retention: {
-      hourly: 36,
-      daily: 14,
+      hourly: 10,
+      daily: 10,  
       weekly: 10,
       monthly: 10,
     },
