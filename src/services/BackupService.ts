@@ -89,9 +89,9 @@ export class BackupService {
     });
   }
 
-  async createFileBackup() {
+  async createFileBackup(type = 'manual') {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `files-backup-${timestamp}.zip`;
+    const fileName = `files-backup-${type}-${timestamp}.zip`;
     const filePath = path.join(this.config.files.backupPath, fileName);
 
     await fs.mkdir(this.config.files.backupPath, {recursive: true});
@@ -190,7 +190,30 @@ export class BackupService {
     }
 
     if (removedCount > 0) {
-      console.log(`Cleaned up ${removedCount} old ${type} backups`);
+      console.log(`Cleaned up ${removedCount} old ${type} MySQL backups`);
+    }
+  }
+
+  async cleanOldFileBackups(type: keyof typeof config.files.retention) {
+    const retention = this.config.files.retention[type];
+    if (!retention) return;
+
+    const backupDir = this.config.files.backupPath;
+    const files = await fs.readdir(backupDir);
+    const typeFiles = files.filter(f => f.includes(`files-backup-${type}-`));
+
+    // Sort by date, newest first
+    typeFiles.sort().reverse();
+
+    // Remove files beyond retention period
+    let removedCount = 0;
+    for (const file of typeFiles.slice(retention)) {
+      await fs.unlink(path.join(backupDir, file));
+      removedCount++;
+    }
+
+    if (removedCount > 0) {
+      console.log(`Cleaned up ${removedCount} old ${type} file backups`);
     }
   }
 
@@ -239,7 +262,7 @@ export class BackupService {
             type as keyof typeof config.mysql.retention,
           );
         } catch (error) {
-          console.error(`Scheduled ${type} backup failed:`, error);
+          console.error(`Scheduled ${type} MySQL backup failed:`, error);
         }
       });
     });
@@ -248,7 +271,10 @@ export class BackupService {
     Object.entries(this.config.files.schedule).forEach(([type, schedule]) => {
       cron.schedule(schedule, async () => {
         try {
-          await this.createFileBackup();
+          await this.createFileBackup(type);
+          await this.cleanOldFileBackups(
+            type as keyof typeof config.files.retention,
+          );
         } catch (error) {
           console.error(`Scheduled ${type} files backup failed:`, error);
         }

@@ -1,5 +1,4 @@
 import db from '../models/index.js';
-import xlsx from 'xlsx';
 import {calcAcc} from '../misc/CalcAcc.js';
 import {getScoreV2} from '../misc/CalcScore.js';
 import {initializeReferences} from './referenceMap.js';
@@ -136,110 +135,6 @@ async function fetchData<T>(endpoint: string): Promise<T> {
   return response.data;
 }
 
-async function readFeelingRatingsFromXlsx(): Promise<Map<number, string>> {
-  const csvBar = progressBar.create(100, 0, {
-    task: 'CSV Processing',
-    subtask: 'Starting...',
-  });
-
-  try {
-    const xlsxPath = './cache/passes.xlsx';
-    const csvPath = './cache/passes.csv';
-
-    if (fs.existsSync(csvPath)) {
-      const content = fs.readFileSync(csvPath, 'utf8');
-      const lines = content.split('\n');
-
-      const feelingRatings = new Map<number, string>();
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-
-        const [pidStr, , feelingDiff] = line.split(',');
-        const id = parseInt(pidStr);
-        const rating = feelingDiff?.trim()?.replace(/^"|"$/g, '') || '';
-
-        if (!isNaN(id) && id !== 0 && rating !== '') {
-          feelingRatings.set(id, rating);
-        }
-
-        const progress = Math.floor((i / lines.length) * 100);
-        csvBar.update(progress, {
-          task: 'CSV Processing',
-          subtask: `${i}/${lines.length} rows`,
-        });
-      }
-
-      csvBar.update(100, {
-        task: 'CSV Processing',
-        subtask: 'Complete',
-      });
-      csvBar.stop();
-
-      return feelingRatings;
-    }
-
-    if (!fs.existsSync(xlsxPath)) {
-      return new Map();
-    }
-
-    try {
-      fs.accessSync(xlsxPath, fs.constants.R_OK);
-    } catch (e) {
-      return new Map();
-    }
-
-    let workbook;
-    try {
-      workbook = xlsx.readFile(xlsxPath, {
-        cellDates: true,
-        cellNF: false,
-        cellText: false,
-      });
-    } catch (e) {
-      return new Map();
-    }
-
-    if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
-      return new Map();
-    }
-
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    if (!worksheet) {
-      return new Map();
-    }
-
-    const rawData = xlsx.utils.sheet_to_json(worksheet);
-    const feelingRatings = new Map<number, string>();
-
-    rawData.forEach((row: any, index: number) => {
-      const id = parseInt(row['Pid']);
-      const rating = row['Feeling Difficulty']?.toString() || '';
-
-      if (!isNaN(id) && id !== 0 && rating !== '') {
-        feelingRatings.set(id, rating);
-      }
-
-      const progress = Math.floor((index / rawData.length) * 100);
-      csvBar.update(progress, {
-        task: 'CSV Processing',
-        subtask: `${index}/${rawData.length} rows`,
-      });
-    });
-
-    csvBar.update(100, {
-      task: 'CSV Processing',
-      subtask: 'Complete',
-    });
-    csvBar.stop();
-
-    return feelingRatings;
-  } catch (error) {
-    return new Map();
-  }
-}
 
 const oldDiffToPGUMap = {
   61: 'Qq',
@@ -527,7 +422,6 @@ async function reloadDatabase() {
     }
 
     updateProgress(50, 'Pass Processing', 'Loading feeling ratings');
-    const feelingRatings = await readFeelingRatingsFromXlsx();
 
     updateProgress(55, 'Pass Processing', 'Processing passes');
     const passes = passesResponse.results;
@@ -638,8 +532,6 @@ async function reloadDatabase() {
           levelId: newLevelId,
           playerId: playerId,
           speed: pass.speed || 1,
-          feelingRating:
-            feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
           vidTitle: pass.vidTitle,
           videoLink: pass.vidLink,
           vidUploadTime: pass.vidUploadTime
@@ -902,7 +794,6 @@ export async function partialReload() {
     });
     const playerNameToId = new Map(players.map((p: any) => [p.name, p.id]));
 
-    const feelingRatings = await readFeelingRatingsFromXlsx();
 
     const passDocs = [];
     const judgementDocs = [];
@@ -1034,8 +925,6 @@ export async function partialReload() {
         levelId: pass.levelId,
         playerId: playerId,
         speed: pass.speed || 1,
-        feelingRating:
-          feelingRatings.get(pass.id)?.toString() || pass.feelingRating,
         vidTitle: pass.vidTitle,
         videoLink: pass.vidLink,
         vidUploadTime: pass.vidUploadTime
