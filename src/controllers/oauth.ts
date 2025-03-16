@@ -284,18 +284,6 @@ export const OAuthController = {
         token,
       });
 
-      if (!req.leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      req.leaderboardCache
-        .forceUpdate()
-        .then(() => {
-          return;
-        })
-        .catch(error => {
-          console.error('Error updating leaderboard cache:', error);
-          return;
-        });
       playerStatsService
         .updatePlayerStats(player.id)
         .then(() => {

@@ -13,7 +13,6 @@ import db from './models/index.js';
 import initializeDatabase from './utils/initializeDatabase.js';
 import {setIO} from './utils/socket.js';
 import {updateAllPlayerPfps} from './utils/PlayerEnricher.js';
-import {Cache} from './middleware/cache.js';
 import {htmlMetaMiddleware} from './middleware/html-meta.js';
 import path from 'path';
 import fs from 'fs';
@@ -164,7 +163,6 @@ async function startServer() {
 
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
-    app.use(Cache.leaderboard());
     console.log('Cache middleware attached');
 
     // Set up API routes first
@@ -227,14 +225,6 @@ async function startServer() {
         resolve();
       });
     });
-
-    // Initialize leaderboard cache through middleware
-    try {
-      await Cache.leaderboard().initialize?.();
-      console.log('Cache initialization completed successfully');
-    } catch (cacheError) {
-      console.error('Error during cache initialization:', cacheError);
-    }
 
     // Update profile pictures after server is fully initialized and database operations are complete
     console.log('Starting profile picture updates...');

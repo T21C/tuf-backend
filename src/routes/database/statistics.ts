@@ -4,14 +4,13 @@ import Level from '../../models/Level.js';
 import Pass from '../../models/Pass.js';
 import Player from '../../models/Player.js';
 import Difficulty from '../../models/Difficulty.js';
-import {Cache} from '../../middleware/cache.js';
 import LevelSubmission from '../../models/LevelSubmission.js';
 import {PassSubmission} from '../../models/PassSubmission.js';
 
 const router: Router = Router();
 
 // Get overall statistics
-router.get('/', Cache.leaderboard(), async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     try {
       const totalLevels = await Level.count({

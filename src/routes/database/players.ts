@@ -320,10 +320,6 @@ router.put(
 
       await transaction.commit();
 
-      // Force cache update and broadcast changes
-      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
       sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({message: 'Discord info updated successfully'});
@@ -536,10 +532,6 @@ router.put(
 
       await transaction.commit();
 
-      // Force cache update and broadcast changes
-      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
       sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
@@ -695,8 +687,6 @@ router.patch(
 
       await transaction.commit();
 
-      // Force cache update and broadcast changes
-      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
       sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
@@ -732,8 +722,6 @@ router.patch(
       await player.update({isSubmissionsPaused}, {transaction});
       await transaction.commit();
 
-      // Force cache update and broadcast changes
-      if (req.leaderboardCache) await req.leaderboardCache.forceUpdate();
       sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({

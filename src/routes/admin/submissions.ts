@@ -29,6 +29,7 @@ import Creator from '../../models/Creator.js';
 import LevelCredit from '../../models/LevelCredit.js';
 import User from '../../models/User.js';
 import TeamMember from '../../models/TeamMember.js';
+import { Op } from 'sequelize';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -245,7 +246,7 @@ router.put(
     try {
       const {id} = req.params;
         const submissionObj = await LevelSubmission.findOne({
-          where: {id},
+          where: {[Op.and]: [{id}, {status: 'pending'}]},
           include: [
             {
               model: LevelSubmissionCreatorRequest,
@@ -530,8 +531,9 @@ router.put(
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
+      const {id} = req.params;
       const submission = await PassSubmission.findOne({
-        where: {id: parseInt(req.params.id)},
+        where: {[Op.and]: [{id: parseInt(id)}, {status: 'pending'}]},
         include: [
           {
             model: Level,

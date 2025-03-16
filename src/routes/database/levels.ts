@@ -830,19 +830,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
           await recalcTransaction.commit();
 
-          // Schedule cache update instead of forcing immediate update
-          if (req.leaderboardCache) {
-            req.leaderboardCache
-              .forceUpdate(false)
-              .then(() => {
-                return;
-              })
-              .catch(error => {
-                console.error('Error updating leaderboard cache:', error);
-                return;
-              });
-          }
-
           // Broadcast updates
           sseManager.broadcast({type: 'ratingUpdate'});
           sseManager.broadcast({type: 'levelUpdate'});
@@ -1047,21 +1034,6 @@ router.delete(
             playerStatsService.scheduleUpdate(playerId);
           });
 
-          if (req.leaderboardCache) {
-            req.leaderboardCache
-              .forceUpdate(false)
-              .then(() => {
-                return;
-              })
-              .catch(error => {
-                console.error('Error updating leaderboard cache:', error);
-                return;
-              });
-          }
-
-          const io = getIO();
-          io.emit('leaderboardUpdated');
-          io.emit('ratingsUpdated');
 
           // Broadcast updates
           sseManager.broadcast({type: 'levelUpdate'});
@@ -1141,12 +1113,6 @@ router.patch(
       });
 
       await transaction.commit();
-
-      // Force cache update since level restoration affects pass calculations
-      if (!req.leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await req.leaderboardCache.forceUpdate();
 
       // Broadcast updates
       sseManager.broadcast({type: 'levelUpdate'});
@@ -1330,13 +1296,6 @@ router.patch(
 
       await transaction.commit();
 
-      // Force cache update since visibility change affects public views
-      if (!req.leaderboardCache) {
-        throw new Error('LeaderboardCache not initialized');
-      }
-      await req.leaderboardCache.forceUpdate();
-      const io = getIO();
-      io.emit('leaderboardUpdated');
 
       // Broadcast updates
       sseManager.broadcast({type: 'levelUpdate'});

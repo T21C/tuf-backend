@@ -1,4 +1,3 @@
-import type {LeaderboardCache} from '../../middleware/cache.js';
 import type {UserAttributes} from '../../models/User.js';
 
 declare global {
@@ -8,7 +7,6 @@ declare global {
         provider?: string;
         providerId?: string;
       };
-      leaderboardCache?: LeaderboardCache;
     }
 
     interface User extends UserAttributes {
