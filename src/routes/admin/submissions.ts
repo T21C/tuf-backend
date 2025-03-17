@@ -21,7 +21,6 @@ import {IPassSubmissionJudgements} from '../../interfaces/models/index.js';
 import LevelSubmission from '../../models/LevelSubmission.js';
 import Rating from '../../models/Rating.js';
 import Player from '../../models/Player.js';
-import {migrateNewCredits} from '../../utils/migrateCredits.js';
 import Team from '../../models/Team.js';
 import LevelSubmissionCreatorRequest from '../../models/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '../../models/LevelSubmissionTeamRequest.js';

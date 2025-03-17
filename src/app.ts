@@ -10,7 +10,6 @@ import formRoutes from './routes/form.js';
 import databaseRoutes from './routes/database/index.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import db from './models/index.js';
-import initializeDatabase from './utils/initializeDatabase.js';
 import {setIO} from './utils/socket.js';
 import {updateAllPlayerPfps} from './utils/PlayerEnricher.js';
 import {htmlMetaMiddleware} from './middleware/html-meta.js';
@@ -19,7 +18,6 @@ import fs from 'fs';
 import discordRouter from './routes/discord.js';
 import eventsRouter from './routes/events.js';
 import utilsRouter from './routes/utils.js';
-import {partialReload} from './utils/reloadDatabase.js';
 import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 
@@ -90,29 +88,6 @@ async function startServer() {
     // First, verify database connection
     await db.sequelize.authenticate();
     console.log('Database connection established.');
-
-    // Then initialize if needed
-    if (process.env.INIT_DB === 'true') {
-      console.log('Initializing database...');
-      await initializeDatabase();
-      // Add a delay after initialization to ensure all transactions are complete
-      console.log(
-        'Waiting for 5 seconds before proceeding with PFP updates...',
-      );
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      console.log(
-        'Database initialization complete, proceeding with PFP updates...',
-      );
-    } else if (process.env.UPDATE_DB === 'true') {
-      console.log('Updating database...');
-      await partialReload();
-      // Add a delay after update to ensure all transactions are complete
-      console.log(
-        'Waiting for 5 seconds before proceeding with PFP updates...',
-      );
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      console.log('Database update complete, proceeding with PFP updates...');
-    }
 
     // Initialize PlayerStatsService after database is ready
     const playerStatsService = PlayerStatsService.getInstance();

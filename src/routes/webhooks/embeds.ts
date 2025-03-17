@@ -4,7 +4,7 @@ import Pass from '../../models/Pass.js';
 import {MessageBuilder} from '../../webhook/index.js';
 import {calculateRankedScore} from '../../misc/PlayerStatsCalculator.js';
 import {getVideoDetails} from '../../utils/videoDetailParser.js';
-
+import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 const ownUrlEnv =
   process.env.NODE_ENV === 'production'
     ? process.env.PROD_API_URL
@@ -22,6 +22,9 @@ const clientUrlEnv =
       : process.env.NODE_ENV === 'development'
         ? process.env.CLIENT_URL
         : 'http://localhost:5173';
+
+const playerStatsService = PlayerStatsService.getInstance();
+
 
 export async function getDifficultyEmojis(
   levelInfo: Level | null,
@@ -266,30 +269,14 @@ export async function createClearEmbed(
   const pass = passInfo.dataValues;
   const level = pass.level;
 
-  const currentRankedScore = calculateRankedScore(
-    pass.player?.passes?.map(pass => ({
-      score: pass.scoreV2 || 0,
-      baseScore: pass.level?.baseScore || 0,
-      xacc: pass.accuracy || 0,
-      speed: pass.speed || 0,
-      isWorldsFirst: pass.isWorldsFirst || false,
-      is12K: pass.is12K || false,
-      isDeleted: pass.isDeleted || false,
-    })) || [],
-  );
+  const scores = playerStatsService.convertPassesToScores(pass.player?.passes || []);
+  const uniqueScores = playerStatsService.getHighestScorePerLevel(scores);
+
+
+  const currentRankedScore = calculateRankedScore(uniqueScores);
 
   const previousRankedScore = calculateRankedScore(
-    pass.player?.passes
-      ?.filter(p => p.id !== pass.id)
-      .map(pass => ({
-        score: pass.scoreV2 || 0,
-        baseScore: pass.level?.baseScore || 0,
-        xacc: pass.accuracy || 0,
-        speed: pass.speed || 0,
-        isWorldsFirst: pass.isWorldsFirst || false,
-        is12K: pass.is12K || false,
-        isDeleted: pass.isDeleted || false,
-      })) || [],
+    uniqueScores.filter(score => score.levelId !== pass.levelId),
   );
 
   const videoInfo = pass?.videoLink

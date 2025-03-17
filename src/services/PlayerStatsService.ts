@@ -149,7 +149,7 @@ export class PlayerStatsService {
       });
       // Prepare bulk update data
       const bulkStats = players.map((player: any) => {
-        // Convert passes to scores and get highest score per level
+        // Convert passes to scores and get highest score per level`
         const scores = this.convertPassesToScores(player.passes || []);
         const uniqueScores = this.getHighestScorePerLevel(scores);
 
@@ -241,7 +241,7 @@ export class PlayerStatsService {
     }
   }
 
-  private getHighestScorePerLevel(scores: Score[]): Score[] {
+  public getHighestScorePerLevel(scores: Score[]): Score[] {
     const levelScores = new Map<number, Score>();
     scores.forEach(score => {
       const levelId = score.levelId;
@@ -255,7 +255,7 @@ export class PlayerStatsService {
     return Array.from(levelScores.values());
   }
 
-  private convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
+  public convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
     return (passes as any)
       .filter((pass: any) => 
         !pass.isDeleted 
@@ -275,7 +275,7 @@ export class PlayerStatsService {
       }));
   }
 
-  private calculateTopDiffs(passes: Pass[] | IPass[]): {
+  public calculateTopDiffs(passes: Pass[] | IPass[]): {
     topDiff: number;
     top12kDiff: number;
   } {
