@@ -5,22 +5,11 @@ import Level from '../models/Level.js';
 import Difficulty from '../models/Difficulty.js';
 import {User} from '../models/index.js';
 import OAuthProvider from '../models/OAuthProvider.js';
-import {
-  calculateRankedScore,
-  calculateGeneralScore,
-  calculatePPScore,
-  calculateWFScore,
-  calculate12KScore,
-  calculateAverageXacc,
-  countuniversalPassCount,
-  countWorldsFirstPasses,
-  calculateTopDiff,
-  calculateTop12KDiff,
-} from '../misc/PlayerStatsCalculator.js';
 import {getPfpUrl} from './pfpResolver.js';
 import cliProgress from 'cli-progress';
 import colors from 'ansi-colors';
 import {Score} from '../misc/PlayerStatsCalculator.js';
+import {PlayerStatsService} from '../services/PlayerStatsService.js';
 
 interface PlayerStats {
   rankedScore: number;
@@ -59,22 +48,6 @@ const progressBar = new cliProgress.MultiBar(
 
 // Helper function to delay execution
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Calculate stats directly without worker
-function calculateStats(scores: Score[], passes: IPass[]): PlayerStats {
-  return {
-    rankedScore: calculateRankedScore(scores),
-    generalScore: calculateGeneralScore(scores),
-    ppScore: calculatePPScore(scores),
-    wfScore: calculateWFScore(scores),
-    score12K: calculate12KScore(scores),
-    averageXacc: calculateAverageXacc(scores),
-    universalPassCount: countuniversalPassCount(passes),
-    worldsFirstCount: countWorldsFirstPasses(passes),
-    topDiff: calculateTopDiff(passes),
-    top12kDiff: calculateTop12KDiff(passes),
-  };
-}
 
 // Process a batch of players in parallel
 async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
@@ -133,29 +106,14 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
     allUserData.map((user: any) => [user.playerId, user]),
   );
 
+  const playerStatsService = PlayerStatsService.getInstance();
+
   // Process each player with the pre-loaded data
   return Promise.all(
     players.map(async player => {
       const playerData = player.get({plain: true});
-      const passesData = passesMap.get(player.id) || [];
+      const passes = passesMap.get(player.id) || [];
       const userData = userDataMap.get(player.id) as any;
-
-      // Process passes data
-      const scores = passesData
-        .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
-        .map(pass => ({
-        score: pass.scoreV2 || 0,
-        xacc: pass.accuracy || 0,
-        speed: pass.speed || 0,
-        isWorldsFirst: pass.isWorldsFirst || false,
-        is12K: pass.is12K || false,
-        baseScore:
-          pass.level?.baseScore || pass.level?.difficulty?.baseScore || 0,
-        isDeleted: pass.isDeleted || false,
-        isHidden: pass.level?.isHidden || false,
-        pguDiff: pass.level?.difficulty?.name,
-        diffSortOrder: pass.level?.difficulty?.sortOrder,
-      }));
 
       // Process Discord data
       let discordProvider: any;
@@ -166,8 +124,21 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
           : null;
       }
 
-      // Calculate stats directly
-      const stats = calculateStats(scores, passesData);
+      // Get player stats from service
+      const stats = await playerStatsService.getPlayerStats(player.id);
+
+      // Find the actual difficulty objects from passes
+      const getTopDiff = (is12k = false) => {
+        const validPasses = passes.filter(pass => !is12k || pass.is12K);
+        if (validPasses.length === 0) return null;
+        
+        return validPasses
+          .sort((a: any, b: any) => {
+            const diffA = a.level?.difficulty?.sortOrder || 0;
+            const diffB = b.level?.difficulty?.sortOrder || 0;
+            return diffB - diffA;
+          })[0]?.level?.difficulty || null;
+      };
 
       return {
         id: playerData.id,
@@ -180,11 +151,20 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
         discordAvatar: discordProvider?.profile.avatarUrl,
         discordAvatarId: discordProvider?.profile.avatar,
         discordId: discordProvider?.profile.id,
-        ...stats,
-        totalPasses: scores.length,
+        rankedScore: stats?.rankedScore || 0,
+        generalScore: stats?.generalScore || 0,
+        ppScore: stats?.ppScore || 0,
+        wfScore: stats?.wfScore || 0,
+        score12K: stats?.score12K || 0,
+        averageXacc: stats?.averageXacc || 0,
+        universalPassCount: stats?.universalPassCount || 0,
+        worldsFirstCount: stats?.worldsFirstCount || 0,
+        topDiff: getTopDiff(),
+        top12kDiff: getTopDiff(true),
+        totalPasses: passes.length,
         createdAt: playerData.createdAt,
         updatedAt: playerData.updatedAt,
-        passes: passesData,
+        passes,
       } as IPlayer;
     }),
   );
