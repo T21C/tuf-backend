@@ -190,7 +190,7 @@ export class BackupService {
     }
 
     if (removedCount > 0) {
-      console.log(`Cleaned up ${removedCount} old ${type} MySQL backups`);
+      //console.log(`Cleaned up ${removedCount} old ${type} MySQL backups`);
     }
   }
 
@@ -213,7 +213,7 @@ export class BackupService {
     }
 
     if (removedCount > 0) {
-      console.log(`Cleaned up ${removedCount} old ${type} file backups`);
+      //console.log(`Cleaned up ${removedCount} old ${type} file backups`);
     }
   }
 
