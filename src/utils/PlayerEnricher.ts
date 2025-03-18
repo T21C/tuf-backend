@@ -93,6 +93,8 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
     attributes: ['playerId', 'nickname', 'avatarUrl', 'username'],
   });
 
+  const allDifficulties = await Difficulty.findAll();
+
   // Create lookup maps for faster access
   const passesMap = new Map<number, Pass[]>();
   allPasses.forEach((pass: Pass) => {
@@ -128,16 +130,9 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
       const stats = await playerStatsService.getPlayerStats(player.id);
 
       // Find the actual difficulty objects from passes
-      const getTopDiff = (is12k = false) => {
-        const validPasses = passes.filter(pass => !is12k || pass.is12K);
-        if (validPasses.length === 0) return null;
-        
-        return validPasses
-          .sort((a: any, b: any) => {
-            const diffA = a.level?.difficulty?.sortOrder || 0;
-            const diffB = b.level?.difficulty?.sortOrder || 0;
-            return diffB - diffA;
-          })[0]?.level?.difficulty || null;
+      const getDifficulty = (id: number) => {
+        const difficulty = allDifficulties.find(d => d.id === id);
+        return difficulty;
       };
 
       return {
@@ -159,8 +154,8 @@ async function processBatchParallel(players: Player[]): Promise<IPlayer[]> {
         averageXacc: stats?.averageXacc || 0,
         universalPassCount: stats?.universalPassCount || 0,
         worldsFirstCount: stats?.worldsFirstCount || 0,
-        topDiff: getTopDiff(),
-        top12kDiff: getTopDiff(true),
+        topDiff: getDifficulty(stats?.topDiff || 0),
+        top12kDiff: getDifficulty(stats?.top12kDiff || 0),
         totalPasses: passes.length,
         createdAt: playerData.createdAt,
         updatedAt: playerData.updatedAt,

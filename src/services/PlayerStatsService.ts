@@ -451,37 +451,6 @@ export class PlayerStatsService {
             )`),
             'totalPasses',
           ],
-          [
-            sequelize.literal(`(
-              SELECT difficulties.sortOrder 
-              FROM passes 
-              JOIN levels ON levels.id = passes.levelId 
-              JOIN difficulties ON difficulties.id = levels.diffId 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false 
-              AND levels.isDeleted = false 
-              AND levels.isHidden = false 
-              ORDER BY difficulties.sortOrder DESC 
-              LIMIT 1
-            )`),
-            'topDiff',
-          ],
-          [
-            sequelize.literal(`(
-              SELECT difficulties.sortOrder 
-              FROM passes 
-              JOIN levels ON levels.id = passes.levelId 
-              JOIN difficulties ON difficulties.id = levels.diffId 
-              WHERE passes.playerId = PlayerStats.playerId 
-              AND passes.isDeleted = false 
-              AND passes.is12K = true 
-              AND levels.isDeleted = false 
-              AND levels.isHidden = false 
-              ORDER BY difficulties.sortOrder DESC 
-              LIMIT 1
-            )`),
-            'top12kDiff',
-          ],
         ],
       },
       where: {playerId},
