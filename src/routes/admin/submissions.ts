@@ -63,10 +63,7 @@ interface CreatorRequest {
 }
 
 // Get all level submissions
-router.get(
-  '/levels',
-  excludePlaceholder.fromResponse(),
-  async (req: Request, res: Response) => {
+router.get('/levels', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
     try {
       const levelSubmissions = await LevelSubmission.findAll();
       return res.json(levelSubmissions);
@@ -166,10 +163,7 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
 });
 
 // Get all pass submissions
-router.get(
-  '/passes',
-  excludePlaceholder.fromResponse(),
-  async (req: Request, res: Response) => {
+router.get('/passes', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
     try {
       const passSubmissions = await PassSubmission.findAll({
         include: [
@@ -192,10 +186,7 @@ router.get(
 );
 
 // Get pending pass submissions
-router.get(
-  '/passes/pending',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const submissions = await PassSubmission.findAll({
         where: {status: 'pending'},
@@ -236,10 +227,7 @@ router.get(
 );
 
 // Handle level submission actions (approve/reject)
-router.put(
-  '/levels/:id/approve',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -480,10 +468,7 @@ router.put(
 );
 
 
-router.put(
-  '/levels/:id/decline',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -524,10 +509,7 @@ router.put(
 
 
 // Split pass submission actions into specific endpoints
-router.put(
-  '/passes/:id/approve',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -704,10 +686,7 @@ router.put(
   }
 );
 
-router.put(
-  '/passes/:id/decline',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       await PassSubmission.update(
@@ -740,10 +719,7 @@ router.put(
   }
 );
 
-router.put(
-  '/passes/:id/assign-player',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {playerId} = req.body;
@@ -836,10 +812,8 @@ router.put(
 );
 
 // Auto-approve pass submissions
-router.post(
-  '/auto-approve/passes',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+/*
+router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1082,6 +1056,7 @@ router.post(
     }
   },
 );
+*/
 
 // Add endpoint to update profiles
 router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
@@ -1220,10 +1195,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
 });
 
 // Assign creator to submission
-router.put(
-  '/levels/:id/assign-creator',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {

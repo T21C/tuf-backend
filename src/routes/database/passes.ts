@@ -836,10 +836,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-router.delete(
-  '/:id',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -981,10 +978,7 @@ router.delete(
   },
 );
 
-router.patch(
-  '/:id/restore',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1087,10 +1081,7 @@ router.patch(
 );
 
 // Add new route for getting pass by ID as a list
-router.get(
-  '/byId/:id',
-  excludePlaceholder.fromResponse(),
-  async (req: Request, res: Response) => {
+router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
     try {
       const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId) || passId <= 0) {
@@ -1263,10 +1254,7 @@ const ensureString = (value: any): string | undefined => {
 };
 
 // Main GET endpoint with search
-router.get(
-  '/',
-  excludePlaceholder.fromResponse(),
-  async (req: Request, res: Response) => {
+router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
     try {
       const {
         deletedFilter,
