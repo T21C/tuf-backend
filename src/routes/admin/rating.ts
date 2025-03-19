@@ -59,8 +59,8 @@ async function parseRatingRange(
   }
 
   // For number-only second parts in ranges like "U11-13", copy the prefix
-  const firstMatch = firstPart.match(/([A-Za-z]*)(-?\d+)/);
-  const lastMatch = lastPart.match(/([A-Za-z]*)(-?\d+)/);
+  const firstMatch = firstPart.match(/([PGUpgu]*)(-?\d+)/);
+  const lastMatch = lastPart.match(/([PGUpgu]*)(-?\d+)/);
 
   if (firstMatch && lastMatch) {
     /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -91,7 +91,7 @@ async function normalizeRating(
     return {specialRatings: []};
   }
 
-  const {special: specialDifficulties} = await getDifficulties(transaction);
+  const {special: specialDifficulties, map: difficultyMap} = await getDifficulties(transaction);
   const parts = await parseRatingRange(rating, specialDifficulties);
 
   // If it's not a range, just normalize the single rating
@@ -101,11 +101,10 @@ async function normalizeRating(
       return {specialRatings: [parts[0]]};
     }
 
-    const match = parts[0].match(/([A-Za-z]*)(-?\d+)/);
+    const match = parts[0].match(/([PGUpgu]*)(-?\d+)/);
     if (!match) {
       return {specialRatings: []};
     }
-    /* eslint-disable @typescript-eslint/no-unused-vars */
     const [_, prefix, num] = match;
     const normalizedRating = (prefix || 'G').toUpperCase() + num;
 
@@ -124,26 +123,38 @@ async function normalizeRating(
   type RatingInfo = {
     raw: string;
     isSpecial: boolean;
-    prefix?: string;
-    number?: number;
+    difficulty?: any;
+    sortOrder?: number;
   };
 
   const ratings = parts
     .map(r => {
       // First check if it's a special rating as is
       if (specialDifficulties.has(r)) {
-        return {raw: r, isSpecial: true} as RatingInfo;
+        const difficulty = difficultyMap.get(r);
+        return {
+          raw: r,
+          isSpecial: true,
+          difficulty,
+          sortOrder: difficulty?.sortOrder
+        } as RatingInfo;
       }
 
-      const match = r.match(/([A-Za-z]*)(-?\d+)/);
+      const match = r.match(/([PGUpgu]*)(-?\d+)/);
       if (!match) {
         return null;
       }
       const prefix = (match[1] || 'G').toUpperCase();
-      const number = parseInt(match[2]);
-      const raw = `${prefix}${number}`;
-      const isSpecial = specialDifficulties.has(raw);
-      return {prefix, number, raw, isSpecial} as RatingInfo;
+      const num = match[2];
+      const normalizedName = `${prefix}${num}`;
+      const difficulty = difficultyMap.get(normalizedName);
+
+      return difficulty ? {
+        raw: normalizedName,
+        isSpecial: false,
+        difficulty,
+        sortOrder: difficulty.sortOrder
+      } as RatingInfo : null;
     })
     .filter((r): r is RatingInfo => r !== null);
 
@@ -151,40 +162,43 @@ async function normalizeRating(
     return {specialRatings: []};
   }
 
-  // Collect special ratings (check against actual special difficulties)
+  // Collect special ratings
   const specialRatings = ratings.filter(r => r.isSpecial).map(r => r.raw);
 
-  // Find PGU ratings (those that aren't special)
-  const pguRatings = ratings
-    .filter(
-      r => !r.isSpecial && r.number !== undefined && r.prefix !== undefined,
-    )
-    .map(r => ({prefix: r.prefix!, number: r.number!, raw: r.raw}));
+  // Find PGU ratings
+  const pguRatings = ratings.filter(r => !r.isSpecial && r.difficulty);
 
   if (pguRatings.length === 0) {
     return {specialRatings};
   }
 
   if (pguRatings.length === 1) {
-    // If only one PGU rating, use it directly
     return {
       pguRating: pguRatings[0].raw,
       specialRatings,
     };
   }
 
-  // Calculate average of PGU ratings
-  const avgNumber = Math.round(
-    pguRatings.reduce((sum, r) => sum + r.number, 0) / pguRatings.length,
+  // Calculate average using sortOrder
+  const avgId = Math.floor(
+    pguRatings.reduce((sum, r) => sum + (r.difficulty?.id || 0), 0) / pguRatings.length
   );
-  // Use common prefix if same, otherwise default to G
-  const prefix = pguRatings.every(r => r.prefix === pguRatings[0].prefix)
-    ? pguRatings[0].prefix
-    : 'G';
-  const pguRating = `${prefix}${avgNumber}`;
 
+  // Find the difficulty with the closest sortOrder
+  const closestDifficulty = 
+    Array.from(difficultyMap.values())
+      .filter(d => d.type === 'PGU')
+      .sort((a, b) => a.id - b.id)
+      .find(d => d.id == avgId) 
+      || 
+    Array.from(difficultyMap.values())
+      .filter(d => d.type === 'PGU')
+      .sort((a, b) => b.id - a.id)[0];
+
+  console.log(closestDifficulty);
+  console.log(avgId);
   return {
-    pguRating,
+    pguRating: closestDifficulty.name,
     specialRatings,
   };
 }
