@@ -195,8 +195,6 @@ async function normalizeRating(
       .filter(d => d.type === 'PGU')
       .sort((a, b) => b.id - a.id)[0];
 
-  console.log(closestDifficulty);
-  console.log(avgId);
   return {
     pguRating: closestDifficulty.name,
     specialRatings,
