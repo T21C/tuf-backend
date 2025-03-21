@@ -204,18 +204,39 @@ export class PlayerStatsService {
       for (const scoreType of scoreTypes) {
         const rankField = `${scoreType}Rank`;
 
-        // MySQL-compatible rank update query
+        // Step 1: Set all banned players' ranks to -1
         await sequelize.query(
           `
           UPDATE player_stats ps
-          JOIN (
-            SELECT id, 
-                   @rank := @rank + 1 as new_rank
-            FROM player_stats, (SELECT @rank := 0) r
-            ORDER BY ${scoreType} DESC
-          ) ranked ON ps.id = ranked.id
-          SET ps.${rankField} = ranked.new_rank
-        `,
+          JOIN players p ON ps.playerId = p.id
+          SET ps.${rankField} = -1
+          WHERE p.isBanned = true
+          `,
+          {transaction},
+        );
+
+        // Step 2: Calculate ranks for non-banned players
+        await sequelize.query(
+          `
+          WITH RankedPlayers AS (
+            SELECT 
+              ps.id,
+              @rowNumber := @rowNumber + 1 AS player_rank
+            FROM (
+              SELECT ps2.*
+              FROM player_stats ps2
+              JOIN players p2 ON ps2.playerId = p2.id
+              WHERE p2.isBanned = false
+              ORDER BY ps2.${scoreType} DESC, ps2.id ASC
+            ) ps,
+            (SELECT @rowNumber := 0) r
+          )
+          UPDATE player_stats ps
+          JOIN players p ON ps.playerId = p.id
+          JOIN RankedPlayers rp ON ps.id = rp.id
+          SET ps.${rankField} = rp.player_rank
+          WHERE p.isBanned = false
+          `,
           {transaction},
         );
       }
@@ -421,17 +442,41 @@ export class PlayerStatsService {
     for (const scoreType of scoreTypes) {
       const rankField = `${scoreType}Rank`;
 
-      // Get all players ordered by score
-      const players = await PlayerStats.findAll({
-        order: [[scoreType, 'DESC']],
-        transaction,
-      });
+      // Step 1: Set all banned players' ranks to -1
+      await sequelize.query(
+        `
+        UPDATE player_stats ps
+        JOIN players p ON ps.playerId = p.id
+        SET ps.${rankField} = -1
+        WHERE p.isBanned = true
+        `,
+        {transaction},
+      );
 
-      // Update ranks
-      for (let i = 0; i < players.length; i++) {
-        const player = players[i];
-        await player.update({[rankField]: i + 1}, {transaction});
-      }
+      // Step 2: Calculate ranks for non-banned players
+      await sequelize.query(
+        `
+        WITH RankedPlayers AS (
+          SELECT 
+            ps.id,
+            @rowNumber := @rowNumber + 1 AS player_rank
+          FROM (
+            SELECT ps2.*
+            FROM player_stats ps2
+            JOIN players p2 ON ps2.playerId = p2.id
+            WHERE p2.isBanned = false
+            ORDER BY ps2.${scoreType} DESC, ps2.id ASC
+          ) ps,
+          (SELECT @rowNumber := 0) r
+        )
+        UPDATE player_stats ps
+        JOIN players p ON ps.playerId = p.id
+        JOIN RankedPlayers rp ON ps.id = rp.id
+        SET ps.${rankField} = rp.player_rank
+        WHERE p.isBanned = false
+        `,
+        {transaction},
+      );
     }
   }
 
@@ -589,7 +634,7 @@ export class PlayerStatsService {
           },
         ],
         where: whereClause,
-        order: [orderItem],
+        order: [orderItem, ['id', 'DESC']],
       });
 
       // Map the results using either stored ranks or calculated ranks

@@ -889,30 +889,8 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
       // Update world's first status for this level
       await updateWorldsFirstStatus(levelId, transaction);
 
-      // Update level clear count
-      await Level.decrement('clears', {
-        where: {id: pass.levelId},
-        transaction,
-      });
-
-      // If this was the last clear, update isCleared status
-      const remainingClears = await Pass.count({
-        where: {
-          levelId: pass.levelId,
-          isDeleted: false,
-        },
-        transaction,
-      });
-
-      if (remainingClears === 0) {
-        await Level.update(
-          {isCleared: false},
-          {
-            where: {id: pass.levelId},
-            transaction,
-          },
-        );
-      }
+      // Recalculate clear count for the level
+      await recalculateLevelClearCount(levelId, transaction);
 
       // Reload the pass to get updated data
       await pass.reload({
@@ -1362,5 +1340,107 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
     }
   },
 );
+
+export async function recalculateAffectedLevelsClearCount(playerId: number, transaction?: any) {
+  // Get all unique level IDs cleared by the player
+  const clearedLevels = await Pass.findAll({
+    where: {
+      playerId,
+      isDeleted: false,
+    },
+    attributes: [[sequelize.fn('DISTINCT', sequelize.col('levelId')), 'levelId']],
+    raw: true,
+  });
+
+  const levelIds = clearedLevels.map((level: any) => level.levelId);
+
+  if (levelIds.length === 0) {
+    return;
+  }
+
+  // Get clear counts for all affected levels in a single query
+  const clearCounts = await Pass.findAll({
+    attributes: [
+      'levelId',
+      [sequelize.fn('COUNT', sequelize.col('Pass.id')), 'clearCount']
+    ],
+    where: {
+      levelId: {
+        [Op.in]: levelIds
+      },
+      isDeleted: false,
+    },
+    include: [{
+      model: Player,
+      as: 'player',
+      where: {isBanned: false},
+      attributes: []
+    }],
+    group: ['levelId'],
+    raw: true,
+    transaction
+  });
+
+  // Create a map of levelId to clearCount
+  const clearCountMap = clearCounts.reduce((acc: {[key: number]: number}, curr: any) => {
+    acc[curr.levelId] = parseInt(curr.clearCount);
+    return acc;
+  }, {});
+
+  // Update all affected levels in a single query
+  await Level.update(
+    {
+      clears: sequelize.literal(`CASE 
+        ${levelIds.map(id => `WHEN id = ${id} THEN ${clearCountMap[id] || 0}`).join(' ')}
+        ELSE clears END`),
+      isCleared: sequelize.literal(`CASE 
+        ${levelIds.map(id => `WHEN id = ${id} THEN ${clearCountMap[id] ? 'TRUE' : 'FALSE'}`).join(' ')}
+        ELSE isCleared END`)
+    },
+    {
+      where: {
+        id: {
+          [Op.in]: levelIds
+        }
+      },
+      transaction
+    }
+  );
+}
+
+// Helper function to recalculate clear count for a level
+export async function recalculateLevelClearCount(levelId: number, transaction?: any) {
+  // Count all non-deleted passes for this level from non-banned players
+  const clearCount = await Pass.count({
+    where: {
+      levelId,
+      isDeleted: false,
+      '$player.isBanned$': false,
+    },
+    include: [
+      {
+        model: Player,
+        as: 'player',
+        where: {isBanned: false},
+        required: true,
+      },
+    ],
+    transaction,
+  });
+
+  // Update the level's clear count
+  await Level.update(
+    {
+      clears: clearCount,
+      isCleared: clearCount > 0,
+    },
+    {
+      where: {id: levelId},
+      transaction,
+    },
+  );
+
+  return clearCount;
+}
 
 export default router;
