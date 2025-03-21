@@ -8,18 +8,23 @@ import OAuthProvider from '../models/OAuthProvider.js';
 const BATCH_SIZE = 100;
 const RATE_LIMIT_DELAY = 1000; // 1 second between batches
 
-async function refreshDiscordAvatars(reset: boolean = false) {
+// Parse command line arguments
+const args = process.argv.slice(2);
+const shouldReset = args.includes('--reset');
 
+async function refreshDiscordAvatars() {
   try {
     console.log('Starting Discord avatar refresh...');
 
+    // If reset flag is provided, clear all avatar URLs first
+    if (shouldReset) {
+      console.log('Starting from scratch...');
+    }
+
     // First, get all users with Discord IDs
     const users = await User.findAll({
-      where: reset ? {
-      }:
-      {
-        avatarUrl:  null
-        
+      where: shouldReset ? {} : {
+        avatarUrl: null
       },
       include: [
         {
@@ -32,7 +37,7 @@ async function refreshDiscordAvatars(reset: boolean = false) {
       ]
     });
 
-    console.log(`Found ${users.length} users with Discord IDs`);
+    console.log(`Found ${users.length} users with Discord IDs${shouldReset ? '' : ' needing avatar updates'}`);
 
     // Process users in batches to handle rate limits
     for (let i = 0; i < users.length; i += BATCH_SIZE) {
@@ -42,7 +47,10 @@ async function refreshDiscordAvatars(reset: boolean = false) {
       // Process each user in the batch
       for (const user of batch) {
         try {
-          if (!user.providers || !user.providers[0].providerId) continue;
+          if (!user.providers || !user.providers[0].providerId) {
+            console.log(`Skipping user ${user.id} - no Discord provider ID found`);
+            continue;
+          }
 
           // Fetch new Discord info
           const discordInfo = await fetchDiscordUserInfo(user.providers[0].providerId);
