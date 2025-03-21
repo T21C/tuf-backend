@@ -72,7 +72,6 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
   const bucket = `users-${userId}`;
   await handleRateLimit(bucket);
 
-  console.log(process.env.DISCORD_BOT_TOKEN);
   const response = await fetch(endpoint, {
     headers: {
       Authorization: `Bot ${process.env.DISCORD_BOT_TOKEN}`,
