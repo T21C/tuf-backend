@@ -6,7 +6,6 @@ import {Op} from 'sequelize';
 import {initializeAssociations} from '../models/associations.js';
 
 // Initialize associations before running the script
-initializeAssociations();
 
 async function syncClearCounts() {
   const transaction = await sequelize.transaction();
@@ -107,6 +106,7 @@ async function syncClearCounts() {
 // Execute the script
 sequelize.authenticate()
   .then(() => {
+    initializeAssociations();
     console.log('Database connection established successfully.');
     return syncClearCounts();
   })

@@ -4,6 +4,7 @@ import {OAuthProvider, User} from '../../models/index.js';
 import bcrypt from 'bcrypt';
 import sequelize from "../../config/db.js";
 import UsernameChange from '../../models/UsernameChange.js';
+import Player from '../../models/Player.js';
 
 const router: Router = Router();
 
@@ -21,6 +22,10 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
       attributes: ['provider', 'providerId', 'profile'],
     });
 
+    const player = await Player.findByPk(user.playerId, {
+      attributes: ['pfp'],
+    });
+
     return res.json({
       user: {
         id: user.id,
@@ -33,6 +38,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
         isRatingBanned: user.isRatingBanned,
         playerId: user.playerId,
         password: user.password ? true : null,
+        pfp: player?.pfp,
         lastUsernameChange: user.lastUsernameChange,
         previousUsername: user.previousUsername,
         providers: providers.map(p => ({

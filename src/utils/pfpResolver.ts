@@ -62,10 +62,10 @@ async function getBilibiliVideoDetails(
         return getBilibiliVideoDetails(url, retryCount + 1);
       }
 
-      console.error(
-        `Error fetching Bilibili video details (attempt ${retryCount + 1}/${MAX_RETRIES}):`,
-        error.message,
-      );
+      // console.error(
+      //   `Error fetching Bilibili video details (attempt ${retryCount + 1}/${MAX_RETRIES}):`,
+      //   error.message,
+      // );
     }
     return null;
   }

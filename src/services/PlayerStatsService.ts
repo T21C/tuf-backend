@@ -536,7 +536,10 @@ export class PlayerStatsService {
     order: 'asc' | 'desc' = 'desc',
     showBanned: 'show' | 'hide' | 'only' = 'show',
     playerId?: number,
-  ): Promise<PlayerStats[]> {
+    offset = 0,
+    limit = 30,
+    nameQuery?: string
+  ): Promise<{ total: number; players: PlayerStats[] }> {
     try {
       const whereClause: any = {};
       if (showBanned === 'hide') {
@@ -548,6 +551,15 @@ export class PlayerStatsService {
       // Add player ID filter if provided
       if (playerId) {
         whereClause['$player.id$'] = playerId;
+      }
+
+      // Add name search if provided
+      if (nameQuery && !nameQuery.startsWith('#')) {
+        whereClause['$player.name$'] = sequelize.where(
+          sequelize.fn('LOWER', sequelize.col('player.name')),
+          'LIKE',
+          `%${nameQuery.toLowerCase()}%`
+        );
       }
 
       // Map frontend sort fields to database fields and their corresponding rank fields
@@ -608,7 +620,17 @@ export class PlayerStatsService {
       const orderField = sortInfo.field;
       const orderItem: [any, string] = [orderField, order.toUpperCase()];
 
-      // Single efficient query with all needed data
+      // Get total count first
+      const total = await PlayerStats.count({
+        include: [{
+          model: Player,
+          as: 'player',
+          required: true
+        }],
+        where: whereClause
+      });
+
+      // Then get paginated results
       const players = await PlayerStats.findAll({
         attributes: {
           include: [
@@ -635,25 +657,28 @@ export class PlayerStatsService {
         ],
         where: whereClause,
         order: [orderItem, ['id', 'DESC']],
+        offset,
+        limit
       });
 
-      // Map the results using either stored ranks or calculated ranks
-      return players.map(player => {
+      // Map the results
+      const mappedPlayers = players.map(player => {
         const plainPlayer = player.get({plain: true});
         return {
           ...plainPlayer,
           id: plainPlayer.player.id,
-          // Always use rankedScoreRank for consistency
           rank: plainPlayer.rankedScoreRank,
           player: {
             ...plainPlayer.player,
-            pfp:
-              plainPlayer.player.user?.avatarUrl ||
-              plainPlayer.player.pfp ||
-              null,
-          },
+            pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null,
+          }
         };
       });
+
+      return {
+        total,
+        players: mappedPlayers
+      };
     } catch (error) {
       console.error('Error in getLeaderboard:', error);
       throw error;
@@ -741,8 +766,8 @@ export class PlayerStatsService {
       player: {
         ...pass.player?.toJSON(),
         discordUsername: pass.player?.user?.username,
-        discordAvatar: pass.player?.user?.avatarUrl,
-        pfp: pass.player?.user?.avatarUrl || pass.player?.pfp || null,
+        avatarUrl: pass.player?.user?.avatarUrl,
+        pfp: pass.player?.pfp || null,
       },
       scoreInfo: {
         currentRankedScore,

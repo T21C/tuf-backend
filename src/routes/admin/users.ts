@@ -58,10 +58,7 @@ router.get('/raters', async (req: Request, res: Response) => {
           playerId: user.playerId,
           player: user.player,
           discordId: discordProvider.providerId,
-          discordUsername: discordProfile.username,
-          discordAvatar: discordProfile.avatar
-            ? `https://cdn.discordapp.com/avatars/${discordProvider.providerId}/${discordProfile.avatar}.png`
-            : null,
+          discordUsername: discordProfile.username
         };
       }),
     );
@@ -113,9 +110,6 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
           player: user.player,
           discordId: discordProvider.providerId,
           discordUsername: discordProfile.username,
-          discordAvatar: discordProfile.avatar
-            ? `https://cdn.discordapp.com/avatars/${discordProvider.providerId}/${discordProfile.avatar}.png`
-            : null,
         };
       }),
     );

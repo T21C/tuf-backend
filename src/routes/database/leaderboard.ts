@@ -14,6 +14,8 @@ router.get('/', async (req: Request, res: Response) => {
       order = 'desc',
       showBanned = 'show',
       query,
+      offset = '0',
+      limit = '30'
     } = req.query;
 
     if (!validSortOptions.includes(sortBy as string)) {
@@ -21,6 +23,10 @@ router.get('/', async (req: Request, res: Response) => {
         error: `Invalid sortBy option. Valid options are: ${validSortOptions.join(', ')}`,
       });
     }
+
+    // Parse offset and limit to numbers
+    const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 30));
 
     // If there's a query and it starts with #, treat it as a Discord ID search
     if (query && typeof query === 'string' && query.startsWith('#')) {
@@ -42,27 +48,33 @@ router.get('/', async (req: Request, res: Response) => {
 
       if (userWithDiscord) {
         // Get player stats for this specific user's player
-        const playerStats = await playerStatsService.getLeaderboard(
+        const { total, players } = await playerStatsService.getLeaderboard(
           sortBy as string,
           order as 'asc' | 'desc',
           showBanned as 'show' | 'hide' | 'only',
-          userWithDiscord.playerId, // Pass the playerId directly
+          userWithDiscord.playerId,
+          offsetNum,
+          limitNum
         );
-        return res.json(playerStats);
+        return res.json({ count: total, results: players });
       }
 
       // If no user found with that Discord ID, return empty array
-      return res.json([]);
+      return res.json({ count: 0, results: [] });
     }
 
     // Regular leaderboard fetch without Discord ID filter
-    const players = await playerStatsService.getLeaderboard(
+    const { total, players } = await playerStatsService.getLeaderboard(
       sortBy as string,
       order as 'asc' | 'desc',
       showBanned as 'show' | 'hide' | 'only',
+      undefined,
+      offsetNum,
+      limitNum,
+      query as string // Pass the query string for name search
     );
 
-    return res.json(players);
+    return res.json({ count: total, results: players });
   } catch (error) {
     console.error('Error fetching leaderboard:', error);
     return res.status(500).json({
