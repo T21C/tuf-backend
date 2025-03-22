@@ -770,6 +770,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // If levelId changed, also update world's first for the old level
       if (levelId && levelId !== pass.levelId) {
         await updateWorldsFirstStatus(pass.levelId, transaction);
+        await recalculateLevelClearCount(pass.levelId, transaction);
+        await updateWorldsFirstStatus(levelId, transaction);
+        await recalculateLevelClearCount(levelId, transaction);
       }
     }
 
@@ -891,8 +894,6 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
 
       // Update world's first status for this level
       await updateWorldsFirstStatus(levelId, transaction);
-
-      // Recalculate clear count for the level
       await recalculateLevelClearCount(levelId, transaction);
 
       // Reload the pass to get updated data
@@ -927,10 +928,6 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
       if (playerId) {
         await playerStatsService.updatePlayerStats(playerId);
       }
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('passesUpdated');
 
       // Get player's new stats and emit SSE event
       if (playerId) {
@@ -1007,6 +1004,7 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 
       // Update world's first status for this level
       await updateWorldsFirstStatus(levelId, transaction);
+      await recalculateLevelClearCount(levelId, transaction);
 
       // Update level clear count and status
       await Promise.all([
@@ -1029,10 +1027,6 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
       if (playerId) {
         await playerStatsService.updatePlayerStats(playerId);
       }
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-      io.emit('passesUpdated');
 
       // Get player's new stats and emit SSE event
       if (playerId) {
