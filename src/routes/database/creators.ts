@@ -1134,7 +1134,6 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     
     const escapedName = escapeForMySQL(name);
     const lowercaseName = escapedName.toLowerCase();
-    console.log(escapedName);
     
     const creators = await Creator.findAll({
       where: {
@@ -1276,7 +1275,6 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     const { name } = req.params;
 
     const escapedName = escapeForMySQL(name);
-    console.log(escapedName);
     const teams = await Team.findAll({
       where: {
         [Op.or]: [

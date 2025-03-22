@@ -51,7 +51,7 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
   if (!trimmedTerm) return null;
 
   // Check for exact match with equals sign
-  const exactMatch = trimmedTerm.match(/^(song|artist|charter)=(.+)$/i);
+  const exactMatch = trimmedTerm.match(/^(song|artist|charter|team)=(.+)$/i);
   if (exactMatch) {
     return {
       field: exactMatch[1].toLowerCase(),
@@ -61,7 +61,7 @@ const parseFieldSearch = (term: string): FieldSearch | null => {
   }
 
   // Check for partial match with colon
-  const partialMatch = trimmedTerm.match(/^(song|artist|charter):(.+)$/i);
+  const partialMatch = trimmedTerm.match(/^(song|artist|charter|team):(.+)$/i);
   if (partialMatch) {
     return {
       field: partialMatch[1].toLowerCase(),
@@ -122,6 +122,16 @@ const buildFieldSearchCondition = async (
 
   // For field-specific searches
   if (field !== 'any') {
+    // Special handling for team search
+    if (field === 'team') {
+      return {
+        [Op.or]: [
+          { team: searchCondition },
+          { '$teamObject.name$': searchCondition }
+        ]
+      };
+    }
+
     const condition = {
       [field]: searchCondition,
     };
@@ -163,6 +173,8 @@ const buildFieldSearchCondition = async (
       {song: searchCondition},
       {artist: searchCondition},
       {charter: searchCondition},
+      {team: searchCondition},
+      {'$teamObject.name$': searchCondition},
       ...(aliasMatches.length > 0
         ? [{id: {[Op.in]: aliasMatches.map(a => a.levelId)}}]
         : []),
@@ -321,8 +333,12 @@ router.get('/', async (req: Request, res: Response) => {
             required: false,
             attributes: ['id'],
           },
+          {
+            model: Team,
+            as: 'teamObject',
+            required: false,
+          }
         ],
-        // Use FIELD function to maintain the shuffled order
         order: [
           [literal(`FIELD(id, ${paginatedIds.join(',')})`), 'ASC'],
         ] as OrderItem[],
@@ -343,6 +359,11 @@ router.get('/', async (req: Request, res: Response) => {
           as: 'difficulty',
           required: false,
         },
+        {
+          model: Team,
+          as: 'teamObject',
+          required: false,
+        }
       ],
       order,
       attributes: ['id'],
@@ -373,17 +394,6 @@ router.get('/', async (req: Request, res: Response) => {
           as: 'passes',
           required: false,
           attributes: ['id'],
-        },
-        {
-          model: LevelCredit,
-          as: 'levelCredits',
-          required: false,
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-            },
-          ],
         },
         {
           model: Team,
@@ -1433,6 +1443,11 @@ router.post('/filter', async (req: Request, res: Response) => {
           as: 'difficulty',
           required: false,
         },
+        {
+          model: Team,
+          as: 'teamObject',
+          required: false,
+        }
       ],
       order,
       attributes: ['id'],
@@ -1465,17 +1480,6 @@ router.post('/filter', async (req: Request, res: Response) => {
           as: 'passes',
           required: false,
           attributes: ['id'],
-        },
-        {
-          model: LevelCredit,
-          as: 'levelCredits',
-          required: false,
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-            },
-          ],
         },
         {
           model: Team,

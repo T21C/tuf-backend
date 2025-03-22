@@ -55,9 +55,6 @@ async function getBilibiliVideoDetails(
         ((error as any).response?.status === 502 ||
           (error as any).response?.status === 503)
       ) {
-        console.log(
-          `Retrying Bilibili API call (attempt ${retryCount + 1}/${MAX_RETRIES})...`,
-        );
         await delay(RETRY_DELAY * (retryCount + 1)); // Exponential backoff
         return getBilibiliVideoDetails(url, retryCount + 1);
       }
