@@ -269,14 +269,7 @@ export async function createClearEmbed(
   const pass = passInfo.dataValues;
   const level = pass.level;
 
-  const scores = playerStatsService.convertPassesToScores(pass.player?.passes || []);
-
-
-  const currentRankedScore = calculateRankedScore(scores);
-
-  const previousRankedScore = calculateRankedScore(
-    scores.filter(score => score.levelId !== pass.levelId),
-  );
+  const passDetails = await playerStatsService.getPassDetails(pass.id);
 
   const videoInfo = pass?.videoLink
     ? await getVideoDetails(pass.videoLink).then(details => details)
@@ -320,7 +313,11 @@ export async function createClearEmbed(
     )
     .addField(
       'Ranked Score',
-      `**${formatNumber(currentRankedScore)}** (+${formatNumber(currentRankedScore - previousRankedScore)})`,
+      `**${
+        formatNumber(passDetails.scoreInfo.currentRankedScore)
+      }** (+${
+        formatNumber(passDetails.scoreInfo.impact)
+        })`,
       true,
     )
     .addField('', '', false)

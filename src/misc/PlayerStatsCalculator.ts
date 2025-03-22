@@ -16,7 +16,11 @@ export function calculateRankedScore(passes: IPass[]): number {
 
 export function calculateGeneralScore(passes: IPass[]): number {
   if (passes.length === 0) return 0;
-  return passes.reduce((sum, score) => sum + (score.scoreV2 || 0), 0);
+  const score = passes.reduce((sum, score) => sum + (score.scoreV2 || 0), 0);
+  if (score > 10000) {
+    console.log(score);
+  }
+  return score;
 }
 
 export function calculatePPScore(passes: IPass[]): number {

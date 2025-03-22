@@ -742,7 +742,7 @@ export class PlayerStatsService {
         {
           model: Level,
           as: 'level',
-          attributes: ['baseScore'],
+          attributes: ['baseScore', 'id'],
           where: {
             isDeleted: false,
             isHidden: false
@@ -751,13 +751,32 @@ export class PlayerStatsService {
       ],
     });
 
-    // Calculate current and previou
+    // Calculate unique passes and their impacts
+    const uniquePasses = new Map();
+    playerPasses.forEach(playerPass => {
+      if (
+        !uniquePasses.has(playerPass.levelId) ||
+        (playerPass.scoreV2 || 0) > (uniquePasses.get(playerPass.levelId).scoreV2 || 0)
+      ) {
+        uniquePasses.set(playerPass.levelId, playerPass);
+      }
+    });
+
+    const topScores = Array.from(uniquePasses.values())
+      .filter((p: any) => !p.isDeleted && !p.isDuplicate)
+      .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
+      .slice(0, 20)
+      .map((p, index) => ({
+        id: p.id,
+        impact: (p.scoreV2 || 0) * Math.pow(0.9, index),
+      }));
+
+    // Find this pass's impact position and value
+    const passImpact = topScores.find(score => score.id === passId);
+
+    // Calculate current and previous scores
     const currentRankedScore = calculateRankedScore(playerPasses);
-    const previousRankedScore = calculateRankedScore(
-      this.getHighestScorePerLevel(
-        this.convertPassesToScores(playerPasses.filter(p => p.id !== pass.id)),
-      ),
-    );
+    const previousRankedScore = currentRankedScore - (passImpact?.impact || 0);
 
     // Get player stats for rank
     const playerStats = await this.getPlayerStats(pass.player?.id || 0);
@@ -773,7 +792,8 @@ export class PlayerStatsService {
       scoreInfo: {
         currentRankedScore,
         previousRankedScore,
-        scoreDifference: currentRankedScore - previousRankedScore,
+        impact: passImpact?.impact || 0,
+        impactRank: passImpact ? topScores.findIndex(score => score.id === passId) + 1 : null
       },
       ranks: {
         rankedScoreRank: playerStats?.rankedScoreRank,

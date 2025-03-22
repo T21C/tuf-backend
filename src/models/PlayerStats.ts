@@ -55,27 +55,27 @@ PlayerStats.init(
       defaultValue: 0,
     },
     rankedScore: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },
     generalScore: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },
     ppScore: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },
     wfScore: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },
     score12K: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },
@@ -105,7 +105,7 @@ PlayerStats.init(
       defaultValue: 0,
     },
     averageXacc: {
-      type: DataTypes.FLOAT,
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },
