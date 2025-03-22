@@ -11,7 +11,6 @@ import databaseRoutes from './routes/database/index.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import db from './models/index.js';
 import {setIO} from './utils/socket.js';
-import {updateAllPlayerPfps} from './utils/PlayerEnricher.js';
 import {htmlMetaMiddleware} from './middleware/html-meta.js';
 import path from 'path';
 import fs from 'fs';
@@ -138,7 +137,6 @@ async function startServer() {
 
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
-    console.log('Cache middleware attached');
 
     // Set up API routes first
     app.use('/v2/admin', adminRoutes);
@@ -201,14 +199,6 @@ async function startServer() {
       });
     });
 
-    // Update profile pictures after server is fully initialized and database operations are complete
-    console.log('Starting profile picture updates...');
-    try {
-      await updateAllPlayerPfps();
-      console.log('Player profile pictures updated successfully');
-    } catch (pfpError) {
-      console.error('Error updating profile pictures:', pfpError);
-    }
   } catch (error) {
     console.error('Failed to start server:', error);
     throw error;

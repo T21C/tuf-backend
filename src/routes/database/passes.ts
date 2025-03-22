@@ -14,6 +14,7 @@ import User from '../../models/User.js';
 import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
+import { escapeForMySQL } from '../../utils/searchHelpers.js';
 
 // Search query types and interfaces
 interface FieldSearch {
@@ -153,7 +154,8 @@ const buildFieldSearchCondition = async (
   const {field, value, exact} = fieldSearch;
 
   // Handle special characters in the search value
-  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const escapedValue = escapeForMySQL(value);
+  const searchValue = exact ? escapedValue : `%${escapedValue}%`;
 
   // Create the base search condition
   const searchCondition = {[exact ? Op.eq : Op.like]: searchValue};
@@ -172,19 +174,20 @@ const buildFieldSearchCondition = async (
   }
 
   // For general searches (field === 'any')
+  const escapedLikeValue = `%${escapedValue}%`;
   return {
     [Op.or]: [
       sequelize.where(
         sequelize.fn('LOWER', sequelize.col('player.name')),
         Op.like,
-        sequelize.fn('LOWER', `%${value}%`),
+        sequelize.fn('LOWER', escapedLikeValue),
       ),
       sequelize.where(
         sequelize.fn('LOWER', sequelize.col('level.song')),
         Op.like,
-        sequelize.fn('LOWER', `%${value}%`),
+        sequelize.fn('LOWER', escapedLikeValue),
       ),
-      {videoLink: {[Op.like]: `%${value}%`}},
+      {videoLink: {[Op.like]: escapedLikeValue}},
     ],
   };
 };

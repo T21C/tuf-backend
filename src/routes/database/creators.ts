@@ -12,6 +12,7 @@ import User from '../../models/User.js';
 import {
   createMultiFieldSearchCondition,
   createSearchCondition,
+  escapeForMySQL,
 } from '../../utils/searchHelpers.js';
 import {Router, Request, Response} from 'express';
 const router: Router = Router();
@@ -201,16 +202,18 @@ router.get(
       // Build where clause
       const where: any = {};
       if (searchQuery) {
+        const escapedSearch = escapeForMySQL(searchQuery);
+        
         // Handle exact ID search if query starts with #
-        if (searchQuery.startsWith('#')) {
-          const exactId = parseInt(searchQuery.substring(1));
+        if (escapedSearch.startsWith('#')) {
+          const exactId = parseInt(escapedSearch.substring(1));
           if (!isNaN(exactId)) {
             where.id = exactId;
           }
         } else {
           const conditions: WhereOptions[] = [
-            {song: {[Op.like]: `%${searchQuery}%`}},
-            {artist: {[Op.like]: `%${searchQuery}%`}},
+            {song: {[Op.like]: `%${escapedSearch}%`}},
+            {artist: {[Op.like]: `%${escapedSearch}%`}},
           ];
 
           // Only add ID condition if the search query is a valid number
@@ -226,8 +229,8 @@ router.get(
             FROM levels AS Level
             INNER JOIN level_credits ON Level.id = level_credits.levelId
             INNER JOIN creators ON level_credits.creatorId = creators.id
-            WHERE creators.name LIKE '%${searchQuery}%'
-            ${!excludeAliases ? "OR creators.aliases LIKE '%" + searchQuery + "%'" : ''}
+            WHERE creators.name LIKE '%${escapedSearch}%'
+            ${!excludeAliases ? "OR creators.aliases LIKE '%" + escapedSearch + "%'" : ''}
           )`),
           };
 
@@ -1126,20 +1129,23 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     // Decode the URI encoded search term
     const name = decodeURIComponent(req.params.name);
     
-    // Escape special characters in the search term
-    const escapedName = name.replace(/[%_]/g, '\\$&');
+    // Function to escape special characters for MySQL
+
     
-    // Search in both name and aliases using MySQL-compatible case-insensitive search
+    const escapedName = escapeForMySQL(name);
+    const lowercaseName = escapedName.toLowerCase();
+    console.log(escapedName);
+    
     const creators = await Creator.findAll({
       where: {
         [Op.or]: [
           sequelize.where(
             sequelize.fn('LOWER', sequelize.col('name')),
             'LIKE',
-            `%${escapedName.toLowerCase()}%`
+            `%${lowercaseName}%`
           ),
-          // For MySQL JSON search with escaped characters
-          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${escapedName}'), NULL, '$[*]') IS NOT NULL`)
+          // Use parameterized query for JSON search to prevent SQL injection
+          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', ${sequelize.escape(lowercaseName)}) IS NOT NULL`)
         ]
       },
       limit: 10,
@@ -1269,8 +1275,8 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
 
-    const escapedName = name.replace(/[%_]/g, '\\$&');
-    
+    const escapedName = escapeForMySQL(name);
+    console.log(escapedName);
     const teams = await Team.findAll({
       where: {
         [Op.or]: [

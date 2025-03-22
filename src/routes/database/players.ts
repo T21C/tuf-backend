@@ -17,6 +17,7 @@ import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import PlayerStats from '../../models/PlayerStats.js';
 import {Router, Request, Response} from 'express';
 import {fetchDiscordUserInfo} from '../../utils/discord.js';
+import { escapeForMySQL } from '../../utils/searchHelpers.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -149,11 +150,9 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.get('/search/:name', async (req: Request, res: Response) => {
   try {
-    const name = decodeURIComponent(req.params.name);
-
-
-    const escapedName = name.replace(/[%_]/g, '\\$&');
-
+    const name = req.params.name; // Exp  ress has already decoded this
+    const escapedName = escapeForMySQL(name);
+    
     const players = await Player.findAll({
       where: {
         name: {
@@ -445,11 +444,8 @@ router.get(
   },
 );
 
-router.put(
-  '/:id/discord/:discordId',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+router.put('/:id/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
     try {
       const {id, discordId} = req.params;
       const {username, avatar} = req.body;
@@ -549,10 +545,7 @@ router.put(
   },
 );
 
-router.put(
-  '/:id/name',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/:id/name', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
@@ -603,10 +596,7 @@ router.put(
   },
 );
 
-router.put(
-  '/:id/country',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/:id/country', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {country} = req.body;
@@ -665,10 +655,7 @@ async function updateAffectedLevelsWorldsFirst(
 }
 
 // Update the ban/unban endpoint
-router.patch(
-  '/:id/ban',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -705,10 +692,7 @@ router.patch(
 );
 
 // Add this new endpoint after the ban endpoint
-router.patch(
-  '/:id/pause-submissions',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/pause-submissions', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -739,10 +723,7 @@ router.patch(
   },
 );
 
-router.post(
-  '/:id/merge',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/:id/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;

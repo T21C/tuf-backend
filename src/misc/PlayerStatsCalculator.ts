@@ -1,62 +1,69 @@
 import {IDifficulty, IPass} from '../interfaces/models/index.js';
+import { PlayerStatsService } from '../services/PlayerStatsService.js';
 
-export interface Score {
-  score: number;
-  xacc: number;
-  speed: number;
-  isWorldsFirst: boolean;
-  is12K: boolean;
-  baseScore: number;
-  isDeleted: boolean;
-  levelId?: number;
-}
 
-export function calculateRankedScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .sort((a, b) => b.score - a.score)
+
+export function calculateRankedScore(passes: IPass[]): number {
+  const playerStatsService = PlayerStatsService.getInstance();  
+  const uniquePasses = playerStatsService.getHighestScorePerLevel(passes);
+
+  if (uniquePasses.length === 0) return 0;
+  return uniquePasses
+    .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
     .slice(0, 20)
-    .reduce((acc, score, index) => acc + score.score * Math.pow(0.9, index), 0);
+    .reduce((acc, score, index) => acc + (score.scoreV2 || 0) * Math.pow(0.9, index), 0);
 }
 
-export function calculateGeneralScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores.reduce((sum, score) => sum + score.score, 0);
+export function calculateGeneralScore(passes: IPass[]): number {
+  if (passes.length === 0) return 0;
+  return passes.reduce((sum, score) => sum + (score.scoreV2 || 0), 0);
 }
 
-export function calculatePPScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .filter(score => score.xacc === 1.0)
-    .reduce((sum, score) => sum + score.score, 0);
+export function calculatePPScore(passes: IPass[]): number {
+  const playerStatsService = PlayerStatsService.getInstance();  
+  const uniquePasses = playerStatsService.getHighestScorePerLevel(passes);
+  if (uniquePasses.length === 0) return 0;
+  return uniquePasses
+    .filter(pass => pass.accuracy === 1.0)
+    .reduce((sum, pass) => sum + (pass.scoreV2 || 0), 0);
 }
 
-export function calculateWFScore(scores: Score[]): number {
-  if (!scores) return 0;
-  return scores
-    .filter(score => score.isWorldsFirst)
-    .reduce((sum, score) => sum + score.baseScore, 0);
+export function calculateWFScore(passes: IPass[]): number {
+  if (passes.length === 0) return 0;
+  return passes
+    .filter(pass => pass.isWorldsFirst)
+    .reduce((sum, pass) => sum + (pass.level?.baseScore || 0), 0);
 }
 
-export function calculate12KScore(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  return scores
-    .filter(score => score.is12K)
-    .sort((a, b) => b.score - a.score)
+export function calculate12KScore(passes: IPass[]): number {
+  const playerStatsService = PlayerStatsService.getInstance();  
+  const uniquePasses = playerStatsService.getHighestScorePerLevel(passes);
+
+
+  if (uniquePasses.length === 0) return 0;
+  return uniquePasses
+    .filter(pass => pass.is12K)
+    .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
     .slice(0, 20)
-    .reduce((acc, score, index) => acc + score.score * Math.pow(0.9, index), 0);
+    .reduce((acc, score, index) => acc + (score.scoreV2 || 0) * Math.pow(0.9, index), 0);
 }
 
-export function calculateAverageXacc(scores: Score[]): number {
-  if (scores.length === 0) return 0;
-  const topScores = scores.sort((a, b) => b.score - a.score).slice(0, 20);
+export function calculateAverageXacc(passes: IPass[]): number {
+  const playerStatsService = PlayerStatsService.getInstance();  
+  const uniquePasses = playerStatsService.getHighestScorePerLevel(passes);
+
+  if (uniquePasses.length === 0) return 0;
+  const topScores = uniquePasses.sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0)).slice(0, 20);
   return (
-    topScores.reduce((sum, score) => sum + score.xacc, 0) / topScores.length
+    topScores.reduce((sum, score) => sum + (score.accuracy || 0), 0) / topScores.length
   );
 }
 
-export function countuniversalPassCount(passes: IPass[]): number {
-  return passes.filter(
+export function countUniversalPassCount(passes: IPass[]): number {
+  const playerStatsService = PlayerStatsService.getInstance();  
+  const uniquePasses = playerStatsService.getHighestScorePerLevel(passes);
+
+  return uniquePasses.filter(
     pass => !pass.isDeleted && pass.level?.difficulty?.name?.startsWith('U'),
   ).length;
 }

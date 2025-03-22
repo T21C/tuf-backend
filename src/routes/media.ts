@@ -1,6 +1,5 @@
 import express, {Request, Response, Router} from 'express';
 import fetch from 'node-fetch';
-import {loadPfpList} from '../utils/fileHandlers.js';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
@@ -245,12 +244,6 @@ router.get('/bilibili', async (req: Request, res: Response) => {
     console.error('Error fetching data:', error);
     return res.status(500).json({error: 'Internal Server Error'});
   }
-});
-
-router.get('/pfp', async (req: Request, res: Response) => {
-  const player = req.query.player as string;
-  const pfpList = loadPfpList();
-  res.json(pfpList[player]);
 });
 
 router.get('/avatar/:userId', async (req: Request, res: Response) => {

@@ -18,6 +18,7 @@ import LevelCredit from '../../models/LevelCredit.js';
 import LevelAlias from '../../models/LevelAlias.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
+import { escapeForMySQL } from '../../utils/searchHelpers.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -114,7 +115,7 @@ const buildFieldSearchCondition = async (
   const {field, value, exact} = fieldSearch;
 
   // Handle special characters in the search value
-  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const searchValue = exact ? value : `%${escapeForMySQL(value)}%`;
 
   // Create the base search condition
   const searchCondition = {[exact ? Op.eq : Op.like]: searchValue};
@@ -384,6 +385,11 @@ router.get('/', async (req: Request, res: Response) => {
             },
           ],
         },
+        {
+          model: Team,
+          as: 'teamObject',
+          required: false,
+        }
       ],
       order,
     });
@@ -421,6 +427,27 @@ router.get('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Respo
         required: false,
         attributes: ['id'],
       },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        required: false,
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+          },
+        ],
+      },
+      {
+        model: LevelAlias,
+        as: 'aliases',
+        required: false,
+      },
+      {
+        model: Team,
+        as: 'teamObject',
+        required: false,
+      }
     ],
   });
 
@@ -1450,6 +1477,11 @@ router.post('/filter', async (req: Request, res: Response) => {
             },
           ],
         },
+        {
+          model: Team,
+          as: 'teamObject',
+          required: false,
+        }
       ],
       order,
     });

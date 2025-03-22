@@ -270,13 +270,12 @@ export async function createClearEmbed(
   const level = pass.level;
 
   const scores = playerStatsService.convertPassesToScores(pass.player?.passes || []);
-  const uniqueScores = playerStatsService.getHighestScorePerLevel(scores);
 
 
-  const currentRankedScore = calculateRankedScore(uniqueScores);
+  const currentRankedScore = calculateRankedScore(scores);
 
   const previousRankedScore = calculateRankedScore(
-    uniqueScores.filter(score => score.levelId !== pass.levelId),
+    scores.filter(score => score.levelId !== pass.levelId),
   );
 
   const videoInfo = pass?.videoLink

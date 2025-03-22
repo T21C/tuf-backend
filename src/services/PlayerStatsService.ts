@@ -11,15 +11,15 @@ import {
   calculateWFScore,
   calculate12KScore,
   calculateAverageXacc,
-  countuniversalPassCount,
+  countUniversalPassCount,
   countWorldsFirstPasses,
 } from '../misc/PlayerStatsCalculator.js';
-import {Score} from '../misc/PlayerStatsCalculator.js';
 import sequelize from '../config/db.js';
 import {getIO} from '../utils/socket.js';
 import {sseManager} from '../utils/sse.js';
 import User from '../models/User.js';
 import Judgement from '../models/Judgement.js';
+import { escapeForMySQL } from '../utils/searchHelpers.js';
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
@@ -150,8 +150,6 @@ export class PlayerStatsService {
       // Prepare bulk update data
       const bulkStats = players.map((player: any) => {
         // Convert passes to scores and get highest score per level`
-        const scores = this.convertPassesToScores(player.passes || []);
-        const uniqueScores = this.getHighestScorePerLevel(scores);
 
         // Calculate top difficulties
         const {topDiff, top12kDiff} = this.calculateTopDiffs(
@@ -160,13 +158,13 @@ export class PlayerStatsService {
 
         return {
           playerId: player.id,
-          rankedScore: calculateRankedScore(uniqueScores),
-          generalScore: calculateGeneralScore(uniqueScores),
-          ppScore: calculatePPScore(uniqueScores),
-          wfScore: calculateWFScore(uniqueScores),
-          score12K: calculate12KScore(uniqueScores),
-          averageXacc: calculateAverageXacc(uniqueScores),
-          universalPassCount: countuniversalPassCount(player.passes || []),
+          rankedScore: calculateRankedScore(player.passes || []),
+          generalScore: calculateGeneralScore(player.passes || []),
+          ppScore: calculatePPScore(player.passes || []),
+          wfScore: calculateWFScore(player.passes || []),
+          score12K: calculate12KScore(player.passes || []),
+          averageXacc: calculateAverageXacc(player.passes || []),
+          universalPassCount: countUniversalPassCount(player.passes || []),
           worldsFirstCount: countWorldsFirstPasses(player.passes || []),
           topDiff,
           top12kDiff,
@@ -262,21 +260,21 @@ export class PlayerStatsService {
     }
   }
 
-  public getHighestScorePerLevel(scores: Score[]): Score[] {
-    const levelScores = new Map<number, Score>();
-    scores.forEach(score => {
-      const levelId = score.levelId;
+  public getHighestScorePerLevel(scores: IPass[]): IPass[] {
+    const levelScores = new Map<number, IPass>();
+    scores.forEach(pass => {
+      const levelId = pass.levelId;
       if (!levelId) return;
 
       const existingScore = levelScores.get(levelId);
-      if (!existingScore || score.score > existingScore.score) {
-        levelScores.set(levelId, score);
+      if (!existingScore || pass.scoreV2 && existingScore.scoreV2 && pass.scoreV2 > existingScore.scoreV2) {
+        levelScores.set(levelId, pass);
       }
     });
     return Array.from(levelScores.values());
   }
 
-  public convertPassesToScores(passes: IPass[] | Pass[]): Score[] {
+  public convertPassesToScores(passes: IPass[] | Pass[]): IPass[] {
     return (passes as any)
       .filter((pass: any) => 
         !pass.isDeleted 
@@ -305,7 +303,7 @@ export class PlayerStatsService {
       (pass: any) =>
         !pass.isDeleted &&
         pass.level?.difficulty?.id !== undefined &&
-        pass.level.difficulty.id < 100,
+        pass.level.difficulty.type === 'PGU',
     );
 
     if (validPasses.length === 0) {
@@ -316,6 +314,10 @@ export class PlayerStatsService {
     const sortedPasses = validPasses.sort((a: any, b: any) => {
       const diffA = a.level?.difficulty?.sortOrder || 0;
       const diffB = b.level?.difficulty?.sortOrder || 0;
+      // If sortOrders are equal, compare level IDs in descending order
+      if (diffB === diffA) {
+        return (b.level?.id || 0) - (a.level?.id || 0);
+      }
       return diffB - diffA;
     });
 
@@ -332,6 +334,10 @@ export class PlayerStatsService {
         ? (valid12kPasses.sort((a: any, b: any) => {
             const diffA = a.level?.difficulty?.sortOrder || 0;
             const diffB = b.level?.difficulty?.sortOrder || 0;
+            // If sortOrders are equal, compare level IDs in descending order
+            if (diffB === diffA) {
+              return (b.level?.id || 0) - (a.level?.id || 0);
+            }
             return diffB - diffA;
           })[0]?.level?.difficulty?.id ?? 0)
         : 0;
@@ -378,8 +384,6 @@ export class PlayerStatsService {
       }
 
       // Convert passes to scores and get highest score per level
-      const scores = this.convertPassesToScores(player.passes);
-      const uniqueScores = this.getHighestScorePerLevel(scores);
 
       // Calculate top difficulties
       const {topDiff, top12kDiff} = this.calculateTopDiffs(player.passes);
@@ -387,13 +391,13 @@ export class PlayerStatsService {
       // Calculate all scores using the filtered scores
       const stats = {
         playerId,
-        rankedScore: calculateRankedScore(uniqueScores),
-        generalScore: calculateGeneralScore(uniqueScores),
-        ppScore: calculatePPScore(uniqueScores),
-        wfScore: calculateWFScore(uniqueScores),
-        score12K: calculate12KScore(uniqueScores),
-        averageXacc: calculateAverageXacc(uniqueScores),
-        universalPassCount: countuniversalPassCount(player.passes),
+        rankedScore: calculateRankedScore(player.passes),
+        generalScore: calculateGeneralScore(player.passes),
+        ppScore: calculatePPScore(player.passes),
+        wfScore: calculateWFScore(player.passes),
+        score12K: calculate12KScore(player.passes),
+        averageXacc: calculateAverageXacc(player.passes),
+        universalPassCount: countUniversalPassCount(player.passes),
         worldsFirstCount: countWorldsFirstPasses(player.passes),
         topDiff,
         top12kDiff,
@@ -553,12 +557,13 @@ export class PlayerStatsService {
         whereClause['$player.id$'] = playerId;
       }
 
+      const escapedQuery = nameQuery ? escapeForMySQL(nameQuery) : '';
       // Add name search if provided
       if (nameQuery && !nameQuery.startsWith('#')) {
         whereClause['$player.name$'] = sequelize.where(
           sequelize.fn('LOWER', sequelize.col('player.name')),
           'LIKE',
-          `%${nameQuery.toLowerCase()}%`
+          `%${escapedQuery.toLowerCase()}%`
         );
       }
 
@@ -746,12 +751,8 @@ export class PlayerStatsService {
       ],
     });
 
-    // Convert passes to scores and get highest score per level
-    const scores = this.convertPassesToScores(playerPasses);
-    const uniqueScores = this.getHighestScorePerLevel(scores);
-
     // Calculate current and previou
-    const currentRankedScore = calculateRankedScore(uniqueScores);
+    const currentRankedScore = calculateRankedScore(playerPasses);
     const previousRankedScore = calculateRankedScore(
       this.getHighestScorePerLevel(
         this.convertPassesToScores(playerPasses.filter(p => p.id !== pass.id)),
