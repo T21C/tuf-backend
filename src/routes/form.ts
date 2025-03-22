@@ -281,10 +281,11 @@ router.post(
         // Create flags with proper validation
         const flags = {
           passSubmissionId: submission.id,
-          is12K: req.body.is12K === 'true',
-          isNoHoldTap: req.body.isNoHoldTap === 'true',
-          is16K: req.body.is16K === 'true',
+          is12K: req.body.is12K === true,
+          isNoHoldTap: req.body.isNoHoldTap === true,
+          is16K: req.body.is16K === true,
         };
+``
 
         await PassSubmissionFlags.create(flags, { transaction });
         

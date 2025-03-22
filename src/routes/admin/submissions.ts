@@ -659,6 +659,14 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           submission.assignedPlayerId,
         );
 
+        sseManager.broadcast({
+          type: 'submissionUpdate',
+          data: {
+            action: 'create',
+            submissionId: submission.id,
+            submissionType: 'pass',
+          },
+        });
         // Emit SSE event with pass update data
         sseManager.broadcast({
           type: 'passUpdate',
@@ -671,8 +679,14 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
       }
 
-      const io = getIO();
-      io.emit('leaderboardUpdated');
+      sseManager.broadcast({
+        type: 'submissionUpdate',
+        data: {
+          action: 'create',
+          submissionId: submission.id,
+          submissionType: 'pass',
+        },
+      });
 
       return res.json({
         message: 'Pass submission approved successfully',
