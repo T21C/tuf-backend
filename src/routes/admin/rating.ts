@@ -7,6 +7,9 @@ import sequelize from '../../config/db.js';
 import Difficulty from '../../models/Difficulty.js';
 import User from '../../models/User.js';
 import {Router, Request, Response, NextFunction} from 'express';
+import Team from '../../models/Team.js';
+import Creator from '../../models/Creator.js';
+import LevelCredit from '../../models/LevelCredit.js';
 const router: Router = Router();
 
 // Cache for difficulties to avoid repeated DB queries
@@ -307,6 +310,22 @@ router.get('/', async (req: Request, res: Response) => {
               as: 'difficulty',
               required: false,
             },
+            {
+              model: Team,
+              as: 'teamObject',
+              required: false,
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              required: false,
+              include: [
+                {
+                  model: Creator,
+                  as: 'creator',
+                },
+              ],
+            },
           ],
         },
         {
@@ -427,6 +446,22 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
                 as: 'difficulty',
                 required: false,
               },
+              {
+                model: Team,
+                as: 'teamObject',
+                required: false,
+              },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                required: false,
+                include: [
+                  {
+                    model: Creator,
+                    as: 'creator',
+                  },
+                ],
+              },
             ],
           },
           {
@@ -533,6 +568,22 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
               as: 'difficulty',
               required: false,
             },
+            {
+              model: Team,
+              as: 'teamObject',
+              required: false,
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              required: false,
+              include: [
+                {
+                  model: Creator,
+                  as: 'creator',
+                },
+              ],
+            },
           ],
         },
         {
@@ -602,6 +653,22 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
               model: Difficulty,
               as: 'difficulty',
               required: false,
+            },
+            {
+              model: Team,
+              as: 'teamObject',
+              required: false,
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              required: false,
+              include: [
+                {
+                  model: Creator,
+                  as: 'creator',
+                },
+              ],
             },
           ],
         },
@@ -723,6 +790,22 @@ router.delete(
                 model: Difficulty,
                 as: 'difficulty',
                 required: false,
+              },
+              {
+                model: Team,
+                as: 'teamObject',
+                required: false,
+              },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                required: false,
+                include: [
+                  {
+                    model: Creator,
+                    as: 'creator',
+                  },
+                ],
               },
             ],
           },
