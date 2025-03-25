@@ -292,17 +292,19 @@ async function calculateAverageRating(
   return null;
 }
 
-// Get all ratings
 router.get('/', async (req: Request, res: Response) => {
   try {
     const ratings = await Rating.findAll({
+      where: {
+        confirmedAt: null
+      },
       include: [
         {
           model: Level,
           as: 'level',
           where: {
             isDeleted: false,
-            isHidden: false,
+            isHidden: false
           },
           include: [
             {
@@ -356,8 +358,7 @@ router.get('/', async (req: Request, res: Response) => {
         },
       ],
       order: [['levelId', 'ASC']],
-    });
-
+    }); 
     return res.json(ratings);
   } catch (error) {
     console.error('Error fetching ratings:', error);
@@ -743,7 +744,6 @@ router.delete(
         return res.status(401).json({error: 'User not authenticated'});
       }
 
-      // Delete the rating detail
       await RatingDetail.destroy({
         where: {
           ratingId: id,
@@ -754,7 +754,9 @@ router.delete(
 
       // Get remaining rating details
       const details = await RatingDetail.findAll({
-        where: {ratingId: id},
+        where: { 
+          ratingId: id
+        },
         transaction,
       });
 
@@ -840,13 +842,13 @@ router.delete(
       sseManager.broadcast({type: 'ratingUpdate'});
 
       return res.json({
-        message: 'Rating detail deleted successfully',
+        message: 'Rating detail confirmed successfully',
         rating: updatedRating,
       });
     } catch (error: unknown) {
       await transaction.rollback();
-      console.error('Error deleting rating detail:', error);
-      return res.status(500).json({error: 'Failed to delete rating detail'});
+      console.error('Error confirming rating detail:', error);
+      return res.status(500).json({error: 'Failed to confirm rating detail'});
     }
   },
 );

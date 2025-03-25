@@ -12,6 +12,7 @@ interface RatingAttributes {
   requesterFR: string;
   averageDifficultyId: number | null;
   communityDifficultyId: number | null;
+  confirmedAt: Date | null;
 }
 
 type RatingCreationAttributes = Optional<
@@ -37,6 +38,7 @@ class Rating
   declare currentDifficulty?: Difficulty;
   declare averageDifficulty?: Difficulty;
   declare communityDifficulty?: Difficulty;
+  declare confirmedAt: Date | null;
 }
 
 Rating.init(
@@ -85,6 +87,11 @@ Rating.init(
         model: 'difficulties',
         key: 'id',
       },
+    },
+    confirmedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {

@@ -564,6 +564,20 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         ],
         transaction,
       });
+      
+      const ratings = await Rating.findOne({
+        where: {
+          levelId: parseInt(req.params.id),
+          [Op.not]: {confirmedAt: null}
+        },
+        include: [
+          {
+            model: RatingDetail,
+            as: 'details',
+          },
+        ],
+        transaction,
+      });
 
       await transaction.commit();
 
@@ -576,7 +590,10 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         return res.status(404).json({ error: 'Level not found' });
       }
 
-      return res.json(level);
+      return res.json({
+        level,
+        ratings,
+      });
     } catch (error) {
       await transaction.rollback();
       throw error;
@@ -657,12 +674,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
         if (existingRating) {
           // Delete rating details first
-          await RatingDetail.destroy({
-            where: {ratingId: existingRating.id},
+          await Rating.update({
+            confirmedAt: new Date(),
+          }, {
+            where: {id: existingRating.id},
             transaction,
           });
-          // Then delete the rating
-          await existingRating.destroy({transaction});
         }
       }
     }
@@ -925,14 +942,13 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
     });
 
     if (existingRating) {
-      // If rating exists, delete all associated details first
-      await RatingDetail.destroy({
-        where: {ratingId: existingRating.id},
+      // If rating exists, mark it as confirmed
+      await Rating.update({
+        confirmedAt: new Date(),
+      }, {
+        where: {id: existingRating.id},
         transaction,
       });
-
-      // Then delete the rating and update level
-      await existingRating.destroy({transaction});
 
       // Update level with consistent announcement flag handling
       await Level.update(

@@ -31,7 +31,6 @@ class RatingDetail
   declare isCommunityRating: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
-
   // Virtual fields
   declare user?: User;
 }

@@ -6,7 +6,7 @@ import {PassSubmission} from '../../models/PassSubmission.js';
 import Level from '../../models/Level.js';
 import RatingDetail from '../../models/RatingDetail.js';
 import {Sequelize} from 'sequelize';
-import {UserAttributes} from '../../models/User.js';
+import User, {UserAttributes} from '../../models/User.js';
 
 const router: Router = Router();
 
@@ -19,37 +19,38 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
 
     const currentRatingsCount = await RatingDetail.count({
       where: {
-        userId: user.id,
+        userId: user.id
       },
     });
     // Get unrated ratings count using a proper subquery
     const unratedRatings = await Rating.findAll({
+      where: {
+        confirmedAt: null
+      },
       include: [
         {
           model: Level,
           as: 'level',
           where: {
-            toRate: true,
-          },
-          attributes: ['rerateNum'],
-          required: true,
+            isDeleted: false,
+            isHidden: false,
+          }
         },
         {
           model: RatingDetail,
           as: 'details',
-          where: {
-            isCommunityRating: false,
-          },
-          attributes: [],
-        },
+          attributes: []
+        }
       ],
-      attributes: ['id'],
-      group: ['Rating.id'],
-      having: Sequelize.literal('COUNT(`details`.`id`) < 4'),
+      order: [['levelId', 'ASC']],
     }).then(ratings => {
-      return ratings.filter(rating => !/^vote/i.test(rating.level?.rerateNum || ''));
+      return ratings.filter(
+        rating => 
+          !/^vote/i.test(rating.level?.rerateNum || '')
+        &&
+          (rating.details?.length || 0) < 4
+      )
     });
-
     // Get pending level submissions count
     const pendingLevelSubmissions = await LevelSubmission.count({
       where: {
@@ -68,6 +69,9 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     const totalPendingSubmissions =
       pendingLevelSubmissions + pendingPassSubmissions;
 
+    console.log(unratedRatings.length);
+    console.log(currentRatingsCount);
+    console.log(unratedRatings.length - currentRatingsCount);
     return res.json({
       unratedRatings: unratedRatings.length - currentRatingsCount,
       pendingLevelSubmissions,
