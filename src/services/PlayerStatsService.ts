@@ -776,7 +776,9 @@ export class PlayerStatsService {
 
     // Calculate current and previous scores
     const currentRankedScore = calculateRankedScore(playerPasses);
-    const previousRankedScore = currentRankedScore - (passImpact?.impact || 0);
+    const previousRankedScore = calculateRankedScore(playerPasses.filter(p => p.id !== passId));
+
+    const impact = currentRankedScore - previousRankedScore;
 
     // Get player stats for rank
     const playerStats = await this.getPlayerStats(pass.player?.id || 0);
@@ -792,7 +794,7 @@ export class PlayerStatsService {
       scoreInfo: {
         currentRankedScore,
         previousRankedScore,
-        impact: passImpact?.impact || 0,
+        impact,
         impactRank: passImpact ? topScores.findIndex(score => score.id === passId) + 1 : null
       },
       ranks: {
