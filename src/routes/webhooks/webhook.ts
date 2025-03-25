@@ -37,6 +37,16 @@ const clientUrlEnv =
 
 const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
 
+// Add logging helper at the top
+function logWebhookEvent(type: string, details: Record<string, any>) {
+  const timestamp = new Date().toISOString();
+  console.log(JSON.stringify({
+    timestamp,
+    type: `webhook_${type}`,
+    ...details
+  }));
+}
+
 // Helper function to process items in batches
 async function processBatches<T>(
   items: T[],
@@ -45,14 +55,76 @@ async function processBatches<T>(
 ): Promise<void> {
   for (let i = 0; i < items.length; i += batchSize) {
     const batch = items.slice(i, i + batchSize);
-    // const isFirstBatch = i === 0;
-    const isFirstBatch = true;
+    const isFirstBatch = i === 0;
     await processor(batch, isFirstBatch);
     // Add a small delay between batches to avoid rate limiting
     if (i + batchSize < items.length) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
+}
+
+// Helper to send webhook messages for a specific webhook URL
+async function sendWebhookMessages(
+  webhookUrl: string,
+  embeds: MessageBuilder[],
+  ping?: string,
+  isFirstBatch: boolean = false
+) {
+  const hook = new Webhook(webhookUrl);
+  hook.setUsername('TUF Announcer');
+  hook.setAvatar(placeHolder);
+
+  const combinedEmbed = MessageBuilder.combine(...embeds);
+  
+  // Always set the ping if it exists, not just for the first batch
+  if (ping) {
+    combinedEmbed.setText(ping);
+  }
+
+  await hook.send(combinedEmbed);
+}
+
+// Helper to group passes/levels by webhook URL
+interface WebhookGroup {
+  webhookUrl: string;
+  ping: string;
+  items: (Pass | Level)[];
+}
+
+interface AnnouncementConfig {
+  webhooks: {
+    [key: string]: string;
+  };
+  pings: {
+    [key: string]: string;
+  };
+}
+
+function groupByWebhook(items: (Pass | Level)[], configs: Map<number, AnnouncementConfig>): WebhookGroup[] {
+  const groups = new Map<string, WebhookGroup>();
+
+  for (const item of items) {
+    const config = configs.get(item.id);
+    if (!config) continue;
+
+    // Process each webhook URL in the config
+    Object.entries(config.webhooks).forEach(([channelLabel, webhookUrl]) => {
+      const ping = config.pings[channelLabel] || '';
+      const key = `${webhookUrl}:${ping}`;
+
+      if (!groups.has(key)) {
+        groups.set(key, {
+          webhookUrl,
+          ping,
+          items: []
+        });
+      }
+      groups.get(key)?.items.push(item);
+    });
+  }
+
+  return Array.from(groups.values());
 }
 
 export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
@@ -216,220 +288,93 @@ router.post(
   '/passes',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(7);
+    logWebhookEvent('pass_request_received', {
+      requestId,
+      passCount: req.body.passIds?.length || 0
+    });
+
     try {
       const {passIds} = req.body;
 
       if (!Array.isArray(passIds)) {
+        logWebhookEvent('pass_request_error', {
+          requestId,
+          error: 'Invalid input: passIds must be an array'
+        });
         return res.status(400).json({error: 'passIds must be an array'});
       }
 
-      const {
-        WF_CLEAR_ANNOUNCEMENT_HOOK,
-        PP_CLEAR_ANNOUNCEMENT_HOOK,
-        UNIVERSAL_CLEAR_ANNOUNCEMENT_HOOK,
-      } = process.env;
-      if (
-        !WF_CLEAR_ANNOUNCEMENT_HOOK ||
-        !PP_CLEAR_ANNOUNCEMENT_HOOK ||
-        !UNIVERSAL_CLEAR_ANNOUNCEMENT_HOOK
-      ) {
-        throw new Error('Webhook URL not configured');
-      }
-
-      const uClearHook = new Webhook(UNIVERSAL_CLEAR_ANNOUNCEMENT_HOOK);
-      const wfClearHook = new Webhook(WF_CLEAR_ANNOUNCEMENT_HOOK);
-      const ppClearHook = new Webhook(PP_CLEAR_ANNOUNCEMENT_HOOK);
-
-      uClearHook.setUsername('TUF Clear Announcer');
-      uClearHook.setAvatar(placeHolder);
-      wfClearHook.setUsername('TUF Clear Announcer');
-      wfClearHook.setAvatar(placeHolder);
-      ppClearHook.setUsername('TUF Clear Announcer');
-      ppClearHook.setAvatar(placeHolder);
-
-      // Collect @everyone passes during batch processing
-      let everyonePasses: Pass[] = [];
-
-      // Process regular passes first
-      await processBatches(passIds, 10, async (batchIds, isFirstBatch) => {
-        const passes = await Pass.findAll({
-          where: {id: {[Op.in]: batchIds}},
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                },
-              ],
-            },
-            {
-              model: Player,
-              as: 'player',
-              include: [
-                {
-                  model: Pass,
-                  as: 'passes',
-                },
-              ],
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
-        }).then(passes => passes.filter(pass => shouldAnnouncePass(pass)));
-        // Group passes by their announcement config
-        const universalPingPasses: Pass[] = [];
-        const universalEveryonePasses: Pass[] = [];
-        const wfPingPasses: Pass[] = [];
-        const wfNoPingPasses: Pass[] = [];
-        const ppPingPasses: Pass[] = [];
-        const ppNoPingPasses: Pass[] = [];
-
-        // Sort passes into their respective groups
-        for (const pass of passes) {
-          const config = getPassAnnouncementConfig(pass);
-          if (config.channels.includes('universal-clears')) {
-            if (config.pings['universal-clears'] === '@everyone') {
-              universalEveryonePasses.push(pass);
-            } else if (config.pings['universal-clears'] === '@universal ping') {
-              universalPingPasses.push(pass);
-            }
-          }
-
-          // Check WF clears
-          if (config.channels.includes('wf-clears')) {
-            if (config.pings['wf-clears'] === '@wf ping') {
-              wfPingPasses.push(pass);
-            } else {
-              wfNoPingPasses.push(pass);
-            }
-          }
-
-          // Check PP clears
-          if (config.channels.includes('pp-clears')) {
-            if (config.pings['pp-clears'] === '@pp ping') {
-              ppPingPasses.push(pass);
-            } else {
-              ppNoPingPasses.push(pass);
-            }
-          }
-        }
-
-        // Send regular announcements first
-        if (universalPingPasses.length > 0) {
-          const embeds = await Promise.all(
-            universalPingPasses.map(pass => createClearEmbed(pass)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) combinedEmbed.setText('<@&1041009420836016208>');
-          await uClearHook.send(combinedEmbed);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-
-        // Send WF and PP announcements
-        if (wfPingPasses.length > 0) {
-          const embeds = await Promise.all(
-            wfPingPasses.map(pass => createClearEmbed(pass)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) combinedEmbed.setText('<@&1101885999212138557>');
-          await wfClearHook.send(combinedEmbed);
-        }
-
-        if (wfNoPingPasses.length > 0) {
-          const embeds = await Promise.all(
-            wfNoPingPasses.map(pass => createClearEmbed(pass)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) combinedEmbed.setText('');
-          await wfClearHook.send(combinedEmbed);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-
-        // Send to PP channel
-        if (ppPingPasses.length > 0) {
-          const embeds = await Promise.all(
-            ppPingPasses.map(pass => createClearEmbed(pass)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) combinedEmbed.setText('<@&1268895982352072769>');
-          await ppClearHook.send(combinedEmbed);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        if (ppNoPingPasses.length > 0) {
-          const embeds = await Promise.all(
-            ppNoPingPasses.map(pass => createClearEmbed(pass)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) combinedEmbed.setText('');
-          await ppClearHook.send(combinedEmbed);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-
-        // Store @everyone passes
-        const batchEveryonePasses = passes.filter(pass => {
-          const config = getPassAnnouncementConfig(pass);
-          return (
-            config.channels.includes('universal-clears') &&
-            config.pings['universal-clears'] === '@everyone'
-          );
-        });
-        everyonePasses = everyonePasses.concat(batchEveryonePasses);
+      // Load all passes with their configs
+      const passes = await Pass.findAll({
+        where: {id: {[Op.in]: passIds}},
+        include: [
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Player,
+            as: 'player',
+            include: [
+              {
+                model: Pass,
+                as: 'passes',
+              },
+            ],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
       });
 
-      // Process collected @everyone passes last
-      if (everyonePasses.length > 0) {
-        await processBatches(
-          everyonePasses.map(p => p.id),
-          10,
-          async (batchIds, isFirstBatch) => {
-            const passes = await Pass.findAll({
-              where: {id: {[Op.in]: batchIds}},
-              include: [
-                {
-                  model: Level,
-                  as: 'level',
-                  include: [
-                    {
-                      model: Difficulty,
-                      as: 'difficulty',
-                    },
-                  ],
-                },
-                {
-                  model: Player,
-                  as: 'player',
-                  include: [
-                    {
-                      model: Pass,
-                      as: 'passes',
-                    },
-                  ],
-                },
-                {
-                  model: Judgement,
-                  as: 'judgements',
-                },
-              ],
-            });
-
-            const embeds = await Promise.all(
-              passes.map(pass => createClearEmbed(pass)),
-            );
-            const combinedEmbed = MessageBuilder.combine(...embeds);
-            if (isFirstBatch) combinedEmbed.setText('@everyone');
-            await uClearHook.send(combinedEmbed);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Longer delay for @everyone pings
-          },
-        );
+      // Get announcement configs for all passes
+      const configs = new Map();
+      for (const pass of passes) {
+        if (!pass.level?.diffId) continue;
+        const config = await getPassAnnouncementConfig(pass);
+        configs.set(pass.id, config);
       }
+
+      // Group passes by webhook URL
+      const groups = groupByWebhook(passes, configs);
+
+      // Process each webhook group
+      for (const group of groups) {
+        await processBatches(group.items, 10, async (batchPasses, isFirstBatch) => {
+          const embeds = await Promise.all(
+            batchPasses.map(pass => createClearEmbed(pass as Pass))
+          );
+          
+          await sendWebhookMessages(
+            group.webhookUrl,
+            embeds,
+            group.ping,
+            isFirstBatch
+          );
+        });
+      }
+
+      logWebhookEvent('pass_request_complete', {
+        requestId,
+        status: 'success'
+      });
 
       return res.json({success: true, message: 'Webhooks sent successfully'});
     } catch (error) {
+      logWebhookEvent('pass_request_error', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       console.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',
@@ -443,134 +388,77 @@ router.post(
   '/levels',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(7);
+    logWebhookEvent('level_request_received', {
+      requestId,
+      levelCount: req.body.levelIds?.length || 0
+    });
+
     try {
       const {levelIds} = req.body;
 
       if (!Array.isArray(levelIds)) {
+        logWebhookEvent('level_request_error', {
+          requestId,
+          error: 'Invalid input: levelIds must be an array'
+        });
         return res.status(400).json({error: 'levelIds must be an array'});
       }
 
-      const {
-        PLANETARY_LEVEL_ANNOUNCEMENT_HOOK,
-        GALACTIC_LEVEL_ANNOUNCEMENT_HOOK,
-        UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK,
-        CENSORED_LEVEL_ANNOUNCEMENT_HOOK,
-      } = process.env;
+      // Load all levels with their configs
+      const levels = await Level.findAll({
+        where: {
+          id: {
+            [Op.in]: levelIds,
+          },
+        },
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+        ],
+      });
 
-      if (
-        !PLANETARY_LEVEL_ANNOUNCEMENT_HOOK ||
-        !GALACTIC_LEVEL_ANNOUNCEMENT_HOOK ||
-        !UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK ||
-        !CENSORED_LEVEL_ANNOUNCEMENT_HOOK
-      ) {
-        throw new Error('Webhook URLs not configured');
+      // Get announcement configs for all levels
+      const configs = new Map();
+      for (const level of levels) {
+        if (!level.diffId) continue;
+        const config = await getLevelAnnouncementConfig(level);
+        configs.set(level.id, config);
       }
 
-      const planetaryHook = new Webhook(PLANETARY_LEVEL_ANNOUNCEMENT_HOOK);
-      const galacticHook = new Webhook(GALACTIC_LEVEL_ANNOUNCEMENT_HOOK);
-      const universalHook = new Webhook(UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK);
-      const censoredHook = new Webhook(CENSORED_LEVEL_ANNOUNCEMENT_HOOK);
+      // Group levels by webhook URL
+      const groups = groupByWebhook(levels, configs);
 
-      [planetaryHook, galacticHook, universalHook, censoredHook].forEach(
-        hook => {
-          hook.setUsername('TUF Level Announcer');
-          hook.setAvatar(placeHolder);
-        },
-      );
-
-      // Process levels in batches of 10
-      await processBatches(levelIds, 10, async (batchIds, isFirstBatch) => {
-        const levels = await Level.findAll({
-          where: {
-            id: {
-              [Op.in]: batchIds,
-            },
-          },
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
+      // Process each webhook group
+      for (const group of groups) {
+        await processBatches(group.items, 10, async (batchLevels, isFirstBatch) => {
+          const embeds = await Promise.all(
+            batchLevels.map(level => createNewLevelEmbed(level as Level))
+          );
+          
+          await sendWebhookMessages(
+            group.webhookUrl,
+            embeds,
+            group.ping,
+            isFirstBatch
+          );
         });
+      }
 
-        // Group levels by their announcement channels
-        const planetaryLevels: Level[] = [];
-        const galacticLevels: Level[] = [];
-        const universalLevels: Level[] = [];
-        const censoredLevels: Level[] = [];
-
-        for (const level of levels) {
-          const config = getLevelAnnouncementConfig(level);
-
-          if (config.channels.includes('planetary-levels')) {
-            planetaryLevels.push(level);
-          } else if (config.channels.includes('galactic-levels')) {
-            galacticLevels.push(level);
-          } else if (config.channels.includes('censored-levels')) {
-            censoredLevels.push(level);
-          } else if (config.channels.includes('universal-levels')) {
-            universalLevels.push(level);
-          }
-        }
-
-        // Send to Planetary channel
-        if (planetaryLevels.length > 0) {
-          const embeds = await Promise.all(
-            planetaryLevels.map(
-              async level => await createNewLevelEmbed(level),
-            ),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) {
-            combinedEmbed.setText(`<@&${process.env.PLANETARY_PING_ROLE_ID}>`);
-          }
-          await planetaryHook.send(combinedEmbed);
-        }
-
-        // Send to Galactic channel
-        if (galacticLevels.length > 0) {
-          const embeds = await Promise.all(
-            galacticLevels.map(async level => await createNewLevelEmbed(level)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) {
-            combinedEmbed.setText(`<@&${process.env.GALACTIC_PING_ROLE_ID}>`);
-          }
-          await galacticHook.send(combinedEmbed);
-        }
-
-        // Send to Universal channel
-        if (universalLevels.length > 0) {
-          const embeds = await Promise.all(
-            universalLevels.map(
-              async level => await createNewLevelEmbed(level),
-            ),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) {
-            combinedEmbed.setText(
-              `\n<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`,
-            );
-          }
-          await universalHook.send(combinedEmbed);
-        }
-
-        // Send to Censored channel
-        if (censoredLevels.length > 0) {
-          const embeds = await Promise.all(
-            censoredLevels.map(async level => await createNewLevelEmbed(level)),
-          );
-          const combinedEmbed = MessageBuilder.combine(...embeds);
-          if (isFirstBatch) {
-            combinedEmbed.setText('');
-          }
-          await censoredHook.send(combinedEmbed);
-        }
+      logWebhookEvent('level_request_complete', {
+        requestId,
+        status: 'success'
       });
 
       return res.json({success: true, message: 'Webhooks sent successfully'});
     } catch (error) {
+      logWebhookEvent('level_request_error', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       console.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',
@@ -584,59 +472,81 @@ router.post(
   '/rerates',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(7);
+    logWebhookEvent('rerate_request_received', {
+      requestId,
+      levelCount: req.body.levelIds?.length || 0
+    });
+
     try {
       const {levelIds} = req.body;
 
       if (!Array.isArray(levelIds)) {
+        logWebhookEvent('rerate_request_error', {
+          requestId,
+          error: 'Invalid input: levelIds must be an array'
+        });
         return res.status(400).json({error: 'levelIds must be an array'});
       }
 
-      const {RERATE_ANNOUNCEMENT_HOOK} = process.env;
-      if (!RERATE_ANNOUNCEMENT_HOOK) {
-        throw new Error('Webhook URL not configured');
+      // Load all levels with their configs
+      const levels = await Level.findAll({
+        where: {
+          id: {
+            [Op.in]: levelIds,
+          },
+        },
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+          {
+            model: Difficulty,
+            as: 'previousDifficulty',
+          },
+        ],
+      });
+
+      // Get announcement configs for all levels (with isRerate=true)
+      const configs = new Map();
+      for (const level of levels) {
+        if (!level.diffId) continue;
+        const config = await getLevelAnnouncementConfig(level, true);
+        configs.set(level.id, config);
       }
 
-      const hook = new Webhook(RERATE_ANNOUNCEMENT_HOOK);
-      hook.setUsername('TUF Level Announcer');
-      hook.setAvatar(placeHolder);
+      // Group levels by webhook URL
+      const groups = groupByWebhook(levels, configs);
 
-      // Process rerates in batches of 10
-      await processBatches(levelIds, 10, async (batchIds, isFirstBatch) => {
-        const levels = await Level.findAll({
-          where: {
-            id: {
-              [Op.in]: batchIds,
-            },
-          },
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-            {
-              model: Difficulty,
-              as: 'previousDifficulty',
-            },
-          ],
+      // Process each webhook group
+      for (const group of groups) {
+        await processBatches(group.items, 10, async (batchLevels, isFirstBatch) => {
+          const embeds = await Promise.all(
+            batchLevels.map(level => createRerateEmbed(level as Level))
+          );
+          
+          await sendWebhookMessages(
+            group.webhookUrl,
+            embeds,
+            group.ping,
+            isFirstBatch
+          );
         });
+      }
 
-        const embeds = await Promise.all(
-          levels.map(level => createRerateEmbed(level)),
-        );
-        const combinedEmbed = MessageBuilder.combine(...embeds);
-
-        if (isFirstBatch) {
-          // Get the appropriate ping based on the first level's difficulty
-          const config = getLevelAnnouncementConfig(levels[0], true);
-          const ping = config.pings['rerates'] || '';
-          combinedEmbed.setText(`${ping}`);
-        }
-
-        await hook.send(combinedEmbed);
+      logWebhookEvent('rerate_request_complete', {
+        requestId,
+        status: 'success'
       });
 
       return res.json({success: true, message: 'Webhooks sent successfully'});
     } catch (error) {
+      logWebhookEvent('rerate_request_error', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       console.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',

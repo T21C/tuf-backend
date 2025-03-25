@@ -3,7 +3,7 @@ import levelRoutes from './levels.js';
 import passRoutes from './passes.js';
 import playerRoutes from './players.js';
 import leaderboardRoutes from './leaderboard.js';
-import difficultyRoutes from './diffs.js';
+import difficultyRoutes from './difficulties.js';
 import referenceRoutes from './references.js';
 import statisticsRoutes from './statistics.js';
 import creatorRoutes from './creators.js';

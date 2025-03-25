@@ -1,5 +1,6 @@
-import {Model} from 'sequelize';
+import {Model, Optional} from 'sequelize';
 import {UserAttributes} from '../../models/User.js';
+import DirectiveAction from '../../models/DirectiveAction.js';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -207,3 +208,43 @@ export interface ITeam extends IBaseModel {
   aliases: string[];
   description?: string | null;
 }
+
+export interface IAnnouncementChannel {
+  id?: number;
+  label: string;
+  webhookUrl: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IAnnouncementRole {
+  id?: number;
+  roleId: string;
+  label: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export type DirectiveCondition = {
+  type: 'ACCURACY' | 'WORLDS_FIRST' | 'BASE_SCORE' | 'CUSTOM';
+  value?: number | string;
+  operator?: 'EQUAL' | 'GREATER_THAN' | 'LESS_THAN' | 'GREATER_THAN_EQUAL' | 'LESS_THAN_EQUAL';
+  customFunction?: string; // JavaScript function as string
+}
+
+export interface IAnnouncementDirective {
+  id?: number;
+  difficultyId: number;
+  name: string;
+  description: string;
+  mode: 'STATIC' | 'CONDITIONAL';
+  triggerType: 'PASS' | 'LEVEL';
+  condition: DirectiveCondition;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+  actions?: DirectiveAction[];
+}
+

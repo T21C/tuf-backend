@@ -1,9 +1,18 @@
 import Pass from '../../models/Pass.js';
 import Level from '../../models/Level.js';
+import AnnouncementDirective from '../../models/AnnouncementDirective.js';
+import {DirectiveCondition} from '../../interfaces/models/index.js';
+import AnnouncementChannel from '../../models/AnnouncementChannel.js';
+import AnnouncementRole from '../../models/AnnouncementRole.js';
+import DirectiveAction from '../../models/DirectiveAction.js';
+import { evaluateDirectiveCondition } from '../../utils/directiveParser.js';
+
 interface AnnouncementConfig {
-  channels: string[];
+  webhooks: {
+    [key: string]: string; // channel label -> webhook URL
+  };
   pings: {
-    [key: string]: string; // channel name -> ping type
+    [key: string]: string; // channel label -> ping content
   };
 }
 
@@ -30,49 +39,260 @@ function getDifficultyNumber(diffName: string): number {
   return match ? parseInt(match[0]) : 0;
 }
 
-export function getLevelAnnouncementConfig(
+function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Level): boolean {
+  if (!condition) return true;
+  
+  console.log(JSON.stringify({
+    type: 'directive_condition_evaluation',
+    condition_type: condition.type,
+    passId: pass?.id,
+    levelId: level?.id,
+    condition_details: condition
+  }));
+
+  switch (condition.type) {
+    case 'ACCURACY':
+      if (!condition.value || !condition.operator) return false;
+      const accuracy = pass.accuracy || 0;
+      const targetAccuracy = Number(condition.value);
+      
+      const result = (() => {
+        switch (condition.operator) {
+          case 'EQUAL':
+            return accuracy === targetAccuracy;
+          case 'GREATER_THAN':
+            return accuracy > targetAccuracy;
+          case 'LESS_THAN':
+            return accuracy < targetAccuracy;
+          case 'GREATER_THAN_EQUAL':
+            return accuracy >= targetAccuracy;
+          case 'LESS_THAN_EQUAL':
+            return accuracy <= targetAccuracy;
+          default:
+            return false;
+        }
+      })();
+
+      console.log(JSON.stringify({
+        type: 'accuracy_condition_check',
+        pass_accuracy: accuracy,
+        target_accuracy: targetAccuracy,
+        operator: condition.operator,
+        result
+      }));
+
+      return result;
+
+    case 'WORLDS_FIRST':
+      return pass.isWorldsFirst === true;
+
+    case 'BASE_SCORE':
+      if (!condition.value || !condition.operator || !level.baseScore) return false;
+      const baseScore = level.baseScore;
+      const targetScore = Number(condition.value);
+      
+      switch (condition.operator) {
+        case 'EQUAL':
+          return baseScore === targetScore;
+        case 'GREATER_THAN':
+          return baseScore > targetScore;
+        case 'LESS_THAN':
+          return baseScore < targetScore;
+        case 'GREATER_THAN_EQUAL':
+          return baseScore >= targetScore;
+        case 'LESS_THAN_EQUAL':
+          return baseScore <= targetScore;
+        default:
+          return false;
+      }
+
+    case 'CUSTOM':
+      if (!condition.customFunction) return false;
+      try {
+        return evaluateDirectiveCondition(condition.customFunction, pass, level);
+      } catch (error) {
+        console.error('Error evaluating custom condition:', error);
+        return false;
+      }
+
+    default:
+      return false;
+  }
+}
+
+async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PASS' | 'LEVEL', pass?: Pass, level?: Level) {
+  console.log(JSON.stringify({
+    type: 'fetching_directives',
+    difficultyId: difficultyId,
+    triggerType: triggerType,
+    passId: pass?.id,
+    levelId: level?.id
+  }));
+
+  const directives = await AnnouncementDirective.findAll({
+    where: {
+      difficultyId,
+      isActive: true,
+      triggerType,
+    },
+    include: [
+      {
+        model: DirectiveAction,
+        as: 'actions',
+        where: { isActive: true },
+        required: false,
+        include: [
+          {
+            model: AnnouncementChannel,
+            as: 'channel',
+            where: { isActive: true },
+            required: true
+          },
+          {
+            model: AnnouncementRole,
+            as: 'role',
+            where: { isActive: true },
+            required: false
+          }
+        ]
+      }
+    ]
+  });
+
+  console.log(JSON.stringify({
+    type: 'directives_found',
+    difficultyId: difficultyId,
+    directiveCount: directives.length,
+    directives: directives.map(d => ({
+      id: d.id,
+      name: d.name,
+      mode: d.mode,
+      condition: d.condition,
+      actionCount: d.actions?.length || 0
+    }))
+  }));
+
+  const filteredDirectives = directives.filter(directive => {
+    if (!pass || !level) return true;
+    const result = evaluateCondition(directive.condition, pass, level);
+    
+    console.log(JSON.stringify({
+      type: 'directive_evaluation',
+      directiveId: directive.id,
+      directiveName: directive.name,
+      passId: pass?.id,
+      levelId: level?.id,
+      condition_met: result
+    }));
+    
+    return result;
+  });
+
+  console.log(JSON.stringify({
+    type: 'filtered_directives',
+    difficultyId: difficultyId,
+    original_count: directives.length,
+    filteredCount: filteredDirectives.length,
+    matchingDirectives: filteredDirectives.map(d => ({
+      id: d.id,
+      name: d.name,
+      actionCount: d.actions?.length || 0
+    }))
+  }));
+
+  return filteredDirectives;
+}
+
+function channelTypeToName(type: string): string {
+  const mapping: {[key: string]: string} = {
+    'PLANETARY': 'planetary-levels',
+    'GALACTIC': 'galactic-levels',
+    'UNIVERSAL': 'universal-levels',
+    'CENSORED': 'censored-levels',
+    'RERATES': 'rerates'
+  };
+  return mapping[type] || type.toLowerCase() + '-levels';
+}
+
+export async function getLevelAnnouncementConfig(
   level: Level,
   isRerate = false,
-): AnnouncementConfig {
+): Promise<AnnouncementConfig> {
+  console.log(JSON.stringify({
+    type: 'get_level_announcement_config',
+    levelId: level?.id,
+    difficultyId: level?.difficulty?.id,
+    difficultyName: level?.difficulty?.name,
+    isRerate: isRerate
+  }));
+
   const difficulty = level?.difficulty;
   if (!difficulty) {
-    return {channels: [], pings: {}};
+    console.log(JSON.stringify({
+      type: 'level_announcement_config_empty',
+      reason: 'no_difficulty',
+      levelId: level?.id
+    }));
+    return {webhooks: {}, pings: {}};
   }
 
-  const diffName = difficulty.name;
+  // Handle censored levels (-2)
+  if (difficulty.name === '-2' || difficulty.name === '-21') {
+    console.log(JSON.stringify({
+      type: 'level_announcement_config_censored',
+      levelId: level.id,
+      difficultyName: difficulty.name
+    }));
+    return {
+      webhooks: {},
+      pings: {},
+    };
+  }
+
+  const directives = await getAnnouncementDirectives(difficulty.id, 'LEVEL', undefined, level);
   const config: AnnouncementConfig = {
-    channels: [],
+    webhooks: {},
     pings: {},
   };
 
-  // Handle censored levels (-2)
-  if (diffName === '-2' || diffName === '-21') {
-    config.channels.push('censored-levels');
-    return config;
+  // Process directives
+  for (const directive of directives) {
+    if (!directive.actions) continue;
+
+    console.log(JSON.stringify({
+      type: 'processing_directive_actions',
+      directiveId: directive.id,
+      directiveName: directive.name,
+      actionCount: directive.actions.length,
+      actions: directive.actions.map(a => ({
+        id: a.id,
+        channelLabel: a.channel?.label,
+        pingType: a.pingType
+      }))
+    }));
+
+    for (const action of directive.actions) {
+      if (!action.channel) continue;
+      
+      const channelLabel = action.channel.label;
+      config.webhooks[channelLabel] = action.channel.webhookUrl;
+      
+      if (action.pingType === 'EVERYONE') {
+        config.pings[channelLabel] = '@everyone';
+      } else if (action.pingType === 'ROLE' && action.role?.roleId) {
+        config.pings[channelLabel] = `<@&${action.role.roleId}>`;
+      }
+    }
   }
 
-  // Handle rerates
-  if (isRerate) {
-    config.channels.push('rerates');
-    // Add ping based on difficulty type
-    config.pings['rerates'] = `<@&${process.env.RERATE_PING_ROLE_ID}>`;
-    return config;
-  }
+  console.log(JSON.stringify({
+    type: 'level_announcement_config_result',
+    levelId: level.id,
+    difficultyId: difficulty.id,
+    channels: Object.keys(config.webhooks),
+    pings: config.pings
+  }));
 
-  // Handle new levels
-  if (diffName.startsWith('P')) {
-    config.channels.push('planetary-levels');
-    config.pings['planetary-levels'] =
-      `<@&${process.env.PLANETARY_PING_ROLE_ID}>`;
-  } else if (diffName.startsWith('G')) {
-    config.channels.push('galactic-levels');
-    config.pings['galactic-levels'] =
-      `<@&${process.env.GALACTIC_PING_ROLE_ID}>`;
-  } else {
-    config.channels.push('universal-levels');
-    config.pings['universal-levels'] =
-      `<@&${process.env.UNIVERSAL_PING_ROLE_ID}>`;
-  }
   return config;
 }
 
@@ -84,101 +304,71 @@ function isNoMiss(pass: Pass): boolean {
   return pass.judgements?.earlyDouble === 0;
 }
 
-export function getPassAnnouncementConfig(pass: Pass): AnnouncementConfig {
+export async function getPassAnnouncementConfig(pass: Pass): Promise<AnnouncementConfig> {
+  console.log(JSON.stringify({
+    type: 'get_pass_announcement_config',
+    passId: pass.id,
+    levelId: pass.level?.id,
+    difficultyId: pass.level?.difficulty?.id,
+    difficultyName: pass.level?.difficulty?.name,
+    accuracy: pass.accuracy
+  }));
+
   const difficulty = pass.level?.difficulty;
   if (!difficulty || difficulty.name === '-2' || difficulty.name === '0') {
-    return {channels: [], pings: {}};
+    console.log(JSON.stringify({
+      type: 'pass_announcement_config_empty',
+      reason: difficulty ? `excluded_difficulty_${difficulty.name}` : 'no_difficulty',
+      passId: pass.id
+    }));
+    return {webhooks: {}, pings: {}};
   }
 
-  const diffName = difficulty.name;
-  const diffType = getDifficultyType(diffName);
-  const diffNumber = getDifficultyNumber(diffName);
-  const isWF = pass.isWorldsFirst;
-  const isPP = isPurePerect(pass);
-
+  const directives = await getAnnouncementDirectives(difficulty.id, 'PASS', pass, pass.level);
   const config: AnnouncementConfig = {
-    channels: [],
+    webhooks: {},
     pings: {},
   };
 
-  if (diffName === 'MA' && pass.level?.baseScore && pass.level?.baseScore >= 5000) {
-    return {channels: [], pings: {}}
-  }
+  // Process directives
+  for (const directive of directives) {
+    if (!directive.actions) continue;
 
-  // Add channels based on flags and determine their pings
-  if (isWF) {
-    config.channels.push('wf-clears');
-    if (diffType !== 'P') {
-      config.pings['wf-clears'] = '@wf ping';
+    console.log(JSON.stringify({
+      type: 'processing_pass_directive_actions',
+      directiveId: directive.id,
+      directiveName: directive.name,
+      actionCount: directive.actions.length,
+      actions: directive.actions.map(a => ({
+        id: a.id,
+        channelLabel: a.channel?.label,
+        pingType: a.pingType
+      })),
+      passId: pass.id
+    }));
+
+    for (const action of directive.actions) {
+      if (!action.channel) continue;
+      
+      const channelLabel = action.channel.label;
+      config.webhooks[channelLabel] = action.channel.webhookUrl;
+      
+      if (action.pingType === 'EVERYONE') {
+        config.pings[channelLabel] = '@everyone';
+      } else if (action.pingType === 'ROLE' && action.role?.roleId) {
+        config.pings[channelLabel] = `<@&${action.role.roleId}>`;
+      }
     }
   }
 
-  if (isPP) {
-    config.channels.push('pp-clears');
-    if (diffType !== 'P') {
-      config.pings['pp-clears'] = '@pp ping';
-    }
-  }
-
-  // Determine pings based on difficulty and flags
-  switch (diffType) {
-    case 'P':
-      // P levels don't get pings
-      config.pings['universal-clears'] = '';
-      break;
-
-    case 'G':
-      break;
-
-    case 'U':
-      config.channels.push('universal-clears');
-      if (pass.accuracy === 1.0) {
-        config.pings['universal-clears'] = '@everyone';
-      }
-      // U1-U6: Universal ping for clear
-      else if (diffNumber <= 6) {
-        config.pings['universal-clears'] = '@universal ping';
-      }
-      // U7-U9: Universal ping for clear, WF gets everyone
-      else if (diffNumber <= 9) {
-        config.pings['universal-clears'] = isWF
-          ? '@everyone'
-          : '@universal ping';
-      }
-      // U10: Universal ping for clear, no miss gets everyone
-      else if (diffNumber === 10) {
-        config.pings['universal-clears'] = isNoMiss(pass)
-          ? '@everyone'
-          : '@universal ping';
-      }
-      // U11+: Everyone ping for everything
-      else {
-        config.pings['universal-clears'] = '@everyone';
-      }
-      break;
-
-    case 'Q':
-      config.channels.push('universal-clears');
-      config.pings['universal-clears'] = '@everyone';
-      break;
-
-    case 'SPECIAL':
-      config.channels.push('universal-clears');
-      switch (diffName) {
-        case 'MP':
-        case 'Grande':
-        case 'MA':
-        case 'Bus':
-          config.pings['universal-clears'] = '@universal ping';
-          break;
-        case '-21':
-          config.pings['universal-clears'] = '@everyone';
-          break;
-        default:
-          config.pings['universal-clears'] = '';
-      }
-      break;
-  }
+  console.log(JSON.stringify({
+    type: 'pass_announcement_config_result',
+    passId: pass.id,
+    levelId: pass.level?.id,
+    difficultyId: difficulty.id,
+    channels: Object.keys(config.webhooks),
+    pings: config.pings
+  }));
 
   return config;
 }

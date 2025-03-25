@@ -21,6 +21,10 @@ import Team from './Team.js';
 import TeamMember from './TeamMember.js';
 import PlayerStats from './PlayerStats.js';
 import UsernameChange from './UsernameChange.js';
+import AnnouncementChannel from './AnnouncementChannel.js';
+import AnnouncementRole from './AnnouncementRole.js';
+import AnnouncementDirective from './AnnouncementDirective.js';
+import DirectiveAction from './DirectiveAction.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -44,6 +48,10 @@ export const db = {
     TeamMember,
     PlayerStats,
     UsernameChange,
+    AnnouncementChannel,
+    AnnouncementRole,
+    AnnouncementDirective,
+    DirectiveAction,
   },
 };
 

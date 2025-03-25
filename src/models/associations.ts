@@ -22,6 +22,7 @@ import PlayerStats from './PlayerStats.js';
 import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
 import LevelSubmission from './LevelSubmission.js';
+import AnnouncementDirective from './AnnouncementDirective.js';
 
 export function initializeAssociations() {
   // User <-> Player associations
@@ -389,5 +390,16 @@ export function initializeAssociations() {
   LevelSubmissionTeamRequest.belongsTo(Team, {
     foreignKey: 'teamId',
     as: 'team'
+  });
+
+  // Difficulty Associations
+  Difficulty.hasMany(AnnouncementDirective, {
+    foreignKey: 'difficultyId',
+    as: 'announcementDirectives',
+  });
+
+  AnnouncementDirective.belongsTo(Difficulty, {
+    foreignKey: 'difficultyId',
+    as: 'difficulty',
   });
 }
