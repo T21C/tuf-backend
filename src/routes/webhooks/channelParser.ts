@@ -41,14 +41,7 @@ function getDifficultyNumber(diffName: string): number {
 
 function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Level): boolean {
   if (!condition) return true;
-  
-  console.log(JSON.stringify({
-    type: 'directive_condition_evaluation',
-    condition_type: condition.type,
-    passId: pass?.id,
-    levelId: level?.id,
-    condition_details: condition
-  }));
+
 
   switch (condition.type) {
     case 'ACCURACY':
@@ -73,13 +66,6 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
         }
       })();
 
-      console.log(JSON.stringify({
-        type: 'accuracy_condition_check',
-        pass_accuracy: accuracy,
-        target_accuracy: targetAccuracy,
-        operator: condition.operator,
-        result
-      }));
 
       return result;
 
@@ -121,13 +107,7 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
 }
 
 async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PASS' | 'LEVEL', pass?: Pass, level?: Level) {
-  console.log(JSON.stringify({
-    type: 'fetching_directives',
-    difficultyId: difficultyId,
-    triggerType: triggerType,
-    passId: pass?.id,
-    levelId: level?.id
-  }));
+
 
   const directives = await AnnouncementDirective.findAll({
     where: {
@@ -159,46 +139,17 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
     ]
   });
 
-  console.log(JSON.stringify({
-    type: 'directives_found',
-    difficultyId: difficultyId,
-    directiveCount: directives.length,
-    directives: directives.map(d => ({
-      id: d.id,
-      name: d.name,
-      mode: d.mode,
-      condition: d.condition,
-      actionCount: d.actions?.length || 0
-    }))
-  }));
 
   const filteredDirectives = directives.filter(directive => {
     if (!pass || !level) return true;
     const result = evaluateCondition(directive.condition, pass, level);
     
-    console.log(JSON.stringify({
-      type: 'directive_evaluation',
-      directiveId: directive.id,
-      directiveName: directive.name,
-      passId: pass?.id,
-      levelId: level?.id,
-      condition_met: result
-    }));
+
     
     return result;
   });
 
-  console.log(JSON.stringify({
-    type: 'filtered_directives',
-    difficultyId: difficultyId,
-    original_count: directives.length,
-    filteredCount: filteredDirectives.length,
-    matchingDirectives: filteredDirectives.map(d => ({
-      id: d.id,
-      name: d.name,
-      actionCount: d.actions?.length || 0
-    }))
-  }));
+
 
   return filteredDirectives;
 }
@@ -218,31 +169,17 @@ export async function getLevelAnnouncementConfig(
   level: Level,
   isRerate = false,
 ): Promise<AnnouncementConfig> {
-  console.log(JSON.stringify({
-    type: 'get_level_announcement_config',
-    levelId: level?.id,
-    difficultyId: level?.difficulty?.id,
-    difficultyName: level?.difficulty?.name,
-    isRerate: isRerate
-  }));
+
 
   const difficulty = level?.difficulty;
   if (!difficulty) {
-    console.log(JSON.stringify({
-      type: 'level_announcement_config_empty',
-      reason: 'no_difficulty',
-      levelId: level?.id
-    }));
+
     return {webhooks: {}, pings: {}};
   }
 
   // Handle censored levels (-2)
   if (difficulty.name === '-2' || difficulty.name === '-21') {
-    console.log(JSON.stringify({
-      type: 'level_announcement_config_censored',
-      levelId: level.id,
-      difficultyName: difficulty.name
-    }));
+
     return {
       webhooks: {},
       pings: {},
@@ -259,18 +196,6 @@ export async function getLevelAnnouncementConfig(
   for (const directive of directives) {
     if (!directive.actions) continue;
 
-    console.log(JSON.stringify({
-      type: 'processing_directive_actions',
-      directiveId: directive.id,
-      directiveName: directive.name,
-      actionCount: directive.actions.length,
-      actions: directive.actions.map(a => ({
-        id: a.id,
-        channelLabel: a.channel?.label,
-        pingType: a.pingType
-      }))
-    }));
-
     for (const action of directive.actions) {
       if (!action.channel) continue;
       
@@ -285,13 +210,7 @@ export async function getLevelAnnouncementConfig(
     }
   }
 
-  console.log(JSON.stringify({
-    type: 'level_announcement_config_result',
-    levelId: level.id,
-    difficultyId: difficulty.id,
-    channels: Object.keys(config.webhooks),
-    pings: config.pings
-  }));
+
 
   return config;
 }
@@ -305,22 +224,10 @@ function isNoMiss(pass: Pass): boolean {
 }
 
 export async function getPassAnnouncementConfig(pass: Pass): Promise<AnnouncementConfig> {
-  console.log(JSON.stringify({
-    type: 'get_pass_announcement_config',
-    passId: pass.id,
-    levelId: pass.level?.id,
-    difficultyId: pass.level?.difficulty?.id,
-    difficultyName: pass.level?.difficulty?.name,
-    accuracy: pass.accuracy
-  }));
 
   const difficulty = pass.level?.difficulty;
   if (!difficulty || difficulty.name === '-2' || difficulty.name === '0') {
-    console.log(JSON.stringify({
-      type: 'pass_announcement_config_empty',
-      reason: difficulty ? `excluded_difficulty_${difficulty.name}` : 'no_difficulty',
-      passId: pass.id
-    }));
+
     return {webhooks: {}, pings: {}};
   }
 
@@ -334,18 +241,7 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
   for (const directive of directives) {
     if (!directive.actions) continue;
 
-    console.log(JSON.stringify({
-      type: 'processing_pass_directive_actions',
-      directiveId: directive.id,
-      directiveName: directive.name,
-      actionCount: directive.actions.length,
-      actions: directive.actions.map(a => ({
-        id: a.id,
-        channelLabel: a.channel?.label,
-        pingType: a.pingType
-      })),
-      passId: pass.id
-    }));
+
 
     for (const action of directive.actions) {
       if (!action.channel) continue;
@@ -361,14 +257,7 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
     }
   }
 
-  console.log(JSON.stringify({
-    type: 'pass_announcement_config_result',
-    passId: pass.id,
-    levelId: pass.level?.id,
-    difficultyId: difficulty.id,
-    channels: Object.keys(config.webhooks),
-    pings: config.pings
-  }));
+
 
   return config;
 }

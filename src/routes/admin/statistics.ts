@@ -68,10 +68,6 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     // Calculate total pending submissions
     const totalPendingSubmissions =
       pendingLevelSubmissions + pendingPassSubmissions;
-
-    console.log(unratedRatings.length);
-    console.log(currentRatingsCount);
-    console.log(unratedRatings.length - currentRatingsCount);
     return res.json({
       unratedRatings: unratedRatings.length - currentRatingsCount,
       pendingLevelSubmissions,

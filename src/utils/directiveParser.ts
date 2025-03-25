@@ -221,8 +221,6 @@ export class DirectiveParser {
 
   public parse(): string {
     const expr = this.parseExpression();
-    // Add debug logging
-    console.log('Parsed expression:', expr);
     return expr;
   }
 }
@@ -254,8 +252,6 @@ export function evaluateDirectiveCondition(
       return ${expression};
     `);
 
-    console.log(expression);
-    // Execute the expression with the provided context
     return evaluate(fields);
   } catch (error) {
     console.error('Error evaluating directive condition:', error);

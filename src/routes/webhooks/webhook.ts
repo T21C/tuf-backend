@@ -39,12 +39,12 @@ const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
 
 // Add logging helper at the top
 function logWebhookEvent(type: string, details: Record<string, any>) {
-  const timestamp = new Date().toISOString();
-  console.log(JSON.stringify({
-    timestamp,
-    type: `webhook_${type}`,
-    ...details
-  }));
+  // const timestamp = new Date().toISOString();
+  // console.log(JSON.stringify({
+  //   timestamp,
+  //   type: `webhook_${type}`,
+  //   ...details
+  // }));
 }
 
 // Helper function to process items in batches
