@@ -6,30 +6,50 @@ module.exports = {
 
     try {
       // First, add the new levelId column without constraints
-      await queryInterface.addColumn('directive_condition_history', 'levelId', {
-        type: Sequelize.INTEGER,
-        allowNull: true, // Allow null initially
-      }, { transaction });
+      try {
+        await queryInterface.addColumn('directive_condition_history', 'levelId', {
+          type: Sequelize.INTEGER,
+          allowNull: true, // Allow null initially
+        }, { transaction });
+      } catch (error) {
+        console.error('Error adding column:', error);
+      }
 
       // Now add the foreign key constraint
-      await queryInterface.changeColumn('directive_condition_history', 'levelId', {
-        type: Sequelize.INTEGER,
-        allowNull: false,
+      try {
+        await queryInterface.changeColumn('directive_condition_history', 'levelId', {
+          type: Sequelize.INTEGER,
+          allowNull: false,
         references: {
           model: 'levels',
           key: 'id',
         },
-      }, { transaction });
+        }, { transaction });
+      } catch (error) {
+        console.error('Error changing column:', error);
+      }
 
       // Remove the foreign key constraint from directiveId first
-      await queryInterface.removeConstraint('directive_condition_history', 'directive_condition_history_directiveId_fkey', { transaction });
+      try {
+        await queryInterface.removeConstraint('directive_condition_history', 'directive_condition_history_directiveId_fkey', { transaction });
+      } catch (error) {
+        console.error('Error removing constraint:', error);
+      }
 
       // Now we can safely update the unique index
-      await queryInterface.removeIndex('directive_condition_history', ['directiveId', 'conditionHash'], { transaction });
-      await queryInterface.addIndex('directive_condition_history', ['levelId', 'conditionHash'], {
-        unique: true,
-        transaction
-      });
+      try {
+        await queryInterface.removeIndex('directive_condition_history', ['directiveId', 'conditionHash'], { transaction });
+      } catch (error) {
+        console.error('Error removing index:', error);
+      }
+      try {
+        await queryInterface.addIndex('directive_condition_history', ['levelId', 'conditionHash'], {
+          unique: true,
+          transaction
+        });
+      } catch (error) {
+        console.error('Error adding index:', error);
+      }
 
       // Finally, remove the old directiveId column
       await queryInterface.removeColumn('directive_condition_history', 'directiveId', { transaction });
