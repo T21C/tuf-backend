@@ -638,6 +638,7 @@ interface DirectiveInput {
     roleId?: number;
   }[];
   isActive: boolean;
+  firstOfKind: boolean;
 }
 
 // Get announcement directives for a difficulty
@@ -788,6 +789,7 @@ router.post('/:id/directives', Auth.superAdminPassword(), async (req, res) => {
           triggerType: directive.triggerType,
           condition: directive.condition as DirectiveCondition,
           isActive: directive.isActive,
+          firstOfKind: directive.firstOfKind,
           createdAt: new Date(),
           updatedAt: new Date(),
         }, { transaction });

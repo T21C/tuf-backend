@@ -13,6 +13,7 @@ class AnnouncementDirective extends Model<IAnnouncementDirective> implements IAn
   declare triggerType: 'PASS' | 'LEVEL';
   declare condition: DirectiveCondition;
   declare isActive: boolean;
+  declare firstOfKind: boolean;
   declare createdAt: Date;
   declare updatedAt: Date;
   declare actions?: DirectiveAction[];
@@ -60,6 +61,11 @@ AnnouncementDirective.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+    firstOfKind: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     createdAt: {
       type: DataTypes.DATE,

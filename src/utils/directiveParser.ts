@@ -25,7 +25,8 @@ const PASS_FIELDS = {
   'IS_12K': (pass: IPass) => pass.is12K || false,
   'IS_16K': (pass: IPass) => pass.is16K || false,
   'SPEED': (pass: IPass) => pass.speed || 0,
-  'ACCURACY': (pass: IPass) => pass.accuracy || 0
+  'ACCURACY': (pass: IPass) => pass.accuracy || 0,
+  'NO_MISS': (pass: IPass) => pass.judgements?.earlyDouble === 0
 } as const;
 
 const LEVEL_FIELDS = {
@@ -240,7 +241,8 @@ export function evaluateDirectiveCondition(
       IS_12K: PASS_FIELDS.IS_12K(pass),
       IS_16K: PASS_FIELDS.IS_16K(pass),
       SPEED: PASS_FIELDS.SPEED(pass),
-      ACCURACY: PASS_FIELDS.ACCURACY(pass)
+      ACCURACY: PASS_FIELDS.ACCURACY(pass),
+      NO_MISS: PASS_FIELDS.NO_MISS(pass)
     };
 
     // Parse the condition into a safe JavaScript expression

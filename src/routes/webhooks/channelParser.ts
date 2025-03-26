@@ -1,11 +1,13 @@
 import Pass from '../../models/Pass.js';
 import Level from '../../models/Level.js';
 import AnnouncementDirective from '../../models/AnnouncementDirective.js';
+import DirectiveConditionHistory from '../../models/DirectiveConditionHistory.js';
 import {DirectiveCondition} from '../../interfaces/models/index.js';
 import AnnouncementChannel from '../../models/AnnouncementChannel.js';
 import AnnouncementRole from '../../models/AnnouncementRole.js';
 import DirectiveAction from '../../models/DirectiveAction.js';
 import { evaluateDirectiveCondition } from '../../utils/directiveParser.js';
+import crypto from 'crypto';
 
 interface AnnouncementConfig {
   webhooks: {
@@ -106,15 +108,43 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
   }
 }
 
+function generateConditionHash(condition: DirectiveCondition, levelId: number): string {
+  // Create a string representation of the condition and level ID
+  const conditionString = JSON.stringify({
+    ...condition,
+    levelId, // Include level ID in the hash
+  });
+  // Generate a hash of the condition string
+  return crypto.createHash('sha256').update(conditionString).digest('hex');
+}
+
+async function hasConditionBeenMetBefore(directiveId: number, condition: DirectiveCondition, levelId: number): Promise<boolean> {
+  const conditionHash = generateConditionHash(condition, levelId);
+  const history = await DirectiveConditionHistory.findOne({
+    where: {
+      directiveId,
+      conditionHash,
+    },
+  });
+  return !!history;
+}
+
+async function recordConditionMet(directiveId: number, condition: DirectiveCondition, levelId: number): Promise<void> {
+  const conditionHash = generateConditionHash(condition, levelId);
+  await DirectiveConditionHistory.create({
+    directiveId,
+    conditionHash,
+  });
+}
+
 async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PASS' | 'LEVEL', pass?: Pass, level?: Level) {
-
-
   const directives = await AnnouncementDirective.findAll({
     where: {
       difficultyId,
       isActive: true,
       triggerType,
     },
+    order: [['sortOrder', 'ASC']], // Sort by sortOrder ascending
     include: [
       {
         model: DirectiveAction,
@@ -139,19 +169,28 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
     ]
   });
 
-
-  const filteredDirectives = directives.filter(directive => {
+  const filteredDirectives = await Promise.all(directives.map(async directive => {
     if (!pass || !level) return true;
-    const result = evaluateCondition(directive.condition, pass, level);
     
-
+    // For firstOfKind directives, we need to check if this condition was ever met before for this specific level
+    if (directive.firstOfKind) {
+      const conditionMet = await hasConditionBeenMetBefore(directive.id, directive.condition, level.id);
+      if (conditionMet) {
+        return false; // Skip this directive if the condition was met before for this level
+      }
+      
+      // If the condition is met now, record it for this level
+      const isMet = evaluateCondition(directive.condition, pass, level);
+      if (isMet) {
+        await recordConditionMet(directive.id, directive.condition, level.id);
+      }
+      return isMet;
+    }
     
-    return result;
-  });
+    return evaluateCondition(directive.condition, pass, level);
+  }));
 
-
-
-  return filteredDirectives;
+  return directives.filter((_, index) => filteredDirectives[index]);
 }
 
 function channelTypeToName(type: string): string {
@@ -169,17 +208,13 @@ export async function getLevelAnnouncementConfig(
   level: Level,
   isRerate = false,
 ): Promise<AnnouncementConfig> {
-
-
   const difficulty = level?.difficulty;
   if (!difficulty) {
-
     return {webhooks: {}, pings: {}};
   }
 
   // Handle censored levels (-2)
   if (difficulty.name === '-2' || difficulty.name === '-21') {
-
     return {
       webhooks: {},
       pings: {},
@@ -192,7 +227,10 @@ export async function getLevelAnnouncementConfig(
     pings: {},
   };
 
-  // Process directives
+  // Track channels that have been processed
+  const processedChannels = new Set<string>();
+
+  // Process directives in order of priority (sortOrder)
   for (const directive of directives) {
     if (!directive.actions) continue;
 
@@ -200,6 +238,13 @@ export async function getLevelAnnouncementConfig(
       if (!action.channel) continue;
       
       const channelLabel = action.channel.label;
+      
+      // Skip if this channel has already been processed
+      if (processedChannels.has(channelLabel)) continue;
+      
+      // Mark this channel as processed
+      processedChannels.add(channelLabel);
+      
       config.webhooks[channelLabel] = action.channel.webhookUrl;
       
       if (action.pingType === 'EVERYONE') {
@@ -209,8 +254,6 @@ export async function getLevelAnnouncementConfig(
       }
     }
   }
-
-
 
   return config;
 }
@@ -224,10 +267,8 @@ function isNoMiss(pass: Pass): boolean {
 }
 
 export async function getPassAnnouncementConfig(pass: Pass): Promise<AnnouncementConfig> {
-
   const difficulty = pass.level?.difficulty;
   if (!difficulty || difficulty.name === '-2' || difficulty.name === '0') {
-
     return {webhooks: {}, pings: {}};
   }
 
@@ -237,16 +278,24 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
     pings: {},
   };
 
-  // Process directives
+  // Track channels that have been processed
+  const processedChannels = new Set<string>();
+
+  // Process directives in order of priority (sortOrder)
   for (const directive of directives) {
     if (!directive.actions) continue;
-
-
 
     for (const action of directive.actions) {
       if (!action.channel) continue;
       
       const channelLabel = action.channel.label;
+      
+      // Skip if this channel has already been processed
+      if (processedChannels.has(channelLabel)) continue;
+      
+      // Mark this channel as processed
+      processedChannels.add(channelLabel);
+      
       config.webhooks[channelLabel] = action.channel.webhookUrl;
       
       if (action.pingType === 'EVERYONE') {
@@ -256,8 +305,6 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
       }
     }
   }
-
-
 
   return config;
 }

@@ -40,9 +40,9 @@ const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
 // Add logging helper at the top
 function logWebhookEvent(type: string, details: Record<string, any>) {
   if (process.env.NODE_ENV === 'development') {
-  const timestamp = new Date().toISOString();
-  console.log(JSON.stringify({
-    timestamp,
+    const timestamp = new Date().toISOString();
+    console.log(JSON.stringify({
+      timestamp,
       type: `webhook_${type}`,
       ...details
     }));
@@ -418,10 +418,29 @@ router.post(
         if (!level.diffId) continue;
         const config = await getLevelAnnouncementConfig(level);
         configs.set(level.id, config);
+        
+        // Log config details
+        logWebhookEvent('level_config_loaded', {
+          requestId,
+          levelId: level.id,
+          webhookCount: Object.keys(config.webhooks).length,
+          webhookChannels: Object.keys(config.webhooks)
+        });
       }
 
       // Group levels by webhook URL
       const groups = groupByWebhook(levels, configs);
+
+      // Log group details
+      logWebhookEvent('level_groups_created', {
+        requestId,
+        groupCount: groups.length,
+        groupDetails: groups.map(g => ({
+          webhookUrl: g.webhookUrl,
+          itemCount: g.items.length,
+          items: g.items.map(i => i.id)
+        }))
+      });
 
       // Process each webhook group
       for (const group of groups) {
@@ -435,6 +454,14 @@ router.post(
             embeds,
             group.ping
           );
+
+          // Log batch sent
+          logWebhookEvent('level_batch_sent', {
+            requestId,
+            webhookUrl: group.webhookUrl,
+            batchSize: batchLevels.length,
+            levelIds: batchLevels.map(l => l.id)
+          });
         });
       }
 

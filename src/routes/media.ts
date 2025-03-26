@@ -474,7 +474,7 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     res.send(buffer);
     return;
   } catch (error) {
-    console.error('Error generating image:', error);
+    console.error('Error generating image for level id:', req.params.levelId, error);
     res.status(500).send('Error generating image');
     return;
   }

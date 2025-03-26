@@ -246,5 +246,6 @@ export interface IAnnouncementDirective {
   createdAt?: Date;
   updatedAt?: Date;
   actions?: DirectiveAction[];
+  firstOfKind: boolean;
 }
 
