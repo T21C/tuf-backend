@@ -18,28 +18,7 @@ interface AnnouncementConfig {
   };
 }
 
-// Difficulty name patterns
-const PATTERN = {
-  P: /^P\d+$/, // P1-P20.
-  G: /^G\d+$/, // G1-G20
-  U: /^U\d+$/, // U1-U20
-  Q: /^Q\d+(\+)?$/, // Q2, Q2+, Q3, Q3+, Q4
-  SPECIAL: /^(MP|Grande|MA|Bus|Qq|-2|-21)$/,
-};
 
-function getDifficultyType(diffName: string): string {
-  if (PATTERN.P.test(diffName)) return 'P';
-  if (PATTERN.G.test(diffName)) return 'G';
-  if (PATTERN.U.test(diffName)) return 'U';
-  if (PATTERN.Q.test(diffName)) return 'Q';
-  if (PATTERN.SPECIAL.test(diffName)) return 'SPECIAL';
-  return 'UNKNOWN';
-}
-
-function getDifficultyNumber(diffName: string): number {
-  const match = diffName.match(/\d+/);
-  return match ? parseInt(match[0]) : 0;
-}
 
 function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Level): boolean {
   if (!condition) return true;
@@ -213,14 +192,6 @@ export async function getLevelAnnouncementConfig(
     return {webhooks: {}, pings: {}};
   }
 
-  // Handle censored levels (-2)
-  if (difficulty.name === '-2' || difficulty.name === '-21') {
-    return {
-      webhooks: {},
-      pings: {},
-    };
-  }
-
   const directives = await getAnnouncementDirectives(difficulty.id, 'LEVEL', undefined, level);
   const config: AnnouncementConfig = {
     webhooks: {},
@@ -268,7 +239,7 @@ function isNoMiss(pass: Pass): boolean {
 
 export async function getPassAnnouncementConfig(pass: Pass): Promise<AnnouncementConfig> {
   const difficulty = pass.level?.difficulty;
-  if (!difficulty || difficulty.name === '-2' || difficulty.name === '0') {
+  if (!difficulty) {
     return {webhooks: {}, pings: {}};
   }
 
