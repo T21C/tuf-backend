@@ -11,7 +11,6 @@ module.exports = {
         allowNull: true, // Allow null initially
       }, { transaction });
 
-
       // Now add the foreign key constraint
       await queryInterface.changeColumn('directive_condition_history', 'levelId', {
         type: Sequelize.INTEGER,
@@ -22,7 +21,10 @@ module.exports = {
         },
       }, { transaction });
 
-      // Update the unique index
+      // Remove the foreign key constraint from directiveId first
+      await queryInterface.removeConstraint('directive_condition_history', 'directive_condition_history_directiveId_fkey', { transaction });
+
+      // Now we can safely update the unique index
       await queryInterface.removeIndex('directive_condition_history', ['directiveId', 'conditionHash'], { transaction });
       await queryInterface.addIndex('directive_condition_history', ['levelId', 'conditionHash'], {
         unique: true,
