@@ -1,10 +1,10 @@
 import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/db.js';
-import AnnouncementDirective from './AnnouncementDirective.js';
+import Level from './Level.js';
 
 class DirectiveConditionHistory extends Model {
   declare id: number;
-  declare directiveId: number;
+  declare levelId: number;
   declare conditionHash: string;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -18,11 +18,11 @@ DirectiveConditionHistory.init(
       autoIncrement: true,
       allowNull: false,
     },
-    directiveId: {
+    levelId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'announcement_directives',
+        model: 'levels',
         key: 'id',
       },
     },
@@ -47,16 +47,16 @@ DirectiveConditionHistory.init(
     indexes: [
       {
         unique: true,
-        fields: ['directiveId', 'conditionHash'],
+        fields: ['levelId', 'conditionHash'],
       },
     ],
   }
 );
 
 // Set up association
-DirectiveConditionHistory.belongsTo(AnnouncementDirective, {
-  foreignKey: 'directiveId',
-  as: 'directive',
+DirectiveConditionHistory.belongsTo(Level, {
+  foreignKey: 'levelId',
+  as: 'level',
 });
 
 export default DirectiveConditionHistory; 

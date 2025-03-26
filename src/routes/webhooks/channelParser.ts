@@ -118,21 +118,21 @@ function generateConditionHash(condition: DirectiveCondition, levelId: number): 
   return crypto.createHash('sha256').update(conditionString).digest('hex');
 }
 
-async function hasConditionBeenMetBefore(directiveId: number, condition: DirectiveCondition, levelId: number): Promise<boolean> {
+async function hasConditionBeenMetBefore(levelId: number, condition: DirectiveCondition): Promise<boolean> {
   const conditionHash = generateConditionHash(condition, levelId);
   const history = await DirectiveConditionHistory.findOne({
     where: {
-      directiveId,
+      levelId,
       conditionHash,
     },
   });
   return !!history;
 }
 
-async function recordConditionMet(directiveId: number, condition: DirectiveCondition, levelId: number): Promise<void> {
+async function recordConditionMet(levelId: number, condition: DirectiveCondition): Promise<void> {
   const conditionHash = generateConditionHash(condition, levelId);
   await DirectiveConditionHistory.create({
-    directiveId,
+    levelId,
     conditionHash,
   });
 }
@@ -174,7 +174,7 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
     
     // For firstOfKind directives, we need to check if this condition was ever met before for this specific level
     if (directive.firstOfKind) {
-      const conditionMet = await hasConditionBeenMetBefore(directive.id, directive.condition, level.id);
+      const conditionMet = await hasConditionBeenMetBefore(level.id, directive.condition);
       if (conditionMet) {
         return false; // Skip this directive if the condition was met before for this level
       }
@@ -182,7 +182,7 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
       // If the condition is met now, record it for this level
       const isMet = evaluateCondition(directive.condition, pass, level);
       if (isMet) {
-        await recordConditionMet(directive.id, directive.condition, level.id);
+        await recordConditionMet(level.id, directive.condition);
       }
       return isMet;
     }
