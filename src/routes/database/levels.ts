@@ -507,6 +507,102 @@ router.head('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Resp
   }
 });
 
+router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    // Use a READ COMMITTED transaction to avoid locks from updates
+    if (isNaN(parseInt(req.params.id))) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+    const transaction = await sequelize.transaction({
+      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+    });
+
+    try {
+      const level = await Level.findOne({
+        where: { id: parseInt(req.params.id) },
+        include: [
+          {
+            model: Pass,
+            as: 'passes',
+            include: [
+              {
+                model: Player,
+                as: 'player',
+              },
+              {
+                model: Judgement,
+                as: 'judgements',
+              },
+            ],
+          },
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+          {
+            model: LevelAlias,
+            as: 'aliases',
+            required: false,
+          },
+          {
+            model: LevelCredit,
+            as: 'levelCredits',
+            required: false,
+            include: [
+              {
+                model: Creator,
+                as: 'creator',
+              },
+            ],
+          },
+          {
+            model: Team,
+            as: 'teamObject',
+            required: false,
+          },
+        ],
+        transaction,
+      });
+
+      const ratings = await Rating.findOne({
+        where: {
+          levelId: parseInt(req.params.id),
+          [Op.not]: {confirmedAt: null}
+        },
+        include: [
+          {
+            model: RatingDetail,
+            as: 'details',
+          },
+        ],
+        transaction,
+      });
+
+      await transaction.commit();
+
+      if (!level) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      // If level is deleted and user is not super admin, return 404
+      if (level.isDeleted && !req.user?.isSuperAdmin) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      return res.json({
+        level,
+        ratings,
+      });
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error fetching level:', error);
+    return res.status(500).json({ error: 'Failed to fetch level' });
+  }
+});
+
 // Get a single level by ID
 router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
@@ -565,20 +661,6 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         transaction,
       });
       
-      const ratings = await Rating.findOne({
-        where: {
-          levelId: parseInt(req.params.id),
-          [Op.not]: {confirmedAt: null}
-        },
-        include: [
-          {
-            model: RatingDetail,
-            as: 'details',
-          },
-        ],
-        transaction,
-      });
-
       await transaction.commit();
 
       if (!level) {
@@ -590,10 +672,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         return res.status(404).json({ error: 'Level not found' });
       }
 
-      return res.json({
-        level,
-        ratings,
-      });
+      return res.json(level);
     } catch (error) {
       await transaction.rollback();
       throw error;
