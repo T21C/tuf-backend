@@ -546,7 +546,8 @@ router.post(
         
         await sendWebhookMessages(
           process.env.RERATE_ANNOUNCEMENT_HOOK || "",
-          embeds
+          embeds,
+          `<@&${process.env.RERATE_PING_ROLE_ID || "0"}>`
         );
 
         logWebhookEvent('rerate_batch_sent', {
