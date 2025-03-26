@@ -39,12 +39,14 @@ const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
 
 // Add logging helper at the top
 function logWebhookEvent(type: string, details: Record<string, any>) {
-  // const timestamp = new Date().toISOString();
-  // console.log(JSON.stringify({
-  //   timestamp,
-  //   type: `webhook_${type}`,
-  //   ...details
-  // }));
+  if (process.env.NODE_ENV === 'development') {
+  const timestamp = new Date().toISOString();
+  console.log(JSON.stringify({
+    timestamp,
+      type: `webhook_${type}`,
+      ...details
+    }));
+  }
 }
 
 // Helper function to process items in batches
@@ -68,8 +70,7 @@ async function processBatches<T>(
 async function sendWebhookMessages(
   webhookUrl: string,
   embeds: MessageBuilder[],
-  ping?: string,
-  isFirstBatch: boolean = false
+  ping?: string
 ) {
   const hook = new Webhook(webhookUrl);
   hook.setUsername('TUF Announcer');
@@ -276,14 +277,6 @@ export async function passSubmissionHook(
   return embed;
 }
 
-function shouldAnnouncePass(pass: Pass): boolean {
-  return (
-    pass.level?.diffId !== 0 &&
-    pass.level?.difficulty?.name !== '-2' &&
-    pass.level?.difficulty?.name.startsWith('P') === false
-  );
-}
-
 router.post(
   '/passes',
   Auth.superAdmin(),
@@ -349,7 +342,7 @@ router.post(
 
       // Process each webhook group
       for (const group of groups) {
-        await processBatches(group.items, 10, async (batchPasses, isFirstBatch) => {
+        await processBatches(group.items, 10, async (batchPasses) => {
           const embeds = await Promise.all(
             batchPasses.map(pass => createClearEmbed(pass as Pass))
           );
@@ -357,8 +350,7 @@ router.post(
           await sendWebhookMessages(
             group.webhookUrl,
             embeds,
-            group.ping,
-            isFirstBatch
+            group.ping
           );
         });
       }
@@ -433,7 +425,7 @@ router.post(
 
       // Process each webhook group
       for (const group of groups) {
-        await processBatches(group.items, 10, async (batchLevels, isFirstBatch) => {
+        await processBatches(group.items, 10, async (batchLevels) => {
           const embeds = await Promise.all(
             batchLevels.map(level => createNewLevelEmbed(level as Level))
           );
@@ -441,8 +433,7 @@ router.post(
           await sendWebhookMessages(
             group.webhookUrl,
             embeds,
-            group.ping,
-            isFirstBatch
+            group.ping
           );
         });
       }
@@ -508,32 +499,35 @@ router.post(
         ],
       });
 
-      // Get announcement configs for all levels (with isRerate=true)
-      const configs = new Map();
-      for (const level of levels) {
-        if (!level.diffId) continue;
-        const config = await getLevelAnnouncementConfig(level, true);
-        configs.set(level.id, config);
-      }
+      logWebhookEvent('rerate_levels_loaded', {
+        requestId,
+        levelCount: levels.length,
+        levelIds: levels.map(l => l.id)
+      });
 
-      // Group levels by webhook URL
-      const groups = groupByWebhook(levels, configs);
-
-      // Process each webhook group
-      for (const group of groups) {
-        await processBatches(group.items, 10, async (batchLevels, isFirstBatch) => {
-          const embeds = await Promise.all(
-            batchLevels.map(level => createRerateEmbed(level as Level))
-          );
-          
-          await sendWebhookMessages(
-            group.webhookUrl,
-            embeds,
-            group.ping,
-            isFirstBatch
-          );
+      // Process levels in batches
+      await processBatches(levels, 10, async (batchLevels, isFirstBatch) => {
+        logWebhookEvent('rerate_batch_processing', {
+          requestId,
+          batchNumber: isFirstBatch ? 1 : 'subsequent',
+          batchSize: batchLevels.length
         });
-      }
+
+        const embeds = await Promise.all(
+          batchLevels.map(level => createRerateEmbed(level as Level))
+        );
+        
+        await sendWebhookMessages(
+          process.env.RERATE_ANNOUNCEMENT_HOOK || "",
+          embeds
+        );
+
+        logWebhookEvent('rerate_batch_sent', {
+          requestId,
+          batchNumber: isFirstBatch ? 1 : 'subsequent',
+          embedCount: embeds.length
+        });
+      });
 
       logWebhookEvent('rerate_request_complete', {
         requestId,
