@@ -19,6 +19,7 @@ import LevelAlias from '../../models/LevelAlias.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
+import User from '../../models/User.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -573,6 +574,13 @@ router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res
           {
             model: RatingDetail,
             as: 'details',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['username', 'avatarUrl'],
+              },
+            ],
           },
         ],
         transaction,

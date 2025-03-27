@@ -229,13 +229,6 @@ export async function getLevelAnnouncementConfig(
   return config;
 }
 
-function isPurePerect(pass: Pass): boolean {
-  return pass.accuracy === 1.0;
-}
-
-function isNoMiss(pass: Pass): boolean {
-  return pass.judgements?.earlyDouble === 0;
-}
 
 export async function getPassAnnouncementConfig(pass: Pass): Promise<AnnouncementConfig> {
   const difficulty = pass.level?.difficulty;
