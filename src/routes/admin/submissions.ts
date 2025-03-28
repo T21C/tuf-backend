@@ -362,12 +362,13 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           {transaction},
         );
 
+        const lowRatingRegex = /^[pP]\d|^[1-9]$|^1[0-9]\+?$|^([1-9]|1[0-9]\+?)(~|-)([1-9]|1[0-9]\+?)$/;
         // Create rating since toRate is true
         await Rating.create(
           {
             levelId: newLevel.id,
             currentDifficultyId: 0,
-            lowDiff: /^[pP]\d/.test(submission.diff),
+            lowDiff: lowRatingRegex.test(submission.diff),
             requesterFR: submission.diff,
             averageDifficultyId: null,
           },
