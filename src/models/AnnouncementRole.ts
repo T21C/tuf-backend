@@ -50,7 +50,7 @@ AnnouncementRole.init(
     tableName: 'announcement_roles',
     indexes: [
       {
-        fields: ['is_active'],
+        fields: ['isActive'],
       },
       {
         fields: ['label'],

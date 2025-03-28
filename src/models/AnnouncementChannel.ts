@@ -49,7 +49,7 @@ AnnouncementChannel.init(
     tableName: 'announcement_channels',
     indexes: [
       {
-        fields: ['is_active'],
+        fields: ['isActive'],
       },
       {
         fields: ['label'],

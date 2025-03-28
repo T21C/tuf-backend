@@ -1,9 +1,21 @@
 import {Request, Response, Router} from 'express';
-import {Op} from 'sequelize';
+import {Op, Transaction} from 'sequelize';
 import Reference from '../../models/References.js';
 import Difficulty from '../../models/Difficulty.js';
 import Level from '../../models/Level.js';
 import {Auth} from '../../middleware/auth.js';
+import sequelize from '../../config/db.js';
+
+interface ILevelWithReference extends Level {
+  reference?: {
+    type: string | null;
+  };
+}
+
+interface IReferenceUpdate {
+  levelId: number;
+  type: string;
+}
 
 const router: Router = Router();
 
@@ -19,7 +31,10 @@ router.get('/', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'referenceLevels',
-          through: {attributes: []},
+          through: {
+            attributes: ['type'], // Include the type from the Reference model
+            as: 'reference' // This will be the name of the property containing the reference data
+          },
           where: {
             isDeleted: false, // Only include non-deleted levels
           },
@@ -35,7 +50,10 @@ router.get('/', async (req: Request, res: Response) => {
     // Transform the data into a more usable format
     const formattedReferences = difficulties.map(diff => ({
       difficulty: diff,
-      levels: diff.referenceLevels,
+      levels: (diff.referenceLevels as ILevelWithReference[]).map(level => ({
+        ...level.toJSON(),
+        type: level.reference?.type || '' // Get the type from the reference, default to empty string
+      })),
     }));
 
     return res.json(formattedReferences);
@@ -56,7 +74,10 @@ router.get('/difficulty/:difficultyId', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'referenceLevels',
-          through: {attributes: []},
+          through: {
+            attributes: ['type'],
+            as: 'reference'
+          },
           where: {
             isDeleted: false,
           },
@@ -71,7 +92,10 @@ router.get('/difficulty/:difficultyId', async (req: Request, res: Response) => {
 
     const formattedReference = {
       difficulty,
-      levels: difficulty.referenceLevels,
+      levels: (difficulty.referenceLevels as ILevelWithReference[]).map(level => ({
+        ...level.toJSON(),
+        type: level.reference?.type || ''
+      })),
     };
 
     return res.json(formattedReference);
@@ -104,7 +128,7 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
 // Create a new reference
 router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
-    const {difficultyId, levelId} = req.body;
+    const {difficultyId, levelId, type} = req.body;
 
     // Check if reference already exists
     const existingReference = await Reference.findOne({
@@ -122,6 +146,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
     const reference = await Reference.create({
       difficultyId,
       levelId,
+      type,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -137,7 +162,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
-    const {difficultyId, levelId} = req.body;
+    const {difficultyId, levelId, type} = req.body;
 
     const reference = await Reference.findByPk(id);
     if (!reference) {
@@ -162,6 +187,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     await reference.update({
       difficultyId,
       levelId,
+      type,
       updatedAt: new Date(),
     });
 
@@ -193,5 +219,67 @@ router.delete(
     }
   },
 );
+
+// Bulk update references for a difficulty
+router.put('/bulk/:difficultyId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const { difficultyId } = req.params;
+    const { references } = req.body as { references: IReferenceUpdate[] };
+
+    // Start a transaction to ensure all operations succeed or none do
+    const result = await sequelize.transaction(async (t: Transaction) => {
+      // Get current references for this difficulty
+      const currentRefs = await Reference.findAll({
+        where: { difficultyId: parseInt(difficultyId) },
+        transaction: t
+      });
+
+      // Create maps for easier lookup
+      const currentRefMap = new Map(currentRefs.map(ref => [ref.levelId, ref]));
+      const newRefMap = new Map(references.map(ref => [ref.levelId, ref]));
+
+      // Find references to add and remove
+      const toAdd = references.filter(ref => !currentRefMap.has(ref.levelId));
+      const toRemove = currentRefs.filter(ref => !newRefMap.has(ref.levelId));
+      const toUpdate = references.filter(ref => 
+        currentRefMap.has(ref.levelId) && 
+        currentRefMap.get(ref.levelId)?.type !== ref.type
+      );
+
+      // Remove references that are no longer needed
+      await Promise.all(toRemove.map(ref => ref.destroy({ transaction: t })));
+
+      // Add new references
+      await Promise.all(toAdd.map(ref => 
+        Reference.create({
+          difficultyId: parseInt(difficultyId),
+          levelId: ref.levelId,
+          type: ref.type,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }, { transaction: t })
+      ));
+
+      // Update existing references
+      await Promise.all(toUpdate.map(ref => 
+        currentRefMap.get(ref.levelId)?.update({
+          type: ref.type,
+          updatedAt: new Date()
+        }, { transaction: t })
+      ));
+
+      return {
+        added: toAdd.length,
+        removed: toRemove.length,
+        updated: toUpdate.length
+      };
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('Error bulk updating references:', error);
+    return res.status(500).json({ error: 'Failed to bulk update references' });
+  }
+});
 
 export default router;

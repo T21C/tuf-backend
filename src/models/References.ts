@@ -5,6 +5,7 @@ interface IReference {
   id?: number;
   difficultyId: number;
   levelId: number;
+  type?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -13,6 +14,7 @@ class Reference extends Model<IReference> implements IReference {
   declare id: number;
   declare difficultyId: number;
   declare levelId: number;
+  declare type?: string;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -39,6 +41,10 @@ Reference.init(
         model: 'levels',
         key: 'id',
       },
+    },
+    type: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,
