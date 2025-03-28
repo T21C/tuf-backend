@@ -15,6 +15,7 @@ import {
   escapeForMySQL,
 } from '../../utils/searchHelpers.js';
 import {Router, Request, Response} from 'express';
+import LevelSubmissionCreatorRequest from '../../models/LevelSubmissionCreatorRequest.js';
 const router: Router = Router();
 
 interface LevelCountResult {
@@ -521,6 +522,12 @@ router.post(
         );
       }
 
+      // Update LevelSubmissionCreatorRequest records
+      await LevelSubmissionCreatorRequest.update(
+        { creatorId: targetId },
+        { where: { creatorId: sourceId }, transaction }
+      );
+
       // Delete all source credits after transfer
       await LevelCredit.destroy({
         where: {creatorId: sourceId},
@@ -633,6 +640,25 @@ router.post(
             }
             throw error; // Re-throw if it's any other type of error
           }
+        }
+
+        // Create LevelSubmissionCreatorRequest records for each new creator
+        const creatorRequests = await LevelSubmissionCreatorRequest.findAll({
+          where: { creatorId },
+          transaction,
+        });
+
+        for (const request of creatorRequests) {
+          await LevelSubmissionCreatorRequest.create(
+            {
+              submissionId: request.submissionId,
+              creatorName: newName,
+              creatorId: targetCreator.id,
+              role: request.role,
+              isNewRequest: true,
+            },
+            { transaction }
+          );
         }
       }
 
