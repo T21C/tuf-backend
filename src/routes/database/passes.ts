@@ -224,6 +224,7 @@ const buildWhereClause = async (query: any) => {
 
   // Handle difficulty filtering
   const difficultyConditions: any[] = [];
+  const specialDifficultyConditions: any[] = [];
 
   // Handle PGU range if provided
   if (query.minDiff || query.maxDiff) {
@@ -261,7 +262,7 @@ const buildWhereClause = async (query: any) => {
       }
     }
   }
-
+  
   // Handle special difficulties if provided
   if (query.specialDifficulties?.length > 0) {
     const specialDiffs = await Difficulty.findAll({
@@ -271,19 +272,19 @@ const buildWhereClause = async (query: any) => {
       },
       attributes: ['id'],
     });
-
+    
     if (specialDiffs.length > 0) {
-      difficultyConditions.push({
+      specialDifficultyConditions.push({
         '$level.diffId$': {[Op.in]: specialDiffs.map(d => d.id)},
       });
     }
   }
 
   // Add difficulty conditions to the where clause if any exist
-  if (difficultyConditions.length > 0) {
-    conditions.push({[Op.or]: difficultyConditions});
+  if (difficultyConditions.length > 0 || specialDifficultyConditions.length > 0) {
+    conditions.push({[Op.or]: {[Op.or]: [...difficultyConditions, ...specialDifficultyConditions]}});
   }
-
+  
   // Handle text search with new parsing
   if (query.query) {
     const searchGroups = parseSearchQuery(query.query.trim());
@@ -427,6 +428,7 @@ router.post('/', async (req: Request, res: Response) => {
       keyFlag,
       levelId,
       player,
+      specialDifficulties,
       query: searchQuery,
       offset = 0,
       limit = 30,
@@ -441,6 +443,7 @@ router.post('/', async (req: Request, res: Response) => {
       levelId,
       player,
       query: searchQuery,
+      specialDifficulties,
     });
 
     const order = getSortOptions(sort);
@@ -1110,7 +1113,7 @@ router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, 
 );
 
 // Get unannounced passes
-router.get('/unannounced/new', async (req: Request, res: Response) => {
+router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const passes = await Pass.findAll({
       where: {
@@ -1158,7 +1161,7 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
 });
 
 // Mark passes as announced
-router.post('/announce', async (req: Request, res: Response) => {
+router.post('/announce', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {passIds} = req.body;
 
@@ -1191,7 +1194,7 @@ router.post('/announce', async (req: Request, res: Response) => {
 });
 
 // Mark a single pass as announced
-router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
+router.post('/markAnnounced/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId) || passId <= 0) {
@@ -1238,6 +1241,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
         keyFlag,
         levelId,
         player,
+        specialDifficulties,
         query: searchQuery,
         offset = '0',
         limit = '30',
@@ -1250,6 +1254,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
         maxDiff: ensureString(maxDiff),
         keyFlag: ensureString(keyFlag),
         levelId: ensureString(levelId),
+        specialDifficulties,
         player: ensureString(player),
         query: ensureString(searchQuery),
       });
