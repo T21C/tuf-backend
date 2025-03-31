@@ -26,6 +26,7 @@ export interface UserAttributes {
   createdAt: Date;
   updatedAt: Date;
   providers?: OAuthProvider[];
+  player?: Player;
 }
 
 class User extends Model<UserAttributes> implements UserAttributes {

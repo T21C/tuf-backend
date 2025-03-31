@@ -3,6 +3,7 @@ import {User, OAuthProvider} from '../models/index.js';
 import {tokenUtils} from '../utils/auth.js';
 import type {UserAttributes} from '../models/User.js';
 import axios from 'axios';
+import Player from '../models/Player.js';
 
 // Extend Express Request type to include user
 declare global {
@@ -55,6 +56,10 @@ export const Auth = {
             {
               model: OAuthProvider,
               as: 'providers',
+            },
+            {
+              model: Player,
+              as: 'player',
             },
           ],
         });
@@ -297,7 +302,14 @@ export const Auth = {
           return;
         }
 
-        const user = await User.findByPk(decoded.id);
+        const user = await User.findByPk(decoded.id, {
+          include: [
+            {
+              model: Player,
+              as: 'player',
+            },
+          ],
+        });
         if (!user) {
           next();
           return;

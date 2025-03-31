@@ -20,16 +20,29 @@ import {sseManager} from '../utils/sse.js';
 import User from '../models/User.js';
 import Judgement from '../models/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
+import { Op } from 'sequelize';
+import PlayerModifier, { ModifierType } from '../models/PlayerModifier.js';
+import { ModifierService } from '../services/ModifierService.js';
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
   private updateTimeout: NodeJS.Timeout | null = null;
   private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
+  private readonly RELOAD_INTERVAL = 60 * 1000; // 1 minute in milliseconds
   private pendingPlayerIds: Set<number> = new Set();
+  private modifierService: ModifierService;
 
   private constructor() {
-    // Remove automatic initialization
+    this.modifierService = ModifierService.getInstance();
+  }
+
+  public setModifiersEnabled(enabled: boolean): void {
+    this.modifierService.setModifiersEnabled(enabled);
+  }
+
+  public isModifiersEnabled(): boolean {
+    return this.modifierService.isModifiersEnabled();
   }
 
   public async initialize() {
@@ -38,6 +51,7 @@ export class PlayerStatsService {
     try {
       console.log('Initializing PlayerStatsService...');
       await this.reloadAllStats();
+      this.reloadAllStatsCron();
       this.isInitialized = true;
       console.log('PlayerStatsService initialized successfully');
     } catch (error) {
@@ -82,11 +96,6 @@ export class PlayerStatsService {
 
           await transaction.commit();
 
-          // Notify clients about the update
-          const io = getIO();
-          io.emit('leaderboardUpdated');
-
-          // Emit SSE event
           sseManager.broadcast({
             type: 'statsUpdate',
             data: {
@@ -119,8 +128,6 @@ export class PlayerStatsService {
     try {
       transaction = await sequelize.transaction();
 
-      console.log('Starting full stats reload...');
-
       // Get all players with their passes in a single query
       const players = await Player.findAll({
         include: [
@@ -147,16 +154,16 @@ export class PlayerStatsService {
         ],
         transaction,
       });
-      // Prepare bulk update data
-      const bulkStats = players.map((player: any) => {
-        // Convert passes to scores and get highest score per level`
 
+      // Prepare bulk update data
+      const bulkStats = await Promise.all(players.map(async (player: any) => {
         // Calculate top difficulties
         const {topDiff, top12kDiff} = this.calculateTopDiffs(
           player.passes || [],
         );
 
-        return {
+        // Create base stats object
+        const baseStats = {
           playerId: player.id,
           rankedScore: calculateRankedScore(player.passes || []),
           generalScore: calculateGeneralScore(player.passes || []),
@@ -170,7 +177,10 @@ export class PlayerStatsService {
           top12kDiff,
           lastUpdated: new Date(),
         };
-      });
+
+        // Apply modifiers if enabled
+        return this.modifierService.applyModifiers(player.id, baseStats);
+      }));
 
       // Bulk upsert all stats
       await PlayerStats.bulkCreate(bulkStats, {
@@ -434,7 +444,14 @@ export class PlayerStatsService {
     }
   }
 
-  private async updateRanks(transaction: any): Promise<void> {
+  private async reloadAllStatsCron() {
+    console.log('Setting up cron for full stats reload');
+    setInterval(async () => {
+      await this.reloadAllStats();
+    }, this.RELOAD_INTERVAL);
+  }
+
+  public async updateRanks(transaction?: any): Promise<void> {
     const scoreTypes = [
       'rankedScore',
       'generalScore',
@@ -493,8 +510,9 @@ export class PlayerStatsService {
               SELECT COUNT(*) 
               FROM passes 
               JOIN levels ON levels.id = passes.levelId 
-              WHERE passes.playerId = PlayerStats.playerId 
+              WHERE passes.playerId = PlayerStats.playerId
               AND passes.isDeleted = false 
+              AND passes.isHidden = false
               AND levels.isDeleted = false 
               AND levels.isHidden = false
             )`),
@@ -583,6 +601,7 @@ export class PlayerStatsService {
             'JOIN levels ON levels.id = passes.levelId ' +
             'WHERE passes.playerId = player.id ' + 
             'AND passes.isDeleted = false ' +
+            'AND passes.isHidden = false ' +
             'AND levels.isDeleted = false ' +
             'AND levels.isHidden = false)'
           ),
@@ -597,6 +616,7 @@ export class PlayerStatsService {
             'INNER JOIN passes ON passes.levelId = levels.id ' +
             'WHERE passes.playerId = player.id ' +
             'AND passes.isDeleted = false ' +
+            'AND passes.isHidden = false ' +
             'AND difficulties.id < 100 ' +
             'AND levels.isDeleted = false ' +
             'AND levels.isHidden = false ' +
@@ -611,6 +631,7 @@ export class PlayerStatsService {
             'INNER JOIN passes ON passes.levelId = levels.id ' +
             'WHERE passes.playerId = player.id ' +
             'AND passes.isDeleted = false ' +
+            'AND passes.isHidden = false ' +
             'AND passes.is12K = true ' +
             'AND difficulties.id < 100 ' +
             'AND levels.isDeleted = false ' +
@@ -737,6 +758,7 @@ export class PlayerStatsService {
       where: {
         playerId: pass.player?.id,
         isDeleted: false,
+        isHidden: false
       },
       include: [
         {

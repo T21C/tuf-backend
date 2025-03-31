@@ -40,6 +40,7 @@ export async function updateWorldsFirstStatus(
     where: {
       levelId,
       isDeleted: false,
+      isHidden: false
     },
     include: [
       {
@@ -207,6 +208,7 @@ const buildWhereClause = async (query: any) => {
   } else {
     conditions.push({isDeleted: false});
   }
+  conditions.push({isHidden: false});
   
 
   // Handle key flag filter
@@ -375,6 +377,7 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
       where: {
         levelId: parseInt(levelId),
         isDeleted: false,
+        isHidden: false,
         '$player.isBanned$': false,
       },
       include: [
@@ -737,6 +740,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         where: {
           levelId: targetLevelId,
           isDeleted: false,
+          isHidden: false,
         },
         include: [
           {
@@ -1070,6 +1074,7 @@ router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, 
         where: {
           id: passId,
           isDeleted: false,
+          isHidden: false,
         },
         include: [
           {
@@ -1119,6 +1124,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
       where: {
         isAnnounced: false,
         isDeleted: false,
+        isHidden: false
       },
       include: [
         {
@@ -1349,6 +1355,7 @@ export async function recalculateAffectedLevelsClearCount(playerId: number, tran
     where: {
       playerId,
       isDeleted: false,
+      isHidden: false
     },
     attributes: [[sequelize.fn('DISTINCT', sequelize.col('levelId')), 'levelId']],
     raw: true,
@@ -1371,6 +1378,7 @@ export async function recalculateAffectedLevelsClearCount(playerId: number, tran
         [Op.in]: levelIds
       },
       isDeleted: false,
+      isHidden: false
     },
     include: [{
       model: Player,
@@ -1417,6 +1425,7 @@ export async function recalculateLevelClearCount(levelId: number, transaction?: 
     where: {
       levelId,
       isDeleted: false,
+      isHidden: false,
       '$player.isBanned$': false,
     },
     include: [

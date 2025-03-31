@@ -51,6 +51,7 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
     // Always attempt to cache the icon, even if it's already a cached URL
     try {
       const response = await axios.get(iconUrl, {responseType: 'arraybuffer'});
+      console.log(response);
       await fs.writeFile(filePath, Buffer.from(response.data));
     } catch (error) {
       console.error(`Failed to cache icon for ${diffName}:`, error);

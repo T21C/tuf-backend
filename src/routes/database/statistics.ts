@@ -14,11 +14,11 @@ router.get('/', async (req, res) => {
   try {
     try {
       const totalLevels = await Level.count({
-        where: {isDeleted: false},
+        where: {isDeleted: false, isHidden: false},
       });
 
       const totalPasses = await Pass.count({
-        where: {isDeleted: false},
+        where: {isDeleted: false, isHidden: false},
       });
 
       const totalPlayers = await Player.count();
@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
             model: Pass,
             as: 'passes',
             required: true,
-            where: {isDeleted: false},
+            where: {isDeleted: false, isHidden: false},
           },
         ],
       });
@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
                 model: Pass,
                 as: 'passes',
                 attributes: [],
-                where: {isDeleted: false},
+                where: {isDeleted: false, isHidden: false},
                 required: false,
               },
             ],
@@ -78,6 +78,7 @@ router.get('/', async (req, res) => {
       const recentPassStats = await Pass.count({
         where: {
           isDeleted: false,
+          isHidden: false,
           vidUploadTime: {
             [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
           },
@@ -108,7 +109,7 @@ router.get('/', async (req, res) => {
                 model: Pass,
                 as: 'passes',
                 attributes: [],
-                where: {isDeleted: false},
+                where: {isDeleted: false, isHidden: false},
                 required: true,
               },
             ],
@@ -217,7 +218,7 @@ router.get('/players', async (req, res) => {
             model: Pass,
             as: 'passes',
             attributes: [],
-            where: {isDeleted: false},
+            where: {isDeleted: false, isHidden: false},
           },
         ],
         group: ['Player.id'],

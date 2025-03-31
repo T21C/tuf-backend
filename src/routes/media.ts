@@ -11,6 +11,8 @@ import {initializeFonts} from '../utils/fontLoader.js';
 import Pass from '../models/Pass.js';
 import User from '../models/User.js';
 import {Buffer} from 'buffer';
+import { Op } from 'sequelize';
+import { seededShuffle } from '../utils/random.js';
 
 // Initialize fonts
 initializeFonts();
@@ -477,6 +479,99 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     console.error('Error generating image for level id:', req.params.levelId, error);
     res.status(500).send('Error generating image');
     return;
+  }
+});
+
+// Add wheel image generation endpoint
+router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
+  try {
+    const seed = parseInt(req.params.seed);
+    if (isNaN(seed)) {
+      return res.status(400).send('Invalid seed');
+    }
+
+    // Get levels with the same seed logic
+    const levels = await Level.findAll({
+      where: {
+        isDeleted: false,
+        isHidden: false,
+        diffId: {
+          [Op.ne]: 0
+        }
+      },
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+          attributes: ['color']
+        }
+      ],
+      attributes: ['id', 'song']
+    });
+
+    const modLevels = levels.filter(level => level.id % 4 === 0);
+    // Shuffle array using seeded random
+    const shuffledLevels = seededShuffle(modLevels, seed);
+
+    // Create SVG for the wheel
+    const width = 800;
+    const height = 800;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) / 2 - 20;
+    const itemCount = shuffledLevels.length;
+    const anglePerItem = 360 / itemCount;
+
+    // Generate SVG segments
+    const segments = shuffledLevels.map((level, index) => {
+      const startAngle = index * anglePerItem;
+      const endAngle = (index + 1) * anglePerItem;
+      const startRad = (startAngle - 90) * Math.PI / 180;
+      const endRad = (endAngle - 90) * Math.PI / 180;
+      
+      const x1 = centerX + radius * Math.cos(startRad);
+      const y1 = centerY + radius * Math.sin(startRad);
+      const x2 = centerX + radius * Math.cos(endRad);
+      const y2 = centerY + radius * Math.sin(endRad);
+      const largeArcFlag = anglePerItem > 180 ? 1 : 0;
+
+      return `
+        <path
+          d="M ${centerX} ${centerY} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z"
+          fill="${level.difficulty?.color || '#666666'}"
+        />
+      `;
+    }).join('');
+
+    // Create the complete SVG
+    const svg = `
+      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+            <feMerge>
+              <feMergeNode in="coloredBlur"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+        </defs>
+        <g filter="url(#glow)">
+          ${segments}
+        </g>
+      </svg>
+    `;
+
+    // Convert SVG to PNG using sharp
+    const buffer = await sharp(Buffer.from(svg))
+      .png()
+      .toBuffer();
+
+    res.set('Content-Type', 'image/png');
+    return res.send(buffer);
+  } catch (error) {
+    console.error('Error generating wheel image:', error);
+    return res.status(500).send('Error generating wheel image');
   }
 });
 

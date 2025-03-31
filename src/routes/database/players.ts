@@ -18,9 +18,46 @@ import PlayerStats from '../../models/PlayerStats.js';
 import {Router, Request, Response} from 'express';
 import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
-
+import PlayerModifier from '../../models/PlayerModifier.js';
+import { ModifierService } from '../../services/ModifierService.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
+const modifierService = ModifierService.getInstance();
+
+// In-memory cooldown tracking
+interface CooldownEntry {
+  playerId: number;
+  targetPlayerId: number;
+  timestamp: number;
+}
+
+const cooldownSet = new Set<string>();
+const COOLDOWN_MS = 15 * 1000; // 15 seconds
+
+const getCooldownKey = (playerId: number, targetPlayerId: number): string => {
+  return `${playerId}:${targetPlayerId}`;
+};
+
+const isOnCooldown = (playerId: number, targetPlayerId: number): boolean => {
+  const key = getCooldownKey(playerId, targetPlayerId);
+  return cooldownSet.has(key);
+};
+
+const addCooldown = (playerId: number, targetPlayerId: number): void => {
+  const key = getCooldownKey(playerId, targetPlayerId);
+  cooldownSet.add(key);
+  
+  // Remove the cooldown after the timeout
+  setTimeout(() => {
+    cooldownSet.delete(key);
+  }, COOLDOWN_MS);
+};
+
+const getRemainingCooldown = (playerId: number, targetPlayerId: number): number => {
+  const key = getCooldownKey(playerId, targetPlayerId);
+  if (!cooldownSet.has(key)) return 0;
+  return COOLDOWN_MS;
+};
 
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -69,6 +106,7 @@ router.get('/:id', async (req: Request, res: Response) => {
           as: 'passes',
           where: {
             isDeleted: false,
+            isHidden: false
           },
           include: [
             {
@@ -126,7 +164,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     });
 
     const topScores = Array.from(uniquePasses.values())
-      .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
+      .filter((pass: any) => !pass.isHidden && !pass.isDeleted && !pass.isDuplicate)
       .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
       .slice(0, 20)
       .map((pass, index) => ({
@@ -165,7 +203,8 @@ router.get('/search/:name', async (req: Request, res: Response) => {
           as: 'passes',
           required: false,
           where: {
-            isDeleted: false
+            isDeleted: false,
+            isHidden: false
           },
           include: [
             {
@@ -875,6 +914,47 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
   } catch (error) {
     console.error('Error creating player profile:', error);
     return res.status(500).json({ error: 'Failed to create player profile' });
+  }
+});
+
+router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
+  try {
+    const targetPlayerId = parseInt(req.params.playerId);
+    const modifiers = await modifierService.getActiveModifiers(targetPlayerId);
+    return res.json({
+      modifiers,
+      probabilities: PlayerModifier.PROBABILITIES
+    });
+  } catch (error) {
+    console.error('Error fetching modifiers:', error);
+    return res.status(500).json({ error: 'Failed to fetch modifiers' });
+  }
+});
+
+// Generate a new random modifier for the player
+router.post('/modifiers/generate', Auth.user(), async (req, res) => {
+  try {
+    const playerId = req.user?.playerId;
+    const targetPlayerId = parseInt(req.body.targetPlayerId);
+    
+    if (!playerId) {
+      return res.status(403).json({ error: 'Player ID not found' });
+    }
+
+    if (!targetPlayerId) {
+      return res.status(400).json({ error: 'Target player ID is required' });
+    }
+
+    const result = await modifierService.handleModifierGeneration(playerId, targetPlayerId);
+    
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    return res.json({ modifier: result.modifier });
+  } catch (error) {
+    console.error('Error generating modifier:', error);
+    return res.status(500).json({ error: 'Failed to generate modifier' });
   }
 });
 

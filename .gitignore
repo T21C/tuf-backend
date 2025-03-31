@@ -141,6 +141,8 @@ pfpList.json
 rankList.json
 cache/
 backups/
+src/database/generate_meta_inserts.bat
+src/database/meta_inserts.sql
 __pycache__/
 
 # ts builds
