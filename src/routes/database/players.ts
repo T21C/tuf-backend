@@ -785,7 +785,7 @@ router.patch('/:id/pause-submissions', Auth.superAdmin(), async (req: Request, r
   },
 );
 
-router.post('/:id/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/:id/merge', Auth.superAdminPassword(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
