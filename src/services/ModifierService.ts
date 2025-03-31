@@ -70,7 +70,6 @@ export class ModifierService {
     const seconds = this.EXPIRATION_TIMES[type] || 7200; // Default to 2 hours if not specified
     const expiresAt = new Date();
     expiresAt.setSeconds(expiresAt.getSeconds() + seconds);
-    console.log(`[ModifierService] Expiration time for modifier ${type} is ${expiresAt.toISOString()}, current time: ${new Date().toISOString()}`);
     return expiresAt;
   }
 
@@ -116,7 +115,6 @@ export class ModifierService {
           });
         }
 
-        console.log(`[ModifierService] Extended expiration for non-stackable modifier ${type} for player ${playerId} until ${newExpiresAt.toISOString()}`);
         return existingModifier;
       }
     }
@@ -131,7 +129,6 @@ export class ModifierService {
       expiresAt
     });
 
-    console.log(`[ModifierService] Created new modifier ${type} for player ${playerId} until ${expiresAt.toISOString()}`);
     return modifier;
   }
 
@@ -149,11 +146,9 @@ export class ModifierService {
         return;
       }
 
-      console.log(`[ModifierService] Found ${expiredModifiers.length} expired modifiers to process`);
-
+      
       for (const modifier of expiredModifiers) {
         try {
-          console.log(`[ModifierService] Processing expired modifier ${modifier.type} for player ${modifier.playerId}`);
           
           switch (modifier.type) {
             case ModifierType.KING_OF_CASTLE:
@@ -173,7 +168,6 @@ export class ModifierService {
               if (modifier.value) {
                 const targetPlayerId = Number(modifier.value);
                 if (!isNaN(targetPlayerId)) {
-                  console.log(`[Player Swap] Reverting swap between player ${modifier.playerId} and ${targetPlayerId}`);
                   await this.handlePlayerSwap(modifier.playerId, true);
                 }
               }
@@ -181,7 +175,6 @@ export class ModifierService {
           }
 
           await modifier.destroy();
-          console.log(`[ModifierService] Successfully processed and removed expired modifier ${modifier.type} for player ${modifier.playerId}`);
         } catch (error) {
           console.error(`[ModifierService] Error processing expired modifier ${modifier.type} for player ${modifier.playerId}:`, error);
         }
@@ -214,7 +207,6 @@ export class ModifierService {
 
   public async handleKingOfCastle(playerId: number, hide: boolean = true): Promise<void> {
     try {
-      console.log(`[KOC] Starting KOC handler for player ${playerId}, hide: ${hide}`);
       
       // Get all passes where the player has WF
       const wfPasses = await Pass.findAll({
@@ -225,10 +217,8 @@ export class ModifierService {
         }
       });
 
-      console.log(`[KOC] Found ${wfPasses.length} WF passes for player ${playerId}`);
       
       for (const wfPass of wfPasses) {
-        console.log(`[KOC] Processing level ${wfPass.levelId}`);
         
         // Find all other passes for this level
         const otherPasses = await Pass.findAll({
@@ -239,8 +229,7 @@ export class ModifierService {
           }
         });
 
-        console.log(`[KOC] Found ${otherPasses.length} other passes for level ${wfPass.levelId}`);
-
+        
         // Hide all other passes
         await Pass.update(
           { isHidden: hide },
@@ -260,15 +249,11 @@ export class ModifierService {
             {
               where: { id: wfPass.levelId }
             }
-          );
-          console.log(`[KOC] Set clear count to 1 for level ${wfPass.levelId}`);
-        } else {
+          );} else {
           await this.recalculateLevelClearCount(wfPass.levelId);
-          console.log(`[KOC] Recalculated clear count for level ${wfPass.levelId}`);
         }
       }
       
-      console.log(`[KOC] Completed KOC handler for player ${playerId}`);
     } catch (error) {
       console.error(`[KOC] Error handling kingofcastle for player ${playerId}:`, error);
     }
@@ -285,7 +270,6 @@ export class ModifierService {
       isBanned: ban
     });
 
-    console.log(`[Ban Hammer] Handling ban hammer for player ${playerId}, ban: ${ban}`);
   }
 
   public async handleSuperAdmin(playerId: number, enable: boolean = true): Promise<void> {
@@ -301,12 +285,10 @@ export class ModifierService {
     user.update({
       isSuperAdmin: enable
     });
-    console.log(`[Super Admin] Handling super admin for player ${playerId}, enable: ${enable}`);
   }
 
   public async handleOopsAllMiss(playerId: number, undo: boolean = false): Promise<void> {   
     try {
-      console.log(`[Oops All Miss] Starting handler for player ${playerId}, undo: ${undo}`);
       
       const passes = await Pass.findAll({
         where: {
@@ -324,8 +306,7 @@ export class ModifierService {
         return;
       }
 
-      console.log(`[Oops All Miss] Found ${passes.length} passes to process`);
-
+      
       const transaction = await sequelize.transaction();
       try {
         for (const pass of passes) {
@@ -336,8 +317,7 @@ export class ModifierService {
                 ...pass.judgements,
                 earlyDouble: newEarlyDouble > 0 ? newEarlyDouble : 0
               }, { transaction });
-            console.log(`[Oops All Miss] Added ${undo ? -25 : 25} early doubles to pass ${pass.id}, new total: ${currentEarlyDouble + (undo ? -25 : 25)}`);
-
+            
             // Get level data for score recalculation
             const level = await Level.findByPk(pass.levelId, {
               include: [{
@@ -378,14 +358,12 @@ export class ModifierService {
                 scoreV2: newScore
               }, { transaction });
 
-              console.log(`[Oops All Miss] Updated pass ${pass.id} with new accuracy: ${newAccuracy} and score: ${newScore}`);
             }
           }
         }
 
         await transaction.commit();
-        console.log(`[Oops All Miss] Completed processing for player ${playerId}`);
-
+        
         // Update player stats after all passes are processed
         await PlayerStatsService.getInstance().updatePlayerStats(playerId);
       } catch (error) {
@@ -402,7 +380,6 @@ export class ModifierService {
     if (!this.modifiersEnabled) return;
     const playerId = modifier.playerId;
     try {
-      console.log(`[ModifierService] Applying modifier ${modifier.type} for player ${playerId}`);
       
       switch (modifier.type) {
         case ModifierType.KING_OF_CASTLE:
@@ -422,7 +399,6 @@ export class ModifierService {
           break;
       }
       
-      console.log(`[ModifierService] Successfully applied modifier ${modifier.type} for player ${playerId}`);
     } catch (error) {
       console.error(`[ModifierService] Error applying modifier ${modifier.type} for player ${playerId}:`, error);
       throw error;
@@ -434,8 +410,7 @@ export class ModifierService {
     
     try {
       const activeModifiers = await this.getActiveModifiers(playerId);
-      console.log(`[ModifierService] Applying ${activeModifiers.length} active modifiers for player ${playerId}`);
-
+      
       for (const modifier of activeModifiers) {
         try {
           await this.applyModifier(modifier);
@@ -499,7 +474,6 @@ export class ModifierService {
         order: [sequelize.random()]
       });
 
-      console.log(`[Player Swap] Random player: ${randomPlayer?.id}`);
       return randomPlayer?.id || null;
     } catch (error) {
       console.error('[Player Swap] Error getting random player:', error);
@@ -527,18 +501,13 @@ export class ModifierService {
             }
           }
         })
-        console.log(`[Player Swap] Found swap: ${swap}`);
         if (swap?.value && !undo) {
-          console.log(`[Player Swap] Found existing swap for player ${playerId}, ignoring...`);
           return;
         }
         targetPlayerId = undo && swap?.value ? swap?.value : targetPlayerId;
 
-      console.log(`[Player Swap] Starting ${undo ? 'undo' : 'swap'} process for player ${playerId} with target ${targetPlayerId}`);
       
 
-      // Get both players
-      console.log(`[Player Swap] Fetching player data for ${playerId} and ${targetPlayerId}`);
       const player = await Player.findByPk(playerId);
       const targetPlayer = await Player.findByPk(targetPlayerId);
       
@@ -546,14 +515,12 @@ export class ModifierService {
         console.error(`[Player Swap] Player lookup failed - Player ${playerId}: ${!!player}, Target ${targetPlayerId}: ${!!targetPlayer}`);
         return;
       }
-      console.log(`[Player Swap] Found players: ${player.name} (${playerId}) and ${targetPlayer.name} (${targetPlayerId})`);
-
+      
 
       // For undo, we don't need to check for existing swaps
       if (!undo) {
         // Check if either player is already in a swap
-        console.log(`[Player Swap] Creating new swap...`);
-
+        
 
         swap = await PlayerModifier.update({
           value: targetPlayerId,
@@ -572,15 +539,12 @@ export class ModifierService {
           console.error(`[Player Swap] Failed to create swap`);
           return;
         }
-        console.log(`[Player Swap] No existing swaps found, proceeding with swap`);
       }
 
 
       // Swap the player IDs in passes
       const transaction = await sequelize.transaction();
-      console.log(`[Player Swap] Starting pass swap transaction...`);
       try {
-        console.log(`[Player Swap] Fetching passes for both players...`);
         const playerPasses = await Pass.findAll({
           where: { 
             playerId: undo ? targetPlayerId : playerId,
@@ -597,10 +561,6 @@ export class ModifierService {
           transaction
         });
 
-        console.log(`[Player Swap] Pass counts - ${player.name}: ${playerPasses.length}, ${targetPlayer.name}: ${targetPasses.length}`);
-
-        // Update all passes for player 1
-        console.log(`[Player Swap] Updating passes for ${player.name}...`);
         const playerUpdateResult = await Pass.update(
           { playerId: undo ? playerId : targetPlayerId },
           {
@@ -612,10 +572,6 @@ export class ModifierService {
             transaction
           }
         );
-        console.log(`[Player Swap] Updated ${playerUpdateResult[0]} passes for ${player.name}`);
-
-        // Update all passes for player 2
-        console.log(`[Player Swap] Updating passes for ${targetPlayer.name}...`);
         const targetUpdateResult = await Pass.update(
           { playerId: undo ? targetPlayerId : playerId },
           {
@@ -627,13 +583,8 @@ export class ModifierService {
             transaction
           }
         );
-        console.log(`[Player Swap] Updated ${targetUpdateResult[0]} passes for ${targetPlayer.name}`);
-
+        
         await transaction.commit();
-        console.log(`[Player Swap] Transaction completed successfully`);
-
-        console.log(`[Player Swap] ${undo ? 'Undo' : 'Swap'} completed successfully between ${player.name} and ${targetPlayer.name}`);
-        console.log(`[Player Swap] Total passes ${undo ? 'restored' : 'swapped'}: ${playerPasses.length + targetPasses.length}`);
       } catch (error) {
         await transaction.rollback();
         console.error(`[Player Swap] Transaction failed, rolling back:`, error);

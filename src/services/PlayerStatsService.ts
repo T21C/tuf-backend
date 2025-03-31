@@ -49,11 +49,9 @@ export class PlayerStatsService {
     if (this.isInitialized) return;
 
     try {
-      console.log('Initializing PlayerStatsService...');
       await this.reloadAllStats();
       this.reloadAllStatsCron();
       this.isInitialized = true;
-      console.log('PlayerStatsService initialized successfully');
     } catch (error) {
       console.error('Error initializing PlayerStatsService:', error);
       // Don't set isInitialized to true if there was an error
