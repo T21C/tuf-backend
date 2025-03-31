@@ -262,10 +262,16 @@ export class ModifierService {
       console.error(`[Ban Hammer] Player ${playerId} not found`);
       return;
     }
-    player.update({
-      isBanned: ban
-    });
-
+    if (!ban) {
+      player.update({
+        isBanned: false
+      });
+    }
+    else {
+      player.update({
+        isBanned: !player.isBanned
+      });
+    }
   }
 
   public async handleSuperAdmin(playerId: number, enable: boolean = true): Promise<void> {
