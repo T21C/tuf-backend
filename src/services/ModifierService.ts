@@ -21,14 +21,14 @@ export class ModifierService {
 
   // Custom expiration times in seconds for each modifier type
   private readonly EXPIRATION_TIMES: Record<ModifierType, number> = {
-    [ModifierType.RANKED_ADD]: this.SEC_HOURS * 2, // 2 hours in seconds
+    [ModifierType.RANKED_ADD]: this.SEC_HOURS * 2,
     [ModifierType.RANKED_MULTIPLY]: this.SEC_HOURS * 2,
     [ModifierType.SCORE_FLIP]: this.SEC_HOURS * 2,
     [ModifierType.SCORE_COMBINE]: this.SEC_HOURS * 2,
-    [ModifierType.KING_OF_CASTLE]: this.SEC_HOURS * 1, // 1 hour in seconds
-    [ModifierType.BAN_HAMMER]: this.SEC_MINUTES * 30, // 30 minutes in seconds
-    [ModifierType.SUPER_ADMIN]: this.SEC_MINUTES * 5, // 5 minutes in seconds
-    [ModifierType.PLAYER_SWAP]: this.SEC_HOURS * 1,
+    [ModifierType.KING_OF_CASTLE]: this.SEC_HOURS * 1,
+    [ModifierType.BAN_HAMMER]: this.SEC_MINUTES * 15,
+    [ModifierType.SUPER_ADMIN]: this.SEC_MINUTES * 5,
+    [ModifierType.PLAYER_SWAP]: this.SEC_MINUTES * 10,
     [ModifierType.OOPS_ALL_MISS]: this.SEC_HOURS * 2
   };
 
@@ -257,7 +257,6 @@ export class ModifierService {
   }
 
   public async handleBanHammer(playerId: number, ban: boolean = true): Promise<void> {
-    // TODO: Implement ban hammer handling
     const player = await Player.findByPk(playerId);
     if (!player) {
       console.error(`[Ban Hammer] Player ${playerId} not found`);
