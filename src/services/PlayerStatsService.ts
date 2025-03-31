@@ -179,7 +179,7 @@ export class PlayerStatsService {
         };
 
         // Apply modifiers if enabled
-        return this.modifierService.applyModifiers(player.id, baseStats);
+        return this.modifierService.applyScoreModifiers(player.id, baseStats);
       }));
 
       // Bulk upsert all stats

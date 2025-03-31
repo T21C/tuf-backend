@@ -919,6 +919,10 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
 
 router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
   try {
+    if (req.user?.player?.isBanned) {
+      return res.status(403).json({ error: 'Oops! Banned' });
+    }
+
     const targetPlayerId = parseInt(req.params.playerId);
     const modifiers = await modifierService.getActiveModifiers(targetPlayerId);
     return res.json({
@@ -937,6 +941,10 @@ router.post('/modifiers/generate', Auth.user(), async (req, res) => {
     const playerId = req.user?.playerId;
     const targetPlayerId = parseInt(req.body.targetPlayerId);
     
+    if (req.user?.player?.isBanned) {
+      return res.status(403).json({ error: 'Oops! Banned' });
+    }
+
     if (!playerId) {
       return res.status(403).json({ error: 'Player ID not found' });
     }
@@ -947,10 +955,12 @@ router.post('/modifiers/generate', Auth.user(), async (req, res) => {
 
     const result = await modifierService.handleModifierGeneration(playerId, targetPlayerId);
     
-    if (result.error) {
+    
+    if (result.error || !result.modifier) {
       return res.status(400).json({ error: result.error });
     }
-
+    
+    await modifierService.applyModifier(result.modifier);
     return res.json({ modifier: result.modifier });
   } catch (error) {
     console.error('Error generating modifier:', error);
