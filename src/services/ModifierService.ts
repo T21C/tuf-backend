@@ -282,6 +282,7 @@ export class ModifierService {
     user.update({
       isSuperAdmin: enable
     });
+    user.increment('permissionVersion', { by: 1 });
   }
 
   public async handleOopsAllMiss(playerId: number, undo: boolean = false): Promise<void> {   

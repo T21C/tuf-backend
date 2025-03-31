@@ -1995,9 +1995,9 @@ router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) =
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (req.user?.player?.isBanned) {
-      return res.status(403).json({ error: 'Your account is banned' });
-    }
+    // if (req.user?.player?.isBanned) {
+    //   return res.status(403).json({ error: 'Your account is banned' });
+    // }
 
     const timeoutDuration = 300 * 1000;
     const timeout = Date.now() + timeoutDuration;
@@ -2073,9 +2073,9 @@ router.put('/:id/timeout', Auth.user(), async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (req.user?.player?.isBanned) {
-      return res.status(403).json({ error: 'Your account is banned' });
-    }
+    // if (req.user?.player?.isBanned) {
+    //   return res.status(403).json({ error: 'Your account is banned' });
+    // }
 
     const timeoutDuration = 300 * 1000;
     const timeout = Date.now() + timeoutDuration;
