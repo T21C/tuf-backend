@@ -32,15 +32,15 @@ class PlayerModifier extends Model {
     // Low chance (total 45%)
     [ModifierType.RANKED_MULTIPLY]: 0,//15.0,  // Low: 15%
     [ModifierType.SCORE_COMBINE]: 0,//10.0,    // Low: 10%
-    [ModifierType.PLAYER_SWAP]: 97,//10.0,      // Low: 10%
-    [ModifierType.OOPS_ALL_MISS]: 0,//10.0,    // Low: 10%
+    [ModifierType.PLAYER_SWAP]: 0,//10.0,      // Low: 10%
+    [ModifierType.OOPS_ALL_MISS]: 99,//10.0,    // Low: 10%
     
     // Very low chance (total 12%)
     [ModifierType.SCORE_FLIP]: 0, // 6.0,        // Very low: 6%
     [ModifierType.KING_OF_CASTLE]: 0, // 6.0,    // Very low: 6%
     
     // Super low chance (total 3%)
-    [ModifierType.BAN_HAMMER]: 2.0,        // Super low: 2%
+    [ModifierType.BAN_HAMMER]: 0.0,        // Super low: 2%
     [ModifierType.SUPER_ADMIN]: 1.0        // Extremely low: 1%
   };
 

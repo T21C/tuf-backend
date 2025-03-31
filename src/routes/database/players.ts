@@ -20,6 +20,7 @@ import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
 import PlayerModifier from '../../models/PlayerModifier.js';
 import { ModifierService } from '../../services/ModifierService.js';
+import { ModifierType } from '../../models/PlayerModifier.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const modifierService = ModifierService.getInstance();
@@ -955,12 +956,25 @@ router.post('/modifiers/generate', Auth.user(), async (req, res) => {
 
     const result = await modifierService.handleModifierGeneration(playerId, targetPlayerId);
     
-    
     if (result.error || !result.modifier) {
       return res.status(400).json({ error: result.error });
     }
     
+    // Apply the modifier
     await modifierService.applyModifier(result.modifier);
+    
+    // For BAN_HAMMER, we want to return the target player's info
+    if (result.modifier.type === ModifierType.BAN_HAMMER) {
+      const targetPlayer = await Player.findByPk(targetPlayerId);
+      return res.json({ 
+        modifier: result.modifier,
+        targetPlayer: targetPlayer ? {
+          id: targetPlayer.id,
+          name: targetPlayer.name
+        } : null
+      });
+    }
+    
     return res.json({ modifier: result.modifier });
   } catch (error) {
     console.error('Error generating modifier:', error);

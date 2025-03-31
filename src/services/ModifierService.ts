@@ -9,6 +9,9 @@ import User from '../models/User.js';
 import Judgement from '../models/Judgement.js';
 import sequelize from '../config/db.js';
 import PlayerStats from '../models/PlayerStats.js';
+import Difficulty from '../models/Difficulty.js';
+import { calcAcc } from '../misc/CalcAcc.js';
+import { getScoreV2 } from '../misc/CalcScore.js';
 
 export class ModifierService {
   private static instance: ModifierService;
@@ -73,7 +76,6 @@ export class ModifierService {
       ModifierType.KING_OF_CASTLE,
       ModifierType.BAN_HAMMER,
       ModifierType.SUPER_ADMIN,
-      ModifierType.OOPS_ALL_MISS,
       ModifierType.PLAYER_SWAP
     ].includes(type);
 
@@ -291,9 +293,9 @@ export class ModifierService {
     console.log(`[Super Admin] Handling super admin for player ${playerId}, enable: ${enable}`);
   }
 
-  public async handleOopsAllMiss(playerId: number, hide: boolean = true): Promise<void> {   
+  public async handleOopsAllMiss(playerId: number, undo: boolean = false): Promise<void> {   
     try {
-      console.log(`[Oops All Miss] Starting handler for player ${playerId}, hide: ${hide}`);
+      console.log(`[Oops All Miss] Starting handler for player ${playerId}, undo: ${undo}`);
       
       const passes = await Pass.findAll({
         where: {
@@ -313,17 +315,72 @@ export class ModifierService {
 
       console.log(`[Oops All Miss] Found ${passes.length} passes to process`);
 
-      for (const pass of passes) {
-        if (pass.judgements) {
-          const currentEarlyDouble = pass.judgements.earlyDouble || 0;
-          await pass.judgements.update({
-            earlyDouble: currentEarlyDouble + 5
-          });
-          console.log(`[Oops All Miss] Added 5 early doubles to pass ${pass.id}, new total: ${currentEarlyDouble + 5}`);
-        }
-      }
+      const transaction = await sequelize.transaction();
+      try {
+        for (const pass of passes) {
+          if (pass.judgements) {
+            const currentEarlyDouble = pass.judgements.earlyDouble || 0;
+            const newEarlyDouble = currentEarlyDouble + (undo ? -25 : 25);
+            await pass.judgements.update({
+                ...pass.judgements,
+                earlyDouble: newEarlyDouble > 0 ? newEarlyDouble : 0
+              }, { transaction });
+            console.log(`[Oops All Miss] Added ${undo ? -25 : 25} early doubles to pass ${pass.id}, new total: ${currentEarlyDouble + (undo ? -25 : 25)}`);
 
-      console.log(`[Oops All Miss] Completed processing for player ${playerId}`);
+            // Get level data for score recalculation
+            const level = await Level.findByPk(pass.levelId, {
+              include: [{
+                model: Difficulty,
+                as: 'difficulty'
+              }],
+              transaction
+            });
+
+            if (level) {
+              // Recalculate accuracy
+              const newAccuracy = calcAcc(pass.judgements);
+              
+              // Recalculate score
+              const newScore = getScoreV2(
+                {
+                  speed: pass.speed || 1,
+                  judgements: {
+                    earlyDouble: pass.judgements.earlyDouble || 0,
+                    earlySingle: pass.judgements.earlySingle || 0,
+                    ePerfect: pass.judgements.ePerfect || 0,
+                    perfect: pass.judgements.perfect || 0,
+                    lPerfect: pass.judgements.lPerfect || 0,
+                    lateSingle: pass.judgements.lateSingle || 0,
+                    lateDouble: pass.judgements.lateDouble || 0,
+                  },
+                  isNoHoldTap: pass.isNoHoldTap || false 
+                },
+                {
+                  baseScore: level.baseScore || 0,
+                  difficulty: level.difficulty || { baseScore: 0 }
+                }
+              );
+
+              // Update pass with new values
+              await pass.update({
+                accuracy: newAccuracy,
+                scoreV2: newScore
+              }, { transaction });
+
+              console.log(`[Oops All Miss] Updated pass ${pass.id} with new accuracy: ${newAccuracy} and score: ${newScore}`);
+            }
+          }
+        }
+
+        await transaction.commit();
+        console.log(`[Oops All Miss] Completed processing for player ${playerId}`);
+
+        // Update player stats after all passes are processed
+        await PlayerStatsService.getInstance().updatePlayerStats(playerId);
+      } catch (error) {
+        await transaction.rollback();
+        throw error;
+      }
     } catch (error) {
       console.error(`[Oops All Miss] Error processing for player ${playerId}:`, error);
       throw error;
@@ -669,8 +726,8 @@ export class ModifierService {
       }
 
       // Handle special cases
-      if (modifier.type === ModifierType.BAN_HAMMER && playerId !== targetPlayerId) {
-        // If it's a ban hammer and not a self-roll, apply it to the roller instead
+      if (modifier.type === ModifierType.BAN_HAMMER) {
+        // For ban hammer, always apply to the roller
         const banModifier = await this.addModifier(
           playerId,
           modifier.type,
