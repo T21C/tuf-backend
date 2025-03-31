@@ -33,7 +33,7 @@ interface CooldownEntry {
 }
 
 const cooldownSet = new Set<string>();
-const COOLDOWN_MS = 15 * 1000; // 15 seconds
+const COOLDOWN_MS = 300 * 1000; // 15 seconds
 
 const getCooldownKey = (playerId: number, targetPlayerId: number): string => {
   return `${playerId}:${targetPlayerId}`;

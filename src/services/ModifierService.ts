@@ -17,7 +17,7 @@ export class ModifierService {
   private static instance: ModifierService;
   private modifiersEnabled: boolean = true;
   private cooldownSet = new Set<string>();
-  private readonly COOLDOWN_MS = 15 * 1000; // 15 seconds
+  private readonly COOLDOWN_MS = 300 * 1000; // 15 seconds
   private readonly SEC_HOURS = 3600;
   private readonly SEC_MINUTES = 60;
 

@@ -1999,7 +1999,7 @@ router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) =
       return res.status(403).json({ error: 'Your account is banned' });
     }
 
-    const timeoutDuration = 15 * 1000;
+    const timeoutDuration = 300 * 1000;
     const timeout = Date.now() + timeoutDuration;
     userTimeouts.set(req.user.id, timeout);
 
@@ -2077,7 +2077,7 @@ router.put('/:id/timeout', Auth.user(), async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Your account is banned' });
     }
 
-    const timeoutDuration = 15 * 1000;
+    const timeoutDuration = 300 * 1000;
     const timeout = Date.now() + timeoutDuration;
     levelTimeouts.set(levelId, timeout);
 
