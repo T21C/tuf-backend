@@ -155,7 +155,7 @@ export class ModifierService {
               await this.handleBanHammer(modifier.playerId, false);
               break;
             case ModifierType.SUPER_ADMIN:
-              await this.handleSuperAdmin(modifier.playerId, false);
+              await this.handleSuperAdmin(modifier.playerId, modifier, false);
               break;
             case ModifierType.OOPS_ALL_MISS:
               await this.handleOopsAllMiss(modifier.playerId, false);
@@ -274,12 +274,17 @@ export class ModifierService {
     }
   }
 
-  public async handleSuperAdmin(playerId: number, enable: boolean = true): Promise<void> {
+  public async handleSuperAdmin(playerId: number, sourceModifier: PlayerModifier, enable: boolean = true): Promise<void> {
     const user = await User.findOne({
       where: {
         playerId: playerId
       }
     });
+    if (enable && user?.isSuperAdmin) {
+      sourceModifier.destroy();
+      console.log(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
+      return;
+    }
     if (!user) {
       console.error(`[Super Admin] Player ${playerId} not found`);
       return;
@@ -392,7 +397,7 @@ export class ModifierService {
           await this.handleBanHammer(playerId);
           break;
         case ModifierType.SUPER_ADMIN:
-          await this.handleSuperAdmin(playerId);
+          await this.handleSuperAdmin(playerId, modifier);
           break;
         case ModifierType.OOPS_ALL_MISS:
           await this.handleOopsAllMiss(playerId);
