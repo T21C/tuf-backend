@@ -83,6 +83,13 @@ export class ModifierService {
       ModifierType.PLAYER_SWAP
     ].includes(type);
 
+    // For multiply and add modifiers, ensure we have a valid value
+    if (type === ModifierType.RANKED_MULTIPLY || type === ModifierType.RANKED_ADD) {
+      if (value === null) {
+        console.error(`[ModifierService] Invalid value for ${type} modifier`);
+        throw new Error(`Invalid value for ${type} modifier`);
+      }
+    }
 
     if (isNonStackable) {
       // Find existing non-expired modifier of the same type
@@ -98,10 +105,10 @@ export class ModifierService {
         const newExpiresAt = this.getExpirationTime(type);
         
         if (type !== ModifierType.PLAYER_SWAP) {
-        await existingModifier.update({
-          expiresAt: newExpiresAt,
-          value // Update value in case it changed
-        });
+          await existingModifier.update({
+            expiresAt: newExpiresAt,
+            value // Update value in case it changed
+          });
         }
         else {
           await existingModifier.update({
@@ -647,6 +654,11 @@ export class ModifierService {
       
       if (roll <= cumulativeProbability) {
         let value = null;
+        if (type === ModifierType.RANKED_MULTIPLY) {
+          value = Math.random() * 10;
+        } else if (type === ModifierType.RANKED_ADD) {
+          value = Math.random() * 1000;
+        }
         return await this.addModifier(playerId, type as ModifierType, value);
       }
     }
