@@ -25,15 +25,11 @@ const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const modifierService = ModifierService.getInstance();
 
-// In-memory cooldown tracking
-interface CooldownEntry {
-  playerId: number;
-  targetPlayerId: number;
-  timestamp: number;
-}
 
-const cooldownSet = new Set<string>();
-const COOLDOWN_MS = 300 * 1000; // 15 seconds
+const selfRollCooldowns = new Map<string, number>();
+const otherRollCooldowns = new Map<string, number>();
+const SELF_ROLL_COOLDOWN_MS = 60 * 1000; // 1 minute
+const OTHER_ROLL_COOLDOWN_MS = 600 * 1000; // 10 minutes
 
 const getCooldownKey = (playerId: number, targetPlayerId: number): string => {
   return `${playerId}:${targetPlayerId}`;
@@ -41,23 +37,48 @@ const getCooldownKey = (playerId: number, targetPlayerId: number): string => {
 
 const isOnCooldown = (playerId: number, targetPlayerId: number): boolean => {
   const key = getCooldownKey(playerId, targetPlayerId);
-  return cooldownSet.has(key);
+  const isSelfRoll = playerId === targetPlayerId;
+  const cooldownMap = isSelfRoll ? selfRollCooldowns : otherRollCooldowns;
+  const cooldownTime = isSelfRoll ? SELF_ROLL_COOLDOWN_MS : OTHER_ROLL_COOLDOWN_MS;
+  
+  const timestamp = cooldownMap.get(key);
+  if (!timestamp) return false;
+  
+  const now = Date.now();
+  if (now - timestamp >= cooldownTime) {
+    cooldownMap.delete(key);
+    return false;
+  }
+  
+  return true;
 };
 
 const addCooldown = (playerId: number, targetPlayerId: number): void => {
   const key = getCooldownKey(playerId, targetPlayerId);
-  cooldownSet.add(key);
+  const isSelfRoll = playerId === targetPlayerId;
+  const cooldownMap = isSelfRoll ? selfRollCooldowns : otherRollCooldowns;
   
-  // Remove the cooldown after the timeout
-  setTimeout(() => {
-    cooldownSet.delete(key);
-  }, COOLDOWN_MS);
+  cooldownMap.set(key, Date.now());
 };
 
 const getRemainingCooldown = (playerId: number, targetPlayerId: number): number => {
   const key = getCooldownKey(playerId, targetPlayerId);
-  if (!cooldownSet.has(key)) return 0;
-  return COOLDOWN_MS;
+  const isSelfRoll = playerId === targetPlayerId;
+  const cooldownMap = isSelfRoll ? selfRollCooldowns : otherRollCooldowns;
+  const cooldownTime = isSelfRoll ? SELF_ROLL_COOLDOWN_MS : OTHER_ROLL_COOLDOWN_MS;
+  
+  const timestamp = cooldownMap.get(key);
+  if (!timestamp) return 0;
+  
+  const now = Date.now();
+  const remaining = cooldownTime - (now - timestamp);
+  
+  if (remaining <= 0) {
+    cooldownMap.delete(key);
+    return 0;
+  }
+  
+  return Math.ceil(remaining / 1000); // Convert to seconds
 };
 
 router.get('/', async (req: Request, res: Response) => {
@@ -920,15 +941,29 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
 
 router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
   try {
-    if (req.user?.player?.isBanned) {
-      return res.status(403).json({ error: 'Oops! Banned' });
+    // if (req.user?.player?.isBanned) {
+    //   return res.status(403).json({ error: 'Oops! Banned' });
+    // }
+
+    const playerId = req.user?.playerId;
+    const targetPlayerId = parseInt(req.params.playerId);
+    
+    if (!playerId) {
+      return res.status(403).json({ error: 'Player ID not found' });
     }
 
-    const targetPlayerId = parseInt(req.params.playerId);
     const modifiers = await modifierService.getActiveModifiers(targetPlayerId);
+    
+    // Get cooldown information
+    const remainingCooldown = getRemainingCooldown(playerId, targetPlayerId);
+    
     return res.json({
       modifiers,
-      probabilities: PlayerModifier.PROBABILITIES
+      probabilities: PlayerModifier.PROBABILITIES,
+      cooldown: {
+        remainingSeconds: remainingCooldown,
+        isSelfRoll: playerId === targetPlayerId
+      }
     });
   } catch (error) {
     console.error('Error fetching modifiers:', error);
@@ -942,16 +977,23 @@ router.post('/modifiers/generate', Auth.user(), async (req, res) => {
     const playerId = req.user?.playerId;
     const targetPlayerId = parseInt(req.body.targetPlayerId);
     
-    if (req.user?.player?.isBanned) {
-      return res.status(403).json({ error: 'Oops! Banned' });
-    }
-
     if (!playerId) {
       return res.status(403).json({ error: 'Player ID not found' });
     }
 
     if (!targetPlayerId) {
       return res.status(400).json({ error: 'Target player ID is required' });
+    }
+
+    // Check cooldown first
+    const remainingCooldown = getRemainingCooldown(playerId, targetPlayerId);
+
+    if (remainingCooldown > 0) {
+      return res.status(429).json({ 
+        error: 'Spin cooldown active',
+        remainingSeconds: remainingCooldown,
+        isSelfRoll: playerId === targetPlayerId
+      });
     }
 
     const result = await modifierService.handleModifierGeneration(playerId, targetPlayerId);
@@ -962,6 +1004,9 @@ router.post('/modifiers/generate', Auth.user(), async (req, res) => {
     
     // Apply the modifier
     await modifierService.applyModifier(result.modifier);
+    
+    // Add cooldown after successful generation
+    addCooldown(playerId, targetPlayerId);
     
     // For BAN_HAMMER, we want to return the target player's info
     if (result.modifier.type === ModifierType.BAN_HAMMER) {

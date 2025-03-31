@@ -29,7 +29,7 @@ export class PlayerStatsService {
   private isInitialized = false;
   private updateTimeout: NodeJS.Timeout | null = null;
   private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
-  private readonly RELOAD_INTERVAL = 60 * 1000; // 1 minute in milliseconds
+  private readonly RELOAD_INTERVAL = 7 * 60 * 1000; // 1 minute in milliseconds
   private pendingPlayerIds: Set<number> = new Set();
   private modifierService: ModifierService;
 

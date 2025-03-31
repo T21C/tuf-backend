@@ -16,11 +16,8 @@ import { getScoreV2 } from '../misc/CalcScore.js';
 export class ModifierService {
   private static instance: ModifierService;
   private modifiersEnabled: boolean = true;
-  private cooldownSet = new Set<string>();
-  private readonly COOLDOWN_MS = 300 * 1000; // 15 seconds
   private readonly SEC_HOURS = 3600;
   private readonly SEC_MINUTES = 60;
-
 
   // Custom expiration times in seconds for each modifier type
   private readonly EXPIRATION_TIMES: Record<ModifierType, number> = {
@@ -506,8 +503,6 @@ export class ModifierService {
         }
         targetPlayerId = undo && swap?.value ? swap?.value : targetPlayerId;
 
-      
-
       const player = await Player.findByPk(playerId);
       const targetPlayer = await Player.findByPk(targetPlayerId);
       
@@ -515,7 +510,6 @@ export class ModifierService {
         console.error(`[Player Swap] Player lookup failed - Player ${playerId}: ${!!player}, Target ${targetPlayerId}: ${!!targetPlayer}`);
         return;
       }
-      
 
       // For undo, we don't need to check for existing swaps
       if (!undo) {
@@ -540,7 +534,6 @@ export class ModifierService {
           return;
         }
       }
-
 
       // Swap the player IDs in passes
       const transaction = await sequelize.transaction();
@@ -646,44 +639,12 @@ export class ModifierService {
            Math.floor(score12K);
   }
 
-  private getCooldownKey(playerId: number, targetPlayerId: number): string {
-    return `${playerId}:${targetPlayerId}`;
-  }
-
-  private isOnCooldown(playerId: number, targetPlayerId: number): boolean {
-    const key = this.getCooldownKey(playerId, targetPlayerId);
-    return this.cooldownSet.has(key);
-  }
-
-  private addCooldown(playerId: number, targetPlayerId: number): void {
-    const key = this.getCooldownKey(playerId, targetPlayerId);
-    this.cooldownSet.add(key);
-    
-    // Remove the cooldown after the timeout
-    setTimeout(() => {
-      this.cooldownSet.delete(key);
-    }, this.COOLDOWN_MS);
-  }
-
-  public getRemainingCooldown(playerId: number, targetPlayerId: number): number {
-    return this.isOnCooldown(playerId, targetPlayerId) ? this.COOLDOWN_MS : 0;
-  }
-
   public async handleModifierGeneration(playerId: number, targetPlayerId: number): Promise<{ modifier: PlayerModifier | null; error?: string }> {
     try {
       // Check if target player exists
       const targetPlayer = await Player.findByPk(targetPlayerId);
       if (!targetPlayer) {
         return { modifier: null, error: 'Target player not found' };
-      }
-
-      // Check cooldown
-      if (this.isOnCooldown(playerId, targetPlayerId)) {
-        const remainingTime = Math.ceil(this.getRemainingCooldown(playerId, targetPlayerId) / 1000);
-        return { 
-          modifier: null, 
-          error: `Spin cooldown active (${remainingTime}s remaining)` 
-        };
       }
 
       // Generate the modifier
@@ -704,14 +665,8 @@ export class ModifierService {
         // Update player stats
         await PlayerStatsService.getInstance().updatePlayerStats(playerId);
         
-        // Add cooldown
-        this.addCooldown(playerId, targetPlayerId);
-        
         return { modifier: banModifier };
       }
-
-      // Add cooldown
-      this.addCooldown(playerId, targetPlayerId);
 
       return { modifier };
     } catch (error) {
