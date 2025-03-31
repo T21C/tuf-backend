@@ -26,7 +26,7 @@ const playerStatsService = PlayerStatsService.getInstance();
 
 // Add after router declaration
 const userTimeouts = new Map<string, number>();
-const bigWheelTimeout = 1000 * 30; // 30 seconds
+const bigWheelTimeout = 1000 * 15; // 30 seconds
 const individualLevelTimeout = 1000 * 60 * 5; // 5 minutes
 
 // Add helper function to check timeout
