@@ -27,22 +27,21 @@ class PlayerModifier extends Model {
   // Modifier probabilities (in percentage)
   static readonly PROBABILITIES = {
     // Common (40%)
-    [ModifierType.RANKED_ADD]: 0,//40.0,      // Common: 40%
-    
+    [ModifierType.RANKED_ADD]: 40,//40.0,      // Common: 40%
+
     // Low chance (total 45%)
-    [ModifierType.RANKED_MULTIPLY]: 0,//15.0,  // Low: 15%
-    [ModifierType.SCORE_COMBINE]: 0,//10.0,    // Low: 10%
-    [ModifierType.PLAYER_SWAP]: 0,//10.0,      // Low: 10%
-    [ModifierType.OOPS_ALL_MISS]: 99,//10.0,    // Low: 10%
-    
+    [ModifierType.RANKED_MULTIPLY]: 25,
+    [ModifierType.SCORE_COMBINE]: 5,
+    [ModifierType.PLAYER_SWAP]: 5,
+    [ModifierType.OOPS_ALL_MISS]: 10,
     // Very low chance (total 12%)
-    [ModifierType.SCORE_FLIP]: 0, // 6.0,        // Very low: 6%
-    [ModifierType.KING_OF_CASTLE]: 0, // 6.0,    // Very low: 6%
-    
+    [ModifierType.SCORE_FLIP]: 6, 
+    [ModifierType.KING_OF_CASTLE]: 6,
+
     // Super low chance (total 3%)
-    [ModifierType.BAN_HAMMER]: 0.0,        // Super low: 2%
-    [ModifierType.SUPER_ADMIN]: 1.0        // Extremely low: 1%
-  };
+    [ModifierType.BAN_HAMMER]: 2.0, 
+    [ModifierType.SUPER_ADMIN]: 1.0 
+  } 
 
   // Modifier configurations
   static readonly CONFIGS: Partial<Record<ModifierType, { min: number; max: number }>> = {

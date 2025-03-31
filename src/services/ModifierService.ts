@@ -18,18 +18,21 @@ export class ModifierService {
   private modifiersEnabled: boolean = true;
   private cooldownSet = new Set<string>();
   private readonly COOLDOWN_MS = 15 * 1000; // 15 seconds
-  
-  // Custom expiration times in hours for each modifier type
+  private readonly SEC_HOURS = 3600;
+  private readonly SEC_MINUTES = 60;
+
+
+  // Custom expiration times in seconds for each modifier type
   private readonly EXPIRATION_TIMES: Record<ModifierType, number> = {
-    [ModifierType.RANKED_ADD]: 2,
-    [ModifierType.RANKED_MULTIPLY]: 2,
-    [ModifierType.SCORE_FLIP]: 2,
-    [ModifierType.SCORE_COMBINE]: 2,
-    [ModifierType.KING_OF_CASTLE]: 1, // 24 hours for KOC
-    [ModifierType.BAN_HAMMER]: 0.5, // 1 hour for ban hammer
-    [ModifierType.SUPER_ADMIN]: 0.083, // 5 minutes for super admin
-    [ModifierType.PLAYER_SWAP]: 1,
-    [ModifierType.OOPS_ALL_MISS]: 2
+    [ModifierType.RANKED_ADD]: this.SEC_HOURS * 2, // 2 hours in seconds
+    [ModifierType.RANKED_MULTIPLY]: this.SEC_HOURS * 2,
+    [ModifierType.SCORE_FLIP]: this.SEC_HOURS * 2,
+    [ModifierType.SCORE_COMBINE]: this.SEC_HOURS * 2,
+    [ModifierType.KING_OF_CASTLE]: this.SEC_HOURS * 1, // 1 hour in seconds
+    [ModifierType.BAN_HAMMER]: this.SEC_MINUTES * 30, // 30 minutes in seconds
+    [ModifierType.SUPER_ADMIN]: this.SEC_MINUTES * 5, // 5 minutes in seconds
+    [ModifierType.PLAYER_SWAP]: this.SEC_HOURS * 1,
+    [ModifierType.OOPS_ALL_MISS]: this.SEC_HOURS * 2
   };
 
   private constructor() {
@@ -64,9 +67,10 @@ export class ModifierService {
   }
 
   private getExpirationTime(type: ModifierType): Date {
-    const hours = this.EXPIRATION_TIMES[type] || 2; // Default to 2 hours if not specified
+    const seconds = this.EXPIRATION_TIMES[type] || 7200; // Default to 2 hours if not specified
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + hours);
+    expiresAt.setSeconds(expiresAt.getSeconds() + seconds);
+    console.log(`[ModifierService] Expiration time for modifier ${type} is ${expiresAt.toISOString()}, current time: ${new Date().toISOString()}`);
     return expiresAt;
   }
 
