@@ -907,13 +907,20 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         ? level.previousDiffId
         : previousDiffId;
     // Clean up the update data to handle null values correctly
-    const updateData = {
+    const updateData = {/*
       song: req.body.song,
       artist: req.body.artist,
       creator: req.body.creator,
       charter: req.body.charter,
       vfxer: req.body.vfxer,
       team: req.body.team,
+*/
+      song: level.song,
+      artist: level.artist,
+      creator: level.creator,
+      charter: level.charter,
+      vfxer: level.vfxer,
+      team: level.team,
       diffId: req.body.diffId || 0,
       previousDiffId,
       baseScore:

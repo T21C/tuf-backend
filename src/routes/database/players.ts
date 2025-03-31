@@ -606,7 +606,7 @@ router.put('/:id/discord/:discordId', Auth.superAdmin(), async (req: Request, re
   },
 );
 
-router.put('/:id/name', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id/name', Auth.superAdminPassword(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
