@@ -780,13 +780,15 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction({
     isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ,
   });
-
+  
   try {
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId)) {
       return res.status(400).json({error: 'Invalid level ID'});
     }
 
+    console.log('Updating level from user', req.user?.id);
+    console.log('data', req.body);
     // First get the current level data
     const level = await Level.findOne({
       where: {id: levelId},
@@ -907,20 +909,13 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         ? level.previousDiffId
         : previousDiffId;
     // Clean up the update data to handle null values correctly
-    const updateData = {/*
+    const updateData = {
       song: req.body.song,
       artist: req.body.artist,
       creator: req.body.creator,
       charter: req.body.charter,
       vfxer: req.body.vfxer,
       team: req.body.team,
-*/
-      song: level.song,
-      artist: level.artist,
-      creator: level.creator,
-      charter: level.charter,
-      vfxer: level.vfxer,
-      team: level.team,
       diffId: req.body.diffId || 0,
       previousDiffId,
       baseScore:
