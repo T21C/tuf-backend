@@ -26,6 +26,8 @@ const playerStatsService = PlayerStatsService.getInstance();
 
 // Add after router declaration
 const userTimeouts = new Map<string, number>();
+const bigWheelTimeout = 1000 * 30; // 30 seconds
+const individualLevelTimeout = 1000 * 60 * 5; // 5 minutes
 
 // Add helper function to check timeout
 const checkUserTimeout = (userId: string): number | null => {
@@ -2001,7 +2003,7 @@ router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) =
     //   return res.status(403).json({ error: 'Your account is banned' });
     // }
 
-    const timeoutDuration = 300 * 1000;
+    const timeoutDuration = bigWheelTimeout;
     const timeout = Date.now() + timeoutDuration;
     userTimeouts.set(req.user.id, timeout);
 
@@ -2079,7 +2081,7 @@ router.put('/:id/timeout', Auth.user(), async (req: Request, res: Response) => {
     //   return res.status(403).json({ error: 'Your account is banned' });
     // }
 
-    const timeoutDuration = 300 * 1000;
+    const timeoutDuration = individualLevelTimeout;
     const timeout = Date.now() + timeoutDuration;
     levelTimeouts.set(levelId, timeout);
 
