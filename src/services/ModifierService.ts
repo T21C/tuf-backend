@@ -351,7 +351,6 @@ export class ModifierService {
       });
 
       if (!passes || passes.length === 0) {
-        console.error(`[Oops All Miss] No passes found for player ${playerId}`);
         return;
       }
 
