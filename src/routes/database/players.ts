@@ -938,7 +938,7 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
   }
 });
 
-router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
+router.get('/:playerId/modifiers', Auth.addUserToRequest(), async (req, res) => {
   try {
     if (!modifierService) {
       return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
@@ -950,14 +950,14 @@ router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
     const playerId = req.user?.playerId;
     const targetPlayerId = parseInt(req.params.playerId);
     
-    if (!playerId) {
-      return res.status(403).json({ error: 'Player ID not found' });
-    }
 
     const modifiers = await modifierService.getActiveModifiers(targetPlayerId);
     
     // Get cooldown information
-    const remainingCooldown = getRemainingCooldown(playerId, targetPlayerId);
+    let remainingCooldown = 0;
+    if (playerId) {
+      remainingCooldown = getRemainingCooldown(playerId, targetPlayerId);
+    }
     
     return res.json({
       modifiers,
