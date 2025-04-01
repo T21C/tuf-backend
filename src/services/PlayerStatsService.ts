@@ -518,7 +518,6 @@ export class PlayerStatsService {
               JOIN levels ON levels.id = passes.levelId 
               WHERE passes.playerId = PlayerStats.playerId
               AND passes.isDeleted = false 
-              AND passes.isHidden = false
               AND levels.isDeleted = false 
               AND levels.isHidden = false
             )`),
@@ -607,7 +606,6 @@ export class PlayerStatsService {
             'JOIN levels ON levels.id = passes.levelId ' +
             'WHERE passes.playerId = player.id ' + 
             'AND passes.isDeleted = false ' +
-            'AND passes.isHidden = false ' +
             'AND levels.isDeleted = false ' +
             'AND levels.isHidden = false)'
           ),
@@ -622,7 +620,6 @@ export class PlayerStatsService {
             'INNER JOIN passes ON passes.levelId = levels.id ' +
             'WHERE passes.playerId = player.id ' +
             'AND passes.isDeleted = false ' +
-            'AND passes.isHidden = false ' +
             'AND difficulties.id < 100 ' +
             'AND levels.isDeleted = false ' +
             'AND levels.isHidden = false ' +
@@ -637,7 +634,6 @@ export class PlayerStatsService {
             'INNER JOIN passes ON passes.levelId = levels.id ' +
             'WHERE passes.playerId = player.id ' +
             'AND passes.isDeleted = false ' +
-            'AND passes.isHidden = false ' +
             'AND passes.is12K = true ' +
             'AND difficulties.id < 100 ' +
             'AND levels.isDeleted = false ' +

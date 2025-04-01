@@ -207,7 +207,6 @@ const buildWhereClause = async (query: any) => {
   } else {
     conditions.push({isDeleted: false});
   }
-  conditions.push({isHidden: false});
   
 
   // Handle key flag filter
