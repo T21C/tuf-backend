@@ -3,6 +3,7 @@ import {validSortOptions} from '../../config/constants.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import User from '../../models/User.js';
 import OAuthProvider from '../../models/OAuthProvider.js';
+import Player from '../../models/Player.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -30,37 +31,63 @@ router.get('/', async (req: Request, res: Response) => {
 
     // If there's a query and it starts with #, treat it as a Discord ID search
     if (query && typeof query === 'string' && query.startsWith('#')) {
-      const discordId = query.slice(1); // Remove the # prefix
-
+      const idQuery = parseInt(query.slice(1)); // Remove the # prefix
+      if (isNaN(idQuery) || idQuery < 1) {
+        return res.json({ count: 0, results: [] });
+      }
       // Find the user with this Discord OAuth provider
-      const userWithDiscord = await User.findOne({
+      let userWithDiscord = await User.findOne({
         include: [
           {
             model: OAuthProvider,
             as: 'providers',
             where: {
               provider: 'discord',
-              providerId: discordId,
+              providerId: idQuery,
             },
           },
         ],
       });
+      let lookupId = userWithDiscord?.playerId || idQuery;
+      const { total, players } = await playerStatsService.getLeaderboard(
+        sortBy as string,
+        order as 'asc' | 'desc',
+        showBanned as 'show' | 'hide' | 'only',
+        lookupId,
+        offsetNum,
+        limitNum
+      );
+      return res.json({ count: total, results: players });
+    }
 
-      if (userWithDiscord) {
-        // Get player stats for this specific user's player
-        const { total, players } = await playerStatsService.getLeaderboard(
-          sortBy as string,
-          order as 'asc' | 'desc',
-          showBanned as 'show' | 'hide' | 'only',
-          userWithDiscord.playerId,
-          offsetNum,
-          limitNum
-        );
-        return res.json({ count: total, results: players });
-      }
 
-      // If no user found with that Discord ID, return empty array
-      return res.json({ count: 0, results: [] });
+    if (query && typeof query === 'string' && query.startsWith('@')) {
+      const idQuery = query.slice(1); // Remove the @ prefix
+
+      // Find the user with this Discord OAuth provider
+      let userWithDiscord = await User.findOne({
+        include: [
+          {
+            model: OAuthProvider,
+            as: 'providers',
+            where: {
+              provider: 'discord',
+              profile: {
+                username: idQuery,
+              },
+            },
+          },
+        ],
+      });
+      const { total, players } = await playerStatsService.getLeaderboard(
+        sortBy as string,
+        order as 'asc' | 'desc',
+        showBanned as 'show' | 'hide' | 'only',
+        userWithDiscord?.playerId || 0,
+        offsetNum,
+        limitNum
+      );
+      return res.json({ count: total, results: players });
     }
 
     // Regular leaderboard fetch without Discord ID filter

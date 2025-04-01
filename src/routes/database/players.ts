@@ -1013,18 +1013,6 @@ router.post('/modifiers/generate', Auth.user(), async (req, res) => {
     // Add cooldown after successful generation
     addCooldown(playerId, targetPlayerId);
     
-    // For BAN_HAMMER, we want to return the target player's info
-    if (result.modifier.type === ModifierType.BAN_HAMMER) {
-      const targetPlayer = await Player.findByPk(targetPlayerId);
-      return res.json({ 
-        modifier: result.modifier,
-        targetPlayer: targetPlayer ? {
-          id: targetPlayer.id,
-          name: targetPlayer.name
-        } : null
-      });
-    }
-    
     return res.json({ modifier: result.modifier });
   } catch (error) {
     console.error('Error generating modifier:', error);

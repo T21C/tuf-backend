@@ -28,8 +28,8 @@ export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
   private updateTimeout: NodeJS.Timeout | null = null;
-  private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
-  private readonly RELOAD_INTERVAL = 7 * 60 * 1000; // 1 minute in milliseconds
+  private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes
+  private readonly RELOAD_INTERVAL = 4 * 60 * 1000; // 4 minutes
   private pendingPlayerIds: Set<number> = new Set();
   private modifierService: ModifierService | null = null;
 
@@ -567,6 +567,12 @@ export class PlayerStatsService {
     limit = 30,
     nameQuery?: string
   ): Promise<{ total: number; players: PlayerStats[] }> {
+    if (playerId && playerId < 1) {
+      return {
+        total: 0,
+        players: []
+      };
+    }
     try {
       const whereClause: any = {};
       if (showBanned === 'hide') {

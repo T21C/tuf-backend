@@ -40,9 +40,20 @@ class PlayerModifier extends Model {
 
     // Super low chance (total 5%)
     [ModifierType.PLAYER_SWAP]: 2.0,
-    [ModifierType.BAN_HAMMER]: 3.0, 
-    [ModifierType.SUPER_ADMIN]: 0.0 
+    [ModifierType.BAN_HAMMER]: 3.0
   } 
+
+  static readonly PROBABILITIESTEST = {
+    [ModifierType.RANKED_ADD]: 0,
+    [ModifierType.RANKED_MULTIPLY]: 0,
+    [ModifierType.SCORE_COMBINE]: 0,
+    [ModifierType.OOPS_ALL_MISS]: 0,
+    [ModifierType.SCORE_FLIP]: 0,
+    [ModifierType.KING_OF_CASTLE]: 0,
+    [ModifierType.PLAYER_SWAP]: 100,
+    [ModifierType.BAN_HAMMER]: 0
+  }
+  
 
   // Modifier configurations
   static readonly CONFIGS: Partial<Record<ModifierType, { min: number; max: number }>> = {

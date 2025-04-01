@@ -24,13 +24,13 @@ export class ModifierService {
 
   // Custom expiration times in seconds for each modifier type
   private readonly EXPIRATION_TIMES: Record<ModifierType, number> = {
-    [ModifierType.RANKED_ADD]: this.SEC_HOURS * 2,
-    [ModifierType.RANKED_MULTIPLY]: this.SEC_HOURS * 2,
-    [ModifierType.SCORE_FLIP]: this.SEC_HOURS * 2,
-    [ModifierType.SCORE_COMBINE]: this.SEC_HOURS * 2,
-    [ModifierType.KING_OF_CASTLE]: this.SEC_HOURS * 1,
-    [ModifierType.BAN_HAMMER]: this.SEC_MINUTES * 15,
-    [ModifierType.SUPER_ADMIN]: this.SEC_MINUTES * 5,
+    [ModifierType.RANKED_ADD]: this.SEC_HOURS * 99,
+    [ModifierType.RANKED_MULTIPLY]: this.SEC_HOURS * 99,
+    [ModifierType.SCORE_FLIP]: this.SEC_HOURS * 24,
+    [ModifierType.SCORE_COMBINE]: this.SEC_HOURS * 24,
+    [ModifierType.KING_OF_CASTLE]: this.SEC_HOURS * 10,
+    [ModifierType.BAN_HAMMER]: this.SEC_MINUTES * 30,
+    [ModifierType.SUPER_ADMIN]: 0,
     [ModifierType.PLAYER_SWAP]: this.SEC_MINUTES * 10,
     [ModifierType.OOPS_ALL_MISS]: this.SEC_HOURS * 2
   };
@@ -61,12 +61,26 @@ export class ModifierService {
   }
 
   public async getActiveModifiers(playerId: number): Promise<PlayerModifier[]> {
+
     return await PlayerModifier.findAll({
       where: {
-        playerId,
-        expiresAt: {
-          [Op.gt]: new Date()
-        }
+        [Op.and]: [
+          {
+            [Op.or]: [
+              {
+                playerId
+              }, 
+              {
+                value: playerId
+              }
+            ]
+          },
+          {
+            expiresAt: {
+              [Op.gt]: new Date()
+            }
+          }
+        ]
       }
     });
   }
@@ -97,11 +111,27 @@ export class ModifierService {
 
     if (isNonStackable) {
       // Find existing non-expired modifier of the same type
+
+      const where = 
+      type === ModifierType.PLAYER_SWAP 
+      ? {
+          [Op.or]: [
+            {
+              playerId,
+              type
+            },
+            {
+              value: playerId
+            }
+          ],
+      } 
+      : {
+        playerId,
+        type
+      };
+
       const existingModifier = await PlayerModifier.findOne({
-        where: {
-          playerId,
-          type,
-        }
+        where
       });
 
       if (existingModifier) {
@@ -483,15 +513,27 @@ export class ModifierService {
 
   private async getRandomNonBannedPlayerId(excludePlayerId: number): Promise<number | null> {
     try {
-      const randomPlayer = await Player.findOne({
+      const playersInSwap = await PlayerModifier.findAll({
+        where: {
+          type: ModifierType.PLAYER_SWAP
+        }
+      });
+      
+      const playersInSwapIds = playersInSwap.reduce((ids, modifier) => {
+        ids.push(modifier.playerId);
+        if (modifier.value) ids.push(modifier.value);
+        return ids;
+      }, [] as number[]);
+      console.log(playersInSwapIds);
+      const allPlayers = await Player.findAll({
         where: {
           id: {
             [Op.ne]: excludePlayerId
           },
           isBanned: false
         },
-        order: [sequelize.random()]
-      });
+      }).then(players => players.filter(player => !playersInSwapIds.includes(player.id)));
+      const randomPlayer = allPlayers[Math.floor(Math.random() * allPlayers.length)];
 
       return randomPlayer?.id || null;
     } catch (error) {
@@ -501,6 +543,18 @@ export class ModifierService {
   }
 
   public async handlePlayerSwap(playerId: number, undo: boolean = false): Promise<void> {
+    const playersInSwap = await PlayerModifier.findAll({
+      where: {
+        type: ModifierType.PLAYER_SWAP
+      }
+    });
+    
+    const playersInSwapIds = playersInSwap.reduce((ids, modifier) => {
+      ids.push(modifier.playerId);
+      if (modifier.value) ids.push(modifier.value);
+      return ids;
+    }, [] as number[]);
+    console.log(playersInSwapIds);
     let targetPlayerId = await this.getRandomNonBannedPlayerId(playerId);
     if (!targetPlayerId) {
       console.error(`[Player Swap] No valid target found for player ${playerId}`);
@@ -576,6 +630,20 @@ export class ModifierService {
           transaction
         });
 
+        const playerModifiers = await PlayerModifier.findAll({
+          where: {
+            playerId: undo ? playerId : targetPlayerId,
+            type: ModifierType.KING_OF_CASTLE
+          }
+        });
+
+        const targetModifiers = await PlayerModifier.findAll({
+          where: {
+            playerId: undo ? targetPlayerId : playerId,
+            type: ModifierType.KING_OF_CASTLE
+          }
+        });
+
         const playerUpdateResult = await Pass.update(
           { playerId: undo ? playerId : targetPlayerId },
           {
@@ -599,6 +667,21 @@ export class ModifierService {
           }
         );
         
+        const playerModifierUpdateResult = await PlayerModifier.update(
+          { playerId: undo ? targetPlayerId :  playerId},
+          {
+            where: { id: { [Op.in]: playerModifiers.map(modifier => modifier.id) } }
+          }
+        );
+        
+        const targetModifierUpdateResult = await PlayerModifier.update(
+          { playerId: undo ? playerId : targetPlayerId },
+          {
+            where: { id: { [Op.in]: targetModifiers.map(modifier => modifier.id) } }
+          }
+        );
+
+
         await transaction.commit();
       } catch (error) {
         await transaction.rollback();
