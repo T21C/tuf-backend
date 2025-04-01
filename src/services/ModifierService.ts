@@ -166,7 +166,7 @@ export class ModifierService {
               await this.handleSuperAdmin(modifier.playerId, modifier, false);
               break;
             case ModifierType.OOPS_ALL_MISS:
-              await this.handleOopsAllMiss(modifier.playerId, false);
+              await this.handleOopsAllMiss(modifier.playerId, true);
               break;
             case ModifierType.PLAYER_SWAP:
               // For player swap, we use the stored target player ID directly
@@ -283,6 +283,9 @@ export class ModifierService {
   }
 
   public async handleSuperAdmin(playerId: number, sourceModifier: PlayerModifier, enable: boolean = true): Promise<void> {
+    if (1==1){
+      return; // Disable super admin
+    }
     const user = await User.findOne({
       where: {
         playerId: playerId

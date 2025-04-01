@@ -29,7 +29,7 @@ class Pass
   declare isWorldsFirst: boolean | null;
   declare accuracy: number | null;
   declare scoreV2: number | null;
-  //declare isHidden: boolean | null;
+  declare isHidden: boolean | null;
   declare isDeleted: boolean | null;
   declare isAnnounced: boolean | null;
   declare isDuplicate: boolean | null;
@@ -127,11 +127,11 @@ Pass.init(
       type: DataTypes.FLOAT,
       allowNull: true,
     },
-    // isHidden: {
-    //   type: DataTypes.BOOLEAN,
-    //   allowNull: true,
-    //   defaultValue: false,
-    // },
+    isHidden: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: false,
+    },
     isDeleted: {
       type: DataTypes.BOOLEAN,
       allowNull: true,

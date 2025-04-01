@@ -14,6 +14,10 @@ const files = fs.readdirSync(migrationsDir)
 
 // Generate SQL query
 let sql = `-- Run this query to insert missing migrations into SequelizeMeta\n`;
+
+sql += "SET SQL_SAFE_UPDATES = 0;\n";
+sql += "DELETE FROM `sequelizemeta`;\n";
+sql += "SET SQL_SAFE_UPDATES = 1;\n";
 sql += "USE tuf_website;\n";
 sql += `INSERT INTO \`SequelizeMeta\` (\`name\`)\n`;
 sql += `SELECT t.name FROM (\n`;

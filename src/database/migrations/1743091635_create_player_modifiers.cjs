@@ -6,6 +6,12 @@ module.exports = {
     const transaction = await queryInterface.sequelize.transaction();
 
     try {
+      try{
+        await queryInterface.dropTable('player_modifiers', { transaction });
+      }
+      catch(error){
+        console.log(error);
+      }
       await queryInterface.createTable('player_modifiers', {
         id: {
           type: Sequelize.INTEGER,

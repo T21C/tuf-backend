@@ -39,9 +39,9 @@ class PlayerModifier extends Model {
     [ModifierType.KING_OF_CASTLE]: 6,
 
     // Super low chance (total 5%)
-    [ModifierType.PLAYER_SWAP]: 1.0,
+    [ModifierType.PLAYER_SWAP]: 2.0,
     [ModifierType.BAN_HAMMER]: 3.0, 
-    [ModifierType.SUPER_ADMIN]: 1.0 
+    [ModifierType.SUPER_ADMIN]: 0.0 
   } 
 
   // Modifier configurations
