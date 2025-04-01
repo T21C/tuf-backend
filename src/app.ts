@@ -86,6 +86,11 @@ async function startServer() {
   try {
     // First, verify database connection
     await db.sequelize.authenticate();
+
+    if (process.env.INIT_DB === 'true'){
+      await db.sequelize.sync({force: true});
+    }
+
     console.log('Database connection established.');
 
     // Initialize PlayerStatsService after database is ready
