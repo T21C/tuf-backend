@@ -31,18 +31,23 @@ export class PlayerStatsService {
   private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
   private readonly RELOAD_INTERVAL = 7 * 60 * 1000; // 1 minute in milliseconds
   private pendingPlayerIds: Set<number> = new Set();
-  private modifierService: ModifierService;
+  private modifierService: ModifierService | null = null;
 
   private constructor() {
     this.modifierService = ModifierService.getInstance();
   }
 
   public setModifiersEnabled(enabled: boolean): void {
-    this.modifierService.setModifiersEnabled(enabled);
+    if (this.modifierService) {
+      this.modifierService.setModifiersEnabled(enabled);
+    }
   }
 
   public isModifiersEnabled(): boolean {
-    return this.modifierService.isModifiersEnabled();
+    if (this.modifierService) {
+      return this.modifierService.isModifiersEnabled();
+    }
+    return false;
   }
 
   public async initialize() {
@@ -177,7 +182,10 @@ export class PlayerStatsService {
         };
 
         // Apply modifiers if enabled
-        return this.modifierService.applyScoreModifiers(player.id, baseStats);
+        if (this.modifierService) {
+          return this.modifierService.applyScoreModifiers(player.id, baseStats);
+        }
+        return baseStats;
       }));
 
       // Bulk upsert all stats

@@ -73,7 +73,7 @@ export interface IPass extends IBaseModel {
   scoreV2: number | null;
   isAnnounced: boolean | null;
   isDeleted: boolean | null;
-  isHidden: boolean | null;
+  //isHidden: boolean | null;
   isDuplicate: boolean | null;
   createdAt: Date;
   updatedAt: Date;

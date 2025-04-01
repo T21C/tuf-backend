@@ -942,6 +942,9 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
 
 router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
   try {
+    if (!modifierService) {
+      return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
+    }
     // if (req.user?.player?.isBanned) {
     //   return res.status(403).json({ error: 'Oops! Banned' });
     // }
@@ -974,6 +977,9 @@ router.get('/:playerId/modifiers', Auth.user(), async (req, res) => {
 
 // Generate a new random modifier for the player
 router.post('/modifiers/generate', Auth.user(), async (req, res) => {
+  if (!modifierService) {
+    return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
+  }
   try {
     const playerId = req.user?.playerId;
     const targetPlayerId = parseInt(req.body.targetPlayerId);

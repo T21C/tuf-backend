@@ -24,6 +24,8 @@ import { seededShuffle, getDailySeed, getRandomSeed } from '../../utils/random.j
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
+const ENABLE_ROULETTE = false;
+
 // Add after router declaration
 const userTimeouts = new Map<string, number>();
 const bigWheelTimeout = 1000 * 15; // 30 seconds
@@ -455,6 +457,9 @@ router.get('/', async (req: Request, res: Response) => {
 
 // Get simplified level data for slot machine
 router.get('/all-levels', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  if (!ENABLE_ROULETTE) {
+    return res.status(727).json({ error: 'April fools over, roulette is disabled' });
+  }
   try {
     if (req.user) {
       const remainingTime = checkUserTimeout(req.user.id);
@@ -691,6 +696,13 @@ router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res
       // If level is deleted and user is not super admin, return 404
       if (level.isDeleted && !req.user?.isSuperAdmin) {
         return res.status(404).json({ error: 'Level not found' });
+      }
+      
+      if (!ENABLE_ROULETTE) {
+        return res.json({
+          level,
+          ratings
+        })
       }
 
       const timeout = checkLevelTimeout(level.id);
@@ -1989,8 +2001,11 @@ router.head('/:id', async (req: Request, res: Response) => {
 
 // Add this new endpoint after the existing routes
 router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) => {
+  if (!ENABLE_ROULETTE) {
+    return res.status(727).json({ error: 'April fools over, roulette is disabled' });
+  }
   const transaction = await sequelize.transaction();
-  
+
   try {
     const levelId = parseInt(req.params.id);
     let { diffId, baseScore, publicComments } = req.body;
@@ -2067,6 +2082,9 @@ router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) =
 
 // Add new endpoint for level timeouts
 router.put('/:id/timeout', Auth.user(), async (req: Request, res: Response) => {
+  if (!ENABLE_ROULETTE) {
+    return res.status(727).json({ error: 'April fools over, roulette is disabled' });
+  }
   const transaction = await sequelize.transaction();
   
   try {

@@ -13,6 +13,9 @@ import Difficulty from '../models/Difficulty.js';
 import { calcAcc } from '../misc/CalcAcc.js';
 import { getScoreV2 } from '../misc/CalcScore.js';
 
+const ENABLE_MODIFIERS = false;
+
+
 export class ModifierService {
   private static instance: ModifierService;
   private modifiersEnabled: boolean = true;
@@ -34,10 +37,15 @@ export class ModifierService {
 
   private constructor() {
     // Initialize cron job to check for expired modifiers every minute
-    new CronJob('* * * * *', this.checkExpiredModifiers.bind(this)).start();
+    if (ENABLE_MODIFIERS) {
+      new CronJob('* * * * *', this.checkExpiredModifiers.bind(this)).start();
+    }
   }
 
-  public static getInstance(): ModifierService {
+  public static getInstance(): ModifierService | null {
+    if (!ENABLE_MODIFIERS) {
+      return null;
+    }
     if (!ModifierService.instance) {
       ModifierService.instance = new ModifierService();
     }
@@ -187,7 +195,7 @@ export class ModifierService {
         where: {
           levelId,
           isDeleted: false,
-          isHidden: false
+          //isHidden: false
         }
       });
 
@@ -229,7 +237,7 @@ export class ModifierService {
         
         // Hide all other passes
         await Pass.update(
-          { isHidden: hide },
+          { isDeleted: hide },
           {
             where: {
               id: {
