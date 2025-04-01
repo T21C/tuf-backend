@@ -21,10 +21,11 @@ import {Router, Request, Response} from 'express';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
 import User from '../../models/User.js';
 import { seededShuffle, getDailySeed, getRandomSeed } from '../../utils/random.js';
+import { env } from 'process';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
-const ENABLE_ROULETTE = false;
+const ENABLE_ROULETTE = env.APRIL_FOOLS === "true";
 
 // Add after router declaration
 const userTimeouts = new Map<string, number>();

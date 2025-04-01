@@ -12,9 +12,9 @@ import PlayerStats from '../models/PlayerStats.js';
 import Difficulty from '../models/Difficulty.js';
 import { calcAcc } from '../misc/CalcAcc.js';
 import { getScoreV2 } from '../misc/CalcScore.js';
+import { env } from 'process';
 
-const ENABLE_MODIFIERS = false;
-
+const ENABLE_MODIFIERS = env.APRIL_FOOLS === "true";
 
 export class ModifierService {
   private static instance: ModifierService;
