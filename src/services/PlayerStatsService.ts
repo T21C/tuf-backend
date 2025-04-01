@@ -763,8 +763,7 @@ export class PlayerStatsService {
     const playerPasses = await Pass.findAll({
       where: {
         playerId: pass.player?.id,
-        isDeleted: false,
-        isHidden: false
+        isDeleted: false
       },
       include: [
         {

@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
       });
 
       const totalPasses = await Pass.count({
-        where: {isDeleted: false, isHidden: false},
+        where: {isDeleted: false},
       });
 
       const totalPlayers = await Player.count();
@@ -78,7 +78,6 @@ router.get('/', async (req, res) => {
       const recentPassStats = await Pass.count({
         where: {
           isDeleted: false,
-          isHidden: false,
           vidUploadTime: {
             [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
           },

@@ -17,7 +17,6 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
     where: {
       playerId: playerIds,
       isDeleted: false,
-      isHidden: false,
     },
     include: [
       {

@@ -38,8 +38,7 @@ async function syncClearCounts() {
         levelId: {
           [Op.in]: levelIds
         },
-        isDeleted: false,
-        isHidden: false
+        isDeleted: false
       },
       include: [{
         model: Player,

@@ -39,8 +39,7 @@ export async function updateWorldsFirstStatus(
   const earliestPass = await Pass.findOne({
     where: {
       levelId,
-      isDeleted: false,
-      isHidden: false
+      isDeleted: false
     },
     include: [
       {
@@ -377,7 +376,6 @@ router.get('/level/:levelId', async (req: Request, res: Response) => {
       where: {
         levelId: parseInt(levelId),
         isDeleted: false,
-        isHidden: false,
         '$player.isBanned$': false,
       },
       include: [
@@ -739,8 +737,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       const earliestPass = await Pass.findOne({
         where: {
           levelId: targetLevelId,
-          isDeleted: false,
-          isHidden: false,
+          isDeleted: false
         },
         include: [
           {
@@ -1073,8 +1070,7 @@ router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, 
       const pass = await Pass.findOne({
         where: {
           id: passId,
-          isDeleted: false,
-          isHidden: false,
+          isDeleted: false
         },
         include: [
           {
@@ -1123,8 +1119,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
     const passes = await Pass.findAll({
       where: {
         isAnnounced: false,
-        isDeleted: false,
-        isHidden: false
+        isDeleted: false
       },
       include: [
         {
@@ -1354,8 +1349,7 @@ export async function recalculateAffectedLevelsClearCount(playerId: number, tran
   const clearedLevels = await Pass.findAll({
     where: {
       playerId,
-      isDeleted: false,
-      isHidden: false
+      isDeleted: false
     },
     attributes: [[sequelize.fn('DISTINCT', sequelize.col('levelId')), 'levelId']],
     raw: true,
@@ -1377,8 +1371,7 @@ export async function recalculateAffectedLevelsClearCount(playerId: number, tran
       levelId: {
         [Op.in]: levelIds
       },
-      isDeleted: false,
-      isHidden: false
+      isDeleted: false
     },
     include: [{
       model: Player,
@@ -1425,7 +1418,6 @@ export async function recalculateLevelClearCount(levelId: number, transaction?: 
     where: {
       levelId,
       isDeleted: false,
-      isHidden: false,
       '$player.isBanned$': false,
     },
     include: [
