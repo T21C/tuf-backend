@@ -802,8 +802,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(400).json({error: 'Invalid level ID'});
     }
 
-    console.log('Updating level from user', req.user?.id);
-    console.log('data', req.body);
     // First get the current level data
     const level = await Level.findOne({
       where: {id: levelId},
