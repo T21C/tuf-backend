@@ -97,7 +97,7 @@ Rating.init(
   {
     sequelize,
     tableName: 'ratings',
-    indexes: [{fields: ['levelId'], unique: true}],
+    indexes: [{fields: ['levelId']}],
   },
 );
 

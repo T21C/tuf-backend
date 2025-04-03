@@ -829,7 +829,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       if (req.body.toRate) {
         // Create new rating if toRate is being set to true
         const existingRating = await Rating.findOne({
-          where: {levelId},
+          where: {
+            levelId,
+            confirmedAt: null,
+          },
           transaction,
         });
 
@@ -846,6 +849,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
               lowDiff,
               requesterFR: '',
               averageDifficultyId: null,
+              communityDifficultyId: null,
+              confirmedAt: null,
             },
             {transaction},
           );
@@ -853,7 +858,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       } else {
         // Delete rating if toRate is being set to false
         const existingRating = await Rating.findOne({
-          where: {levelId},
+          where: {
+            levelId,
+            confirmedAt: null,
+          },
           transaction,
         });
 
@@ -871,7 +879,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Update lowDiff flag if there's an existing rating
     const existingRating = await Rating.findOne({
-      where: {levelId},
+      where: {
+        levelId,
+        confirmedAt: null,
+      },
       transaction,
     });
 
@@ -1122,7 +1133,10 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
 
     // Check if rating exists
     const existingRating = await Rating.findOne({
-      where: {levelId},
+      where: {
+        levelId,
+        confirmedAt: null,
+      },
       transaction,
     });
 
