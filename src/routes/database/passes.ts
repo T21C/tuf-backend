@@ -849,10 +849,10 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
     const transaction = await sequelize.transaction();
 
     try {
-      const {id} = req.params;
+      const id = parseInt(req.params.id);
 
       const pass = await Pass.findOne({
-        where: {id: parseInt(id)},
+        where: {id},
         include: [
           {
             model: Level,
@@ -890,7 +890,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
       await Pass.update(
         {isDeleted: true},
         {
-          where: {id: parseInt(id)},
+          where: {id},
           transaction,
         },
       );
@@ -946,7 +946,6 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
           },
         });
       }
-
       return res.json({
         message: 'Pass soft deleted successfully',
         pass: pass,
@@ -963,10 +962,10 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
     const transaction = await sequelize.transaction();
 
     try {
-      const {id} = req.params;
+      const id = parseInt(req.params.id);
 
       const pass = await Pass.findOne({
-        where: {id: parseInt(id)},
+        where: {id},
         include: [
           {
             model: Level,
@@ -1000,7 +999,7 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
       await Pass.update(
         {isDeleted: false},
         {
-          where: {id: parseInt(id)},
+          where: {id},
           transaction,
         },
       );

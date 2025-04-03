@@ -137,6 +137,9 @@ export class PlayerStatsService {
           {
             model: Pass,
             as: 'passes',
+            where: {
+              isDeleted: false,
+            },
             include: [
               {
                 model: Level,
@@ -374,6 +377,9 @@ export class PlayerStatsService {
           {
             model: Pass,
             as: 'passes',
+            where: {
+              isDeleted: false,
+            },
             include: [
               {
                 model: Level,
