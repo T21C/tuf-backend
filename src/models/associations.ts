@@ -38,12 +38,12 @@ export function initializeAssociations() {
 
   // Player <-> PlayerStats associations
   Player.hasOne(PlayerStats, {
-    foreignKey: 'playerId',
+    foreignKey: 'id',
     as: 'stats',
   });
 
   PlayerStats.belongsTo(Player, {
-    foreignKey: 'playerId',
+    foreignKey: 'id',
     as: 'player',
   });
 

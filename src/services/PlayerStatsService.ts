@@ -98,20 +98,13 @@ export class PlayerStatsService {
           await this.updateRanks(transaction);
 
           await transaction.commit();
-
-          sseManager.broadcast({
-            type: 'statsUpdate',
-            data: {
-              playerIds,
-              action: 'batchUpdate',
-            },
-          });
         } catch (error) {
+          console.error(`[PlayerStatsService] FAILURE: Error in batch update for ${playerIds.length} players:`, error);
           await transaction.rollback();
           throw error;
         }
       } catch (error) {
-        console.error('Error in scheduled stats update:', error);
+        console.error('[PlayerStatsService] FAILURE: Error in scheduled stats update:', error);
       } finally {
         this.updateTimeout = null;
       }
@@ -129,6 +122,7 @@ export class PlayerStatsService {
     // Proceed with the full reload
     let transaction;
     try {
+      //console.log('[PlayerStatsService] Starting full stats reload');
       transaction = await sequelize.transaction();
 
       // Get all players with their passes in a single query
@@ -161,6 +155,14 @@ export class PlayerStatsService {
         transaction,
       });
 
+      //console.log(`[PlayerStatsService] Found ${players.length} players for stats reload`);
+
+      // Check for players without passes
+      const playersWithoutPasses = players.filter(player => !player.passes || player.passes.length === 0);
+      if (playersWithoutPasses.length > 0) {
+        //console.log(`[PlayerStatsService] Found ${playersWithoutPasses.length} players without passes`);
+      }
+
       // Prepare bulk update data
       const bulkStats = await Promise.all(players.map(async (player: any) => {
         // Calculate top difficulties
@@ -170,7 +172,7 @@ export class PlayerStatsService {
 
         // Create base stats object
         const baseStats = {
-          playerId: player.id,
+          id: player.id,
           rankedScore: calculateRankedScore(player.passes || []),
           generalScore: calculateGeneralScore(player.passes || []),
           ppScore: calculatePPScore(player.passes || []),
@@ -192,22 +194,76 @@ export class PlayerStatsService {
       }));
 
       // Bulk upsert all stats
-      await PlayerStats.bulkCreate(bulkStats, {
-        updateOnDuplicate: [
-          'rankedScore',
-          'generalScore',
-          'ppScore',
-          'wfScore',
-          'score12K',
-          'averageXacc',
-          'universalPassCount',
-          'worldsFirstCount',
-          'topDiff',
-          'top12kDiff',
-          'lastUpdated',
-        ],
-        transaction,
-      });
+      try {
+        await PlayerStats.bulkCreate(bulkStats, {
+          updateOnDuplicate: [
+            'rankedScore',
+            'generalScore',
+            'ppScore',
+            'wfScore',
+            'score12K',
+            'averageXacc',
+            'universalPassCount',
+            'worldsFirstCount',
+            'topDiff',
+            'top12kDiff',
+            'lastUpdated',
+          ],
+          transaction,
+        });
+      } catch (error) {
+        console.error('[PlayerStatsService] FAILURE: Error bulk upserting stats:', error);
+        throw error;
+      }
+
+      // Check for players who might have been missed
+      const [allPlayers] = await sequelize.query(
+        `SELECT id FROM players`,
+        { transaction }
+      );
+      
+      const [playersWithStats] = await sequelize.query(
+        `SELECT id FROM player_stats`,
+        { transaction }
+      );
+      
+      const playerIdsWithStats = new Set(playersWithStats.map((p: any) => p.id));
+      const playersWithoutStats = allPlayers.filter((p: any) => !playerIdsWithStats.has(p.id));
+      
+      if (playersWithoutStats.length > 0) {
+        console.log(`[PlayerStatsService] Found ${playersWithoutStats.length} players without stats after bulk upsert`);
+        
+        // Create stats for these players
+        const now = new Date();
+        const missingStats = playersWithoutStats.map((player: any) => ({
+          id: player.id,
+          rankedScore: 0,
+          generalScore: 0,
+          ppScore: 0,
+          wfScore: 0,
+          score12K: 0,
+          rankedScoreRank: 0,
+          generalScoreRank: 0,
+          ppScoreRank: 0,
+          wfScoreRank: 0,
+          score12KRank: 0,
+          averageXacc: 0,
+          universalPassCount: 0,
+          worldsFirstCount: 0,
+          lastUpdated: now,
+          createdAt: now,
+          updatedAt: now,
+          topDiff: 0,
+          top12kDiff: 0
+        }));
+        
+        try {
+          await PlayerStats.bulkCreate(missingStats, { transaction });
+          console.log(`[PlayerStatsService] Created stats for ${missingStats.length} players who were missed`);
+        } catch (error) {
+          console.error('[PlayerStatsService] FAILURE: Error creating stats for missed players:', error);
+        }
+      }
 
       // Update ranks in bulk for each score type
       const scoreTypes = [
@@ -225,7 +281,7 @@ export class PlayerStatsService {
         await sequelize.query(
           `
           UPDATE player_stats ps
-          JOIN players p ON ps.playerId = p.id
+          JOIN players p ON ps.id = p.id
           SET ps.${rankField} = -1
           WHERE p.isBanned = true
           `,
@@ -242,14 +298,14 @@ export class PlayerStatsService {
             FROM (
               SELECT ps2.*
               FROM player_stats ps2
-              JOIN players p2 ON ps2.playerId = p2.id
+              JOIN players p2 ON ps2.id = p2.id
               WHERE p2.isBanned = false
               ORDER BY ps2.${scoreType} DESC, ps2.id ASC
             ) ps,
             (SELECT @rowNumber := 0) r
           )
           UPDATE player_stats ps
-          JOIN players p ON ps.playerId = p.id
+          JOIN players p ON ps.id = p.id
           JOIN RankedPlayers rp ON ps.id = rp.id
           SET ps.${rankField} = rp.player_rank
           WHERE p.isBanned = false
@@ -259,11 +315,7 @@ export class PlayerStatsService {
       }
 
       await transaction.commit();
-
-      // Notify clients about the update
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-
+      
       // Emit SSE event
       sseManager.broadcast({
         type: 'statsUpdate',
@@ -272,6 +324,7 @@ export class PlayerStatsService {
         },
       });
     } catch (error) {
+      console.error('[PlayerStatsService] FAILURE: Error in full stats reload:', error);
       if (transaction) {
         await transaction.rollback();
       }
@@ -401,33 +454,45 @@ export class PlayerStatsService {
         transaction,
       });
 
-      if (!player || !player.passes) {
-        throw new Error('Player or passes not found');
+      if (!player) {
+        console.error(`[PlayerStatsService] FAILURE: Player ${playerId} not found when updating stats`);
+        return;
+      }
+
+      if (!player.passes) {
+        console.log(`[PlayerStatsService] Player ${playerId} has no passes, creating empty stats`);
       }
 
       // Convert passes to scores and get highest score per level
 
       // Calculate top difficulties
-      const {topDiff, top12kDiff} = this.calculateTopDiffs(player.passes);
+      const {topDiff, top12kDiff} = this.calculateTopDiffs(
+        player.passes || [],
+      );
 
       // Calculate all scores using the filtered scores
       const stats = {
-        playerId,
-        rankedScore: calculateRankedScore(player.passes),
-        generalScore: calculateGeneralScore(player.passes),
-        ppScore: calculatePPScore(player.passes),
-        wfScore: calculateWFScore(player.passes),
-        score12K: calculate12KScore(player.passes),
-        averageXacc: calculateAverageXacc(player.passes),
-        universalPassCount: countUniversalPassCount(player.passes),
-        worldsFirstCount: countWorldsFirstPasses(player.passes),
+        id: player.id,
+        rankedScore: calculateRankedScore(player.passes || []),
+        generalScore: calculateGeneralScore(player.passes || []),
+        ppScore: calculatePPScore(player.passes || []),
+        wfScore: calculateWFScore(player.passes || []),
+        score12K: calculate12KScore(player.passes || []),
+        averageXacc: calculateAverageXacc(player.passes || []),
+        universalPassCount: countUniversalPassCount(player.passes || []),
+        worldsFirstCount: countWorldsFirstPasses(player.passes || []),
         topDiff,
         top12kDiff,
         lastUpdated: new Date(),
       };
 
       // Update or create player stats
-      await PlayerStats.upsert(stats, {transaction});
+      try {
+        await PlayerStats.upsert(stats, {transaction});
+      } catch (error) {
+        console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, error);
+        throw error;
+      }
 
       // Update ranks for all players
       await this.updateRanks(transaction);
@@ -443,12 +508,13 @@ export class PlayerStatsService {
         sseManager.broadcast({
           type: 'statsUpdate',
           data: {
-            playerId,
+            id: player.id,
             newStats: stats,
           },
         });
       }
     } catch (error) {
+      console.error(`[PlayerStatsService] FAILURE: Error updating stats for player ${playerId}:`, error);
       if (shouldCommit) {
         await transaction.rollback();
       }
@@ -479,7 +545,7 @@ export class PlayerStatsService {
       await sequelize.query(
         `
         UPDATE player_stats ps
-        JOIN players p ON ps.playerId = p.id
+        JOIN players p ON ps.id = p.id
         SET ps.${rankField} = -1
         WHERE p.isBanned = true
         `,
@@ -496,14 +562,14 @@ export class PlayerStatsService {
           FROM (
             SELECT ps2.*
             FROM player_stats ps2
-            JOIN players p2 ON ps2.playerId = p2.id
+            JOIN players p2 ON ps2.id = p2.id
             WHERE p2.isBanned = false
             ORDER BY ps2.${scoreType} DESC, ps2.id ASC
           ) ps,
           (SELECT @rowNumber := 0) r
         )
         UPDATE player_stats ps
-        JOIN players p ON ps.playerId = p.id
+        JOIN players p ON ps.id = p.id
         JOIN RankedPlayers rp ON ps.id = rp.id
         SET ps.${rankField} = rp.player_rank
         WHERE p.isBanned = false
@@ -522,7 +588,7 @@ export class PlayerStatsService {
               SELECT COUNT(*) 
               FROM passes 
               JOIN levels ON levels.id = passes.levelId 
-              WHERE passes.playerId = PlayerStats.playerId
+              WHERE passes.playerId = PlayerStats.id
               AND passes.isDeleted = false 
               AND levels.isDeleted = false 
               AND levels.isHidden = false
@@ -531,7 +597,7 @@ export class PlayerStatsService {
           ],
         ],
       },
-      where: {playerId},
+      where: {id: playerId},
       include: [
         {
           model: Player,

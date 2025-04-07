@@ -4,7 +4,6 @@ import Player from './Player.js';
 
 class PlayerStats extends Model {
   declare id: number;
-  declare playerId: number;
   declare rankedScore: number;
   declare generalScore: number;
   declare ppScore: number;
@@ -32,13 +31,8 @@ PlayerStats.init(
   {
     id: {
       type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true,
-    },
-    playerId: {
-      type: DataTypes.INTEGER,
       allowNull: false,
-      unique: true,
+      primaryKey: true,
       references: {
         model: 'players',
         key: 'id',

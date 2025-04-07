@@ -647,37 +647,43 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       // Update worlds first status if needed
       await updateWorldsFirstStatus(submission.levelId, transaction);
 
+      // Commit the transaction before non-transactional operations
       await transaction.commit();
 
-      // Update player stats
+      // Update player stats - these operations don't need to be part of the transaction
       if (submission.assignedPlayerId) {
-        await playerStatsService.updatePlayerStats(
-          submission.assignedPlayerId,
-        );
+        try {
+          await playerStatsService.updatePlayerStats(
+            submission.assignedPlayerId,
+          );
 
-        // Get player's new stats
-        const playerStats = await playerStatsService.getPlayerStats(
-          submission.assignedPlayerId,
-        );
+          // Get player's new stats
+          const playerStats = await playerStatsService.getPlayerStats(
+            submission.assignedPlayerId,
+          );
 
-        sseManager.broadcast({
-          type: 'submissionUpdate',
-          data: {
-            action: 'create',
-            submissionId: submission.id,
-            submissionType: 'pass',
-          },
-        });
-        // Emit SSE event with pass update data
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            playerId: submission.assignedPlayerId,
-            passedLevelId: submission.levelId,
-            newScore: playerStats?.rankedScore || 0,
-            action: 'create',
-          },
-        });
+          sseManager.broadcast({
+            type: 'submissionUpdate',
+            data: {
+              action: 'create',
+              submissionId: submission.id,
+              submissionType: 'pass',
+            },
+          });
+          // Emit SSE event with pass update data
+          sseManager.broadcast({
+            type: 'passUpdate',
+            data: {
+              playerId: submission.assignedPlayerId,
+              passedLevelId: submission.levelId,
+              newScore: playerStats?.rankedScore || 0,
+              action: 'create',
+            },
+          });
+        } catch (error) {
+          console.error('Error updating player stats:', error);
+          // Don't rollback transaction here since it's already committed
+        }
       }
 
       sseManager.broadcast({
@@ -694,7 +700,13 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         pass,
       });
     } catch (error) {
-      await transaction.rollback();
+      // Only rollback if the transaction hasn't been committed yet
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        // Ignore rollback errors - transaction might already be committed
+        console.error('Error rolling back transaction:', rollbackError);
+      }
       console.error('Error processing pass submission:', error);
       return res.status(500).json({error: 'Failed to process pass submission'});
     }

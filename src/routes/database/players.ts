@@ -863,7 +863,7 @@ router.post('/:id/merge', Auth.superAdmin(), async (req: Request, res: Response)
 
       // Delete player stats first to avoid constraint issues
       await PlayerStats.destroy({
-        where: {playerId: sourcePlayer.id},
+        where: {id: sourcePlayer.id},
         transaction,
       });
 

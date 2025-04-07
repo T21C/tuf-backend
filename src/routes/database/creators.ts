@@ -649,15 +649,17 @@ router.post(
         });
 
         for (const request of creatorRequests) {
-          await LevelSubmissionCreatorRequest.create(
+          // Update the existing request to point to the new creator instead of creating a new one
+          await LevelSubmissionCreatorRequest.update(
             {
-              submissionId: request.submissionId,
               creatorName: newName,
               creatorId: targetCreator.id,
-              role: request.role,
               isNewRequest: true,
             },
-            { transaction }
+            { 
+              where: { id: request.id },
+              transaction 
+            }
           );
         }
       }
