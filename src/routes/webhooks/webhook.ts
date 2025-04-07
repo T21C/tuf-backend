@@ -93,6 +93,87 @@ interface WebhookGroup {
   items: (Pass | Level)[];
 }
 
+// New interface to track messages for each channel
+interface ChannelMessages {
+  webhookUrl: string;
+  messages: {
+    content: string;
+    embeds: MessageBuilder[];
+    isEveryonePing: boolean;
+  }[];
+}
+
+// Helper to collect and sort messages by channel
+async function collectAndSortMessages(groups: WebhookGroup[]): Promise<ChannelMessages[]> {
+  const channelMessages = new Map<string, ChannelMessages>();
+  
+  // Process each group and collect messages
+  for (const group of groups) {
+    if (!channelMessages.has(group.webhookUrl)) {
+      channelMessages.set(group.webhookUrl, {
+        webhookUrl: group.webhookUrl,
+        messages: []
+      });
+    }
+    
+    const channel = channelMessages.get(group.webhookUrl)!;
+    
+    // Process items in batches
+    for (let i = 0; i < group.items.length; i += 10) {
+      const batch = group.items.slice(i, i + 10);
+      const embeds = await Promise.all(
+        batch.map(item => {
+          if ('level' in item) {
+            return createClearEmbed(item as Pass);
+          } else {
+            return createNewLevelEmbed(item as Level);
+          }
+        })
+      );
+      
+      // Check if this is an @everyone ping
+      const isEveryonePing = group.ping === '@everyone';
+      
+      channel.messages.push({
+        content: group.ping,
+        embeds,
+        isEveryonePing
+      });
+    }
+  }
+  
+  // Sort messages for each channel - @everyone pings go last
+  for (const channel of channelMessages.values()) {
+    channel.messages.sort((a, b) => {
+      if (a.isEveryonePing && !b.isEveryonePing) return 1;
+      if (!a.isEveryonePing && b.isEveryonePing) return -1;
+      return 0;
+    });
+  }
+  
+  return Array.from(channelMessages.values());
+}
+
+// Helper to send sorted messages for a channel
+async function sendSortedMessages(channel: ChannelMessages): Promise<void> {
+  const hook = new Webhook(channel.webhookUrl);
+  hook.setUsername('TUF Announcer');
+  hook.setAvatar(placeHolder);
+  
+  for (const message of channel.messages) {
+    const combinedEmbed = MessageBuilder.combine(...message.embeds);
+    
+    if (message.content) {
+      combinedEmbed.setText(message.content);
+    }
+    
+    await hook.send(combinedEmbed);
+    
+    // Add a small delay between messages to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+}
+
 interface AnnouncementConfig {
   webhooks: {
     [key: string]: string;
@@ -339,20 +420,13 @@ router.post(
 
       // Group passes by webhook URL
       const groups = groupByWebhook(passes, configs);
-
-      // Process each webhook group
-      for (const group of groups) {
-        await processBatches(group.items, 10, async (batchPasses) => {
-          const embeds = await Promise.all(
-            batchPasses.map(pass => createClearEmbed(pass as Pass))
-          );
-          
-          await sendWebhookMessages(
-            group.webhookUrl,
-            embeds,
-            group.ping
-          );
-        });
+      
+      // Collect and sort messages by channel
+      const sortedChannels = await collectAndSortMessages(groups);
+      
+      // Send sorted messages for each channel
+      for (const channel of sortedChannels) {
+        await sendSortedMessages(channel);
       }
 
       logWebhookEvent('pass_request_complete', {
@@ -441,28 +515,13 @@ router.post(
           items: g.items.map(i => i.id)
         }))
       });
-
-      // Process each webhook group
-      for (const group of groups) {
-        await processBatches(group.items, 10, async (batchLevels) => {
-          const embeds = await Promise.all(
-            batchLevels.map(level => createNewLevelEmbed(level as Level))
-          );
-          
-          await sendWebhookMessages(
-            group.webhookUrl,
-            embeds,
-            group.ping
-          );
-
-          // Log batch sent
-          logWebhookEvent('level_batch_sent', {
-            requestId,
-            webhookUrl: group.webhookUrl,
-            batchSize: batchLevels.length,
-            levelIds: batchLevels.map(l => l.id)
-          });
-        });
+      
+      // Collect and sort messages by channel
+      const sortedChannels = await collectAndSortMessages(groups);
+      
+      // Send sorted messages for each channel
+      for (const channel of sortedChannels) {
+        await sendSortedMessages(channel);
       }
 
       logWebhookEvent('level_request_complete', {
@@ -532,8 +591,17 @@ router.post(
         levelIds: levels.map(l => l.id)
       });
 
+      // Create a single channel for rerates
+      const rerateChannel: ChannelMessages = {
+        webhookUrl: process.env.RERATE_ANNOUNCEMENT_HOOK || "",
+        messages: []
+      };
+      
       // Process levels in batches
-      await processBatches(levels, 10, async (batchLevels, isFirstBatch) => {
+      for (let i = 0; i < levels.length; i += 10) {
+        const batchLevels = levels.slice(i, i + 10);
+        const isFirstBatch = i === 0;
+        
         logWebhookEvent('rerate_batch_processing', {
           requestId,
           batchNumber: isFirstBatch ? 1 : 'subsequent',
@@ -544,18 +612,26 @@ router.post(
           batchLevels.map(level => createRerateEmbed(level as Level))
         );
         
-        await sendWebhookMessages(
-          process.env.RERATE_ANNOUNCEMENT_HOOK || "",
+        // Check if this is an @everyone ping
+        const ping = `<@&${process.env.RERATE_PING_ROLE_ID || "0"}>`;
+        const isEveryonePing = ping.includes('@everyone');
+        
+        rerateChannel.messages.push({
+          content: ping,
           embeds,
-          `<@&${process.env.RERATE_PING_ROLE_ID || "0"}>`
-        );
-
-        logWebhookEvent('rerate_batch_sent', {
-          requestId,
-          batchNumber: isFirstBatch ? 1 : 'subsequent',
-          embedCount: embeds.length
+          isEveryonePing
         });
+      }
+      
+      // Sort messages - @everyone pings go last
+      rerateChannel.messages.sort((a, b) => {
+        if (a.isEveryonePing && !b.isEveryonePing) return 1;
+        if (!a.isEveryonePing && b.isEveryonePing) return -1;
+        return 0;
       });
+      
+      // Send sorted messages
+      await sendSortedMessages(rerateChannel);
 
       logWebhookEvent('rerate_request_complete', {
         requestId,
