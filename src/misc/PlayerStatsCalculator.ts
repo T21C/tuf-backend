@@ -33,7 +33,7 @@ export function calculateWFScore(passes: IPass[]): number {
   if (passes.length === 0) return 0;
   return passes
     .filter(pass => pass.isWorldsFirst)
-    .reduce((sum, pass) => sum + (pass.level?.baseScore || 0), 0);
+    .reduce((sum, pass) => sum + (pass.level?.baseScore || pass.level?.difficulty?.baseScore || 0), 0);
 }
 
 export function calculate12KScore(passes: IPass[]): number {
