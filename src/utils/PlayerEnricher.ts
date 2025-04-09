@@ -85,11 +85,7 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
       // Get player stats from service
       const stats = await playerStatsService.getPlayerStats(player.id);
 
-      // Find the actual difficulty objects from passes
-      const getDifficulty = (id: number) => {
-        const difficulty = allDifficulties.find(d => d.id === id);
-        return difficulty;
-      };
+
 
       return {
         id: playerData.id,
@@ -111,8 +107,8 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
         averageXacc: stats?.averageXacc || 0,
         universalPassCount: stats?.universalPassCount || 0,
         worldsFirstCount: stats?.worldsFirstCount || 0,
-        topDiff: getDifficulty(stats?.topDiff || 0),
-        top12kDiff: getDifficulty(stats?.top12kDiff || 0),
+        topDiff: stats?.topDiff,
+        top12kDiff: stats?.top12kDiff,
         totalPasses: passes.length,
         createdAt: playerData.createdAt,
         updatedAt: playerData.updatedAt,
