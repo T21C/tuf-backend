@@ -70,6 +70,17 @@ const getRequiredAssets = () => {
   return { js, css, imports };
 };
 
+// Function to escape special characters for meta tags
+const escapeMetaText = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+};
+
 // Base HTML template with Vite client
 const getBaseHtml = (clientUrl: string) => {
   if (process.env.NODE_ENV === 'development') {
@@ -163,12 +174,16 @@ export const htmlMetaMiddleware = async (
       });
 
       if (pass && pass.player && pass.level) {
+        const difficultyName = escapeMetaText(pass.level.difficulty?.name || 'Unknown Difficulty');
+        const playerName = escapeMetaText(pass.player.name);
+        const songName = escapeMetaText(pass.level.song);
+        
         metaTags = `
-    <meta name="description" content="${pass.level.difficulty?.name || 'Unknown Difficulty'} • Score: ${pass.scoreV2}" />
+    <meta name="description" content="${difficultyName} • Score: ${pass.scoreV2}" />
     <meta property="og:site_name" content="The Universal Forum" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="${pass.player.name}'s Clear of ${pass.level.song}" />
-    <meta property="og:description" content="Pass ${pass.id} • ${pass.level.difficulty?.name || 'Unknown Difficulty'} • Score: ${pass.scoreV2}" />
+    <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
+    <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
     <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="720" />
@@ -192,16 +207,19 @@ export const htmlMetaMiddleware = async (
         const creators =
           level.levelCreators
             ?.map((creator: any) => {
-              return creator.name || 'Unknown';
+              return escapeMetaText(creator.name || 'Unknown');
             })
             .filter(Boolean)
             .join(', ') || 'Unknown Creator';
 
+        const songName = escapeMetaText(level.song);
+        const artistName = escapeMetaText(level.artist);
+        
         metaTags = `
     <meta name="description" content="Created by ${creators}" />
     <meta property="og:site_name" content="The Universal Forum" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="${level.song} by ${level.artist}" />
+    <meta property="og:title" content="${songName} by ${artistName}" />
     <meta property="og:description" content="Created by ${creators}" />
     <meta property="og:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
     <meta property="og:image:width" content="1280" />
