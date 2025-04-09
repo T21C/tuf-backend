@@ -32,6 +32,7 @@ function wrapText(
   text: string,
   maxChars: number,
 ): {lines: string[]; isWrapped: boolean} {
+  // First escape any XML entities in the text
   const chars = text.split('');
   const lines = [];
   let currentLine = chars[0] || '';
@@ -44,15 +45,15 @@ function wrapText(
       // If this is the last line and there are more characters
       if (lines.length === 1 && i < chars.length - 1) {
         currentLine = currentLine.slice(0, -3) + '...';
-        lines.push(currentLine);
+        lines.push(escapeXml(currentLine));
         break;
       }
-      lines.push(currentLine);
+      lines.push(escapeXml(currentLine));
       currentLine = char;
     }
   }
   if (currentLine && lines.length < 2) {
-    lines.push(currentLine);
+    lines.push(escapeXml(currentLine));
   }
   return {
     lines: lines.slice(0, 2),
@@ -73,7 +74,7 @@ function createHeaderSVG(config: {
   artistFontSize: number;
   idFontSize: number;
 }): {svg: string; isWrapped: boolean} {
-  const {lines, isWrapped} = wrapText(escapeXml(config.song), 27);
+  const {lines, isWrapped} = wrapText(config.song, 27);
 
   // Adjust sizes if text is wrapped
   const titleFontSize = isWrapped
@@ -88,6 +89,7 @@ function createHeaderSVG(config: {
     : Math.floor(config.height * 0.201);
   const textX = config.iconSize + config.iconPadding * 2;
 
+  // Artist name is already escaped in wrapText
   const escapedArtist = escapeXml(config.artist);
 
   return {
@@ -446,35 +448,41 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     });
 
     // Create the final image using sharp
-    const image = await sharp(backgroundBuffer)
-      .resize(width, height, {
-        fit: 'cover',
-        position: 'center',
-      })
-      .composite([
-        {
-          input: Buffer.from(headerSvg),
-          top: 0,
-          left: 0,
-        },
-        {
-          input: await sharp(iconBuffer).resize(iconSize, iconSize).toBuffer(),
-          top: isWrapped ? Math.floor(iconPadding * 1.5) : iconPadding,
-          left: iconPadding,
-        },
-        {
-          input: Buffer.from(footerSvg),
-          top: 0,
-          left: 0,
-        },
-      ])
-      .jpeg({quality: 85});
+    try {
+      const image = await sharp(backgroundBuffer)
+        .resize(width, height, {
+          fit: 'cover',
+          position: 'center',
+        })
+        .composite([
+          {
+            input: Buffer.from(headerSvg),
+            top: 0,
+            left: 0,
+          },
+          {
+            input: await sharp(iconBuffer).resize(iconSize, iconSize).toBuffer(),
+            top: isWrapped ? Math.floor(iconPadding * 1.5) : iconPadding,
+            left: iconPadding,
+          },
+          {
+            input: Buffer.from(footerSvg),
+            top: 0,
+            left: 0,
+          },
+        ])
+        .jpeg({quality: 85});
 
-    const buffer = await image.toBuffer();
+      const buffer = await image.toBuffer();
 
-    res.set('Content-Type', 'image/jpeg');
-    res.send(buffer);
-    return;
+      res.set('Content-Type', 'image/jpeg');
+      res.send(buffer);
+      return;
+    } catch (error) {
+      console.error('Error generating image for level id:', req.params.levelId, error);
+      res.status(500).send('Error generating image');
+      return;
+    }
   } catch (error) {
     console.error('Error generating image for level id:', req.params.levelId, error);
     res.status(500).send('Error generating image');
