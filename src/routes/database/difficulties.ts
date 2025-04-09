@@ -354,7 +354,7 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
 );
 
 // Update difficulty
-router.put('/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const diffId = parseInt(req.params.id);
@@ -558,7 +558,7 @@ router.put('/:id', Auth.superAdminPassword(), async (req: Request, res: Response
 );
 
 // Delete difficulty with fallback
-router.delete('/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: Response) => {
     try {
       const diffId = parseInt(req.params.id);
       const fallbackDiffId = parseInt(req.query.fallbackId as string);
@@ -642,7 +642,7 @@ interface DirectiveInput {
 }
 
 // Get announcement directives for a difficulty
-router.get('/:id/directives', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.get('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   try {
     const diffId = parseInt(req.params.id);
 
@@ -684,7 +684,7 @@ router.get('/:id/directives', Auth.superAdminPassword(), async (req: Request, re
 });
 
 // Configure announcement directives for a difficulty
-router.post('/:id/directives', Auth.superAdminPassword(), async (req, res) => {
+router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const id = parseInt(req.params.id);
@@ -852,6 +852,59 @@ router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
     return res.status(200).send();
   } catch (error) {
     return res.status(403).json({ error: 'Invalid password' });
+  }
+});
+
+// Update difficulty sort orders in bulk
+router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { sortOrders } = req.body;
+    
+    if (!Array.isArray(sortOrders)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid sort orders format' });
+    }
+
+    // Update each difficulty's sort order
+    await Promise.all(
+      sortOrders.map(async (item) => {
+        const { id, sortOrder } = item;
+        if (id === undefined || sortOrder === undefined) {
+          throw new Error('Missing id or sortOrder in sort orders array');
+        }
+        
+        const difficulty = await Difficulty.findByPk(id);
+        if (!difficulty) {
+          throw new Error(`Difficulty with ID ${id} not found`);
+        }
+        
+        await difficulty.update({ sortOrder }, { transaction });
+      })
+    );
+
+    await transaction.commit();
+    
+    // Emit events for frontend updates
+    const io = getIO();
+    io.emit('difficultiesReordered');
+    
+    sseManager.broadcast({
+      type: 'difficultiesReordered',
+      data: {
+        action: 'reorder',
+        count: sortOrders.length
+      }
+    });
+    
+    return res.json({ message: 'Sort orders updated successfully' });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error updating sort orders:', error);
+    return res.status(500).json({ 
+      error: 'Failed to update sort orders',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 

@@ -166,7 +166,7 @@ export class PlayerStatsService {
       // Prepare bulk update data
       const bulkStats = await Promise.all(players.map(async (player: any) => {
         // Calculate top difficulties
-        const {topDiff, top12kDiff} = this.calculateTopDiffs(
+        const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
           player.passes || [],
         );
 
@@ -181,8 +181,8 @@ export class PlayerStatsService {
           averageXacc: calculateAverageXacc(player.passes || []),
           universalPassCount: countUniversalPassCount(player.passes || []),
           worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-          topDiff,
-          top12kDiff,
+          topDiffId,
+          top12kDiffId,
           lastUpdated: new Date(),
         };
 
@@ -205,8 +205,8 @@ export class PlayerStatsService {
             'averageXacc',
             'universalPassCount',
             'worldsFirstCount',
-            'topDiff',
-            'top12kDiff',
+            'topDiffId',
+            'top12kDiffId',
             'lastUpdated',
           ],
           transaction,
@@ -253,8 +253,8 @@ export class PlayerStatsService {
           lastUpdated: now,
           createdAt: now,
           updatedAt: now,
-          topDiff: 0,
-          top12kDiff: 0
+          topDiffId: 0,
+          top12kDiffId: 0
         }));
         
         try {
@@ -366,9 +366,9 @@ export class PlayerStatsService {
       }));
   }
 
-  public calculateTopDiffs(passes: Pass[] | IPass[]): {
-    topDiff: number;
-    top12kDiff: number;
+  public calculatetopDiffIds(passes: Pass[] | IPass[]): {
+    topDiffId: number;
+    top12kDiffId: number;
   } {
     // Filter out deleted passes and those with difficulty ID >= 100
     const validPasses = (passes as any).filter(
@@ -379,42 +379,35 @@ export class PlayerStatsService {
     );
 
     if (validPasses.length === 0) {
-      return {topDiff: 0, top12kDiff: 0};
+      return {topDiffId: 0, top12kDiffId: 0};
     }
 
     // Sort passes by difficulty sortOrder in descending order
     const sortedPasses = validPasses.sort((a: any, b: any) => {
       const diffA = a.level?.difficulty?.sortOrder || 0;
       const diffB = b.level?.difficulty?.sortOrder || 0;
-      // If sortOrders are equal, compare level IDs in descending order
-      if (diffB === diffA) {
-        return (b.level?.id || 0) - (a.level?.id || 0);
-      }
       return diffB - diffA;
     });
 
     // Get highest difficulty ID for regular passes
-    const topDiff = sortedPasses[0]?.level?.difficulty?.id ?? 0;
+    const topDiffId = sortedPasses[0]?.level?.difficulty?.id ?? 0;
 
     // Get highest difficulty ID for 12k passes
     const valid12kPasses = validPasses.filter(
       (pass: any) => pass.is12K && !pass.is16K,
     );
 
-    const top12kDiff =
+    const top12kDiffId =
       valid12kPasses.length > 0
         ? (valid12kPasses.sort((a: any, b: any) => {
             const diffA = a.level?.difficulty?.sortOrder || 0;
             const diffB = b.level?.difficulty?.sortOrder || 0;
-            // If sortOrders are equal, compare level IDs in descending order
-            if (diffB === diffA) {
-              return (b.level?.id || 0) - (a.level?.id || 0);
-            }
+
             return diffB - diffA;
           })[0]?.level?.difficulty?.id ?? 0)
         : 0;
 
-    return {topDiff, top12kDiff};
+    return {topDiffId, top12kDiffId};
   }
 
   public async updatePlayerStats(
@@ -466,7 +459,7 @@ export class PlayerStatsService {
       // Convert passes to scores and get highest score per level
 
       // Calculate top difficulties
-      const {topDiff, top12kDiff} = this.calculateTopDiffs(
+      const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
         player.passes || [],
       );
 
@@ -481,8 +474,8 @@ export class PlayerStatsService {
         averageXacc: calculateAverageXacc(player.passes || []),
         universalPassCount: countUniversalPassCount(player.passes || []),
         worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-        topDiff,
-        top12kDiff,
+        topDiffId,
+        top12kDiffId,
         lastUpdated: new Date(),
       };
 
@@ -613,6 +606,14 @@ export class PlayerStatsService {
             },
           ],
         },
+        {
+          model: Difficulty,
+          as: 'topDiff',
+        },
+        {
+          model: Difficulty,
+          as: 'top12kDiff',
+        },
       ],
     });
 
@@ -691,35 +692,8 @@ export class PlayerStatsService {
         },
         universalPassCount: {field: 'universalPassCount', rankField: null},
         worldsFirstCount: {field: 'worldsFirstCount', rankField: null},
-        topDiff: {
-          field: sequelize.literal(
-            '(SELECT difficulties.sortOrder FROM difficulties ' +
-            'INNER JOIN levels ON levels.diffId = difficulties.id ' +
-            'INNER JOIN passes ON passes.levelId = levels.id ' +
-            'WHERE passes.playerId = player.id ' +
-            'AND passes.isDeleted = false ' +
-            'AND difficulties.id < 100 ' +
-            'AND levels.isDeleted = false ' +
-            'AND levels.isHidden = false ' +
-            'ORDER BY difficulties.sortOrder DESC LIMIT 1)',
-          ),
-          rankField: null,
-        },
-        top12kDiff: {
-          field: sequelize.literal(
-            '(SELECT difficulties.sortOrder FROM difficulties ' +
-            'INNER JOIN levels ON levels.diffId = difficulties.id ' +
-            'INNER JOIN passes ON passes.levelId = levels.id ' +
-            'WHERE passes.playerId = player.id ' +
-            'AND passes.isDeleted = false ' +
-            'AND passes.is12K = true ' +
-            'AND difficulties.id < 100 ' +
-            'AND levels.isDeleted = false ' +
-            'AND levels.isHidden = false ' +
-            'ORDER BY difficulties.sortOrder DESC LIMIT 1)',
-          ),
-          rankField: null,
-        },
+        topDiffId: {field: 'topDiffId', rankField: null},
+        top12kDiffId: {field: 'top12kDiffId', rankField: null},
       };
 
       const sortInfo = sortFieldMap[sortBy] || sortFieldMap['rankedScore'];
@@ -741,8 +715,8 @@ export class PlayerStatsService {
         attributes: {
           include: [
             [sortFieldMap['totalPasses'].field, 'totalPasses'],
-            [sortFieldMap['topDiff'].field, 'topDiff'],
-            [sortFieldMap['top12kDiff'].field, 'top12kDiff'],
+            [sortFieldMap['topDiffId'].field, 'topDiffId'],
+            [sortFieldMap['top12kDiffId'].field, 'top12kDiffId'],
           ],
         },
         include: [
@@ -760,12 +734,28 @@ export class PlayerStatsService {
               },
             ],
           },
+          {
+            model: Difficulty,
+            as: 'topDiff',
+          },
+          {
+            model: Difficulty,
+            as: 'top12kDiff',
+          },
         ],
         where: whereClause,
         order: [orderItem, ['id', 'DESC']],
         offset,
         limit
       });
+
+      if (sortBy === 'topDiff' || sortBy === 'top12kDiff') {
+        players.sort((a, b) => {
+          const diffA = a.topDiff?.sortOrder || 0;
+          const diffB = b.topDiff?.sortOrder || 0;
+          return diffB - diffA;
+        });
+      }
 
       // Map the results
       const mappedPlayers = players.map(player => {

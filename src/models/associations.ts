@@ -47,6 +47,16 @@ export function initializeAssociations() {
     as: 'player',
   });
 
+  PlayerStats.belongsTo(Difficulty, {
+    foreignKey: 'topDiffId',
+    as: 'topDiff',
+  });
+
+  PlayerStats.belongsTo(Difficulty, {
+    foreignKey: 'top12kDiffId',
+    as: 'top12kDiff',
+  });
+
   // User <-> OAuthProvider associations
   User.hasMany(OAuthProvider, {
     foreignKey: 'userId',

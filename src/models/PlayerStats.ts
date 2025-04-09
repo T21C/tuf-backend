@@ -1,6 +1,7 @@
 import {Model, DataTypes} from 'sequelize';
 import sequelize from '../config/db.js';
 import Player from './Player.js';
+import Difficulty from './Difficulty.js';
 
 class PlayerStats extends Model {
   declare id: number;
@@ -20,11 +21,13 @@ class PlayerStats extends Model {
   declare lastUpdated: Date;
   declare createdAt: Date;
   declare updatedAt: Date;
-  declare topDiff: number;
-  declare top12kDiff: number;
+  declare topDiffId: number;
+  declare top12kDiffId: number;
 
   // Virtual fields from associations
   declare player?: Player;
+  declare topDiff?: Difficulty;
+  declare top12kDiff?: Difficulty;
 }
 
 PlayerStats.init(
@@ -38,12 +41,12 @@ PlayerStats.init(
         key: 'id',
       },
     },
-    topDiff: {
+    topDiffId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
     },
-    top12kDiff: {
+    top12kDiffId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
