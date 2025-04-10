@@ -1718,6 +1718,7 @@ router.post('/filter', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error filtering levels:', error);
     console.log("query:", req.query);
+    console.log("body:", req.body);
     return res.status(500).json({error: 'Failed to filter levels'});
   }
 });
