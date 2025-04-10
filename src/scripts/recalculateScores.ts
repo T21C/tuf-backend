@@ -114,7 +114,7 @@ async function recalculateScores() {
           processedCount++;
           
           // Log significant changes
-          if (Math.abs(currentScore - newScore) > 0.01) {
+          if (Math.abs(currentScore - newScore) > 1) {
             console.log(`Pass ${pass.id} (Level: ${pass.level.difficulty?.name}): Score updated from ${currentScore.toFixed(2)} to ${newScore.toFixed(2)}`);
             updatedCount++;
           }
