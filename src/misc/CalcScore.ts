@@ -82,7 +82,6 @@ const getSpeedMtp = (speed: number, isDesBus = false) => {
 
 const getScore = (passData: PassData, levelData: LevelData) => {
   const speed = passData.speed;
-  const legacyDiff = levelData.diff;
   const inputs = passData.judgements;
   const base = levelData.baseScore
     ? levelData.baseScore
@@ -91,7 +90,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
 
   let speedMtp = 0;
   let score = 0;
-  if (legacyDiff === 64) {
+  if (levelData.difficulty?.name === "Marathon") {
     speedMtp = getSpeedMtp(speed, true);
     score = Math.max(base * xaccMtp * speedMtp, 1);
   } else {
@@ -105,6 +104,7 @@ interface LevelData {
   baseScore: number | null;
   diff?: number;
   difficulty: {
+    name: string;
     baseScore: number;
   };
 }

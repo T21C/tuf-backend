@@ -781,7 +781,7 @@ export class PlayerStatsService {
     }
   }
 
-  public async getPassDetails(passId: number): Promise<any> {
+  public async getPassDetails(passId: number, user?: any): Promise<any> {
     const pass = await Pass.findOne({
       where: {
         id: passId,
@@ -801,10 +801,10 @@ export class PlayerStatsService {
         {
           model: Level,
           as: 'level',
-          where: {
+          where: !user?.isSuperAdmin ? {
             isDeleted: false,
             isHidden: false
-          },
+          } : {},
           include: [
             {
               model: Difficulty,

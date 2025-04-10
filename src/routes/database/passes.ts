@@ -523,14 +523,15 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId)) {
       return res.status(400).json({error: 'Invalid pass ID'});
     }
 
-    const pass = await playerStatsService.getPassDetails(passId);
+
+    const pass = await playerStatsService.getPassDetails(passId, req.user);
     if (!pass) {
       return res.status(404).json({error: 'Pass not found'});
     }
@@ -1058,17 +1059,21 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 );
 
 // Add new route for getting pass by ID as a list
-router.get('/byId/:id', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+router.get('/byId/:id', excludePlaceholder.fromResponse(), Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId) || passId <= 0) {
         return res.status(400).json({error: 'Invalid pass ID'});
       }
+      const user = req.user;
+
 
       const pass = await Pass.findOne({
-        where: {
+        where: user?.isSuperAdmin ? {
           id: passId,
-          isDeleted: false
+        } : {
+          id: passId,
+          isDeleted: false,
         },
         include: [
           {
