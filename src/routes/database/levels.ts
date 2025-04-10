@@ -254,6 +254,12 @@ const buildWhereClause = async (query: any) => {
 
   // Handle text search with new parsing
   if (query.query) {
+    // Add type check to ensure query.query is a string
+    if (typeof query.query !== 'string') {
+      console.warn(`Invalid query type: ${typeof query.query}. Expected string.`);
+      // Either skip this condition or convert to string
+      query.query = String(query.query);
+    }
     const searchGroups = parseSearchQuery(query.query.trim());
 
     if (searchGroups.length > 0) {
@@ -1711,6 +1717,7 @@ router.post('/filter', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error filtering levels:', error);
+    console.log("query:", req.query);
     return res.status(500).json({error: 'Failed to filter levels'});
   }
 });
