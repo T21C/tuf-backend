@@ -8,6 +8,8 @@ import AnnouncementRole from '../../models/AnnouncementRole.js';
 import DirectiveAction from '../../models/DirectiveAction.js';
 import { evaluateDirectiveCondition } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
+import { Op } from 'sequelize';
+import Judgement from '../../models/Judgement.js';
 
 interface AnnouncementConfig {
   webhooks: {
@@ -97,15 +99,54 @@ function generateConditionHash(condition: DirectiveCondition, levelId: number): 
   return crypto.createHash('sha256').update(conditionString).digest('hex');
 }
 
-async function hasConditionBeenMetBefore(levelId: number, condition: DirectiveCondition): Promise<boolean> {
-  const conditionHash = generateConditionHash(condition, levelId);
+async function hasConditionBeenMetBefore(level: Level, pass: Pass, condition: DirectiveCondition): Promise<boolean> {
+  // First check the history table
+  const conditionHash = generateConditionHash(condition, level.id);
   const history = await DirectiveConditionHistory.findOne({
     where: {
-      levelId,
+      levelId: level.id,
       conditionHash,
     },
   });
-  return !!history;
+  
+  if (history) {
+    return true; // Condition has been recorded as met before
+  }
+  
+  const otherPasses = await Pass.findAll({
+    where: {
+      levelId: level.id,
+      id: {
+        [Op.ne]: pass.id,
+      },
+      isDeleted: false,
+    },
+    include: [
+      {
+        model: Judgement,
+        as: 'judgements',
+        required: true,
+      },
+    ],
+  });
+  // If no history record exists, check all existing passes for this level
+  // to determine if any previous pass would have met this condition
+  
+  if (otherPasses.length === 0) {
+    return false; // No passes exist for this level, so condition hasn't been met before
+  }
+  // Check each pass to see if it would have met the condition
+  for (const otherPass of otherPasses) {
+    // Cast the pass to the correct type expected by evaluateCondition
+   if (evaluateCondition(condition, otherPass as Pass, level as Level)) {
+      // Found a pass that meets the condition, so it's not truly first of its kind
+      await recordConditionMet(level.id, condition);
+      return true;
+    }
+  }
+  
+  // No previous pass meets the condition, so this is truly first of its kind
+  return false;
 }
 
 async function recordConditionMet(levelId: number, condition: DirectiveCondition): Promise<void> {
@@ -153,7 +194,7 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
     
     // For firstOfKind directives, we need to check if this condition was ever met before for this specific level
     if (directive.firstOfKind) {
-      const conditionMet = await hasConditionBeenMetBefore(level.id, directive.condition);
+      const conditionMet = await hasConditionBeenMetBefore(level, pass, directive.condition);
       if (conditionMet) {
         return false; // Skip this directive if the condition was met before for this level
       }

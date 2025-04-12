@@ -396,12 +396,6 @@ router.post(
           {
             model: Player,
             as: 'player',
-            include: [
-              {
-                model: Pass,
-                as: 'passes',
-              },
-            ],
           },
           {
             model: Judgement,
