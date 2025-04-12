@@ -4,7 +4,7 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     await queryInterface.addColumn('levels', 'previousBaseScore', {
-      type: Sequelize.INTEGER,
+      type: Sequelize.DOUBLE,
       allowNull: true,
       defaultValue: null
     });
