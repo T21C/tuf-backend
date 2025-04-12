@@ -17,19 +17,32 @@ interface OAuthProfile {
 
 class OAuthService {
   /**
-   * Find or create a user based on OAuth profile
+   * Find or create a user based on OAuth profile for login
    */
   async findOrCreateUser(profile: OAuthProfile): Promise<[User, boolean]> {
+    console.log('[OAuthService] Finding or creating user for profile:', {
+      provider: profile.provider,
+      providerId: profile.id,
+      username: profile.username,
+      email: profile.email
+    });
+
     // First check if provider is already linked
     const provider = await OAuthProvider.findOne({
       where: {
         provider: profile.provider,
         providerId: profile.id,
       },
-      include: [{model: User, include: [{model: Player, as: 'player'}]}],
+      include: [{model: User, as: 'oauthUser', include: [{model: Player, as: 'player'}]}],
     });
+    console.log(provider);
 
     if (provider?.oauthUser) {
+      console.log('[OAuthService] Found existing provider link for user:', {
+        userId: provider.oauthUser.id,
+        username: provider.oauthUser.username
+      });
+
       // Update user profile if needed
       const updates: Partial<UserAttributes> = {};
       if (
@@ -49,11 +62,14 @@ class OAuthService {
       }
 
       if (Object.keys(updates).length > 0) {
+        console.log('[OAuthService] Updating user profile:', updates);
         await provider.oauthUser.update(updates);
       }
 
       return [provider.oauthUser, false];
     }
+
+    console.log('[OAuthService] No existing provider link found, checking for user by email');
 
     // If no provider link exists, check for existing user by email
     let user: User | null = null;
@@ -62,87 +78,73 @@ class OAuthService {
         where: {email: profile.email},
         include: [{model: OAuthProvider, as: 'providers'}],
       });
+
+      if (user) {
+        console.log('[OAuthService] Found existing user by email:', {
+          userId: user.id,
+          username: user.username
+        });
+      }
     }
 
-    // If user exists, link the provider if not already linked
-    if (user) {
-      // Check if this provider is already linked
-      const existingProvider = user.providers?.find(
-        (p: any) =>
-          p.provider === profile.provider && p.providerId === profile.id,
-      );
+    // Create new user if none exists
+    if (!user) {
+      console.log('[OAuthService] Creating new user');
+      const now = new Date();
+      const isRater =
+        profile.provider === 'discord' &&
+        (raterList.includes(profile.id) ||
+          SUPER_ADMINS.includes(profile.username));
+      const isSuperAdmin =
+        profile.provider === 'discord' && SUPER_ADMINS.includes(profile.username);
 
-      if (!existingProvider) {
-        await OAuthProvider.create({
+      try {
+        user = await User.create({
+          id: uuidv4(),
+          username: profile.username,
+          email: profile.email || undefined,
+          nickname: profile.nickname,
+          avatarId: profile.avatarId,
+          avatarUrl: profile.avatarUrl,
+          isEmailVerified: !!profile.email,
+          isRater,
+          isSuperAdmin,
+          isRatingBanned: false,
+          status: 'active',
+          permissionVersion: 1,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        console.log('[OAuthService] Successfully created new user:', {
+          userId: user.id,
+          username: user.username
+        });
+
+        // Create OAuth provider link
+        const oauthProvider = await OAuthProvider.create({
           userId: user.id,
           provider: profile.provider,
           providerId: profile.id,
           profile: profile,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: now,
+          updatedAt: now,
         });
-      }
 
-      // Update user profile if needed
-      const updates: Partial<UserAttributes> = {};
-      if (
-        profile.nickname &&
-        (!user.nickname || user.nickname !== profile.nickname)
-      ) {
-        updates.nickname = profile.nickname;
-      }
-      if (
-        profile.avatarId &&
-        (!user.avatarId || user.avatarId !== profile.avatarId)
-      ) {
-        updates.avatarId = profile.avatarId;
-        updates.avatarUrl = profile.avatarUrl;
-      }
+        console.log('[OAuthService] Successfully created OAuth provider link:', {
+          providerId: oauthProvider.id,
+          userId: user.id,
+          provider: profile.provider
+        });
 
-      if (Object.keys(updates).length > 0) {
-        await user.update(updates);
+        return [user, true];
+      } catch (error) {
+        console.error('[OAuthService] Error creating user:', error);
+        throw error;
       }
-
-      return [user, false];
     }
 
-    // Create new user
-    const now = new Date();
-    const isRater =
-      profile.provider === 'discord' &&
-      (raterList.includes(profile.id) ||
-        SUPER_ADMINS.includes(profile.username));
-    const isSuperAdmin =
-      profile.provider === 'discord' && SUPER_ADMINS.includes(profile.username);
-
-    user = await User.create({
-      id: uuidv4(),
-      username: profile.username,
-      email: profile.email || undefined,
-      nickname: profile.nickname,
-      avatarId: profile.avatarId,
-      avatarUrl: profile.avatarUrl,
-      isEmailVerified: !!profile.email,
-      isRater,
-      isSuperAdmin,
-      isRatingBanned: false,
-      status: 'active',
-      permissionVersion: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Create OAuth provider link
-    await OAuthProvider.create({
-      userId: user.id,
-      provider: profile.provider,
-      providerId: profile.id,
-      profile: profile,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return [user, true];
+    return [user, false];
   }
 
   /**
@@ -152,7 +154,13 @@ class OAuthService {
     userId: string,
     profile: OAuthProfile,
   ): Promise<OAuthProvider> {
-    // Check if provider is already linked to another user
+    console.log('[OAuthService] Linking provider to user:', {
+      userId,
+      provider: profile.provider,
+      providerId: profile.id
+    });
+
+    // Check if provider is already linked to any user
     const existingProvider = await OAuthProvider.findOne({
       where: {
         provider: profile.provider,
@@ -161,8 +169,30 @@ class OAuthService {
     });
 
     if (existingProvider) {
+      console.log('[OAuthService] Provider already linked to another user:', {
+        providerId: existingProvider.id,
+        userId: existingProvider.userId
+      });
       throw new Error(
         'This provider account is already linked to another user',
+      );
+    }
+
+    // Check if user already has this provider type linked
+    const userProvider = await OAuthProvider.findOne({
+      where: {
+        userId,
+        provider: profile.provider,
+      },
+    });
+
+    if (userProvider) {
+      console.log('[OAuthService] User already has this provider type linked:', {
+        providerId: userProvider.id,
+        userId
+      });
+      throw new Error(
+        'This user already has a different account linked for this provider',
       );
     }
 
@@ -173,6 +203,11 @@ class OAuthService {
         SUPER_ADMINS.includes(profile.username);
       const isSuperAdmin = SUPER_ADMINS.includes(profile.username);
       if (isRater || isSuperAdmin) {
+        console.log('[OAuthService] Updating user permissions:', {
+          userId,
+          isRater,
+          isSuperAdmin
+        });
         await User.update(
           {
             isRater,
@@ -185,15 +220,28 @@ class OAuthService {
       }
     }
 
-    const now = new Date();
-    return OAuthProvider.create({
-      userId,
-      provider: profile.provider,
-      providerId: profile.id,
-      profile: profile,
-      createdAt: now,
-      updatedAt: now,
-    });
+    try {
+      const now = new Date();
+      const oauthProvider = await OAuthProvider.create({
+        userId,
+        provider: profile.provider,
+        providerId: profile.id,
+        profile: profile,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      console.log('[OAuthService] Successfully linked provider to user:', {
+        providerId: oauthProvider.id,
+        userId,
+        provider: profile.provider
+      });
+
+      return oauthProvider;
+    } catch (error) {
+      console.error('[OAuthService] Error linking provider:', error);
+      throw error;
+    }
   }
 
   /**

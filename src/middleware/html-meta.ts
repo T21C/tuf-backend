@@ -185,8 +185,8 @@ export const htmlMetaMiddleware = async (
     <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
     <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
     <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
-    <meta property="og:image:width" content="1280" />
-    <meta property="og:image:height" content="720" />
+    <meta property="og:image:width" content="800" />
+    <meta property="og:image:height" content="420" />
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
     <meta name="theme-color" content="#090909" />
@@ -222,8 +222,8 @@ export const htmlMetaMiddleware = async (
     <meta property="og:title" content="${songName} by ${artistName}" />
     <meta property="og:description" content="Created by ${creators}" />
     <meta property="og:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
-    <meta property="og:image:width" content="1280" />
-    <meta property="og:image:height" content="720" />
+    <meta property="og:image:width" content="800" />
+    <meta property="og:image:height" content="420" />
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
     <meta name="theme-color" content="${level.difficulty?.color || '#090909'}" />
@@ -237,8 +237,8 @@ export const htmlMetaMiddleware = async (
     <meta property="og:title" content="Player ${id}" />
     <meta property="og:description" content="View player details" />
     <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
-    <meta property="og:image:width" content="1280" />
-    <meta property="og:image:height" content="720" />
+    <meta property="og:image:width" content="800" />
+    <meta property="og:image:height" content="420" />
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
     <meta name="theme-color" content="#090909" />

@@ -53,7 +53,7 @@ const clientUrlEnv =
         : 'http://localhost:5173';
 
 // Helper function to handle Discord OAuth token exchange
-async function handleDiscordOAuth(code: string): Promise<{
+async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
   tokens: RESTPostOAuth2AccessTokenResult;
   profile: RESTGetAPIUserResult;
 }> {
@@ -65,7 +65,7 @@ async function handleDiscordOAuth(code: string): Promise<{
       client_secret: process.env.DISCORD_CLIENT_SECRET!,
       code: code.toString(),
       grant_type: 'authorization_code',
-      redirect_uri: clientUrlEnv + '/callback',
+      redirect_uri: clientUrlEnv + '/callback'+ (isLinking ? '?linking=true' : ''),
     }),
     {
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -93,11 +93,38 @@ export const OAuthController = {
     const {provider} = req.params;
 
     if (provider === 'discord') {
+      if (!process.env.DISCORD_CLIENT_ID) {
+        console.error('DISCORD_CLIENT_ID is not set');
+        return res.status(500).json({error: 'Discord client ID is not configured'});
+      }
+
+      const scopes = ['identify', 'email'];
+      const redirectUri = clientUrlEnv + '/callback';
+      console.log('OAuth redirect URI:', redirectUri);
+      
+      const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
+        process.env.DISCORD_CLIENT_ID
+      }&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopes.join('%20')}`;
+      
+      console.log('Generated Discord auth URL:', authUrl);
+      return res.json({url: authUrl});
+    }
+
+    return res.status(400).json({error: 'Unsupported provider'});
+  },
+
+  /**
+   * Initiate OAuth linking process
+   */
+  async initiateLink(req: Request, res: Response) {
+    const {provider} = req.params;
+
+    if (provider === 'discord') {
       const scopes = ['identify', 'email'];
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(
-        clientUrlEnv + '/callback',
+        clientUrlEnv + '/callback?linking=true',
       )}&response_type=code&scope=${scopes.join('%20')}`;
       return res.json({url: authUrl});
     }
@@ -108,49 +135,82 @@ export const OAuthController = {
   /**
    * Handle OAuth callback
    */
-
   async handleCallback(req: Request, res: Response) {
     try {
       const {provider} = req.params;
       const {code} = req.body;
+      const isLinking = req.query.linking === 'true';
+
+      console.log('OAuth callback received:', { provider, code, isLinking });
 
       if (!code) {
+        console.error('No authorization code provided');
         return res
           .status(400)
           .json({message: 'Authorization code is required'});
       }
 
       // Exchange code for tokens
-      const tokens = await handleDiscordOAuth(code.toString());
+      console.log('Exchanging code for tokens...');
+      const tokens = await handleDiscordOAuth(code.toString(), isLinking);
       if (!tokens) {
+        console.error('Failed to exchange code for tokens');
         return res
           .status(400)
           .json({message: 'Failed to exchange code for tokens'});
       }
+      console.log('Successfully exchanged code for tokens');
 
       // Get user profile from provider
       const profile = tokens.profile;
       if (!profile) {
+        console.error('Failed to get user profile from tokens');
         return res.status(400).json({message: 'Failed to get user profile'});
       }
-
-      // First check if we have an existing OAuth provider
-      const existingProvider = await OAuthProvider.findOne({
-        where: {
-          provider: 'discord',
-          providerId: profile.id,
-        },
-        include: [
-          {
-            model: User,
-            required: false,
-          },
-        ],
+      console.log('Retrieved user profile:', { 
+        id: profile.id,
+        username: profile.username,
+        email: profile.email 
       });
 
-      const existingUser = existingProvider?.get('User') as User | undefined;
-      if (existingUser) {
-        // Existing user, just update tokens and return
+      if (isLinking) {
+        // Handle linking flow
+        if (!req.user) {
+          return res.status(401).json({message: 'Authentication required for linking'});
+        }
+
+        try {
+          await OAuthService.linkProvider(req.user.id, {
+            id: profile.id,
+            provider: 'discord',
+            username: profile.username,
+            email: profile.email || undefined,
+          });
+
+          // Update OAuth tokens
+          await OAuthService.updateTokens(
+            'discord',
+            profile.id,
+            tokens.tokens.access_token,
+            tokens.tokens.refresh_token,
+            new Date(Date.now() + tokens.tokens.expires_in * 1000),
+          );
+
+          return res.json({success: true});
+        } catch (error: any) {
+          console.error('Provider linking error:', error);
+          return res.status(400).json({error: error.message || 'Failed to link provider'});
+        }
+      } else {
+        // Handle login flow
+        const [user, isNew] = await OAuthService.findOrCreateUser({
+          id: profile.id,
+          provider: 'discord',
+          username: profile.username,
+          email: profile.email || undefined,
+        });
+
+        // Update OAuth tokens
         await OAuthService.updateTokens(
           'discord',
           profile.id,
@@ -159,144 +219,23 @@ export const OAuthController = {
           new Date(Date.now() + tokens.tokens.expires_in * 1000),
         );
 
-        const token = tokenUtils.generateJWT(existingUser);
+        const token = tokenUtils.generateJWT(user);
         return res.json({
           user: {
-            id: existingUser.id,
-            username: existingUser.username,
-            nickname: existingUser.nickname,
-            email: existingUser.email,
-            avatarUrl: existingUser.avatarUrl,
-            isRater: existingUser.isRater,
-            isSuperAdmin: existingUser.isSuperAdmin,
+            id: user.id,
+            username: user.username,
+            nickname: user.nickname,
+            email: user.email,
+            avatarUrl: user.avatarUrl,
+            isRater: user.isRater,
+            isSuperAdmin: user.isSuperAdmin,
           },
-          isNew: false,
+          isNew,
           token,
         });
       }
-
-      // First try to find player by Discord username
-      let player = await Player.findOne({
-        where: {
-          name: profile.username,
-        },
-      });
-
-      if (!player) {
-        // Check player mapping as fallback
-        const playerMapping = findPlayerByDiscordId(profile.id);
-
-        if (playerMapping) {
-
-          // Try to find existing player by mapping ID
-          player = await Player.findOne({where: {name: playerMapping.name}});
-
-          if (!player) {
-            player = await Player.create({
-              name: playerMapping.name,
-              country: playerMapping.region || 'XX',
-              isBanned: false,
-              isSubmissionsPaused: false,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            });
-          }
-        } else {
-          // Create new player with next available ID
-          const lastPlayer = await Player.findOne({
-            order: [['id', 'DESC']],
-          });
-          const nextId = (lastPlayer?.id || 0) + 1;
-
-          player = await Player.create({
-            id: nextId,
-            name: profile.username,
-            country: 'XX',
-            isBanned: false,
-            isSubmissionsPaused: false,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
-      } 
-
-      const now = new Date();
-      const isRater =
-        provider === 'discord' &&
-        (raterList.includes(profile.id) ||
-          SUPER_ADMINS.includes(profile.username));
-      const isSuperAdmin =
-        provider === 'discord' && SUPER_ADMINS.includes(profile.username);
-
-      const user = await User.create({
-        id: uuidv4(),
-        username: profile.username,
-        email: profile.email || undefined,
-        nickname: profile.global_name || undefined,
-        avatarId: profile.avatar ? profile.avatar : undefined,
-        avatarUrl: profile.avatar
-          ? `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.${profile.avatar.startsWith('a_') ? 'gif' : 'png'}`
-          : undefined,
-        playerId: player.id,
-        isEmailVerified: !!profile.email,
-        isRater,
-        isSuperAdmin,
-        isRatingBanned: false,
-        permissionVersion: 1,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Create OAuth provider link
-      await OAuthProvider.create({
-        userId: user.id,
-        provider: 'discord',
-        providerId: profile.id,
-        profile: profile,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Update OAuth tokens
-      await OAuthService.updateTokens(
-        'discord',
-        profile.id,
-        tokens.tokens.access_token,
-        tokens.tokens.refresh_token,
-        new Date(Date.now() + tokens.tokens.expires_in * 1000),
-      );
-
-      // Generate JWT
-      const token = tokenUtils.generateJWT(user);
-
-      res.json({
-        user: {
-          id: user.id,
-          username: user.username,
-          nickname: user.nickname,
-          email: user.email,
-          avatarUrl: user.avatarUrl,
-          isRater: user.isRater,
-          isSuperAdmin: user.isSuperAdmin,
-        },
-        isNew: true,
-        token,
-      });
-
-      playerStatsService
-        .updatePlayerStats(player.id)
-        .then(() => {
-          return;
-        })
-        .catch(error => {
-          console.error('Error updating player stats:', error);
-          return;
-        });
-
-      return;
     } catch (error) {
-      //console.error('OAuth callback error:', error);
+      console.error('OAuth callback error:', error);
       return res.status(500).json({message: 'Authentication failed'});
     }
   },
@@ -348,7 +287,21 @@ export const OAuthController = {
 
     try {
       if (provider === 'discord') {
-        const {tokens, profile} = await handleDiscordOAuth(code);
+        const {tokens, profile} = await handleDiscordOAuth(code, true);
+
+        // Check if this provider is already linked to another user
+        const existingProvider = await OAuthProvider.findOne({
+          where: {
+            provider: 'discord',
+            providerId: profile.id,
+          },
+        });
+
+        if (existingProvider) {
+          return res.status(400).json({
+            error: 'This Discord account is already linked to another user',
+          });
+        }
 
         // Link provider to user
         await OAuthService.linkProvider(req.user!.id, {
@@ -385,10 +338,11 @@ export const OAuthController = {
 
     try {
       const providers = await OAuthService.getUserProviders(req.user!.id);
-      if (providers.length <= 1) {
+
+      if (providers.length <= 1 && !req.user?.password) {
         return res
           .status(400)
-          .json({error: 'Cannot remove last authentication provider'});
+          .json({error: 'Cannot remove last authentication provider without a password'});
       }
 
       const success = await OAuthService.unlinkProvider(req.user!.id, provider);

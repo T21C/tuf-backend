@@ -36,6 +36,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
         isRater: user.isRater,
         isSuperAdmin: user.isSuperAdmin,
         isRatingBanned: user.isRatingBanned,
+        isEmailVerified: user.isEmailVerified,
         playerId: user.playerId,
         password: user.password ? true : null,
         pfp: player?.pfp,

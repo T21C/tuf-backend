@@ -180,13 +180,28 @@ export async function createRerateEmbed(
     )
     .setTitle(`ID: ${level.id}`)
     .setThumbnail(level.difficulty?.icon || placeHolder)
-    .addField('', '', false)
-    .addField(
+    .addField('', '', false);
+
+  // Check if this is a baseScore change without difficulty change
+  const isBaseScoreChange = level.previousBaseScore !== null && 
+                           level.previousBaseScore !== level.baseScore &&
+                           level.previousDiffId === level.diffId;
+
+  if (isBaseScoreChange) {
+    embed.addField(
+      'Base Score Update',
+      `**${level.previousBaseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
+      true,
+    );
+  } else if (level.previousDiffId) {
+    embed.addField(
       'Rerate',
       `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
       true,
-    )
-    .addField('', '', false);
+    );
+  }
+
+  embed.addField('', '', false);
 
   if (team) embed.addField('', `Team\n**${formatString(team)}**`, true);
   if (vfxer) embed.addField('', `VFX\n**${formatString(vfxer)}**`, true);
@@ -203,7 +218,6 @@ export async function createRerateEmbed(
       false,
     )
     .setFooter(`ID: ${level.id}`, '')
-    //.setImage(videoInfo?.image || "")
     .setTimestamp();
 
   return embed;

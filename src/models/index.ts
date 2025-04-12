@@ -25,6 +25,7 @@ import AnnouncementChannel from './AnnouncementChannel.js';
 import AnnouncementRole from './AnnouncementRole.js';
 import AnnouncementDirective from './AnnouncementDirective.js';
 import DirectiveAction from './DirectiveAction.js';
+import RateLimit from './RateLimit.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -52,6 +53,7 @@ export const db = {
     AnnouncementRole,
     AnnouncementDirective,
     DirectiveAction,
+    RateLimit,
   },
 };
 
@@ -71,4 +73,4 @@ OAuthProvider.belongsTo(User, {
 export default db;
 
 // Also export User and OAuthProvider directly for convenience
-export {User, OAuthProvider};
+export {User, OAuthProvider, RateLimit};

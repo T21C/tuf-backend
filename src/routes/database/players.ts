@@ -261,10 +261,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
   }
 });
 
-router.put(
-  '/:userId/discord',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {userId} = req.params;
@@ -392,10 +389,7 @@ router.put(
   },
 );
 
-router.delete(
-  '/:id/discord',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:id/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
 
@@ -425,10 +419,7 @@ router.delete(
   },
 );
 
-router.post(
-  '/create',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {name} = req.body;
 
@@ -471,10 +462,7 @@ router.post(
   },
 );
 
-router.get(
-  '/:id/discord/:discordId',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.get('/:id/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {discordId} = req.params;
 
@@ -972,7 +960,7 @@ router.get('/:playerId/modifiers', Auth.addUserToRequest(), async (req, res) => 
 });
 
 // Generate a new random modifier for the player
-router.post('/modifiers/generate', Auth.user(), async (req, res) => {
+router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
   if (!modifierService) {
     return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
   }

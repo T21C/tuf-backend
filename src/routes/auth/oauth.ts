@@ -13,6 +13,12 @@ router.post(
 // Get OAuth profile
 router.get('/me', Auth.user(), OAuthController.getProfile);
 
+// Initiate OAuth login
+router.get('/login/:provider', OAuthController.initiateLogin);
+
+// Initiate OAuth linking
+router.get('/link/:provider', Auth.user(), OAuthController.initiateLink);
+
 // Link OAuth provider
 router.post('/link/:provider', Auth.user(), OAuthController.linkProvider);
 

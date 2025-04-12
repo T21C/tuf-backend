@@ -31,6 +31,7 @@ export interface ILevel extends IBaseModel {
   team: string;
   diffId: number;
   baseScore: number | null;
+  previousBaseScore: number | null;
   isCleared: boolean;
   clears: number;
   videoLink: string;

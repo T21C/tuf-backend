@@ -1,0 +1,145 @@
+import { Request, Response, NextFunction } from 'express';
+import { Op } from 'sequelize';
+import { logger } from './logger.js';
+import RateLimit, { RateLimitCreationAttributes } from '../models/RateLimit.js';
+
+interface RateLimitConfig {
+  windowMs: number;      // Time window in milliseconds
+  maxAttempts: number;   // Maximum number of attempts allowed in the window
+  blockDuration: number; // Duration to block IP if limit exceeded (in milliseconds)
+  type: string;          // Type of rate limit (e.g., 'registration', 'login')
+}
+
+const defaultConfig: RateLimitConfig = {
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  maxAttempts: 3,                // 3 attempts per 24 hours
+  blockDuration: 7 * 24 * 60 * 60 * 1000, // 7 days block
+  type: 'default'
+};
+
+export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
+  const { windowMs, maxAttempts, blockDuration, type = 'default' } = { ...defaultConfig, ...config };
+
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip;
+    
+    try {
+      // Check if IP is blocked
+      const blockedRecord = await RateLimit.findOne({
+        where: {
+          ip,
+          type,
+          blocked: true,
+          blockedUntil: {
+            [Op.gt]: new Date()
+          }
+        }
+      });
+
+      if (blockedRecord) {
+        const remainingBlockTime = Math.ceil((blockedRecord.blockedUntil!.getTime() - Date.now()));
+        return res.status(429).json({
+          message: 'Too many attempts. Please try again later.',
+          retryAfter: remainingBlockTime,
+        });
+      }
+
+      // Find or create rate limit record
+      const now = new Date();
+      const windowEnd = new Date(now.getTime() + windowMs);
+      
+      // Find active record for this IP and type
+      let rateLimit = await RateLimit.findOne({
+        where: {
+          ip,
+          type,
+          windowEnd: {
+            [Op.gt]: now
+          }
+        },
+        order: [['windowEnd', 'DESC']] // Get the most recent one if multiple exist
+      });
+
+      // If no active record exists, create a new one
+      if (!rateLimit) {
+        try {
+          rateLimit = await RateLimit.create({
+            ip,
+            type,
+            attempts: 1,
+            windowStart: now,
+            windowEnd,
+          } as RateLimitCreationAttributes);
+        } catch (error) {
+          // If creation fails due to race condition, try to find the record again
+          logger.warn(`Race condition in rate limiter creation for IP ${ip}, retrying find`);
+          rateLimit = await RateLimit.findOne({
+            where: {
+              ip,
+              type,
+              windowEnd: {
+                [Op.gt]: now
+              }
+            },
+            order: [['windowEnd', 'DESC']]
+          });
+          
+          // If still no record, increment attempts on the most recent record
+          if (!rateLimit) {
+            const mostRecent = await RateLimit.findOne({
+              where: { ip, type },
+              order: [['windowEnd', 'DESC']]
+            });
+            
+            if (mostRecent) {
+              await mostRecent.increment('attempts');
+              await mostRecent.reload();
+              rateLimit = mostRecent;
+            } else {
+              // Last resort - create with a slightly different window end to avoid conflicts
+              const adjustedWindowEnd = new Date(now.getTime() + windowMs + 1000);
+              rateLimit = await RateLimit.create({
+                ip,
+                type,
+                attempts: 1,
+                windowStart: now,
+                windowEnd: adjustedWindowEnd,
+              } as RateLimitCreationAttributes);
+            }
+          }
+        }
+      } else {
+        // Increment attempts for existing record
+        await rateLimit.increment('attempts');
+        await rateLimit.reload();
+      }
+
+      // Check if limit exceeded
+      if (rateLimit.attempts > maxAttempts) {
+        // Block the IP
+        const blockedUntil = new Date(now.getTime() + blockDuration);
+        await rateLimit.update({
+          blocked: true,
+          blockedUntil
+        });
+        
+        logger.warn(`IP ${ip} blocked for exceeding ${type} limit`);
+        
+        return res.status(429).json({
+          message: 'Rate limit exceeded. IP address blocked.',
+          retryAfter: blockDuration,
+        });
+      }
+
+      // Add rate limit info to response headers
+      res.setHeader('X-RateLimit-Limit', maxAttempts);
+      res.setHeader('X-RateLimit-Remaining', Math.max(0, maxAttempts - rateLimit.attempts));
+      
+      return next();
+    } catch (error) {
+      logger.error('Rate limiter error:', error);
+      // On error, allow the request but log the error
+      return next();
+    }
+  };
+}; 

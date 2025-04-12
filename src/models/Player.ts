@@ -9,6 +9,7 @@ import sequelize from '../config/db.js';
 import {IDifficulty, IPass, IPlayer} from '../interfaces/models/index.js';
 import Pass from './Pass.js';
 import User from './User.js';
+import PlayerStats from './PlayerStats.js';
 
 type PlayerCreationAttributes = Optional<
   IPlayer,
@@ -33,6 +34,8 @@ class Player
   declare getPasses: HasManyGetAssociationsMixin<Pass>;
   declare user?: User;
   declare getUser: HasOneGetAssociationMixin<User>;
+  declare stats?: PlayerStats;
+  declare getStats: HasOneGetAssociationMixin<PlayerStats>;
 
   // Virtual fields
   declare rankedScore?: number;

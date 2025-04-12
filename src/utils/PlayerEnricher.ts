@@ -75,7 +75,7 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
 
       // Process Discord data
       let discordProvider: any;
-      if (userData?.dataValues.providers) {
+      if (userData?.dataValues?.providers?.length > 0) {
         discordProvider = userData.dataValues.providers[0].dataValues;
         discordProvider.profile.avatarUrl = discordProvider.profile.avatar
           ? `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png`

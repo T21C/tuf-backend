@@ -2,8 +2,11 @@ import {Request, Response} from 'express';
 import {Op, CreationAttributes} from 'sequelize';
 import {v4 as uuidv4} from 'uuid';
 import User from '../models/User.js';
+import Player from '../models/Player.js';
+import PlayerStats from '../models/PlayerStats.js';
 import {emailService} from '../utils/email.js';
 import {passwordUtils, tokenUtils} from '../utils/auth.js';
+import {PlayerStatsService} from '../services/PlayerStatsService.js';
 
 export const authController = {
   /**
@@ -18,7 +21,29 @@ export const authController = {
         return res.status(400).json({message: 'All fields are required'});
       }
 
-      // Check if user already exists
+      // Validate email format
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({message: 'Invalid email format'});
+      }
+
+      // Validate username length (3-20 characters)
+      if (username.length < 3 || username.length > 20) {
+        return res.status(400).json({message: 'Username must be between 3 and 20 characters'});
+      }
+
+      // Validate username contains only alphanumeric characters, underscores (_) and hyphens (-)
+      const usernameRegex = /^[a-zA-Z0-9_-]+$/;
+      if (!usernameRegex.test(username)) {
+        return res.status(400).json({message: 'Username can only contain alphanumeric characters, underscores _ and hyphens -'});
+      }
+
+      // Validate password length (minimum 8 characters)
+      if (password.length < 8) {
+        return res.status(400).json({message: 'Password must be at least 8 characters long'});
+      }
+
+      // Check if user already exists with this email
       const existingUser = await User.findOne({
         where: {
           email,
@@ -29,18 +54,85 @@ export const authController = {
         return res.status(400).json({message: 'Email already registered'});
       }
 
+      // Check if username already exists in User table
+      const existingUsername = await User.findOne({
+        where: {
+          username,
+        },
+      });
+
+      if (existingUsername) {
+        return res.status(400).json({message: 'Username already taken'});
+      }
+
+      // Check if username exists in Player table
+      let finalUsername = username;
+      let usernameExists = true;
+      let attempts = 0;
+      const maxAttempts = 10; // Limit attempts to prevent infinite loop
+      
+      while (usernameExists && attempts < maxAttempts) {
+        const existingPlayer = await Player.findOne({
+          where: {
+            name: finalUsername,
+          },
+        });
+        
+        if (!existingPlayer) {
+          usernameExists = false;
+        } else {
+          // Generate a random number between 1 and 999999
+          const randomNum = Math.floor(Math.random() * 999999) + 1;
+          finalUsername = `${username}_${randomNum}`;
+          attempts++;
+        }
+      }
+      
+      if (usernameExists) {
+        return res.status(400).json({message: 'Could not generate a unique username. Please try a different username.'});
+      }
+
       // Hash password
       const hashedPassword = await passwordUtils.hashPassword(password);
 
       // Create verification token
       const verificationToken = tokenUtils.generateRandomToken();
 
+      // Create player first
+      const player = await Player.create({
+        name: finalUsername,
+        country: 'XX', // Default country code
+        isBanned: false,
+        isSubmissionsPaused: false,
+      });
+
+      // Create player stats
+      await PlayerStats.create({
+        id: player.id,
+        rankedScore: 0,
+        generalScore: 0,
+        ppScore: 0,
+        wfScore: 0,
+        score12K: 0,
+        rankedScoreRank: -1,
+        generalScoreRank: -1,
+        ppScoreRank: -1,
+        wfScoreRank: -1,
+        score12KRank: -1,
+        averageXacc: 0,
+        universalPassCount: 0,
+        worldsFirstCount: 0,
+        topDiffId: 0,
+        top12kDiffId: 0,
+        lastUpdated: new Date(),
+      });
+
       // Create user with proper type annotations
       const now = new Date();
       const userData: CreationAttributes<User> = {
         id: uuidv4(),
         email,
-        username,
+        username: finalUsername, // Use the final username (might be modified if duplicate in Player table)
         password: hashedPassword,
         passwordResetToken: verificationToken,
         passwordResetExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
@@ -53,17 +145,10 @@ export const authController = {
         updatedAt: now,
         createdAt: now,
         permissionVersion: 1,
+        playerId: player.id, // Associate with the created player
       };
 
-      const user = await User.create({
-        ...userData,
-        id: uuidv4(),
-        password: hashedPassword,
-        isEmailVerified: true, // Auto-verify email
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      });
+      const user = await User.create(userData);
 
       // Send verification email
       await emailService.sendVerificationEmail(email, verificationToken);
@@ -72,9 +157,17 @@ export const authController = {
       const token = tokenUtils.generateJWT(user);
 
       return res.status(201).json({
-        message:
-          'Registration successful. Please check your email for verification.',
+        message: 'Registration successful. Please check your email for verification.',
         token,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          isRater: user.isRater,
+          isSuperAdmin: user.isSuperAdmin,
+          isEmailVerified: user.isEmailVerified,
+        },
+        usernameModified: finalUsername !== username,
       });
     } catch (error) {
       console.error('Registration error:', error);
@@ -87,7 +180,11 @@ export const authController = {
    */
   async verifyEmail(req: Request, res: Response) {
     try {
-      const {token} = req.params;
+      const {token} = req.body;
+
+      if (!token) {
+        return res.status(400).json({message: 'Verification token is required'});
+      }
 
       // Find user with token
       const user = await User.findOne({
@@ -105,10 +202,15 @@ export const authController = {
           .json({message: 'Invalid or expired verification token'});
       }
 
+      // Check if already verified
+      if (user.isEmailVerified) {
+        return res.status(200).json({message: 'Email already verified'});
+      }
+
       // Update user
       await user.update({
         isEmailVerified: true,
-        passwordResetToken: '',
+        passwordResetToken: '', // Clear the token
         passwordResetExpires: new Date(), // Set to current time to expire it
       });
 
@@ -125,6 +227,10 @@ export const authController = {
   async resendVerification(req: Request, res: Response) {
     try {
       const {email} = req.body;
+
+      if (!email) {
+        return res.status(400).json({message: 'Email is required'});
+      }
 
       const user = await User.findOne({
         where: {email},
@@ -148,7 +254,11 @@ export const authController = {
       });
 
       // Send verification email
-      await emailService.sendVerificationEmail(email, verificationToken);
+      const emailSent = await emailService.sendVerificationEmail(email, verificationToken);
+      
+      if (!emailSent) {
+        return res.status(500).json({message: 'Failed to send verification email'});
+      }
 
       return res.json({message: 'Verification email sent'});
     } catch (error) {

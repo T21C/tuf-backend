@@ -15,7 +15,7 @@ const ATTEMPT_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 // Helper to check if captcha is required
 const isCaptchaRequired = (identifier: string): boolean => {
   const attempts = failedAttempts.get(identifier);
-  if (!attempts) return false;
+  if (!attempts || process.env.NODE_ENV === 'development') return false;
 
   // Clear attempts if timeout has passed
   if (Date.now() - attempts.timestamp > ATTEMPT_TIMEOUT) {

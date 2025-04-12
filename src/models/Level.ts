@@ -27,6 +27,7 @@ class Level
   declare team: string;
   declare diffId: number;
   declare baseScore: number | null;
+  declare previousBaseScore: number | null;
   declare isCleared: boolean;
   declare clears: number;
   declare videoLink: string;
@@ -94,6 +95,11 @@ Level.init(
       },
     },
     baseScore: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    previousBaseScore: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: null,

@@ -1120,7 +1120,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // Toggle rating status for a level
-router.put('/:id/toRate', async (req: Request, res: Response) => {
+router.put('/:id/toRate', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1224,10 +1224,7 @@ router.put('/:id/toRate', async (req: Request, res: Response) => {
   }
 });
 
-router.delete(
-  '/:id',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const levelId = parseInt(req.params.id);
@@ -1322,10 +1319,7 @@ router.delete(
   },
 );
 
-router.patch(
-  '/:id/restore',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1392,7 +1386,7 @@ router.patch(
 );
 
 // Get unannounced new levels
-router.get('/unannounced/new', async (req: Request, res: Response) => {
+router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const levels = await Level.findAll({
       where: {
@@ -1424,7 +1418,7 @@ router.get('/unannounced/new', async (req: Request, res: Response) => {
 });
 
 // Get unannounced rerates
-router.get('/unannounced/rerates', async (req: Request, res: Response) => {
+router.get('/unannounced/rerates', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const levels = await Level.findAll({
       where: {
@@ -1466,7 +1460,7 @@ router.get('/unannounced/rerates', async (req: Request, res: Response) => {
 });
 
 // Mark levels as announced - single endpoint for all announcement operations
-router.post('/announce', async (req: Request, res: Response) => {
+router.post('/announce', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {levelIds} = req.body;
 
@@ -1496,7 +1490,7 @@ router.post('/announce', async (req: Request, res: Response) => {
 });
 
 // Mark a single level as announced
-router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
+router.post('/markAnnounced/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId)) {
@@ -1524,10 +1518,7 @@ router.post('/markAnnounced/:id', async (req: Request, res: Response) => {
 });
 
 // Toggle hidden status
-router.patch(
-  '/:id/toggle-hidden',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1743,10 +1734,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
 });
 
 // Add new alias(es) for a level with optional propagation
-router.post(
-  '/:id/aliases',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1851,10 +1839,7 @@ router.post(
 );
 
 // Update an alias
-router.put(
-  '/:levelId/aliases/:aliasId',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1899,10 +1884,7 @@ router.put(
 );
 
 // Delete an alias
-router.delete(
-  '/:levelId/aliases/:aliasId',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1940,9 +1922,7 @@ router.delete(
 );
 
 // Get count of levels that would be affected by alias propagation
-router.get(
-  '/alias-propagation-count/:levelId',
-  async (req: Request, res: Response) => {
+router.get('/alias-propagation-count/:levelId', async (req: Request, res: Response) => {
     try {
       const {field, matchType = 'exact'} = req.query;
       const levelId = parseInt(req.params.levelId);
@@ -2021,7 +2001,7 @@ router.head('/:id', async (req: Request, res: Response) => {
 });
 
 // Add this new endpoint after the existing routes
-router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) => {
+router.put('/:id/difficulty', Auth.verified(), async (req: Request, res: Response) => {
   if (!ENABLE_ROULETTE) {
     return res.status(727).json({ error: 'April fools over, roulette is disabled' });
   }
@@ -2102,7 +2082,7 @@ router.put('/:id/difficulty', Auth.user(), async (req: Request, res: Response) =
 });
 
 // Add new endpoint for level timeouts
-router.put('/:id/timeout', Auth.user(), async (req: Request, res: Response) => {
+router.put('/:id/timeout', Auth.verified(), async (req: Request, res: Response) => {
   if (!ENABLE_ROULETTE) {
     return res.status(727).json({ error: 'April fools over, roulette is disabled' });
   }

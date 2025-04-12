@@ -1,15 +1,8 @@
-import nodemailer from 'nodemailer';
+import axios from 'axios';
 
-// Create SMTP transporter using MailerSend
-const transporter = nodemailer.createTransport({
-  host: 'smtp.mailersend.net',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.MAILERSEND_SMTP_USER,
-    pass: process.env.MAILERSEND_SMTP_PASSWORD,
-  },
-});
+// MailerSend API configuration
+const MAILERSEND_API_URL = 'https://api.mailersend.com/v1/email';
+const MAILERSEND_API_TOKEN = process.env.MAILERSEND_SMTP_TOKEN;
 
 interface EmailOptions {
   to: string;
@@ -20,21 +13,45 @@ interface EmailOptions {
 
 export const emailService = {
   /**
-   * Send an email using MailerSend SMTP
+   * Send an email using MailerSend API
    */
   async sendEmail({to, subject, text, html}: EmailOptions): Promise<boolean> {
     try {
-      await transporter.sendMail({
-        from: {
-          name: 'TUF Community',
-          address: process.env.MAILERSEND_FROM_EMAIL || 'noreply@tuf.community',
+      if (!MAILERSEND_API_TOKEN) {
+        console.error('MailerSend API token is not configured');
+        return false;
+      }
+
+      const response = await axios.post(
+        MAILERSEND_API_URL,
+        {
+          from: {
+            email: process.env.MAILERSEND_FROM_EMAIL || 'noreply@tuforums.com',
+            name: 'The Universal Forums',
+          },
+          to: [
+            {
+              email: to,
+            },
+          ],
+          subject,
+          text,
+          html,
         },
-        to,
-        subject,
-        text,
-        html,
-      });
-      return true;
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${MAILERSEND_API_TOKEN}`,
+          },
+        }
+      );
+
+      if (response.status === 202) {
+        return true;
+      }
+      
+      console.error('Email sending failed with status:', response.status);
+      return false;
     } catch (error) {
       console.error('Email sending failed:', error);
       return false;
@@ -45,7 +62,7 @@ export const emailService = {
    * Send verification email
    */
   async sendVerificationEmail(to: string, token: string): Promise<boolean> {
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+    const verificationUrl = `${process.env.FRONTEND_URL}/profile/verify-email?token=${token}`;
 
     const subject = 'Verify your email address';
     const text = `

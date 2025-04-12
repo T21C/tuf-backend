@@ -1,6 +1,5 @@
 import express, {Request, Response, Router} from 'express';
 import {Auth} from '../middleware/auth.js';
-import {emailBanList} from '../config/constants.js';
 import LevelSubmission from '../models/LevelSubmission.js';
 import {
   PassSubmission,
@@ -27,9 +26,9 @@ const cleanVideoUrl = (url: string) => {
     /https?:\/\/(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/,
     /https?:\/\/(?:www\.)?youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
     // Bilibili patterns
-    /https?:\/\/(?:www\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
-    /https?:\/\/(?:www\.)?b23\.tv\/(BV[a-zA-Z0-9]+)/,
-    /https?:\/\/(?:www\.)?bilibili\.com\/.*?(BV[a-zA-Z0-9]+)/
+    /https?:\/\/(?:www\.|m\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
+    /https?:\/\/(?:www\.|m\.)?b23\.tv\/(BV[a-zA-Z0-9]+)/,
+    /https?:\/\/(?:www\.|m\.)?bilibili\.com\/.*?(BV[a-zA-Z0-9]+)/,
   ];
 
   // Try each pattern
@@ -54,27 +53,25 @@ const cleanVideoUrl = (url: string) => {
 // Form submission endpoint
 router.post(
   '/form-submit',
-  Auth.user(),
+  Auth.verified(),
   express.json(),
   async (req: Request, res: Response) => {
     // Start a transaction
     const transaction = await sequelize.transaction();
 
     try {
-      if (req.user?.email && emailBanList.includes(req.user.email)) {
+      if (req.user?.player?.isBanned) {
         return res.status(403).json({error: 'User is banned'});
       }
 
-      // Check if user's player is banned or submissions are paused
-      if (req.user?.playerId) {
-        const player = await Player.findByPk(req.user.playerId);
-        if (player?.isBanned) {
-          return res.status(403).json({error: 'User is banned'});
-        }
-        if (player?.isSubmissionsPaused) {
-          return res.status(403).json({error: 'User submissions are paused'});
-        }
+      if (req.user?.player?.isSubmissionsPaused) {
+        return res.status(403).json({error: 'User submissions are paused'});
       }
+
+      if (!req.user?.isEmailVerified) {
+        return res.status(403).json({error: 'User email is not verified'});
+      }
+
 
       const formType = req.headers['x-form-type'];
       if (formType === 'level') {

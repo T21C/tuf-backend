@@ -20,7 +20,7 @@ import {sseManager} from '../utils/sse.js';
 import User from '../models/User.js';
 import Judgement from '../models/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import PlayerModifier, { ModifierType } from '../models/PlayerModifier.js';
 import { ModifierService } from '../services/ModifierService.js';
 
@@ -151,6 +151,11 @@ export class PlayerStatsService {
               },
             ],
           },
+          {
+            model: User,
+            as: 'user',
+            required: false,
+          },
         ],
         transaction,
       });
@@ -217,15 +222,18 @@ export class PlayerStatsService {
       }
 
       // Check for players who might have been missed
-      const [allPlayers] = await sequelize.query(
-        `SELECT id FROM players`,
-        { transaction }
-      );
+      const allPlayers = await Player.findAll({ 
+        include: [
+          {
+            model: User,
+            as: 'user',
+            required: false,
+          },
+        ],
+        transaction 
+      });
       
-      const [playersWithStats] = await sequelize.query(
-        `SELECT id FROM player_stats`,
-        { transaction }
-      );
+      const playersWithStats = await PlayerStats.findAll({ transaction });
       
       const playerIdsWithStats = new Set(playersWithStats.map((p: any) => p.id));
       const playersWithoutStats = allPlayers.filter((p: any) => !playerIdsWithStats.has(p.id));
@@ -274,44 +282,98 @@ export class PlayerStatsService {
         'score12K',
       ];
 
+      // First, identify all players that should be treated as banned
+      // This includes players with isBanned=true and players with unverified users
+      const bannedPlayers = await Player.findAll({
+        include: [
+          {
+            model: User,
+            as: 'user',
+            required: false,
+          }
+        ],
+        where: {
+          [Op.or]: [
+            { isBanned: true },
+            { '$user.isEmailVerified$': false }
+          ]
+        },
+        transaction
+      });
+
+      const bannedPlayerIds = bannedPlayers.map(player => player.id);
+
+      // Update all rank fields for banned players to -1
+      if (bannedPlayerIds.length > 0) {
+        await sequelize.query(
+          `
+          UPDATE player_stats
+          SET 
+            rankedScoreRank = -1,
+            generalScoreRank = -1,
+            ppScoreRank = -1,
+            wfScoreRank = -1,
+            score12KRank = -1
+          WHERE id IN (${bannedPlayerIds.join(',')})
+          `,
+          { transaction }
+        );
+      }
+
+      // For each score type, calculate ranks for non-banned players
       for (const scoreType of scoreTypes) {
         const rankField = `${scoreType}Rank`;
-
-        // Step 1: Set all banned players' ranks to -1
-        await sequelize.query(
+        
+        // Get all eligible players (not in bannedPlayerIds) ordered by score
+        const eligiblePlayers = await sequelize.query(
           `
-          UPDATE player_stats ps
-          JOIN players p ON ps.id = p.id
-          SET ps.${rankField} = -1
-          WHERE p.isBanned = true
+          SELECT ps.id, ps.${scoreType}
+          FROM player_stats ps
+          WHERE ps.id NOT IN (${bannedPlayerIds.length > 0 ? bannedPlayerIds.join(',') : '0'})
+          ORDER BY ps.${scoreType} DESC, ps.id ASC
           `,
-          {transaction},
+          { 
+            transaction,
+            type: QueryTypes.SELECT
+          }
         );
+        
+        if (!eligiblePlayers || eligiblePlayers.length === 0) {
+          continue; // Skip if no eligible players found
+        }
 
-        // Step 2: Calculate ranks for non-banned players
-        await sequelize.query(
-          `
-          WITH RankedPlayers AS (
-            SELECT 
-              ps.id,
-              @rowNumber := @rowNumber + 1 AS player_rank
-            FROM (
-              SELECT ps2.*
-              FROM player_stats ps2
-              JOIN players p2 ON ps2.id = p2.id
-              WHERE p2.isBanned = false
-              ORDER BY ps2.${scoreType} DESC, ps2.id ASC
-            ) ps,
-            (SELECT @rowNumber := 0) r
-          )
-          UPDATE player_stats ps
-          JOIN players p ON ps.id = p.id
-          JOIN RankedPlayers rp ON ps.id = rp.id
-          SET ps.${rankField} = rp.player_rank
-          WHERE p.isBanned = false
-          `,
-          {transaction},
-        );
+        // Create a map of player ID to rank
+        const rankMap = new Map();
+        eligiblePlayers.forEach((player: any, index: number) => {
+          if (player && player.id) { // Only add valid player IDs
+            rankMap.set(player.id, index + 1);
+          }
+        });
+        
+        // Update ranks in batches to avoid large transactions
+        const batchSize = 1000;
+        const eligibleIds = Array.from(rankMap.keys());
+        
+        for (let i = 0; i < eligibleIds.length; i += batchSize) {
+          const batchIds = eligibleIds.slice(i, i + batchSize);
+          if (batchIds.length === 0) continue;
+
+          const updates = batchIds.map(id => {
+            const rank = rankMap.get(id);
+            return rank ? `WHEN id = ${id} THEN ${rank}` : null;
+          }).filter(Boolean).join(' ');
+          
+          if (updates) {
+            await sequelize.query(
+              `
+              UPDATE player_stats
+              SET ${rankField} = CASE ${updates} ELSE ${rankField} END
+              WHERE id IN (${batchIds.join(',')})
+              `,
+              { transaction }
+            );
+          }
+        }
       }
 
       await transaction.commit();
@@ -522,53 +584,96 @@ export class PlayerStatsService {
     }, this.RELOAD_INTERVAL);
   }
 
-  public async updateRanks(transaction?: any): Promise<void> {
-    const scoreTypes = [
-      'rankedScore',
-      'generalScore',
-      'ppScore',
-      'wfScore',
-      'score12K',
-    ];
+  private async updateRanks(transaction?: any): Promise<void> {
+    try {
+      // Get all players with their stats
+      const players = await Player.findAll({
+        include: [
+          {
+            model: PlayerStats,
+            as: 'stats',
+            required: true
+          },
+          {
+            model: User,
+            as: 'user',
+            required: false
+          }
+        ],
+        transaction
+      });
 
-    for (const scoreType of scoreTypes) {
-      const rankField = `${scoreType}Rank`;
-
-      // Step 1: Set all banned players' ranks to -1
-      await sequelize.query(
-        `
-        UPDATE player_stats ps
-        JOIN players p ON ps.id = p.id
-        SET ps.${rankField} = -1
-        WHERE p.isBanned = true
-        `,
-        {transaction},
+      // Separate banned and non-banned players
+      const bannedPlayers = players.filter(player => 
+        player.isBanned || (player.user && !player.user.isEmailVerified)
+      );
+      const activePlayers = players.filter(player => 
+        !player.isBanned && (!player.user || player.user.isEmailVerified)
       );
 
-      // Step 2: Calculate ranks for non-banned players
-      await sequelize.query(
-        `
-        WITH RankedPlayers AS (
-          SELECT 
-            ps.id,
-            @rowNumber := @rowNumber + 1 AS player_rank
-          FROM (
-            SELECT ps2.*
-            FROM player_stats ps2
-            JOIN players p2 ON ps2.id = p2.id
-            WHERE p2.isBanned = false
-            ORDER BY ps2.${scoreType} DESC, ps2.id ASC
-          ) ps,
-          (SELECT @rowNumber := 0) r
-        )
-        UPDATE player_stats ps
-        JOIN players p ON ps.id = p.id
-        JOIN RankedPlayers rp ON ps.id = rp.id
-        SET ps.${rankField} = rp.player_rank
-        WHERE p.isBanned = false
-        `,
-        {transaction},
-      );
+      // Set rank to -1 for banned players
+      if (bannedPlayers.length > 0) {
+        const bannedIds = bannedPlayers.map(p => p.id);
+        await sequelize.query(
+          `
+          UPDATE player_stats
+          SET 
+            rankedScoreRank = -1,
+            generalScoreRank = -1,
+            ppScoreRank = -1,
+            wfScoreRank = -1,
+            score12KRank = -1
+          WHERE id IN (${bannedIds.join(',')})
+          `,
+          { transaction }
+        );
+      }
+
+      // Calculate ranks for active players
+      const scoreTypes = [
+        'rankedScore',
+        'generalScore',
+        'ppScore',
+        'wfScore',
+        'score12K'
+      ];
+
+      for (const scoreType of scoreTypes) {
+        const rankField = `${scoreType}Rank`;
+        
+        // Sort players by score in descending order
+        const sortedPlayers = activePlayers
+          .filter(player => player.stats && player.stats[scoreType as keyof PlayerStats] > 0)
+          .sort((a, b) => {
+            const scoreA = a.stats?.[scoreType as keyof PlayerStats] || 0;
+            const scoreB = b.stats?.[scoreType as keyof PlayerStats] || 0;
+            return scoreB - scoreA;
+          });
+
+        // Update ranks in batches
+        const batchSize = 1000;
+        for (let i = 0; i < sortedPlayers.length; i += batchSize) {
+          const batch = sortedPlayers.slice(i, i + batchSize);
+          const updates = batch.map((player, index) => {
+            const rank = i + index + 1;
+            return `WHEN id = ${player.id} THEN ${rank}`;
+          }).join(' ');
+
+          if (updates) {
+            await sequelize.query(
+              `
+              UPDATE player_stats
+              SET ${rankField} = CASE ${updates} ELSE ${rankField} END
+              WHERE id IN (${batch.map(p => p.id).join(',')})
+              `,
+              { transaction }
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error updating ranks:', error);
+      throw error;
     }
   }
 
@@ -648,10 +753,17 @@ export class PlayerStatsService {
     }
     try {
       const whereClause: any = {};
+      
+      // Modified to handle unverified users as banned
       if (showBanned === 'hide') {
         whereClause['$player.isBanned$'] = false;
+        // Also exclude players with unverified users
+        whereClause['$player.user.isEmailVerified$'] = true;
       } else if (showBanned === 'only') {
-        whereClause['$player.isBanned$'] = true;
+        whereClause[Op.or] = [
+          { '$player.isBanned$': true },
+          { '$player.user.isEmailVerified$': false }
+        ];
       }
 
       // Add player ID filter if provided
@@ -705,7 +817,14 @@ export class PlayerStatsService {
         include: [{
           model: Player,
           as: 'player',
-          required: true
+          required: true,
+          include: [
+            {
+              model: User,
+              as: 'user',
+              required: false,
+            }
+          ]
         }],
         where: whereClause
       });
@@ -729,7 +848,7 @@ export class PlayerStatsService {
               {
                 model: User,
                 as: 'user',
-                attributes: ['avatarUrl', 'username'],
+                attributes: ['avatarUrl', 'username', 'isEmailVerified'],
                 required: false,
               },
             ],
@@ -767,6 +886,7 @@ export class PlayerStatsService {
           player: {
             ...plainPlayer.player,
             pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null,
+            isEmailVerified: plainPlayer.player.user?.isEmailVerified ?? true,
           }
         };
       });

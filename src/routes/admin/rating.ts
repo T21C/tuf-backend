@@ -367,7 +367,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Update rating
-router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
+router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
