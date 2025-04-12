@@ -190,13 +190,13 @@ export async function createRerateEmbed(
   if (isBaseScoreChange) {
     embed.addField(
       'Base Score Update',
-      `**${level.previousBaseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
+      `**${level.previousBaseScore || level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
       true,
     );
   } else if (level.previousDiffId) {
     embed.addField(
       'Rerate',
-      `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
+      `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousBaseScore || level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
       true,
     );
   }
