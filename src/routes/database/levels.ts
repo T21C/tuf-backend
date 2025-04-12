@@ -938,8 +938,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       previousDiffId === req.body.diffId && req.body.previousDiffId === undefined
         ? level.previousDiffId
         : previousDiffId;
-
-    console.log(previousDiffId, req.body.previousDiffId, level.previousDiffId);
     
     let previousBaseScore = req.body.previousBaseScore ?? level.baseScore ?? 0;
     previousBaseScore =

@@ -100,13 +100,11 @@ export const OAuthController = {
 
       const scopes = ['identify', 'email'];
       const redirectUri = clientUrlEnv + '/callback';
-      console.log('OAuth redirect URI:', redirectUri);
       
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopes.join('%20')}`;
       
-      console.log('Generated Discord auth URL:', authUrl);
       return res.json({url: authUrl});
     }
 
@@ -141,8 +139,6 @@ export const OAuthController = {
       const {code} = req.body;
       const isLinking = req.query.linking === 'true';
 
-      console.log('OAuth callback received:', { provider, code, isLinking });
-
       if (!code) {
         console.error('No authorization code provided');
         return res
@@ -150,8 +146,6 @@ export const OAuthController = {
           .json({message: 'Authorization code is required'});
       }
 
-      // Exchange code for tokens
-      console.log('Exchanging code for tokens...');
       const tokens = await handleDiscordOAuth(code.toString(), isLinking);
       if (!tokens) {
         console.error('Failed to exchange code for tokens');
@@ -159,7 +153,6 @@ export const OAuthController = {
           .status(400)
           .json({message: 'Failed to exchange code for tokens'});
       }
-      console.log('Successfully exchanged code for tokens');
 
       // Get user profile from provider
       const profile = tokens.profile;
@@ -167,12 +160,6 @@ export const OAuthController = {
         console.error('Failed to get user profile from tokens');
         return res.status(400).json({message: 'Failed to get user profile'});
       }
-      console.log('Retrieved user profile:', { 
-        id: profile.id,
-        username: profile.username,
-        email: profile.email 
-      });
-
       if (isLinking) {
         // Handle linking flow
         if (!req.user) {
