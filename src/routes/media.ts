@@ -13,13 +13,15 @@ import User from '../models/User.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '../utils/random.js';
-
+import { logger } from '../utils/logger.js';
 // Initialize fonts
 initializeFonts();
 
 const router: Router = express.Router();
 
 function escapeXml(unsafe: string): string {
+  if (!unsafe) return '';
+  
   return unsafe
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -92,8 +94,8 @@ function createHeaderSVG(config: {
   // Artist name is already escaped in wrapText
   const escapedArtist = escapeXml(config.artist);
 
-  return {
-    svg: `
+  // Log the SVG content for debugging
+  const svgContent = `
       <svg width="${config.width}" height="${config.height}">
         <defs>
           <style>
@@ -142,7 +144,12 @@ function createHeaderSVG(config: {
           text-anchor="end"
         >#${config.levelId}</text>
       </svg>
-    `,
+    `;
+  
+  logger.debug(`Generated header SVG for level ${config.levelId}:`, svgContent);
+  
+  return {
+    svg: svgContent,
     isWrapped,
   };
 }
@@ -164,20 +171,23 @@ function createFooterSVG(config: {
   const footerY = config.height - config.footerHeight;
   let creatorText = '';
 
-  const truncate = (text: string, maxLength: number) =>
-    text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
+  const truncate = (text: string, maxLength: number) => {
+    if (!text) return '';
+    const truncated = text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
+    return escapeXml(truncated);
+  };
 
   if (config.team) {
-    creatorText = `By ${truncate(escapeXml(config.team), 25)}`;
+    creatorText = `By ${truncate(config.team, 25)}`;
   } else if (config.charter && config.vfxer) {
-    creatorText = `Chart: ${truncate(escapeXml(config.charter), 20)}&#10;VFX: ${truncate(escapeXml(config.vfxer), 20)}`;
+    creatorText = `Chart: ${truncate(config.charter, 20)}&#10;VFX: ${truncate(config.vfxer, 20)}`;
   } else if (config.charter) {
-    creatorText = `By ${truncate(escapeXml(config.charter), 25)}`;
+    creatorText = `By ${truncate(config.charter, 25)}`;
   } else if (config.creator) {
-    creatorText = `By ${truncate(escapeXml(config.creator), 25)}`;
+    creatorText = `By ${truncate(config.creator, 25)}`;
   }
 
-  return `
+  const svgContent = `
     <svg width="${config.width}" height="${config.height}">
       <rect x="0" y="${footerY}" width="${config.width}" height="${config.footerHeight}" fill="black" opacity="0.73"/>
       <text
@@ -207,6 +217,10 @@ function createFooterSVG(config: {
       >${creatorText}</text>
     </svg>
   `;
+  
+  logger.debug(`Generated footer SVG:`, svgContent);
+  
+  return svgContent;
 }
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
@@ -371,6 +385,8 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
+    
+    logger.debug(`Generating thumbnail for level ${levelId} with size ${size}`);
 
     const level = await Level.findOne({
       where: {id: levelId},
@@ -381,16 +397,21 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     });
 
     if (!level) {
+      logger.debug(`Level ${levelId} not found`);
       return res.status(404).send('Level or difficulty not found');
     }
 
     const {song, artist, creator, difficulty: diff} = level.dataValues;
     if (!diff) {
+      logger.debug(`Difficulty not found for level ${levelId}`);
       return res.status(404).send('Difficulty not found');
     }
 
+    logger.debug(`Level data: song="${song}", artist="${artist}", creator="${creator}", difficulty="${diff.name}"`);
+
     const details = await getVideoDetails(level.dataValues.videoLink);
     if (!details || !details.image) {
+      logger.debug(`Video details not found for level ${levelId}`);
       return res.status(404).send('Video details not found');
     }
 
@@ -407,17 +428,24 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     const fontSize = Math.floor(height * 0.06);
     const padding = Math.floor(height * 0.055);
 
+    logger.debug(`Thumbnail dimensions: ${width}x${height}, icon size: ${iconSize}`);
+
     // Download background image
+    logger.debug(`Downloading background image from ${details.image}`);
     const backgroundBuffer = await axios
       .get(details.image, {responseType: 'arraybuffer'})
       .then(response => response.data);
+    logger.debug(`Background image downloaded, size: ${backgroundBuffer.length} bytes`);
 
     // Download difficulty icon
+    logger.debug(`Downloading difficulty icon from ${diff.icon}`);
     const iconBuffer = await axios
       .get(diff.icon, {responseType: 'arraybuffer'})
       .then(response => response.data);
+    logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
 
     // Create SVGs for text overlays
+    logger.debug(`Creating header SVG for level ${levelId}`);
     const {svg: headerSvg, isWrapped} = createHeaderSVG({
       width,
       height,
@@ -432,6 +460,7 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       idFontSize,
     });
 
+    logger.debug(`Creating footer SVG for level ${levelId}`);
     const footerSvg = createFooterSVG({
       width,
       height,
@@ -449,6 +478,7 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
 
     // Create the final image using sharp
     try {
+      logger.debug(`Compositing final image for level ${levelId}`);
       const image = await sharp(backgroundBuffer)
         .resize(width, height, {
           fit: 'cover',
@@ -473,18 +503,32 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
         ])
         .jpeg({quality: 85});
 
+      logger.debug(`Converting image to buffer for level ${levelId}`);
       const buffer = await image.toBuffer();
+      logger.debug(`Image generated successfully for level ${levelId}, size: ${buffer.length} bytes`);
 
       res.set('Content-Type', 'image/jpeg');
       res.send(buffer);
       return;
     } catch (error) {
-      console.error('Error generating image for level id:', req.params.levelId, error);
+      console.error(`Error generating image for level ${levelId}:`, error);
+      console.error(`Error details:`, {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : 'No stack trace available',
+        headerSvgLength: headerSvg.length,
+        footerSvgLength: footerSvg.length,
+        headerSvgPreview: headerSvg.substring(0, 100) + '...',
+        footerSvgPreview: footerSvg.substring(0, 100) + '...',
+      });
       res.status(500).send('Error generating image');
       return;
     }
   } catch (error) {
-    console.error('Error generating image for level id:', req.params.levelId, error);
+    console.error(`Error generating image for level ${req.params.levelId}:`, error);
+    console.error(`Error details:`, {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : 'No stack trace available',
+    });
     res.status(500).send('Error generating image');
     return;
   }
