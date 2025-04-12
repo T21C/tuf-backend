@@ -677,6 +677,17 @@ export class PlayerStatsService {
     }
   }
 
+  public async forceUpdateRanks(): Promise<void> {
+    const transaction = await sequelize.transaction();
+    try {
+      await this.updateRanks(transaction);
+      await transaction.commit();
+    } catch (error) {
+      console.error('Error updating ranks:', error);
+      await transaction.rollback();
+    }
+  }
+
   public async getPlayerStats(playerId: number): Promise<PlayerStats | null> {
     const playerStats = await PlayerStats.findOne({
       attributes: {

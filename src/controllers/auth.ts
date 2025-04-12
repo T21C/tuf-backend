@@ -214,6 +214,9 @@ export const authController = {
         passwordResetExpires: new Date(), // Set to current time to expire it
       });
 
+      // Force update ranks
+      await PlayerStatsService.getInstance().forceUpdateRanks();
+
       return res.json({message: 'Email verified successfully'});
     } catch (error) {
       console.error('Email verification error:', error);
