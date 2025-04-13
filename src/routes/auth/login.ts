@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import {Op} from 'sequelize';
 import {OAuthController} from '../../controllers/oauth.js';
 import axios from 'axios';
+import {authController} from '../../controllers/auth.js';
 
 const router: Router = Router();
 
@@ -40,16 +41,20 @@ const verifyCaptcha = async (token: string): Promise<boolean> => {
       response: token,
     });
 
-    const response = await axios.post(verifyURL, params.toString(), {
+    const response = await fetch(verifyURL, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
+      body: params.toString(),
     });
 
-    if (!response.data.success) {
+    const data = await response.json() as { success: boolean; 'error-codes'?: string[] };
+
+    if (!data.success) {
       console.error(
         'reCAPTCHA verification failed with error codes:',
-        response.data['error-codes'],
+        data['error-codes'],
       );
       return false;
     }
@@ -90,63 +95,9 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
-    // Find user by email or username
-    const user = await User.findOne({
-      where: {
-        [Op.or]: [{email: emailOrUsername}, {username: emailOrUsername}],
-      },
-    });
-
-    if (!user) {
-      // Track failed attempt
-      const attempts = failedAttempts.get(emailOrUsername) || {
-        count: 0,
-        timestamp: Date.now(),
-      };
-      attempts.count++;
-      attempts.timestamp = Date.now();
-      failedAttempts.set(emailOrUsername, attempts);
-
-      return res.status(401).json({
-        error: 'Invalid credentials',
-        requireCaptcha: attempts.count >= 1,
-      });
-    }
-
-    // If user has no password set (OAuth-only user)
-    if (!user.password) {
-      return res
-        .status(401)
-        .json({error: 'Please login with your linked provider'});
-    }
-
-    const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) {
-      // Track failed attempt
-      const attempts = failedAttempts.get(emailOrUsername) || {
-        count: 0,
-        timestamp: Date.now(),
-      };
-      attempts.count++;
-      attempts.timestamp = Date.now();
-      failedAttempts.set(emailOrUsername, attempts);
-
-      return res.status(401).json({
-        error: 'Invalid credentials',
-        requireCaptcha: attempts.count >= 1,
-      });
-    }
-
-    // Clear failed attempts on successful login
-    failedAttempts.delete(emailOrUsername);
-
-    const token = jwt.sign(
-      {id: user.id},
-      process.env.JWT_SECRET || 'your-secret-key',
-      {expiresIn: '24h'},
-    );
-
-    return res.json({token});
+    // Call the auth controller's login method directly
+    return await authController.login(req, res);
+    
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({error: 'Failed to login'});

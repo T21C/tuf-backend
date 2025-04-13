@@ -196,6 +196,42 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         logger.error('Rate limiter increment error:', error);
         return false; // On error, don't block
       }
+    },
+
+    isLimited: async (ip: string) => {
+      const rateLimit = await RateLimit.findOne({
+        where: { ip, type,  },
+        order: [['windowEnd', 'DESC']]
+      });
+      return rateLimit?.attempts && rateLimit.attempts > maxAttempts;
+    },
+
+    // Function to check if an IP is currently blocked
+    isBlocked: async (ip: string) => {
+      try {
+        const blockedRecord = await RateLimit.findOne({
+          where: {
+            ip,
+            type,
+            blocked: true,
+            blockedUntil: {
+              [Op.gt]: new Date()
+            }
+          }
+        });
+        
+        if (blockedRecord) {
+          return {
+            blocked: true,
+            retryAfter: Math.ceil((blockedRecord.blockedUntil!.getTime() - Date.now()))
+          };
+        }
+        
+        return { blocked: false, retryAfter: 0 };
+      } catch (error) {
+        logger.error('Rate limiter isBlocked error:', error);
+        return { blocked: false, retryAfter: 0 }; // On error, assume not blocked
+      }
     }
   };
 }; 

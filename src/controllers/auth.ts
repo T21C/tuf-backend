@@ -12,9 +12,25 @@ import {createRateLimiter} from '../utils/rateLimiter.js';
 // Create rate limiter for registration
 const registrationLimiter = createRateLimiter({
   windowMs: 24 * 60 * 60 * 1000, // 24 hours
-  maxAttempts: 5,                // 5 accounts per 24 hours
-  blockDuration: 1 * 60 * 1000, // 1 minute block
+  maxAttempts: 1,//5,                // 5 accounts per 24 hours
+  blockDuration: 8 * 60 * 60 * 1000, // 8 hours block
   type: 'registration'           // Specific type for registration
+});
+
+// Create rate limiter for login attempts
+const loginLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000,     // 1 hour
+  maxAttempts: 1,//15,               // 10 attempts per hour
+  blockDuration: 10 * 60 * 1000, // 10 minutes block
+  type: 'login'                  // Specific type for login
+});
+
+// Create rate limiter for verification email resends
+const verificationLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000,     // 1 hour
+  maxAttempts: 1,//10,                // 10 attempts per hour
+  blockDuration: 30 * 60 * 1000, // 30 minutes block
+  type: 'verification'           // Specific type for verification
 });
 
 export const authController = {
@@ -24,6 +40,21 @@ export const authController = {
   async register(req: Request, res: Response) {
     try {
       const {email, password, username} = req.body;
+
+      // Get client IP for rate limiting
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const ip = typeof forwardedFor === 'string' 
+        ? forwardedFor.split(',')[0].trim() 
+        : req.ip || req.connection.remoteAddress || '127.0.0.1';
+
+      // Check if IP is already blocked
+      const { blocked, retryAfter } = await registrationLimiter.isBlocked(ip);
+      if (blocked) {
+        return res.status(429).json({
+          message: 'Too many registration attempts. Please try again later.',
+          retryAfter,
+        });
+      }
 
       // Validate input
       if (!email || !password || !username) {
@@ -165,20 +196,8 @@ export const authController = {
       // Generate JWT
       const token = tokenUtils.generateJWT(user);
 
-      // Get client IP for rate limiting
-      const forwardedFor = req.headers['x-forwarded-for'];
-      const ip = typeof forwardedFor === 'string' 
-        ? forwardedFor.split(',')[0].trim() 
-        : req.ip || req.connection.remoteAddress || '127.0.0.1';
-
       // Increment rate limit after successful registration
-      const isBlocked = await registrationLimiter.increment(ip);
-      if (isBlocked) {
-        return res.status(429).json({
-          message: 'Registration successful but rate limit exceeded. IP address blocked.',
-          retryAfter: 60 * 1000, // 1 minute in milliseconds
-        });
-      }
+      await registrationLimiter.increment(ip);
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',
@@ -255,6 +274,21 @@ export const authController = {
     try {
       const {email} = req.body;
 
+      // Get client IP for rate limiting
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const ip = typeof forwardedFor === 'string' 
+        ? forwardedFor.split(',')[0].trim() 
+        : req.ip || req.connection.remoteAddress || '127.0.0.1';
+
+      // Check if IP is already blocked
+      const { blocked, retryAfter } = await verificationLimiter.isBlocked(ip);
+      if (blocked) {
+        return res.status(429).json({
+          message: 'Too many verification email requests. Please try again later.',
+          retryAfter,
+        });
+      }
+
       if (!email) {
         return res.status(400).json({message: 'Email is required'});
       }
@@ -264,6 +298,8 @@ export const authController = {
       });
 
       if (!user) {
+        // Increment rate limit for failed request
+        await verificationLimiter.increment(ip);
         return res.status(404).json({message: 'User not found'});
       }
 
@@ -284,8 +320,13 @@ export const authController = {
       const emailSent = await emailService.sendVerificationEmail(email, verificationToken);
       
       if (!emailSent) {
+        // Increment rate limit for failed email send
+        await verificationLimiter.increment(ip);
         return res.status(500).json({message: 'Failed to send verification email'});
       }
+
+      // Increment rate limit after successful email send
+      await verificationLimiter.increment(ip);
 
       return res.json({message: 'Verification email sent'});
     } catch (error) {
@@ -301,21 +342,43 @@ export const authController = {
    */
   async login(req: Request, res: Response) {
     try {
-      const {email, password} = req.body;
+      const {emailOrUsername, password} = req.body;
 
-      // Validate input
-      if (!email || !password) {
-        return res
-          .status(400)
-          .json({message: 'Email and password are required'});
+      // Get client IP for rate limiting
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const ip = typeof forwardedFor === 'string' 
+        ? forwardedFor?.split(',')[0].trim() 
+        : req.ip || req.connection?.remoteAddress || '127.0.0.1';
+
+      // Check if IP is already blocked
+      const { blocked, retryAfter } = await loginLimiter.isBlocked(ip);
+      if (blocked) {
+        return res.status(429).json({
+          message: 'Too many login attempts. Please try again later.',
+          retryAfter,
+        });
       }
 
-      // Find user
+      // Validate input
+      if (!emailOrUsername || !password) {
+        return res
+          .status(400)
+          .json({message: 'Email/Username and password are required'});
+      }
+
+      // Find user by email or username
       const user = await User.findOne({
-        where: {email},
+        where: {
+          [Op.or]: [
+            { email: emailOrUsername },
+            { username: emailOrUsername }
+          ]
+        },
       });
 
       if (!user) {
+        // Increment rate limit for failed login
+        await loginLimiter.increment(ip);
         return res.status(401).json({message: 'Invalid credentials'});
       }
 
@@ -325,15 +388,11 @@ export const authController = {
         user.password!,
       );
       if (!isValidPassword) {
+        // Increment rate limit for failed login
+        await loginLimiter.increment(ip);
         return res.status(401).json({message: 'Invalid credentials'});
       }
 
-      // Check if email is verified
-      if (!user.isEmailVerified) {
-        return res
-          .status(403)
-          .json({message: 'Please verify your email before logging in'});
-      }
 
       // Update last login
       await user.update({lastLogin: new Date()});
