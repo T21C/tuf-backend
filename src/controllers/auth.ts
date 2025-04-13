@@ -213,7 +213,7 @@ export const authController = {
         passwordResetToken: '', // Clear the token
         passwordResetExpires: new Date(), // Set to current time to expire it
       });
-
+      await user.increment('permissionVersion', {by: 1});
       // Force update ranks
       await PlayerStatsService.getInstance().forceUpdateRanks();
 
