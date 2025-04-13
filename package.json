@@ -20,6 +20,7 @@
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "prepare": "npm run build",
     "recalculate-scores": "cross-env tsx src/scripts/recalculateScores.ts",
+    "test-email": "cross-env tsx src/scripts/testEmail.ts",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:undo:all": "sequelize-cli db:migrate:undo:all",

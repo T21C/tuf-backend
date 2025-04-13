@@ -1,8 +1,11 @@
 import axios from 'axios';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // MailerSend API configuration
 const MAILERSEND_API_URL = 'https://api.mailersend.com/v1/email';
-const MAILERSEND_API_TOKEN = process.env.MAILERSEND_SMTP_TOKEN;
+const MAILERSEND_API_TOKEN = process.env.MAILERSEND_API_TOKEN;
 
 const clientUrlEnv =
   process.env.NODE_ENV === 'production'
