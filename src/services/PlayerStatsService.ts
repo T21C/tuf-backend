@@ -767,13 +767,20 @@ export class PlayerStatsService {
       
       // Modified to handle unverified users as banned
       if (showBanned === 'hide') {
-        whereClause['$player.isBanned$'] = false;
-        // Also exclude players with unverified users
-        whereClause['$player.user.isEmailVerified$'] = true;
+        whereClause[Op.and] = [
+          { '$player.isBanned$': false },
+          { [Op.or]: [
+            { '$player->user.id$': null },
+            { '$player->user.isEmailVerified$': true }
+          ] }
+        ];
       } else if (showBanned === 'only') {
         whereClause[Op.or] = [
           { '$player.isBanned$': true },
-          { '$player.user.isEmailVerified$': false }
+          { [Op.and]: [
+            { '$player->user.id$': { [Op.not]: null } },
+            { '$player->user.isEmailVerified$': false }
+          ] }
         ];
       }
 
