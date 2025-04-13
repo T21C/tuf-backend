@@ -140,7 +140,6 @@ export const OAuthController = {
       const isLinking = req.query.linking === 'true';
 
       if (!code) {
-        console.error('No authorization code provided');
         return res
           .status(400)
           .json({message: 'Authorization code is required'});
@@ -148,7 +147,6 @@ export const OAuthController = {
 
       const tokens = await handleDiscordOAuth(code.toString(), isLinking);
       if (!tokens) {
-        console.error('Failed to exchange code for tokens');
         return res
           .status(400)
           .json({message: 'Failed to exchange code for tokens'});
@@ -157,7 +155,6 @@ export const OAuthController = {
       // Get user profile from provider
       const profile = tokens.profile;
       if (!profile) {
-        console.error('Failed to get user profile from tokens');
         return res.status(400).json({message: 'Failed to get user profile'});
       }
       if (isLinking) {

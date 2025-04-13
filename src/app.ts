@@ -25,6 +25,9 @@ dotenv.config();
 const app: Express = express();
 const httpServer = createServer(app);
 
+// Trust proxy headers for proper IP address handling
+app.set('trust proxy', true);
+
 // ES Module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,6 +106,8 @@ async function startServer() {
         clientUrlEnv || 'http://localhost:5173',
         'https://tuforums.com',
         'https://api.tuforums.com',
+        'https://4p437dcj-5173.eun1.devtunnels.ms',
+        'https://4p437dcj-3002.eun1.devtunnels.ms',
       ],
       methods: [
         'GET',

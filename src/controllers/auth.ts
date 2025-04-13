@@ -7,6 +7,15 @@ import PlayerStats from '../models/PlayerStats.js';
 import {emailService} from '../utils/email.js';
 import {passwordUtils, tokenUtils} from '../utils/auth.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
+import {createRateLimiter} from '../utils/rateLimiter.js';
+
+// Create rate limiter for registration
+const registrationLimiter = createRateLimiter({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  maxAttempts: 5,                // 5 accounts per 24 hours
+  blockDuration: 1 * 60 * 1000, // 1 minute block
+  type: 'registration'           // Specific type for registration
+});
 
 export const authController = {
   /**
@@ -155,6 +164,21 @@ export const authController = {
 
       // Generate JWT
       const token = tokenUtils.generateJWT(user);
+
+      // Get client IP for rate limiting
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const ip = typeof forwardedFor === 'string' 
+        ? forwardedFor.split(',')[0].trim() 
+        : req.ip || req.connection.remoteAddress || '127.0.0.1';
+
+      // Increment rate limit after successful registration
+      const isBlocked = await registrationLimiter.increment(ip);
+      if (isBlocked) {
+        return res.status(429).json({
+          message: 'Registration successful but rate limit exceeded. IP address blocked.',
+          retryAfter: 60 * 1000, // 1 minute in milliseconds
+        });
+      }
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',

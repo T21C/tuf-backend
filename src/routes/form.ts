@@ -76,7 +76,7 @@ router.post(
       const formType = req.headers['x-form-type'];
       if (formType === 'level') {
         const discordProvider = req.user?.providers?.find(
-          (provider: any) => provider.dataValues.provider === 'discord',
+          (provider: any) => provider.dataValues?.provider === 'discord',
         );
 
         // Create the base level submission within transaction
@@ -87,9 +87,9 @@ router.post(
           videoLink: cleanVideoUrl(req.body.videoLink),
           directDL: req.body.directDL || '',
           wsLink: req.body.wsLink || '',
-          submitterDiscordUsername: (discordProvider?.dataValues.profile as any)?.username || '',
-          submitterDiscordId: (discordProvider?.dataValues.profile as any)?.id || '',
-          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any)?.id}/${(discordProvider?.dataValues.profile as any)?.avatar}.png` || '',
+          submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username || '',
+          submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id || '',
+          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png` || '',
           status: 'pending',
           charter: '',
           vfxer: '',
@@ -262,10 +262,9 @@ router.post(
           title: req.body.title,
           videoLink: cleanVideoUrl(req.body.videoLink),
           rawTime: new Date(req.body.rawTime),
-          submitterDiscordUsername: (discordProvider?.dataValues.profile as any)
-            .username,
-          submitterDiscordId: (discordProvider?.dataValues.profile as any).id,
-          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues.profile as any).id}/${(discordProvider?.dataValues.profile as any).avatar}.png`,
+          submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username,
+          submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id,
+          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
           status: 'pending',
           assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
         }, { transaction });

@@ -91,17 +91,39 @@ export class PlayerStatsService {
         try {
           // Update each player's stats
           for (const id of playerIds) {
-            await this.updatePlayerStats(id, transaction);
+            try {
+              await this.updatePlayerStats(id, transaction);
+            } catch (error) {
+              console.error(`[PlayerStatsService] FAILURE: Error updating stats for player ${id}:`, error);
+              // Continue with the next player even if this one fails
+            }
           }
 
           // Update ranks for all players once
-          await this.updateRanks(transaction);
+          try {
+            await this.updateRanks(transaction);
+          } catch (error) {
+            console.error(`[PlayerStatsService] FAILURE: Error updating ranks for batch:`, error);
+            // Continue with commit even if rank update fails
+          }
 
-          await transaction.commit();
+          try {
+            await transaction.commit();
+          } catch (error) {
+            console.error(`[PlayerStatsService] FAILURE: Error committing transaction for batch:`, error);
+            try {
+              await transaction.rollback();
+            } catch (rollbackError) {
+              console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for batch:`, rollbackError);
+            }
+          }
         } catch (error) {
           console.error(`[PlayerStatsService] FAILURE: Error in batch update for ${playerIds.length} players:`, error);
-          await transaction.rollback();
-          throw error;
+          try {
+            await transaction.rollback();
+          } catch (rollbackError) {
+            console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for batch:`, rollbackError);
+          }
         }
       } catch (error) {
         console.error('[PlayerStatsService] FAILURE: Error in scheduled stats update:', error);
@@ -270,6 +292,7 @@ export class PlayerStatsService {
           console.log(`[PlayerStatsService] Created stats for ${missingStats.length} players who were missed`);
         } catch (error) {
           console.error('[PlayerStatsService] FAILURE: Error creating stats for missed players:', error);
+          // Continue execution even if this fails
         }
       }
 
@@ -305,19 +328,24 @@ export class PlayerStatsService {
 
       // Update all rank fields for banned players to -1
       if (bannedPlayerIds.length > 0) {
-        await sequelize.query(
-          `
-          UPDATE player_stats
-          SET 
-            rankedScoreRank = -1,
-            generalScoreRank = -1,
-            ppScoreRank = -1,
-            wfScoreRank = -1,
-            score12KRank = -1
-          WHERE id IN (${bannedPlayerIds.join(',')})
-          `,
-          { transaction }
-        );
+        try {
+          await sequelize.query(
+            `
+            UPDATE player_stats
+            SET 
+              rankedScoreRank = -1,
+              generalScoreRank = -1,
+              ppScoreRank = -1,
+              wfScoreRank = -1,
+              score12KRank = -1
+            WHERE id IN (${bannedPlayerIds.join(',')})
+            `,
+            { transaction }
+          );
+        } catch (error) {
+          console.error('[PlayerStatsService] FAILURE: Error updating banned player ranks:', error);
+          // Continue execution even if this fails
+        }
       }
 
       // For each score type, calculate ranks for non-banned players
@@ -364,31 +392,50 @@ export class PlayerStatsService {
           }).filter(Boolean).join(' ');
           
           if (updates) {
-            await sequelize.query(
-              `
-              UPDATE player_stats
-              SET ${rankField} = CASE ${updates} ELSE ${rankField} END
-              WHERE id IN (${batchIds.join(',')})
-              `,
-              { transaction }
-            );
+            try {
+              await sequelize.query(
+                `
+                UPDATE player_stats
+                SET ${rankField} = CASE ${updates} ELSE ${rankField} END
+                WHERE id IN (${batchIds.join(',')})
+                `,
+                { transaction }
+              );
+            } catch (error) {
+              console.error(`[PlayerStatsService] FAILURE: Error updating ${rankField} for batch:`, error);
+              // Continue with the next batch even if this one fails
+            }
           }
         }
       }
 
-      await transaction.commit();
-      
-      // Emit SSE event
-      sseManager.broadcast({
-        type: 'statsUpdate',
-        data: {
-          action: 'fullReload',
-        },
-      });
+      try {
+        await transaction.commit();
+        
+        // Emit SSE event
+        sseManager.broadcast({
+          type: 'statsUpdate',
+          data: {
+            action: 'fullReload',
+          },
+        });
+      } catch (error) {
+        console.error('[PlayerStatsService] FAILURE: Error committing transaction in reloadAllStats:', error);
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
+        }
+        throw error;
+      }
     } catch (error) {
       console.error('[PlayerStatsService] FAILURE: Error in full stats reload:', error);
       if (transaction) {
-        await transaction.rollback();
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
+        }
       }
       throw error;
     }
@@ -550,28 +597,48 @@ export class PlayerStatsService {
       }
 
       // Update ranks for all players
-      await this.updateRanks(transaction);
+      try {
+        await this.updateRanks(transaction);
+      } catch (error) {
+        console.error(`[PlayerStatsService] FAILURE: Error updating ranks for player ${playerId}:`, error);
+        // Continue execution even if rank update fails
+      }
 
       if (shouldCommit) {
-        await transaction.commit();
+        try {
+          await transaction.commit();
 
-        // Notify clients about the update
-        const io = getIO();
-        io.emit('leaderboardUpdated');
+          // Notify clients about the update
+          const io = getIO();
+          io.emit('leaderboardUpdated');
 
-        // Emit SSE event
-        sseManager.broadcast({
-          type: 'statsUpdate',
-          data: {
-            id: player.id,
-            newStats: stats,
-          },
-        });
+          // Emit SSE event
+          sseManager.broadcast({
+            type: 'statsUpdate',
+            data: {
+              id: player.id,
+              newStats: stats,
+            },
+          });
+        } catch (error) {
+          console.error(`[PlayerStatsService] FAILURE: Error committing transaction for player ${playerId}:`, error);
+          // If commit fails, try to rollback
+          try {
+            await transaction.rollback();
+          } catch (rollbackError) {
+            console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for player ${playerId}:`, rollbackError);
+          }
+          throw error;
+        }
       }
     } catch (error) {
       console.error(`[PlayerStatsService] FAILURE: Error updating stats for player ${playerId}:`, error);
       if (shouldCommit) {
-        await transaction.rollback();
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for player ${playerId}:`, rollbackError);
+        }
       }
       throw error;
     }
@@ -614,19 +681,24 @@ export class PlayerStatsService {
       // Set rank to -1 for banned players
       if (bannedPlayers.length > 0) {
         const bannedIds = bannedPlayers.map(p => p.id);
-        await sequelize.query(
-          `
-          UPDATE player_stats
-          SET 
-            rankedScoreRank = -1,
-            generalScoreRank = -1,
-            ppScoreRank = -1,
-            wfScoreRank = -1,
-            score12KRank = -1
-          WHERE id IN (${bannedIds.join(',')})
-          `,
-          { transaction }
-        );
+        try {
+          await sequelize.query(
+            `
+            UPDATE player_stats
+            SET 
+              rankedScoreRank = -1,
+              generalScoreRank = -1,
+              ppScoreRank = -1,
+              wfScoreRank = -1,
+              score12KRank = -1
+            WHERE id IN (${bannedIds.join(',')})
+            `,
+            { transaction }
+          );
+        } catch (error) {
+          console.error('Error updating banned player ranks:', error);
+          // Don't throw here, continue with the rest of the function
+        }
       }
 
       // Calculate ranks for active players
@@ -660,20 +732,25 @@ export class PlayerStatsService {
           }).join(' ');
 
           if (updates) {
-            await sequelize.query(
-              `
-              UPDATE player_stats
-              SET ${rankField} = CASE ${updates} ELSE ${rankField} END
-              WHERE id IN (${batch.map(p => p.id).join(',')})
-              `,
-              { transaction }
-            );
+            try {
+              await sequelize.query(
+                `
+                UPDATE player_stats
+                SET ${rankField} = CASE ${updates} ELSE ${rankField} END
+                WHERE id IN (${batch.map(p => p.id).join(',')})
+                `,
+                { transaction }
+              );
+            } catch (error) {
+              console.error(`Error updating ${rankField} for batch:`, error);
+              // Don't throw here, continue with the next batch
+            }
           }
         }
       }
     } catch (error) {
       console.error('Error updating ranks:', error);
-      throw error;
+      // Don't throw here, let the caller handle the transaction
     }
   }
 
@@ -681,10 +758,25 @@ export class PlayerStatsService {
     const transaction = await sequelize.transaction();
     try {
       await this.updateRanks(transaction);
-      await transaction.commit();
+      try {
+        await transaction.commit();
+      } catch (error) {
+        console.error('Error committing transaction in forceUpdateRanks:', error);
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          console.error('Error rolling back transaction in forceUpdateRanks:', rollbackError);
+        }
+        throw error;
+      }
     } catch (error) {
       console.error('Error updating ranks:', error);
-      await transaction.rollback();
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        console.error('Error rolling back transaction in forceUpdateRanks:', rollbackError);
+      }
+      throw error;
     }
   }
 

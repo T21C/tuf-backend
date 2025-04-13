@@ -161,16 +161,21 @@ async function sendSortedMessages(channel: ChannelMessages): Promise<void> {
   hook.setAvatar(placeHolder);
   
   for (const message of channel.messages) {
-    const combinedEmbed = MessageBuilder.combine(...message.embeds);
-    
-    if (message.content) {
-      combinedEmbed.setText(message.content);
+    // Split embeds into batches of 8
+    for (let i = 0; i < message.embeds.length; i += 8) {
+      const embedBatch = message.embeds.slice(i, i + 8);
+      const combinedEmbed = MessageBuilder.combine(...embedBatch);
+      
+      // Only add content text to first batch
+      if (message.content && i === 0) {
+        combinedEmbed.setText(message.content);
+      }
+      
+      await hook.send(combinedEmbed);
+      
+      // Add a small delay between messages to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
-    await hook.send(combinedEmbed);
-    
-    // Add a small delay between messages to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 500));
   }
 }
 
