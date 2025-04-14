@@ -305,6 +305,7 @@ router.get(
       // Stream the file directly instead of using res.download
       const fileStream = createReadStream(filePath);
       fileStream.pipe(res);
+      return;
     } catch (error) {
       console.error('Failed to download backup:', error);
       return res.status(500).json({error: 'Failed to download backup'});
