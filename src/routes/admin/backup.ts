@@ -2,6 +2,7 @@ import {Router, Request, Response} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {BackupService} from '../../services/BackupService.js';
 import fs from 'fs/promises';
+import { createReadStream } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import os from 'os';
@@ -293,7 +294,17 @@ router.get(
         return res.status(200).end();
       }
 
-      return res.download(filePath);
+      // Set appropriate headers to prevent double compression
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      
+      // For file backups, set the content type to application/zip
+      if (type === 'files') {
+        res.setHeader('Content-Type', 'application/zip');
+      }
+      
+      // Stream the file directly instead of using res.download
+      const fileStream = createReadStream(filePath);
+      fileStream.pipe(res);
     } catch (error) {
       console.error('Failed to download backup:', error);
       return res.status(500).json({error: 'Failed to download backup'});

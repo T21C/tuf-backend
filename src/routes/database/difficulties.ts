@@ -21,8 +21,35 @@ import AnnouncementChannel from '../../models/AnnouncementChannel.js';
 import AnnouncementRole from '../../models/AnnouncementRole.js';
 import DirectiveAction from '../../models/DirectiveAction.js';
 import { evaluateDirectiveCondition, DirectiveParser } from '../../utils/directiveParser.js';
+import crypto from 'crypto';
 
 const playerStatsService = PlayerStatsService.getInstance();
+
+// Store the current hash of difficulties
+let difficultiesHash = '';
+
+// Function to calculate hash of difficulties
+async function calculateDifficultiesHash(): Promise<string> {
+  try {
+    const diffs = await Difficulty.findAll();
+    const diffsList = diffs.map(diff => diff.toJSON());
+    
+    // Create a string representation of the difficulties
+    const diffsString = JSON.stringify(diffsList);
+    
+    // Calculate hash
+    const hash = crypto.createHash('sha256').update(diffsString).digest('hex');
+    return hash;
+  } catch (error) {
+    console.error('Error calculating difficulties hash:', error);
+    return '';
+  }
+}
+
+// Initialize the hash
+(async () => {
+  difficultiesHash = await calculateDifficultiesHash();
+})();
 
 // Fix __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -87,6 +114,16 @@ function validateCustomDirective(condition: DirectiveCondition): { isValid: bool
 }
 
 const router: Router = express.Router();
+
+// Get the current hash of difficulties
+router.get('/hash', async (req, res) => {
+  try {
+    res.json({ hash: difficultiesHash });
+  } catch (error) {
+    console.error('Error fetching difficulties hash:', error);
+    res.status(500).json({error: 'Internal server error'});
+  }
+});
 
 // Get available channels
 router.get('/channels', Auth.superAdminPassword(), async (req, res) => {
@@ -345,6 +382,9 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
         updatedAt: new Date(),
       } as IDifficulty);
 
+      // Update the hash after creating a new difficulty
+      difficultiesHash = await calculateDifficultiesHash();
+
       return res.status(201).json(difficulty);
     } catch (error) {
       console.error('Error creating difficulty:', error);
@@ -548,6 +588,9 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
         });
       }
 
+      // Update the hash after updating a difficulty
+      difficultiesHash = await calculateDifficultiesHash();
+
       return res.json(difficulty);
     } catch (error) {
       await transaction.rollback();
@@ -604,6 +647,9 @@ router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, re
 
         // Commit transaction
         await transaction.commit();
+
+        // Update the hash after deleting a difficulty
+        difficultiesHash = await calculateDifficultiesHash();
 
         return res.json({
           message: 'Difficulty deleted successfully',
@@ -884,6 +930,9 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
     );
 
     await transaction.commit();
+    
+    // Update the hash after updating sort orders
+    difficultiesHash = await calculateDifficultiesHash();
     
     // Emit events for frontend updates
     const io = getIO();

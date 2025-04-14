@@ -323,141 +323,201 @@ const getSortOptions = (sort?: string): Order => {
   }
 };
 
+async function filterLevels(query: any, pguRange?: {from: string, to: string}, specialDifficulties?: string[], sort?: any, offset?: number, limit?: number, deletedFilter?: string, clearedFilter?: string) {
+  const where = await buildWhereClause({
+    query,
+    deletedFilter,
+    clearedFilter,
+  });
+
+  // Add difficulty filtering conditions
+  const difficultyConditions: any[] = [];
+
+  // Handle PGU range if provided
+  if (pguRange?.from || pguRange?.to) {
+    const [fromDiff, toDiff] = await Promise.all([
+      pguRange.from
+        ? Difficulty.findOne({
+            where: {name: pguRange.from, type: 'PGU'},
+            attributes: ['id', 'sortOrder'],
+          })
+        : null,
+      pguRange.to
+        ? Difficulty.findOne({
+            where: {name: pguRange.to, type: 'PGU'},
+            attributes: ['id', 'sortOrder'],
+          })
+        : null,
+    ]);
+
+    if (fromDiff || toDiff) {
+      const pguDifficulties = await Difficulty.findAll({
+        where: {
+          type: 'PGU',
+          sortOrder: {
+            ...(fromDiff && {[Op.gte]: fromDiff.sortOrder}),
+            ...(toDiff && {[Op.lte]: toDiff.sortOrder}),
+          },
+        },
+        attributes: ['id'],
+      });
+
+      if (pguDifficulties.length > 0) {
+        difficultyConditions.push({
+          diffId: {[Op.in]: pguDifficulties.map(d => d.id)},
+        });
+      }
+    }
+  }
+
+  // Handle special difficulties if provided
+  if (specialDifficulties && specialDifficulties.length > 0) {
+    const specialDiffs = await Difficulty.findAll({
+      where: {
+        name: {[Op.in]: specialDifficulties},
+        type: 'SPECIAL',
+      },
+      attributes: ['id'],
+    });
+
+    if (specialDiffs.length > 0) {
+      difficultyConditions.push({
+        diffId: {[Op.in]: specialDiffs.map(d => d.id)},
+      });
+    }
+  }
+
+  // Add difficulty conditions to the where clause if any exist
+  if (difficultyConditions.length > 0) {
+    where[Op.and] = [
+      ...(where[Op.and] || []),
+      {[Op.or]: difficultyConditions},
+    ];
+  }
+
+  // Get sort options
+  const order = getSortOptions(sort as string);
+
+  // First get all IDs in correct order
+  const allIds = await Level.findAll({
+    where,
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty',
+        required: false,
+      },
+      {
+        model: Team,
+        as: 'teamObject',
+        required: false,
+      }
+    ],
+    order,
+    attributes: ['id'],
+    raw: true,
+  });
+
+  // Then get paginated results
+  let paginatedIds: number[] = [];
+  if (limit && limit > 0) {
+    paginatedIds = allIds
+      .map(level => level.id)
+    .slice(
+      Number(offset) || 0,
+      (Number(offset) || 0) + (Number(limit) || 30),
+    );
+  }
+  else {
+    paginatedIds = allIds.map(level => level.id);
+  }
+
+  const results = await Level.findAll({
+    where: {
+      ...where,
+      id: {
+        [Op.in]: paginatedIds,
+      },
+    },
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty',
+        required: false,
+      },
+      {
+        model: Pass,
+        as: 'passes',
+        required: false,
+        attributes: ['id'],
+      },
+      {
+        model: Team,
+        as: 'teamObject',
+        required: false,
+      }
+    ],
+    order,
+  });
+
+  return {results, count: allIds.length};
+}
+
 // Get all levels with filtering and pagination
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const where = await buildWhereClause(req.query);
-    const sort = req.query.sort as string;
-    const isRandomSort = sort === 'RANDOM';
-    const order = getSortOptions(sort);
-
-    // For random sorting, we'll use a different approach to ensure consistent pagination
-    if (isRandomSort) {
-      // First, get all matching IDs
-      const allIds = await Level.findAll({
-        where,
-        attributes: ['id'],
-        raw: true,
-      });
-
-      // Generate a random seed based on the current hour to maintain consistency for a period
-      const now = new Date();
-      let seedValue =
-        now.getFullYear() * 10000 +
-        (now.getMonth() + 1) * 100 +
-        now.getDate() +
-        now.getHours();
-
-      // Use the seed to shuffle the array consistently
-      const shuffledIds = allIds
-        .map(level => level.id)
-        .sort(() => {
-          const x = Math.sin(seedValue++) * 10000;
-          return x - Math.floor(x);
-        });
-
-      // Get the paginated slice of IDs
-      const offset = parseInt(req.query.offset as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 30;
-      const paginatedIds = shuffledIds.slice(offset, offset + limit);
-
-      // Fetch the actual levels
-      const results = await Level.findAll({
-        where: {
-          id: {
-            [Op.in]: paginatedIds,
-          },
-        },
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-            required: false,
-          },
-          {
-            model: Pass,
-            as: 'passes',
-            required: false,
-            attributes: ['id'],
-          },
-          {
-            model: Team,
-            as: 'teamObject',
-            required: false,
-          }
-        ],
-        order: [
-          [literal(`FIELD(id, ${paginatedIds.join(',')})`), 'ASC'],
-        ] as OrderItem[],
-      });
-
-      return res.json({
-        count: allIds.length,
-        results,
-      });
-    }
-
-    // For non-random sorting
-    const allIds = await Level.findAll({
-      where,
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: Team,
-          as: 'teamObject',
-          required: false,
-        }
-      ],
-      order,
-      attributes: ['id'],
-      raw: true,
-    });
-
-    const offset = parseInt(req.query.offset as string) || 0;
-    const limit = parseInt(req.query.limit as string) || 30;
-    const paginatedIds = allIds
-      .map(level => level.id)
-      .slice(offset, offset + limit);
-
-    const results = await Level.findAll({
-      where: {
-        ...where,
-        id: {
-          [Op.in]: paginatedIds,
-        },
-      },
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: Pass,
-          as: 'passes',
-          required: false,
-          attributes: ['id'],
-        },
-        {
-          model: Team,
-          as: 'teamObject',
-          required: false,
-        }
-      ],
-      order,
-    });
+    const {query, sort, offset, limit, deletedFilter, clearedFilter, pguRange, specialDifficulties} =
+      req.query;
+    const pguRangeObj = pguRange ? {from: (pguRange as string).split(',')[0], to: (pguRange as string).split(',')[1]} : undefined;
+    const specialDifficultiesObj = specialDifficulties ? (specialDifficulties as string).split(',') : undefined;
+    // Build the base where clause using the shared function
+    const {results, count} = await filterLevels(
+      query, 
+      pguRangeObj, 
+      specialDifficultiesObj, 
+      sort, 
+      parseInt(offset as string), 
+      parseInt(limit as string), 
+      deletedFilter as string, 
+      clearedFilter as string);
 
     return res.json({
-      count: allIds.length,
+      count,
       results,
     });
   } catch (error) {
     console.error('Error fetching levels:', error);
     return res.status(500).json({error: 'Failed to fetch levels'});
+  }
+});
+
+// Add the new filtering endpoint
+router.post('/filter', async (req: Request, res: Response) => {
+  try {
+    const {pguRange, specialDifficulties} = req.body;
+    const {query, sort, offset, limit, deletedFilter, clearedFilter} =
+      req.query;
+
+    // Build the base where clause using the shared function
+    const {results, count} = await filterLevels(
+      query, 
+      pguRange, 
+      specialDifficulties, 
+      sort, 
+      parseInt(offset as string), 
+      parseInt(limit as string), 
+      deletedFilter as string, 
+      clearedFilter as string);
+
+    return res.json({
+      count,
+      results,
+    });
+  } catch (error) {
+    console.error('Error filtering levels:', error);
+    console.log("query:", req.query);
+    console.log("body:", req.body);
+    return res.status(500).json({error: 'Failed to filter levels'});
   }
 });
 
@@ -1571,155 +1631,6 @@ router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: 
   },
 );
 
-// Add the new filtering endpoint
-router.post('/filter', async (req: Request, res: Response) => {
-  try {
-    const {pguRange, specialDifficulties} = req.body;
-    const {query, sort, offset, limit, deletedFilter, clearedFilter} =
-      req.query;
-
-    // Build the base where clause using the shared function
-    const where = await buildWhereClause({
-      query,
-      deletedFilter,
-      clearedFilter,
-    });
-
-    // Add difficulty filtering conditions
-    const difficultyConditions: any[] = [];
-
-    // Handle PGU range if provided
-    if (pguRange?.from || pguRange?.to) {
-      const [fromDiff, toDiff] = await Promise.all([
-        pguRange.from
-          ? Difficulty.findOne({
-              where: {name: pguRange.from, type: 'PGU'},
-              attributes: ['id', 'sortOrder'],
-            })
-          : null,
-        pguRange.to
-          ? Difficulty.findOne({
-              where: {name: pguRange.to, type: 'PGU'},
-              attributes: ['id', 'sortOrder'],
-            })
-          : null,
-      ]);
-
-      if (fromDiff || toDiff) {
-        const pguDifficulties = await Difficulty.findAll({
-          where: {
-            type: 'PGU',
-            sortOrder: {
-              ...(fromDiff && {[Op.gte]: fromDiff.sortOrder}),
-              ...(toDiff && {[Op.lte]: toDiff.sortOrder}),
-            },
-          },
-          attributes: ['id'],
-        });
-
-        if (pguDifficulties.length > 0) {
-          difficultyConditions.push({
-            diffId: {[Op.in]: pguDifficulties.map(d => d.id)},
-          });
-        }
-      }
-    }
-
-    // Handle special difficulties if provided
-    if (specialDifficulties?.length > 0) {
-      const specialDiffs = await Difficulty.findAll({
-        where: {
-          name: {[Op.in]: specialDifficulties},
-          type: 'SPECIAL',
-        },
-        attributes: ['id'],
-      });
-
-      if (specialDiffs.length > 0) {
-        difficultyConditions.push({
-          diffId: {[Op.in]: specialDiffs.map(d => d.id)},
-        });
-      }
-    }
-
-    // Add difficulty conditions to the where clause if any exist
-    if (difficultyConditions.length > 0) {
-      where[Op.and] = [
-        ...(where[Op.and] || []),
-        {[Op.or]: difficultyConditions},
-      ];
-    }
-
-    // Get sort options
-    const order = getSortOptions(sort as string);
-
-    // First get all IDs in correct order
-    const allIds = await Level.findAll({
-      where,
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: Team,
-          as: 'teamObject',
-          required: false,
-        }
-      ],
-      order,
-      attributes: ['id'],
-      raw: true,
-    });
-
-    // Then get paginated results
-    const paginatedIds = allIds
-      .map(level => level.id)
-      .slice(
-        Number(offset) || 0,
-        (Number(offset) || 0) + (Number(limit) || 30),
-      );
-
-    const results = await Level.findAll({
-      where: {
-        ...where,
-        id: {
-          [Op.in]: paginatedIds,
-        },
-      },
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: Pass,
-          as: 'passes',
-          required: false,
-          attributes: ['id'],
-        },
-        {
-          model: Team,
-          as: 'teamObject',
-          required: false,
-        }
-      ],
-      order,
-    });
-
-    return res.json({
-      count: allIds.length,
-      results,
-    });
-  } catch (error) {
-    console.error('Error filtering levels:', error);
-    console.log("query:", req.query);
-    console.log("body:", req.body);
-    return res.status(500).json({error: 'Failed to filter levels'});
-  }
-});
 
 // Get all aliases for a level
 router.get('/:id/aliases', async (req: Request, res: Response) => {
@@ -1767,20 +1678,34 @@ router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Respons
 
       const originalValue = level[field as 'song' | 'artist'];
 
-      // Create alias for the current level
-      await LevelAlias.create(
-        {
+      // Check if alias already exists for the current level
+      const existingAlias = await LevelAlias.findOne({
+        where: {
           levelId,
           field,
           originalValue,
-          alias,
-        },
-        {transaction},
-      );
+          alias
+        }
+      });
 
+      let newAlias = null;
       let propagatedCount = 0;
-      let propagatedLevels: Array<Level & {id: number; [key: string]: any}> =
-        [];
+      let propagatedLevels: Array<Level & {id: number; [key: string]: any}> = [];
+
+      // If alias doesn't exist for the current level, create it
+      if (!existingAlias) {
+        newAlias = await LevelAlias.create(
+          {
+            levelId,
+            field,
+            originalValue,
+            alias,
+          },
+          {transaction},
+        );
+      } else {
+        newAlias = existingAlias;
+      }
 
       // If propagation is requested, find other levels with matching field value
       if (propagate) {
@@ -1798,35 +1723,50 @@ router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Respons
         });
 
         if (propagatedLevels.length > 0) {
-          // Create the aliases one by one to ensure they're all created
-          for (const matchingLevel of propagatedLevels) {
-            try {
-              await LevelAlias.create(
-                {
-                  levelId: matchingLevel.id,
-                  field,
-                  originalValue: matchingLevel[field as 'song' | 'artist'],
-                  alias,
-                },
-                {
-                  transaction,
-                },
-              );
-              propagatedCount++;
-            } catch (err) {
-              console.error(
-                `Failed to create alias for level ${matchingLevel.id}:`,
-                err,
-              );
-              // Continue with other levels even if one fails
-            }
+          // Find all levels that already have this alias to avoid duplicates
+          const existingAliases = await LevelAlias.findAll({
+            where: {
+              levelId: { [Op.in]: propagatedLevels.map(l => l.id) },
+              field,
+              alias
+            },
+            attributes: ['levelId'],
+            raw: true
+          });
+
+          // Create a set of level IDs that already have this alias
+          const existingAliasLevelIds = new Set(existingAliases.map(a => a.levelId));
+          
+          // Filter out levels that already have this alias
+          const levelsToAddAlias = propagatedLevels.filter(
+            level => !existingAliasLevelIds.has(level.id)
+          );
+
+          // Create aliases for levels that don't already have it
+          if (levelsToAddAlias.length > 0) {
+            const aliasRecords = levelsToAddAlias.map(matchingLevel => ({
+              levelId: matchingLevel.id,
+              field,
+              originalValue: matchingLevel[field as 'song' | 'artist'],
+              alias,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }));
+
+            // Bulk create all aliases at once
+            await LevelAlias.bulkCreate(aliasRecords, { 
+              transaction,
+              ignoreDuplicates: true // This will ignore duplicates at the database level
+            });
+            
+            propagatedCount = levelsToAddAlias.length;
           }
         }
       }
 
       await transaction.commit();
 
-      // Return all created/updated aliases for the original level
+      // Return all aliases for the original level
       const aliases = await LevelAlias.findAll({
         where: {levelId},
       });

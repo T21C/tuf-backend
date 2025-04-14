@@ -3,6 +3,7 @@ import {v4 as uuidv4} from 'uuid';
 import {UserAttributes} from '../models/User.js';
 import {raterList, SUPER_ADMINS} from '../config/constants.js';
 import Player from '../models/Player.js';
+import {findPlayerByDiscordId} from '../utils/playerMapping.js';
 
 interface OAuthProfile {
   id: string;
@@ -20,7 +21,6 @@ class OAuthService {
    * Find or create a user based on OAuth profile for login
    */
   async findOrCreateUser(profile: OAuthProfile): Promise<[User, boolean]> {
-
     // First check if provider is already linked
     const provider = await OAuthProvider.findOne({
       where: {
@@ -30,7 +30,6 @@ class OAuthService {
       include: [{model: User, as: 'oauthUser', include: [{model: Player, as: 'player'}]}],
     });
     if (provider?.oauthUser) {
-
       // Update user profile if needed
       const updates: Partial<UserAttributes> = {};
       if (
@@ -63,7 +62,6 @@ class OAuthService {
         where: {email: profile.email},
         include: [{model: OAuthProvider, as: 'providers'}],
       });
-
     }
 
     // Create new user if none exists
@@ -77,6 +75,34 @@ class OAuthService {
         profile.provider === 'discord' && SUPER_ADMINS.includes(profile.username);
 
       try {
+        // Check if there's a player mapping for this Discord ID
+        let playerId: number | undefined;
+        if (profile.provider === 'discord') {
+          const playerMapping = findPlayerByDiscordId(profile.id);
+          if (playerMapping) {
+            // Find the player by name
+            const player = await Player.findOne({
+              where: { name: playerMapping.name }
+            });
+            if (player) {
+              playerId = player.id;
+            }
+          }
+        }
+
+        // If no player found, create a new one
+        if (!playerId) {
+          const player = await Player.create({
+            name: profile.username,
+            country: 'XX', // Default country
+            isBanned: false,
+            isSubmissionsPaused: false,
+            createdAt: now,
+            updatedAt: now
+          });
+          playerId = player.id;
+        }
+
         user = await User.create({
           id: uuidv4(),
           username: profile.username,
@@ -90,13 +116,13 @@ class OAuthService {
           isRatingBanned: false,
           status: 'active',
           permissionVersion: 1,
+          playerId,
           createdAt: now,
           updatedAt: now,
         });
 
-
         // Create OAuth provider link
-        const oauthProvider = await OAuthProvider.create({
+        await OAuthProvider.create({
           userId: user.id,
           provider: profile.provider,
           providerId: profile.id,
@@ -104,7 +130,6 @@ class OAuthService {
           createdAt: now,
           updatedAt: now,
         });
-
 
         return [user, true];
       } catch (error) {
