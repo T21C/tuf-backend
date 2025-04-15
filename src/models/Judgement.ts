@@ -1,6 +1,7 @@
 import {DataTypes, Model} from 'sequelize';
 import sequelize from '../config/db.js';
 import {IJudgement} from '../interfaces/models/index.js';
+import { calcAcc } from '../misc/CalcAcc.js';
 
 class Judgement extends Model<IJudgement> implements IJudgement {
   declare id: number;
@@ -11,6 +12,7 @@ class Judgement extends Model<IJudgement> implements IJudgement {
   declare lPerfect: number;
   declare lateSingle: number;
   declare lateDouble: number;
+  declare accuracy?: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -67,6 +69,12 @@ Judgement.init(
     updatedAt: {
       type: DataTypes.DATE,
       allowNull: false,
+    },
+    accuracy: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return calcAcc(this);
+      },
     },
   },
   {

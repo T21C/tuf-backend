@@ -120,8 +120,10 @@ Pass.init(
       allowNull: true,
     },
     accuracy: {
-      type: DataTypes.FLOAT,
-      allowNull: true,
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.judgements?.accuracy;
+      },
     },
     scoreV2: {
       type: DataTypes.FLOAT,

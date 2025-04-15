@@ -774,9 +774,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // If levelId changed, also update world's first for the old level
       if (levelId && levelId !== pass.levelId) {
         await updateWorldsFirstStatus(pass.levelId, transaction);
-        await recalculateLevelClearCount(pass.levelId, transaction);
         await updateWorldsFirstStatus(levelId, transaction);
-        await recalculateLevelClearCount(levelId, transaction);
       }
     }
 
@@ -898,7 +896,6 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
 
       // Update world's first status for this level
       await updateWorldsFirstStatus(levelId, transaction);
-      await recalculateLevelClearCount(levelId, transaction);
 
       // Reload the pass to get updated data
       await pass.reload({
@@ -1007,22 +1004,7 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 
       // Update world's first status for this level
       await updateWorldsFirstStatus(levelId, transaction);
-      await recalculateLevelClearCount(levelId, transaction);
-
-      // Update level clear count and status
-      await Promise.all([
-        Level.increment('clears', {
-          where: {id: pass.levelId},
-          transaction,
-        }),
-        Level.update(
-          {isCleared: true},
-          {
-            where: {id: pass.levelId},
-            transaction,
-          },
-        ),
-      ]);
+      
 
       await transaction.commit();
 
@@ -1347,106 +1329,5 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
   },
 );
 
-export async function recalculateAffectedLevelsClearCount(playerId: number, transaction?: any) {
-  // Get all unique level IDs cleared by the player
-  const clearedLevels = await Pass.findAll({
-    where: {
-      playerId,
-      isDeleted: false
-    },
-    attributes: [[sequelize.fn('DISTINCT', sequelize.col('levelId')), 'levelId']],
-    raw: true,
-  });
-
-  const levelIds = clearedLevels.map((level: any) => level.levelId);
-
-  if (levelIds.length === 0) {
-    return;
-  }
-
-  // Get clear counts for all affected levels in a single query
-  const clearCounts = await Pass.findAll({
-    attributes: [
-      'levelId',
-      [sequelize.fn('COUNT', sequelize.col('Pass.id')), 'clearCount']
-    ],
-    where: {
-      levelId: {
-        [Op.in]: levelIds
-      },
-      isDeleted: false
-    },
-    include: [{
-      model: Player,
-      as: 'player',
-      where: {isBanned: false},
-      attributes: []
-    }],
-    group: ['levelId'],
-    raw: true,
-    transaction
-  });
-
-  // Create a map of levelId to clearCount
-  const clearCountMap = clearCounts.reduce((acc: {[key: number]: number}, curr: any) => {
-    acc[curr.levelId] = parseInt(curr.clearCount);
-    return acc;
-  }, {});
-
-  // Update all affected levels in a single query
-  await Level.update(
-    {
-      clears: sequelize.literal(`CASE 
-        ${levelIds.map(id => `WHEN id = ${id} THEN ${clearCountMap[id] || 0}`).join(' ')}
-        ELSE clears END`),
-      isCleared: sequelize.literal(`CASE 
-        ${levelIds.map(id => `WHEN id = ${id} THEN ${clearCountMap[id] ? 'TRUE' : 'FALSE'}`).join(' ')}
-        ELSE isCleared END`)
-    },
-    {
-      where: {
-        id: {
-          [Op.in]: levelIds
-        }
-      },
-      transaction
-    }
-  );
-}
-
-// Helper function to recalculate clear count for a level
-export async function recalculateLevelClearCount(levelId: number, transaction?: any) {
-  // Count all non-deleted passes for this level from non-banned players
-  const clearCount = await Pass.count({
-    where: {
-      levelId,
-      isDeleted: false,
-      '$player.isBanned$': false,
-    },
-    include: [
-      {
-        model: Player,
-        as: 'player',
-        where: {isBanned: false},
-        required: true,
-      },
-    ],
-    transaction,
-  });
-
-  // Update the level's clear count
-  await Level.update(
-    {
-      clears: clearCount,
-      isCleared: clearCount > 0,
-    },
-    {
-      where: {id: levelId},
-      transaction,
-    },
-  );
-
-  return clearCount;
-}
 
 export default router;

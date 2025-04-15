@@ -3,7 +3,7 @@ import sequelize from '../config/db.js';
 import BaseModel from './BaseModel.js';
 import Player from './Player.js';
 import Level from './Level.js';
-
+import { calcAcc } from '../misc/CalcAcc.js';
 class PassSubmission extends BaseModel {
   declare passer: string;
   declare passerId: number | null;
@@ -43,6 +43,7 @@ class PassSubmissionJudgements extends BaseModel {
   declare lPerfect: number;
   declare lateSingle: number;
   declare lateDouble: number;
+  declare accuracy?: number;
 }
 
 class PassSubmissionFlags extends BaseModel {
@@ -116,8 +117,10 @@ PassSubmission.init(
       defaultValue: false,
     },
     accuracy: {
-      type: DataTypes.FLOAT,
-      allowNull: true,
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.judgements?.accuracy;
+      },
     },
     scoreV2: {
       type: DataTypes.FLOAT,
@@ -203,6 +206,12 @@ PassSubmissionJudgements.init(
     lateDouble: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
+    },
+    accuracy: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return calcAcc(this);
+      },
     },
   },
   {

@@ -9,7 +9,7 @@ import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket.js';
 import {Auth} from '../../middleware/auth.js';
 import sequelize from '../../config/db.js';
-import {recalculateAffectedLevelsClearCount, updateWorldsFirstStatus} from './passes.js';
+import {updateWorldsFirstStatus} from './passes.js';
 import {sseManager} from '../../utils/sse.js';
 import User from '../../models/User.js';
 import OAuthProvider from '../../models/OAuthProvider.js';
@@ -717,7 +717,6 @@ router.patch('/:id/ban', Auth.superAdmin(), async (req: Request, res: Response) 
 
       // Update world's first status for all affected levels
       await updateAffectedLevelsWorldsFirst(player.id, transaction);
-      await recalculateAffectedLevelsClearCount(player.id, transaction);
 
       await transaction.commit();
 

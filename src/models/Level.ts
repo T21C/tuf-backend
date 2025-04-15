@@ -110,14 +110,6 @@ Level.init(
       allowNull: true,
       defaultValue: null,
     },
-    isCleared: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-    },
-    clears: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
     videoLink: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -192,6 +184,18 @@ Level.init(
       references: {
         model: 'teams',
         key: 'id',
+      },
+    },
+    isCleared: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.passes && this.passes.length > 0 || false;
+      },
+    },
+    clears: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.passes?.length || 0;
       },
     },
     highestAccuracy: {

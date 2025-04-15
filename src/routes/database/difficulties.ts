@@ -528,16 +528,6 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
             affectedPlayerIds.add(pass.playerId);
           }
         }
-
-        // Update level stats
-        await Promise.all(
-          levelIds.map(levelId =>
-            Level.update(
-              {isCleared: affectedPasses.some(p => p.levelId === levelId)},
-              {where: {id: levelId}, transaction},
-            ),
-          ),
-        );
       }
 
       // Commit the transaction first to ensure all updates are saved
