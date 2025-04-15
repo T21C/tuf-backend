@@ -89,7 +89,7 @@ const getBaseHtml = (clientUrl: string) => {
       <html lang="en">
         <head>
           <meta charset="UTF-8" />
-          <link rel="icon" type="image/svg+xml" href="/assets/logo.png" />
+          <link rel="icon" type="image/svg+xml" href="/src/assets/tuf-logo/logo.png" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           
           <!-- METADATA_PLACEHOLDER -->
@@ -114,8 +114,17 @@ const getBaseHtml = (clientUrl: string) => {
   // Production mode - use manifest
   const { js, css, imports } = getRequiredAssets();
   
+  // Get vendor and UI chunks from manifest
+  const vendorChunk = Object.entries(manifest).find(([key]) => key.includes('vendor'))?.[1]?.file;
+  const uiChunk = Object.entries(manifest).find(([key]) => key.includes('ui'))?.[1]?.file;
+  
+  const modulePreloads = [
+    vendorChunk ? `<link rel="modulepreload" crossorigin href="/${vendorChunk}">` : '',
+    uiChunk ? `<link rel="modulepreload" crossorigin href="/${uiChunk}">` : ''
+  ].filter(Boolean).join('\n');
+  
   const cssLinks = css.map(file => 
-    `<link rel="stylesheet" href="/${file}">`
+    `<link rel="stylesheet" crossorigin href="/${file}">`
   ).join('\n');
   
   const jsScripts = [
@@ -125,16 +134,22 @@ const getBaseHtml = (clientUrl: string) => {
     `<script type="module" crossorigin src="/${js[0]}"></script>`
   ].join('\n');
 
+  // Get favicon path from manifest or fallback
+  const faviconPath = manifest['src/assets/tuf-logo/logo.png']?.file 
+    ? `/assets/${manifest['src/assets/tuf-logo/logo.png'].file}`
+    : '/assets/logo.png';
+
   return `
     <!DOCTYPE html>
     <html lang="en">
       <head>
         <meta charset="UTF-8" />
-        <link rel="icon" type="image/svg+xml" href="/assets/${manifest['src/assets/tuf-logo/logo.png']?.file || 'logo.png'}" />
+        <link rel="icon" type="image/svg+xml" href="${faviconPath}" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         
         <!-- METADATA_PLACEHOLDER -->
 
+        ${modulePreloads}
         ${cssLinks}
         ${jsScripts}
       </head>

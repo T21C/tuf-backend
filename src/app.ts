@@ -182,21 +182,11 @@ async function startServer() {
     );
 
     // Handle remaining HTML requests
-    app.get('*', (req, res, next) => {
-      if (req.accepts('html')) {
-        const indexPath = path.join(clientBuildPath, 'index.html');
-
-        // For non-meta routes, serve the static index.html
-        if (!req.path.match(/^\/(passes|levels|player)\/\d+$/)) {
-          if (fs.existsSync(indexPath)) {
-            return res.sendFile(indexPath);
-          } else {
-            console.error('index.html not found at:', indexPath);
-            return res.status(404).send('Not found');
-          }
-        }
-      }
-      next();
+    app.get('/', (req, res) => {
+      res.sendFile(path.join(__dirname, 'index.html'));
+    });
+    app.get('*', (req, res) => {
+      return res.status(404).sendFile(path.join(__dirname, 'notFound.html'));
     });
 
     // Start the server
