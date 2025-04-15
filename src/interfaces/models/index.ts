@@ -55,6 +55,7 @@ export interface ILevel extends IBaseModel {
   previousDifficulty?: IDifficulty;
   levelCreators?: ICreator[];
   teamObject?: ITeam;
+  highestAccuracy?: number | null;
 }
 
 // Pass interface

@@ -14,9 +14,14 @@ type LevelCreationAttributes = Optional<
   'id' | 'createdAt' | 'updatedAt'
 >;
 
+// Define a type that includes the virtual fields
+interface LevelWithVirtuals extends LevelAttributes {
+  highestAccuracy: number | null;
+}
+
 class Level
   extends Model<LevelAttributes, LevelCreationAttributes>
-  implements LevelAttributes
+  implements LevelWithVirtuals
 {
   declare id: number;
   declare song: string;
@@ -47,6 +52,7 @@ class Level
   declare isVerified: boolean;
   declare teamId: number | null;
   declare teamObject: ITeam;
+  declare highestAccuracy: number | null;
 
   // Virtual fields from associations
   declare passes?: IPass[];
@@ -188,6 +194,24 @@ Level.init(
         key: 'id',
       },
     },
+    highestAccuracy: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        // If passes are loaded, find the highest accuracy
+        if (this.passes && this.passes.length > 0) {
+          const validPasses = this.passes.filter(pass => 
+            pass.accuracy !== null && 
+            !pass.isDeleted && 
+            !pass.isHidden
+          );
+          
+          if (validPasses.length > 0) {
+            return Math.max(...validPasses.map(pass => pass.accuracy || 0));
+          }
+        }
+        return null;
+      }
+    }
   },
   {
     sequelize,

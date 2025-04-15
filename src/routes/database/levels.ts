@@ -449,7 +449,7 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
         model: Pass,
         as: 'passes',
         required: false,
-        attributes: ['id'],
+        attributes: ['id', 'accuracy', 'isDeleted', 'isHidden'],
       },
       {
         model: Team,
