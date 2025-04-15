@@ -6,7 +6,7 @@ import Difficulty from '../models/Difficulty.js';
 import {User} from '../models/index.js';
 import OAuthProvider from '../models/OAuthProvider.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
-
+import Judgement from '../models/Judgement.js';
 // Process a batch of players in parallel
 async function processBatchParallel(player: Player): Promise<IPlayer> {
   // First, get all player IDs
@@ -33,6 +33,10 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
           },
         ],
       },
+      {
+        model: Judgement,
+        as: 'judgements',
+      },
     ],
   });
 
@@ -50,8 +54,6 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
     ],
     attributes: ['playerId', 'nickname', 'avatarUrl', 'username'],
   });
-
-  const allDifficulties = await Difficulty.findAll();
 
   // Create lookup maps for faster access
   const passesMap = new Map<number, Pass[]>();
