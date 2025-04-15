@@ -52,7 +52,7 @@ module.exports = {
         END IF;
         
         SET total_perfect = e_perfect + perfect + l_perfect;
-        SET result = (total_perfect / total_notes) * 100;
+        SET result = (total_perfect / total_notes);
         
         RETURN result;
       END
