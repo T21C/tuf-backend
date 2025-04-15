@@ -171,6 +171,10 @@ export class PlayerStatsService {
                   },
                 ],
               },
+              {
+                model: Judgement,
+                as: 'judgements',
+              },
             ],
           },
           {
@@ -178,6 +182,7 @@ export class PlayerStatsService {
             as: 'user',
             required: false,
           },
+
         ],
         transaction,
       });
@@ -549,6 +554,10 @@ export class PlayerStatsService {
                     as: 'difficulty',
                   },
                 ],
+              },
+              {
+                model: Judgement,
+                as: 'judgements',
               },
             ],
           },
@@ -1068,6 +1077,10 @@ export class PlayerStatsService {
             isDeleted: false,
             isHidden: false
           }
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
         },
       ],
     });
