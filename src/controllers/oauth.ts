@@ -219,7 +219,10 @@ export const OAuthController = {
         });
       }
     } catch (error) {
-      console.error('OAuth callback error:', error);
+      if (error instanceof Error && error.message.includes('400')) {
+        return res.status(400).json({message: 'Bad authentication code'});
+      }
+      //console.error('OAuth callback error:', error);
       return res.status(500).json({message: 'Authentication failed'});
     }
   },
