@@ -56,7 +56,7 @@ class PassSubmissionFlags extends BaseModel {
 PassSubmission.init(
   {
     passer: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     passerId: {
@@ -73,7 +73,7 @@ PassSubmission.init(
       defaultValue: false,
     },
     videoLink: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     status: {
@@ -139,19 +139,19 @@ PassSubmission.init(
       allowNull: true,
     },
     submitterDiscordUsername: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     submitterEmail: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     submitterDiscordId: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
     submitterDiscordPfp: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: true,
     },
   },

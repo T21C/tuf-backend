@@ -44,50 +44,50 @@ class LevelSubmission extends BaseModel {
 LevelSubmission.init(
   {
     artist: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     charter: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     diff: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     song: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     team: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       defaultValue: '',
     },
     vfxer: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       defaultValue: '',
     },
     videoLink: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     directDL: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     wsLink: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       defaultValue: '',
     },
     submitterDiscordUsername: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
     },
     submitterDiscordPfp: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
       defaultValue: '',
     },
     submitterDiscordId: {
-      type: DataTypes.STRING,
+      type: DataTypes.TEXT,
     },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'declined'),

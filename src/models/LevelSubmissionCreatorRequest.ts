@@ -43,7 +43,7 @@ LevelSubmissionCreatorRequest.init({
     }
   },
   creatorName: {
-    type: DataTypes.STRING,
+    type: DataTypes.TEXT,
     allowNull: false
   },
   creatorId: {
