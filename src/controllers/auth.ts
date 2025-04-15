@@ -382,17 +382,21 @@ export const authController = {
         return res.status(401).json({message: 'Invalid credentials'});
       }
 
+      // Check if user has a password set
+      if (!user.password) {
+        return res.status(400).json({message: 'Account not linked to a password. Please use OAuth to login.'});
+      }
+
       // Verify password
       const isValidPassword = await passwordUtils.comparePassword(
         password,
-        user.password!,
+        user.password,
       );
       if (!isValidPassword) {
         // Increment rate limit for failed login
         await loginLimiter.increment(ip);
         return res.status(401).json({message: 'Invalid credentials'});
       }
-
 
       // Update last login
       await user.update({lastLogin: new Date()});
