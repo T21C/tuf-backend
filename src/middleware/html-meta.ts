@@ -136,8 +136,8 @@ const getBaseHtml = (clientUrl: string) => {
 
   // Get favicon path from manifest or fallback
   const faviconPath = manifest['src/assets/tuf-logo/logo.png']?.file 
-    ? `/assets/${manifest['src/assets/tuf-logo/logo.png'].file}`
-    : '/assets/logo.png';
+    ? `/${manifest['src/assets/tuf-logo/logo.png'].file}`
+    : '/logo.png';
 
   return `
     <!DOCTYPE html>
