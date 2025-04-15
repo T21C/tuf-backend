@@ -653,36 +653,48 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       // Update player stats - these operations don't need to be part of the transaction
       if (submission.assignedPlayerId) {
         try {
-          await playerStatsService.updatePlayerStats(
-            submission.assignedPlayerId,
-          );
+          // Create a new transaction for player stats update
+          const statsTransaction = await sequelize.transaction();
+          try {
+            await playerStatsService.updatePlayerStats(
+              submission.assignedPlayerId,
+              statsTransaction
+            );
+            
+            // Commit the stats transaction
+            await statsTransaction.commit();
 
-          // Get player's new stats
-          const playerStats = await playerStatsService.getPlayerStats(
-            submission.assignedPlayerId,
-          );
+            // Get player's new stats
+            const playerStats = await playerStatsService.getPlayerStats(
+              submission.assignedPlayerId,
+            );
 
-          sseManager.broadcast({
-            type: 'submissionUpdate',
-            data: {
-              action: 'create',
-              submissionId: submission.id,
-              submissionType: 'pass',
-            },
-          });
-          // Emit SSE event with pass update data
-          sseManager.broadcast({
-            type: 'passUpdate',
-            data: {
-              playerId: submission.assignedPlayerId,
-              passedLevelId: submission.levelId,
-              newScore: playerStats?.rankedScore || 0,
-              action: 'create',
-            },
-          });
+            sseManager.broadcast({
+              type: 'submissionUpdate',
+              data: {
+                action: 'create',
+                submissionId: submission.id,
+                submissionType: 'pass',
+              },
+            });
+            // Emit SSE event with pass update data
+            sseManager.broadcast({
+              type: 'passUpdate',
+              data: {
+                playerId: submission.assignedPlayerId,
+                passedLevelId: submission.levelId,
+                newScore: playerStats?.rankedScore || 0,
+                action: 'create',
+              },
+            });
+          } catch (error) {
+            // If there's an error, rollback the stats transaction
+            await statsTransaction.rollback();
+            throw error;
+          }
         } catch (error) {
           console.error('Error updating player stats:', error);
-          // Don't rollback transaction here since it's already committed
+          // Don't rollback main transaction here since it's already committed
         }
       }
 
