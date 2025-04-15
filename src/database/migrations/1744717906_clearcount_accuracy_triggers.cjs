@@ -41,18 +41,24 @@ module.exports = {
       ) RETURNS DOUBLE
       DETERMINISTIC
       BEGIN
-        DECLARE total_notes BIGINT UNSIGNED;
-        DECLARE total_perfect BIGINT UNSIGNED;
+        DECLARE total_tiles BIGINT UNSIGNED;
+        DECLARE weighted_sum DOUBLE;
         DECLARE result DOUBLE;
         
-        SET total_notes = early_double + early_single + e_perfect + perfect + l_perfect + late_single + late_double;
+        SET total_tiles = early_double + early_single + e_perfect + perfect + l_perfect + late_single + late_double;
         
-        IF total_notes = 0 THEN
+        IF total_tiles = 0 THEN
           RETURN NULL;
         END IF;
         
-        SET total_perfect = e_perfect + perfect + l_perfect;
-        SET result = (total_perfect / total_notes);
+        -- Calculate weighted sum based on the calcAcc function in CalcAcc.ts
+        -- perfect = 1.0, ePerfect/lPerfect = 0.75, earlySingle/lateSingle = 0.4, earlyDouble/lateDouble = 0.2
+        SET weighted_sum = perfect + 
+                          (e_perfect + l_perfect) * 0.75 + 
+                          (early_single + late_single) * 0.4 + 
+                          (early_double + late_double) * 0.2;
+        
+        SET result = weighted_sum / total_tiles;
         
         RETURN result;
       END
@@ -163,11 +169,20 @@ module.exports = {
     // Drop triggers
     await queryInterface.sequelize.query(`
       DROP TRIGGER IF EXISTS update_judgement_accuracy;
-      DROP TRIGGER IF EXISTS update_judgement_accuracy_on_update;
-      DROP TRIGGER IF EXISTS update_level_clears_on_pass_insert;
-      DROP TRIGGER IF EXISTS update_level_clears_on_pass_delete;
     `);
     
+    await queryInterface.sequelize.query(`
+      DROP TRIGGER IF EXISTS update_judgement_accuracy_on_update;
+    `);
+      
+    await queryInterface.sequelize.query(`
+      DROP TRIGGER IF EXISTS update_level_clears_on_pass_insert;
+    `);
+
+    await queryInterface.sequelize.query(`
+      DROP TRIGGER IF EXISTS update_level_clears_on_pass_delete;
+    `);
+
     // Drop function
     await queryInterface.sequelize.query(`
       DROP FUNCTION IF EXISTS calculate_accuracy;
