@@ -12,7 +12,7 @@ class Judgement extends Model<IJudgement> implements IJudgement {
   declare lPerfect: number;
   declare lateSingle: number;
   declare lateDouble: number;
-  declare accuracy?: number;
+  declare accuracy: number | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 }
@@ -71,10 +71,9 @@ Judgement.init(
       allowNull: false,
     },
     accuracy: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        return calcAcc(this);
-      },
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {

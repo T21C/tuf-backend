@@ -193,10 +193,9 @@ Level.init(
       },
     },
     clears: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        return this.passes?.length || 0;
-      },
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     highestAccuracy: {
       type: DataTypes.VIRTUAL,

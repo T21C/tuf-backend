@@ -139,7 +139,7 @@ export interface IJudgement extends IBaseModel {
   lPerfect: number;
   lateSingle: number;
   lateDouble: number;
-  accuracy?: number;
+  accuracy: number | null;
 }
 
 // Model instance types
