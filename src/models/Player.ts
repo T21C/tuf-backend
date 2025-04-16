@@ -78,6 +78,9 @@ Player.init(
     pfp: {
       type: DataTypes.STRING,
       allowNull: true,
+      get() {
+        return this.user?.avatarUrl || this.getDataValue('pfp') || null;
+      },
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -14,14 +14,9 @@ type LevelCreationAttributes = Optional<
   'id' | 'createdAt' | 'updatedAt'
 >;
 
-// Define a type that includes the virtual fields
-interface LevelWithVirtuals extends LevelAttributes {
-  highestAccuracy: number | null;
-}
-
 class Level
   extends Model<LevelAttributes, LevelCreationAttributes>
-  implements LevelWithVirtuals
+  implements ILevel
 {
   declare id: number;
   declare song: string;
@@ -53,7 +48,7 @@ class Level
   declare teamId: number | null;
   declare teamObject: ITeam;
   declare highestAccuracy: number | null;
-
+  declare firstPass: IPass | null;
   // Virtual fields from associations
   declare passes?: IPass[];
   declare difficulty?: IDifficulty;
@@ -189,13 +184,19 @@ Level.init(
     isCleared: {
       type: DataTypes.VIRTUAL,
       get() {
-        return this.passes && this.passes.length > 0 || false;
+        return this.clears > 0;
       },
     },
     clears: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
+    },
+    firstPass: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.passes ? this.passes.find(pass => pass.isWorldsFirst) : null;
+      },
     },
     highestAccuracy: {
       type: DataTypes.VIRTUAL,
