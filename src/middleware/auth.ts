@@ -26,6 +26,8 @@ type MiddlewareFunction = (
 /**
  * Auth middleware factory
  */
+
+let incorectPasswords: Map<string, number> = new Map();
 export const Auth = {
   /**
    * Require authenticated user
@@ -217,6 +219,10 @@ export const Auth = {
       try {
         // First ensure user is a super admin
         await Auth.superAdmin()(req, res, () => {
+          if (!req.user) {
+            res.status(401).json({error: 'User not found'});
+            return;
+          }
           const {superAdminPassword: superAdminPasswordBody} = req.body;
           const superAdminPasswordHeader =
             req.headers['x-super-admin-password'];
@@ -225,11 +231,18 @@ export const Auth = {
           if (
             !superAdminPassword ||
             superAdminPassword !== process.env.SUPER_ADMIN_KEY
-          ) {
-            res.status(403).json({message: 'Invalid super admin password'});
-            return;
+          ){
+            incorectPasswords.set(req.user.id, (incorectPasswords.get(req.user.id) || 0) + 1);
+            if ((incorectPasswords.get(req.user.id) || 0) >= 5) {
+              console.warn(`User ${req.user.id} has made ${incorectPasswords.get(req.user.id)} incorrect password attempts`);
+            }
+            return res.status(403).json({message: 'Invalid super admin password'});
           }
-          next();
+          if ((incorectPasswords.get(req.user.id) || 0) >= 5) {
+            console.warn(`User ${req.user.id} successfully entered password after ${incorectPasswords.get(req.user.id)} incorrect attempts`);
+            incorectPasswords.delete(req.user.id);
+          }
+          return next();
         });
       } catch (error) {
         res.status(500).json({message: 'Authorization failed'});

@@ -289,11 +289,6 @@ router.get(
         return res.status(404).json({error: 'Backup file not found'});
       }
 
-      // If it's a HEAD request, just validate access and return success
-      if (req.method === 'HEAD') {
-        return res.status(200).end();
-      }
-
       // Set appropriate headers to prevent double compression
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       

@@ -884,11 +884,7 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
 
 // Verify super admin password
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
-  try {
     return res.status(200).send();
-  } catch (error) {
-    return res.status(403).json({ error: 'Invalid password' });
-  }
 });
 
 // Update difficulty sort orders in bulk
