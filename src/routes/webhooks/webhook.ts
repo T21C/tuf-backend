@@ -1,9 +1,9 @@
 import express, {Request, Response, Router} from 'express';
-import Pass from '../../models/Pass.js';
-import Difficulty from '../../models/Difficulty.js';
-import Level from '../../models/Level.js';
+import Pass from '../../models/passes/Pass.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import Level from '../../models/levels/Level.js';
 import {Webhook, MessageBuilder} from '../../webhook/index.js';
-import Player from '../../models/Player.js';
+import Player from '../../models/players/Player.js';
 import {Op} from 'sequelize';
 import {
   createClearEmbed,
@@ -13,15 +13,15 @@ import {
   trim,
   wrap,
 } from './embeds.js';
-import Judgement from '../../models/Judgement.js';
+import Judgement from '../../models/passes/Judgement.js';
 import {
   getPassAnnouncementConfig,
   getLevelAnnouncementConfig,
 } from './channelParser.js';
-import {PassSubmission} from '../../models/PassSubmission.js';
+import {PassSubmission} from '../../models/submissions/PassSubmission.js';
 import {getVideoDetails} from '../../utils/videoDetailParser.js';
-import LevelSubmission from '../../models/LevelSubmission.js';
-import {calcAcc, IJudgements} from '../../misc/CalcAcc.js';
+import LevelSubmission from '../../models/submissions/LevelSubmission.js';
+import {calcAcc, IJudgements} from '../../utils/CalcAcc.js';
 import {Auth} from '../../middleware/auth.js';
 
 const router: Router = express.Router();

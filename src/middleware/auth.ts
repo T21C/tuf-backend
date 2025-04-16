@@ -1,9 +1,9 @@
 import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider} from '../models/index.js';
 import {tokenUtils} from '../utils/auth.js';
-import type {UserAttributes} from '../models/User.js';
+import type {UserAttributes} from '../models/auth/User.js';
 import axios from 'axios';
-import Player from '../models/Player.js';
+import Player from '../models/players/Player.js';
 
 // Extend Express Request type to include user
 declare global {

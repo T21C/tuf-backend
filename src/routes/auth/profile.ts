@@ -3,8 +3,8 @@ import {Auth} from '../../middleware/auth.js';
 import {OAuthProvider, User} from '../../models/index.js';
 import bcrypt from 'bcrypt';
 import sequelize from "../../config/db.js";
-import UsernameChange from '../../models/UsernameChange.js';
-import Player from '../../models/Player.js';
+import UsernameChange from '../../models/auth/UsernameChange.js';
+import Player from '../../models/players/Player.js';
 
 const router: Router = Router();
 
@@ -42,7 +42,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
         pfp: player?.pfp,
         lastUsernameChange: user.lastUsernameChange,
         previousUsername: user.previousUsername,
-        providers: providers.map(p => ({
+        providers: providers.map((p: OAuthProvider) => ({
           name: p.provider,
           profile: p.profile,
         })),
@@ -167,7 +167,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         playerId: updatedUser.playerId,
         lastUsernameChange: updatedUser.lastUsernameChange,
         previousUsername: updatedUser.previousUsername,
-        providers: providers.map(p => p.provider),
+        providers: providers.map((p: OAuthProvider) => p.provider),
       },
     });
   } catch (error) {

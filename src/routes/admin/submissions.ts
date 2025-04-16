@@ -4,13 +4,13 @@ import {
   PassSubmission,
   PassSubmissionFlags,
   PassSubmissionJudgements,
-} from '../../models/PassSubmission.js';
-import Pass from '../../models/Pass.js';
-import Level from '../../models/Level.js';
-import Difficulty from '../../models/Difficulty.js';
-import Judgement from '../../models/Judgement.js';
-import {calcAcc} from '../../misc/CalcAcc.js';
-import {getScoreV2} from '../../misc/CalcScore.js';
+} from '../../models/submissions/PassSubmission.js';
+import Pass from '../../models/passes/Pass.js';
+import Level from '../../models/levels/Level.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import Judgement from '../../models/passes/Judgement.js';
+import {calcAcc} from '../../utils/CalcAcc.js';
+import {getScoreV2} from '../../utils/CalcScore.js';
 import {getIO} from '../../utils/socket.js';
 import sequelize from '../../config/db.js';
 import {sseManager} from '../../utils/sse.js';
@@ -18,16 +18,15 @@ import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {updateWorldsFirstStatus} from '../database/passes.js';
 import {IPassSubmissionJudgements} from '../../interfaces/models/index.js';
-import LevelSubmission from '../../models/LevelSubmission.js';
-import Rating from '../../models/Rating.js';
-import Player from '../../models/Player.js';
-import Team from '../../models/Team.js';
-import LevelSubmissionCreatorRequest from '../../models/LevelSubmissionCreatorRequest.js';
-import LevelSubmissionTeamRequest from '../../models/LevelSubmissionTeamRequest.js';
-import Creator from '../../models/Creator.js';
-import LevelCredit from '../../models/LevelCredit.js';
-import User from '../../models/User.js';
-import TeamMember from '../../models/TeamMember.js';
+import LevelSubmission from '../../models/submissions/LevelSubmission.js';
+import Rating from '../../models/levels/Rating.js';
+import Player from '../../models/players/Player.js';
+import Team from '../../models/credits/Team.js';
+import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
+import LevelSubmissionTeamRequest from '../../models/submissions/LevelSubmissionTeamRequest.js';
+import Creator from '../../models/credits/Creator.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
+import User from '../../models/auth/User.js';
 import { Op } from 'sequelize';
 
 const router: Router = Router();
@@ -327,7 +326,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           transaction
         });
 
-        const allExistingCreatorsVerified = existingCreators.every(c => c.isVerified);
+        const allExistingCreatorsVerified = existingCreators.every((c: Creator) => c.isVerified);
 
         const newLevel = await Level.create(
           {
@@ -394,7 +393,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                 levelId: newLevel.id,
                 creatorId: request.creatorId,
                 role: request.role,
-                isVerified: existingCreators.find(c => c.id === request.creatorId)?.isVerified || false
+                isVerified: existingCreators.find((c: Creator) => c.id === request.creatorId)?.isVerified || false
               }, {
                 transaction
               });

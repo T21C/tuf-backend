@@ -1,9 +1,9 @@
 import {Request, Response, NextFunction} from 'express';
-import Pass from '../models/Pass.js';
-import Level from '../models/Level.js';
-import Player from '../models/Player.js';
-import Difficulty from '../models/Difficulty.js';
-import Creator from '../models/Creator.js';
+import Pass from '../models/passes/Pass.js';
+import Level from '../models/levels/Level.js';
+import Player from '../models/players/Player.js';
+import Difficulty from '../models/levels/Difficulty.js';
+import Creator from '../models/credits/Creator.js';
 import fs from 'fs';
 import path from 'path';
 

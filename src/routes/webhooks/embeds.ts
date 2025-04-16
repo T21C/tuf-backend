@@ -1,8 +1,8 @@
-import Difficulty from '../../models/Difficulty.js';
-import Level from '../../models/Level.js';
-import Pass from '../../models/Pass.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import Level from '../../models/levels/Level.js';
+import Pass from '../../models/passes/Pass.js';
 import {MessageBuilder} from '../../webhook/index.js';
-import {calculateRankedScore} from '../../misc/PlayerStatsCalculator.js';
+import {calculateRankedScore} from '../../utils/PlayerStatsCalculator.js';
 import {getVideoDetails} from '../../utils/videoDetailParser.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 const ownUrlEnv =

@@ -1,7 +1,7 @@
 import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {User, OAuthProvider} from '../../models/index.js';
-import Player from '../../models/Player.js';
+import Player from '../../models/players/Player.js';
 import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import {Op} from 'sequelize';
 import {tokenUtils} from '../../utils/auth.js';

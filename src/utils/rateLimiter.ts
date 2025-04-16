@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { Op } from 'sequelize';
 import { logger } from './logger.js';
-import RateLimit, { RateLimitCreationAttributes } from '../models/RateLimit.js';
+import RateLimit, { RateLimitCreationAttributes } from '../models/auth/RateLimit.js';
 
 interface RateLimitConfig {
   windowMs: number;      // Time window in milliseconds

@@ -1,15 +1,15 @@
-import Pass from '../../models/Pass.js';
-import Level from '../../models/Level.js';
-import AnnouncementDirective from '../../models/AnnouncementDirective.js';
-import DirectiveConditionHistory from '../../models/DirectiveConditionHistory.js';
+import Pass from '../../models/passes/Pass.js';
+import Level from '../../models/levels/Level.js';
+import AnnouncementDirective from '../../models/announcements/AnnouncementDirective.js';
+import DirectiveConditionHistory from '../../models/announcements/DirectiveConditionHistory.js';
 import {DirectiveCondition} from '../../interfaces/models/index.js';
-import AnnouncementChannel from '../../models/AnnouncementChannel.js';
-import AnnouncementRole from '../../models/AnnouncementRole.js';
-import DirectiveAction from '../../models/DirectiveAction.js';
+import AnnouncementChannel from '../../models/announcements/AnnouncementChannel.js';
+import AnnouncementRole from '../../models/announcements/AnnouncementRole.js';
+import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 import { evaluateDirectiveCondition } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
-import Judgement from '../../models/Judgement.js';
+import Judgement from '../../models/passes/Judgement.js';
 
 interface AnnouncementConfig {
   webhooks: {

@@ -1,9 +1,8 @@
 import {Request, Response, Router} from 'express';
 import {validSortOptions} from '../../config/constants.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
-import User from '../../models/User.js';
-import OAuthProvider from '../../models/OAuthProvider.js';
-import Player from '../../models/Player.js';
+import User from '../../models/auth/User.js';
+import OAuthProvider from '../../models/auth/OAuthProvider.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();

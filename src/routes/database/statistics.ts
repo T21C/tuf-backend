@@ -1,11 +1,11 @@
 import {Router} from 'express';
 import {Op, fn, col, literal, Sequelize} from 'sequelize';
-import Level from '../../models/Level.js';
-import Pass from '../../models/Pass.js';
-import Player from '../../models/Player.js';
-import Difficulty from '../../models/Difficulty.js';
-import LevelSubmission from '../../models/LevelSubmission.js';
-import {PassSubmission} from '../../models/PassSubmission.js';
+import Level from '../../models/levels/Level.js';
+import Pass from '../../models/passes/Pass.js';
+import Player from '../../models/players/Player.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import LevelSubmission from '../../models/submissions/LevelSubmission.js';
+import {PassSubmission} from '../../models/submissions/PassSubmission.js';
 
 const router: Router = Router();
 

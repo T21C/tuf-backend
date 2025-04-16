@@ -1,4 +1,4 @@
-import Player from '../models/Player.js';
+import Player from '../models/players/Player.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import sequelize from '../config/db.js';
 

@@ -1,28 +1,28 @@
-import Level from './Level.js';
-import Pass from './Pass.js';
-import Player from './Player.js';
-import Judgement from './Judgement.js';
-import Rating from './Rating.js';
-import RatingDetail from './RatingDetail.js';
-import Difficulty from './Difficulty.js';
+import Level from './levels/Level.js';
+import Pass from './passes/Pass.js';
+import Player from './players/Player.js';
+import Judgement from './passes/Judgement.js';
+import Rating from './levels/Rating.js';
+import RatingDetail from './levels/RatingDetail.js';
+import Difficulty from './levels/Difficulty.js';
 import {
   PassSubmission,
   PassSubmissionJudgements,
   PassSubmissionFlags,
-} from './PassSubmission.js';
-import Reference from './References.js';
-import User from './User.js';
-import OAuthProvider from './OAuthProvider.js';
-import Creator from './Creator.js';
-import LevelCredit from './LevelCredit.js';
-import Team from './Team.js';
-import TeamMember from './TeamMember.js';
-import LevelAlias from './LevelAlias.js';
-import PlayerStats from './PlayerStats.js';
-import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
-import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
-import LevelSubmission from './LevelSubmission.js';
-import AnnouncementDirective from './AnnouncementDirective.js';
+} from './submissions/PassSubmission.js';
+import Reference from './levels/References.js'; 
+import User from './auth/User.js';
+import OAuthProvider from './auth/OAuthProvider.js';
+import Creator from './credits/Creator.js';
+import LevelCredit from './levels/LevelCredit.js';
+import Team from './credits/Team.js'; 
+import TeamMember from './credits/TeamMember.js';
+import LevelAlias from './levels/LevelAlias.js';
+import PlayerStats from './players/PlayerStats.js';
+import LevelSubmissionCreatorRequest from './submissions/LevelSubmissionCreatorRequest.js';
+import LevelSubmissionTeamRequest from './submissions/LevelSubmissionTeamRequest.js';
+import LevelSubmission from './submissions/LevelSubmission.js';
+import AnnouncementDirective from './announcements/AnnouncementDirective.js';
 
 export function initializeAssociations() {
   // User <-> Player associations

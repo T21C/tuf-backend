@@ -1,12 +1,12 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '../../middleware/auth.js';
-import Rating from '../../models/Rating.js';
-import LevelSubmission from '../../models/LevelSubmission.js';
-import {PassSubmission} from '../../models/PassSubmission.js';
-import Level from '../../models/Level.js';
-import RatingDetail from '../../models/RatingDetail.js';
+import Rating from '../../models/levels/Rating.js';
+import LevelSubmission from '../../models/submissions/LevelSubmission.js';
+import {PassSubmission} from '../../models/submissions/PassSubmission.js';
+import Level from '../../models/levels/Level.js';
+import RatingDetail from '../../models/levels/RatingDetail.js';
 import {Sequelize} from 'sequelize';
-import User, {UserAttributes} from '../../models/User.js';
+import User, {UserAttributes} from '../../models/auth/User.js';
 
 const router: Router = Router();
 
@@ -43,9 +43,9 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
         }
       ],
       order: [['levelId', 'ASC']],
-    }).then(ratings => {
+    }).then((ratings: Rating[]) => {
       return ratings.filter(
-        rating => 
+        (rating: Rating) => 
           !/^vote/i.test(rating.level?.rerateNum || '')
         &&
           (rating.details?.length || 0) < 4

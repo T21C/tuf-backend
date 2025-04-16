@@ -1,4 +1,4 @@
-import type {UserAttributes} from '../../models/User.js';
+import type {UserAttributes} from '../../models/auth/User.js';
 
 declare global {
   namespace Express {

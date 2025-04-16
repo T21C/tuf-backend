@@ -1,8 +1,8 @@
-import PlayerStats from '../models/PlayerStats.js';
-import Player from '../models/Player.js';
-import Pass from '../models/Pass.js';
-import Level from '../models/Level.js';
-import Difficulty from '../models/Difficulty.js';
+import PlayerStats from '../models/players/PlayerStats.js';
+import Player from '../models/players/Player.js';
+import Pass from '../models/passes/Pass.js';
+import Level from '../models/levels/Level.js';
+import Difficulty from '../models/levels/Difficulty.js';
 import {IPass} from '../interfaces/models/index.js';
 import {
   calculateRankedScore,
@@ -13,15 +13,15 @@ import {
   calculateAverageXacc,
   countUniversalPassCount,
   countWorldsFirstPasses,
-} from '../misc/PlayerStatsCalculator.js';
+} from '../utils/PlayerStatsCalculator.js';
 import sequelize from '../config/db.js';
 import {getIO} from '../utils/socket.js';
 import {sseManager} from '../utils/sse.js';
-import User from '../models/User.js';
-import Judgement from '../models/Judgement.js';
+import User from '../models/auth/User.js';
+import Judgement from '../models/passes/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
-import PlayerModifier, { ModifierType } from '../models/PlayerModifier.js';
+import PlayerModifier, { ModifierType } from '../models/players/PlayerModifier.js';
 import { ModifierService } from '../services/ModifierService.js';
 
 export class PlayerStatsService {

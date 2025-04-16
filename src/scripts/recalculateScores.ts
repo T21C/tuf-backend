@@ -1,13 +1,13 @@
 import sequelize from '../config/db.js';
-import Level from '../models/Level.js';
-import Pass from '../models/Pass.js';
-import Player from '../models/Player.js';
+import Level from '../models/levels/Level.js';
+import Pass from '../models/passes/Pass.js';
+import Player from '../models/players/Player.js';
 import { Op } from 'sequelize';
 import { initializeAssociations } from '../models/associations.js';
-import { getScoreV2 } from '../misc/CalcScore.js';
-import type { IJudgements } from '../misc/CalcAcc.js';
-import Difficulty from '../models/Difficulty.js';
-import Judgement from '../models/Judgement.js';
+import { getScoreV2 } from '../utils/CalcScore.js';
+import type { IJudgements } from '../utils/CalcAcc.js';
+import Difficulty from '../models/levels/Difficulty.js';
+import Judgement from '../models/passes/Judgement.js';
 
 // Configuration
 const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues

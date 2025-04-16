@@ -1,8 +1,8 @@
 import {Request, Response, Router} from 'express';
 import {Op, Transaction} from 'sequelize';
-import Reference from '../../models/References.js';
-import Difficulty from '../../models/Difficulty.js';
-import Level from '../../models/Level.js';
+import Reference from '../../models/levels/References.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import Level from '../../models/levels/Level.js';
 import {Auth} from '../../middleware/auth.js';
 import sequelize from '../../config/db.js';
 

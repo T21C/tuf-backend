@@ -1,5 +1,5 @@
 import { IPass } from '../interfaces/models/index.js';
-import Level from '../models/Level.js';
+import Level from '../models/levels/Level.js';
 
 // Define the available operators and their corresponding JavaScript operators
 const OPERATORS = {

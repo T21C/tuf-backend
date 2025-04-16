@@ -1,31 +1,31 @@
-import Level from './Level.js';
-import Pass from './Pass.js';
-import Player from './Player.js';
-import Rating from './Rating.js';
-import RatingDetail from './RatingDetail.js';
-import Judgement from './Judgement.js';
-import LevelSubmission from './LevelSubmission.js';
-import Difficulty from './Difficulty.js';
+import Level from './levels/Level.js';
+import Pass from './passes/Pass.js';
+import Player from './players/Player.js';
+import Rating from './levels/Rating.js';
+import RatingDetail from './levels/RatingDetail.js';
+import Judgement from './passes/Judgement.js';
+import LevelSubmission from './submissions/LevelSubmission.js';
+import Difficulty from './levels/Difficulty.js';
 import {
   PassSubmission,
   PassSubmissionJudgements,
   PassSubmissionFlags,
-} from './PassSubmission.js';
+} from './submissions/PassSubmission.js';
 import sequelize from '../config/db.js';
 import {initializeAssociations} from './associations.js';
-import User from './User.js';
-import OAuthProvider from './OAuthProvider.js';
-import Creator from './Creator.js';
-import LevelCredit from './LevelCredit.js';
-import Team from './Team.js';
-import TeamMember from './TeamMember.js';
-import PlayerStats from './PlayerStats.js';
-import UsernameChange from './UsernameChange.js';
-import AnnouncementChannel from './AnnouncementChannel.js';
-import AnnouncementRole from './AnnouncementRole.js';
-import AnnouncementDirective from './AnnouncementDirective.js';
-import DirectiveAction from './DirectiveAction.js';
-import RateLimit from './RateLimit.js';
+import User from './auth/User.js';
+import OAuthProvider from './auth/OAuthProvider.js';
+import Creator from './credits/Creator.js';
+import LevelCredit from './levels/LevelCredit.js';
+import Team from './credits/Team.js';
+import TeamMember from './credits/TeamMember.js';
+import PlayerStats from './players/PlayerStats.js';
+import UsernameChange from './auth/UsernameChange.js';
+import AnnouncementChannel from './announcements/AnnouncementChannel.js';
+import AnnouncementRole from './announcements/AnnouncementRole.js';
+import AnnouncementDirective from './announcements/AnnouncementDirective.js';
+import DirectiveAction from './announcements/DirectiveAction.js';
+import RateLimit from './auth/RateLimit.js';
 // Create db object with models first
 export const db = {
   sequelize,

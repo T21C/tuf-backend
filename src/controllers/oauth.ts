@@ -2,7 +2,7 @@ import {Request, Response} from 'express';
 import OAuthService from '../services/OAuthService.js';
 import {tokenUtils} from '../utils/auth.js';
 import {OAuthProvider, User} from '../models/index.js';
-import Player from '../models/Player.js';
+import Player from '../models/players/Player.js';
 import {findPlayerByDiscordId} from '../utils/playerMapping.js';
 import axios from 'axios';
 import {

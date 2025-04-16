@@ -1,9 +1,9 @@
 import sequelize from '../config/db.js';
-import User from '../models/User.js';
+import User from '../models/auth/User.js';
 import { fetchDiscordUserInfo } from '../utils/discord.js';
 import { initializeAssociations } from '../models/associations.js';
 import { Op } from 'sequelize';
-import OAuthProvider from '../models/OAuthProvider.js';
+import OAuthProvider from '../models/auth/OAuthProvider.js';
 
 const BATCH_SIZE = 100;
 const RATE_LIMIT_DELAY = 1000; // 1 second between batches

@@ -1,15 +1,15 @@
 import {Auth} from '../../middleware/auth.js';
-import Rating from '../../models/Rating.js';
-import RatingDetail from '../../models/RatingDetail.js';
-import Level from '../../models/Level.js';
+import Rating from '../../models/levels/Rating.js';
+import RatingDetail from '../../models/levels/RatingDetail.js';
+import Level from '../../models/levels/Level.js';
 import {sseManager} from '../../utils/sse.js';
 import sequelize from '../../config/db.js';
-import Difficulty from '../../models/Difficulty.js';
-import User from '../../models/User.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import User from '../../models/auth/User.js';
 import {Router, Request, Response, NextFunction} from 'express';
-import Team from '../../models/Team.js';
-import Creator from '../../models/Creator.js';
-import LevelCredit from '../../models/LevelCredit.js';
+import Team from '../../models/credits/Team.js';
+import Creator from '../../models/credits/Creator.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
 const router: Router = Router();
 
 // Cache for difficulties to avoid repeated DB queries

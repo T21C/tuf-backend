@@ -1,12 +1,12 @@
 import {IPlayer} from '../interfaces/models/index.js';
-import Player from '../models/Player.js';
-import Pass from '../models/Pass.js';
-import Level from '../models/Level.js';
-import Difficulty from '../models/Difficulty.js';
+import Player from '../models/players/Player.js';
+import Pass from '../models/passes/Pass.js';
+import Level from '../models/levels/Level.js';
+import Difficulty from '../models/levels/Difficulty.js';
 import {User} from '../models/index.js';
-import OAuthProvider from '../models/OAuthProvider.js';
+import OAuthProvider from '../models/auth/OAuthProvider.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
-import Judgement from '../models/Judgement.js';
+import Judgement from '../models/passes/Judgement.js';
 // Process a batch of players in parallel
 async function processBatchParallel(player: Player): Promise<IPlayer> {
   // First, get all player IDs

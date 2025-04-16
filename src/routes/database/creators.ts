@@ -1,21 +1,21 @@
 import {Op, WhereOptions} from 'sequelize';
 import {Auth} from '../../middleware/auth.js';
-import Creator from '../../models/Creator.js';
-import Level from '../../models/Level.js';
-import LevelCredit from '../../models/LevelCredit.js';
-import {CreditRole} from '../../models/LevelCredit.js';
+import Creator from '../../models/credits/Creator.js';
+import Level from '../../models/levels/Level.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
+import {CreditRole} from '../../models/levels/LevelCredit.js';
 import sequelize from '../../config/db.js';
-import Team from '../../models/Team.js';
-import TeamMember from '../../models/TeamMember.js';
+import Team from '../../models/credits/Team.js';
+import TeamMember from '../../models/credits/TeamMember.js';
 import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
-import User from '../../models/User.js';
+import User from '../../models/auth/User.js';
 import {
   createMultiFieldSearchCondition,
   createSearchCondition,
   escapeForMySQL,
 } from '../../utils/searchHelpers.js';
 import {Router, Request, Response} from 'express';
-import LevelSubmissionCreatorRequest from '../../models/LevelSubmissionCreatorRequest.js';
+import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 const router: Router = Router();
 
 interface LevelCountResult {

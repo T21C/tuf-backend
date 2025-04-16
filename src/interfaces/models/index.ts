@@ -1,6 +1,6 @@
 import {Model, Optional} from 'sequelize';
-import {UserAttributes} from '../../models/User.js';
-import DirectiveAction from '../../models/DirectiveAction.js';
+import {UserAttributes} from '../../models/auth/User.js';
+import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 
 // Base interface for common fields
 export interface IBaseModel {

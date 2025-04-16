@@ -1,8 +1,8 @@
 import {User, OAuthProvider} from '../models/index.js';
 import {v4 as uuidv4} from 'uuid';
-import {UserAttributes} from '../models/User.js';
+import {UserAttributes} from '../models/auth/User.js';
 import {raterList, SUPER_ADMINS} from '../config/constants.js';
-import Player from '../models/Player.js';
+import Player from '../models/players/Player.js';
 import {findPlayerByDiscordId} from '../utils/playerMapping.js';
 
 interface OAuthProfile {

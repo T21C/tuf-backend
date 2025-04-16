@@ -1,9 +1,9 @@
 import {Request, Response} from 'express';
 import {Op, CreationAttributes} from 'sequelize';
 import {v4 as uuidv4} from 'uuid';
-import User from '../models/User.js';
-import Player from '../models/Player.js';
-import PlayerStats from '../models/PlayerStats.js';
+import User from '../models/auth/User.js';
+import Player from '../models/players/Player.js';
+import PlayerStats from '../models/players/PlayerStats.js';
 import {emailService} from '../utils/email.js';
 import {passwordUtils, tokenUtils} from '../utils/auth.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';

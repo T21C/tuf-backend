@@ -131,7 +131,6 @@ dist
 
 #enc
 .env
-players/
 player.json
 passes.json
 levels.json

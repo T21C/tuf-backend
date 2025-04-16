@@ -1,17 +1,17 @@
-import PlayerModifier, { ModifierType } from '../models/PlayerModifier.js';
+import PlayerModifier, { ModifierType } from '../models/players/PlayerModifier.js';
 import { Op } from 'sequelize';
 import { PlayerStatsService } from './PlayerStatsService.js';
-import Pass from '../models/Pass.js';
-import Level from '../models/Level.js';
+import Pass from '../models/passes/Pass.js';
+import Level from '../models/levels/Level.js';
 import { CronJob } from 'cron';
-import Player from '../models/Player.js';
-import User from '../models/User.js';
-import Judgement from '../models/Judgement.js';
+import Player from '../models/players/Player.js';
+import User from '../models/auth/User.js';
+import Judgement from '../models/passes/Judgement.js';
 import sequelize from '../config/db.js';
-import PlayerStats from '../models/PlayerStats.js';
-import Difficulty from '../models/Difficulty.js';
-import { calcAcc } from '../misc/CalcAcc.js';
-import { getScoreV2 } from '../misc/CalcScore.js';
+import PlayerStats from '../models/players/PlayerStats.js';
+import Difficulty from '../models/levels/Difficulty.js';
+import { calcAcc } from '../utils/CalcAcc.js';
+import { getScoreV2 } from '../utils/CalcScore.js';
 import { env } from 'process';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === "true";
