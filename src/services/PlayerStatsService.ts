@@ -171,6 +171,7 @@ export class PlayerStatsService {
   }
   private async processBatch(transaction: any, offset: number) {
       // Get all players with their passes in a single query
+      console.log('Processing players', offset, " to ", offset + this.BATCH_SIZE);
       const players = await Player.findAll({
         include: [
           {
@@ -213,6 +214,9 @@ export class PlayerStatsService {
         limit: this.BATCH_SIZE,
       });
 
+      // Extract player IDs from the current batch
+      const playerIds = players.map(player => player.id);
+      
       // Prepare bulk update data
       const bulkStats = await Promise.all(players.map(async (player: any) => {
         // Calculate top difficulties
@@ -244,7 +248,6 @@ export class PlayerStatsService {
       }));
 
       // Verify all player IDs exist before bulk upsert
-      const playerIds = bulkStats.map(stat => stat.id);
       const existingPlayers = await Player.findAll({
         where: { id: playerIds },
         attributes: ['id'],
@@ -296,21 +299,18 @@ export class PlayerStatsService {
       }
 
       // Check for players who might have been missed
-      const allPlayers = await Player.findAll({ 
-        include: [
-          {
-            model: User,
-            as: 'user',
-            required: false,
+      const playersWithStats = await PlayerStats.findAll(
+        { 
+          where: {
+            id: {
+              [Op.in]: playerIds,
+            },
           },
-        ],
-        transaction 
-      });
-      
-      const playersWithStats = await PlayerStats.findAll({ transaction });
+          transaction,
+        });
       
       const playerIdsWithStats = new Set(playersWithStats.map((p: any) => p.id));
-      const playersWithoutStats = allPlayers.filter((p: any) => !playerIdsWithStats.has(p.id));
+      const playersWithoutStats = players.filter((p: any) => !playerIdsWithStats.has(p.id));
       
       if (playersWithoutStats.length > 0) {
         console.log(`[PlayerStatsService] Found ${playersWithoutStats.length} players without stats after bulk upsert`);
