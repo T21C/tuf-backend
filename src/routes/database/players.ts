@@ -20,7 +20,8 @@ import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
 import PlayerModifier from '../../models/players/PlayerModifier.js';
 import { ModifierService } from '../../services/ModifierService.js';
-import { ModifierType } from '../../models/players/PlayerModifier.js';
+import { ILevel } from '../../interfaces/models/index.js';
+
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const modifierService = ModifierService.getInstance();
@@ -120,36 +121,9 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Player not found'});
     }
 
-    // Then get player with valid passes
+    // Then get player
     const player = await Player.findByPk(id, {
       include: [
-        {
-          model: Pass,
-          as: 'passes',
-          where: {
-            isDeleted: false
-          },
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              where: {
-                isDeleted: false,
-                isHidden: false
-              },
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                },
-              ],
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
-        },
         {
           model: User,
           as: 'user',
@@ -173,9 +147,30 @@ router.get('/:id', async (req: Request, res: Response) => {
       playerStatsService.getPlayerStats(parseInt(id)),
     ]);
 
+    // Filter out sensitive information from hidden levels and ensure no circular references
+    if (enrichedPlayer.passes) {
+      enrichedPlayer.passes = enrichedPlayer.passes.map(pass => {
+        // Handle both Sequelize model instances and plain objects
+        const plainPass = 'get' in pass && typeof pass.get === 'function' 
+          ? pass.get({ plain: true }) 
+          : pass;
+
+        if (plainPass.level && plainPass.level.isHidden) {
+          const { level, ...passWithoutLevel } = plainPass;
+          return {
+            level: {
+              isHidden: true
+            },
+            ...passWithoutLevel
+          };
+        }
+        return plainPass;
+      });
+    }
+
     // Calculate impact values for top 20 scores
     const uniquePasses = new Map();
-    (playerData.passes || []).forEach(pass => {
+    (enrichedPlayer.passes || []).forEach(pass => {
       if (
         !uniquePasses.has(pass.levelId) ||
         (pass.scoreV2 || 0) > (uniquePasses.get(pass.levelId).scoreV2 || 0)

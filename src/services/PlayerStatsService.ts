@@ -21,7 +21,6 @@ import User from '../models/auth/User.js';
 import Judgement from '../models/passes/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
-import PlayerModifier, { ModifierType } from '../models/players/PlayerModifier.js';
 import { ModifierService } from '../services/ModifierService.js';
 
 export class PlayerStatsService {
@@ -161,8 +160,7 @@ export class PlayerStatsService {
                 model: Level,
                 as: 'level',
                 where: {
-                  isDeleted: false,
-                  isHidden: false
+                  isDeleted: false
                 },
                 include: [
                   {
@@ -464,8 +462,7 @@ export class PlayerStatsService {
     return (passes as any)
       .filter((pass: any) => 
         !pass.isDeleted 
-        && !pass.isDuplicate 
-        && !pass.level?.isHidden 
+        && !pass.isDuplicate
         && !pass.level?.isDeleted
       )
       .map((pass: any) => ({
@@ -546,7 +543,6 @@ export class PlayerStatsService {
                 as: 'level',
                 where: {
                   isDeleted: false,
-                  isHidden: false
                 },
                 include: [
                   {
@@ -800,8 +796,7 @@ export class PlayerStatsService {
               JOIN levels ON levels.id = passes.levelId 
               WHERE passes.playerId = PlayerStats.id
               AND passes.isDeleted = false 
-              AND levels.isDeleted = false 
-              AND levels.isHidden = false
+              AND levels.isDeleted = false
             )`),
             'totalPasses',
           ],
@@ -916,8 +911,7 @@ export class PlayerStatsService {
             'JOIN levels ON levels.id = passes.levelId ' +
             'WHERE passes.playerId = player.id ' + 
             'AND passes.isDeleted = false ' +
-            'AND levels.isDeleted = false ' +
-            'AND levels.isHidden = false)'
+            'AND levels.isDeleted = false)'
           ),
           rankField: null,
         },
@@ -1041,8 +1035,7 @@ export class PlayerStatsService {
           model: Level,
           as: 'level',
           where: !user?.isSuperAdmin ? {
-            isDeleted: false,
-            isHidden: false
+            isDeleted: false
           } : {},
           include: [
             {
@@ -1074,8 +1067,7 @@ export class PlayerStatsService {
           as: 'level',
           attributes: ['baseScore', 'id'],
           where: {
-            isDeleted: false,
-            isHidden: false
+            isDeleted: false
           }
         },
         {

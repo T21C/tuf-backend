@@ -23,8 +23,7 @@ async function processBatchParallel(player: Player): Promise<IPlayer> {
         model: Level,
         as: 'level',
         where: {
-          isDeleted: false,
-          isHidden: false,
+          isDeleted: false
         },
         include: [
           {
