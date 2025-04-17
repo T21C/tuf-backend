@@ -2,6 +2,12 @@ import * as inspector from 'node:inspector';
 import fs from 'node:fs';
 import path from 'path';
 
+// Configuration
+const config = {
+  duration: 60 * 1000, // 60 seconds
+  maxProfiles: 5, // Keep only the 5 most recent profiles
+};
+
 // Create a directory for profiles if it doesn't exist
 const profilesDir = path.join(process.cwd(), 'profiles');
 if (!fs.existsSync(profilesDir)) {
@@ -34,52 +40,104 @@ try {
   process.exit(1);
 }
 
-// Enable the profiler with error handling
-session.post('Profiler.enable', (err) => {
-  if (err) {
-    console.error('Failed to enable profiler:', err);
-    session.disconnect();
-    process.exit(1);
-  }
-  
-  console.log('Profiler enabled');
-  
-  // Start profiling with error handling
-  session.post('Profiler.start', (err) => {
-    if (err) {
-      console.error('Failed to start profiling:', err);
-      session.disconnect();
-      process.exit(1);
-    }
+// Function to take a CPU profile
+function takeCPUProfile() {
+  return new Promise<void>((resolve, reject) => {
+    console.log('Starting CPU profiling...');
     
-    console.log('CPU profiling started');
+    // Enable the profiler
+    session.post('Profiler.enable', (err) => {
+      if (err) {
+        console.error('Error enabling profiler:', err);
+        reject(err);
+        return;
+      }
+      
+      // Start profiling
+      session.post('Profiler.start', (err) => {
+        if (err) {
+          console.error('Error starting profiler:', err);
+          reject(err);
+          return;
+        }
+        
+        console.log('CPU profiling started');
+        
+        // Stop profiling after the configured duration
+        setTimeout(() => {
+          session.post('Profiler.stop', (err, result) => {
+            if (err) {
+              console.error('Error stopping profiler:', err);
+              reject(err);
+              return;
+            }
+            
+            // Write the profile to a file
+            try {
+              fs.writeFileSync(profilePath, JSON.stringify(result.profile));
+              console.log(`CPU profile saved to: ${profilePath}`);
+              resolve();
+            } catch (writeError) {
+              console.error('Error writing CPU profile:', writeError);
+              reject(writeError);
+            }
+          });
+        }, config.duration);
+      });
+    });
+  });
+}
+
+// Function to clean up old CPU profiles
+function cleanupOldProfiles() {
+  try {
+    const files = fs.readdirSync(profilesDir);
+    const cpuProfiles = files.filter(file => file.endsWith('.cpuprofile'));
+    
+    // Sort by creation time (newest first)
+    const sortByTime = (a: string, b: string) => {
+      const statA = fs.statSync(path.join(profilesDir, a));
+      const statB = fs.statSync(path.join(profilesDir, b));
+      return statB.birthtimeMs - statA.birthtimeMs;
+    };
+    
+    cpuProfiles.sort(sortByTime);
+    
+    // Remove excess profiles
+    if (cpuProfiles.length > config.maxProfiles) {
+      for (let i = config.maxProfiles; i < cpuProfiles.length; i++) {
+        fs.unlinkSync(path.join(profilesDir, cpuProfiles[i]));
+        console.log(`Removed old CPU profile: ${cpuProfiles[i]}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up old profiles:', error);
+  }
+}
+
+// Main profiling function
+async function profile() {
+  try {
+    // Take a CPU profile
+    await takeCPUProfile();
+    
+    // Clean up old profiles
+    cleanupOldProfiles();
     
     // Set up a signal handler to stop profiling on SIGINT (Ctrl+C)
     process.on('SIGINT', () => {
-      console.log('Stopping CPU profiling...');
-      
-      // Stop profiling and save the profile
-      session.post('Profiler.stop', (err, { profile }) => {
-        if (err) {
-          console.error('Error stopping profiler:', err);
-          session.disconnect();
-          process.exit(1);
-        }
-        
-        try {
-          // Write the profile to a file
-          fs.writeFileSync(profilePath, JSON.stringify(profile));
-          console.log(`CPU profile saved to: ${profilePath}`);
-        } catch (writeError) {
-          console.error('Error writing profile to file:', writeError);
-        }
-        
-        // Disconnect the session
-        session.disconnect();
-        process.exit(0);
-      });
+      console.log('Stopping profiling...');
+      session.disconnect();
+      process.exit(0);
     });
     
-    console.log('Press Ctrl+C to stop profiling and save the profile');
-  });
-}); 
+    console.log('CPU profiling completed. Press Ctrl+C to exit.');
+  } catch (error) {
+    console.error('Error during profiling:', error);
+    session.disconnect();
+    process.exit(1);
+  }
+}
+
+// Start profiling
+profile(); 

@@ -17,6 +17,7 @@ import fs from 'fs';
 import discordRouter from './routes/misc/discord.js';
 import eventsRouter from './routes/misc/events.js';
 import utilsRouter from './routes/misc/utils.js';
+import profilingRouter from './routes/misc/profiling.js';
 import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 
@@ -156,6 +157,7 @@ async function startServer() {
     app.use('/v2/database', databaseRoutes());
     app.use('/v2/webhook', webhookRoutes);
     app.use('/v2/discord', discordRouter);
+    app.use('/v2/profiling', profilingRouter);
     app.use('/events', eventsRouter);
     app.use('/v2/utils', utilsRouter);
 

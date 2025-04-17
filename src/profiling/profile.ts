@@ -6,7 +6,7 @@ import path from 'path';
 const config = {
   duration: 60 * 1000, // 60 seconds
   maxProfiles: 5, // Keep only the 5 most recent profiles
-  interval: 10 * 1000, // Take a heap snapshot every 10 seconds
+  interval: 20 * 1000, // Take a heap snapshot every 10 seconds
 };
 
 // Create a directory for profiles if it doesn't exist

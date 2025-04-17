@@ -140,6 +140,7 @@ pfpList.json
 rankList.json
 cache/
 backups/
+profiles/
 src/database/generate_meta_inserts.bat
 src/database/meta_inserts.sql
 __pycache__/
