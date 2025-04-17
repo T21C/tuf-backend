@@ -28,8 +28,8 @@ export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
   private updateTimeout: NodeJS.Timeout | null = null;
-  private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes
-  private readonly RELOAD_INTERVAL = 4 * 60 * 1000; // 4 minutes
+  private readonly UPDATE_DELAY = 1 * 60 * 1000; // 1 minutes
+  private readonly RELOAD_INTERVAL = 10 * 60 * 1000; // 1 minutes
   private readonly BATCH_SIZE = 500;
   private pendingPlayerIds: Set<number> = new Set();
   private modifierService: ModifierService | null = null;
@@ -245,7 +245,7 @@ export class PlayerStatsService {
 
   private async processBatchByIds(transaction: Transaction, playerIds: number[]): Promise<void> {
     // Process players in smaller sub-batches to reduce lock contention
-    const SUB_BATCH_SIZE = 10;
+    const SUB_BATCH_SIZE = 100;
     
     for (let i = 0; i < playerIds.length; i += SUB_BATCH_SIZE) {
       const subBatchIds = playerIds.slice(i, i + SUB_BATCH_SIZE);
