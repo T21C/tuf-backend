@@ -108,16 +108,21 @@ function takeHeapSnapshot() {
     }
     
     // Listen for heap snapshot chunks
-    session.on('HeapProfiler.addHeapSnapshotChunk', (m) => {
+    const chunkListener = (m: any) => {
       try {
         fs.writeSync(fd, m.params.chunk);
       } catch (error) {
         console.error('Error writing heap snapshot chunk:', error);
       }
-    });
+    };
+    
+    session.on('HeapProfiler.addHeapSnapshotChunk', chunkListener);
     
     // Take a heap snapshot
     session.post('HeapProfiler.takeHeapSnapshot', (err) => {
+      // Remove the listener to avoid memory leaks
+      session.removeListener('HeapProfiler.addHeapSnapshotChunk', chunkListener);
+      
       if (err) {
         console.error('Error taking heap snapshot:', err);
         try {
@@ -196,9 +201,15 @@ async function profile() {
     // Clean up old profiles
     cleanupOldProfiles();
     
-    // Disconnect the session when done
-    session.disconnect();
-    console.log('Profiling completed');
+    // Set up a signal handler to stop profiling on SIGINT (Ctrl+C)
+    process.on('SIGINT', () => {
+      console.log('Stopping profiling...');
+      clearInterval(intervalId);
+      session.disconnect();
+      process.exit(0);
+    });
+    
+    console.log('Profiling in progress. Press Ctrl+C to stop.');
   } catch (error) {
     console.error('Error during profiling:', error);
     session.disconnect();
