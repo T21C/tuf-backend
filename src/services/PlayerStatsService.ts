@@ -29,6 +29,7 @@ export class PlayerStatsService {
   private updateTimeout: NodeJS.Timeout | null = null;
   private readonly UPDATE_DELAY = 2 * 60 * 1000; // 2 minutes
   private readonly RELOAD_INTERVAL = 4 * 60 * 1000; // 4 minutes
+  private readonly BATCH_SIZE = 500;
   private pendingPlayerIds: Set<number> = new Set();
   private modifierService: ModifierService | null = null;
 
@@ -141,10 +142,34 @@ export class PlayerStatsService {
     this.pendingPlayerIds.clear();
 
     // Proceed with the full reload
-    let transaction;
-    try {
-      transaction = await sequelize.transaction();
-
+      const transaction = await sequelize.transaction();
+      const playerCount = await Player.count();
+      let offset = 0;
+      for (let i = 0; i < playerCount / this.BATCH_SIZE; i++) {
+        await this.processBatch(transaction, offset);
+        offset += this.BATCH_SIZE;
+      }
+      try {
+        await transaction.commit();
+        
+        // Emit SSE event
+        sseManager.broadcast({
+          type: 'statsUpdate',
+          data: {
+            action: 'fullReload',
+          },
+        });
+      } catch (error) {
+        console.error('[PlayerStatsService] FAILURE: Error committing transaction in reloadAllStats:', error);
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
+        }
+      throw error;
+    }
+  }
+  private async processBatch(transaction: any, offset: number) {
       // Get all players with their passes in a single query
       const players = await Player.findAll({
         include: [
@@ -181,6 +206,11 @@ export class PlayerStatsService {
           },
         ],
         transaction,
+        // Use subQuery: false to prevent Sequelize from using a subquery approach
+        // which is causing the "Unknown column 'passes.levelId' in 'on clause'" error
+        subQuery: false,
+        offset,
+        limit: this.BATCH_SIZE,
       });
 
       // Prepare bulk update data
@@ -430,38 +460,7 @@ export class PlayerStatsService {
           }
         }
       }
-
-      try {
-        await transaction.commit();
-        
-        // Emit SSE event
-        sseManager.broadcast({
-          type: 'statsUpdate',
-          data: {
-            action: 'fullReload',
-          },
-        });
-      } catch (error) {
-        console.error('[PlayerStatsService] FAILURE: Error committing transaction in reloadAllStats:', error);
-        try {
-          await transaction.rollback();
-        } catch (rollbackError) {
-          console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
-        }
-        throw error;
-      }
-    } catch (error) {
-      console.error('[PlayerStatsService] FAILURE: Error in full stats reload:', error);
-      if (transaction) {
-        try {
-          await transaction.rollback();
-        } catch (rollbackError) {
-          console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
-        }
-      }
-      throw error;
     }
-  }
 
   public getHighestScorePerLevel(scores: IPass[]): IPass[] {
     const levelScores = new Map<number, IPass>();
