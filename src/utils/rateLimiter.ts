@@ -130,6 +130,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
           });
           
           logger.warn(`IP ${ip} blocked for exceeding ${type} limit`);
+          logger.warn(`Body: ${JSON.stringify(req.body)}`);
           
           return res.status(429).json({
             message: 'Rate limit exceeded. IP address blocked.',
