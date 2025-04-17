@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import axios from 'axios';
 import sequelize from '../config/db.js';
+import v8 from 'v8';
 
 export class HealthService {
   private static instance: HealthService;
@@ -253,12 +254,28 @@ export class HealthService {
       this.lastCheckTime = new Date();
       this.runHealthChecks();
       
+      // Get memory limits
+      const v8Stats = v8.getHeapStatistics();
+      const memoryUsage = process.memoryUsage();
+      
+      // Calculate memory limits
+      const memoryLimits = {
+        heapSizeLimit: v8Stats.heap_size_limit,
+        totalAvailableSize: v8Stats.total_available_size,
+        totalHeapSizeExecutable: v8Stats.total_heap_size_executable,
+        totalPhysicalSize: v8Stats.total_physical_size,
+        // maxRSS is in KB, convert to bytes for consistency with other memory values
+        rssLimit: process.resourceUsage().maxRSS ? process.resourceUsage().maxRSS * 1024 : 'Unknown'
+      };
+      
       return res.json({
         status: this.status,
         timestamp: this.lastCheckTime.toISOString(),
         uptime: this.getUptime(),
         checks: this.checks,
-        mainServerInfo: this.mainServerInfo
+        mainServerInfo: this.mainServerInfo,
+        memoryLimits: memoryLimits,
+        memoryUsage: memoryUsage
       });
     });
   }
