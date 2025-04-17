@@ -690,8 +690,8 @@ export class PlayerStatsService {
             return scoreB - scoreA;
           });
 
-        // Update ranks in batches
-        const batchSize = 1000;
+        // Update ranks in smaller batches with individual transactions
+        const batchSize = 500; // Reduced batch size for better reliability
         for (let i = 0; i < sortedPlayers.length; i += batchSize) {
           const batch = sortedPlayers.slice(i, i + batchSize);
           const updates = batch.map((player, index) => {
@@ -700,6 +700,8 @@ export class PlayerStatsService {
           }).join(' ');
 
           if (updates) {
+            // Create a new transaction for each batch
+            const batchTransaction = await sequelize.transaction();
             try {
               await sequelize.query(
                 `
@@ -707,11 +709,17 @@ export class PlayerStatsService {
                 SET ${rankField} = CASE ${updates} ELSE ${rankField} END
                 WHERE id IN (${batch.map(p => p.id).join(',')})
                 `,
-                { transaction }
+                { transaction: batchTransaction }
               );
+              await batchTransaction.commit();
             } catch (error) {
               console.error(`Error updating ${rankField} for batch:`, error);
-              // Don't throw here, continue with the next batch
+              try {
+                await batchTransaction.rollback();
+              } catch (rollbackError) {
+                console.error(`Error rolling back transaction for ${rankField} batch:`, rollbackError);
+              }
+              // Continue with next batch even if this one failed
             }
           }
         }

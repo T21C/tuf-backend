@@ -283,12 +283,20 @@ export async function createClearEmbed(
     return new MessageBuilder().setDescription('No pass info available');
   const level = pass.level;
 
-  const discordProfile = await OAuthProvider.findOne({
-    where: {
-      userId: pass.player?.user?.id,
-      provider: 'discord',
-    },
-  }).then(data => data?.profile);
+  let discordProfile = null;
+  if (pass.player?.user?.id) {
+    try {
+      discordProfile = await OAuthProvider.findOne({
+        where: {
+          userId: pass.player.user.id,
+          provider: 'discord',
+        },
+      }).then(data => data?.profile);
+    } catch (error) {
+      console.error('Error fetching Discord profile:', error);
+      // Continue without Discord profile
+    }
+  }
   const passDetails = await playerStatsService.getPassDetails(pass.id);
 
   const videoInfo = pass?.videoLink
