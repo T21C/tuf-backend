@@ -238,12 +238,22 @@ export class HealthService {
       `);
     });
 
-    // JSON API endpoint for health checks
+    // JSON API endpoint for health checks with CORS headers
     this.app.get('/health/api', (req, res) => {
+      // Set CORS headers to allow all origins
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      
+      // Handle preflight requests
+      if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+      }
+      
       this.lastCheckTime = new Date();
       this.runHealthChecks();
       
-      res.json({
+      return res.json({
         status: this.status,
         timestamp: this.lastCheckTime.toISOString(),
         uptime: this.getUptime(),
