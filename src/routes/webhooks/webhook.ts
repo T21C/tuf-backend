@@ -49,23 +49,6 @@ function logWebhookEvent(type: string, details: Record<string, any>) {
   }
 }
 
-// Helper function to process items in batches
-async function processBatches<T>(
-  items: T[],
-  batchSize: number,
-  processor: (batch: T[], isFirstBatch: boolean) => Promise<void>,
-): Promise<void> {
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const isFirstBatch = i === 0;
-    await processor(batch, isFirstBatch);
-    // Add a small delay between batches to avoid rate limiting
-    if (i + batchSize < items.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-}
-
 // Helper to group passes/levels by webhook URL
 interface WebhookGroup {
   webhookUrl: string;

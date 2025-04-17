@@ -5,6 +5,7 @@ import {MessageBuilder} from '../../webhook/index.js';
 import {calculateRankedScore} from '../../utils/PlayerStatsCalculator.js';
 import {getVideoDetails} from '../../utils/videoDetailParser.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
+import { OAuthProvider } from '../../models/index.js';
 const ownUrlEnv =
   process.env.NODE_ENV === 'production'
     ? process.env.PROD_API_URL
@@ -276,13 +277,18 @@ export async function createNewLevelEmbed(
 
 // DONE ################
 export async function createClearEmbed(
-  passInfo: Pass | null,
+  pass: Pass | null,
 ): Promise<MessageBuilder> {
-  if (!passInfo)
+  if (!pass)
     return new MessageBuilder().setDescription('No pass info available');
-  const pass = passInfo.dataValues;
   const level = pass.level;
 
+  const discordProfile = await OAuthProvider.findOne({
+    where: {
+      userId: pass.player?.user?.id,
+      provider: 'discord',
+    },
+  }).then(data => data?.profile);
   const passDetails = await playerStatsService.getPassDetails(pass.id);
 
   const videoInfo = pass?.videoLink
@@ -315,14 +321,12 @@ export async function createClearEmbed(
     .setThumbnail(
       pass.player?.pfp && pass.player?.pfp !== 'none'
         ? pass.player?.pfp
-        : pass.player?.discordAvatar
-          ? pass.player?.discordAvatar
           : placeHolder,
     )
     .addField('', '', false)
     .addField(
       'Player',
-      `**${pass.player?.discordId ? `<@${pass.player?.discordId}>` : pass.player?.name || 'Unknown Player'}**`,
+      `**${discordProfile ? `<@${(discordProfile as any)?.id}>` : pass.player?.name || 'Unknown Player'}**`,
       true,
     )
     .addField(
