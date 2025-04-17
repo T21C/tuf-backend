@@ -143,7 +143,6 @@ export class PlayerStatsService {
     // Proceed with the full reload
     let transaction;
     try {
-      //console.log('[PlayerStatsService] Starting full stats reload');
       transaction = await sequelize.transaction();
 
       // Get all players with their passes in a single query
@@ -180,18 +179,9 @@ export class PlayerStatsService {
             as: 'user',
             required: false,
           },
-
         ],
         transaction,
       });
-
-      //console.log(`[PlayerStatsService] Found ${players.length} players for stats reload`);
-
-      // Check for players without passes
-      const playersWithoutPasses = players.filter(player => !player.passes || player.passes.length === 0);
-      if (playersWithoutPasses.length > 0) {
-        //console.log(`[PlayerStatsService] Found ${playersWithoutPasses.length} players without passes`);
-      }
 
       // Prepare bulk update data
       const bulkStats = await Promise.all(players.map(async (player: any) => {
@@ -223,9 +213,26 @@ export class PlayerStatsService {
         return baseStats;
       }));
 
+      // Verify all player IDs exist before bulk upsert
+      const playerIds = bulkStats.map(stat => stat.id);
+      const existingPlayers = await Player.findAll({
+        where: { id: playerIds },
+        attributes: ['id'],
+        transaction
+      });
+
+      const existingPlayerIds = new Set(existingPlayers.map(p => p.id));
+      const invalidPlayerIds = playerIds.filter(id => !existingPlayerIds.has(id));
+
+      if (invalidPlayerIds.length > 0) {
+        console.error(`[PlayerStatsService] Found ${invalidPlayerIds.length} invalid player IDs that don't exist in the players table:`, invalidPlayerIds);
+      }
+
+      const validStats = bulkStats.filter(stat => existingPlayerIds.has(stat.id));
+
       // Bulk upsert all stats
       try {
-        await PlayerStats.bulkCreate(bulkStats, {
+        await PlayerStats.bulkCreate(validStats, {
           updateOnDuplicate: [
             'rankedScore',
             'generalScore',
@@ -241,7 +248,19 @@ export class PlayerStatsService {
           ],
           transaction,
         });
-      } catch (error) {
+      } catch (error: any) {
+        if (error.name === 'SequelizeForeignKeyConstraintError') {
+          // Extract player IDs from the error SQL if available
+          const errorSql = error.sql || '';
+          const idMatches = errorSql.match(/VALUES\s*\((.*?)\)/g);
+          if (idMatches) {
+            const failedIds = idMatches.map((match: string) => {
+              const idMatch = match.match(/\((\d+),/);
+              return idMatch ? idMatch[1] : null;
+            }).filter(Boolean);
+            console.error(`[PlayerStatsService] Foreign key constraint failed for player IDs:`, failedIds);
+          }
+        }
         console.error('[PlayerStatsService] FAILURE: Error bulk upserting stats:', error);
         throw error;
       }
