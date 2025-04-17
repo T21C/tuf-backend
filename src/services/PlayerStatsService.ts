@@ -22,6 +22,7 @@ import Judgement from '../models/passes/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
 import { ModifierService } from '../services/ModifierService.js';
+import { Transaction } from 'sequelize';
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
@@ -149,7 +150,7 @@ export class PlayerStatsService {
       const playerCount = await Player.count({ transaction });
       
       // Process in smaller chunks to reduce memory pressure
-      const CHUNK_SIZE = 10000; // Process 10,000 players at a time
+      const CHUNK_SIZE = 5000; // Reduced from 10000 to 5000
       const BATCHES_PER_CHUNK = 20; // Each chunk will be divided into 20 batches
       const BATCH_SIZE = Math.ceil(CHUNK_SIZE / BATCHES_PER_CHUNK);
       
@@ -170,7 +171,21 @@ export class PlayerStatsService {
         // Process this chunk in batches
         for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
           const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-          await this.processBatchByIds(transaction, batchIds);
+          
+          // Use a separate transaction for each batch to reduce lock time
+          const batchTransaction = await sequelize.transaction();
+          try {
+            await this.processBatchByIds(batchTransaction, batchIds);
+            await batchTransaction.commit();
+          } catch (error) {
+            console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
+            try {
+              await batchTransaction.rollback();
+            } catch (rollbackError) {
+              console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
+            }
+            // Continue with next batch even if this one failed
+          }
           
           // Hint to garbage collector to clean up after each batch
           if (global.gc) {
@@ -214,197 +229,124 @@ export class PlayerStatsService {
     }
   }
 
-  private async processBatchByIds(transaction: any, playerIds: number[]) {
-    // Get all players with their passes in a single query
+  private async processBatchByIds(transaction: Transaction, playerIds: number[]): Promise<void> {
+    // Process players in smaller sub-batches to reduce lock contention
+    const SUB_BATCH_SIZE = 10;
     
-    // Process in smaller sub-batches to reduce memory pressure
-    const SUB_BATCH_SIZE = 100; // Process 100 players at a time
     for (let i = 0; i < playerIds.length; i += SUB_BATCH_SIZE) {
       const subBatchIds = playerIds.slice(i, i + SUB_BATCH_SIZE);
       
-      const players = await Player.findAll({
-        where: {
-          id: {
-            [Op.in]: subBatchIds
-          }
-        },
-        include: [
-          {
-            model: Pass,
-            as: 'passes',
-            where: {
-              isDeleted: false,
-            },
-            include: [
-              {
-                model: Level,
-                as: 'level',
-                where: {
-                  isDeleted: false
-                },
-                include: [
-                  {
-                    model: Difficulty,
-                    as: 'difficulty',
-                  },
-                ],
-              },
-              {
-                model: Judgement,
-                as: 'judgements',
-              },
-            ],
-          },
-          {
-            model: User,
-            as: 'user',
-            required: false,
-          },
-        ],
-        transaction,
-        // Use subQuery: false to prevent Sequelize from using a subquery approach
-        // which is causing the "Unknown column 'passes.levelId' in 'on clause'" error
-        subQuery: false,
-        order: [['id', 'ASC']],
-      });
-
-      // Extract player IDs from the current batch
-      const batchPlayerIds = players.map(player => player.id);
-      
-      // Prepare bulk update data
-      const bulkStats = await Promise.all(players.map(async (player: any) => {
-        // Calculate top difficulties
-        const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
-          player.passes || [],
-        );
-
-        // Create base stats object
-        const baseStats = {
-          id: player.id,
-          rankedScore: calculateRankedScore(player.passes || []),
-          generalScore: calculateGeneralScore(player.passes || []),
-          ppScore: calculatePPScore(player.passes || []),
-          wfScore: calculateWFScore(player.passes || []),
-          score12K: calculate12KScore(player.passes || []),
-          averageXacc: calculateAverageXacc(player.passes || []),
-          universalPassCount: countUniversalPassCount(player.passes || []),
-          worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-          topDiffId,
-          top12kDiffId,
-          lastUpdated: new Date(),
-        };
-
-        // Apply modifiers if enabled
-        if (this.modifierService) {
-          return this.modifierService.applyScoreModifiers(player.id, baseStats);
-        }
-        return baseStats;
-      }));
-
-      // Verify all player IDs exist before bulk upsert
-      const existingPlayers = await Player.findAll({
-        where: { id: batchPlayerIds },
-        attributes: ['id'],
-        transaction
-      });
-
-      const existingPlayerIds = new Set(existingPlayers.map(p => p.id));
-      const invalidPlayerIds = batchPlayerIds.filter(id => !existingPlayerIds.has(id));
-
-      if (invalidPlayerIds.length > 0) {
-        console.error(`[PlayerStatsService] Found ${invalidPlayerIds.length} invalid player IDs that don't exist in the players table:`, invalidPlayerIds);
-      }
-
-      const validStats = bulkStats.filter(stat => existingPlayerIds.has(stat.id));
-
-      // Bulk upsert all stats
+      // Use a separate transaction for each sub-batch
+      const subBatchTransaction = await sequelize.transaction();
       try {
-        await PlayerStats.bulkCreate(validStats, {
-          updateOnDuplicate: [
-            'rankedScore',
-            'generalScore',
-            'ppScore',
-            'wfScore',
-            'score12K',
-            'averageXacc',
-            'universalPassCount',
-            'worldsFirstCount',
-            'topDiffId',
-            'top12kDiffId',
-            'lastUpdated',
-          ],
-          transaction,
+        // Get player data for this sub-batch
+        const players = await Player.findAll({
+          where: { id: subBatchIds },
+          transaction: subBatchTransaction,
+          lock: true // Use row-level locking to prevent concurrent updates
         });
-      } catch (error: any) {
-        if (error.name === 'SequelizeForeignKeyConstraintError') {
-          // Extract player IDs from the error SQL if available
-          const errorSql = error.sql || '';
-          const idMatches = errorSql.match(/VALUES\s*\((.*?)\)/g);
-          if (idMatches) {
-            const failedIds = idMatches.map((match: string) => {
-              const idMatch = match.match(/\((\d+),/);
-              return idMatch ? idMatch[1] : null;
-            }).filter(Boolean);
-            console.error(`[PlayerStatsService] Foreign key constraint failed for player IDs:`, failedIds);
+        
+        // Process each player in the sub-batch
+        for (const player of players) {
+          try {
+            await this.calculatePlayerStats(player.id, subBatchTransaction);
+          } catch (error) {
+            console.error(`[PlayerStatsService] FAILURE: Error calculating stats for player ${player.id}:`, error);
+            // Continue with next player even if this one failed
           }
         }
-        console.error('[PlayerStatsService] FAILURE: Error bulk upserting stats:', error);
-        throw error;
-      }
-
-      // Check for players who might have been missed
-      const playersWithStats = await PlayerStats.findAll(
-        { 
-          where: {
-            id: {
-              [Op.in]: batchPlayerIds,
-            },
-          },
-          transaction,
-        });
-      
-      const playerIdsWithStats = new Set(playersWithStats.map((p: any) => p.id));
-      const playersWithoutStats = players.filter((p: any) => !playerIdsWithStats.has(p.id));
-      
-      if (playersWithoutStats.length > 0) {
         
-        // Create stats for these players
-        const now = new Date();
-        const missingStats = playersWithoutStats.map((player: any) => ({
-          id: player.id,
-          rankedScore: 0,
-          generalScore: 0,
-          ppScore: 0,
-          wfScore: 0,
-          score12K: 0,
-          rankedScoreRank: 0,
-          generalScoreRank: 0,
-          ppScoreRank: 0,
-          wfScoreRank: 0,
-          score12KRank: 0,
-          averageXacc: 0,
-          universalPassCount: 0,
-          worldsFirstCount: 0,
-          lastUpdated: now,
-          createdAt: now,
-          updatedAt: now,
-          topDiffId: 0,
-          top12kDiffId: 0
-        }));
-        
+        await subBatchTransaction.commit();
+      } catch (error) {
+        console.error(`[PlayerStatsService] FAILURE: Error processing sub-batch:`, error);
         try {
-          await PlayerStats.bulkCreate(missingStats, { transaction });
-        } catch (error) {
-          console.error('[PlayerStatsService] FAILURE: Error creating stats for missed players:', error);
-          // Continue execution even if this fails
+          await subBatchTransaction.rollback();
+        } catch (rollbackError) {
+          console.error(`[PlayerStatsService] FAILURE: Error rolling back sub-batch transaction:`, rollbackError);
         }
-      }
-      
-      // Hint to garbage collector to clean up after each sub-batch
-      if (global.gc) {
-        global.gc();
+        // Continue with next sub-batch even if this one failed
       }
     }
+  }
+
+  /**
+   * Calculate stats for a single player
+   * @param playerId The ID of the player to calculate stats for
+   * @param transaction The transaction to use for database operations
+   */
+  private async calculatePlayerStats(playerId: number, transaction: Transaction): Promise<void> {
+    // Get player with their passes in a single query
+    const player = await Player.findOne({
+      where: { id: playerId },
+      include: [
+        {
+          model: Pass,
+          as: 'passes',
+          where: {
+            isDeleted: false,
+          },
+          include: [
+            {
+              model: Level,
+              as: 'level',
+              where: {
+                isDeleted: false
+              },
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+            {
+              model: Judgement,
+              as: 'judgements',
+            },
+          ],
+        },
+        {
+          model: User,
+          as: 'user',
+          required: false,
+        },
+      ],
+      transaction,
+      subQuery: false,
+    });
+
+    if (!player) {
+      return;
+    }
+
+    // Calculate top difficulties
+    const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
+      player.passes || [],
+    );
+    
+    // Create base stats object
+    const baseStats = {
+      id: player.id,
+      rankedScore: calculateRankedScore(player.passes || []),
+      generalScore: calculateGeneralScore(player.passes || []),
+      ppScore: calculatePPScore(player.passes || []),
+      wfScore: calculateWFScore(player.passes || []),
+      score12K: calculate12KScore(player.passes || []),
+      averageXacc: calculateAverageXacc(player.passes || []),
+      universalPassCount: countUniversalPassCount(player.passes || []),
+      worldsFirstCount: countWorldsFirstPasses(player.passes || []),
+      topDiffId,
+      top12kDiffId,
+      lastUpdated: new Date(),
+    };
+
+    // Apply modifiers if enabled
+    const stats = this.modifierService 
+      ? await this.modifierService.applyScoreModifiers(player.id, baseStats)
+      : baseStats;
+
+    // Upsert the stats
+    await PlayerStats.upsert(stats, { transaction });
   }
 
   public getHighestScorePerLevel(scores: IPass[]): IPass[] {
@@ -691,7 +633,7 @@ export class PlayerStatsService {
           });
 
         // Update ranks in smaller batches with individual transactions
-        const batchSize = 500; // Reduced batch size for better reliability
+        const batchSize = 100; // Reduced batch size for better reliability
         for (let i = 0; i < sortedPlayers.length; i += batchSize) {
           const batch = sortedPlayers.slice(i, i + batchSize);
           const updates = batch.map((player, index) => {
