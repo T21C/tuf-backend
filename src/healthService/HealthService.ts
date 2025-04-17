@@ -37,7 +37,7 @@ export class HealthService {
 
   private setupRoutes(): void {
     // HTML status page
-    this.app.get('/', (req, res) => {
+    this.app.get('/health', (req, res) => {
       const uptime = this.startTime ? this.getUptime() : 'Not started';
       const lastCheck = this.lastCheckTime ? this.lastCheckTime.toISOString() : 'Never';
       
@@ -239,7 +239,7 @@ export class HealthService {
     });
 
     // JSON API endpoint for health checks
-    this.app.get('/api/health', (req, res) => {
+    this.app.get('/health/api', (req, res) => {
       this.lastCheckTime = new Date();
       this.runHealthChecks();
       
@@ -340,17 +340,21 @@ export class HealthService {
     }
     
     try {
-      this.server = this.app.listen(this.port, () => {
+      // Create server with both IPv4 and IPv6 support
+      this.server = http.createServer(this.app);
+      
+      // Listen on both IPv4 and IPv6
+      this.server.listen(this.port, '::', () => {
         this.isRunning = true;
         this.startTime = new Date();
-        console.log(`Health service listening on port ${this.port}`);
+        console.log(`Health service listening on port ${this.port} (IPv4 and IPv6)`);
         console.log(`Monitoring main server at ${this.mainServerUrl}`);
       });
       
       // Run initial health check
       await this.runHealthChecks();
       
-      // Set up periodic health checks (every 30 seconds)
+      // Set up periodic health checks (every 5 seconds)
       this.checkInterval = setInterval(async () => {
         await this.runHealthChecks();
       }, 5000);
