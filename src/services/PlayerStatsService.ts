@@ -135,6 +135,7 @@ export class PlayerStatsService {
   }
 
   public async reloadAllStats(): Promise<void> {
+    console.log(`[PlayerStatsService] Starting reloadAllStats`);
     // Clear any pending scheduled updates
     if (this.updateTimeout) {
       clearTimeout(this.updateTimeout);
@@ -147,15 +148,20 @@ export class PlayerStatsService {
     try {
       // First, get all player IDs in a deterministic order
       // Use a streaming approach to avoid loading all IDs into memory at once
+      console.log(`[PlayerStatsService] Counting total players`);
       const playerCount = await Player.count({ transaction });
+      console.log(`[PlayerStatsService] Found ${playerCount} total players`);
       
       // Process in smaller chunks to reduce memory pressure
       const CHUNK_SIZE = 5000; // Reduced from 10000 to 5000
       const BATCHES_PER_CHUNK = 20; // Each chunk will be divided into 20 batches
       const BATCH_SIZE = Math.ceil(CHUNK_SIZE / BATCHES_PER_CHUNK);
       
+      console.log(`[PlayerStatsService] Processing in chunks of ${CHUNK_SIZE} with ${BATCHES_PER_CHUNK} batches per chunk`);
+      
       for (let chunkStart = 0; chunkStart < playerCount; chunkStart += CHUNK_SIZE) {
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, playerCount);
+        console.log(`[PlayerStatsService] Processing chunk ${Math.floor(chunkStart/CHUNK_SIZE) + 1} of ${Math.ceil(playerCount/CHUNK_SIZE)} (players ${chunkStart+1}-${chunkEnd})`);
         
         // Get IDs for this chunk
         const chunkPlayerIds = await Player.findAll({
@@ -167,20 +173,24 @@ export class PlayerStatsService {
         });
         
         const playerIds = chunkPlayerIds.map(player => player.id);
+        console.log(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
         
         // Process this chunk in batches
         for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
           const batchIds = playerIds.slice(i, i + BATCH_SIZE);
+          console.log(`[PlayerStatsService] Processing batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
           
           // Use a separate transaction for each batch to reduce lock time
           const batchTransaction = await sequelize.transaction();
           try {
             await this.processBatchByIds(batchTransaction, batchIds);
             await batchTransaction.commit();
+            console.log(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
           } catch (error) {
             console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
             try {
               await batchTransaction.rollback();
+              console.log(`[PlayerStatsService] Successfully rolled back batch transaction`);
             } catch (rollbackError) {
               console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
             }
@@ -201,6 +211,7 @@ export class PlayerStatsService {
       
       try {
         await transaction.commit();
+        console.log(`[PlayerStatsService] Successfully committed main transaction in reloadAllStats`);
         this.forceUpdateRanks();
         // Emit SSE event
         sseManager.broadcast({
@@ -209,10 +220,12 @@ export class PlayerStatsService {
             action: 'fullReload',
           },
         });
+        console.log(`[PlayerStatsService] Successfully completed reloadAllStats`);
       } catch (error) {
         console.error('[PlayerStatsService] FAILURE: Error committing transaction in reloadAllStats:', error);
         try {
           await transaction.rollback();
+          console.log(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
         } catch (rollbackError) {
           console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
         }
@@ -222,6 +235,7 @@ export class PlayerStatsService {
       console.error('[PlayerStatsService] FAILURE: Error in reloadAllStats:', error);
       try {
         await transaction.rollback();
+        console.log(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
       } catch (rollbackError) {
         console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
       }
@@ -430,10 +444,12 @@ export class PlayerStatsService {
     playerId: number,
     existingTransaction?: any,
   ): Promise<void> {
+    console.log(`[PlayerStatsService] Starting updatePlayerStats for player ID: ${playerId}`);
     const transaction = existingTransaction || (await sequelize.transaction());
     const shouldCommit = !existingTransaction;
 
     try {
+      console.log(`[PlayerStatsService] Fetching player data for player ID: ${playerId}`);
       const player = await Player.findByPk(playerId, {
         include: [
           {
@@ -478,11 +494,13 @@ export class PlayerStatsService {
       // Convert passes to scores and get highest score per level
 
       // Calculate top difficulties
+      console.log(`[PlayerStatsService] Calculating top difficulties for player ID: ${playerId}`);
       const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
         player.passes || [],
       );
 
       // Calculate all scores using the filtered scores
+      console.log(`[PlayerStatsService] Calculating scores for player ID: ${playerId}`);
       const stats = {
         id: player.id,
         rankedScore: calculateRankedScore(player.passes || []),
@@ -500,7 +518,26 @@ export class PlayerStatsService {
 
       // Update or create player stats
       try {
-        await PlayerStats.upsert(stats, {transaction});
+        console.log(`[PlayerStatsService] Upserting stats for player ID: ${playerId}`);
+        
+        // Use a separate transaction for the upsert to avoid long-running transactions
+        if (shouldCommit) {
+          // If we're managing the transaction, use a separate one for the upsert
+          const upsertTransaction = await sequelize.transaction();
+          try {
+            await PlayerStats.upsert(stats, {transaction: upsertTransaction});
+            await upsertTransaction.commit();
+            console.log(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId}`);
+          } catch (upsertError) {
+            console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, upsertError);
+            await upsertTransaction.rollback();
+            throw upsertError;
+          }
+        } else {
+          // If we're using an existing transaction, use it for the upsert
+          await PlayerStats.upsert(stats, {transaction});
+          console.log(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId} using existing transaction`);
+        }
       } catch (error) {
         console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, error);
         throw error;
@@ -508,7 +545,9 @@ export class PlayerStatsService {
 
       // Update ranks for all players
       try {
+        console.log(`[PlayerStatsService] Updating ranks for all players`);
         await this.updateRanks(transaction);
+        console.log(`[PlayerStatsService] Successfully updated ranks for all players`);
       } catch (error) {
         console.error(`[PlayerStatsService] FAILURE: Error updating ranks for player ${playerId}:`, error);
         // Continue execution even if rank update fails
@@ -516,6 +555,7 @@ export class PlayerStatsService {
 
       if (shouldCommit) {
         try {
+          console.log(`[PlayerStatsService] Committing transaction for player ID: ${playerId}`);
           await transaction.commit();
 
           // Notify clients about the update
@@ -530,6 +570,7 @@ export class PlayerStatsService {
               newStats: stats,
             },
           });
+          console.log(`[PlayerStatsService] Successfully completed update for player ID: ${playerId}`);
         } catch (error) {
           console.error(`[PlayerStatsService] FAILURE: Error committing transaction for player ${playerId}:`, error);
           // If commit fails, try to rollback
@@ -562,8 +603,10 @@ export class PlayerStatsService {
   }
 
   private async updateRanks(transaction?: any): Promise<void> {
+    console.log(`[PlayerStatsService] Starting updateRanks`);
     try {
       // Get all players with their stats
+      console.log(`[PlayerStatsService] Fetching all players with stats`);
       const players = await Player.findAll({
         include: [
           {
@@ -580,6 +623,8 @@ export class PlayerStatsService {
         transaction
       });
 
+      console.log(`[PlayerStatsService] Found ${players.length} players with stats`);
+
       // Separate banned and non-banned players
       const bannedPlayers = players.filter(player => 
         player.isBanned || (player.user && !player.user.isEmailVerified)
@@ -588,26 +633,44 @@ export class PlayerStatsService {
         !player.isBanned && (!player.user || player.user.isEmailVerified)
       );
 
+      console.log(`[PlayerStatsService] Found ${bannedPlayers.length} banned players and ${activePlayers.length} active players`);
+
       // Set rank to -1 for banned players
       if (bannedPlayers.length > 0) {
+        console.log(`[PlayerStatsService] Setting rank to -1 for ${bannedPlayers.length} banned players`);
         const bannedIds = bannedPlayers.map(p => p.id);
         try {
-          await sequelize.query(
-            `
-            UPDATE player_stats
-            SET 
-              rankedScoreRank = -1,
-              generalScoreRank = -1,
-              ppScoreRank = -1,
-              wfScoreRank = -1,
-              score12KRank = -1
-            WHERE id IN (${bannedIds.join(',')})
-            `,
-            { transaction }
-          );
+          // Use a separate transaction for banned players to avoid long-running transactions
+          const bannedTransaction = transaction || await sequelize.transaction();
+          try {
+            await sequelize.query(
+              `
+              UPDATE player_stats
+              SET 
+                rankedScoreRank = -1,
+                generalScoreRank = -1,
+                ppScoreRank = -1,
+                wfScoreRank = -1,
+                score12KRank = -1
+              WHERE id IN (${bannedIds.join(',')})
+              `,
+              { transaction: bannedTransaction }
+            );
+            
+            if (!transaction) {
+              await bannedTransaction.commit();
+              console.log(`[PlayerStatsService] Successfully updated ranks for banned players`);
+            }
+          } catch (error) {
+            console.error('Error updating banned player ranks:', error);
+            if (!transaction) {
+              await bannedTransaction.rollback();
+            }
+            // Don't throw here, continue with the rest of the function
+          }
         } catch (error) {
-          console.error('Error updating banned player ranks:', error);
-          // Don't throw here, continue with the rest of the function
+          console.error('Error creating transaction for banned players:', error);
+          // Continue with the rest of the function
         }
       }
 
@@ -622,6 +685,7 @@ export class PlayerStatsService {
 
       for (const scoreType of scoreTypes) {
         const rankField = `${scoreType}Rank`;
+        console.log(`[PlayerStatsService] Calculating ${rankField} for active players`);
         
         // Sort players by score in descending order
         const sortedPlayers = activePlayers
@@ -632,8 +696,10 @@ export class PlayerStatsService {
             return scoreB - scoreA;
           });
 
+        console.log(`[PlayerStatsService] Found ${sortedPlayers.length} players with ${scoreType} > 0`);
+
         // Update ranks in smaller batches with individual transactions
-        const batchSize = 100; // Reduced batch size for better reliability
+        const batchSize = 50; // Reduced batch size for better reliability
         for (let i = 0; i < sortedPlayers.length; i += batchSize) {
           const batch = sortedPlayers.slice(i, i + batchSize);
           const updates = batch.map((player, index) => {
@@ -642,8 +708,10 @@ export class PlayerStatsService {
           }).join(' ');
 
           if (updates) {
+            console.log(`[PlayerStatsService] Updating ${rankField} for batch ${i/batchSize + 1} of ${Math.ceil(sortedPlayers.length/batchSize)}`);
+            
             // Create a new transaction for each batch
-            const batchTransaction = await sequelize.transaction();
+            const batchTransaction = transaction || await sequelize.transaction();
             try {
               await sequelize.query(
                 `
@@ -653,19 +721,27 @@ export class PlayerStatsService {
                 `,
                 { transaction: batchTransaction }
               );
-              await batchTransaction.commit();
+              
+              if (!transaction) {
+                await batchTransaction.commit();
+                console.log(`[PlayerStatsService] Successfully updated ${rankField} for batch ${i/batchSize + 1}`);
+              }
             } catch (error) {
               console.error(`Error updating ${rankField} for batch:`, error);
-              try {
-                await batchTransaction.rollback();
-              } catch (rollbackError) {
-                console.error(`Error rolling back transaction for ${rankField} batch:`, rollbackError);
+              if (!transaction) {
+                try {
+                  await batchTransaction.rollback();
+                } catch (rollbackError) {
+                  console.error(`Error rolling back transaction for ${rankField} batch:`, rollbackError);
+                }
               }
               // Continue with next batch even if this one failed
             }
           }
         }
       }
+      
+      console.log(`[PlayerStatsService] Successfully completed updateRanks`);
     } catch (error) {
       console.error('Error updating ranks:', error);
       // Don't throw here, let the caller handle the transaction
@@ -673,13 +749,26 @@ export class PlayerStatsService {
   }
 
   public async forceUpdateRanks(): Promise<void> {
-    const transaction = await sequelize.transaction();
+    console.log(`[PlayerStatsService] Starting forceUpdateRanks`);
     try {
-      await this.updateRanks(transaction);
+      // Use a separate transaction for the main operation
+      const transaction = await sequelize.transaction();
       try {
-        await transaction.commit();
+        await this.updateRanks(transaction);
+        try {
+          await transaction.commit();
+          console.log(`[PlayerStatsService] Successfully committed transaction in forceUpdateRanks`);
+        } catch (error) {
+          console.error('Error committing transaction in forceUpdateRanks:', error);
+          try {
+            await transaction.rollback();
+          } catch (rollbackError) {
+            console.error('Error rolling back transaction in forceUpdateRanks:', rollbackError);
+          }
+          throw error;
+        }
       } catch (error) {
-        console.error('Error committing transaction in forceUpdateRanks:', error);
+        console.error('Error updating ranks:', error);
         try {
           await transaction.rollback();
         } catch (rollbackError) {
@@ -688,12 +777,7 @@ export class PlayerStatsService {
         throw error;
       }
     } catch (error) {
-      console.error('Error updating ranks:', error);
-      try {
-        await transaction.rollback();
-      } catch (rollbackError) {
-        console.error('Error rolling back transaction in forceUpdateRanks:', rollbackError);
-      }
+      console.error('Error in forceUpdateRanks:', error);
       throw error;
     }
   }

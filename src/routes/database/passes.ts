@@ -547,6 +547,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
 });
 
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  console.log(`[Passes PUT] Starting update for pass ID: ${req.params.id}`);
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
@@ -569,7 +570,27 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       isDuplicate,
     } = req.body;
 
+    console.log(`[Passes PUT] Request body:`, {
+      levelId,
+      vidUploadTime,
+      speed,
+      feelingRating,
+      vidTitle,
+      videoLink,
+      is12K,
+      is16K,
+      isNoHoldTap,
+      accuracy,
+      scoreV2,
+      isDeleted,
+      judgements,
+      playerId,
+      isAnnounced,
+      isDuplicate,
+    });
+
     // First fetch the pass with its current level data
+    console.log(`[Passes PUT] Fetching pass with ID: ${id}`);
     const pass = await Pass.findOne({
       where: {id: parseInt(id)},
       include: [
@@ -597,13 +618,17 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     });
 
     if (!pass) {
+      console.log(`[Passes PUT] Pass not found with ID: ${id}`);
       await transaction.rollback();
       return res.status(404).json({error: 'Pass not found'});
     }
 
+    console.log(`[Passes PUT] Found pass with ID: ${id}, player ID: ${pass.player?.id}`);
+
     // If levelId is changing, fetch the new level data and check for duplicates
     let newLevel = null;
     if (levelId && levelId !== pass.levelId) {
+      console.log(`[Passes PUT] Level ID changing from ${pass.levelId} to ${levelId}`);
       newLevel = await Level.findOne({
         where: {id: levelId},
         include: [
@@ -617,6 +642,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       });
 
       if (!newLevel) {
+        console.log(`[Passes PUT] New level not found with ID: ${levelId}`);
         await transaction.rollback();
         return res.status(404).json({error: 'New level not found'});
       }
@@ -624,6 +650,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Update judgements if provided
     if (judgements) {
+      console.log(`[Passes PUT] Updating judgements for pass ID: ${id}`);
       await Judgement.update(
         {
           earlyDouble: judgements.earlyDouble,
@@ -652,6 +679,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       };
 
       const calculatedAccuracy = calcAcc(updatedJudgements);
+      console.log(`[Passes PUT] Calculated accuracy: ${calculatedAccuracy}`);
 
       // Create pass data for score calculation with proper type handling
       const passData = {
@@ -665,6 +693,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       const levelData = newLevel || pass.level;
 
       if (!levelData || !levelData.difficulty) {
+        console.log(`[Passes PUT] Level or difficulty data not found for pass ID: ${id}`);
         await transaction.rollback();
         return res
           .status(500)
@@ -678,8 +707,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       };
 
       const calculatedScore = getScoreV2(passData, levelDataForScore);
+      console.log(`[Passes PUT] Calculated score: ${calculatedScore}`);
 
       // Update pass with all fields including isDuplicate
+      console.log(`[Passes PUT] Updating pass with calculated values`);
       await pass.update(
         {
           levelId: levelId || pass.levelId,
@@ -704,6 +735,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       );
     } else {
       // Update pass fields without recalculating
+      console.log(`[Passes PUT] Updating pass without recalculating judgements`);
       await pass.update(
         {
           levelId: levelId || pass.levelId,
@@ -732,6 +764,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     if (vidUploadTime || levelId) {
       // Get the target level ID (either new levelId or current one)
       const targetLevelId = levelId || pass.levelId;
+      console.log(`[Passes PUT] Recalculating world's first for level ID: ${targetLevelId}`);
       
       // Find the earliest non-deleted pass for this level from non-banned players
       const earliestPass = await Pass.findOne({
@@ -752,6 +785,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       });
 
       // Reset all passes for this level to not be world's first
+      console.log(`[Passes PUT] Resetting world's first status for all passes of level ID: ${targetLevelId}`);
       await Pass.update(
         {isWorldsFirst: false},
         {
@@ -762,6 +796,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
       // If we found an earliest pass, mark it as world's first
       if (earliestPass) {
+        console.log(`[Passes PUT] Setting world's first for pass ID: ${earliestPass.id}`);
         await Pass.update(
           {isWorldsFirst: true},
           {
@@ -773,12 +808,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
       // If levelId changed, also update world's first for the old level
       if (levelId && levelId !== pass.levelId) {
+        console.log(`[Passes PUT] Level ID changed, updating world's first for old level ID: ${pass.levelId}`);
         await updateWorldsFirstStatus(pass.levelId, transaction);
         await updateWorldsFirstStatus(levelId, transaction);
       }
     }
 
     // Fetch the updated pass
+    console.log(`[Passes PUT] Fetching updated pass data`);
     const updatedPass = await Pass.findOne({
       where: {id: parseInt(id)},
       include: [
@@ -805,11 +842,19 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       transaction,
     });
 
+    console.log(`[Passes PUT] Committing transaction`);
     await transaction.commit();
 
     // Update player stats
     if (pass.player) {
-      await playerStatsService.updatePlayerStats(pass.player.id);
+      console.log(`[Passes PUT] Updating player stats for player ID: ${pass.player.id}`);
+      try {
+        await playerStatsService.updatePlayerStats(pass.player.id);
+        console.log(`[Passes PUT] Successfully updated player stats for player ID: ${pass.player.id}`);
+      } catch (error) {
+        console.error(`[Passes PUT] Error updating player stats for player ID: ${pass.player.id}:`, error);
+        // Continue with the response even if player stats update fails
+      }
     }
 
     const io = getIO();
@@ -817,26 +862,39 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     // Get player's new stats
     if (updatedPass && updatedPass.player) {
-      const playerStats = await playerStatsService.getPlayerStats(
-        updatedPass.player.id,
-      );
+      console.log(`[Passes PUT] Getting updated player stats for player ID: ${updatedPass.player.id}`);
+      try {
+        const playerStats = await playerStatsService.getPlayerStats(
+          updatedPass.player.id,
+        );
 
-      // Emit SSE event with pass update data
-      sseManager.broadcast({
-        type: 'passUpdate',
-        data: {
-          playerId: updatedPass.player.id,
-          passedLevelId: updatedPass.levelId,
-          newScore: playerStats?.rankedScore || 0,
-          action: 'update',
-        },
-      });
+        // Emit SSE event with pass update data
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId: updatedPass.player.id,
+            passedLevelId: updatedPass.levelId,
+            newScore: playerStats?.rankedScore || 0,
+            action: 'update',
+          },
+        });
+        console.log(`[Passes PUT] Successfully emitted SSE event for player ID: ${updatedPass.player.id}`);
+      } catch (error) {
+        console.error(`[Passes PUT] Error getting player stats or emitting SSE event:`, error);
+        // Continue with the response even if this fails
+      }
     }
 
+    console.log(`[Passes PUT] Successfully completed update for pass ID: ${id}`);
     return res.json(updatedPass);
   } catch (error) {
-    await transaction.rollback();
-    console.error('Error updating pass:', error);
+    console.error(`[Passes PUT] Error updating pass ID: ${req.params.id}:`, error);
+    try {
+      await transaction.rollback();
+      console.log(`[Passes PUT] Successfully rolled back transaction for pass ID: ${req.params.id}`);
+    } catch (rollbackError) {
+      console.error(`[Passes PUT] Error rolling back transaction:`, rollbackError);
+    }
     return res.status(500).json({
       error: 'Failed to update pass',
       details: error instanceof Error ? error.message : String(error),
