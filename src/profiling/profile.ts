@@ -2,6 +2,13 @@ import * as inspector from 'node:inspector';
 import fs from 'node:fs';
 import path from 'path';
 
+// Configuration
+const config = {
+  duration: 60 * 1000, // 60 seconds
+  maxProfiles: 5, // Keep only the 5 most recent profiles
+  interval: 10 * 1000, // Take a heap snapshot every 10 seconds
+};
+
 // Create a directory for profiles if it doesn't exist
 const profilesDir = path.join(process.cwd(), 'profiles');
 if (!fs.existsSync(profilesDir)) {
@@ -10,125 +17,194 @@ if (!fs.existsSync(profilesDir)) {
 
 // Generate a timestamp for the profile filename
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+const cpuProfilePath = path.join(profilesDir, `cpu-profile-${timestamp}.cpuprofile`);
+const heapSnapshotPath = path.join(profilesDir, `heap-snapshot-${timestamp}.heapsnapshot`);
 
-// Configuration
-const config = {
-  cpuProfileDuration: 30000, // 30 seconds
-  heapSnapshotInterval: 60000, // 1 minute
-  maxProfiles: 5, // Maximum number of profiles to keep
-};
-
-console.log('Starting profiling with the following configuration:');
-console.log(`- CPU profiles: ${config.cpuProfileDuration / 1000} seconds each`);
-console.log(`- Heap snapshots: every ${config.heapSnapshotInterval / 1000} seconds`);
-console.log(`- Maximum profiles to keep: ${config.maxProfiles}`);
+console.log(`Starting profiling. CPU profile will be saved to: ${cpuProfilePath}`);
+console.log(`Heap snapshot will be saved to: ${heapSnapshotPath}`);
 
 // Create a new inspector session
 const session = new inspector.Session();
 
-// Connect to the inspector
-session.connect();
+// Add error handling for the session
+session.on('inspectorNotification', (message) => {
+  console.log('Inspector notification:', message);
+});
+
+// Connect to the inspector with error handling
+try {
+  console.log('Attempting to connect to Node.js inspector...');
+  session.connect();
+  console.log('Successfully connected to Node.js inspector');
+} catch (error) {
+  console.error('Failed to connect to Node.js inspector:', error);
+  console.error('Make sure your Node.js application is running with the --inspect flag');
+  console.error('Example: node --inspect --max-old-space-size=8192 --expose-gc dist/app.js');
+  process.exit(1);
+}
 
 // Function to take a CPU profile
 function takeCPUProfile() {
-  const profilePath = path.join(profilesDir, `cpu-profile-${timestamp}-${Date.now()}.cpuprofile`);
-  console.log(`Taking CPU profile: ${profilePath}`);
-  
-  // Enable the profiler
-  session.post('Profiler.enable', () => {
-    // Start profiling
-    session.post('Profiler.start', () => {
-      console.log('CPU profiling started');
+  return new Promise<void>((resolve, reject) => {
+    console.log('Starting CPU profiling...');
+    
+    // Enable the profiler
+    session.post('Profiler.enable', (err) => {
+      if (err) {
+        console.error('Error enabling profiler:', err);
+        reject(err);
+        return;
+      }
       
-      // Stop profiling after the specified duration
-      setTimeout(() => {
-        session.post('Profiler.stop', (err, { profile }) => {
-          if (err) {
-            console.error('Error stopping profiler:', err);
-            return;
-          }
-          
-          // Write the profile to a file
-          fs.writeFileSync(profilePath, JSON.stringify(profile));
-          console.log(`CPU profile saved to: ${profilePath}`);
-          
-          // Clean up old profiles
-          cleanupOldProfiles('cpu-profile');
-        });
-      }, config.cpuProfileDuration);
+      // Start profiling
+      session.post('Profiler.start', (err) => {
+        if (err) {
+          console.error('Error starting profiler:', err);
+          reject(err);
+          return;
+        }
+        
+        console.log('CPU profiling started');
+        
+        // Stop profiling after the configured duration
+        setTimeout(() => {
+          session.post('Profiler.stop', (err, result) => {
+            if (err) {
+              console.error('Error stopping profiler:', err);
+              reject(err);
+              return;
+            }
+            
+            // Write the profile to a file
+            try {
+              fs.writeFileSync(cpuProfilePath, JSON.stringify(result.profile));
+              console.log(`CPU profile saved to: ${cpuProfilePath}`);
+              resolve();
+            } catch (writeError) {
+              console.error('Error writing CPU profile:', writeError);
+              reject(writeError);
+            }
+          });
+        }, config.duration);
+      });
     });
   });
 }
 
 // Function to take a heap snapshot
 function takeHeapSnapshot() {
-  const snapshotPath = path.join(profilesDir, `heap-snapshot-${timestamp}-${Date.now()}.heapsnapshot`);
-  console.log(`Taking heap snapshot: ${snapshotPath}`);
-  
-  // Open a file to write the heap snapshot
-  const fd = fs.openSync(snapshotPath, 'w');
-  
-  // Listen for heap snapshot chunks
-  const chunkListener = (m: any) => {
-    fs.writeSync(fd, m.params.chunk);
-  };
-  
-  session.on('HeapProfiler.addHeapSnapshotChunk', chunkListener);
-  
-  // Take a heap snapshot
-  session.post('HeapProfiler.takeHeapSnapshot', (err: any, r: any) => {
-    // Remove the listener
-    session.removeListener('HeapProfiler.addHeapSnapshotChunk', chunkListener);
+  return new Promise<void>((resolve, reject) => {
+    console.log('Taking heap snapshot...');
     
-    if (err) {
-      console.error('Error taking heap snapshot:', err);
-      fs.closeSync(fd);
+    // Open a file to write the heap snapshot
+    let fd: number;
+    try {
+      fd = fs.openSync(heapSnapshotPath, 'w');
+      console.log('Opened file for heap snapshot');
+    } catch (error) {
+      console.error('Failed to open file for heap snapshot:', error);
+      reject(error);
       return;
     }
     
-    fs.closeSync(fd);
-    console.log(`Heap snapshot saved to: ${snapshotPath}`);
+    // Listen for heap snapshot chunks
+    session.on('HeapProfiler.addHeapSnapshotChunk', (m) => {
+      try {
+        fs.writeSync(fd, m.params.chunk);
+      } catch (error) {
+        console.error('Error writing heap snapshot chunk:', error);
+      }
+    });
     
-    // Clean up old profiles
-    cleanupOldProfiles('heap-snapshot');
+    // Take a heap snapshot
+    session.post('HeapProfiler.takeHeapSnapshot', (err) => {
+      if (err) {
+        console.error('Error taking heap snapshot:', err);
+        try {
+          fs.closeSync(fd);
+        } catch (closeError) {
+          console.error('Error closing file after error:', closeError);
+        }
+        reject(err);
+        return;
+      }
+      
+      console.log('Heap snapshot completed');
+      try {
+        fs.closeSync(fd);
+        console.log(`Heap snapshot saved to: ${heapSnapshotPath}`);
+        resolve();
+      } catch (closeError) {
+        console.error('Error closing file:', closeError);
+        reject(closeError);
+      }
+    });
   });
 }
 
 // Function to clean up old profiles
-function cleanupOldProfiles(prefix: string) {
-  const files = fs.readdirSync(profilesDir)
-    .filter(file => file.startsWith(prefix))
-    .map(file => ({
-      name: file,
-      path: path.join(profilesDir, file),
-      time: fs.statSync(path.join(profilesDir, file)).mtime.getTime()
-    }))
-    .sort((a, b) => b.time - a.time);
-  
-  // Remove old files if we have more than the maximum
-  if (files.length > config.maxProfiles) {
-    for (let i = config.maxProfiles; i < files.length; i++) {
-      fs.unlinkSync(files[i].path);
-      console.log(`Removed old profile: ${files[i].name}`);
+function cleanupOldProfiles() {
+  try {
+    const files = fs.readdirSync(profilesDir);
+    const cpuProfiles = files.filter(file => file.endsWith('.cpuprofile'));
+    const heapSnapshots = files.filter(file => file.endsWith('.heapsnapshot'));
+    
+    // Sort by creation time (newest first)
+    const sortByTime = (a: string, b: string) => {
+      const statA = fs.statSync(path.join(profilesDir, a));
+      const statB = fs.statSync(path.join(profilesDir, b));
+      return statB.birthtimeMs - statA.birthtimeMs;
+    };
+    
+    cpuProfiles.sort(sortByTime);
+    heapSnapshots.sort(sortByTime);
+    
+    // Remove excess profiles
+    if (cpuProfiles.length > config.maxProfiles) {
+      for (let i = config.maxProfiles; i < cpuProfiles.length; i++) {
+        fs.unlinkSync(path.join(profilesDir, cpuProfiles[i]));
+        console.log(`Removed old CPU profile: ${cpuProfiles[i]}`);
+      }
     }
+    
+    if (heapSnapshots.length > config.maxProfiles) {
+      for (let i = config.maxProfiles; i < heapSnapshots.length; i++) {
+        fs.unlinkSync(path.join(profilesDir, heapSnapshots[i]));
+        console.log(`Removed old heap snapshot: ${heapSnapshots[i]}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up old profiles:', error);
   }
 }
 
-// Set up signal handlers
-process.on('SIGINT', () => {
-  console.log('Stopping profiling...');
-  session.disconnect();
-  process.exit(0);
-});
+// Main profiling function
+async function profile() {
+  try {
+    // Take a CPU profile
+    await takeCPUProfile();
+    
+    // Take heap snapshots at intervals
+    const intervalId = setInterval(async () => {
+      try {
+        await takeHeapSnapshot();
+      } catch (error) {
+        console.error('Error taking heap snapshot:', error);
+      }
+    }, config.interval);
+    
+    // Clean up old profiles
+    cleanupOldProfiles();
+    
+    // Disconnect the session when done
+    session.disconnect();
+    console.log('Profiling completed');
+  } catch (error) {
+    console.error('Error during profiling:', error);
+    session.disconnect();
+    process.exit(1);
+  }
+}
 
 // Start profiling
-console.log('Starting profiling. Press Ctrl+C to stop.');
-
-// Take initial CPU profile
-takeCPUProfile();
-
-// Take CPU profiles at intervals
-setInterval(takeCPUProfile, config.cpuProfileDuration * 2);
-
-// Take heap snapshots at intervals
-setInterval(takeHeapSnapshot, config.heapSnapshotInterval); 
+profile(); 

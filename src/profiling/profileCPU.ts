@@ -17,15 +17,41 @@ console.log(`Starting CPU profiling. Profile will be saved to: ${profilePath}`);
 // Create a new inspector session
 const session = new inspector.Session();
 
-// Connect to the inspector
-session.connect();
+// Add error handling for the session
+session.on('inspectorNotification', (message) => {
+  console.log('Inspector notification:', message);
+});
 
-// Enable the profiler
-session.post('Profiler.enable', () => {
+// Connect to the inspector with error handling
+try {
+  console.log('Attempting to connect to Node.js inspector...');
+  session.connect();
+  console.log('Successfully connected to Node.js inspector');
+} catch (error) {
+  console.error('Failed to connect to Node.js inspector:', error);
+  console.error('Make sure your Node.js application is running with the --inspect flag');
+  console.error('Example: node --inspect --max-old-space-size=8192 --expose-gc dist/app.js');
+  process.exit(1);
+}
+
+// Enable the profiler with error handling
+session.post('Profiler.enable', (err) => {
+  if (err) {
+    console.error('Failed to enable profiler:', err);
+    session.disconnect();
+    process.exit(1);
+  }
+  
   console.log('Profiler enabled');
   
-  // Start profiling
-  session.post('Profiler.start', () => {
+  // Start profiling with error handling
+  session.post('Profiler.start', (err) => {
+    if (err) {
+      console.error('Failed to start profiling:', err);
+      session.disconnect();
+      process.exit(1);
+    }
+    
     console.log('CPU profiling started');
     
     // Set up a signal handler to stop profiling on SIGINT (Ctrl+C)
@@ -36,12 +62,17 @@ session.post('Profiler.enable', () => {
       session.post('Profiler.stop', (err, { profile }) => {
         if (err) {
           console.error('Error stopping profiler:', err);
+          session.disconnect();
           process.exit(1);
         }
         
-        // Write the profile to a file
-        fs.writeFileSync(profilePath, JSON.stringify(profile));
-        console.log(`CPU profile saved to: ${profilePath}`);
+        try {
+          // Write the profile to a file
+          fs.writeFileSync(profilePath, JSON.stringify(profile));
+          console.log(`CPU profile saved to: ${profilePath}`);
+        } catch (writeError) {
+          console.error('Error writing profile to file:', writeError);
+        }
         
         // Disconnect the session
         session.disconnect();
