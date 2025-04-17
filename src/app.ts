@@ -20,6 +20,7 @@ import utilsRouter from './routes/misc/utils.js';
 import profilingRouter from './routes/misc/profiling.js';
 import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
+import healthRouter from './routes/misc/health.js';
 
 dotenv.config();
 
@@ -160,7 +161,7 @@ async function startServer() {
     app.use('/v2/profiling', profilingRouter);
     app.use('/events', eventsRouter);
     app.use('/v2/utils', utilsRouter);
-
+    app.use('/health', healthRouter);
     // HTML meta tags middleware for specific routes BEFORE static files
     app.get(['/passes/:id', '/levels/:id', '/player/:id'], htmlMetaMiddleware);
 
