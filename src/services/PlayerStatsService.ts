@@ -136,7 +136,7 @@ export class PlayerStatsService {
   }
 
   public async reloadAllStats(): Promise<void> {
-    logger.info(`[PlayerStatsService] Starting reloadAllStats`);
+    logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
     // Clear any pending scheduled updates
     if (this.updateTimeout) {
       clearTimeout(this.updateTimeout);
@@ -149,20 +149,20 @@ export class PlayerStatsService {
     try {
       // First, get all player IDs in a deterministic order
       // Use a streaming approach to avoid loading all IDs into memory at once
-      logger.info(`[PlayerStatsService] Counting total players`);
+      logger.debug(`[PlayerStatsService] Counting total players`);
       const playerCount = await Player.count({ transaction });
-      logger.info(`[PlayerStatsService] Found ${playerCount} total players`);
+      logger.debug(`[PlayerStatsService] Found ${playerCount} total players`);
       
       // Process in smaller chunks to reduce memory pressure
       const CHUNK_SIZE = 5000; // Reduced from 10000 to 5000
       const BATCHES_PER_CHUNK = 20; // Each chunk will be divided into 20 batches
       const BATCH_SIZE = Math.ceil(CHUNK_SIZE / BATCHES_PER_CHUNK);
       
-      logger.info(`[PlayerStatsService] Processing in chunks of ${CHUNK_SIZE} with ${BATCHES_PER_CHUNK} batches per chunk`);
+      logger.debug(`[PlayerStatsService] Processing in chunks of ${CHUNK_SIZE} with ${BATCHES_PER_CHUNK} batches per chunk`);
       
       for (let chunkStart = 0; chunkStart < playerCount; chunkStart += CHUNK_SIZE) {
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, playerCount);
-        logger.info(`[PlayerStatsService] Processing chunk ${Math.floor(chunkStart/CHUNK_SIZE) + 1} of ${Math.ceil(playerCount/CHUNK_SIZE)} (players ${chunkStart+1}-${chunkEnd})`);
+        logger.debug(`[PlayerStatsService] Processing chunk ${Math.floor(chunkStart/CHUNK_SIZE) + 1} of ${Math.ceil(playerCount/CHUNK_SIZE)} (players ${chunkStart+1}-${chunkEnd})`);
         
         // Get IDs for this chunk
         const chunkPlayerIds = await Player.findAll({
@@ -174,24 +174,24 @@ export class PlayerStatsService {
         });
         
         const playerIds = chunkPlayerIds.map(player => player.id);
-        logger.info(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
+        logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
         
         // Process this chunk in batches
         for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
           const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-          logger.info(`[PlayerStatsService] Processing batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
+          logger.debug(`[PlayerStatsService] Processing batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
           
           // Use a separate transaction for each batch to reduce lock time
           const batchTransaction = await sequelize.transaction();
           try {
             await this.processBatchByIds(batchTransaction, batchIds);
             await batchTransaction.commit();
-            logger.info(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
+            logger.debug(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
           } catch (error) {
             console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
             try {
               await batchTransaction.rollback();
-              logger.info(`[PlayerStatsService] Successfully rolled back batch transaction`);
+              logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
             } catch (rollbackError) {
               console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
             }
@@ -212,7 +212,7 @@ export class PlayerStatsService {
       
       try {
         await transaction.commit();
-        logger.info(`[PlayerStatsService] Successfully committed main transaction in reloadAllStats`);
+        logger.debug(`[PlayerStatsService] Successfully committed main transaction in reloadAllStats`);
         this.forceUpdateRanks();
         // Emit SSE event
         sseManager.broadcast({
@@ -221,12 +221,12 @@ export class PlayerStatsService {
             action: 'fullReload',
           },
         });
-        logger.info(`[PlayerStatsService] Successfully completed reloadAllStats`);
+        logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats`);
       } catch (error) {
         console.error('[PlayerStatsService] FAILURE: Error committing transaction in reloadAllStats:', error);
         try {
           await transaction.rollback();
-          logger.info(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
+          logger.debug(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
         } catch (rollbackError) {
           console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
         }
@@ -236,7 +236,7 @@ export class PlayerStatsService {
       console.error('[PlayerStatsService] FAILURE: Error in reloadAllStats:', error);
       try {
         await transaction.rollback();
-        logger.info(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
+        logger.debug(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
       } catch (rollbackError) {
         console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
       }
@@ -445,12 +445,12 @@ export class PlayerStatsService {
     playerId: number,
     existingTransaction?: any,
   ): Promise<void> {
-    logger.info(`[PlayerStatsService] Starting updatePlayerStats for player ID: ${playerId}`);
+    logger.debug(`[PlayerStatsService] Starting updatePlayerStats for player ID: ${playerId}`);
     const transaction = existingTransaction || (await sequelize.transaction());
     const shouldCommit = !existingTransaction;
 
     try {
-      logger.info(`[PlayerStatsService] Fetching player data for player ID: ${playerId}`);
+      logger.debug(`[PlayerStatsService] Fetching player data for player ID: ${playerId}`);
       const player = await Player.findByPk(playerId, {
         include: [
           {
@@ -489,19 +489,19 @@ export class PlayerStatsService {
       }
 
       if (!player.passes) {
-        logger.info(`[PlayerStatsService] Player ${playerId} has no passes, creating empty stats`);
+        logger.debug(`[PlayerStatsService] Player ${playerId} has no passes, creating empty stats`);
       }
 
       // Convert passes to scores and get highest score per level
 
       // Calculate top difficulties
-      logger.info(`[PlayerStatsService] Calculating top difficulties for player ID: ${playerId}`);
+      logger.debug(`[PlayerStatsService] Calculating top difficulties for player ID: ${playerId}`);
       const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
         player.passes || [],
       );
 
       // Calculate all scores using the filtered scores
-      logger.info(`[PlayerStatsService] Calculating scores for player ID: ${playerId}`);
+      logger.debug(`[PlayerStatsService] Calculating scores for player ID: ${playerId}`);
       const stats = {
         id: player.id,
         rankedScore: calculateRankedScore(player.passes || []),
@@ -519,7 +519,7 @@ export class PlayerStatsService {
 
       // Update or create player stats
       try {
-        logger.info(`[PlayerStatsService] Upserting stats for player ID: ${playerId}`);
+        logger.debug(`[PlayerStatsService] Upserting stats for player ID: ${playerId}`);
         
         // Use a separate transaction for the upsert to avoid long-running transactions
         if (shouldCommit) {
@@ -528,7 +528,7 @@ export class PlayerStatsService {
           try {
             await PlayerStats.upsert(stats, {transaction: upsertTransaction});
             await upsertTransaction.commit();
-            logger.info(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId}`);
+            logger.debug(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId}`);
           } catch (upsertError) {
             console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, upsertError);
             await upsertTransaction.rollback();
@@ -537,7 +537,7 @@ export class PlayerStatsService {
         } else {
           // If we're using an existing transaction, use it for the upsert
           await PlayerStats.upsert(stats, {transaction});
-          logger.info(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId} using existing transaction`);
+          logger.debug(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId} using existing transaction`);
         }
       } catch (error) {
         console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, error);
@@ -546,9 +546,9 @@ export class PlayerStatsService {
 
       // Update ranks for all players
       try {
-        logger.info(`[PlayerStatsService] Updating ranks for all players`);
+        logger.debug(`[PlayerStatsService] Updating ranks for all players`);
         await this.updateRanks(transaction);
-        logger.info(`[PlayerStatsService] Successfully updated ranks for all players`);
+        logger.debug(`[PlayerStatsService] Successfully updated ranks for all players`);
       } catch (error) {
         console.error(`[PlayerStatsService] FAILURE: Error updating ranks for player ${playerId}:`, error);
         // Continue execution even if rank update fails
@@ -556,7 +556,7 @@ export class PlayerStatsService {
 
       if (shouldCommit) {
         try {
-          logger.info(`[PlayerStatsService] Committing transaction for player ID: ${playerId}`);
+          logger.debug(`[PlayerStatsService] Committing transaction for player ID: ${playerId}`);
           await transaction.commit();
 
           // Notify clients about the update
@@ -571,7 +571,7 @@ export class PlayerStatsService {
               newStats: stats,
             },
           });
-          logger.info(`[PlayerStatsService] Successfully completed update for player ID: ${playerId}`);
+          logger.debug(`[PlayerStatsService] Successfully completed update for player ID: ${playerId}`);
         } catch (error) {
           console.error(`[PlayerStatsService] FAILURE: Error committing transaction for player ${playerId}:`, error);
           // If commit fails, try to rollback
@@ -597,17 +597,17 @@ export class PlayerStatsService {
   }
 
   private async reloadAllStatsCron() {
-    logger.info('Setting up cron for full stats reload');
+    logger.debug('Setting up cron for full stats reload');
     setInterval(async () => {
       await this.reloadAllStats();
     }, this.RELOAD_INTERVAL);
   }
 
   private async updateRanks(transaction?: any): Promise<void> {
-    logger.info(`[PlayerStatsService] Starting updateRanks`);
+    logger.debug(`[PlayerStatsService] Starting updateRanks`);
     try {
       // Get all players with their stats
-      logger.info(`[PlayerStatsService] Fetching all players with stats`);
+      logger.debug(`[PlayerStatsService] Fetching all players with stats`);
       const players = await Player.findAll({
         include: [
           {
@@ -624,7 +624,7 @@ export class PlayerStatsService {
         transaction
       });
 
-      logger.info(`[PlayerStatsService] Found ${players.length} players with stats`);
+      logger.debug(`[PlayerStatsService] Found ${players.length} players with stats`);
 
       // Separate banned and non-banned players
       const bannedPlayers = players.filter(player => 
@@ -634,11 +634,11 @@ export class PlayerStatsService {
         !player.isBanned && (!player.user || player.user.isEmailVerified)
       );
 
-      logger.info(`[PlayerStatsService] Found ${bannedPlayers.length} banned players and ${activePlayers.length} active players`);
+      logger.debug(`[PlayerStatsService] Found ${bannedPlayers.length} banned players and ${activePlayers.length} active players`);
 
       // Set rank to -1 for banned players
       if (bannedPlayers.length > 0) {
-        logger.info(`[PlayerStatsService] Setting rank to -1 for ${bannedPlayers.length} banned players`);
+        logger.debug(`[PlayerStatsService] Setting rank to -1 for ${bannedPlayers.length} banned players`);
         const bannedIds = bannedPlayers.map(p => p.id);
         try {
           // Use a separate transaction for banned players to avoid long-running transactions
@@ -660,7 +660,7 @@ export class PlayerStatsService {
             
             if (!transaction) {
               await bannedTransaction.commit();
-              logger.info(`[PlayerStatsService] Successfully updated ranks for banned players`);
+              logger.debug(`[PlayerStatsService] Successfully updated ranks for banned players`);
             }
           } catch (error) {
             console.error('Error updating banned player ranks:', error);
@@ -686,7 +686,7 @@ export class PlayerStatsService {
 
       for (const scoreType of scoreTypes) {
         const rankField = `${scoreType}Rank`;
-        logger.info(`[PlayerStatsService] Calculating ${rankField} for active players`);
+        logger.debug(`[PlayerStatsService] Calculating ${rankField} for active players`);
         
         // Sort players by score in descending order
         const sortedPlayers = activePlayers
@@ -697,7 +697,7 @@ export class PlayerStatsService {
             return scoreB - scoreA;
           });
 
-        logger.info(`[PlayerStatsService] Found ${sortedPlayers.length} players with ${scoreType} > 0`);
+        logger.debug(`[PlayerStatsService] Found ${sortedPlayers.length} players with ${scoreType} > 0`);
 
         // Update ranks in smaller batches with individual transactions
         const batchSize = 50; // Reduced batch size for better reliability
@@ -709,7 +709,7 @@ export class PlayerStatsService {
           }).join(' ');
 
           if (updates) {
-            logger.info(`[PlayerStatsService] Updating ${rankField} for batch ${i/batchSize + 1} of ${Math.ceil(sortedPlayers.length/batchSize)}`);
+            logger.debug(`[PlayerStatsService] Updating ${rankField} for batch ${i/batchSize + 1} of ${Math.ceil(sortedPlayers.length/batchSize)}`);
             
             // Create a new transaction for each batch
             const batchTransaction = transaction || await sequelize.transaction();
@@ -725,7 +725,7 @@ export class PlayerStatsService {
               
               if (!transaction) {
                 await batchTransaction.commit();
-                logger.info(`[PlayerStatsService] Successfully updated ${rankField} for batch ${i/batchSize + 1}`);
+                logger.debug(`[PlayerStatsService] Successfully updated ${rankField} for batch ${i/batchSize + 1}`);
               }
             } catch (error) {
               console.error(`Error updating ${rankField} for batch:`, error);
@@ -742,7 +742,7 @@ export class PlayerStatsService {
         }
       }
       
-      logger.info(`[PlayerStatsService] Successfully completed updateRanks`);
+      logger.debug(`[PlayerStatsService] Successfully completed updateRanks`);
     } catch (error) {
       console.error('Error updating ranks:', error);
       // Don't throw here, let the caller handle the transaction
@@ -750,7 +750,7 @@ export class PlayerStatsService {
   }
 
   public async forceUpdateRanks(): Promise<void> {
-    logger.info(`[PlayerStatsService] Starting forceUpdateRanks`);
+    logger.debug(`[PlayerStatsService] Starting forceUpdateRanks`);
     try {
       // Use a separate transaction for the main operation
       const transaction = await sequelize.transaction();
@@ -758,7 +758,7 @@ export class PlayerStatsService {
         await this.updateRanks(transaction);
         try {
           await transaction.commit();
-          logger.info(`[PlayerStatsService] Successfully committed transaction in forceUpdateRanks`);
+          logger.debug(`[PlayerStatsService] Successfully committed transaction in forceUpdateRanks`);
         } catch (error) {
           console.error('Error committing transaction in forceUpdateRanks:', error);
           try {
