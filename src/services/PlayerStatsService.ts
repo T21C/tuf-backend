@@ -145,26 +145,51 @@ export class PlayerStatsService {
     const transaction = await sequelize.transaction();
     try {
       // First, get all player IDs in a deterministic order
-      const allPlayerIds = await Player.findAll({
-        attributes: ['id'],
-        order: [['id', 'ASC']],
-        transaction
-      });
+      // Use a streaming approach to avoid loading all IDs into memory at once
+      const playerCount = await Player.count({ transaction });
+      console.log(`[PlayerStatsService] Starting full reload for ${playerCount} players`);
       
-      const playerIds = allPlayerIds.map(player => player.id);
-      const totalPlayers = playerIds.length;
-      console.log(`[PlayerStatsService] Starting full reload for ${totalPlayers} players`);
+      // Process in smaller chunks to reduce memory pressure
+      const CHUNK_SIZE = 10000; // Process 10,000 players at a time
+      const BATCHES_PER_CHUNK = 20; // Each chunk will be divided into 20 batches
+      const BATCH_SIZE = Math.ceil(CHUNK_SIZE / BATCHES_PER_CHUNK);
       
-      // Process in batches
-      for (let i = 0; i < totalPlayers; i += this.BATCH_SIZE) {
-        const batchIds = playerIds.slice(i, i + this.BATCH_SIZE);
-        console.log(`[PlayerStatsService] Processing batch ${i / this.BATCH_SIZE + 1}/${Math.ceil(totalPlayers / this.BATCH_SIZE)} (${batchIds.length} players)`);
-        await this.processBatchByIds(transaction, batchIds);
+      for (let chunkStart = 0; chunkStart < playerCount; chunkStart += CHUNK_SIZE) {
+        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, playerCount);
+        console.log(`[PlayerStatsService] Processing chunk ${chunkStart} to ${chunkEnd} (${chunkEnd - chunkStart} players)`);
+        
+        // Get IDs for this chunk
+        const chunkPlayerIds = await Player.findAll({
+          attributes: ['id'],
+          order: [['id', 'ASC']],
+          offset: chunkStart,
+          limit: chunkEnd - chunkStart,
+          transaction
+        });
+        
+        const playerIds = chunkPlayerIds.map(player => player.id);
+        
+        // Process this chunk in batches
+        for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
+          const batchIds = playerIds.slice(i, i + BATCH_SIZE);
+          console.log(`[PlayerStatsService] Processing batch ${i / BATCH_SIZE + 1}/${Math.ceil(playerIds.length / BATCH_SIZE)} (${batchIds.length} players)`);
+          await this.processBatchByIds(transaction, batchIds);
+          
+          // Hint to garbage collector to clean up after each batch
+          if (global.gc) {
+            global.gc();
+          }
+        }
+        
+        // Hint to garbage collector to clean up after each chunk
+        if (global.gc) {
+          global.gc();
+        }
       }
       
       try {
         await transaction.commit();
-        
+        this.forceUpdateRanks();
         // Emit SSE event
         sseManager.broadcast({
           type: 'statsUpdate',
@@ -195,296 +220,196 @@ export class PlayerStatsService {
   private async processBatchByIds(transaction: any, playerIds: number[]) {
     // Get all players with their passes in a single query
     console.log('Processing players', playerIds[0], " to ", playerIds[playerIds.length - 1]);
-    const players = await Player.findAll({
-      where: {
-        id: {
-          [Op.in]: playerIds
-        }
-      },
-      include: [
-        {
-          model: Pass,
-          as: 'passes',
-          where: {
-            isDeleted: false,
-          },
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              where: {
-                isDeleted: false
-              },
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                },
-              ],
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
-        },
-        {
-          model: User,
-          as: 'user',
-          required: false,
-        },
-      ],
-      transaction,
-      // Use subQuery: false to prevent Sequelize from using a subquery approach
-      // which is causing the "Unknown column 'passes.levelId' in 'on clause'" error
-      subQuery: false,
-      order: [['id', 'ASC']],
-    });
-
-    // Extract player IDs from the current batch
-    const batchPlayerIds = players.map(player => player.id);
     
-    // Prepare bulk update data
-    const bulkStats = await Promise.all(players.map(async (player: any) => {
-      // Calculate top difficulties
-      const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
-        player.passes || [],
-      );
-
-      // Create base stats object
-      const baseStats = {
-        id: player.id,
-        rankedScore: calculateRankedScore(player.passes || []),
-        generalScore: calculateGeneralScore(player.passes || []),
-        ppScore: calculatePPScore(player.passes || []),
-        wfScore: calculateWFScore(player.passes || []),
-        score12K: calculate12KScore(player.passes || []),
-        averageXacc: calculateAverageXacc(player.passes || []),
-        universalPassCount: countUniversalPassCount(player.passes || []),
-        worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-        topDiffId,
-        top12kDiffId,
-        lastUpdated: new Date(),
-      };
-
-      // Apply modifiers if enabled
-      if (this.modifierService) {
-        return this.modifierService.applyScoreModifiers(player.id, baseStats);
-      }
-      return baseStats;
-    }));
-
-    // Verify all player IDs exist before bulk upsert
-    const existingPlayers = await Player.findAll({
-      where: { id: batchPlayerIds },
-      attributes: ['id'],
-      transaction
-    });
-
-    const existingPlayerIds = new Set(existingPlayers.map(p => p.id));
-    const invalidPlayerIds = batchPlayerIds.filter(id => !existingPlayerIds.has(id));
-
-    if (invalidPlayerIds.length > 0) {
-      console.error(`[PlayerStatsService] Found ${invalidPlayerIds.length} invalid player IDs that don't exist in the players table:`, invalidPlayerIds);
-    }
-
-    const validStats = bulkStats.filter(stat => existingPlayerIds.has(stat.id));
-
-    // Bulk upsert all stats
-    try {
-      await PlayerStats.bulkCreate(validStats, {
-        updateOnDuplicate: [
-          'rankedScore',
-          'generalScore',
-          'ppScore',
-          'wfScore',
-          'score12K',
-          'averageXacc',
-          'universalPassCount',
-          'worldsFirstCount',
-          'topDiffId',
-          'top12kDiffId',
-          'lastUpdated',
-        ],
-        transaction,
-      });
-    } catch (error: any) {
-      if (error.name === 'SequelizeForeignKeyConstraintError') {
-        // Extract player IDs from the error SQL if available
-        const errorSql = error.sql || '';
-        const idMatches = errorSql.match(/VALUES\s*\((.*?)\)/g);
-        if (idMatches) {
-          const failedIds = idMatches.map((match: string) => {
-            const idMatch = match.match(/\((\d+),/);
-            return idMatch ? idMatch[1] : null;
-          }).filter(Boolean);
-          console.error(`[PlayerStatsService] Foreign key constraint failed for player IDs:`, failedIds);
-        }
-      }
-      console.error('[PlayerStatsService] FAILURE: Error bulk upserting stats:', error);
-      throw error;
-    }
-
-    // Check for players who might have been missed
-    const playersWithStats = await PlayerStats.findAll(
-      { 
+    // Process in smaller sub-batches to reduce memory pressure
+    const SUB_BATCH_SIZE = 100; // Process 100 players at a time
+    for (let i = 0; i < playerIds.length; i += SUB_BATCH_SIZE) {
+      const subBatchIds = playerIds.slice(i, i + SUB_BATCH_SIZE);
+      console.log(`  Sub-batch ${i / SUB_BATCH_SIZE + 1}/${Math.ceil(playerIds.length / SUB_BATCH_SIZE)} (${subBatchIds.length} players)`);
+      
+      const players = await Player.findAll({
         where: {
           id: {
-            [Op.in]: batchPlayerIds,
-          },
+            [Op.in]: subBatchIds
+          }
         },
+        include: [
+          {
+            model: Pass,
+            as: 'passes',
+            where: {
+              isDeleted: false,
+            },
+            include: [
+              {
+                model: Level,
+                as: 'level',
+                where: {
+                  isDeleted: false
+                },
+                include: [
+                  {
+                    model: Difficulty,
+                    as: 'difficulty',
+                  },
+                ],
+              },
+              {
+                model: Judgement,
+                as: 'judgements',
+              },
+            ],
+          },
+          {
+            model: User,
+            as: 'user',
+            required: false,
+          },
+        ],
         transaction,
+        // Use subQuery: false to prevent Sequelize from using a subquery approach
+        // which is causing the "Unknown column 'passes.levelId' in 'on clause'" error
+        subQuery: false,
+        order: [['id', 'ASC']],
       });
-    
-    const playerIdsWithStats = new Set(playersWithStats.map((p: any) => p.id));
-    const playersWithoutStats = players.filter((p: any) => !playerIdsWithStats.has(p.id));
-    
-    if (playersWithoutStats.length > 0) {
-      console.log(`[PlayerStatsService] Found ${playersWithoutStats.length} players without stats after bulk upsert`);
+
+      // Extract player IDs from the current batch
+      const batchPlayerIds = players.map(player => player.id);
       
-      // Create stats for these players
-      const now = new Date();
-      const missingStats = playersWithoutStats.map((player: any) => ({
-        id: player.id,
-        rankedScore: 0,
-        generalScore: 0,
-        ppScore: 0,
-        wfScore: 0,
-        score12K: 0,
-        rankedScoreRank: 0,
-        generalScoreRank: 0,
-        ppScoreRank: 0,
-        wfScoreRank: 0,
-        score12KRank: 0,
-        averageXacc: 0,
-        universalPassCount: 0,
-        worldsFirstCount: 0,
-        lastUpdated: now,
-        createdAt: now,
-        updatedAt: now,
-        topDiffId: 0,
-        top12kDiffId: 0
-      }));
-      
-      try {
-        await PlayerStats.bulkCreate(missingStats, { transaction });
-        console.log(`[PlayerStatsService] Created stats for ${missingStats.length} players who were missed`);
-      } catch (error) {
-        console.error('[PlayerStatsService] FAILURE: Error creating stats for missed players:', error);
-        // Continue execution even if this fails
-      }
-    }
-
-    // Update ranks in bulk for each score type
-    const scoreTypes = [
-      'rankedScore',
-      'generalScore',
-      'ppScore',
-      'wfScore',
-      'score12K',
-    ];
-
-    // First, identify all players that should be treated as banned
-    // This includes players with isBanned=true and players with unverified users
-    const bannedPlayers = await Player.findAll({
-      include: [
-        {
-          model: User,
-          as: 'user',
-          required: false,
-        }
-      ],
-      where: {
-        [Op.or]: [
-          { isBanned: true },
-          { '$user.isEmailVerified$': false }
-        ]
-      },
-      transaction
-    });
-
-    const bannedPlayerIds = bannedPlayers.map(player => player.id);
-
-    // Update all rank fields for banned players to -1
-    if (bannedPlayerIds.length > 0) {
-      try {
-        await sequelize.query(
-          `
-          UPDATE player_stats
-          SET 
-            rankedScoreRank = -1,
-            generalScoreRank = -1,
-            ppScoreRank = -1,
-            wfScoreRank = -1,
-            score12KRank = -1
-          WHERE id IN (${bannedPlayerIds.join(',')})
-          `,
-          { transaction }
+      // Prepare bulk update data
+      const bulkStats = await Promise.all(players.map(async (player: any) => {
+        // Calculate top difficulties
+        const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
+          player.passes || [],
         );
-      } catch (error) {
-        console.error('[PlayerStatsService] FAILURE: Error updating banned player ranks:', error);
-        // Continue execution even if this fails
-      }
-    }
 
-    // For each score type, calculate ranks for non-banned players
-    for (const scoreType of scoreTypes) {
-      const rankField = `${scoreType}Rank`;
-      
-      // Get all eligible players (not in bannedPlayerIds) ordered by score
-      const eligiblePlayers = await sequelize.query(
-        `
-        SELECT ps.id, ps.${scoreType}
-        FROM player_stats ps
-        WHERE ps.id NOT IN (${bannedPlayerIds.length > 0 ? bannedPlayerIds.join(',') : '0'})
-        ORDER BY ps.${scoreType} DESC, ps.id ASC
-        `,
-        { 
-          transaction,
-          type: QueryTypes.SELECT
-        }
-      );
-      
-      if (!eligiblePlayers || eligiblePlayers.length === 0) {
-        continue; // Skip if no eligible players found
-      }
+        // Create base stats object
+        const baseStats = {
+          id: player.id,
+          rankedScore: calculateRankedScore(player.passes || []),
+          generalScore: calculateGeneralScore(player.passes || []),
+          ppScore: calculatePPScore(player.passes || []),
+          wfScore: calculateWFScore(player.passes || []),
+          score12K: calculate12KScore(player.passes || []),
+          averageXacc: calculateAverageXacc(player.passes || []),
+          universalPassCount: countUniversalPassCount(player.passes || []),
+          worldsFirstCount: countWorldsFirstPasses(player.passes || []),
+          topDiffId,
+          top12kDiffId,
+          lastUpdated: new Date(),
+        };
 
-      // Create a map of player ID to rank
-      const rankMap = new Map();
-      eligiblePlayers.forEach((player: any, index: number) => {
-        if (player && player.id) { // Only add valid player IDs
-          rankMap.set(player.id, index + 1);
+        // Apply modifiers if enabled
+        if (this.modifierService) {
+          return this.modifierService.applyScoreModifiers(player.id, baseStats);
         }
+        return baseStats;
+      }));
+
+      // Verify all player IDs exist before bulk upsert
+      const existingPlayers = await Player.findAll({
+        where: { id: batchPlayerIds },
+        attributes: ['id'],
+        transaction
       });
-      
-      // Update ranks in batches to avoid large transactions
-      const batchSize = 1000;
-      const eligibleIds = Array.from(rankMap.keys());
-      
-      for (let i = 0; i < eligibleIds.length; i += batchSize) {
-        const batchIds = eligibleIds.slice(i, i + batchSize);
-        if (batchIds.length === 0) continue;
 
-        const updates = batchIds.map(id => {
-          const rank = rankMap.get(id);
-          return rank ? `WHEN id = ${id} THEN ${rank}` : null;
-        }).filter(Boolean).join(' ');
-        
-        if (updates) {
-          try {
-            await sequelize.query(
-              `
-              UPDATE player_stats
-              SET ${rankField} = CASE ${updates} ELSE ${rankField} END
-              WHERE id IN (${batchIds.join(',')})
-              `,
-              { transaction }
-            );
-          } catch (error) {
-            console.error(`[PlayerStatsService] FAILURE: Error updating ${rankField} for batch:`, error);
-            // Continue with the next batch even if this one fails
+      const existingPlayerIds = new Set(existingPlayers.map(p => p.id));
+      const invalidPlayerIds = batchPlayerIds.filter(id => !existingPlayerIds.has(id));
+
+      if (invalidPlayerIds.length > 0) {
+        console.error(`[PlayerStatsService] Found ${invalidPlayerIds.length} invalid player IDs that don't exist in the players table:`, invalidPlayerIds);
+      }
+
+      const validStats = bulkStats.filter(stat => existingPlayerIds.has(stat.id));
+
+      // Bulk upsert all stats
+      try {
+        await PlayerStats.bulkCreate(validStats, {
+          updateOnDuplicate: [
+            'rankedScore',
+            'generalScore',
+            'ppScore',
+            'wfScore',
+            'score12K',
+            'averageXacc',
+            'universalPassCount',
+            'worldsFirstCount',
+            'topDiffId',
+            'top12kDiffId',
+            'lastUpdated',
+          ],
+          transaction,
+        });
+      } catch (error: any) {
+        if (error.name === 'SequelizeForeignKeyConstraintError') {
+          // Extract player IDs from the error SQL if available
+          const errorSql = error.sql || '';
+          const idMatches = errorSql.match(/VALUES\s*\((.*?)\)/g);
+          if (idMatches) {
+            const failedIds = idMatches.map((match: string) => {
+              const idMatch = match.match(/\((\d+),/);
+              return idMatch ? idMatch[1] : null;
+            }).filter(Boolean);
+            console.error(`[PlayerStatsService] Foreign key constraint failed for player IDs:`, failedIds);
           }
         }
+        console.error('[PlayerStatsService] FAILURE: Error bulk upserting stats:', error);
+        throw error;
+      }
+
+      // Check for players who might have been missed
+      const playersWithStats = await PlayerStats.findAll(
+        { 
+          where: {
+            id: {
+              [Op.in]: batchPlayerIds,
+            },
+          },
+          transaction,
+        });
+      
+      const playerIdsWithStats = new Set(playersWithStats.map((p: any) => p.id));
+      const playersWithoutStats = players.filter((p: any) => !playerIdsWithStats.has(p.id));
+      
+      if (playersWithoutStats.length > 0) {
+        console.log(`[PlayerStatsService] Found ${playersWithoutStats.length} players without stats after bulk upsert`);
+        
+        // Create stats for these players
+        const now = new Date();
+        const missingStats = playersWithoutStats.map((player: any) => ({
+          id: player.id,
+          rankedScore: 0,
+          generalScore: 0,
+          ppScore: 0,
+          wfScore: 0,
+          score12K: 0,
+          rankedScoreRank: 0,
+          generalScoreRank: 0,
+          ppScoreRank: 0,
+          wfScoreRank: 0,
+          score12KRank: 0,
+          averageXacc: 0,
+          universalPassCount: 0,
+          worldsFirstCount: 0,
+          lastUpdated: now,
+          createdAt: now,
+          updatedAt: now,
+          topDiffId: 0,
+          top12kDiffId: 0
+        }));
+        
+        try {
+          await PlayerStats.bulkCreate(missingStats, { transaction });
+          console.log(`[PlayerStatsService] Created stats for ${missingStats.length} players who were missed`);
+        } catch (error) {
+          console.error('[PlayerStatsService] FAILURE: Error creating stats for missed players:', error);
+          // Continue execution even if this fails
+        }
+      }
+      
+      // Hint to garbage collector to clean up after each sub-batch
+      if (global.gc) {
+        global.gc();
       }
     }
   }
