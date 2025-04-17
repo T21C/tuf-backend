@@ -342,7 +342,7 @@ export async function createClearEmbed(
 
     .addField(
       'Accuracy',
-      `**${((pass.accuracy || 0.95) * 100).toFixed(2)}%**`,
+      `**${((pass.accuracy || pass.judgements?.accuracy || 0.95) * 100).toFixed(2)}%**`,
       true,
     )
     .addField(

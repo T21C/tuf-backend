@@ -147,7 +147,6 @@ export class PlayerStatsService {
       // First, get all player IDs in a deterministic order
       // Use a streaming approach to avoid loading all IDs into memory at once
       const playerCount = await Player.count({ transaction });
-      console.log(`[PlayerStatsService] Starting full reload for ${playerCount} players`);
       
       // Process in smaller chunks to reduce memory pressure
       const CHUNK_SIZE = 10000; // Process 10,000 players at a time
@@ -156,7 +155,6 @@ export class PlayerStatsService {
       
       for (let chunkStart = 0; chunkStart < playerCount; chunkStart += CHUNK_SIZE) {
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, playerCount);
-        console.log(`[PlayerStatsService] Processing chunk ${chunkStart} to ${chunkEnd} (${chunkEnd - chunkStart} players)`);
         
         // Get IDs for this chunk
         const chunkPlayerIds = await Player.findAll({
@@ -172,7 +170,6 @@ export class PlayerStatsService {
         // Process this chunk in batches
         for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
           const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-          console.log(`[PlayerStatsService] Processing batch ${i / BATCH_SIZE + 1}/${Math.ceil(playerIds.length / BATCH_SIZE)} (${batchIds.length} players)`);
           await this.processBatchByIds(transaction, batchIds);
           
           // Hint to garbage collector to clean up after each batch
@@ -219,13 +216,11 @@ export class PlayerStatsService {
 
   private async processBatchByIds(transaction: any, playerIds: number[]) {
     // Get all players with their passes in a single query
-    console.log('Processing players', playerIds[0], " to ", playerIds[playerIds.length - 1]);
     
     // Process in smaller sub-batches to reduce memory pressure
     const SUB_BATCH_SIZE = 100; // Process 100 players at a time
     for (let i = 0; i < playerIds.length; i += SUB_BATCH_SIZE) {
       const subBatchIds = playerIds.slice(i, i + SUB_BATCH_SIZE);
-      console.log(`  Sub-batch ${i / SUB_BATCH_SIZE + 1}/${Math.ceil(playerIds.length / SUB_BATCH_SIZE)} (${subBatchIds.length} players)`);
       
       const players = await Player.findAll({
         where: {
@@ -372,7 +367,6 @@ export class PlayerStatsService {
       const playersWithoutStats = players.filter((p: any) => !playerIdsWithStats.has(p.id));
       
       if (playersWithoutStats.length > 0) {
-        console.log(`[PlayerStatsService] Found ${playersWithoutStats.length} players without stats after bulk upsert`);
         
         // Create stats for these players
         const now = new Date();
@@ -400,7 +394,6 @@ export class PlayerStatsService {
         
         try {
           await PlayerStats.bulkCreate(missingStats, { transaction });
-          console.log(`[PlayerStatsService] Created stats for ${missingStats.length} players who were missed`);
         } catch (error) {
           console.error('[PlayerStatsService] FAILURE: Error creating stats for missed players:', error);
           // Continue execution even if this fails

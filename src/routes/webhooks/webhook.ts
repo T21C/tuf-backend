@@ -66,26 +66,6 @@ async function processBatches<T>(
   }
 }
 
-// Helper to send webhook messages for a specific webhook URL
-async function sendWebhookMessages(
-  webhookUrl: string,
-  embeds: MessageBuilder[],
-  ping?: string
-) {
-  const hook = new Webhook(webhookUrl);
-  hook.setUsername('TUF Announcer');
-  hook.setAvatar(placeHolder);
-
-  const combinedEmbed = MessageBuilder.combine(...embeds);
-  
-  // Always set the ping if it exists, not just for the first batch
-  if (ping) {
-    combinedEmbed.setText(ping);
-  }
-
-  await hook.send(combinedEmbed);
-}
-
 // Helper to group passes/levels by webhook URL
 interface WebhookGroup {
   webhookUrl: string;
