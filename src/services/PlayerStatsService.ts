@@ -445,27 +445,24 @@ export class PlayerStatsService {
     playerId: number,
     existingTransaction?: any,
   ): Promise<void> {
-    logger.debug(`[PlayerStatsService] Starting updatePlayerStats for player ID: ${playerId}`);
-    const transaction = existingTransaction || (await sequelize.transaction());
-    const shouldCommit = !existingTransaction;
-
+    logger.debug(`[PlayerStatsService] Starting updatePlayerStats for player ${playerId}`);
+    
+    // If no transaction is provided, create a new one
+    const transaction = existingTransaction || await sequelize.transaction();
     try {
-      logger.debug(`[PlayerStatsService] Fetching player data for player ID: ${playerId}`);
-      const player = await Player.findByPk(playerId, {
+      // Get player data with a separate transaction to avoid long locks
+      const player = await Player.findOne({
+        where: { id: playerId },
         include: [
           {
             model: Pass,
             as: 'passes',
-            where: {
-              isDeleted: false,
-            },
+            where: { isDeleted: false },
             include: [
               {
                 model: Level,
                 as: 'level',
-                where: {
-                  isDeleted: false,
-                },
+                where: { isDeleted: false },
                 include: [
                   {
                     model: Difficulty,
@@ -481,28 +478,18 @@ export class PlayerStatsService {
           },
         ],
         transaction,
+        lock: true, // Use row-level locking
       });
 
       if (!player) {
-        console.error(`[PlayerStatsService] FAILURE: Player ${playerId} not found when updating stats`);
+        logger.debug(`[PlayerStatsService] Player ${playerId} not found`);
         return;
       }
 
-      if (!player.passes) {
-        logger.debug(`[PlayerStatsService] Player ${playerId} has no passes, creating empty stats`);
-      }
-
-      // Convert passes to scores and get highest score per level
-
-      // Calculate top difficulties
-      logger.debug(`[PlayerStatsService] Calculating top difficulties for player ID: ${playerId}`);
-      const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
-        player.passes || [],
-      );
-
-      // Calculate all scores using the filtered scores
-      logger.debug(`[PlayerStatsService] Calculating scores for player ID: ${playerId}`);
-      const stats = {
+      // Calculate stats in memory to minimize transaction time
+      const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(player.passes || []);
+      
+      const baseStats = {
         id: player.id,
         rankedScore: calculateRankedScore(player.passes || []),
         generalScore: calculateGeneralScore(player.passes || []),
@@ -517,79 +504,70 @@ export class PlayerStatsService {
         lastUpdated: new Date(),
       };
 
-      // Update or create player stats
+      // Apply modifiers if enabled
+      const stats = this.modifierService 
+        ? await this.modifierService.applyScoreModifiers(player.id, baseStats)
+        : baseStats;
+
+      // Use a separate transaction for the upsert to minimize lock time
+      const upsertTransaction = await sequelize.transaction();
       try {
-        logger.debug(`[PlayerStatsService] Upserting stats for player ID: ${playerId}`);
-        
-        // Use a separate transaction for the upsert to avoid long-running transactions
-        if (shouldCommit) {
-          // If we're managing the transaction, use a separate one for the upsert
-          const upsertTransaction = await sequelize.transaction();
-          try {
-            await PlayerStats.upsert(stats, {transaction: upsertTransaction});
-            await upsertTransaction.commit();
-            logger.debug(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId}`);
-          } catch (upsertError) {
-            console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, upsertError);
-            await upsertTransaction.rollback();
-            throw upsertError;
-          }
-        } else {
-          // If we're using an existing transaction, use it for the upsert
-          await PlayerStats.upsert(stats, {transaction});
-          logger.debug(`[PlayerStatsService] Successfully upserted stats for player ID: ${playerId} using existing transaction`);
-        }
+        await PlayerStats.upsert(stats, { 
+          transaction: upsertTransaction,
+        });
+        await upsertTransaction.commit();
+        logger.debug(`[PlayerStatsService] Successfully upserted stats for player ${playerId}`);
       } catch (error) {
         console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, error);
+        try {
+          await upsertTransaction.rollback();
+          logger.debug(`[PlayerStatsService] Successfully rolled back upsert transaction for player ${playerId}`);
+        } catch (rollbackError) {
+          console.error(`[PlayerStatsService] FAILURE: Error rolling back upsert transaction for player ${playerId}:`, rollbackError);
+        }
         throw error;
       }
 
-      // Update ranks for all players
+      // Update ranks with a separate transaction
+      const ranksTransaction = await sequelize.transaction();
       try {
-        logger.debug(`[PlayerStatsService] Updating ranks for all players`);
-        await this.updateRanks(transaction);
-        logger.debug(`[PlayerStatsService] Successfully updated ranks for all players`);
+        await this.updateRanks(ranksTransaction);
+        await ranksTransaction.commit();
+        logger.debug(`[PlayerStatsService] Successfully updated ranks after stats update for player ${playerId}`);
       } catch (error) {
         console.error(`[PlayerStatsService] FAILURE: Error updating ranks for player ${playerId}:`, error);
-        // Continue execution even if rank update fails
-      }
-
-      if (shouldCommit) {
         try {
-          logger.debug(`[PlayerStatsService] Committing transaction for player ID: ${playerId}`);
-          await transaction.commit();
-
-          // Notify clients about the update
-          const io = getIO();
-          io.emit('leaderboardUpdated');
-
-          // Emit SSE event
-          sseManager.broadcast({
-            type: 'statsUpdate',
-            data: {
-              id: player.id,
-              newStats: stats,
-            },
-          });
-          logger.debug(`[PlayerStatsService] Successfully completed update for player ID: ${playerId}`);
-        } catch (error) {
-          console.error(`[PlayerStatsService] FAILURE: Error committing transaction for player ${playerId}:`, error);
-          // If commit fails, try to rollback
-          try {
-            await transaction.rollback();
-          } catch (rollbackError) {
-            console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for player ${playerId}:`, rollbackError);
-          }
-          throw error;
+          await ranksTransaction.rollback();
+          logger.debug(`[PlayerStatsService] Successfully rolled back ranks transaction for player ${playerId}`);
+        } catch (rollbackError) {
+          console.error(`[PlayerStatsService] FAILURE: Error rolling back ranks transaction for player ${playerId}:`, rollbackError);
         }
+        throw error;
       }
+
+      // If we created the transaction, commit it
+      if (!existingTransaction) {
+        await transaction.commit();
+        logger.debug(`[PlayerStatsService] Successfully committed main transaction for player ${playerId}`);
+      }
+
+      // Notify clients about the update
+      sseManager.broadcast({
+        type: 'statsUpdate',
+        data: {
+          action: 'update',
+          playerId,
+        },
+      });
     } catch (error) {
-      console.error(`[PlayerStatsService] FAILURE: Error updating stats for player ${playerId}:`, error);
-      if (shouldCommit) {
+      console.error(`[PlayerStatsService] FAILURE: Error in updatePlayerStats for player ${playerId}:`, error);
+      // If we created the transaction, roll it back
+      if (!existingTransaction) {
         try {
           await transaction.rollback();
+          logger.debug(`[PlayerStatsService] Successfully rolled back main transaction for player ${playerId}`);
         } catch (rollbackError) {
-          console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for player ${playerId}:`, rollbackError);
+          console.error(`[PlayerStatsService] FAILURE: Error rolling back main transaction for player ${playerId}:`, rollbackError);
         }
       }
       throw error;

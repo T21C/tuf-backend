@@ -2,19 +2,13 @@ import {Request, Response} from 'express';
 import OAuthService from '../services/OAuthService.js';
 import {tokenUtils} from '../utils/auth.js';
 import {OAuthProvider, User} from '../models/index.js';
-import Player from '../models/players/Player.js';
-import {findPlayerByDiscordId} from '../utils/playerMapping.js';
 import axios from 'axios';
 import {
   type RESTPostOAuth2AccessTokenResult,
   type RESTGetAPIUserResult,
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
-import {v4 as uuidv4} from 'uuid';
-import {raterList, SUPER_ADMINS} from '../config/constants.js';
-import {PlayerStatsService} from '../services/PlayerStatsService.js';
 
-const playerStatsService = PlayerStatsService.getInstance();
 
 interface ProfileResponse {
   user: {
