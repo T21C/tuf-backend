@@ -34,7 +34,7 @@ function wrapText(
   text: string,
   maxChars: number,
 ): {lines: string[]; isWrapped: boolean} {
-  // First escape any XML entities in the text
+  // First split the text into characters without escaping
   const chars = text.split('');
   const lines = [];
   let currentLine = chars[0] || '';
@@ -47,18 +47,19 @@ function wrapText(
       // If this is the last line and there are more characters
       if (lines.length === 1 && i < chars.length - 1) {
         currentLine = currentLine.slice(0, -3) + '...';
-        lines.push(escapeXml(currentLine));
+        lines.push(currentLine);
         break;
       }
-      lines.push(escapeXml(currentLine));
+      lines.push(currentLine);
       currentLine = char;
     }
   }
   if (currentLine && lines.length < 2) {
-    lines.push(escapeXml(currentLine));
+    lines.push(currentLine);
   }
+  
   return {
-    lines: lines.slice(0, 2),
+    lines,
     isWrapped: lines.length > 1,
   };
 }
@@ -92,7 +93,7 @@ function createHeaderSVG(config: {
   const textX = config.iconSize + config.iconPadding * 2;
 
   // Artist name is already escaped in wrapText
-  const escapedArtist = escapeXml(config.artist);
+  const escapedArtist = config.artist;
 
   // Log the SVG content for debugging
   const svgContent = `
@@ -122,7 +123,7 @@ function createHeaderSVG(config: {
             font-weight="800"
             font-size="${titleFontSize}px"
             fill="white"
-          >${line}</text>
+          >${escapeXml(line)}</text>
         `,
           )
           .join('')}
@@ -133,7 +134,7 @@ function createHeaderSVG(config: {
           font-weight="400"
           font-size="${config.artistFontSize}px"
           fill="white"
-        >${escapedArtist.length > 30 ? escapedArtist.slice(0, 27) + '...' : escapedArtist}</text>
+        >${escapeXml(escapedArtist.length > 30 ? escapedArtist.slice(0, 27) + '...' : escapedArtist)}</text>
         <text
           x="${config.width - config.iconPadding * 1.5}"
           y="${titleY}"
@@ -174,7 +175,7 @@ function createFooterSVG(config: {
   const truncate = (text: string, maxLength: number) => {
     if (!text) return '';
     const truncated = text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
-    return escapeXml(truncated);
+    return truncated;
   };
 
   if (config.team) {
@@ -214,7 +215,7 @@ function createFooterSVG(config: {
         font-size="${config.fontSize}px"
         fill="white"
         text-anchor="end"
-      >${creatorText}</text>
+      >${escapeXml(creatorText)}</text>
     </svg>
   `;
   
