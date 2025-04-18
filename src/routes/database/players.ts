@@ -858,7 +858,7 @@ router.post('/:id/merge', Auth.superAdmin(), async (req: Request, res: Response)
       await transaction.commit();
 
       // Update stats for target player
-      await playerStatsService.updatePlayerStats(targetPlayer.id);
+      await playerStatsService.updatePlayerStats([targetPlayer.id]);
 
       const io = getIO();
       io.emit('leaderboardUpdated');

@@ -120,10 +120,9 @@ Pass.init(
       allowNull: true,
     },
     accuracy: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        return this.judgements?.accuracy;
-      },
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: null,
     },
     scoreV2: {
       type: DataTypes.FLOAT,
@@ -167,6 +166,10 @@ Pass.init(
       {fields: ['levelId']},
       {fields: ['isWorldsFirst']},
       {fields: ['isDuplicate']},
+      {fields: ['isDeleted']},
+      {fields: ['scoreV2']},
+      {fields: ['levelId']},
+      {fields: ['accuracy']},
       //{fields: ['isHidden']},
     ],
   },

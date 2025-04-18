@@ -1161,9 +1161,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             const affectedPlayerIds = new Set(
               passes.map(pass => pass.playerId),
             );
-            affectedPlayerIds.forEach(playerId => {
-              playerStatsService.scheduleUpdate(playerId);
-            });
+            playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
           }
 
           await recalcTransaction.commit();
@@ -1367,9 +1365,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
           );
 
           // Schedule stats update for affected players
-          affectedPlayerIds.forEach(playerId => {
-            playerStatsService.scheduleUpdate(playerId);
-          });
+          playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
 
 
           // Broadcast updates
@@ -2185,9 +2181,9 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
 
       // Schedule stats update for affected players
       const affectedPlayerIds = new Set(passes.map(pass => pass.playerId));
-      affectedPlayerIds.forEach(playerId => {
-        playerStatsService.scheduleUpdate(playerId);
-      });
+
+      playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+
 
       await recalcTransaction.commit();
 

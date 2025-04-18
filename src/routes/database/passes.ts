@@ -850,7 +850,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     if (pass.player) {
       logger.debug(`[Passes PUT] Updating player stats for player ID: ${pass.player.id}`);
       try {
-        await playerStatsService.updatePlayerStats(pass.player.id);
+        await playerStatsService.updatePlayerStats([pass.player.id]);
         logger.debug(`[Passes PUT] Successfully updated player stats for player ID: ${pass.player.id}`);
       } catch (error) {
         console.error(`[Passes PUT] Error updating player stats for player ID: ${pass.player.id}:`, error);
@@ -986,7 +986,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
 
       // Update player stats
       if (playerId) {
-        await playerStatsService.updatePlayerStats(playerId);
+        await playerStatsService.updatePlayerStats([playerId]);
       }
 
       // Get player's new stats and emit SSE event
@@ -1069,7 +1069,7 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 
       // Update player stats
       if (playerId) {
-        await playerStatsService.updatePlayerStats(playerId);
+        await playerStatsService.updatePlayerStats([playerId]);
       }
 
       // Get player's new stats and emit SSE event

@@ -656,8 +656,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           const statsTransaction = await sequelize.transaction();
           try {
             await playerStatsService.updatePlayerStats(
-              submission.assignedPlayerId,
-              statsTransaction
+              [submission.assignedPlayerId],
             );
             
             // Commit the stats transaction

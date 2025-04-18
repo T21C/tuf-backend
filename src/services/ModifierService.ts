@@ -413,7 +413,7 @@ export class ModifierService {
         await transaction.commit();
         
         // Update player stats after all passes are processed
-        await PlayerStatsService.getInstance().updatePlayerStats(playerId);
+        await PlayerStatsService.getInstance().updatePlayerStats([playerId]);
       } catch (error) {
         await transaction.rollback();
         throw error;
@@ -767,7 +767,7 @@ export class ModifierService {
         );
         
         // Update player stats
-        await PlayerStatsService.getInstance().updatePlayerStats(playerId);
+        await PlayerStatsService.getInstance().updatePlayerStats([playerId]);
         
         return { modifier: banModifier };
       }

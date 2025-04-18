@@ -6,13 +6,6 @@ import Difficulty from '../models/levels/Difficulty.js';
 import {IPass} from '../interfaces/models/index.js';
 import {
   calculateRankedScore,
-  calculateGeneralScore,
-  calculatePPScore,
-  calculateWFScore,
-  calculate12KScore,
-  calculateAverageXacc,
-  countUniversalPassCount,
-  countWorldsFirstPasses,
 } from '../utils/PlayerStatsCalculator.js';
 import sequelize from '../config/db.js';
 import {getIO} from '../utils/socket.js';
@@ -24,16 +17,170 @@ import { Op, QueryTypes } from 'sequelize';
 import { ModifierService } from '../services/ModifierService.js';
 import { Transaction } from 'sequelize';
 import { logger } from '../utils/logger.js';
-
+import fs from 'fs';
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
-  private updateTimeout: NodeJS.Timeout | null = null;
-  private readonly UPDATE_DELAY = 1 * 60 * 1000; // 1 minutes
-  private readonly RELOAD_INTERVAL = 10 * 60 * 1000; // 1 minutes
-  private readonly BATCH_SIZE = 500;
-  private pendingPlayerIds: Set<number> = new Set();
+  private readonly RELOAD_INTERVAL = 10 * 60 * 1000; // 10 minutes
+  private readonly CHUNK_SIZE = 2000; // Number of players to process in each chunk
+  private readonly BATCHES_PER_CHUNK = 4; // Number of batches to split each chunk into
   private modifierService: ModifierService | null = null;
+  private updating = false;
+  private statsQuery = 
+  `
+  WITH PassesData AS (
+    SELECT 
+      p.playerId, 
+      p.levelId, 
+      MAX(p.isWorldsFirst) as isWorldsFirst,
+      MAX(p.is12K) as is12K,
+      MAX(p.accuracy) as accuracy,
+      MAX(p.scoreV2) as scoreV2
+    FROM player_pass_summary p
+    WHERE p.playerId IN (:playerIds)
+    GROUP BY p.playerId, p.levelId
+  ),
+  GeneralPassesData AS (
+    SELECT 
+      p.playerId, 
+      p.levelId, 
+      SUM(p.scoreV2) as levelScore
+    FROM player_pass_summary p
+    WHERE p.playerId IN (:playerIds)
+    GROUP BY p.playerId, p.levelId
+  ),
+  RankedScores AS (
+    SELECT 
+      p.playerId,
+      p.scoreV2,
+      ROW_NUMBER() OVER (PARTITION BY p.playerId ORDER BY p.scoreV2 DESC) as rank_num
+    FROM PassesData p
+  ),
+  RankedScoreCalc AS (
+    SELECT 
+      rs.playerId,
+      SUM(rs.scoreV2 * POW(0.9, rs.rank_num - 1)) as rankedScore
+    FROM RankedScores rs
+    WHERE rs.rank_num <= 20
+    GROUP BY rs.playerId
+  ),
+  GeneralScoreCalc AS (
+    SELECT 
+      p.playerId,
+      SUM(p.levelScore) as generalScore
+    FROM GeneralPassesData p
+    GROUP BY p.playerId
+  ),
+  PPScoreCalc AS (
+    SELECT 
+      p.playerId,
+      SUM(p.scoreV2) as ppScore
+    FROM PassesData p
+    WHERE p.accuracy = 1.0
+    GROUP BY p.playerId
+  ),
+  WFScoreCalc AS (
+    SELECT 
+      p.playerId,
+      SUM(ps.baseScore) as wfScore
+    FROM PassesData p
+    JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
+    WHERE p.isWorldsFirst = true
+    GROUP BY p.playerId
+  ),
+  Score12KCalc AS (
+    SELECT 
+      ranked.playerId,
+      SUM(ranked.scoreV2 * POW(0.9, ranked.rank_num - 1)) as score12K
+    FROM (
+      SELECT 
+        p.playerId,
+        p.scoreV2,
+        ROW_NUMBER() OVER (PARTITION BY p.playerId ORDER BY p.scoreV2 DESC) as rank_num
+      FROM PassesData p
+      WHERE p.is12K = true
+    ) ranked
+    WHERE ranked.rank_num <= 20
+    GROUP BY ranked.playerId
+  ),
+  AverageXaccCalc AS (
+    SELECT 
+      ranked.playerId,
+      AVG(ranked.accuracy) as averageXacc
+    FROM (
+      SELECT 
+        p.playerId,
+        p.accuracy,
+        ROW_NUMBER() OVER (PARTITION BY p.playerId ORDER BY p.scoreV2 DESC) as rank_num
+      FROM PassesData p
+    ) ranked
+    WHERE ranked.rank_num <= 20
+    GROUP BY ranked.playerId
+  ),
+  UniversalPassCountCalc AS (
+    SELECT 
+      p.playerId,
+      COUNT(DISTINCT p.levelId) as universalPassCount
+    FROM PassesData p
+    JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
+    WHERE ps.type LIKE 'U%'
+    GROUP BY p.playerId
+  ),
+  WorldsFirstCountCalc AS (
+    SELECT 
+      p.playerId,
+      COUNT(*) as worldsFirstCount
+    FROM PassesData p
+    WHERE p.isWorldsFirst = true
+    GROUP BY p.playerId
+  ),
+  TopDiffId AS (
+    SELECT 
+      p.playerId,
+      MAX(ps.sortOrder) as maxSortOrder
+    FROM PassesData p
+    JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
+    WHERE ps.type = 'PGU'
+    GROUP BY p.playerId
+  ),
+  TopDiff12kId AS (
+    SELECT 
+      p.playerId,
+      MAX(ps.sortOrder) as maxSortOrder
+    FROM PassesData p
+    JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
+    WHERE ps.type = 'PGU'
+    AND p.is12K = true
+    GROUP BY p.playerId
+  )
+  SELECT 
+    p.playerId as id,
+    COALESCE(rs.rankedScore, 0) as rankedScore,
+    COALESCE(gs.generalScore, 0) as generalScore,
+    COALESCE(ps.ppScore, 0) as ppScore,
+    COALESCE(wfs.wfScore, 0) as wfScore,
+    COALESCE(s12k.score12K, 0) as score12K,
+    COALESCE(axc.averageXacc, 0) as averageXacc,
+    COALESCE(upc.universalPassCount, 0) as universalPassCount,
+    COALESCE(wfc.worldsFirstCount, 0) as worldsFirstCount,
+    COALESCE(tdi.maxSortOrder, 0) as topDiffId,
+    COALESCE(td12k.maxSortOrder, 0) as top12kDiffId,
+    NOW() as lastUpdated,
+    NOW() as createdAt,
+    NOW() as updatedAt
+  FROM (SELECT DISTINCT playerId FROM PassesData) p
+  LEFT JOIN RankedScoreCalc rs ON rs.playerId = p.playerId
+  LEFT JOIN GeneralScoreCalc gs ON gs.playerId = p.playerId
+  LEFT JOIN PPScoreCalc ps ON ps.playerId = p.playerId
+  LEFT JOIN WFScoreCalc wfs ON wfs.playerId = p.playerId
+  LEFT JOIN Score12KCalc s12k ON s12k.playerId = p.playerId
+  LEFT JOIN AverageXaccCalc axc ON axc.playerId = p.playerId
+  LEFT JOIN UniversalPassCountCalc upc ON upc.playerId = p.playerId
+  LEFT JOIN WorldsFirstCountCalc wfc ON wfc.playerId = p.playerId
+  LEFT JOIN TopDiffId tdi ON tdi.playerId = p.playerId
+  LEFT JOIN TopDiff12kId td12k ON td12k.playerId = p.playerId
+  `
+
 
   private constructor() {
     this.modifierService = ModifierService.getInstance();
@@ -72,506 +219,260 @@ export class PlayerStatsService {
     return PlayerStatsService.instance;
   }
 
-  public scheduleUpdate(playerId: number): void {
-    // Add player to pending updates
-    this.pendingPlayerIds.add(playerId);
-
-    // Clear any existing timeout
-    if (this.updateTimeout) {
-      clearTimeout(this.updateTimeout);
-    }
-
-    // Set a new timeout
-    this.updateTimeout = setTimeout(async () => {
-      try {
-        const playerIds = Array.from(this.pendingPlayerIds);
-        this.pendingPlayerIds.clear();
-
-        // Start a transaction for all updates
-        const transaction = await sequelize.transaction();
-
-        try {
-          // Update each player's stats
-          for (const id of playerIds) {
-            try {
-              await this.updatePlayerStats(id, transaction);
-            } catch (error) {
-              console.error(`[PlayerStatsService] FAILURE: Error updating stats for player ${id}:`, error);
-              // Continue with the next player even if this one fails
-            }
-          }
-
-          // Update ranks for all players once
-          try {
-            await this.updateRanks(transaction);
-          } catch (error) {
-            console.error(`[PlayerStatsService] FAILURE: Error updating ranks for batch:`, error);
-            // Continue with commit even if rank update fails
-          }
-
-          try {
-            await transaction.commit();
-          } catch (error) {
-            console.error(`[PlayerStatsService] FAILURE: Error committing transaction for batch:`, error);
-            try {
-              await transaction.rollback();
-            } catch (rollbackError) {
-              console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for batch:`, rollbackError);
-            }
-          }
-        } catch (error) {
-          console.error(`[PlayerStatsService] FAILURE: Error in batch update for ${playerIds.length} players:`, error);
-          try {
-            await transaction.rollback();
-          } catch (rollbackError) {
-            console.error(`[PlayerStatsService] FAILURE: Error rolling back transaction for batch:`, rollbackError);
-          }
-        }
-      } catch (error) {
-        console.error('[PlayerStatsService] FAILURE: Error in scheduled stats update:', error);
-      } finally {
-        this.updateTimeout = null;
-      }
-    }, this.UPDATE_DELAY);
-  }
-
   public async reloadAllStats(): Promise<void> {
     logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
-    // Clear any pending scheduled updates
-    if (this.updateTimeout) {
-      clearTimeout(this.updateTimeout);
-      this.updateTimeout = null;
-    }
-    this.pendingPlayerIds.clear();
 
-    // Proceed with the full reload
-    const transaction = await sequelize.transaction();
-    try {
-      // First, get all player IDs in a deterministic order
-      // Use a streaming approach to avoid loading all IDs into memory at once
-      logger.debug(`[PlayerStatsService] Counting total players`);
-      const playerCount = await Player.count({ transaction });
-      logger.debug(`[PlayerStatsService] Found ${playerCount} total players`);
-      
-      // Process in smaller chunks to reduce memory pressure
-      const CHUNK_SIZE = 5000; // Reduced from 10000 to 5000
-      const BATCHES_PER_CHUNK = 20; // Each chunk will be divided into 20 batches
-      const BATCH_SIZE = Math.ceil(CHUNK_SIZE / BATCHES_PER_CHUNK);
-      
-      logger.debug(`[PlayerStatsService] Processing in chunks of ${CHUNK_SIZE} with ${BATCHES_PER_CHUNK} batches per chunk`);
-      
-      for (let chunkStart = 0; chunkStart < playerCount; chunkStart += CHUNK_SIZE) {
-        const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, playerCount);
-        logger.debug(`[PlayerStatsService] Processing chunk ${Math.floor(chunkStart/CHUNK_SIZE) + 1} of ${Math.ceil(playerCount/CHUNK_SIZE)} (players ${chunkStart+1}-${chunkEnd})`);
-        
-        // Get IDs for this chunk
-        const chunkPlayerIds = await Player.findAll({
-          attributes: ['id'],
-          order: [['id', 'ASC']],
-          offset: chunkStart,
-          limit: chunkEnd - chunkStart,
-          transaction
-        });
-        
-        const playerIds = chunkPlayerIds.map(player => player.id);
-        logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
-        
-        // Process this chunk in batches
-        for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
-          const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-          logger.debug(`[PlayerStatsService] Processing batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
-          
-          // Use a separate transaction for each batch to reduce lock time
-          const batchTransaction = await sequelize.transaction();
-          try {
-            await this.processBatchByIds(batchTransaction, batchIds);
-            await batchTransaction.commit();
-            logger.debug(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk`);
-          } catch (error) {
-            console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
-            try {
-              await batchTransaction.rollback();
-              logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
-            } catch (rollbackError) {
-              console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
-            }
-            // Continue with next batch even if this one failed
-          }
-          
-          // Hint to garbage collector to clean up after each batch
-          if (global.gc) {
-            global.gc();
-          }
-        }
-        
-        // Hint to garbage collector to clean up after each chunk
-        if (global.gc) {
-          global.gc();
-        }
-      }
-      
-      try {
-        await transaction.commit();
-        logger.debug(`[PlayerStatsService] Successfully committed main transaction in reloadAllStats`);
-        this.forceUpdateRanks();
-        // Emit SSE event
-        sseManager.broadcast({
-          type: 'statsUpdate',
-          data: {
-            action: 'fullReload',
-          },
-        });
-        logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats`);
-      } catch (error) {
-        console.error('[PlayerStatsService] FAILURE: Error committing transaction in reloadAllStats:', error);
-        try {
-          await transaction.rollback();
-          logger.debug(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
-        } catch (rollbackError) {
-          console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
-        }
-        throw error;
-      }
-    } catch (error) {
-      console.error('[PlayerStatsService] FAILURE: Error in reloadAllStats:', error);
-      try {
-        await transaction.rollback();
-        logger.debug(`[PlayerStatsService] Successfully rolled back main transaction in reloadAllStats`);
-      } catch (rollbackError) {
-        console.error('[PlayerStatsService] FAILURE: Error rolling back transaction in reloadAllStats:', rollbackError);
-      }
-      throw error;
-    }
-  }
-
-  private async processBatchByIds(transaction: Transaction, playerIds: number[]): Promise<void> {
-    // Process players in smaller sub-batches to reduce lock contention
-    const SUB_BATCH_SIZE = 100;
-    
-    for (let i = 0; i < playerIds.length; i += SUB_BATCH_SIZE) {
-      const subBatchIds = playerIds.slice(i, i + SUB_BATCH_SIZE);
-      
-      // Use a separate transaction for each sub-batch
-      const subBatchTransaction = await sequelize.transaction();
-      try {
-        // Get player data for this sub-batch
-        const players = await Player.findAll({
-          where: { id: subBatchIds },
-          transaction: subBatchTransaction,
-          lock: true // Use row-level locking to prevent concurrent updates
-        });
-        
-        // Process each player in the sub-batch
-        for (const player of players) {
-          try {
-            await this.calculatePlayerStats(player.id, subBatchTransaction);
-          } catch (error) {
-            console.error(`[PlayerStatsService] FAILURE: Error calculating stats for player ${player.id}:`, error);
-            // Continue with next player even if this one failed
-          }
-        }
-        
-        await subBatchTransaction.commit();
-      } catch (error) {
-        console.error(`[PlayerStatsService] FAILURE: Error processing sub-batch:`, error);
-        try {
-          await subBatchTransaction.rollback();
-        } catch (rollbackError) {
-          console.error(`[PlayerStatsService] FAILURE: Error rolling back sub-batch transaction:`, rollbackError);
-        }
-        // Continue with next sub-batch even if this one failed
-      }
-    }
-  }
-
-  /**
-   * Calculate stats for a single player
-   * @param playerId The ID of the player to calculate stats for
-   * @param transaction The transaction to use for database operations
-   */
-  private async calculatePlayerStats(playerId: number, transaction: Transaction): Promise<void> {
-    // Get player with their passes in a single query
-    const player = await Player.findOne({
-      where: { id: playerId },
-      include: [
-        {
-          model: Pass,
-          as: 'passes',
-          where: {
-            isDeleted: false,
-          },
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              where: {
-                isDeleted: false
-              },
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                },
-              ],
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
-        },
-        {
-          model: User,
-          as: 'user',
-          required: false,
-        },
-      ],
-      transaction,
-      subQuery: false,
-    });
-
-    if (!player) {
+    if (this.updating) {
+      logger.warn(`[PlayerStatsService] reloadAllStats called while updating, skipping`);
       return;
     }
-
-    // Calculate top difficulties
-    const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(
-      player.passes || [],
-    );
+    this.updating = true;
+    const playerCount = await Player.count();
     
-    // Create base stats object
-    const baseStats = {
-      id: player.id,
-      rankedScore: calculateRankedScore(player.passes || []),
-      generalScore: calculateGeneralScore(player.passes || []),
-      ppScore: calculatePPScore(player.passes || []),
-      wfScore: calculateWFScore(player.passes || []),
-      score12K: calculate12KScore(player.passes || []),
-      averageXacc: calculateAverageXacc(player.passes || []),
-      universalPassCount: countUniversalPassCount(player.passes || []),
-      worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-      topDiffId,
-      top12kDiffId,
-      lastUpdated: new Date(),
-    };
+    // Process in smaller chunks to reduce memory pressure
+    const BATCH_SIZE = Math.ceil(this.CHUNK_SIZE / this.BATCHES_PER_CHUNK);
+    
+    logger.debug(`[PlayerStatsService] Processing in chunks of ${this.CHUNK_SIZE} with ${this.BATCHES_PER_CHUNK} batches per chunk`);
+    let timeStart = Date.now();
+    for (let chunkStart = 0; chunkStart < playerCount; chunkStart += this.CHUNK_SIZE) {
+      const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, playerCount);
 
-    // Apply modifiers if enabled
-    const stats = this.modifierService 
-      ? await this.modifierService.applyScoreModifiers(player.id, baseStats)
-      : baseStats;
+      // Get IDs for this chunk
+      const chunkPlayerIds = await Player.findAll({
+        attributes: ['id'],
+        order: [['id', 'ASC']],
+        offset: chunkStart,
+        limit: chunkEnd - chunkStart,
+      });
+      
+      const playerIds = chunkPlayerIds.map(player => player.id);
+      logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
 
-    // Upsert the stats
-    await PlayerStats.upsert(stats, { transaction });
-  }
 
-  public getHighestScorePerLevel(scores: IPass[]): IPass[] {
-    const levelScores = new Map<number, IPass>();
-    scores.forEach(pass => {
-      const levelId = pass.levelId;
-      if (!levelId) return;
+      // Process this chunk in batches
+      for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
+        const batchIds = playerIds.slice(i, i + BATCH_SIZE);
+        let batchTimeStart = Date.now();
+ 
+        // Use a single transaction for the entire batch
+        const transaction = await sequelize.transaction();
+        try {
+          // First, delete existing stats for these players
+          await PlayerStats.destroy({
+            where: { id: batchIds },
+            transaction
+          });
 
-      const existingScore = levelScores.get(levelId);
-      if (!existingScore || pass.scoreV2 && existingScore.scoreV2 && pass.scoreV2 > existingScore.scoreV2) {
-        levelScores.set(levelId, pass);
+          // Calculate all stats in a single query
+          const statsUpdates = await sequelize.query(this.statsQuery,
+            {
+              replacements: { playerIds: batchIds },
+              type: QueryTypes.SELECT,
+              transaction
+            }
+          ) as any[];
+
+          // Create a lookup table for difficulty IDs
+          const difficultyLookup = await sequelize.query(
+            `SELECT id, sortOrder FROM difficulties WHERE type = 'PGU'`,
+            { type: QueryTypes.SELECT }
+          ) as { id: number, sortOrder: number }[];
+          
+          // Create a map of sortOrder to id for quick lookups
+          const sortOrderToIdMap = new Map<number, number>();
+          difficultyLookup.forEach(diff => {
+            sortOrderToIdMap.set(diff.sortOrder, diff.id);
+          });
+          
+          // Process the stats updates to add the correct difficulty IDs
+          if (statsUpdates.length > 0) {
+            // Add the correct difficulty IDs based on sort order
+            statsUpdates.forEach(stat => {
+                stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
+
+                stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
+
+            });
+            
+            // Bulk insert all stats in a single query
+            await PlayerStats.bulkCreate(statsUpdates, { transaction });
+          }
+          
+          // Create stats for players who don't have any passes
+          const playersWithStats = new Set(statsUpdates.map(stat => stat.id));
+          const playersWithoutStats = batchIds.filter(id => !playersWithStats.has(id));
+          
+          if (playersWithoutStats.length > 0) {
+            const emptyStats = playersWithoutStats.map(id => ({
+              id,
+              rankedScore: 0,
+              generalScore: 0,
+              ppScore: 0,
+              wfScore: 0,
+              score12K: 0,
+              averageXacc: 0,
+              universalPassCount: 0,
+              worldsFirstCount: 0,
+              topDiffId: 0,
+              top12kDiffId: 0,
+              lastUpdated: new Date(),
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }));
+            
+            await PlayerStats.bulkCreate(emptyStats, { transaction });
+            logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
+          }
+          
+          await transaction.commit();
+          logger.debug(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk in ${Date.now() - batchTimeStart}ms`);
+
+        } catch (error) {
+          this.updating = false;
+          console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
+          try {
+            await transaction.rollback();
+            logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
+          } catch (rollbackError) {
+            console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
+          }
+        }
       }
-    });
-    return Array.from(levelScores.values());
-  }
-
-  public convertPassesToScores(passes: IPass[] | Pass[]): IPass[] {
-    return (passes as any)
-      .filter((pass: any) => 
-        !pass.isDeleted 
-        && !pass.isDuplicate
-        && !pass.level?.isDeleted
-      )
-      .map((pass: any) => ({
-        score: pass.scoreV2 || 0,
-        baseScore: pass.level?.baseScore || 0,
-        xacc: pass.accuracy || 0.95,
-        speed: pass.speed || 1,
-        isWorldsFirst: pass.isWorldsFirst || false,
-        is12K: pass.is12K || false,
-        isDeleted: pass.isDeleted || false,
-        levelId: pass.levelId,
-      }));
-  }
-
-  public calculatetopDiffIds(passes: Pass[] | IPass[]): {
-    topDiffId: number;
-    top12kDiffId: number;
-  } {
-    // Filter out deleted passes and those with difficulty ID >= 100
-    const validPasses = (passes as any).filter(
-      (pass: any) =>
-        !pass.isDeleted &&
-        pass.level?.difficulty?.id !== undefined &&
-        pass.level.difficulty.type === 'PGU',
-    );
-
-    if (validPasses.length === 0) {
-      return {topDiffId: 0, top12kDiffId: 0};
     }
-
-    // Sort passes by difficulty sortOrder in descending order
-    const sortedPasses = validPasses.sort((a: any, b: any) => {
-      const diffA = a.level?.difficulty?.sortOrder || 0;
-      const diffB = b.level?.difficulty?.sortOrder || 0;
-      return diffB - diffA;
+    
+    // After all batches are processed, update ranks in a single transaction
+    try {
+      await this.updateRanks();
+      logger.debug(`[PlayerStatsService] Successfully updated ranks`);
+    } catch (error) {
+      this.updating = false;
+      console.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
+    }
+    this.updating = false;
+    // Emit SSE event
+    sseManager.broadcast({
+      type: 'statsUpdate',
+      data: {
+        action: 'fullReload',
+      },
     });
-
-    // Get highest difficulty ID for regular passes
-    const topDiffId = sortedPasses[0]?.level?.difficulty?.id ?? 0;
-
-    // Get highest difficulty ID for 12k passes
-    const valid12kPasses = validPasses.filter(
-      (pass: any) => pass.is12K && !pass.is16K,
-    );
-
-    const top12kDiffId =
-      valid12kPasses.length > 0
-        ? (valid12kPasses.sort((a: any, b: any) => {
-            const diffA = a.level?.difficulty?.sortOrder || 0;
-            const diffB = b.level?.difficulty?.sortOrder || 0;
-
-            return diffB - diffA;
-          })[0]?.level?.difficulty?.id ?? 0)
-        : 0;
-
-    return {topDiffId, top12kDiffId};
+    logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats in ${Date.now() - timeStart}ms`);
   }
 
   public async updatePlayerStats(
-    playerId: number,
-    existingTransaction?: any,
+    playerIds: number[]
   ): Promise<void> {
-    logger.debug(`[PlayerStatsService] Starting updatePlayerStats for player ${playerId}`);
-    
-    // If no transaction is provided, create a new one
-    const transaction = existingTransaction || await sequelize.transaction();
-    try {
-      // Get player data with a separate transaction to avoid long locks
-      const player = await Player.findOne({
-        where: { id: playerId },
-        include: [
-          {
-            model: Pass,
-            as: 'passes',
-            where: { isDeleted: false },
-            include: [
-              {
-                model: Level,
-                as: 'level',
-                where: { isDeleted: false },
-                include: [
-                  {
-                    model: Difficulty,
-                    as: 'difficulty',
-                  },
-                ],
-              },
-              {
-                model: Judgement,
-                as: 'judgements',
-              },
-            ],
-          },
-        ],
-        transaction,
-        lock: true, // Use row-level locking
-      });
+    logger.debug(`[PlayerStatsService] Starting updatePlayerStats`);
 
-      if (!player) {
-        logger.debug(`[PlayerStatsService] Player ${playerId} not found`);
-        return;
-      }
-
-      // Calculate stats in memory to minimize transaction time
-      const {topDiffId, top12kDiffId} = this.calculatetopDiffIds(player.passes || []);
-      
-      const baseStats = {
-        id: player.id,
-        rankedScore: calculateRankedScore(player.passes || []),
-        generalScore: calculateGeneralScore(player.passes || []),
-        ppScore: calculatePPScore(player.passes || []),
-        wfScore: calculateWFScore(player.passes || []),
-        score12K: calculate12KScore(player.passes || []),
-        averageXacc: calculateAverageXacc(player.passes || []),
-        universalPassCount: countUniversalPassCount(player.passes || []),
-        worldsFirstCount: countWorldsFirstPasses(player.passes || []),
-        topDiffId,
-        top12kDiffId,
-        lastUpdated: new Date(),
-      };
-
-      // Apply modifiers if enabled
-      const stats = this.modifierService 
-        ? await this.modifierService.applyScoreModifiers(player.id, baseStats)
-        : baseStats;
-
-      // Use a separate transaction for the upsert to minimize lock time
-      const upsertTransaction = await sequelize.transaction();
-      try {
-        await PlayerStats.upsert(stats, { 
-          transaction: upsertTransaction,
-        });
-        await upsertTransaction.commit();
-        logger.debug(`[PlayerStatsService] Successfully upserted stats for player ${playerId}`);
-      } catch (error) {
-        console.error(`[PlayerStatsService] FAILURE: Error upserting stats for player ${playerId}:`, error);
-        try {
-          await upsertTransaction.rollback();
-          logger.debug(`[PlayerStatsService] Successfully rolled back upsert transaction for player ${playerId}`);
-        } catch (rollbackError) {
-          console.error(`[PlayerStatsService] FAILURE: Error rolling back upsert transaction for player ${playerId}:`, rollbackError);
-        }
-        throw error;
-      }
-
-      // Update ranks with a separate transaction
-      const ranksTransaction = await sequelize.transaction();
-      try {
-        await this.updateRanks(ranksTransaction);
-        await ranksTransaction.commit();
-        logger.debug(`[PlayerStatsService] Successfully updated ranks after stats update for player ${playerId}`);
-      } catch (error) {
-        console.error(`[PlayerStatsService] FAILURE: Error updating ranks for player ${playerId}:`, error);
-        try {
-          await ranksTransaction.rollback();
-          logger.debug(`[PlayerStatsService] Successfully rolled back ranks transaction for player ${playerId}`);
-        } catch (rollbackError) {
-          console.error(`[PlayerStatsService] FAILURE: Error rolling back ranks transaction for player ${playerId}:`, rollbackError);
-        }
-        throw error;
-      }
-
-      // If we created the transaction, commit it
-      if (!existingTransaction) {
-        await transaction.commit();
-        logger.debug(`[PlayerStatsService] Successfully committed main transaction for player ${playerId}`);
-      }
-
-      // Notify clients about the update
-      sseManager.broadcast({
-        type: 'statsUpdate',
-        data: {
-          action: 'update',
-          playerId,
-        },
-      });
-    } catch (error) {
-      console.error(`[PlayerStatsService] FAILURE: Error in updatePlayerStats for player ${playerId}:`, error);
-      // If we created the transaction, roll it back
-      if (!existingTransaction) {
-        try {
-          await transaction.rollback();
-          logger.debug(`[PlayerStatsService] Successfully rolled back main transaction for player ${playerId}`);
-        } catch (rollbackError) {
-          console.error(`[PlayerStatsService] FAILURE: Error rolling back main transaction for player ${playerId}:`, rollbackError);
-        }
-      }
-      throw error;
+    if (this.updating) {
+      logger.warn(`[PlayerStatsService] updatePlayerStats called while updating, skipping`);
+      return;
     }
+    this.updating = true;
+    // Use a single transaction for the entire batch
+    const transaction = await sequelize.transaction();
+        try {
+          // First, delete existing stats for these players
+          await PlayerStats.destroy({
+            where: { id: playerIds },
+            transaction
+          });
+
+          // Calculate all stats in a single query
+          const statsUpdates = await sequelize.query(this.statsQuery,
+            {
+              replacements: { playerIds },
+              type: QueryTypes.SELECT,
+              transaction
+            }
+          ) as any[];
+
+          // Create a lookup table for difficulty IDs
+          const difficultyLookup = await sequelize.query(
+            `SELECT id, sortOrder FROM difficulties WHERE type = 'PGU'`,
+            { type: QueryTypes.SELECT }
+          ) as { id: number, sortOrder: number }[];
+          
+          // Create a map of sortOrder to id for quick lookups
+          const sortOrderToIdMap = new Map<number, number>();
+          difficultyLookup.forEach(diff => {
+            sortOrderToIdMap.set(diff.sortOrder, diff.id);
+          });
+          
+          // Process the stats updates to add the correct difficulty IDs
+          if (statsUpdates.length > 0) {
+            // Add the correct difficulty IDs based on sort order
+            statsUpdates.forEach(stat => {
+                stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
+
+                stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
+
+            });
+            
+            // Bulk insert all stats in a single query
+            await PlayerStats.bulkCreate(statsUpdates, { transaction });
+          }
+          
+          // Create stats for players who don't have any passes
+          const playersWithStats = new Set(statsUpdates.map(stat => stat.id));
+          const playersWithoutStats = playerIds.filter(id => !playersWithStats.has(id));
+          
+          if (playersWithoutStats.length > 0) {
+            const emptyStats = playersWithoutStats.map(id => ({
+              id,
+              rankedScore: 0,
+              generalScore: 0,
+              ppScore: 0,
+              wfScore: 0,
+              score12K: 0,
+              averageXacc: 0,
+              universalPassCount: 0,
+              worldsFirstCount: 0,
+              topDiffId: 0,
+              top12kDiffId: 0,
+              lastUpdated: new Date(),
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }));
+            
+            await PlayerStats.bulkCreate(emptyStats, { transaction });
+            logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
+          }
+          
+          await transaction.commit();
+
+
+        } catch (error) {
+          this.updating = false;
+          console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
+          try {
+            await transaction.rollback();
+            logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
+          } catch (rollbackError) {
+            console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
+          }
+        }
+      
+    
+    
+    // After all batches are processed, update ranks in a single transaction
+    try {
+      await this.updateRanks();
+      logger.debug(`[PlayerStatsService] Successfully updated ranks`);
+    } catch (error) {
+      this.updating = false;
+      console.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
+    }
+
+    // Emit SSE event
+    sseManager.broadcast({
+      type: 'statsUpdate',
+      data: {
+        action: 'fullReload',
+      },
+    });
+    this.updating = false;
+    logger.debug(`[PlayerStatsService] Successfully completed updatePlayerStats`);
   }
 
   private async reloadAllStatsCron() {
@@ -581,182 +482,67 @@ export class PlayerStatsService {
     }, this.RELOAD_INTERVAL);
   }
 
-  private async updateRanks(transaction?: any): Promise<void> {
-    logger.debug(`[PlayerStatsService] Starting updateRanks`);
+  public async updateRanks(): Promise<void> {
+    logger.debug('[PlayerStatsService] Starting updateRanks');
+    
+    const transaction = await sequelize.transaction();
     try {
-      // Get all players with their stats
-      logger.debug(`[PlayerStatsService] Fetching all players with stats`);
-      const players = await Player.findAll({
-        include: [
-          {
-            model: PlayerStats,
-            as: 'stats',
-            required: true
-          },
-          {
-            model: User,
-            as: 'user',
-            required: false
-          }
-        ],
-        transaction
+      // First, set all ranks to -1 for banned players
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         SET ps.rankedScoreRank = -1,
+             ps.generalScoreRank = -1,
+             ps.ppScoreRank = -1,
+             ps.wfScoreRank = -1,
+             ps.score12KRank = -1
+         WHERE p.isBanned = true`,
+        { transaction }
+      );
+
+      // Initialize rank counter
+      await sequelize.query('SET @rank = 0', { transaction });
+
+      // Update ranks for active players using MySQL variables
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN (
+           SELECT id, (@rank := @rank + 1) as rank_num
+           FROM (
+             SELECT ps2.id
+             FROM player_stats ps2
+             INNER JOIN players p2 ON ps2.id = p2.id
+             WHERE p2.isBanned = false
+             ORDER BY ps2.rankedScore DESC, ps2.id ASC
+           ) ordered
+         ) ranked ON ps.id = ranked.id
+         SET ps.rankedScoreRank = ranked.rank_num,
+             ps.generalScoreRank = ranked.rank_num,
+             ps.ppScoreRank = ranked.rank_num,
+             ps.wfScoreRank = ranked.rank_num,
+             ps.score12KRank = ranked.rank_num`,
+        { transaction }
+      );
+
+      await transaction.commit();
+      logger.debug('[PlayerStatsService] Successfully committed rank updates');
+
+      // Notify clients about the rank updates
+      sseManager.broadcast({
+        type: 'ranksUpdate',
+        data: {
+          action: 'update'
+        }
       });
-
-      logger.debug(`[PlayerStatsService] Found ${players.length} players with stats`);
-
-      // Separate banned and non-banned players
-      const bannedPlayers = players.filter(player => 
-        player.isBanned || (player.user && !player.user.isEmailVerified)
-      );
-      const activePlayers = players.filter(player => 
-        !player.isBanned && (!player.user || player.user.isEmailVerified)
-      );
-
-      logger.debug(`[PlayerStatsService] Found ${bannedPlayers.length} banned players and ${activePlayers.length} active players`);
-
-      // Set rank to -1 for banned players
-      if (bannedPlayers.length > 0) {
-        logger.debug(`[PlayerStatsService] Setting rank to -1 for ${bannedPlayers.length} banned players`);
-        const bannedIds = bannedPlayers.map(p => p.id);
-        try {
-          // Use a separate transaction for banned players to avoid long-running transactions
-          const bannedTransaction = transaction || await sequelize.transaction();
-          try {
-            await sequelize.query(
-              `
-              UPDATE player_stats
-              SET 
-                rankedScoreRank = -1,
-                generalScoreRank = -1,
-                ppScoreRank = -1,
-                wfScoreRank = -1,
-                score12KRank = -1
-              WHERE id IN (${bannedIds.join(',')})
-              `,
-              { transaction: bannedTransaction }
-            );
-            
-            if (!transaction) {
-              await bannedTransaction.commit();
-              logger.debug(`[PlayerStatsService] Successfully updated ranks for banned players`);
-            }
-          } catch (error) {
-            console.error('Error updating banned player ranks:', error);
-            if (!transaction) {
-              await bannedTransaction.rollback();
-            }
-            // Don't throw here, continue with the rest of the function
-          }
-        } catch (error) {
-          console.error('Error creating transaction for banned players:', error);
-          // Continue with the rest of the function
-        }
-      }
-
-      // Calculate ranks for active players
-      const scoreTypes = [
-        'rankedScore',
-        'generalScore',
-        'ppScore',
-        'wfScore',
-        'score12K'
-      ];
-
-      for (const scoreType of scoreTypes) {
-        const rankField = `${scoreType}Rank`;
-        logger.debug(`[PlayerStatsService] Calculating ${rankField} for active players`);
-        
-        // Sort players by score in descending order
-        const sortedPlayers = activePlayers
-          .filter(player => player.stats && player.stats[scoreType as keyof PlayerStats] > 0)
-          .sort((a, b) => {
-            const scoreA = a.stats?.[scoreType as keyof PlayerStats] || 0;
-            const scoreB = b.stats?.[scoreType as keyof PlayerStats] || 0;
-            return scoreB - scoreA;
-          });
-
-        logger.debug(`[PlayerStatsService] Found ${sortedPlayers.length} players with ${scoreType} > 0`);
-
-        // Update ranks in smaller batches with individual transactions
-        const batchSize = 50; // Reduced batch size for better reliability
-        for (let i = 0; i < sortedPlayers.length; i += batchSize) {
-          const batch = sortedPlayers.slice(i, i + batchSize);
-          const updates = batch.map((player, index) => {
-            const rank = i + index + 1;
-            return `WHEN id = ${player.id} THEN ${rank}`;
-          }).join(' ');
-
-          if (updates) {
-            logger.debug(`[PlayerStatsService] Updating ${rankField} for batch ${i/batchSize + 1} of ${Math.ceil(sortedPlayers.length/batchSize)}`);
-            
-            // Create a new transaction for each batch
-            const batchTransaction = transaction || await sequelize.transaction();
-            try {
-              await sequelize.query(
-                `
-                UPDATE player_stats
-                SET ${rankField} = CASE ${updates} ELSE ${rankField} END
-                WHERE id IN (${batch.map(p => p.id).join(',')})
-                `,
-                { transaction: batchTransaction }
-              );
-              
-              if (!transaction) {
-                await batchTransaction.commit();
-                logger.debug(`[PlayerStatsService] Successfully updated ${rankField} for batch ${i/batchSize + 1}`);
-              }
-            } catch (error) {
-              console.error(`Error updating ${rankField} for batch:`, error);
-              if (!transaction) {
-                try {
-                  await batchTransaction.rollback();
-                } catch (rollbackError) {
-                  console.error(`Error rolling back transaction for ${rankField} batch:`, rollbackError);
-                }
-              }
-              // Continue with next batch even if this one failed
-            }
-          }
-        }
-      }
-      
-      logger.debug(`[PlayerStatsService] Successfully completed updateRanks`);
     } catch (error) {
-      console.error('Error updating ranks:', error);
-      // Don't throw here, let the caller handle the transaction
-    }
-  }
-
-  public async forceUpdateRanks(): Promise<void> {
-    logger.debug(`[PlayerStatsService] Starting forceUpdateRanks`);
-    try {
-      // Use a separate transaction for the main operation
-      const transaction = await sequelize.transaction();
+      console.error('[PlayerStatsService] FAILURE: Error in updateRanks:', error);
       try {
-        await this.updateRanks(transaction);
-        try {
-          await transaction.commit();
-          logger.debug(`[PlayerStatsService] Successfully committed transaction in forceUpdateRanks`);
-        } catch (error) {
-          console.error('Error committing transaction in forceUpdateRanks:', error);
-          try {
-            await transaction.rollback();
-          } catch (rollbackError) {
-            console.error('Error rolling back transaction in forceUpdateRanks:', rollbackError);
-          }
-          throw error;
-        }
-      } catch (error) {
-        console.error('Error updating ranks:', error);
-        try {
-          await transaction.rollback();
-        } catch (rollbackError) {
-          console.error('Error rolling back transaction in forceUpdateRanks:', rollbackError);
-        }
-        throw error;
+        await transaction.rollback();
+        logger.debug('[PlayerStatsService] Successfully rolled back rank updates');
+      } catch (rollbackError) {
+        console.error('[PlayerStatsService] FAILURE: Error rolling back rank updates:', rollbackError);
       }
-    } catch (error) {
-      console.error('Error in forceUpdateRanks:', error);
       throw error;
     }
   }
@@ -1106,4 +892,5 @@ export class PlayerStatsService {
 
     return response;
   }
+
 }

@@ -24,7 +24,7 @@ async function populatePlayerStats() {
       );
 
       try {
-        await playerStatsService.updatePlayerStats(player.id);
+        await playerStatsService.updatePlayerStats([player.id]);
         console.log(`Successfully updated stats for player ${player.name}`);
       } catch (error) {
         console.error(`Error updating stats for player ${player.name}:`, error);

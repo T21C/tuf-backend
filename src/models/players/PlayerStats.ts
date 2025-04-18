@@ -18,9 +18,9 @@ class PlayerStats extends Model {
   declare averageXacc: number;
   declare universalPassCount: number;
   declare worldsFirstCount: number;
-  declare lastUpdated: Date;
-  declare createdAt: Date;
-  declare updatedAt: Date;
+  declare lastUpdated?: Date;
+  declare createdAt?: Date;
+  declare updatedAt?: Date;
   declare topDiffId: number;
   declare top12kDiffId: number;
 

@@ -258,7 +258,7 @@ export const authController = {
       });
       await user.increment('permissionVersion', {by: 1});
       // Force update ranks
-      await PlayerStatsService.getInstance().forceUpdateRanks();
+      await PlayerStatsService.getInstance().updateRanks();
 
       return res.json({message: 'Email verified successfully'});
     } catch (error) {
