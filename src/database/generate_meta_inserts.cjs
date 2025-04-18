@@ -17,7 +17,7 @@ let sql = `-- Run this query to insert missing migrations into SequelizeMeta\n`;
 
 sql += "USE tuf_website;\n";
 sql += "SET SQL_SAFE_UPDATES = 0;\n";
-sql += "DELETE FROM `sequelizemeta`;\n";
+sql += "DELETE FROM `SequelizeMeta`;\n";
 sql += "SET SQL_SAFE_UPDATES = 1;\n";
 sql += `INSERT INTO \`SequelizeMeta\` (\`name\`)\n`;
 sql += `SELECT t.name FROM (\n`;
@@ -27,7 +27,7 @@ const values = files.map(file => `  SELECT '${file}' as name`).join('\nUNION ALL
 sql += values;
 
 sql += `\n) t\n`;
-sql += `WHERE t.name NOT IN (SELECT name FROM \`sequelizemeta\`);\n\n`;
+sql += `WHERE t.name NOT IN (SELECT name FROM \`SequelizeMeta\`);\n\n`;
 
 // Add a list of all found migrations as a comment
 sql += `/*\nFound migrations:\n${files.map(f => '- ' + f).join('\n')}\n*/\n`;
