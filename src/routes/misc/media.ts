@@ -479,11 +479,41 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     // Download difficulty icon with retry logic
     let iconBuffer: Buffer;
     try {
-      logger.debug(`Downloading difficulty icon from ${diff.icon}`);
-      iconBuffer = await downloadImageWithRetry(diff.icon);
-      logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
+      // Extract the icon path from the URL
+      const iconUrl = new URL(diff.icon);
+      const iconPath = iconUrl.pathname.split('/').pop();
+      
+      if (!iconPath) {
+        throw new Error('Invalid icon URL');
+      }
+      
+      // Sanitize the path to prevent directory traversal
+      const sanitizedPath = path
+        .normalize(iconPath)
+        .replace(/^(\.\.(\/|\\|$))+/, '');
+      
+      // Construct the full path to the icon in the cache
+      const basePath = path.join(process.cwd(), 'cache', 'icons');
+      const fullPath = path.join(basePath, sanitizedPath);
+      
+      // Verify the path is within the allowed directory
+      if (!fullPath.startsWith(basePath)) {
+        throw new Error('Access denied');
+      }
+      
+      // Check if file exists in cache
+      if (fs.existsSync(fullPath)) {
+        logger.debug(`Reading difficulty icon from cache: ${fullPath}`);
+        iconBuffer = await fs.promises.readFile(fullPath);
+        logger.debug(`Difficulty icon read from cache, size: ${iconBuffer.length} bytes`);
+      } else {
+        // If not in cache, download it
+        logger.debug(`Icon not found in cache, downloading from ${diff.icon}`);
+        iconBuffer = await downloadImageWithRetry(diff.icon);
+        logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
+      }
     } catch (error: unknown) {
-      logger.error(`Failed to download difficulty icon after all retries: ${error instanceof Error ? error.message : String(error)}`);
+      logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
       // Create a simple placeholder icon
       iconBuffer = await sharp({
         create: {
