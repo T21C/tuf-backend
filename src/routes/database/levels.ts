@@ -414,6 +414,22 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
         required: false,
       },
       {
+        model: LevelAlias,
+        as: 'aliases',
+        required: false,
+      },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        required: false,
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+          },
+        ],
+      },
+      {
         model: Team,
         as: 'teamObject',
         required: false,
@@ -471,6 +487,22 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
             ]
           }
         ]
+      },
+      {
+        model: LevelAlias,
+        as: 'aliases',
+        required: false,
+      },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        required: false,
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+          },
+        ],
       },
       {
         model: Team,
