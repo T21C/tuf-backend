@@ -10,6 +10,7 @@ import {Router, Request, Response, NextFunction} from 'express';
 import Team from '../../models/credits/Team.js';
 import Creator from '../../models/credits/Creator.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
+import { logger } from '../../utils/logger.js';
 const router: Router = Router();
 
 // Cache for difficulties to avoid repeated DB queries
@@ -49,6 +50,7 @@ async function parseRatingRange(
   // Find the first separator, but be careful with negative numbers
   // Look for separator only if it's not part of a negative number
   const match = rating.match(/([^-~\s]+|^-\d+)([-~\s])(.+)/);
+  logger.debug(`[RatingService] rating range match: ${match} for ${rating}`);
   if (!match) {
     return [rating.trim()];
   }
@@ -104,12 +106,13 @@ async function normalizeRating(
       return {specialRatings: [parts[0]]};
     }
 
-    const match = parts[0].match(/([PGUpgu]*)(-?\d+)/);
-    if (!match) {
+    const match = parts[0].match(/([PGUpgu])(-?\d+)/);
+    logger.debug(`[RatingService] single rating match: ${match} for ${parts[0]}`);
+    if (!match || !match[1]) {
       return {specialRatings: []};
     }
     const [_, prefix, num] = match;
-    const normalizedRating = (prefix || 'G').toUpperCase() + num;
+    const normalizedRating = prefix.toUpperCase() + num;
 
     // Check if it's a special difficulty after normalization
     if (specialDifficulties.has(normalizedRating)) {
@@ -144,10 +147,11 @@ async function normalizeRating(
       }
 
       const match = r.match(/([PGUpgu]*)(-?\d+)/);
-      if (!match) {
+      logger.debug(`[RatingService] match: ${match} for ${r}`);
+      if (!match || !match[1]) {
         return null;
       }
-      const prefix = (match[1] || 'G').toUpperCase();
+      const prefix = match[1].toUpperCase();
       const num = match[2];
       const normalizedName = `${prefix}${num}`;
       const difficulty = difficultyMap.get(normalizedName);

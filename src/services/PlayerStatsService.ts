@@ -123,7 +123,7 @@ export class PlayerStatsService {
       COUNT(DISTINCT p.levelId) as universalPassCount
     FROM PassesData p
     JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
-    WHERE ps.type LIKE 'U%'
+    WHERE ps.name LIKE 'U%'
     GROUP BY p.playerId
   ),
   WorldsFirstCountCalc AS (
