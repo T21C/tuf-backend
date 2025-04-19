@@ -368,6 +368,14 @@ export class PlayerStatsService {
       logger.warn(`[PlayerStatsService] updatePlayerStats called while updating, skipping`);
       return;
     }
+    
+    // Check if playerIds is empty
+    if (!playerIds || playerIds.length === 0) {
+      logger.warn(`[PlayerStatsService] updatePlayerStats called with empty playerIds array, skipping`);
+      this.updating = false;
+      return;
+    }
+    
     this.updating = true;
     // Use a single transaction for the entire batch
     const transaction = await sequelize.transaction();
