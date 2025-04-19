@@ -10,8 +10,6 @@ import {promisify} from 'util';
 
 const execAsync = promisify(exec);
 
-// Path to 7z executable
-const SEVEN_ZIP_PATH = 'C:\\Program Files\\7-Zip\\7z.exe';
 
 // Initialize fonts
 initializeFonts();
@@ -85,24 +83,6 @@ function findTranslationRoot(dir: string): string | null {
   return null;
 }
 
-// Extract archive using 7z
-async function extractArchive(
-  archivePath: string,
-  outputDir: string,
-): Promise<void> {
-  try {
-    // Use full path to 7z executable
-    await execAsync(
-      `"${SEVEN_ZIP_PATH}" x "${archivePath}" -o"${outputDir}" -y`,
-    );
-  } catch (error) {
-    console.error('7z extraction error:', error);
-    throw new Error(
-      `Failed to extract archive: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
 // Utility function to safely delete files and directories
 function cleanupFiles(...paths: (string | undefined | null)[]): void {
   for (const path of paths) {
@@ -160,21 +140,16 @@ router.post(
       );
       fs.mkdirSync(tempDir, {recursive: true});
 
-      // Try to extract the archive using 7z
-      try {
-        await extractArchive(uploadedFile, tempDir);
-      } catch (error) {
-        // If 7z fails, try adm-zip as fallback for zip files
         try {
           const zip = new AdmZip(uploadedFile);
           zip.extractAllTo(tempDir, true);
         } catch (zipError) {
           cleanupFiles(tempDir, uploadedFile);
           throw new Error(
-            'Failed to extract archive with both 7z and zip methods. Please check the archive format.',
+            'Failed to extract archive with zip. Please check the archive format.',
           );
         }
-      }
+      
 
       // Find the actual translation root directory
       const translationRoot = findTranslationRoot(tempDir);
@@ -188,7 +163,7 @@ router.post(
       // Get base English translations with correct path resolution
       const enTranslationsDir = path.resolve(
         __dirname,
-        '../../../client/src/translations/languages/en',
+        '../../../../client/src/translations/languages/en',
       );
 
       // Get all JSON files from both directories
@@ -261,7 +236,7 @@ router.get('/download-translations', async (req: Request, res: Response) => {
     // Update path resolution for English translations
     const enTranslationsDir = path.resolve(
       __dirname,
-      '../../../client/src/translations/languages/en',
+      '../../../../client/src/translations/languages/en',
     );
     tempZipPath = path.join(
       'uploads',
@@ -345,7 +320,7 @@ router.get(
       // Update path resolution for translations
       const translationsDir = path.resolve(
         __dirname,
-        `../../../client/src/translations/languages/${lang}`,
+        `../../../../client/src/translations/languages/${lang}`,
       );
 
       // Check if directory exists
