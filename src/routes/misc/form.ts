@@ -18,6 +18,13 @@ import Player from '../../models/players/Player.js';
 import sequelize from "../../config/db.js";
 const router: Router = express.Router();
 
+// Add this helper function after the router declaration
+const sanitizeTextInput = (input: string | null | undefined): string => {
+  if (input === null || input === undefined) return '';
+  return input.trim();
+};
+
+
 const cleanVideoUrl = (url: string) => {
   // Match various video URL formats
   const patterns = [
@@ -255,10 +262,10 @@ router.post(
           speed: req.body.speed ? parseFloat(req.body.speed) : 1,
           scoreV2: score,
           accuracy,
-          passer: req.body.passer,
+          passer: sanitizeTextInput(req.body.passer),
           passerId: req.body.passerId,
           passerRequest: req.body.passerRequest === true,
-          feelingDifficulty: req.body.feelingDifficulty,
+          feelingDifficulty: sanitizeTextInput(req.body.feelingDifficulty),
           title: req.body.title,
           videoLink: cleanVideoUrl(req.body.videoLink),
           rawTime: new Date(req.body.rawTime),

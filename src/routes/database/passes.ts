@@ -32,6 +32,12 @@ interface SearchGroup {
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
+// Add this helper function after the router declaration
+const sanitizeTextInput = (input: string | null | undefined): string => {
+  if (input === null || input === undefined) return '';
+  return input.trim();
+};
+
 export async function updateWorldsFirstStatus(
   levelId: number,
   transaction?: any,
@@ -571,13 +577,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       isDuplicate,
     } = req.body;
 
+
     logger.debug(`[Passes PUT] Request body:`, {
       levelId,
       vidUploadTime,
       speed,
-      feelingRating,
-      vidTitle,
-      videoLink,
+      feelingRating: sanitizeTextInput(feelingRating),
+      vidTitle: sanitizeTextInput(vidTitle),
+      videoLink: sanitizeTextInput(videoLink),
       is12K,
       is16K,
       isNoHoldTap,
@@ -718,9 +725,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           vidUploadTime: vidUploadTime || pass.vidUploadTime,
           speed: speed || pass.speed,
           feelingRating:
-            feelingRating !== undefined ? feelingRating : pass.feelingRating,
-          vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
-          videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+            feelingRating !== undefined ? sanitizeTextInput(feelingRating) : pass.feelingRating,
+          vidTitle: vidTitle !== undefined ? sanitizeTextInput(vidTitle) : pass.vidTitle,
+          videoLink: videoLink !== undefined ? sanitizeTextInput(videoLink) : pass.videoLink,
           is12K: is12K !== undefined ? is12K : pass.is12K,
           is16K: is16K !== undefined ? is16K : pass.is16K,
           isNoHoldTap:
@@ -743,9 +750,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           vidUploadTime: vidUploadTime || pass.vidUploadTime,
           speed: speed || pass.speed,
           feelingRating:
-            feelingRating !== undefined ? feelingRating : pass.feelingRating,
-          vidTitle: vidTitle !== undefined ? vidTitle : pass.vidTitle,
-          videoLink: videoLink !== undefined ? videoLink : pass.videoLink,
+            feelingRating !== undefined ? sanitizeTextInput(feelingRating) : pass.feelingRating,
+          vidTitle: vidTitle !== undefined ? sanitizeTextInput(vidTitle) : pass.vidTitle,
+          videoLink: videoLink !== undefined ? sanitizeTextInput(videoLink) : pass.videoLink,
           is12K: is12K !== undefined ? is12K : pass.is12K,
           is16K: is16K !== undefined ? is16K : pass.is16K,
           isNoHoldTap:

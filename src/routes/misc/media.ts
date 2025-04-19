@@ -224,6 +224,31 @@ function createFooterSVG(config: {
   return svgContent;
 }
 
+// Add this helper function for retrying image downloads
+async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 5000): Promise<Buffer> {
+  let lastError: Error | unknown;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      logger.debug(`Attempting to download image from ${url} (attempt ${attempt}/${maxRetries})`);
+      const response = await axios.get(url, { responseType: 'arraybuffer' });
+      logger.debug(`Successfully downloaded image from ${url} on attempt ${attempt}`);
+      return response.data;
+    } catch (error: unknown) {
+      lastError = error;
+      logger.warn(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`);
+      
+      if (attempt < maxRetries) {
+        logger.debug(`Waiting ${delayMs}ms before retrying...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  logger.error(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`);
+  throw lastError;
+}
+
 router.get('/image-proxy', async (req: Request, res: Response) => {
   const imageUrl = req.query.url;
   try {
@@ -431,19 +456,45 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
 
     logger.debug(`Thumbnail dimensions: ${width}x${height}, icon size: ${iconSize}`);
 
-    // Download background image
-    logger.debug(`Downloading background image from ${details.image}`);
-    const backgroundBuffer = await axios
-      .get(details.image, {responseType: 'arraybuffer'})
-      .then(response => response.data);
-    logger.debug(`Background image downloaded, size: ${backgroundBuffer.length} bytes`);
+    // Download background image with retry logic
+    let backgroundBuffer: Buffer;
+    try {
+      logger.debug(`Downloading background image from ${details.image}`);
+      backgroundBuffer = await downloadImageWithRetry(details.image);
+      logger.debug(`Background image downloaded, size: ${backgroundBuffer.length} bytes`);
+    } catch (error: unknown) {
+      logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
+      // Create a black background buffer instead
+      backgroundBuffer = await sharp({
+        create: {
+          width,
+          height,
+          channels: 4,
+          background: { r: 0, g: 0, b: 0, alpha: 1 }
+        }
+      }).jpeg().toBuffer();
+      logger.debug(`Created black background buffer, size: ${backgroundBuffer.length} bytes`);
+    }
 
-    // Download difficulty icon
-    logger.debug(`Downloading difficulty icon from ${diff.icon}`);
-    const iconBuffer = await axios
-      .get(diff.icon, {responseType: 'arraybuffer'})
-      .then(response => response.data);
-    logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
+    // Download difficulty icon with retry logic
+    let iconBuffer: Buffer;
+    try {
+      logger.debug(`Downloading difficulty icon from ${diff.icon}`);
+      iconBuffer = await downloadImageWithRetry(diff.icon);
+      logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
+    } catch (error: unknown) {
+      logger.error(`Failed to download difficulty icon after all retries: ${error instanceof Error ? error.message : String(error)}`);
+      // Create a simple placeholder icon
+      iconBuffer = await sharp({
+        create: {
+          width: iconSize,
+          height: iconSize,
+          channels: 4,
+          background: { r: 100, g: 100, b: 100, alpha: 1 }
+        }
+      }).jpeg().toBuffer();
+      logger.debug(`Created placeholder icon buffer, size: ${iconBuffer.length} bytes`);
+    }
 
     // Create SVGs for text overlays
     logger.debug(`Creating header SVG for level ${levelId}`);

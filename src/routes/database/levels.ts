@@ -63,6 +63,12 @@ const checkLevelTimeout = (levelId: number): number | null => {
   return Math.ceil(remainingTime / 1000);
 };
 
+// Add this helper function after the router declaration
+const sanitizeTextInput = (input: string | null | undefined): string => {
+  if (input === null || input === undefined) return '';
+  return input.trim();
+};
+
 // After any level update that affects scores (baseScore, difficulty, etc.)
 async function handleLevelUpdate() {
   try {
@@ -1021,12 +1027,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         : previousBaseScore;
     // Clean up the update data to handle null values correctly
     const updateData = {
-      song: req.body.song,
-      artist: req.body.artist,
-      creator: req.body.creator,
-      charter: req.body.charter,
-      vfxer: req.body.vfxer,
-      team: req.body.team,
+      song: sanitizeTextInput(req.body.song),
+      artist: sanitizeTextInput(req.body.artist),
+      creator: sanitizeTextInput(req.body.creator),
+      charter: sanitizeTextInput(req.body.charter),
+      vfxer: sanitizeTextInput(req.body.vfxer),
+      team: sanitizeTextInput(req.body.team),
       diffId: req.body.diffId || 0,
       previousDiffId,
       baseScore:
@@ -1034,13 +1040,13 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           ? null
           : (req.body.baseScore ?? level.baseScore),
       previousBaseScore,
-      videoLink: req.body.videoLink,
-      dlLink: req.body.dlLink || null,
-      workshopLink: req.body.workshopLink,
-      publicComments: req.body.publicComments,
-      rerateNum: req.body.rerateNum,
+      videoLink: sanitizeTextInput(req.body.videoLink),
+      dlLink: sanitizeTextInput(req.body.dlLink),
+      workshopLink: sanitizeTextInput(req.body.workshopLink),
+      publicComments: sanitizeTextInput(req.body.publicComments),
+      rerateNum: sanitizeTextInput(req.body.rerateNum),
       toRate: req.body.toRate ?? level.toRate,
-      rerateReason: req.body.rerateReason,
+      rerateReason: sanitizeTextInput(req.body.rerateReason),
       isDeleted,
       isHidden,
       isAnnounced,
@@ -1675,7 +1681,10 @@ router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Respons
 
       const {field, alias, matchType = 'exact', propagate = false} = req.body;
 
-      if (!field || !alias || !['song', 'artist'].includes(field)) {
+      // Sanitize text inputs
+      const sanitizedAlias = sanitizeTextInput(alias);
+
+      if (!field || !sanitizedAlias || !['song', 'artist'].includes(field)) {
         await transaction.rollback();
         return res.status(400).json({error: 'Invalid field or alias'});
       }
@@ -1809,7 +1818,10 @@ router.put('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request,
       }
 
       const {alias} = req.body;
-      if (!alias) {
+      // Sanitize text input
+      const sanitizedAlias = sanitizeTextInput(alias);
+      
+      if (!sanitizedAlias) {
         await transaction.rollback();
         return res.status(400).json({error: 'Alias is required'});
       }
@@ -1969,6 +1981,9 @@ router.put('/:id/difficulty', Auth.verified(), async (req: Request, res: Respons
     const levelId = parseInt(req.params.id);
     let { diffId, baseScore, publicComments } = req.body;
     
+    // Sanitize text inputs
+    publicComments = sanitizeTextInput(publicComments);
+    
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -2049,6 +2064,9 @@ router.put('/:id/timeout', Auth.verified(), async (req: Request, res: Response) 
   try {
     const levelId = parseInt(req.params.id);
     let { diffId, baseScore, publicComments } = req.body;
+    
+    // Sanitize text inputs
+    publicComments = sanitizeTextInput(publicComments);
     
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
