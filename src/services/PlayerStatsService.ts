@@ -38,6 +38,8 @@ export class PlayerStatsService {
       MAX(p.scoreV2) as scoreV2
     FROM player_pass_summary p
     WHERE p.playerId IN (:playerIds)
+    AND (:excludedLevelIds IS NULL OR p.levelId NOT IN (:excludedLevelIds))
+    AND (:excludedPassIds IS NULL OR p.id NOT IN (:excludedPassIds))
     GROUP BY p.playerId, p.levelId
   ),
   GeneralPassesData AS (
@@ -47,6 +49,8 @@ export class PlayerStatsService {
       SUM(p.scoreV2) as levelScore
     FROM player_pass_summary p
     WHERE p.playerId IN (:playerIds)
+    AND (:excludedLevelIds IS NULL OR p.levelId NOT IN (:excludedLevelIds))
+    AND (:excludedPassIds IS NULL OR p.id NOT IN (:excludedPassIds))
     GROUP BY p.playerId, p.levelId
   ),
   RankedScores AS (
@@ -266,7 +270,11 @@ export class PlayerStatsService {
           // Calculate all stats in a single query
           const statsUpdates = await sequelize.query(this.statsQuery,
             {
-              replacements: { playerIds: batchIds },
+              replacements: { 
+                playerIds: batchIds,
+                excludedLevelIds: null,
+                excludedPassIds: null
+              },
               type: QueryTypes.SELECT,
               transaction
             }
@@ -389,7 +397,11 @@ export class PlayerStatsService {
           // Calculate all stats in a single query
           const statsUpdates = await sequelize.query(this.statsQuery,
             {
-              replacements: { playerIds },
+              replacements: { 
+                playerIds,
+                excludedLevelIds: null,
+                excludedPassIds: null
+              },
               type: QueryTypes.SELECT,
               transaction
             }
@@ -820,61 +832,39 @@ export class PlayerStatsService {
         },
       ],
     });
+    
+    const topScores = await sequelize.query(`
+      SELECT 
+        p.id,
+        p.scoreV2
+      FROM player_pass_summary p
+      WHERE p.playerId = :playerId
+      ORDER BY p.scoreV2 DESC
+      LIMIT 20
+      `, {
+        replacements: {
+          playerId: pass?.player?.id || 0
+        },
+        type: QueryTypes.SELECT,
+      }) as {id: number, scoreV2: number}[];
 
     if (!pass) {
       return null;
     }
 
-    // Get player's passes for score calculation
-    const playerPasses = await Pass.findAll({
-      where: {
-        playerId: pass.player?.id,
-        isDeleted: false
+    const currentStats = await PlayerStatsService.getInstance().getPlayerStats(pass.player?.id || 0);
+    const previousStats = await sequelize.query(this.statsQuery, {
+      replacements: { 
+        playerIds: [pass.player?.id || 0],
+        excludedLevelIds: null,
+        excludedPassIds: [passId]
       },
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          attributes: ['baseScore', 'id'],
-          where: {
-            isDeleted: false
-          }
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-    });
+      type: QueryTypes.SELECT,
+    }).then((result: any) => result[0]);
+    
 
-    // Calculate unique passes and their impacts
-    const uniquePasses = new Map();
-    playerPasses.forEach(playerPass => {
-      if (
-        !uniquePasses.has(playerPass.levelId) ||
-        (playerPass.scoreV2 || 0) > (uniquePasses.get(playerPass.levelId).scoreV2 || 0)
-      ) {
-        uniquePasses.set(playerPass.levelId, playerPass);
-      }
-    });
-
-    const topScores = Array.from(uniquePasses.values())
-      .filter((p: any) => !p.isDeleted && !p.isDuplicate)
-      .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
-      .slice(0, 20)
-      .map((p, index) => ({
-        id: p.id,
-        impact: (p.scoreV2 || 0) * Math.pow(0.9, index),
-      }));
-
-    // Find this pass's impact position and value
-    const passImpact = topScores.find(score => score.id === passId);
-
-    // Calculate current and previous scores
-    const currentRankedScore = calculateRankedScore(playerPasses);
-    const previousRankedScore = calculateRankedScore(playerPasses.filter(p => p.id !== passId));
-
-    const impact = currentRankedScore - previousRankedScore;
+    
+    const impact = (currentStats?.rankedScore || 0) - (previousStats?.rankedScore || 0);
 
     // Get player stats for rank
     const playerStats = await this.getPlayerStats(pass.player?.id || 0);
@@ -888,10 +878,10 @@ export class PlayerStatsService {
         pfp: pass.player?.pfp || null,
       },
       scoreInfo: {
-        currentRankedScore,
-        previousRankedScore,
+        currentRankedScore: currentStats?.rankedScore,
+        previousRankedScore: previousStats?.rankedScore,
         impact,
-        impactRank: passImpact ? topScores.findIndex(score => score.id === passId) + 1 : null
+        impactRank: topScores.findIndex(score => score.id === passId) + 1
       },
       ranks: {
         rankedScoreRank: playerStats?.rankedScoreRank,
