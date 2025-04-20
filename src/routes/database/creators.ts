@@ -1282,7 +1282,6 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     return res.json({
       id: teamWithMembers.id,
       name: teamWithMembers.name,
-      aliases: teamWithMembers.aliases,
       description: teamWithMembers.description,
       type: 'team',
       members: teamWithMembers.members?.map(member => ({
