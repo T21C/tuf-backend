@@ -314,7 +314,7 @@ const buildWhereClause = async (query: any) => {
   } else if (query.clearedFilter && query.clearedFilter === 'only') {
     conditions.push({
       clears: {
-        [Op.gt]: 0,
+        [Op.ne]: 0,
       },
     });
   }
@@ -466,8 +466,8 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   const order = getSortOptions(sort as string);
   let startTime = Date.now();
   
-  const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30;
-  const normalizedOffset = offset ? offset : 0;
+  const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30; // took me 13 hours to find out this was needed :3
+  const normalizedOffset = offset && offset > 0 ? offset : 0;
   
   // Create a subquery to get unique level IDs
   const subqueryOptions = {
@@ -509,7 +509,6 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   
   // Apply pagination to the unique IDs
   let hasMore = uniqueIds.length > normalizedLimit;
-  console.log(hasMore);
   
   logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
 
@@ -577,7 +576,7 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   logger.debug(`fetch query took ${Date.now() - startTime}ms`);
   logger.debug(`memory usage on fetch: `);
   checkMemoryUsage()
-  return {results, count: hasMore?999999:0};
+  return {results, count: hasMore ? 999999:0};
 }
 
 // Get all levels with filtering and pagination

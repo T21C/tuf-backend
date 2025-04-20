@@ -14,6 +14,7 @@ import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '../../utils/random.js';
 import { logger } from '../../utils/logger.js';
+import { checkMemoryUsage } from '../../utils/memUtils.js';
 // Initialize fonts
 initializeFonts();
 
@@ -412,12 +413,9 @@ const THUMBNAIL_SIZES = {
 router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
   const sharpInstances: sharp.Sharp[] = [];
   try {
-    logger.debug('Memory usage at start:', process.memoryUsage());
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
-    
     logger.debug(`Generating thumbnail for level ${levelId} with size ${size}`);
-
     const level = await Level.findOne({
       where: {id: levelId},
       include: [
@@ -427,21 +425,16 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     });
 
     if (!level) {
-      logger.debug(`Level ${levelId} not found`);
       return res.status(404).send('Level or difficulty not found');
     }
 
     const {song, artist, creator, difficulty: diff} = level.dataValues;
     if (!diff) {
-      logger.debug(`Difficulty not found for level ${levelId}`);
       return res.status(404).send('Difficulty not found');
     }
 
-    logger.debug(`Level data: song="${song}", artist="${artist}", creator="${creator}", difficulty="${diff.name}"`);
-
     const details = await getVideoDetails(level.dataValues.videoLink);
     if (!details || !details.image) {
-      logger.debug(`Video details not found for level ${levelId}`);
       return res.status(404).send('Video details not found');
     }
 
@@ -458,15 +451,11 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     const fontSize = Math.floor(height * 0.06);
     const padding = Math.floor(height * 0.055);
 
-    logger.debug(`Thumbnail dimensions: ${width}x${height}, icon size: ${iconSize}`);
 
     // Download background image with retry logic
     let backgroundBuffer: Buffer;
     try {
-      logger.debug(`Downloading background image from ${details.image}`);
       backgroundBuffer = await downloadImageWithRetry(details.image);
-      logger.debug(`Background image downloaded, size: ${backgroundBuffer.length} bytes`);
-      logger.debug('Memory usage after background download:', process.memoryUsage());
     } catch (error: unknown) {
       logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
       const blackBg = sharp({
@@ -509,15 +498,10 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       
       // Check if file exists in cache
       if (fs.existsSync(fullPath)) {
-        logger.debug(`Reading difficulty icon from cache: ${fullPath}`);
         iconBuffer = await fs.promises.readFile(fullPath);
-        logger.debug(`Difficulty icon read from cache, size: ${iconBuffer.length} bytes`);
       } else {
-        logger.debug(`Icon not found in cache, downloading from ${diff.icon}`);
         iconBuffer = await downloadImageWithRetry(diff.icon);
-        logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
       }
-      logger.debug('Memory usage after icon load:', process.memoryUsage());
     } catch (error: unknown) {
       logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
       const placeholderIcon = sharp({
@@ -534,7 +518,6 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     }
 
     // Create SVGs for text overlays
-    logger.debug(`Creating header SVG for level ${levelId}`);
     const {svg: headerSvg, isWrapped} = createHeaderSVG({
       width,
       height,
@@ -549,7 +532,6 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       idFontSize,
     });
 
-    logger.debug(`Creating footer SVG for level ${levelId}`);
     const footerSvg = createFooterSVG({
       width,
       height,
@@ -601,7 +583,6 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       logger.debug(`Converting image to buffer for level ${levelId}`);
       const buffer = await image.toBuffer();
       logger.debug(`Image generated successfully for level ${levelId}, size: ${buffer.length} bytes`);
-      logger.debug('Memory usage before sending response:', process.memoryUsage());
 
       res.set('Content-Type', 'image/jpeg');
       res.send(buffer);
@@ -637,7 +618,8 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
         logger.error('Error destroying Sharp instance:', error);
       }
     });
-    logger.debug('Memory usage after cleanup:', process.memoryUsage());
+    logger.debug('Memory usage after generation');
+    checkMemoryUsage();
   }
 });
 

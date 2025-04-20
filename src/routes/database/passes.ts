@@ -32,6 +32,8 @@ interface SearchGroup {
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
+const MAX_LIMIT = 500;
+
 // Add this helper function after the router declaration
 const sanitizeTextInput = (input: string | null | undefined): string => {
   if (input === null || input === undefined) return '';
@@ -453,6 +455,9 @@ router.post('/', async (req: Request, res: Response) => {
       specialDifficulties,
     });
 
+    const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30; // took me 13 hours to find out this was needed :3
+    const normalizedOffset = offset && offset > 0 ? offset : 0;
+
     const order = getSortOptions(sort);
     // First get all IDs in correct order
     const allIds = await Pass.findAll({
@@ -478,19 +483,23 @@ router.post('/', async (req: Request, res: Response) => {
         },
       ],
       order,
+      offset: normalizedOffset,
+      limit: normalizedLimit+1,
       attributes: ['id'],
       raw: true,
     });
 
-    // Then get paginated results using those IDs in their original order
-    const paginatedIds = allIds
-      .map((pass: any) => pass.id)
-      .slice(offset, offset + limit);
+    const uniqueIds = [...new Set(allIds.map(level => level.id))];
+    logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
+    
+    // Apply pagination to the unique IDs
+    let hasMore = uniqueIds.length > normalizedLimit;
+    console.log(hasMore);
 
     const results = await Pass.findAll({
       where: {
         id: {
-          [Op.in]: paginatedIds,
+          [Op.in]: uniqueIds,
         },
       },
       include: [
@@ -521,7 +530,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     return res.json({
-      count: allIds.length,
+      count: hasMore ? 999999 : 0,
       results,
     });
   } catch (error) {
