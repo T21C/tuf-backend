@@ -1,6 +1,7 @@
 import {Model, Optional} from 'sequelize';
 import {UserAttributes} from '../../models/auth/User.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
+import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -17,7 +18,7 @@ export interface IBaseModelAttributes {
 
 export interface ICreator extends IBaseModel {
   name: string;
-  aliases: string[];
+  aliases: CreatorAlias[];
 }
 
 // Level interface

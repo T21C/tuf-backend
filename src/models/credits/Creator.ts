@@ -3,11 +3,11 @@ import sequelize from '../../config/db.js';
 import {ICreator} from '../../interfaces/models/index.js';
 import User from '../auth/User.js';
 import LevelCredit from '../levels/LevelCredit.js';
+import {CreatorAlias} from './CreatorAlias.js';
 
 class Creator extends Model implements ICreator {
   declare id: number;
   declare name: string;
-  declare aliases: string[];
   declare createdAt: Date;
   declare updatedAt: Date;
   declare isVerified: boolean;
@@ -15,6 +15,7 @@ class Creator extends Model implements ICreator {
 
   declare user: User;
   declare credits?: LevelCredit[];
+  declare aliases: CreatorAlias[];
 }
 
 Creator.init(
@@ -27,17 +28,6 @@ Creator.init(
     name: {
       type: DataTypes.STRING,
       allowNull: false,
-    },
-    aliases: {
-      type: DataTypes.JSON,
-      defaultValue: [],
-      get() {
-        const rawValue = this.getDataValue('aliases');
-        return rawValue ? JSON.parse(rawValue) : [];
-      },
-      set(value: string[]) {
-        this.setDataValue('aliases', JSON.stringify(value));
-      },
     },
     createdAt: {
       type: DataTypes.DATE,

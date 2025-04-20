@@ -1,10 +1,13 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
+import {db} from '../index.js';
+import Creator from './Creator.js';
 
-class CreatorAlias extends Model {
-  declare id: number;
-  declare name: string;
-  declare creatorId: number;
+export class CreatorAlias extends Model {
+  public id!: number;
+  public creatorId!: number;
+  public name!: string;
+  public readonly createdAt!: Date;
+  public readonly updatedAt!: Date;
 }
 
 CreatorAlias.init(
@@ -14,10 +17,6 @@ CreatorAlias.init(
       autoIncrement: true,
       primaryKey: true,
     },
-    name: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
     creatorId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -26,11 +25,25 @@ CreatorAlias.init(
         key: 'id',
       },
     },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
   },
   {
-    sequelize,
+    sequelize: db.sequelize,
     tableName: 'creator_aliases',
-  },
+    timestamps: true,
+  }
 );
 
-export default CreatorAlias;
+// Set up associations
+CreatorAlias.belongsTo(Creator, {
+  foreignKey: 'creatorId',
+  as: 'creator',
+});
+
+Creator.hasMany(CreatorAlias, {
+  foreignKey: 'creatorId',
+  as: 'creatorAliases',
+});
