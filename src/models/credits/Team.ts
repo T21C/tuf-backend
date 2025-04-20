@@ -1,15 +1,16 @@
 import {DataTypes, Model} from 'sequelize';
 import sequelize from '../../config/db.js';
 import {ICreator, ITeam} from '../../interfaces/models/index.js';
+import { TeamAlias } from './TeamAlias.js';
 
 class Team extends Model implements ITeam {
   declare id: number;
   declare name: string;
-  declare aliases: string[];
   declare description?: string;
   declare createdAt: Date;
   declare updatedAt: Date;
   declare members: ICreator[];
+  declare teamAliases: TeamAlias[];
 }
 
 Team.init(
@@ -23,17 +24,6 @@ Team.init(
       type: DataTypes.STRING,
       allowNull: false,
       unique: true,
-    },
-    aliases: {
-      type: DataTypes.JSON,
-      defaultValue: [],
-      get() {
-        const rawValue = this.getDataValue('aliases');
-        return rawValue ? JSON.parse(rawValue) : [];
-      },
-      set(value: string[]) {
-        this.setDataValue('aliases', JSON.stringify(value));
-      },
     },
     description: {
       type: DataTypes.TEXT,

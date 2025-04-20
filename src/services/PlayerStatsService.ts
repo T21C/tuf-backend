@@ -11,7 +11,7 @@ import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
 import { ModifierService } from '../services/ModifierService.js';
 import { logger } from '../utils/logger.js';
-
+import { checkMemoryUsage } from '../utils/memUtils.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
@@ -256,12 +256,7 @@ export class PlayerStatsService {
     try {
       while (this.operationQueue.length > 0) {
         // Check memory usage before processing each operation
-        if (!this.checkMemoryUsage()) {
-          // If memory usage is too high, wait a bit before continuing
-          logger.warn('Memory usage too high. Waiting 30 seconds before continuing...');
-          await new Promise(resolve => setTimeout(resolve, 30000));
-          continue;
-        }
+        checkMemoryUsage()
         
         const operation = this.operationQueue.shift();
         if (!operation) continue;
@@ -289,24 +284,6 @@ export class PlayerStatsService {
     }
   }
 
-  // Add memory monitoring function
-  private checkMemoryUsage(): boolean {
-    const used = process.memoryUsage();
-    const heapUsedMB = Math.round(used.heapUsed / 1024 / 1024);
-    const heapTotalMB = Math.round(used.heapTotal / 1024 / 1024);
-    const rssMB = Math.round(used.rss / 1024 / 1024);
-    
-    logger.debug(`Memory usage: ${heapUsedMB}MB / ${heapTotalMB}MB (${rssMB}MB RSS)`);
-    
-    // Check if memory usage is too high
-    if (heapUsedMB > this.MAX_MEMORY_USAGE) {
-      logger.warn(`Memory usage too high (${heapUsedMB}MB). Pausing processing.`);
-      return false;
-    }
-    
-    return true;
-  }
-
   // Rename existing methods to private implementation methods
   private async _reloadAllStats(): Promise<void> {
     logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
@@ -324,12 +301,7 @@ export class PlayerStatsService {
     logger.debug(`[PlayerStatsService] Processing in chunks of ${this.CHUNK_SIZE} with ${this.BATCHES_PER_CHUNK} batches per chunk`);
     let timeStart = Date.now();
     for (let chunkStart = 0; chunkStart < playerCount; chunkStart += this.CHUNK_SIZE) {
-      // Check memory usage before processing each chunk
-      if (!this.checkMemoryUsage()) {
-        logger.warn('Memory usage too high. Waiting 60 seconds before continuing...');
-        await new Promise(resolve => setTimeout(resolve, 60000));
-        continue;
-      }
+      checkMemoryUsage()
       
       const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, playerCount);
 
@@ -347,11 +319,7 @@ export class PlayerStatsService {
       // Process this chunk in batches
       for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
         // Check memory usage before processing each batch
-        if (!this.checkMemoryUsage()) {
-          logger.warn('Memory usage too high. Waiting 30 seconds before continuing...');
-          await new Promise(resolve => setTimeout(resolve, 30000));
-          continue;
-        }
+        checkMemoryUsage()
         
         const batchIds = playerIds.slice(i, i + BATCH_SIZE);
         let batchTimeStart = Date.now();
@@ -479,12 +447,8 @@ export class PlayerStatsService {
       this.updating = false;
       return;
     }
-    
-    // Check memory usage before processing
-    if (!this.checkMemoryUsage()) {
-      logger.warn('Memory usage too high. Skipping updatePlayerStats');
-      return;
-    }
+
+    checkMemoryUsage()
     
     this.updating = true;
     // Use a single transaction for the entire batch
@@ -597,10 +561,8 @@ export class PlayerStatsService {
     logger.debug('[PlayerStatsService] Starting updateRanks');
     
     // Check memory usage before processing
-    if (!this.checkMemoryUsage()) {
-      logger.warn('Memory usage too high. Skipping updateRanks');
-      return;
-    }
+    checkMemoryUsage()
+
     
     const transaction = await sequelize.transaction();
     try {

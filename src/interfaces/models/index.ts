@@ -2,6 +2,7 @@ import {Model, Optional} from 'sequelize';
 import {UserAttributes} from '../../models/auth/User.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
+import { TeamAlias } from '../../models/credits/TeamAlias.js';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -211,7 +212,7 @@ export interface IPassSubmission extends IBaseModel {
 export interface ITeam extends IBaseModel {
   name: string;
   members: ICreator[];
-  aliases: string[];
+  teamAliases: TeamAlias[];
   description?: string | null;
 }
 

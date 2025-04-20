@@ -24,6 +24,8 @@ import { seededShuffle, getDailySeed, getRandomSeed } from '../../utils/random.j
 import { env } from 'process';
 import { logger } from '../../utils/logger.js';
 import {CreatorAlias} from '../../models/credits/CreatorAlias.js';
+import { checkMemoryUsage } from '../../utils/memUtils.js';
+import { TeamAlias } from '../../models/credits/TeamAlias.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -169,16 +171,28 @@ const buildFieldSearchCondition = async (
   // Create the base search condition - use MySQL's case-insensitive comparison
   const searchCondition = exact 
     ? {[Op.eq]: searchValue} 
-    : {[Op.like]: literal(`LOWER(${field}) LIKE LOWER('${searchValue}')`)};
+    : {[Op.like]: searchValue};
 
   // For field-specific searches
   if (field !== 'any') {
     // Special handling for team search
     if (field === 'team') {
+      // Find team aliases that match the search term
+      const teamAliasMatches = await TeamAlias.findAll({
+        where: {
+          name: searchCondition
+        },
+        attributes: ['teamId'],
+        raw: true
+      });
+      
+      const teamIds = teamAliasMatches.map((alias: { teamId: number }) => alias.teamId);
+      
       return {
         [Op.or]: [
           { team: searchCondition },
-          { '$teamObject.name$': searchCondition }
+          { '$teamObject.name$': searchCondition },
+          ...(teamIds.length > 0 ? [{ teamId: { [Op.in]: teamIds } }] : [])
         ]
       };
     }
@@ -193,14 +207,11 @@ const buildFieldSearchCondition = async (
         where: {
           field,
           [Op.or]: [
-            {alias: literal(`LOWER(alias) LIKE LOWER('${searchValue}')`)}, 
-            {originalValue: literal(`LOWER(originalValue) LIKE LOWER('${searchValue}')`)}
+            {alias: searchCondition}, 
+            {originalValue: searchCondition}
           ],
         },
         attributes: ['levelId'],
-        logging: (sql: string) => {
-          logger.debug(`LevelAlias Query: ${sql}`);
-        }
       });
 
       if (aliasMatches.length > 0) {
@@ -221,49 +232,60 @@ const buildFieldSearchCondition = async (
   const aliasMatches = await LevelAlias.findAll({
     where: {
       [Op.or]: [
-        {alias: literal(`LOWER(alias) LIKE LOWER('${searchValue}')`)}, 
-        {originalValue: literal(`LOWER(originalValue) LIKE LOWER('${searchValue}')`)}
+        {alias: searchCondition}, 
+        {originalValue: searchCondition}
       ],
     },
     attributes: ['levelId'],
-    logging: (sql: string) => {
-      logger.debug(`LevelAlias General Query: ${sql}`);
-    }
   });
 
   const creatorAliasMatches = await CreatorAlias.findAll({
     where: {
-      name: literal(`LOWER(CreatorAlias.name) LIKE LOWER('${searchValue}')`)
-    },
-    logging: (sql: string) => {
-      logger.debug(`CreatorAlias Query: ${sql}`);
+      name: searchCondition
     }
   });
-  logger.debug(`creatorAliasMatches: ${JSON.stringify(creatorAliasMatches)}`);
   
+  const teamAliasMatches = await TeamAlias.findAll({
+    where: {
+      name: searchCondition
+    },
+    attributes: ['teamId'],
+    raw: true
+  });
   // Fix the mapping to correctly access creatorId
   const creatorIds = creatorAliasMatches.map(alias => {
-    // Log each alias to see its structure
-    logger.debug(`Alias object: ${JSON.stringify(alias)}`);
-    // Access creatorId directly from the dataValues property
     return alias.dataValues ? alias.dataValues.creatorId : alias.creatorId;
   });
   
-  logger.debug(`matching to: ${JSON.stringify(creatorIds)}`);
+  // Instead of using the $ syntax for levelCredits.creatorId, we'll handle this differently
+  // by finding levels with matching creator IDs first
+  let levelIdsWithMatchingCreators: number[] = [];
+  if (creatorAliasMatches.length > 0) {
+    // Find all levels that have credits with the matching creator IDs
+    const levelsWithCreators = await LevelCredit.findAll({
+      where: {
+        creatorId: { [Op.in]: creatorIds }
+      },
+      attributes: ['levelId'],
+      raw: true
+    });
+    
+    levelIdsWithMatchingCreators = levelsWithCreators.map(credit => credit.levelId);
+  }
   
   const result = {
     [Op.or]: [
-      {song: literal(`LOWER(song) LIKE LOWER('${searchValue}')`)},
-      {artist: literal(`LOWER(artist) LIKE LOWER('${searchValue}')`)},
-      {charter: literal(`LOWER(charter) LIKE LOWER('${searchValue}')`)},
-      {team: literal(`LOWER(team) LIKE LOWER('${searchValue}')`)},
-      ...(creatorAliasMatches.length > 0
-        ? [{'$levelCredits.creatorId$': {[Op.in]: creatorIds}}]
-        : []),
-      {'$teamObject.name$': literal(`LOWER(teamObject.name) LIKE LOWER('${searchValue}')`)},
+      {song: searchCondition},
+      {artist: searchCondition},
+      {charter: searchCondition},
+      {team: searchCondition},
       ...(aliasMatches.length > 0
         ? [{id: {[Op.in]: aliasMatches.map(a => a.levelId)}}]
         : []),
+      ...(levelIdsWithMatchingCreators.length > 0
+        ? [{id: {[Op.in]: levelIdsWithMatchingCreators}}]
+        : []),
+      ...(teamAliasMatches.length > 0 ? [{ teamId: { [Op.in]: teamAliasMatches } }] : [])
     ],
   };
   return result;
@@ -444,8 +466,8 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   const order = getSortOptions(sort as string);
   let startTime = Date.now();
   
-  // First get all IDs in correct order using a subquery approach to avoid duplicates
-  startTime = Date.now();
+  const normalizedLimit = limit ? limit : 30;
+  const normalizedOffset = offset ? offset : 0;
   
   // Create a subquery to get unique level IDs
   const subqueryOptions = {
@@ -453,16 +475,16 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
     attributes: ['id'],
     include: [
       {
+        model: Difficulty,
+        as: 'difficulty',
+        required: false,
+        attributes: ['id', 'sortOrder'],
+      },
+      {
         model: LevelCredit,
         as: 'levelCredits',
         required: false,
-        include: [
-          {
-            model: Creator,
-            as: 'creator',
-            attributes: ['id'],
-          },
-        ],
+        attributes: ['creatorId'],
       },
       {
         model: Team,
@@ -472,16 +494,13 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
       },
     ],
     order,
-    raw: true,
-    logging: (sql: string) => {
-      logger.debug(`SQL Query: ${sql}`);
-    }
+    offset: normalizedOffset,
+    limit: normalizedLimit+1,
+    raw: true
   };
   
-  const subquery = Level.findAll(subqueryOptions);
-  
   // Execute the subquery and extract unique IDs
-  const allIds = await subquery;
+  const allIds = await Level.findAll(subqueryOptions);
   logger.debug(`search query took ${Date.now() - startTime}ms`);
   
   // Extract unique level IDs to avoid duplicates
@@ -489,14 +508,14 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
   
   // Apply pagination to the unique IDs
-  const ids = uniqueIds.slice(offset || 0, (offset || 0) + (limit || 30));
-  logger.debug(`Pagination: ${offset || 0} to ${(offset || 0) + (limit || 30)}, returning ${ids.length} levels`);
+  const hasMore = !!uniqueIds.pop() || false;
+  logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
 
   startTime = Date.now();
   const results = await Level.findAll({
     where: {
       id: {
-        [Op.in]: ids,
+        [Op.in]: uniqueIds,
       },
     },
     include: [
@@ -554,7 +573,9 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
     order,
   });
   logger.debug(`fetch query took ${Date.now() - startTime}ms`);
-  return {results, count: uniqueIds.length};
+  logger.debug(`memory usage on fetch: `);
+  checkMemoryUsage()
+  return {results, count: hasMore?999999:0};
 }
 
 // Get all levels with filtering and pagination
