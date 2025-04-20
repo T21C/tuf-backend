@@ -30,7 +30,7 @@ const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
 const ENABLE_ROULETTE = env.APRIL_FOOLS === "true";
-
+const MAX_LIMIT = 500;
 // Add after router declaration
 const userTimeouts = new Map<string, number>();
 const bigWheelTimeout = 1000 * 15; // 30 seconds
@@ -466,13 +466,13 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   const order = getSortOptions(sort as string);
   let startTime = Date.now();
   
-  const normalizedLimit = limit ? limit : 30;
+  const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30;
   const normalizedOffset = offset ? offset : 0;
   
   // Create a subquery to get unique level IDs
   const subqueryOptions = {
     where,
-    attributes: ['id'],
+    attributes: ['id', 'clears'],
     include: [
       {
         model: Difficulty,
@@ -508,7 +508,9 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
   
   // Apply pagination to the unique IDs
-  const hasMore = !!uniqueIds.pop() || false;
+  let hasMore = uniqueIds.length > normalizedLimit;
+  console.log(hasMore);
+  
   logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
 
   startTime = Date.now();
