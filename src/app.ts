@@ -22,6 +22,35 @@ import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
 
+// Add these at the very top of the file, before any other imports
+process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION! Shutting down...');
+  console.error(error);
+  // Log to file or external service
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION! Shutting down...');
+  console.error('Reason:', reason);
+  console.error('Promise:', promise);
+  // Log to file or external service
+  process.exit(1);
+});
+
+// Add a handler for SIGTERM and SIGINT
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  // Perform cleanup
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  // Perform cleanup
+  process.exit(0);
+});
+
 dotenv.config();
 
 const app: Express = express();
@@ -85,6 +114,29 @@ io.on('connection', socket => {
     console.log('Socket disconnected:', reason);
   });
 });
+
+// Add memory leak detection
+const memoryLeakDetection = () => {
+  // Log memory usage every 5 minutes
+  setInterval(() => {
+    const used = process.memoryUsage();
+    console.log(`Memory usage: ${Math.round(used.heapUsed / 1024 / 1024)}MB / ${Math.round(used.heapTotal / 1024 / 1024)}MB (${Math.round(used.rss / 1024 / 1024)}MB RSS)`);
+    
+    // Check for potential memory leaks (heap usage consistently growing)
+    if (used.heapUsed > 1024 * 1024 * 1024) { // 1GB
+      console.warn('WARNING: High memory usage detected. Potential memory leak.');
+      
+      // Force garbage collection if --expose-gc flag is used
+      if (global.gc) {
+        console.log('Forcing garbage collection...');
+        global.gc();
+      }
+    }
+  }, 5 * 60 * 1000); // 5 minutes
+};
+
+// Call the memory leak detection function
+memoryLeakDetection();
 
 // Initialize database and start server
 async function startServer() {
@@ -207,16 +259,6 @@ async function startServer() {
     throw error;
   }
 }
-
-// Handle uncaught errors
-process.on('unhandledRejection', error => {
-  console.error('Unhandled rejection:', error);
-});
-
-process.on('uncaughtException', error => {
-  console.error('Uncaught exception:', error);
-  throw error;
-});
 
 // Start the server
 startServer().catch(error => {
