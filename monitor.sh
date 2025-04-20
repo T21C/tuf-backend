@@ -36,8 +36,8 @@ start_app() {
   LOG_FILE="$LOG_DIR/$APP_NAME.out.$current_time.log"
   ERROR_LOG_FILE="$LOG_DIR/$APP_NAME.err.$current_time.log"
   
-  # Start the application
-  nohup npm run production > $LOG_FILE 2> $ERROR_LOG_FILE &
+  # Start the application with memory limits
+  nohup node --max-old-space-size=512 dist/app.js > $LOG_FILE 2> $ERROR_LOG_FILE &
   pid=$!
   echo $pid > $PID_FILE
   

@@ -23,12 +23,14 @@ export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
   private readonly RELOAD_INTERVAL = 10 * 60 * 1000; // 10 minutes
-  private readonly CHUNK_SIZE = 2000; // Number of players to process in each chunk
+  private readonly CHUNK_SIZE = 500; // Reduced from 2000 to 500 to lower memory usage
   private readonly BATCHES_PER_CHUNK = 4; // Number of batches to split each chunk into
   private modifierService: ModifierService | null = null;
   private updating = false;
   private operationQueue: QueueOperation[] = [];
   private isProcessingQueue = false;
+  private readonly MEMORY_THRESHOLD = 0.8; // 80% of available memory
+  private readonly MAX_MEMORY_USAGE = 700; // 700MB max memory usage
   private statsQuery = 
   `
   WITH PassesData AS (
@@ -254,6 +256,14 @@ export class PlayerStatsService {
     
     try {
       while (this.operationQueue.length > 0) {
+        // Check memory usage before processing each operation
+        if (!this.checkMemoryUsage()) {
+          // If memory usage is too high, wait a bit before continuing
+          logger.warn('Memory usage too high. Waiting 30 seconds before continuing...');
+          await new Promise(resolve => setTimeout(resolve, 30000));
+          continue;
+        }
+        
         const operation = this.operationQueue.shift();
         if (!operation) continue;
         
@@ -280,6 +290,24 @@ export class PlayerStatsService {
     }
   }
 
+  // Add memory monitoring function
+  private checkMemoryUsage(): boolean {
+    const used = process.memoryUsage();
+    const heapUsedMB = Math.round(used.heapUsed / 1024 / 1024);
+    const heapTotalMB = Math.round(used.heapTotal / 1024 / 1024);
+    const rssMB = Math.round(used.rss / 1024 / 1024);
+    
+    logger.debug(`Memory usage: ${heapUsedMB}MB / ${heapTotalMB}MB (${rssMB}MB RSS)`);
+    
+    // Check if memory usage is too high
+    if (heapUsedMB > this.MAX_MEMORY_USAGE) {
+      logger.warn(`Memory usage too high (${heapUsedMB}MB). Pausing processing.`);
+      return false;
+    }
+    
+    return true;
+  }
+
   // Rename existing methods to private implementation methods
   private async _reloadAllStats(): Promise<void> {
     logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
@@ -297,6 +325,13 @@ export class PlayerStatsService {
     logger.debug(`[PlayerStatsService] Processing in chunks of ${this.CHUNK_SIZE} with ${this.BATCHES_PER_CHUNK} batches per chunk`);
     let timeStart = Date.now();
     for (let chunkStart = 0; chunkStart < playerCount; chunkStart += this.CHUNK_SIZE) {
+      // Check memory usage before processing each chunk
+      if (!this.checkMemoryUsage()) {
+        logger.warn('Memory usage too high. Waiting 60 seconds before continuing...');
+        await new Promise(resolve => setTimeout(resolve, 60000));
+        continue;
+      }
+      
       const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, playerCount);
 
       // Get IDs for this chunk
@@ -310,9 +345,15 @@ export class PlayerStatsService {
       const playerIds = chunkPlayerIds.map(player => player.id);
       logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
 
-
       // Process this chunk in batches
       for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
+        // Check memory usage before processing each batch
+        if (!this.checkMemoryUsage()) {
+          logger.warn('Memory usage too high. Waiting 30 seconds before continuing...');
+          await new Promise(resolve => setTimeout(resolve, 30000));
+          continue;
+        }
+        
         const batchIds = playerIds.slice(i, i + BATCH_SIZE);
         let batchTimeStart = Date.now();
  
@@ -355,9 +396,7 @@ export class PlayerStatsService {
             // Add the correct difficulty IDs based on sort order
             statsUpdates.forEach(stat => {
                 stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
-
                 stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
-
             });
             
             // Bulk insert all stats in a single query
@@ -442,6 +481,12 @@ export class PlayerStatsService {
       return;
     }
     
+    // Check memory usage before processing
+    if (!this.checkMemoryUsage()) {
+      logger.warn('Memory usage too high. Skipping updatePlayerStats');
+      return;
+    }
+    
     this.updating = true;
     // Use a single transaction for the entire batch
     const transaction = await sequelize.transaction();
@@ -482,9 +527,7 @@ export class PlayerStatsService {
             // Add the correct difficulty IDs based on sort order
             statsUpdates.forEach(stat => {
                 stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
-
                 stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
-
             });
             
             // Bulk insert all stats in a single query
@@ -519,7 +562,6 @@ export class PlayerStatsService {
           
           await transaction.commit();
 
-
         } catch (error) {
           this.updating = false;
           console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
@@ -531,7 +573,6 @@ export class PlayerStatsService {
           }
         }
       
-    
     
     // After all batches are processed, update ranks in a single transaction
     try {
@@ -555,6 +596,12 @@ export class PlayerStatsService {
 
   private async _updateRanks(): Promise<void> {
     logger.debug('[PlayerStatsService] Starting updateRanks');
+    
+    // Check memory usage before processing
+    if (!this.checkMemoryUsage()) {
+      logger.warn('Memory usage too high. Skipping updateRanks');
+      return;
+    }
     
     const transaction = await sequelize.transaction();
     try {
