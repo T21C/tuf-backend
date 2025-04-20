@@ -29,7 +29,6 @@ export class PlayerStatsService {
   private updating = false;
   private operationQueue: QueueOperation[] = [];
   private isProcessingQueue = false;
-  private readonly MEMORY_THRESHOLD = 0.8; // 80% of available memory
   private readonly MAX_MEMORY_USAGE = 700; // 700MB max memory usage
   private statsQuery = 
   `

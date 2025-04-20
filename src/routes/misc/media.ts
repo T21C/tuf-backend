@@ -17,6 +17,8 @@ import { logger } from '../../utils/logger.js';
 // Initialize fonts
 initializeFonts();
 
+const LOG_SVG = false;
+
 const router: Router = express.Router();
 
 function escapeXml(unsafe: string): string {
@@ -147,7 +149,7 @@ function createHeaderSVG(config: {
       </svg>
     `;
   
-  logger.debug(`Generated header SVG for level ${config.levelId}:`, svgContent);
+  if (LOG_SVG) logger.debug(`Generated header SVG for level ${config.levelId}:`, svgContent);
   
   return {
     svg: svgContent,
@@ -219,7 +221,7 @@ function createFooterSVG(config: {
     </svg>
   `;
   
-  logger.debug(`Generated footer SVG:`, svgContent);
+  if (LOG_SVG) logger.debug(`Generated footer SVG:`, svgContent);
   
   return svgContent;
 }
@@ -408,7 +410,9 @@ const THUMBNAIL_SIZES = {
 } as const;
 
 router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
+  const sharpInstances: sharp.Sharp[] = [];
   try {
+    logger.debug('Memory usage at start:', process.memoryUsage());
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
     
@@ -462,17 +466,19 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       logger.debug(`Downloading background image from ${details.image}`);
       backgroundBuffer = await downloadImageWithRetry(details.image);
       logger.debug(`Background image downloaded, size: ${backgroundBuffer.length} bytes`);
+      logger.debug('Memory usage after background download:', process.memoryUsage());
     } catch (error: unknown) {
       logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
-      // Create a black background buffer instead
-      backgroundBuffer = await sharp({
+      const blackBg = sharp({
         create: {
           width,
           height,
           channels: 4,
           background: { r: 0, g: 0, b: 0, alpha: 1 }
         }
-      }).jpeg().toBuffer();
+      });
+      sharpInstances.push(blackBg);
+      backgroundBuffer = await blackBg.jpeg().toBuffer();
       logger.debug(`Created black background buffer, size: ${backgroundBuffer.length} bytes`);
     }
 
@@ -507,22 +513,23 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
         iconBuffer = await fs.promises.readFile(fullPath);
         logger.debug(`Difficulty icon read from cache, size: ${iconBuffer.length} bytes`);
       } else {
-        // If not in cache, download it
         logger.debug(`Icon not found in cache, downloading from ${diff.icon}`);
         iconBuffer = await downloadImageWithRetry(diff.icon);
         logger.debug(`Difficulty icon downloaded, size: ${iconBuffer.length} bytes`);
       }
+      logger.debug('Memory usage after icon load:', process.memoryUsage());
     } catch (error: unknown) {
       logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
-      // Create a simple placeholder icon
-      iconBuffer = await sharp({
+      const placeholderIcon = sharp({
         create: {
           width: iconSize,
           height: iconSize,
           channels: 4,
           background: { r: 100, g: 100, b: 100, alpha: 1 }
         }
-      }).jpeg().toBuffer();
+      });
+      sharpInstances.push(placeholderIcon);
+      iconBuffer = await placeholderIcon.jpeg().toBuffer();
       logger.debug(`Created placeholder icon buffer, size: ${iconBuffer.length} bytes`);
     }
 
@@ -561,7 +568,13 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     // Create the final image using sharp
     try {
       logger.debug(`Compositing final image for level ${levelId}`);
-      const image = await sharp(backgroundBuffer)
+      const mainImage = sharp(backgroundBuffer);
+      sharpInstances.push(mainImage);
+      
+      const resizedIcon = sharp(iconBuffer).resize(iconSize, iconSize);
+      sharpInstances.push(resizedIcon);
+      
+      const image = await mainImage
         .resize(width, height, {
           fit: 'cover',
           position: 'center',
@@ -573,7 +586,7 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
             left: 0,
           },
           {
-            input: await sharp(iconBuffer).resize(iconSize, iconSize).toBuffer(),
+            input: await resizedIcon.toBuffer(),
             top: isWrapped ? Math.floor(iconPadding * 1.5) : iconPadding,
             left: iconPadding,
           },
@@ -588,6 +601,7 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       logger.debug(`Converting image to buffer for level ${levelId}`);
       const buffer = await image.toBuffer();
       logger.debug(`Image generated successfully for level ${levelId}, size: ${buffer.length} bytes`);
+      logger.debug('Memory usage before sending response:', process.memoryUsage());
 
       res.set('Content-Type', 'image/jpeg');
       res.send(buffer);
@@ -613,6 +627,17 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     });
     res.status(500).send('Error generating image');
     return;
+  } finally {
+    // Cleanup all Sharp instances
+    logger.debug('Cleaning up Sharp instances');
+    sharpInstances.forEach(instance => {
+      try {
+        instance.destroy();
+      } catch (error) {
+        logger.error('Error destroying Sharp instance:', error);
+      }
+    });
+    logger.debug('Memory usage after cleanup:', process.memoryUsage());
   }
 });
 
