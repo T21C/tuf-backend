@@ -122,12 +122,10 @@ async function getBilibiliVideoDetails(
   }
 
   const IMAGE_API = `${ownUrlEnv}${process.env.IMAGE_API}`;
-  const BILIBILI_API = `${ownUrlEnv}${process.env.BILIBILI_API}`;
-
-  const apiUrl = `${BILIBILI_API}?bvid=${videoId}`;
+  const BILIBILI_API = `https://api.bilibili.com/x/web-interface/view`;
 
   try {
-    const response = await axios.get<{data: BilibiliData}>(apiUrl);
+    const response = await axios.get<{data: BilibiliData}>(`${BILIBILI_API}?bvid=${videoId}`);
     if (response.status !== 200) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
@@ -147,7 +145,7 @@ async function getBilibiliVideoDetails(
       pfp: pfpUrl,
     };
   } catch (error) {
-    console.error('Error fetching Bilibili video details:', error);
+    console.error('Error fetching Bilibili video details:', JSON.stringify(error).slice(0, 500));
     return null;
   }
 }

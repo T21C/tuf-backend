@@ -3,21 +3,22 @@ import Player from '../models/players/Player.js';
 import Pass from '../models/passes/Pass.js';
 import Level from '../models/levels/Level.js';
 import Difficulty from '../models/levels/Difficulty.js';
-import {IPass} from '../interfaces/models/index.js';
-import {
-  calculateRankedScore,
-} from '../utils/PlayerStatsCalculator.js';
 import sequelize from '../config/db.js';
-import {getIO} from '../utils/socket.js';
 import {sseManager} from '../utils/sse.js';
 import User from '../models/auth/User.js';
 import Judgement from '../models/passes/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
 import { ModifierService } from '../services/ModifierService.js';
-import { Transaction } from 'sequelize';
 import { logger } from '../utils/logger.js';
-import fs from 'fs';
+
+// Define operation types for the queue
+type QueueOperation = {
+  type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
+  params?: any;
+  priority?: number;
+};
+
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
@@ -26,6 +27,8 @@ export class PlayerStatsService {
   private readonly BATCHES_PER_CHUNK = 4; // Number of batches to split each chunk into
   private modifierService: ModifierService | null = null;
   private updating = false;
+  private operationQueue: QueueOperation[] = [];
+  private isProcessingQueue = false;
   private statsQuery = 
   `
   WITH PassesData AS (
@@ -223,7 +226,62 @@ export class PlayerStatsService {
     return PlayerStatsService.instance;
   }
 
-  public async reloadAllStats(): Promise<void> {
+  // Add queue processing methods
+  private async addToQueue(operation: QueueOperation): Promise<void> {
+    logger.debug(`[PlayerStatsService] Adding operation to queue: ${operation.type}`);
+    
+    // Add operation to queue with priority (lower number = higher priority)
+    this.operationQueue.push({
+      ...operation,
+      priority: operation.priority || 10
+    });
+    
+    // Sort queue by priority
+    this.operationQueue.sort((a, b) => (a.priority || 10) - (b.priority || 10));
+    
+    // Start processing queue if not already processing
+    if (!this.isProcessingQueue) {
+      this.processQueue();
+    }
+  }
+  
+  private async processQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.operationQueue.length === 0) {
+      return;
+    }
+    
+    this.isProcessingQueue = true;
+    
+    try {
+      while (this.operationQueue.length > 0) {
+        const operation = this.operationQueue.shift();
+        if (!operation) continue;
+        
+        logger.debug(`[PlayerStatsService] Processing queue operation: ${operation.type}`);
+        
+        try {
+          switch (operation.type) {
+            case 'reloadAllStats':
+              await this._reloadAllStats();
+              break;
+            case 'updatePlayerStats':
+              await this._updatePlayerStats(operation.params);
+              break;
+            case 'updateRanks':
+              await this._updateRanks();
+              break;
+          }
+        } catch (error) {
+          logger.error(`[PlayerStatsService] Error processing queue operation ${operation.type}:`, error);
+        }
+      }
+    } finally {
+      this.isProcessingQueue = false;
+    }
+  }
+
+  // Rename existing methods to private implementation methods
+  private async _reloadAllStats(): Promise<void> {
     logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
 
     if (this.updating) {
@@ -350,7 +408,7 @@ export class PlayerStatsService {
     
     // After all batches are processed, update ranks in a single transaction
     try {
-      await this.updateRanks();
+      await this._updateRanks();
       logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
@@ -367,7 +425,7 @@ export class PlayerStatsService {
     logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats in ${Date.now() - timeStart}ms`);
   }
 
-  public async updatePlayerStats(
+  private async _updatePlayerStats(
     playerIds: number[]
   ): Promise<void> {
     logger.debug(`[PlayerStatsService] Starting updatePlayerStats`);
@@ -477,7 +535,7 @@ export class PlayerStatsService {
     
     // After all batches are processed, update ranks in a single transaction
     try {
-      await this.updateRanks();
+      await this._updateRanks();
       logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
@@ -495,14 +553,7 @@ export class PlayerStatsService {
     logger.debug(`[PlayerStatsService] Successfully completed updatePlayerStats`);
   }
 
-  private async reloadAllStatsCron() {
-    logger.debug('Setting up cron for full stats reload');
-    setInterval(async () => {
-      await this.reloadAllStats();
-    }, this.RELOAD_INTERVAL);
-  }
-
-  public async updateRanks(): Promise<void> {
+  private async _updateRanks(): Promise<void> {
     logger.debug('[PlayerStatsService] Starting updateRanks');
     
     const transaction = await sequelize.transaction();
@@ -565,6 +616,35 @@ export class PlayerStatsService {
       }
       throw error;
     }
+  }
+
+  // Public methods that use the queue
+  public async reloadAllStats(): Promise<void> {
+    logger.debug(`[PlayerStatsService] Queueing reloadAllStats operation`);
+    await this.addToQueue({ type: 'reloadAllStats', priority: 1 });
+  }
+
+  public async updatePlayerStats(
+    playerIds: number[]
+  ): Promise<void> {
+    logger.debug(`[PlayerStatsService] Queueing updatePlayerStats operation`);
+    await this.addToQueue({ 
+      type: 'updatePlayerStats', 
+      params: playerIds,
+      priority: 2
+    });
+  }
+
+  public async updateRanks(): Promise<void> {
+    logger.debug(`[PlayerStatsService] Queueing updateRanks operation`);
+    await this.addToQueue({ type: 'updateRanks', priority: 3 });
+  }
+
+  private async reloadAllStatsCron() {
+    logger.debug('Setting up cron for full stats reload');
+    setInterval(async () => {
+      await this.reloadAllStats();
+    }, this.RELOAD_INTERVAL);
   }
 
   public async getPlayerStats(playerId: number): Promise<PlayerStats | null> {
