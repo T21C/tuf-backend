@@ -3,11 +3,11 @@ import {db} from '../index.js';
 import Creator from './Creator.js';
 
 export class CreatorAlias extends Model {
-  public id!: number;
-  public creatorId!: number;
-  public name!: string;
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare id: number;
+  declare creatorId: number;
+  declare name: string;
+  declare createdAt: Date;
+  declare updatedAt: Date;
 }
 
 CreatorAlias.init(

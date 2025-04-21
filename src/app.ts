@@ -115,29 +115,6 @@ io.on('connection', socket => {
   });
 });
 
-// Add memory leak detection
-const memoryLeakDetection = () => {
-  // Log memory usage every 5 minutes
-  setInterval(() => {
-    const used = process.memoryUsage();
-    console.log(`Memory usage: ${Math.round(used.heapUsed / 1024 / 1024)}MB / ${Math.round(used.heapTotal / 1024 / 1024)}MB (${Math.round(used.rss / 1024 / 1024)}MB RSS)`);
-    
-    // Check for potential memory leaks (heap usage consistently growing)
-    if (used.heapUsed > 1024 * 1024 * 1024) { // 1GB
-      console.warn('WARNING: High memory usage detected. Potential memory leak.');
-      
-      // Force garbage collection if --expose-gc flag is used
-      if (global.gc) {
-        console.log('Forcing garbage collection...');
-        global.gc();
-      }
-    }
-  }, 5 * 60 * 1000); // 5 minutes
-};
-
-// Call the memory leak detection function
-memoryLeakDetection();
-
 // Initialize database and start server
 async function startServer() {
   try {

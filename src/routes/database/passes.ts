@@ -494,7 +494,6 @@ router.post('/', async (req: Request, res: Response) => {
     
     // Apply pagination to the unique IDs
     let hasMore = uniqueIds.length > normalizedLimit;
-    console.log(hasMore);
 
     const results = await Pass.findAll({
       where: {
