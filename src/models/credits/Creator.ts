@@ -15,7 +15,7 @@ class Creator extends Model implements ICreator {
 
   declare user: User;
   declare credits?: LevelCredit[];
-  declare aliases: CreatorAlias[];
+  declare creatorAliases: CreatorAlias[];
 }
 
 Creator.init(

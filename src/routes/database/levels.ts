@@ -837,6 +837,13 @@ router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res
               {
                 model: Creator,
                 as: 'creator',
+                include: [
+                  {
+                    model: CreatorAlias,
+                    as: 'creatorAliases',
+                    attributes: ['name'],
+                  },
+                ],
               },
             ],
           },
@@ -937,6 +944,13 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
               {
                 model: Creator,
                 as: 'creator',
+                include: [
+                  {
+                    model: CreatorAlias,
+                    as: 'creatorAliases',
+                    attributes: ['name'],
+                  },
+                ],
               },
             ],
           },

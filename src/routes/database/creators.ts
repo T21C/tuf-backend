@@ -16,6 +16,8 @@ import {
 } from '../../utils/searchHelpers.js';
 import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
+import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
+import { TeamAlias } from '../../models/credits/TeamAlias.js';
 const router: Router = Router();
 
 interface LevelCountResult {
@@ -50,11 +52,12 @@ router.get(
         const searchConditions = [...nameIdSearch.conditions];
 
         if (excludeAliases !== 'true') {
-          const aliasCondition = createSearchCondition('aliases', search);
-          searchConditions.push(aliasCondition);
+          // Use a JOIN approach instead of a subquery
+          // We'll handle this in the include section
+          where[Op.or] = searchConditions;
+        } else {
+          where[Op.or] = searchConditions;
         }
-
-        where[Op.or] = searchConditions;
       }
       if (hideVerified === 'true') {
         where.isVerified = false;
@@ -112,15 +115,31 @@ router.get(
             as: 'user',
             attributes: ['id', 'username', 'avatarUrl'],
           },
+          {
+            model: CreatorAlias,
+            as: 'creatorAliases',
+            attributes: ['id', 'name'],
+            ...(search && typeof search === 'string' && excludeAliases !== 'true' 
+              ? { where: { name: { [Op.like]: `%${search}%` } } } 
+              : {})
+          },
         ],
         order,
         offset,
         limit: parseInt(limit as string),
       });
 
+      // If we're searching by alias, filter the results to only include creators with matching aliases
+      let filteredCreators = creators;
+      if (search && typeof search === 'string' && excludeAliases !== 'true') {
+        filteredCreators = creators.filter(creator => 
+          creator.creatorAliases && creator.creatorAliases.length > 0
+        );
+      }
+
       return res.json({
         count: totalCount,
-        results: creators,
+        results: filteredCreators,
       });
     } catch (error) {
       console.error('Error fetching creators:', error);
@@ -143,6 +162,11 @@ router.get('/byId/:creatorId', async (req: Request, res: Response) => {
           model: LevelCredit,
           as: 'credits',
           attributes: ['id', 'role', 'levelId'],
+        },
+        {
+          model: CreatorAlias,
+          as: 'creatorAliases',
+          attributes: ['id', 'name'],
         }
       ],
     });
@@ -231,7 +255,7 @@ router.get(
             INNER JOIN level_credits ON Level.id = level_credits.levelId
             INNER JOIN creators ON level_credits.creatorId = creators.id
             WHERE creators.name LIKE '%${escapedSearch}%'
-            ${!excludeAliases ? "OR creators.aliases LIKE '%" + escapedSearch + "%'" : ''}
+            ${!excludeAliases ? "OR EXISTS (SELECT 1 FROM creator_aliases WHERE creator_aliases.creatorId = creators.id AND creator_aliases.name LIKE '%" + escapedSearch + "%')" : ''}
           )`),
           };
 
@@ -261,6 +285,11 @@ router.get(
                 as: 'createdLevels',
                 through: {attributes: []},
               },
+              {
+                model: CreatorAlias,
+                as: 'creatorAliases',
+                attributes: ['id', 'name'],
+              }
             ],
           },
           {
@@ -272,6 +301,11 @@ router.get(
                 as: 'members',
                 through: {attributes: []},
               },
+              {
+                model: TeamAlias,
+                as: 'teamAliases',
+                attributes: ['id', 'name'],
+              }
             ],
           },
         ],
@@ -307,15 +341,16 @@ router.get(
               name: level.teamObject.name,
               description: level.teamObject.description,
               members: level.teamObject.members,
+              aliases: level.teamObject.teamAliases?.map(alias => alias.name) || []
             }
           : null,
         currentCreators: (
-          level.levelCreators as (Creator & {LevelCredit: {role: CreditRole}})[]
+          level.levelCreators as (Creator & {LevelCredit: {role: CreditRole}; creatorAliases?: CreatorAlias[]})[]
         )?.map(creator => ({
           id: creator.id,
           name: creator.name,
           role: creator.LevelCredit.role,
-          aliases: creator.aliases || [],
+          aliases: creator.creatorAliases?.map((alias: CreatorAlias) => alias.name) || [],
           levelCount: levelCountMap.get(creator.id) || 0,
         })),
       }));
@@ -345,12 +380,33 @@ router.post('/', async (req: Request, res: Response) => {
     // Create the creator
     const creator = await Creator.create({
       name: name.trim(),
-      aliases: aliases.map((a: string) => a.trim()),
       isVerified: false
     }, { transaction });
 
+    // Create aliases if provided
+    if (aliases && Array.isArray(aliases) && aliases.length > 0) {
+      const aliasRecords = aliases.map((alias: string) => ({
+        creatorId: creator.id,
+        name: alias.trim(),
+      }));
+      
+      await CreatorAlias.bulkCreate(aliasRecords, { transaction });
+    }
+
+    // Fetch the creator with its aliases to return
+    const creatorWithAliases = await Creator.findByPk(creator.id, {
+      include: [
+        {
+          model: CreatorAlias,
+          as: 'creatorAliases',
+          attributes: ['id', 'name'],
+        }
+      ],
+      transaction
+    });
+
     await transaction.commit();
-    return res.json(creator);
+    return res.json(creatorWithAliases);
   } catch (error) {
     await transaction.rollback();
     console.error('Error creating creator:', error);
@@ -497,8 +553,26 @@ router.post(
       }
 
       // Get source and target creators
-      const sourceCreator = await Creator.findByPk(sourceId, {transaction});
-      const targetCreator = await Creator.findByPk(targetId, {transaction});
+      const sourceCreator = await Creator.findByPk(sourceId, {
+        include: [
+          {
+            model: CreatorAlias,
+            as: 'creatorAliases',
+            attributes: ['id', 'name'],
+          }
+        ],
+        transaction
+      });
+      const targetCreator = await Creator.findByPk(targetId, {
+        include: [
+          {
+            model: CreatorAlias,
+            as: 'creatorAliases',
+            attributes: ['id', 'name'],
+          }
+        ],
+        transaction
+      });
       if (!sourceCreator || !targetCreator) {
         await transaction.rollback();
         return res.status(404).json({error: 'Creator not found'});
@@ -535,12 +609,27 @@ router.post(
       });
 
       // Merge aliases
-      const sourceAliases = sourceCreator.aliases || [];
-      const targetAliases = targetCreator.aliases || [];
+      const sourceAliases = sourceCreator.creatorAliases?.map((alias: any) => alias.name) || [];
+      const targetAliases = (targetCreator as any).creatorAliases?.map((alias: any) => alias.name) || [];
       const mergedAliases = [
         ...new Set([...targetAliases, ...sourceAliases, sourceCreator.name]),
       ];
-      await targetCreator.update({aliases: mergedAliases}, {transaction});
+      
+      // Delete existing target aliases
+      await CreatorAlias.destroy({
+        where: { creatorId: targetId },
+        transaction
+      });
+      
+      // Create new merged aliases
+      if (mergedAliases.length > 0) {
+        const aliasRecords = mergedAliases.map(alias => ({
+          creatorId: targetId,
+          name: alias,
+        }));
+        
+        await CreatorAlias.bulkCreate(aliasRecords, { transaction });
+      }
 
       // Delete the source creator
       await sourceCreator.destroy({transaction});
@@ -572,6 +661,11 @@ router.post(
             as: 'createdLevels',
             through: {attributes: ['role']},
           },
+          {
+            model: CreatorAlias,
+            as: 'creatorAliases',
+            attributes: ['id', 'name'],
+          }
         ],
         transaction,
       });
@@ -610,7 +704,6 @@ router.post(
           targetCreator = await Creator.create(
             {
               name: newName,
-              aliases: [],
             },
             {transaction},
           );
@@ -698,7 +791,6 @@ router.put('/:id', async (req: Request, res: Response) => {
     await Creator.update(
       {
         name,
-        aliases,
         userId,
         isVerified,
       },
@@ -707,6 +799,25 @@ router.put('/:id', async (req: Request, res: Response) => {
         transaction,
       },
     );
+
+    // Update aliases if provided
+    if (aliases && Array.isArray(aliases)) {
+      // Delete existing aliases
+      await CreatorAlias.destroy({
+        where: { creatorId: parseInt(id) },
+        transaction
+      });
+
+      // Create new aliases
+      if (aliases.length > 0) {
+        const aliasRecords = aliases.map((alias: string) => ({
+          creatorId: parseInt(id),
+          name: alias.trim(),
+        }));
+        
+        await CreatorAlias.bulkCreate(aliasRecords, { transaction });
+      }
+    }
 
     // If the creator is being verified, check all their levels
     if (isVerified) {
@@ -770,6 +881,11 @@ router.put('/:id', async (req: Request, res: Response) => {
           as: 'user',
           attributes: ['id', 'username', 'avatarUrl'],
         },
+        {
+          model: CreatorAlias,
+          as: 'creatorAliases',
+          attributes: ['id', 'name'],
+        }
       ],
     });
 
@@ -790,6 +906,12 @@ router.get('/teams', async (req: Request, res: Response) => {
           [Op.or]: [
             {name: {[Op.like]: `%${search}%`}},
             {description: {[Op.like]: `%${search}%`}},
+            // Add search for team aliases
+            sequelize.literal(`EXISTS (
+              SELECT 1 FROM team_aliases 
+              WHERE team_aliases.teamId = Team.id 
+              AND team_aliases.name LIKE '%${search}%'
+            )`)
           ],
         }
       : {};
@@ -802,6 +924,11 @@ router.get('/teams', async (req: Request, res: Response) => {
           as: 'members',
           through: {attributes: []},
         },
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+          attributes: ['id', 'name'],
+        }
       ],
       order: [['name', 'ASC']],
     });
@@ -1158,8 +1285,6 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     const name = decodeURIComponent(req.params.name);
     
     // Function to escape special characters for MySQL
-
-    
     const escapedName = escapeForMySQL(name);
     const lowercaseName = escapedName.toLowerCase();
     
@@ -1171,10 +1296,21 @@ router.get('/search/:name', async (req: Request, res: Response) => {
             'LIKE',
             `%${lowercaseName}%`
           ),
-          // Use parameterized query for JSON search to prevent SQL injection
-          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', ${sequelize.escape(lowercaseName)}) IS NOT NULL`)
+          // Use the new alias model for searching
+          sequelize.literal(`EXISTS (
+            SELECT 1 FROM creator_aliases 
+            WHERE creator_aliases.creatorId = Creator.id 
+            AND LOWER(creator_aliases.name) LIKE '%${lowercaseName}%'
+          )`)
         ]
       },
+      include: [
+        {
+          model: CreatorAlias,
+          as: 'creatorAliases',
+          attributes: ['id', 'name'],
+        }
+      ],
       limit: 10,
       attributes: ['id', 'name', 'isVerified']
     });
@@ -1208,8 +1344,11 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
             sequelize.fn('LOWER', sequelize.col('name')),
             sequelize.fn('LOWER', name.trim())
           ),
-          // For MySQL JSON search with escaped characters
-          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${name.trim()}'), NULL, '$[*]') IS NOT NULL`)
+          // For MySQL search with escaped characters
+          sequelize.literal(`EXISTS (
+            SELECT 1 FROM team_aliases 
+            WHERE team_aliases.name = '${name.trim()}'
+          )`)
         ]
       },
       transaction
@@ -1230,8 +1369,11 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
             sequelize.fn('LOWER', sequelize.col('name')),
             sequelize.fn('LOWER', alias.trim())
           ),
-          // For MySQL JSON search with escaped characters
-          sequelize.literal(`JSON_SEARCH(LOWER(aliases), 'one', LOWER('${alias.trim()}'), NULL, '$[*]') IS NOT NULL`)
+          // For MySQL search with escaped characters
+          sequelize.literal(`EXISTS (
+            SELECT 1 FROM team_aliases 
+            WHERE team_aliases.name = '${alias.trim()}'
+          )`)
         ]
       }));
 
@@ -1254,13 +1396,22 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     const team = await Team.create(
       {
         name: name.trim(),
-        aliases: aliases?.map((a: string) => a.trim()) || [],
         description: description?.trim() || null,
         createdAt: new Date(),
         updatedAt: new Date()
       },
       { transaction }
     );
+
+    // Create aliases if provided
+    if (aliases && Array.isArray(aliases) && aliases.length > 0) {
+      const aliasRecords = aliases.map((alias: string) => ({
+        teamId: team.id,
+        name: alias.trim(),
+      }));
+      
+      await TeamAlias.bulkCreate(aliasRecords, { transaction });
+    }
 
     await transaction.commit();
 
@@ -1271,6 +1422,11 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
           model: Creator,
           as: 'members',
           through: { attributes: [] }
+        },
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+          attributes: ['id', 'name'],
         }
       ]
     });
@@ -1287,7 +1443,8 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
       members: teamWithMembers.members?.map(member => ({
         id: member.id,
         name: member.name
-      }))
+      })),
+      aliases: teamWithMembers.teamAliases?.map(alias => alias.name) || []
     });
   } catch (error) {
     await transaction.rollback();
@@ -1314,7 +1471,13 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
             sequelize.fn('LOWER', sequelize.col('description')),
             'LIKE',
             `%${escapedName.toLowerCase()}%`
-          )
+          ),
+          // Add search for team aliases
+          sequelize.literal(`EXISTS (
+            SELECT 1 FROM team_aliases 
+            WHERE team_aliases.teamId = Team.id 
+            AND LOWER(team_aliases.name) LIKE '%${escapedName.toLowerCase()}%'
+          )`)
         ]
       },
       include: [
@@ -1322,6 +1485,11 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
           model: Creator,
           as: 'members',
           through: { attributes: [] }
+        },
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+          attributes: ['id', 'name'],
         }
       ],
       limit: 10
@@ -1335,7 +1503,8 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
       members: team.members?.map(member => ({
         id: member.id,
         name: member.name
-      }))
+      })),
+      aliases: team.teamAliases?.map(alias => alias.name) || []
     })));
 
   } catch (error) {

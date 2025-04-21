@@ -19,7 +19,7 @@ export interface IBaseModelAttributes {
 
 export interface ICreator extends IBaseModel {
   name: string;
-  aliases: CreatorAlias[];
+  creatorAliases: CreatorAlias[];
 }
 
 // Level interface
