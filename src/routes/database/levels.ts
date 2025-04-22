@@ -475,7 +475,6 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   const searchResults = await LevelSearchView.findAll({
     where,
     offset: normalizedOffset,
-    logging: console.log,
     limit: normalizedLimit + 1,
     order: searchOrder,
   });

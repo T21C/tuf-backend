@@ -634,13 +634,6 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         },
         {transaction},
       );
-
-      // Update level clear count
-      await Level.increment('clears', {
-        where: {id: submission.levelId},
-        transaction,
-      });
-
       // Update worlds first status if needed
       await updateWorldsFirstStatus(submission.levelId, transaction);
 
@@ -1015,12 +1008,6 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
               },
               {transaction},
             );
-
-            // Update level clear count
-            await Level.increment('clears', {
-              where: {id: submission.levelId},
-              transaction,
-            });
 
             // Update worlds first status if needed
             await updateWorldsFirstStatus(submission.levelId, transaction);
