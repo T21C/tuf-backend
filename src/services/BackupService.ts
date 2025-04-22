@@ -1,7 +1,7 @@
 import {exec} from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import cron from 'node-cron';
+import {CronJob} from 'cron';
 import config from '../config/backup.config.js';
 import db from '../models/index.js';
 import dotenv from 'dotenv';
@@ -492,7 +492,7 @@ export class BackupService {
   async initializeSchedules() {
     // MySQL backups
     Object.entries(this.config.mysql.schedule).forEach(([type, schedule]) => {
-      cron.schedule(schedule, async () => {
+      const job = new CronJob(schedule, async () => {
         try {
           await this.createMySQLBackup(type);
           await this.cleanOldBackups(
@@ -506,7 +506,7 @@ export class BackupService {
 
     // File backups
     Object.entries(this.config.files.schedule).forEach(([type, schedule]) => {
-      cron.schedule(schedule, async () => {
+      const job = new CronJob(schedule, async () => {
         try {
           await this.createFileBackup(type);
           await this.cleanOldFileBackups(
