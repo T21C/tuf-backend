@@ -7,6 +7,7 @@ import {
   ICreator,
   ITeam,
 } from '../../interfaces/models/index.js';
+import LevelCredit from './LevelCredit.js';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -54,6 +55,7 @@ class Level
   declare difficulty?: IDifficulty;
   declare previousDifficulty?: IDifficulty;
   declare levelCreators?: ICreator[];
+  declare levelCredits?: LevelCredit[];   
 }
 
 Level.init(

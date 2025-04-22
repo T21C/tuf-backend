@@ -4,15 +4,6 @@ import path from 'path';
 import {fileURLToPath} from 'url';
 import upload from '../../middleware/upload.js';
 import AdmZip from 'adm-zip';
-import {initializeFonts} from '../../utils/fontLoader.js';
-import {exec} from 'child_process';
-import {promisify} from 'util';
-
-const execAsync = promisify(exec);
-
-
-// Initialize fonts
-initializeFonts();
 
 const router: Router = express.Router();
 

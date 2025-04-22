@@ -3,11 +3,10 @@ import fetch from 'node-fetch';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
-import sharp from 'sharp';
+import puppeteer from 'puppeteer';
 import Level from '../../models/levels/Level.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import {getVideoDetails} from '../../utils/videoDetailParser.js';
-import {initializeFonts} from '../../utils/fontLoader.js';
 import Pass from '../../models/passes/Pass.js';
 import User from '../../models/auth/User.js';
 import {Buffer} from 'buffer';
@@ -15,216 +14,27 @@ import { Op } from 'sequelize';
 import { seededShuffle } from '../../utils/random.js';
 import { logger } from '../../utils/logger.js';
 import { checkMemoryUsage } from '../../utils/memUtils.js';
-// Initialize fonts
-initializeFonts();
+import Creator from '../../models/credits/Creator.js';
+import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
+import Team from '../../models/credits/Team.js';
+import { TeamAlias } from '../../models/credits/TeamAlias.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
 
-const LOG_SVG = false;
+// Define size presets
+const THUMBNAIL_SIZES = {
+  SMALL: {width: 400, height: 210, multiplier: 0.5}, // 16:9 ratio
+  MEDIUM: {width: 800, height: 420, multiplier: 1},
+  LARGE: {width: 1200, height: 630, multiplier: 1.5},
+} as const;
 
-const router: Router = express.Router();
+// Singleton Puppeteer instance
+let browser: puppeteer.Browser | null = null;
 
-function escapeXml(unsafe: string): string {
-  if (!unsafe) return '';
-  
-  return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-function wrapText(
-  text: string,
-  maxChars: number,
-): {lines: string[]; isWrapped: boolean} {
-  // First split the text into characters without escaping
-  const chars = text.split('');
-  const lines = [];
-  let currentLine = chars[0] || '';
-
-  for (let i = 1; i < chars.length; i++) {
-    const char = chars[i];
-    if (currentLine.length < maxChars) {
-      currentLine += char;
-    } else {
-      // If this is the last line and there are more characters
-      if (lines.length === 1 && i < chars.length - 1) {
-        currentLine = currentLine.slice(0, -3) + '...';
-        lines.push(currentLine);
-        break;
-      }
-      lines.push(currentLine);
-      currentLine = char;
-    }
+async function getBrowser(): Promise<puppeteer.Browser> {
+  if (!browser) {
+    browser = await puppeteer.launch();
   }
-  if (currentLine && lines.length < 2) {
-    lines.push(currentLine);
-  }
-  
-  return {
-    lines,
-    isWrapped: lines.length > 1,
-  };
-}
-
-function createHeaderSVG(config: {
-  width: number;
-  height: number;
-  headerHeight: number;
-  song: string;
-  artist: string;
-  levelId: number;
-  iconSize: number;
-  iconPadding: number;
-  titleFontSize: number;
-  artistFontSize: number;
-  idFontSize: number;
-}): {svg: string; isWrapped: boolean} {
-  const {lines, isWrapped} = wrapText(config.song, 27);
-
-  // Adjust sizes if text is wrapped
-  const titleFontSize = isWrapped
-    ? Math.floor(config.titleFontSize * 0.85)
-    : config.titleFontSize;
-  const headerHeight = isWrapped
-    ? Math.floor(config.headerHeight * 1.15)
-    : config.headerHeight;
-  const titleY = Math.floor(config.height * (isWrapped ? 0.1 : 0.12));
-  const artistY = isWrapped
-    ? Math.floor(config.height * 0.265)
-    : Math.floor(config.height * 0.201);
-  const textX = config.iconSize + config.iconPadding * 2;
-
-  // Artist name is already escaped in wrapText
-  const escapedArtist = config.artist;
-
-  // Log the SVG content for debugging
-  const svgContent = `
-      <svg width="${config.width}" height="${config.height}">
-        <defs>
-          <style>
-            @font-face {
-              font-family: 'Noto Sans KR';
-              font-weight: 800;
-              src: url('path/to/NotoSansKR-Bold.otf');
-            }
-            @font-face {
-              font-family: 'Noto Sans KR';
-              font-weight: 400;
-              src: url('path/to/NotoSansKR-Regular.otf');
-            }
-          </style>
-        </defs>
-        <rect x="0" y="0" width="${config.width}" height="${headerHeight}" fill="black" opacity="0.73"/>
-        ${lines
-          .map(
-            (line, index) => `
-          <text
-            x="${textX}"
-            y="${titleY + index * titleFontSize * 1.2}"
-            font-family="Noto Sans KR"
-            font-weight="800"
-            font-size="${titleFontSize}px"
-            fill="white"
-          >${escapeXml(line)}</text>
-        `,
-          )
-          .join('')}
-        <text
-          x="${textX}"
-          y="${artistY}"
-          font-family="Noto Sans KR"
-          font-weight="400"
-          font-size="${config.artistFontSize}px"
-          fill="white"
-        >${escapeXml(escapedArtist.length > 30 ? escapedArtist.slice(0, 27) + '...' : escapedArtist)}</text>
-        <text
-          x="${config.width - config.iconPadding * 1.5}"
-          y="${titleY}"
-          font-family="Noto Sans KR"
-          font-weight="700"
-          font-size="${config.idFontSize}px"
-          fill="#bbbbbb"
-          text-anchor="end"
-        >#${config.levelId}</text>
-      </svg>
-    `;
-  
-  if (LOG_SVG) logger.debug(`Generated header SVG for level ${config.levelId}:`, svgContent);
-  
-  return {
-    svg: svgContent,
-    isWrapped,
-  };
-}
-
-function createFooterSVG(config: {
-  width: number;
-  height: number;
-  footerHeight: number;
-  baseScore: number | null;
-  passCount: number;
-  creator: string | null;
-  charter: string | null;
-  vfxer: string | null;
-  team: string | null;
-  fontSize: number;
-  idFontSize: number;
-  padding: number;
-}): string {
-  const footerY = config.height - config.footerHeight;
-  let creatorText = '';
-
-  const truncate = (text: string, maxLength: number) => {
-    if (!text) return '';
-    const truncated = text.length > maxLength ? text.slice(0, maxLength - 3) + '...' : text;
-    return truncated;
-  };
-
-  if (config.team) {
-    creatorText = `By ${truncate(config.team, 25)}`;
-  } else if (config.charter && config.vfxer) {
-    creatorText = `Chart: ${truncate(config.charter, 20)}&#10;VFX: ${truncate(config.vfxer, 20)}`;
-  } else if (config.charter) {
-    creatorText = `By ${truncate(config.charter, 25)}`;
-  } else if (config.creator) {
-    creatorText = `By ${truncate(config.creator, 25)}`;
-  }
-
-  const svgContent = `
-    <svg width="${config.width}" height="${config.height}">
-      <rect x="0" y="${footerY}" width="${config.width}" height="${config.footerHeight}" fill="black" opacity="0.73"/>
-      <text
-        x="${config.padding}"
-        y="${config.height - config.padding * 2.5}"
-        font-family="Noto Sans JP"
-        font-weight="700"
-        font-size="${config.idFontSize}px"
-        fill="#bbbbbb"
-      >${config.baseScore || 0}PP</text>
-      <text
-        x="${config.padding}"
-        y="${config.height - config.padding}"
-        font-family="Noto Sans JP"
-        font-weight="700"
-        font-size="${config.idFontSize}px"
-        fill="#bbbbbb"
-      >${config.passCount} pass${config.passCount.toString().endsWith('1') ? '' : 'es'}</text>
-      <text
-        x="${config.width - config.padding}"
-        y="${config.height - config.padding}"
-        font-family="Noto Sans JP"
-        font-weight="600"
-        font-size="${config.fontSize}px"
-        fill="white"
-        text-anchor="end"
-      >${escapeXml(creatorText)}</text>
-    </svg>
-  `;
-  
-  if (LOG_SVG) logger.debug(`Generated footer SVG:`, svgContent);
-  
-  return svgContent;
+  return browser;
 }
 
 // Add this helper function for retrying image downloads
@@ -251,6 +61,28 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
   logger.error(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`);
   throw lastError;
 }
+
+// Function to convert HTML to PNG
+async function htmlToPng(html: string, width: number, height: number): Promise<Buffer> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  
+  try {
+    await page.setViewport({ width, height });
+    await page.setContent(html);
+    
+    const pngBuffer = await page.screenshot({
+      type: 'png',
+      omitBackground: true
+    });
+    
+    return Buffer.from(pngBuffer);
+  } finally {
+    await page.close();
+  }
+}
+
+const router: Router = express.Router();
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
   const imageUrl = req.query.url;
@@ -315,14 +147,8 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
         responseType: 'arraybuffer',
       });
 
-      // Process and save the image
-      await sharp(response.data)
-        .resize(256, 256, {
-          fit: 'cover',
-          position: 'center',
-        })
-        .png()
-        .toFile(avatarPath);
+      // Save the image directly
+      fs.writeFileSync(avatarPath, response.data);
     }
 
     return res.sendFile(avatarPath);
@@ -403,32 +229,42 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
   }
 });
 
-// Define size presets
-const THUMBNAIL_SIZES = {
-  SMALL: {width: 400, height: 210}, // 16:9 ratio
-  MEDIUM: {width: 800, height: 420},
-  LARGE: {width: 1200, height: 630},
-} as const;
-
 router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
-  const sharpInstances: sharp.Sharp[] = [];
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
     logger.debug(`Generating thumbnail for level ${levelId} with size ${size}`);
+    
     const level = await Level.findOne({
       where: {id: levelId},
       include: [
         {model: Difficulty, as: 'difficulty'},
+        {model: LevelCredit, as: 'levelCredits', 
+          attributes: ['role'],
+          include: [
+            {model: Creator, as: 'creator', 
+              attributes: ['name'],
+              include: [
+                {model: CreatorAlias, as: 'creatorAliases', attributes: ['name']}
+              ],
+            },
+          ],
+        },
+        {model: Team, as: 'teamObject', 
+          attributes: ['name'],
+          include: [
+            {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
+          ],
+        },
         {model: Pass, as: 'passes', attributes: ['id']},
       ],
     });
-
+    logger.debug(JSON.stringify(level));
     if (!level) {
       return res.status(404).send('Level or difficulty not found');
     }
 
-    const {song, artist, creator, difficulty: diff} = level.dataValues;
+    const {song, artist, difficulty: diff} = level.dataValues;
     if (!diff) {
       return res.status(404).send('Difficulty not found');
     }
@@ -438,19 +274,8 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       return res.status(404).send('Video details not found');
     }
 
-    const {width, height} = THUMBNAIL_SIZES[size];
-
-    // Calculate dimensions
+    const {width, height, multiplier} = THUMBNAIL_SIZES[size];
     const iconSize = Math.floor(height * 0.184);
-    const titleFontSize = Math.floor(height * 0.09);
-    const artistFontSize = Math.floor(height * 0.06);
-    const idFontSize = Math.floor(height * 0.072);
-    const iconPadding = Math.floor(height * 0.037);
-    const headerHeight = Math.floor(height * 0.255);
-    const footerHeight = Math.floor(height * 0.255);
-    const fontSize = Math.floor(height * 0.06);
-    const padding = Math.floor(height * 0.055);
-
 
     // Download background image with retry logic
     let backgroundBuffer: Buffer;
@@ -458,17 +283,8 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       backgroundBuffer = await downloadImageWithRetry(details.image);
     } catch (error: unknown) {
       logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
-      const blackBg = sharp({
-        create: {
-          width,
-          height,
-          channels: 4,
-          background: { r: 0, g: 0, b: 0, alpha: 1 }
-        }
-      });
-      sharpInstances.push(blackBg);
-      backgroundBuffer = await blackBg.jpeg().toBuffer();
-      logger.debug(`Created black background buffer, size: ${backgroundBuffer.length} bytes`);
+      // Create a black background
+      backgroundBuffer = Buffer.alloc(width * height * 4, 0);
     }
 
     // Download difficulty icon with retry logic
@@ -504,122 +320,208 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
       }
     } catch (error: unknown) {
       logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
-      const placeholderIcon = sharp({
-        create: {
-          width: iconSize,
-          height: iconSize,
-          channels: 4,
-          background: { r: 100, g: 100, b: 100, alpha: 1 }
-        }
-      });
-      sharpInstances.push(placeholderIcon);
-      iconBuffer = await placeholderIcon.jpeg().toBuffer();
-      logger.debug(`Created placeholder icon buffer, size: ${iconBuffer.length} bytes`);
+      // Create a placeholder icon
+      iconBuffer = Buffer.alloc(iconSize * iconSize * 4, 100);
     }
+    const artistOverflow = artist.length > 35;
+    const songOverflow = song.length > 35;
 
-    // Create SVGs for text overlays
-    const {svg: headerSvg, isWrapped} = createHeaderSVG({
-      width,
-      height,
-      headerHeight,
-      song,
-      artist,
-      levelId,
-      iconSize,
-      iconPadding,
-      titleFontSize,
-      artistFontSize,
-      idFontSize,
-    });
+    const charters = level.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name) || [];
+    const vfxers = level.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name) || [];
 
-    const footerSvg = createFooterSVG({
-      width,
-      height,
-      footerHeight,
-      baseScore: diff.baseScore,
-      passCount: level.passes?.length || 0,
-      creator,
-      charter: level.charter,
-      vfxer: level.vfxer,
-      team: level.team,
-      fontSize,
-      idFontSize,
-      padding,
-    });
+    const firstRow = level.teamObject ? "By " + level.teamObject.name :   
+      vfxers?.length > 0 ?
+      "Chart: " + charters.join(', ')
+      : 
+         charters?.length > 4 ?
+          "By " + charters.slice(0, 4).join(', ') + " and " + (charters.length - 4) + " more"
+          : "By " + charters.join(', ');
 
-    // Create the final image using sharp
-    try {
-      logger.debug(`Compositing final image for level ${levelId}`);
-      const mainImage = sharp(backgroundBuffer);
-      sharpInstances.push(mainImage);
-      
-      const resizedIcon = sharp(iconBuffer).resize(iconSize, iconSize);
-      sharpInstances.push(resizedIcon);
-      
-      const image = await mainImage
-        .resize(width, height, {
-          fit: 'cover',
-          position: 'center',
-        })
-        .composite([
-          {
-            input: Buffer.from(headerSvg),
-            top: 0,
-            left: 0,
-          },
-          {
-            input: await resizedIcon.toBuffer(),
-            top: isWrapped ? Math.floor(iconPadding * 1.5) : iconPadding,
-            left: iconPadding,
-          },
-          {
-            input: Buffer.from(footerSvg),
-            top: 0,
-            left: 0,
-          },
-        ])
-        .jpeg({quality: 85});
+    const secondRow = !level.teamObject 
+    && vfxers.length > 0 && charters.length > 0
+    ? "VFX: " + vfxers.join(', ')
+    : "";
 
-      logger.debug(`Converting image to buffer for level ${levelId}`);
-      const buffer = await image.toBuffer();
-      logger.debug(`Image generated successfully for level ${levelId}, size: ${buffer.length} bytes`);
-
-      res.set('Content-Type', 'image/jpeg');
-      res.send(buffer);
-      return;
-    } catch (error) {
-      console.error(`Error generating image for level ${levelId}:`, error);
-      console.error(`Error details:`, {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : 'No stack trace available',
-        headerSvgLength: headerSvg.length,
-        footerSvgLength: footerSvg.length,
-        headerSvgPreview: headerSvg.substring(0, 100) + '...',
-        footerSvgPreview: footerSvg.substring(0, 100) + '...',
-      });
-      res.status(500).send('Error generating image');
-      return;
-    }
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { 
+              margin: 0; 
+              padding: 0;
+              width: ${width}px;
+              height: ${height}px;
+              
+              position: relative;
+              overflow: hidden;
+              font-family: 'NotoSansKR', 'NotoSansJP', 'NotoSansSC', 'NotoSansTC', sans-serif;
+            .text {
+              overflow: hidden;
+              display: -webkit-box;
+              -webkit-line-clamp: 2;
+              -webkit-box-orient: vertical;
+              max-width: ${520*multiplier}px;
+            }
+            .background-image {
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+              z-index: 1;
+            }
+            .header {
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: ${(110 + (artistOverflow && songOverflow ? 10 : 0))*multiplier}px;
+              background-color: rgba(0, 0, 0, 0.8);
+              z-index: 2;
+              display: flex;
+              align-items: center;
+              padding: 0 ${25*multiplier}px;
+              box-sizing: border-box;
+            }
+            .header-left {
+              display: flex;
+              align-items: center;
+              flex: 1;
+            }
+            .header-right {
+              display: flex;
+              padding-top: ${12*multiplier}px;
+              align-self: start;
+              align-items: center;
+              justify-content: flex-end;
+            }
+            .difficulty-icon {
+              width: ${iconSize}px;
+              height: ${iconSize}px;
+              margin-right: ${25*multiplier}px;
+            }
+            .song-info {
+              display: flex;
+              gap: ${5*multiplier}px;
+              flex-direction: column;
+              justify-content: center;
+            }
+            .song-title {
+              font-weight: 800;
+              font-size: ${35*multiplier*(songOverflow ? 0.8 : 1)}px;
+              color: white;
+              margin: 0;
+              line-height: 1.2;
+            }
+            .artist-name {
+              font-weight: 400;
+              font-size: ${25*multiplier*(artistOverflow ? 0.8 : 1)}px;
+              color: white;
+              margin: 0;
+              line-height: 1.2;
+            }
+            .level-id {
+              font-weight: 700;
+              font-size: ${40*multiplier}px;
+              color: #bbbbbb;
+            }
+            .footer {
+              position: absolute;
+              bottom: 0;
+              left: 0;
+              width: 100%;
+              height: ${110*multiplier}px;
+              background-color: rgba(0, 0, 0, 0.8);
+              z-index: 2;
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: ${10*multiplier}px ${25*multiplier}px;
+              box-sizing: border-box;
+            }
+            .footer-left {
+              display: flex;
+              align-items: start;
+              flex-direction: column;
+            }
+            .footer-right {
+                display: flex;
+                max-width: 70%;
+                gap: ${10*multiplier}px;
+                flex-direction: column;
+            }
+            .pp-value, .pass-count {
+              font-weight: 700;
+              font-size: ${30*multiplier}px;
+              color: #bbbbbb;
+            }
+            .creator-name {
+              font-weight: 600;
+              text-align: right;
+              font-size: ${30*multiplier*(secondRow ? 0.9 : 1)}px;
+              color: white;
+            }
+          </style>
+        </head>
+        <body>
+          <!-- Background image -->
+          <img 
+            class="background-image"
+            src="data:image/png;base64,${backgroundBuffer.toString('base64')}" 
+            alt="Background"
+          />
+          
+          <!-- Header -->
+          <div class="header">
+            <div class="header-left">
+              <img 
+                class="difficulty-icon"
+                src="data:image/png;base64,${iconBuffer.toString('base64')}" 
+                alt="Difficulty Icon"
+              />
+              <div class="song-info">
+                <div class="song-title text">${song}</div>
+                <div class="artist-name text" 
+                  style="-webkit-line-clamp: 1">${artist}</div>
+              </div>
+            </div>
+            <div class="header-right">
+              <div class="level-id">#${levelId}</div>
+            </div>
+          </div>
+          
+          <!-- Footer -->
+          <div class="footer">
+            <div class="footer-left">
+              <div class="pp-value">${level.baseScore || diff.baseScore || 0}PP</div>
+              <div class="pass-count">${level.passes?.length || 0} pass${(level.passes?.length || 0) === 1 ? '' : 'es'}</div>
+            </div>
+            <div class="footer-right">
+              <div class="creator-name">${firstRow}</div>
+              ${secondRow ? `<div class="creator-name">${secondRow}</div>` : ''}
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+    // Convert to PNG
+    const pngBuffer = await htmlToPng(html, width, height);
+    
+    // Send the response
+    res.set('Content-Type', 'image/png');
+    res.send(pngBuffer);
+    
+    logger.debug(`Memory usage after generation`);
+    checkMemoryUsage();
+    return
   } catch (error) {
     console.error(`Error generating image for level ${req.params.levelId}:`, error);
     console.error(`Error details:`, {
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : 'No stack trace available',
     });
-    res.status(500).send('Error generating image');
-    return;
-  } finally {
-    // Cleanup all Sharp instances
-    logger.debug('Cleaning up Sharp instances');
-    sharpInstances.forEach(instance => {
-      try {
-        instance.destroy();
-      } catch (error) {
-        logger.error('Error destroying Sharp instance:', error);
-      }
-    });
-    logger.debug('Memory usage after generation');
-    checkMemoryUsage();
+    return res.status(500).send('Error generating image');
   }
 });
 
@@ -703,10 +605,21 @@ router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
       </svg>
     `;
 
-    // Convert SVG to PNG using sharp
-    const buffer = await sharp(Buffer.from(svg))
-      .png()
-      .toBuffer();
+    // Convert SVG to PNG using Puppeteer
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { margin: 0; }
+          </style>
+        </head>
+        <body>
+          ${svg}
+        </body>
+      </html>
+    `;
+
+    const buffer = await htmlToPng(html, width, height);
 
     res.set('Content-Type', 'image/png');
     return res.send(buffer);
@@ -715,5 +628,6 @@ router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
     return res.status(500).send('Error generating wheel image');
   }
 });
+
 
 export default router;
