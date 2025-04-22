@@ -31,7 +31,9 @@
     "src/**/*.ts",
     "src/**/*.js",
     "src/**/*.mts",
-    "src/**/*.mjs"
+    "src/**/*.mjs",
+    "src/config/*.json",
+    "src/*.html"
   ],
   "exclude": [
     "node_modules",

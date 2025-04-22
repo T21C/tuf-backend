@@ -9,7 +9,11 @@ import {passwordUtils, tokenUtils} from '../utils/auth.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import {createRateLimiter} from '../utils/rateLimiter.js';
 import { logger } from '../utils/logger.js';
-import { verifyCaptcha } from './captcha.js';
+import CaptchaService from '../services/CaptchaService.js';
+
+// Create a singleton instance of CaptchaService
+const captchaService = new CaptchaService();
+
 // Create rate limiter for registration
 const registrationLimiter = createRateLimiter({
   windowMs: 24 * 60 * 60 * 1000, // 24 hours
@@ -39,16 +43,16 @@ const failedAttempts = new Map<string, {count: number; timestamp: number}>();
 const ATTEMPT_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 
 // Helper to check if captcha is required
-const isCaptchaRequired = (identifier: string): boolean => {
-  const attempts = failedAttempts.get(identifier);
+const isCaptchaRequired = (ip: string): boolean => {
+  const attempts = failedAttempts.get(ip);
   if (!attempts) return false;
 
   // Clear attempts if timeout has passed
   if (Date.now() - attempts.timestamp > ATTEMPT_TIMEOUT) {
-    failedAttempts.delete(identifier);
+    failedAttempts.delete(ip);
     return false;
   }
-  logger.debug(`Login attempt failed for ${identifier}. Attempts: ${attempts.count}`);
+  logger.debug(`Login attempt failed for ${ip}. Attempts: ${attempts.count}`);
   return attempts.count >= 1;
 };
 
@@ -397,12 +401,12 @@ export const authController = {
       }
 
       // Check if captcha is required
-      const captchaRequired = isCaptchaRequired(emailOrUsername);
+      const captchaRequired = isCaptchaRequired(ip);
       if (captchaRequired) {
-        logger.info(`Captcha required for user ${emailOrUsername} due to multiple failed attempts`);
+        // logger.debug(`Captcha required for user ${ip} due to multiple failed attempts`);
         
         if (!captchaToken) {
-          logger.warn(`Captcha token missing for user ${emailOrUsername}`);
+          logger.warn(`Captcha token missing for user ${ip}`);
           return res
             .status(400)
             .json({
@@ -412,10 +416,10 @@ export const authController = {
             });
         }
 
-        const isValidCaptcha = await verifyCaptcha(captchaToken);
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'login');
         if (!isValidCaptcha) {
           // Record failed attempt and increment rate limit
-          recordFailedAttempt(emailOrUsername);
+          recordFailedAttempt(ip);
           await loginLimiter.increment(ip);
           logger.warn(`Invalid captcha for user ${emailOrUsername} from IP ${ip}`);
           return res
@@ -427,7 +431,7 @@ export const authController = {
             });
         }
         
-        logger.info(`Captcha verification successful for user ${emailOrUsername}`);
+        // logger.debug(`Captcha verification successful for user ${ip}`);
       }
 
       // Find user by email or username
@@ -442,18 +446,18 @@ export const authController = {
 
       if (!user) {
         // Record failed attempt and increment rate limit
-        recordFailedAttempt(emailOrUsername);
+        recordFailedAttempt(ip);
         await loginLimiter.increment(ip);
         logger.warn(`Login failed: User not found - ${emailOrUsername} from IP ${ip}`);
         return res.status(401).json({
           message: 'Invalid credentials',
-          requireCaptcha: isCaptchaRequired(emailOrUsername)
+          requireCaptcha: isCaptchaRequired(ip)
         });
       }
 
       // Check if user has a password set
       if (!user.password) {
-        logger.warn(`Login attempt for user ${emailOrUsername} with no password set`);
+        logger.warn(`Login attempt for user ${user.username} with no password set`);
         return res.status(400).json({message: 'Account not linked to a password. Please use OAuth to login.'});
       }
 
@@ -464,17 +468,17 @@ export const authController = {
       );
       if (!isValidPassword) {
         // Record failed attempt and increment rate limit
-        recordFailedAttempt(emailOrUsername);
+        recordFailedAttempt(ip);
         await loginLimiter.increment(ip);
-        logger.warn(`Login failed: Invalid password for user ${emailOrUsername} from IP ${ip}`);
+        logger.warn(`Login failed: Invalid password for user ${user.username} from IP ${ip}`);
         return res.status(401).json({
           message: 'Invalid credentials',
-          requireCaptcha: isCaptchaRequired(emailOrUsername)
+          requireCaptcha: isCaptchaRequired(ip)
         });
       }
 
       // Clear failed attempts on successful login
-      failedAttempts.delete(emailOrUsername);
+      failedAttempts.delete(ip);
 
       // Update last login
       await user.update({lastLogin: new Date()});

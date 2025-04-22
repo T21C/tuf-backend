@@ -229,7 +229,7 @@ export class PlayerStatsService {
 
   // Add queue processing methods
   private async addToQueue(operation: QueueOperation): Promise<void> {
-    logger.debug(`[PlayerStatsService] Adding operation to queue: ${operation.type}`);
+    // logger.debug(`[PlayerStatsService] Adding operation to queue: ${operation.type}`);
     
     // Add operation to queue with priority (lower number = higher priority)
     this.operationQueue.push({
@@ -256,12 +256,12 @@ export class PlayerStatsService {
     try {
       while (this.operationQueue.length > 0) {
         // Check memory usage before processing each operation
-        checkMemoryUsage()
+        // checkMemoryUsage()
         
         const operation = this.operationQueue.shift();
         if (!operation) continue;
         
-        logger.debug(`[PlayerStatsService] Processing queue operation: ${operation.type}`);
+        // logger.debug(`[PlayerStatsService] Processing queue operation: ${operation.type}`);
         
         try {
           switch (operation.type) {
@@ -286,7 +286,7 @@ export class PlayerStatsService {
 
   // Rename existing methods to private implementation methods
   private async _reloadAllStats(): Promise<void> {
-    logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
+    // logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
 
     if (this.updating) {
       logger.warn(`[PlayerStatsService] reloadAllStats called while updating, skipping`);
@@ -298,10 +298,10 @@ export class PlayerStatsService {
     // Process in smaller chunks to reduce memory pressure
     const BATCH_SIZE = Math.ceil(this.CHUNK_SIZE / this.BATCHES_PER_CHUNK);
     
-    logger.debug(`[PlayerStatsService] Processing in chunks of ${this.CHUNK_SIZE} with ${this.BATCHES_PER_CHUNK} batches per chunk`);
+    // logger.debug(`[PlayerStatsService] Processing in chunks of ${this.CHUNK_SIZE} with ${this.BATCHES_PER_CHUNK} batches per chunk`);
     let timeStart = Date.now();
     for (let chunkStart = 0; chunkStart < playerCount; chunkStart += this.CHUNK_SIZE) {
-      checkMemoryUsage()
+      // checkMemoryUsage()
       
       const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, playerCount);
 
@@ -314,12 +314,12 @@ export class PlayerStatsService {
       });
       
       const playerIds = chunkPlayerIds.map(player => player.id);
-      logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
+      // logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
 
       // Process this chunk in batches
       for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
         // Check memory usage before processing each batch
-        checkMemoryUsage()
+        // checkMemoryUsage()
         
         const batchIds = playerIds.slice(i, i + BATCH_SIZE);
         let batchTimeStart = Date.now();
@@ -393,18 +393,18 @@ export class PlayerStatsService {
             }));
             
             await PlayerStats.bulkCreate(emptyStats, { transaction });
-            logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
+            // logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
           }
           
           await transaction.commit();
-          logger.debug(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk in ${Date.now() - batchTimeStart}ms`);
+          // logger.debug(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk in ${Date.now() - batchTimeStart}ms`);
 
         } catch (error) {
           this.updating = false;
           console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
           try {
             await transaction.rollback();
-            logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
+            // logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
           } catch (rollbackError) {
             console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
           }
@@ -415,7 +415,7 @@ export class PlayerStatsService {
     // After all batches are processed, update ranks in a single transaction
     try {
       await this._updateRanks();
-      logger.debug(`[PlayerStatsService] Successfully updated ranks`);
+      // logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
       console.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
@@ -428,13 +428,13 @@ export class PlayerStatsService {
         action: 'fullReload',
       },
     });
-    logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats in ${Date.now() - timeStart}ms`);
+    // logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats in ${Date.now() - timeStart}ms`);
   }
 
   private async _updatePlayerStats(
     playerIds: number[]
   ): Promise<void> {
-    logger.debug(`[PlayerStatsService] Starting updatePlayerStats`);
+    // logger.debug(`[PlayerStatsService] Starting updatePlayerStats`);
 
     if (this.updating) {
       logger.warn(`[PlayerStatsService] updatePlayerStats called while updating, skipping`);
@@ -448,7 +448,7 @@ export class PlayerStatsService {
       return;
     }
 
-    checkMemoryUsage()
+    // checkMemoryUsage()
     
     this.updating = true;
     // Use a single transaction for the entire batch
@@ -520,7 +520,7 @@ export class PlayerStatsService {
             }));
             
             await PlayerStats.bulkCreate(emptyStats, { transaction });
-            logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
+            // logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
           }
           
           await transaction.commit();
@@ -530,7 +530,7 @@ export class PlayerStatsService {
           console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
           try {
             await transaction.rollback();
-            logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
+            // logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
           } catch (rollbackError) {
             console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
           }
@@ -540,7 +540,7 @@ export class PlayerStatsService {
     // After all batches are processed, update ranks in a single transaction
     try {
       await this._updateRanks();
-      logger.debug(`[PlayerStatsService] Successfully updated ranks`);
+      // logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
       console.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
@@ -554,14 +554,14 @@ export class PlayerStatsService {
       },
     });
     this.updating = false;
-    logger.debug(`[PlayerStatsService] Successfully completed updatePlayerStats`);
+    // logger.debug(`[PlayerStatsService] Successfully completed updatePlayerStats`);
   }
 
   private async _updateRanks(): Promise<void> {
-    logger.debug('[PlayerStatsService] Starting updateRanks');
+    // logger.debug('[PlayerStatsService] Starting updateRanks');
     
     // Check memory usage before processing
-    checkMemoryUsage()
+    // checkMemoryUsage()
 
     
     const transaction = await sequelize.transaction();
@@ -605,7 +605,7 @@ export class PlayerStatsService {
       );
 
       await transaction.commit();
-      logger.debug('[PlayerStatsService] Successfully committed rank updates');
+      // logger.debug('[PlayerStatsService] Successfully committed rank updates');
 
       // Notify clients about the rank updates
       sseManager.broadcast({
@@ -618,7 +618,7 @@ export class PlayerStatsService {
       console.error('[PlayerStatsService] FAILURE: Error in updateRanks:', error);
       try {
         await transaction.rollback();
-        logger.debug('[PlayerStatsService] Successfully rolled back rank updates');
+        // logger.debug('[PlayerStatsService] Successfully rolled back rank updates');
       } catch (rollbackError) {
         console.error('[PlayerStatsService] FAILURE: Error rolling back rank updates:', rollbackError);
       }
@@ -628,14 +628,14 @@ export class PlayerStatsService {
 
   // Public methods that use the queue
   public async reloadAllStats(): Promise<void> {
-    logger.debug(`[PlayerStatsService] Queueing reloadAllStats operation`);
+    // logger.debug(`[PlayerStatsService] Queueing reloadAllStats operation`);
     await this.addToQueue({ type: 'reloadAllStats', priority: 1 });
   }
 
   public async updatePlayerStats(
     playerIds: number[]
   ): Promise<void> {
-    logger.debug(`[PlayerStatsService] Queueing updatePlayerStats operation`);
+    // logger.debug(`[PlayerStatsService] Queueing updatePlayerStats operation`);
     await this.addToQueue({ 
       type: 'updatePlayerStats', 
       params: playerIds,
@@ -644,12 +644,12 @@ export class PlayerStatsService {
   }
 
   public async updateRanks(): Promise<void> {
-    logger.debug(`[PlayerStatsService] Queueing updateRanks operation`);
+    // logger.debug(`[PlayerStatsService] Queueing updateRanks operation`);
     await this.addToQueue({ type: 'updateRanks', priority: 3 });
   }
 
   private async reloadAllStatsCron() {
-    logger.debug('Setting up cron for full stats reload');
+    // logger.debug('Setting up cron for full stats reload');
     setInterval(async () => {
       await this.reloadAllStats();
     }, this.RELOAD_INTERVAL);
