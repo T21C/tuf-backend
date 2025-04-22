@@ -26,6 +26,7 @@ import { logger } from '../../utils/logger.js';
 import {CreatorAlias} from '../../models/credits/CreatorAlias.js';
 import { checkMemoryUsage } from '../../utils/memUtils.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
+import LevelSearchView from '../../models/levels/LevelSearchView.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -191,7 +192,6 @@ const buildFieldSearchCondition = async (
       return {
         [Op.or]: [
           { team: searchCondition },
-          { '$teamObject.name$': searchCondition },
           ...(teamIds.length > 0 ? [{ teamId: { [Op.in]: teamIds } }] : [])
         ]
       };
@@ -357,36 +357,39 @@ const buildWhereClause = async (query: any) => {
 };
 
 // Get sort options
-const getSortOptions = (sort?: string): Order => {
+const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: Order} => {
   switch (sort) {
     case 'RECENT_DESC':
-      return [['id', 'DESC']];
+      return {searchOrder: [['id', 'DESC']], fetchOrder: [['id', 'DESC']]};
     case 'RECENT_ASC':
-      return [['id', 'ASC']];
+      return {searchOrder: [['id', 'ASC']], fetchOrder: [['id', 'ASC']]};
     case 'DIFF_ASC':
-      return [
-        [{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC'],
-        ['id', 'DESC'],
-      ];
+      return {
+        searchOrder: [['sortOrder', 'ASC'], ['id', 'DESC']],
+        fetchOrder: [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC'], ['id', 'DESC']]
+      };
     case 'DIFF_DESC':
-      return [
-        [{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'],
-        ['id', 'DESC'],
-      ];
+      return {
+        searchOrder: [['sortOrder', 'DESC'], ['id', 'DESC']],
+        fetchOrder: [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'], ['id', 'DESC']]
+      };
     case 'CLEARS_ASC':
-      return [
-        ['clears', 'ASC'],
-        ['id', 'DESC'],
-      ];
+      return {
+        searchOrder: [['clears', 'ASC'], ['id', 'DESC']],
+        fetchOrder: [['clears', 'ASC'], ['id', 'DESC']]
+      };
     case 'CLEARS_DESC':
-      return [
-        ['clears', 'DESC'],
-        ['id', 'DESC'],
-      ];
+      return {
+        searchOrder: [['clears', 'DESC'], ['id', 'DESC']],
+        fetchOrder: [['clears', 'DESC'], ['id', 'DESC']]
+      };
     case 'RANDOM':
-      return [[literal('RAND()'), 'ASC']];
+      return {
+        searchOrder: [[literal('RAND()'), 'ASC']],
+        fetchOrder: [[literal('RAND()'), 'ASC']]
+      };
     default:
-      return [['id', 'DESC']]; // Default to recent descending
+      return {searchOrder: [['id', 'DESC']], fetchOrder: [['id', 'DESC']]}; // Default to recent descending
   }
 };
 
@@ -428,7 +431,6 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
         },
         attributes: ['id'],
       });
-
       if (pguDifficulties.length > 0) {
         difficultyConditions.push({
           diffId: {[Op.in]: pguDifficulties.map(d => d.id)},
@@ -463,49 +465,26 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
   }
 
   // Get sort options
-  const order = getSortOptions(sort as string);
+  const {searchOrder, fetchOrder}= getSortOptions(sort as string);
   let startTime = Date.now();
   
   const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30; // took me 13 hours to find out this was needed :3
   const normalizedOffset = offset && offset > 0 ? offset : 0;
   
-  // Create a subquery to get unique level IDs
-  const subqueryOptions = {
+  // Use the LevelSearchView for the initial search
+  const searchResults = await LevelSearchView.findAll({
     where,
-    attributes: ['id', 'clears'],
-    include: [
-      {
-        model: Difficulty,
-        as: 'difficulty',
-        required: false,
-        attributes: ['id', 'sortOrder'],
-      },
-      {
-        model: LevelCredit,
-        as: 'levelCredits',
-        required: false,
-        attributes: ['creatorId'],
-      },
-      {
-        model: Team,
-        as: 'teamObject',
-        required: false,
-        attributes: ['name'],
-      },
-    ],
-    order,
     offset: normalizedOffset,
-    limit: normalizedLimit+1,
-    raw: true
-  };
+    logging: console.log,
+    limit: normalizedLimit + 1,
+    order: searchOrder,
+  });
   
-  // Execute the subquery and extract unique IDs
-  const allIds = await Level.findAll(subqueryOptions);
   logger.debug(`search query took ${Date.now() - startTime}ms`);
   
   // Extract unique level IDs to avoid duplicates
-  const uniqueIds = [...new Set(allIds.map(level => level.id))];
-  logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
+  const uniqueIds = searchResults.map(level => level.id);
+  logger.debug(`Found ${uniqueIds.length} unique levels`);
   
   // Apply pagination to the unique IDs
   let hasMore = uniqueIds.length > normalizedLimit;
@@ -571,8 +550,9 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
         attributes: ['name'],
       }
     ],
-    order,
+    order: fetchOrder,
   });
+  
   logger.debug(`fetch query took ${Date.now() - startTime}ms`);
   logger.debug(`memory usage on fetch: `);
   checkMemoryUsage()

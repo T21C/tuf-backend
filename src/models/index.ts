@@ -26,6 +26,7 @@ import AnnouncementRole from './announcements/AnnouncementRole.js';
 import AnnouncementDirective from './announcements/AnnouncementDirective.js';
 import DirectiveAction from './announcements/DirectiveAction.js';
 import RateLimit from './auth/RateLimit.js';
+import LevelSearchView from './levels/LevelSearchView.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -54,6 +55,7 @@ export const db = {
     AnnouncementDirective,
     DirectiveAction,
     RateLimit,
+    LevelSearchView,
   },
 };
 

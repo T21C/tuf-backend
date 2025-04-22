@@ -307,7 +307,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Create new team
             [team] = await Team.findOrCreate({
               where: { name: submission.teamRequestData.teamName.trim() },
-              defaults: { aliases: [] },
               transaction,
             });
             teamId = team.id;
@@ -403,7 +402,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             const [creator] = await Creator.findOrCreate({
               where: { name: request.creatorName.trim() },
               defaults: {
-                aliases: [],
                 isVerified: false
               },
               transaction
@@ -1342,9 +1340,6 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
       // Create or find team without checking isNewRequest
       const [team] = await Team.findOrCreate({
         where: { name: name.trim() },
-        defaults: {
-          aliases: aliases || []
-        },
         transaction
       });
 
@@ -1362,7 +1357,6 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
       const [creator] = await Creator.findOrCreate({
         where: { name: name.trim() },
         defaults: {
-          aliases: aliases || [],
           isVerified: false
         },
         transaction
