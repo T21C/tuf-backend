@@ -2,8 +2,8 @@ export default {
   mysql: {
     backupPath: './backups/mysql',
     retention: {
-      hourly: 36,
-      daily: 14,  
+      hourly: 24,
+      daily: 24,  
       weekly: 10,
       monthly: 10,
     },
@@ -17,9 +17,9 @@ export default {
   files: {
     backupPath: './backups/files',
     retention: {
-      hourly: 36,
+      hourly: 10,
       daily: 14,  
-      weekly: 10,
+      weekly: 14,
       monthly: 10,
     },
     schedule: {
@@ -28,7 +28,7 @@ export default {
       weekly: '0 2 * * 0', // Every Sunday at 2 AM
       monthly: '0 3 1 * *', // 1st of each month at 3 AM
     },
-    include: ['cache/', '*.json'],
+    include: ['cache/icons', '*.json'],
     exclude: ['node_modules', 'backups', '*.log'],
   },
 };
