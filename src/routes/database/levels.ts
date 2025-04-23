@@ -376,7 +376,10 @@ const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: Order} 
   const direction = sort?.split('_')[1] === 'ASC' ? 'ASC' : 'DESC';
   switch (sort?.split('_')[0]) {
     case 'RECENT':
-      return {searchOrder: [['id', 'DESC']], fetchOrder: [['id', 'DESC']]};
+      return {
+        searchOrder: [['id', direction]], 
+        fetchOrder: [['id', direction]]
+      };
     case 'DIFF':
       return {
         searchOrder: [['sortOrder', direction], ['id', 'DESC']],
