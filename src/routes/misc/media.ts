@@ -30,19 +30,20 @@ const THUMBNAIL_SIZES = {
 
 // Cache directories
 const CACHE_DIR = path.join(process.cwd(), 'cache');
-const BACKGROUNDS_CACHE_DIR = path.join(CACHE_DIR, 'backgrounds');
-const ICONS_CACHE_DIR = path.join(CACHE_DIR, 'icons');
 const THUMBNAILS_CACHE_DIR = path.join(CACHE_DIR, 'thumbnails');
 
 // Ensure cache directories exist
-[CACHE_DIR, BACKGROUNDS_CACHE_DIR, ICONS_CACHE_DIR, THUMBNAILS_CACHE_DIR].forEach(dir => {
+[THUMBNAILS_CACHE_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 });
 
-// Cache TTL in milliseconds (5 minutes)
-const CACHE_TTL = 5 *60 * 1000;
+// Cache TTL in milliseconds (20 seconds) for development, 12 hours for production
+const CACHE_TTL = process.env.NODE_ENV === 'production' ? 12 * 60 * 60 * 1000 : 20 * 1000;
+
+// Cleanup interval in milliseconds (5 minutes)
+const CLEANUP_INTERVAL = 5 * 60 * 1000;
 
 // Function to check if a cached file is expired
 function isCacheExpired(filePath: string): boolean {
@@ -61,6 +62,41 @@ function cleanExpiredCache(filePath: string): void {
     fs.unlinkSync(filePath);
   }
 }
+
+// Function to clean all expired cache files in a directory
+function cleanExpiredCacheDirectory(directory: string): void {
+  try {
+    if (!fs.existsSync(directory)) return;
+    
+    const files = fs.readdirSync(directory);
+    let cleanedCount = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(directory, file);
+      if (fs.existsSync(filePath) && isCacheExpired(filePath)) {
+        fs.unlinkSync(filePath);
+        cleanedCount++;
+      }
+    }
+    
+    if (cleanedCount > 0) {
+      logger.debug(`Cleaned up ${cleanedCount} expired cache files from ${directory}`);
+    }
+  } catch (error) {
+    logger.error(`Error cleaning cache directory ${directory}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// Function to clean all expired cache files
+function cleanAllExpiredCache(): void {
+  cleanExpiredCacheDirectory(THUMBNAILS_CACHE_DIR);
+}
+
+// Start periodic cleanup
+setInterval(cleanAllExpiredCache, CLEANUP_INTERVAL);
+
+// Run initial cleanup
+cleanAllExpiredCache();
 
 // Function to get cached thumbnail path
 function getThumbnailPath(levelId: number, size: keyof typeof THUMBNAIL_SIZES): string {
