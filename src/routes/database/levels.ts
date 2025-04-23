@@ -27,6 +27,7 @@ import {CreatorAlias} from '../../models/credits/CreatorAlias.js';
 import { checkMemoryUsage } from '../../utils/memUtils.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import LevelSearchView from '../../models/levels/LevelSearchView.js';
+import LevelLikes from '../../models/levels/LevelLikes.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -163,6 +164,7 @@ const parseSearchQuery = (query: string): SearchGroup[] => {
 // Helper function to build field-specific search condition
 const buildFieldSearchCondition = async (
   fieldSearch: FieldSearch,
+  userId?: string | null
 ): Promise<any> => {
   const {field, value, exact} = fieldSearch;
 
@@ -228,7 +230,6 @@ const buildFieldSearchCondition = async (
     return condition;
   }
 
-  // For general searches (field === 'any')
   const aliasMatches = await LevelAlias.findAll({
     where: {
       [Op.or]: [
@@ -285,33 +286,38 @@ const buildFieldSearchCondition = async (
       ...(levelIdsWithMatchingCreators.length > 0
         ? [{id: {[Op.in]: levelIdsWithMatchingCreators}}]
         : []),
-      ...(teamAliasMatches.length > 0 ? [{ teamId: { [Op.in]: teamAliasMatches } }] : [])
+      ...(teamAliasMatches.length > 0 ? [{ teamId: { [Op.in]: teamAliasMatches } }] : []),
     ],
   };
   return result;
 };
 
-const buildWhereClause = async (query: any) => {
+const buildWhereClause = async (
+  query: any, 
+  deletedFilter?: string, 
+  clearedFilter?: string, 
+  onlyMyLikes?: boolean,
+  userId?: string | null) => {
   const where: any = {};
   const conditions: any[] = [];
 
   // Handle deleted filter
-  if (query.deletedFilter === 'hide') {
+  if (deletedFilter === 'hide') {
     conditions.push({
       [Op.and]: [{isDeleted: false}, {isHidden: false}],
     });
-  } else if (query.deletedFilter === 'only') {
+  } else if (deletedFilter === 'only') {
     conditions.push({
       [Op.or]: [{isDeleted: true}, {isHidden: true}],
     });
   }
 
   // Handle cleared filter
-  if (query.clearedFilter && query.clearedFilter === 'hide') {
+  if (clearedFilter && clearedFilter === 'hide') {
     conditions.push({
       clears: 0,
     });
-  } else if (query.clearedFilter && query.clearedFilter === 'only') {
+  } else if (clearedFilter && clearedFilter === 'only') {
     conditions.push({
       clears: {
         [Op.ne]: 0,
@@ -319,15 +325,24 @@ const buildWhereClause = async (query: any) => {
     });
   }
 
+  if (onlyMyLikes && userId) {
+    logger.debug(`${await LevelLikes.findAll({where: {userId}, attributes: ['levelId']}).then(likes => likes.map(l => l.levelId))}`);
+    conditions.push({
+      id: {
+        [Op.in]: await LevelLikes.findAll({where: {userId}, attributes: ['levelId']}).then(likes => likes.map(l => l.levelId))
+      }
+    });
+  }
+
   // Handle text search with new parsing
-  if (query.query) {
+  if (query) {
     // Add type check to ensure query.query is a string
-    if (typeof query.query !== 'string') {
-      console.warn(`Invalid query type: ${typeof query.query}. Expected string.`);
+    if (typeof query !== 'string') {
+      console.warn(`Invalid query type: ${typeof query}. Expected string.`);
       // Either skip this condition or convert to string
-      query.query = String(query.query);
+      query = String(query);
     }
-    const searchGroups = parseSearchQuery(query.query.trim());
+    const searchGroups = parseSearchQuery(query.trim());
 
     if (searchGroups.length > 0) {
       const orConditions = await Promise.all(
@@ -358,30 +373,24 @@ const buildWhereClause = async (query: any) => {
 
 // Get sort options
 const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: Order} => {
-  switch (sort) {
-    case 'RECENT_DESC':
+  const direction = sort?.split('_')[1] === 'ASC' ? 'ASC' : 'DESC';
+  switch (sort?.split('_')[0]) {
+    case 'RECENT':
       return {searchOrder: [['id', 'DESC']], fetchOrder: [['id', 'DESC']]};
-    case 'RECENT_ASC':
-      return {searchOrder: [['id', 'ASC']], fetchOrder: [['id', 'ASC']]};
-    case 'DIFF_ASC':
+    case 'DIFF':
       return {
-        searchOrder: [['sortOrder', 'ASC'], ['id', 'DESC']],
-        fetchOrder: [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'ASC'], ['id', 'DESC']]
+        searchOrder: [['sortOrder', direction], ['id', 'DESC']],
+        fetchOrder: [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', direction], ['id', 'DESC']]
       };
-    case 'DIFF_DESC':
+    case 'CLEARS':
       return {
-        searchOrder: [['sortOrder', 'DESC'], ['id', 'DESC']],
-        fetchOrder: [[{model: Difficulty, as: 'difficulty'}, 'sortOrder', 'DESC'], ['id', 'DESC']]
+        searchOrder: [['clears', direction], ['id', 'DESC']],
+        fetchOrder: [['clears', direction], ['id', 'DESC']]
       };
-    case 'CLEARS_ASC':
+    case 'LIKES':
       return {
-        searchOrder: [['clears', 'ASC'], ['id', 'DESC']],
-        fetchOrder: [['clears', 'ASC'], ['id', 'DESC']]
-      };
-    case 'CLEARS_DESC':
-      return {
-        searchOrder: [['clears', 'DESC'], ['id', 'DESC']],
-        fetchOrder: [['clears', 'DESC'], ['id', 'DESC']]
+        searchOrder: [['likes', direction], ['id', 'DESC']],
+        fetchOrder: [['likes', direction], ['id', 'DESC']]
       };
     case 'RANDOM':
       return {
@@ -392,13 +401,36 @@ const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: Order} 
       return {searchOrder: [['id', 'DESC']], fetchOrder: [['id', 'DESC']]}; // Default to recent descending
   }
 };
-
-async function filterLevels(query: any, pguRange?: {from: string, to: string}, specialDifficulties?: string[], sort?: any, offset?: number, limit?: number, deletedFilter?: string, clearedFilter?: string) {
-  const where = await buildWhereClause({
+// //
+// query, 
+// pguRangeObj, 
+// specialDifficultiesObj, 
+// sort, 
+// parseInt(offset as string), 
+// parseInt(limit as string), 
+// deletedFilter as string, 
+// clearedFilter as string,
+// onlyMyLikes === 'true',
+// req.user?.id || null);
+// //
+async function filterLevels(
+  query: any, 
+  pguRange?: {from: string, to: string}, 
+  specialDifficulties?: string[], 
+  sort?: any, 
+  offset?: number, 
+  limit?: number, 
+  deletedFilter?: string, 
+  clearedFilter?: string, 
+  onlyMyLikes?: boolean, 
+  userId?: string | null) {
+  const where = await buildWhereClause(
     query,
     deletedFilter,
     clearedFilter,
-  });
+    onlyMyLikes,
+    userId
+  );
 
   // Add difficulty filtering conditions
   const difficultyConditions: any[] = [];
@@ -559,9 +591,9 @@ async function filterLevels(query: any, pguRange?: {from: string, to: string}, s
 }
 
 // Get all levels with filtering and pagination
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
-    const {query, sort, offset, limit, deletedFilter, clearedFilter, pguRange, specialDifficulties} =
+    const {query, sort, offset, limit, deletedFilter, clearedFilter, pguRange, specialDifficulties, onlyMyLikes} =
       req.query;
     const pguRangeObj = pguRange ? {from: (pguRange as string).split(',')[0], to: (pguRange as string).split(',')[1]} : undefined;
     const specialDifficultiesObj = specialDifficulties ? (specialDifficulties as string).split(',') : undefined;
@@ -574,7 +606,9 @@ router.get('/', async (req: Request, res: Response) => {
       parseInt(offset as string), 
       parseInt(limit as string), 
       deletedFilter as string, 
-      clearedFilter as string);
+      clearedFilter as string,
+      onlyMyLikes === 'true',
+      req.user?.id || null);
 
     return res.json({
       count,
@@ -587,10 +621,10 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Add the new filtering endpoint
-router.post('/filter', async (req: Request, res: Response) => {
+router.post('/filter', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const {pguRange, specialDifficulties} = req.body;
-    const {query, sort, offset, limit, deletedFilter, clearedFilter} =
+    const {query, sort, offset, limit, deletedFilter, clearedFilter, onlyMyLikes} =
       req.query;
 
     // Build the base where clause using the shared function
@@ -602,7 +636,9 @@ router.post('/filter', async (req: Request, res: Response) => {
       parseInt(offset as string), 
       parseInt(limit as string), 
       deletedFilter as string, 
-      clearedFilter as string);
+      clearedFilter as string,
+      onlyMyLikes === 'true',
+      req.user?.id || null);
 
     return res.json({
       count,
@@ -771,8 +807,9 @@ router.head('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Resp
   }
 });
 
-router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
+    const includeRatings = req.query.includeRatings === 'true';
     // Use a READ COMMITTED transaction to avoid locks from updates
     if (isNaN(parseInt(req.params.id))) {
       return res.status(400).json({ error: 'Invalid level ID' });
@@ -855,7 +892,10 @@ router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res
         ],
         transaction,
       });
-
+      
+      const isLiked = req.user ? !!(await LevelLikes.findOne({
+        where: { levelId: parseInt(req.params.id), userId: req.user?.id },
+      })) : false;
       await transaction.commit();
 
       if (!level) {
@@ -870,16 +910,15 @@ router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res
       if (!ENABLE_ROULETTE) {
         return res.json({
           level,
-          ratings
+          ratings: includeRatings ? ratings : undefined,
+          isLiked
         })
       }
 
-      const timeout = checkLevelTimeout(level.id);
-
       return res.json({
         level,
-        ratings,
-        timeout
+        ratings: includeRatings ? ratings : undefined,
+        isLiked
       });
     } catch (error) {
       await transaction.rollback();
@@ -891,78 +930,6 @@ router.get('/withRatings/:id', Auth.addUserToRequest(), async (req: Request, res
   }
 });
 
-// Get a single level by ID
-router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-  try {
-    // Use a READ COMMITTED transaction to avoid locks from updates
-    if (isNaN(parseInt(req.params.id))) {
-      return res.status(400).json({ error: 'Invalid level ID' });
-    }
-    const transaction = await sequelize.transaction({
-      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
-    });
-
-    try {
-      const level = await Level.findOne({
-        where: { id: parseInt(req.params.id) },
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-          {
-            model: LevelAlias,
-            as: 'aliases',
-            required: false,
-          },
-          {
-            model: LevelCredit,
-            as: 'levelCredits',
-            required: false,
-            include: [
-              {
-                model: Creator,
-                as: 'creator',
-                include: [
-                  {
-                    model: CreatorAlias,
-                    as: 'creatorAliases',
-                    attributes: ['name'],
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            model: Team,
-            as: 'teamObject',
-            required: false,
-          },
-        ],
-        transaction,
-      });
-      
-      await transaction.commit();
-
-      if (!level) {
-        return res.status(404).json({ error: 'Level not found' });
-      }
-
-      // If level is deleted and user is not super admin, return 404
-      if (level.isDeleted && !req.user?.isSuperAdmin) {
-        return res.status(404).json({ error: 'Level not found' });
-      }
-
-      return res.json(level);
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
-    }
-  } catch (error) {
-    console.error('Error fetching level:', error);
-    return res.status(500).json({ error: 'Failed to fetch level' });
-  }
-});
 
 // Update a level
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
@@ -2311,5 +2278,82 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
   }
 }
 
+// Add this new endpoint after the existing routes
+router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const levelId = parseInt(req.params.id);
+    const { action } = req.body;
+
+    if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+
+    if (!action || !['like', 'unlike'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action. Must be "like" or "unlike"' });
+    }
+
+    // Check if level exists
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    // Check if level is deleted
+    if (level.isDeleted) {
+      await transaction.rollback();
+      return res.status(403).json({ error: 'Cannot like deleted level' });
+    }
+
+    // Check if user already liked the level
+    const existingLike = await LevelLikes.findOne({
+      where: { levelId, userId: req.user?.id },
+    });
+
+    if (action === 'like') {
+      if (existingLike) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'You have already liked this level' });
+      }
+
+      // Add like
+      await LevelLikes.create({
+        levelId,
+        userId: req.user?.id,
+      });
+    } else {
+      if (!existingLike) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'You have not liked this level' });
+      }
+
+      // Remove like
+      await LevelLikes.destroy({
+        where: { levelId, userId: req.user?.id },
+      });
+    }
+
+    await transaction.commit();
+
+    // Get updated like count
+    const likeCount = await LevelLikes.count({
+      where: { levelId },
+    });
+
+    return res.json({
+      success: true,
+      action,
+      likes: likeCount
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error toggling level like:', error);
+    return res.status(500).json({ error: 'Failed to toggle level like' });
+  }
+});
 
 export default router;

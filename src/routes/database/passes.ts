@@ -327,46 +327,28 @@ const buildWhereClause = async (query: any) => {
 
 // Get sort options
 const getSortOptions = (sort?: string): OrderItem[] => {
-  switch (sort) {
-    case 'RECENT_ASC':
-      return [['vidUploadTime', 'ASC']];
-    case 'RECENT_DESC':
-      return [['vidUploadTime', 'DESC']];
-    case 'SCORE_ASC':
+  const direction = sort?.split('_')[1] || 'DESC';
+  switch (sort?.split('_')[0]) {
+    case 'RECENT':
+      return [['vidUploadTime', direction]];
+    case 'SCORE':
       return [
-        ['scoreV2', 'ASC'],
+        ['scoreV2', direction],
         ['id', 'DESC'], // Secondary sort by newest first
       ];
-    case 'SCORE_DESC':
+    case 'XACC':
       return [
-        ['scoreV2', 'DESC'],
-        ['id', 'DESC'], // Secondary sort by newest first
-      ];
-    case 'XACC_ASC':
-      return [
-        ['accuracy', 'ASC'],
+        ['accuracy', direction],
         ['scoreV2', 'DESC'], // Secondary sort by highest score
         ['id', 'DESC'], // Tertiary sort by newest first
       ];
-    case 'XACC_DESC':
+    case 'DIFF':
       return [
-        ['accuracy', 'DESC'],
+        [{model: Level, as: 'level'}, 'diffId', direction],
         ['scoreV2', 'DESC'], // Secondary sort by highest score
         ['id', 'DESC'], // Tertiary sort by newest first
       ];
-    case 'DIFF_ASC':
-      return [
-        [{model: Level, as: 'level'}, 'diffId', 'ASC'],
-        ['scoreV2', 'DESC'], // Secondary sort by highest score
-        ['id', 'DESC'], // Tertiary sort by newest first
-      ];
-    case 'DIFF_DESC':
-      return [
-        [{model: Level, as: 'level'}, 'diffId', 'DESC'],
-        ['scoreV2', 'DESC'], // Secondary sort by highest score
-        ['id', 'DESC'], // Tertiary sort by newest first
-      ];
-    case 'RANDOM':
+    case "RANDOM":
       return [sequelize.random()];
     default:
       return [

@@ -31,6 +31,7 @@ class Level
   declare previousBaseScore: number | null;
   declare isCleared: boolean;
   declare clears: number;
+  declare likes: number;
   declare videoLink: string;
   declare dlLink: string;
   declare workshopLink: string;
@@ -190,6 +191,11 @@ Level.init(
       },
     },
     clears: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    likes: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,

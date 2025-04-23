@@ -57,6 +57,7 @@
     "mysql2": "^3.11.5",
     "node-fetch": "^3.3.2",
     "nodemon": "^3.1.9",
+    "puppeteer": "^24.7.1",
     "sequelize": "^6.37.5",
     "sequelize-cli": "^6.6.2",
     "sharp": "^0.33.5",

@@ -36,6 +36,7 @@ export interface ILevel extends IBaseModel {
   previousBaseScore: number | null;
   isCleared: boolean;
   clears: number;
+  likes: number;
   videoLink: string;
   dlLink: string;
   workshopLink: string;

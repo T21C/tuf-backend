@@ -16,6 +16,7 @@ class LevelSearchView extends Model {
   declare diffId: number;
   declare baseScore: number;
   declare clears: number;
+  declare likes: number;
   declare isDeleted: boolean;
   declare isHidden: boolean;
   declare isAnnounced: boolean;
@@ -65,6 +66,11 @@ LevelSearchView.init(
       allowNull: true,
     },
     clears: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    likes: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
