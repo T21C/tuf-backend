@@ -348,6 +348,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                        !submission.creatorRequests?.some((r: LevelSubmissionCreatorRequest) => r.isNewRequest) &&
                        (!submission.teamRequestData || !submission.teamRequestData.isNewRequest),
             clears: 0,
+            likes: 0,
             publicComments: '',
             submitterDiscordId: submission.submitterDiscordId,
             rerateReason: '',
