@@ -815,7 +815,14 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
     await transaction.commit();
 
     await level.reload()
-    return res.status(200).json({ message: 'Rating accuracy vote submitted successfully', level });
+    const totalVotes = await RatingAccuracyVote.count({
+      where: { 
+        levelId: parseInt(id), 
+        diffId: level.diffId
+      },
+    });
+    
+    return res.status(200).json({ message: 'Rating accuracy vote submitted successfully', level, totalVotes });
   } catch (error) {
     await transaction.rollback();
     console.error('Error voting on rating accuracy:', error);
