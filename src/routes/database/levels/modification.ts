@@ -770,7 +770,10 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
       await transaction.rollback();
       return res.status(404).json({ error: 'Level not found' });
     }
-
+    if (level.difficulty?.type !== "PGU") {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'You cannot vote on a non-PGU level' });
+    }
     const isPassed = await Pass.findOne({
       where: {
         levelId: id,
