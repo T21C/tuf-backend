@@ -32,6 +32,7 @@ class Level
   declare isCleared: boolean;
   declare clears: number;
   declare likes: number;
+  declare ratingAccuracy: number;
   declare videoLink: string;
   declare dlLink: string;
   declare workshopLink: string;
@@ -197,6 +198,11 @@ Level.init(
     },
     likes: {
       type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    ratingAccuracy: {
+      type: DataTypes.DOUBLE,
       allowNull: false,
       defaultValue: 0,
     },

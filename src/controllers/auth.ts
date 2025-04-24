@@ -406,7 +406,6 @@ export const authController = {
         // logger.debug(`Captcha required for user ${ip} due to multiple failed attempts`);
         
         if (!captchaToken) {
-          logger.warn(`Captcha token missing for user ${ip}`);
           return res
             .status(400)
             .json({
@@ -448,7 +447,6 @@ export const authController = {
         // Record failed attempt and increment rate limit
         recordFailedAttempt(ip);
         await loginLimiter.increment(ip);
-        logger.warn(`Login failed: User not found - ${emailOrUsername} from IP ${ip}`);
         return res.status(401).json({
           message: 'Invalid credentials',
           requireCaptcha: isCaptchaRequired(ip)
@@ -470,7 +468,6 @@ export const authController = {
         // Record failed attempt and increment rate limit
         recordFailedAttempt(ip);
         await loginLimiter.increment(ip);
-        logger.warn(`Login failed: Invalid password for user ${user.username} from IP ${ip}`);
         return res.status(401).json({
           message: 'Invalid credentials',
           requireCaptcha: isCaptchaRequired(ip)

@@ -60,6 +60,7 @@ export interface ILevel extends IBaseModel {
   teamObject?: ITeam;
   highestAccuracy?: number | null;
   firstPass?: IPass | null;
+  ratingAccuracy?: number;
 }
 
 // Pass interface
