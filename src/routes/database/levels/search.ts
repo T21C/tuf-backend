@@ -261,12 +261,28 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           transaction,
         });
         
-        const totalVotes = await RatingAccuracyVote.count({
+        const votes = await RatingAccuracyVote.findAll({
           where: { 
             levelId: parseInt(req.params.id), 
             diffId: level?.difficulty?.id
           },
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['username', 'avatarUrl'],
+              include: [
+                {
+                  model: Player,
+                  as: 'player',
+                  attributes: ['name'],
+                },
+              ],
+            },
+          ],
         });
+
+        const totalVotes = votes.length;
 
         const isLiked = req.user ? !!(await LevelLikes.findOne({
           where: { levelId: parseInt(req.params.id), userId: req.user?.id },
@@ -292,6 +308,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         return res.json({
           level,
           ratings: includeRatings ? ratings : undefined,
+          votes: req.user?.isSuperAdmin ? votes : undefined,
           totalVotes,
           isLiked,
           isCleared,

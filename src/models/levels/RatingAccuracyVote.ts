@@ -84,5 +84,10 @@ import Difficulty from './Difficulty.js';
       ],
     },
   );
+
+  RatingAccuracyVote.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
   
   export default RatingAccuracyVote;

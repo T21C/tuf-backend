@@ -639,9 +639,9 @@ router.get('/thumbnail/level/:levelId', async (req: Request, res: Response) => {
     checkMemoryUsage();
     return;
   } catch (error) {
-    if (typeof error === 'string' && error.startsWith("ProtocolError")) {
-      console.error(`Error generating image for level ${req.params.levelId} due to browser protocol error`);
-      return res.status(500).send('Generation failed: browser protocol error');
+    if (typeof error === 'string' && (error.startsWith("ProtocolError") || error.startsWith("Error: Protocol error"))) {
+      console.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
+      return res.status(500).send('Generation failed: puppeteer protocol error');
     }
     console.error(`Error generating image for level ${req.params.levelId}:`, error);
     console.error(`Error details:`, {

@@ -14,6 +14,8 @@ import { PlayerStatsService } from "../../../services/PlayerStatsService.js";
 import { sseManager } from "../../../utils/sse.js";
 import LevelLikes from "../../../models/levels/LevelLikes.js";
 import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
+import User from "../../../models/auth/User.js";
+import Player from "../../../models/players/Player.js";
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -818,14 +820,32 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
     await transaction.commit();
 
     await level.reload()
-    const totalVotes = await RatingAccuracyVote.count({
+    const votes = await RatingAccuracyVote.findAll({
       where: { 
         levelId: parseInt(id), 
         diffId: level.diffId
       },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['username'],
+          include: [
+            {
+              model: Player,
+              as: 'player',
+              attributes: ['name'],
+            },
+          ],
+        },
+      ],
     });
     
-    return res.status(200).json({ message: 'Rating accuracy vote submitted successfully', level, totalVotes });
+    return res.status(200).json({ 
+        message: 'Rating accuracy vote submitted successfully',
+        level, 
+        totalVotes: votes.length, 
+        votes: req.user?.isSuperAdmin ? votes : undefined });
   } catch (error) {
     await transaction.rollback();
     console.error('Error voting on rating accuracy:', error);
