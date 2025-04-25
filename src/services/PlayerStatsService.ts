@@ -289,7 +289,6 @@ export class PlayerStatsService {
     // logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
 
     if (this.updating) {
-      logger.warn(`[PlayerStatsService] reloadAllStats called while updating, skipping`);
       return;
     }
     this.updating = true;
@@ -437,13 +436,11 @@ export class PlayerStatsService {
     // logger.debug(`[PlayerStatsService] Starting updatePlayerStats`);
 
     if (this.updating) {
-      logger.warn(`[PlayerStatsService] updatePlayerStats called while updating, skipping`);
       return;
     }
     
     // Check if playerIds is empty
     if (!playerIds || playerIds.length === 0) {
-      logger.warn(`[PlayerStatsService] updatePlayerStats called with empty playerIds array, skipping`);
       this.updating = false;
       return;
     }

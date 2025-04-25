@@ -455,7 +455,6 @@ export const authController = {
 
       // Check if user has a password set
       if (!user.password) {
-        logger.warn(`Login attempt for user ${user.username} with no password set`);
         return res.status(400).json({message: 'Account not linked to a password. Please use OAuth to login.'});
       }
 
