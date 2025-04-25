@@ -433,8 +433,8 @@ export const buildWhereClause = async (
 
 // Get sort options
 export const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: Order} => {
-  const direction = sort?.split('_')[1] === 'ASC' ? 'ASC' : 'DESC';
-  switch (sort?.split('_')[0]) {
+  const direction = sort?.split('_').pop() === 'ASC' ? 'ASC' : 'DESC';
+  switch (sort?.split('_').slice(0, -1).join('_')) {
     case 'RECENT':
       return {
         searchOrder: [['id', direction]], 
@@ -455,13 +455,21 @@ export const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: 
         searchOrder: [['likes', direction], ['id', 'DESC']],
         fetchOrder: [['likes', direction], ['id', 'DESC']]
       };
+    case 'RATING_ACCURACY':
+      return {
+        searchOrder: [['ratingAccuracy', direction], ['id', 'DESC']],
+        fetchOrder: [['ratingAccuracy', direction], ['id', 'DESC']]
+      };
     case 'RANDOM':
       return {
         searchOrder: [[literal('RAND()'), 'ASC']],
         fetchOrder: [[literal('RAND()'), 'ASC']]
       };
     default:
-      return {searchOrder: [['id', 'DESC']], fetchOrder: [['id', 'DESC']]}; // Default to recent descending
+      return {
+        searchOrder: [['id', 'DESC']], 
+        fetchOrder: [['id', 'DESC']]
+      }; // Default to recent descending
   }
 };
 
