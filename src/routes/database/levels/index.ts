@@ -596,7 +596,7 @@ export async function filterLevels(
         model: Difficulty,
         as: 'difficulty',
         required: false,
-        attributes: ['id'],
+        attributes: ['id', 'type'],
       },
       {
         model: Pass,
