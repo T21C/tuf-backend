@@ -17,6 +17,7 @@ class LevelSearchView extends Model {
   declare baseScore: number;
   declare clears: number;
   declare ratingAccuracy: number;
+  declare totalRatingAccuracyVotes: number;
   declare likes: number;
   declare isDeleted: boolean;
   declare isHidden: boolean;
@@ -78,6 +79,11 @@ LevelSearchView.init(
     },
     ratingAccuracy: {
       type: DataTypes.DOUBLE,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    totalRatingAccuracyVotes: {
+      type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
     },

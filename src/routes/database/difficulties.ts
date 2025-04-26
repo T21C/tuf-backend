@@ -162,7 +162,7 @@ router.post('/channels', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update a channel
-router.put('/channels/:id', Auth.superAdminPassword(), async (req, res) => {
+router.put('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   try {
     const channelId = req.params.id;
     const { webhookUrl, label } = req.body;
@@ -195,7 +195,7 @@ router.put('/channels/:id', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Delete a channel
-router.delete('/channels/:id', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   try {
     const channelId = req.params.id;
 
@@ -257,7 +257,7 @@ router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update a role
-router.put('/roles/:id', Auth.superAdminPassword(), async (req, res) => {
+router.put('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   try {
     const roleId = req.params.id;
     const { roleId: newRoleId, label } = req.body;
@@ -290,7 +290,7 @@ router.put('/roles/:id', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Delete a role
-router.delete('/roles/:id', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   try {
     const roleId = req.params.id;
 

@@ -64,7 +64,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Get references for a specific difficulty
-router.get('/difficulty/:difficultyId', async (req: Request, res: Response) => {
+router.get('/difficulty/:difficultyId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {difficultyId} = req.params;
 
@@ -106,7 +106,7 @@ router.get('/difficulty/:difficultyId', async (req: Request, res: Response) => {
 });
 
 // Get references by level ID
-router.get('/level/:levelId', async (req: Request, res: Response) => {
+router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {levelId} = req.params;
     const references = await Reference.findAll({
@@ -159,7 +159,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 });
 
 // Update a reference
-router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {difficultyId, levelId, type} = req.body;
@@ -200,7 +200,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
 // Delete a reference
 router.delete(
-  '/:id',
+  '/:id([0-9]+)',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     try {
@@ -221,7 +221,7 @@ router.delete(
 );
 
 // Bulk update references for a difficulty
-router.put('/bulk/:difficultyId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/bulk/:difficultyId([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { difficultyId } = req.params;
     const { references } = req.body as { references: IReferenceUpdate[] };

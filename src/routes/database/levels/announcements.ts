@@ -114,7 +114,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
   });
   
   // Mark a single level as announced
-  router.post('/markAnnounced/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  router.post('/markAnnounced/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const levelId = parseInt(req.params.id);
       if (isNaN(levelId)) {

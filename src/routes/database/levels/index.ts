@@ -1,13 +1,9 @@
 import {Op, Order, OrderItem, literal, Transaction} from 'sequelize';
 import Level from '../../../models/levels/Level.js';
 import Pass from '../../../models/passes/Pass.js';
-import Rating from '../../../models/levels/Rating.js';
 import Player from '../../../models/players/Player.js';
 import Judgement from '../../../models/passes/Judgement.js';
-import {Auth} from '../../../middleware/auth.js';
-import {getIO} from '../../../utils/socket.js';
 import sequelize from '../../../config/db.js';
-import RatingDetail from '../../../models/levels/RatingDetail.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
 import {sseManager} from '../../../utils/sse.js';
 import {getScoreV2} from '../../../utils/CalcScore.js';
@@ -20,8 +16,6 @@ import {PlayerStatsService} from '../../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
 import { escapeForMySQL } from '../../../utils/searchHelpers.js';
 import User from '../../../models/auth/User.js';
-import { seededShuffle, getDailySeed, getRandomSeed } from '../../../utils/random.js';
-import { env } from 'process';
 import { logger } from '../../../utils/logger.js';
 import {CreatorAlias} from '../../../models/credits/CreatorAlias.js';
 import { checkMemoryUsage } from '../../../utils/memUtils.js';
@@ -460,6 +454,11 @@ export const getSortOptions = (sort?: string): {searchOrder: Order, fetchOrder: 
         searchOrder: [['ratingAccuracy', direction], ['id', 'DESC']],
         fetchOrder: [['ratingAccuracy', direction], ['id', 'DESC']]
       };
+    case 'RATING_ACCURACY_VOTES':
+      return {
+        searchOrder: [['totalRatingAccuracyVotes', direction], ['id', 'DESC']],
+        fetchOrder: [['totalRatingAccuracyVotes', direction], ['id', 'DESC']]
+      };
     case 'RANDOM':
       return {
         searchOrder: [[literal('RAND()'), 'ASC']],
@@ -579,6 +578,9 @@ export async function filterLevels(
   
   // Apply pagination to the unique IDs
   let hasMore = uniqueIds.length > normalizedLimit;
+  if (hasMore) {
+    uniqueIds.pop();
+  }
   
   logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
 
@@ -647,7 +649,7 @@ export async function filterLevels(
   logger.debug(`fetch query took ${Date.now() - startTime}ms`);
   logger.debug(`memory usage on fetch: `);
   checkMemoryUsage()
-  return {results, count: hasMore ? 999999:0};
+  return {results, hasMore};
 }
 
 // Add HEAD endpoint for permission check

@@ -28,7 +28,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       const pguRangeObj = pguRange ? {from: (pguRange as string).split(',')[0], to: (pguRange as string).split(',')[1]} : undefined;
       const specialDifficultiesObj = specialDifficulties ? (specialDifficulties as string).split(',') : undefined;
       // Build the base where clause using the shared function
-      const {results, count} = await filterLevels(
+      const {results, hasMore} = await filterLevels(
         query, 
         pguRangeObj, 
         specialDifficultiesObj, 
@@ -41,7 +41,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         req.user?.id || null);
   
       return res.json({
-        count,
+        hasMore,
         results,
       });
     } catch (error) {
@@ -58,7 +58,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         req.query;
   
       // Build the base where clause using the shared function
-      const {results, count} = await filterLevels(
+      const {results, hasMore} = await filterLevels(
         query, 
         pguRange, 
         specialDifficulties, 
@@ -71,7 +71,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         req.user?.id || null);
   
       return res.json({
-        count,
+        hasMore,
         results,
       });
     } catch (error) {
@@ -82,7 +82,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     }
   });
   
-  router.get('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const levelId = parseInt(req.params.id);
       
@@ -146,7 +146,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   });
   
   // Add HEAD endpoint for byId permission check
-  router.head('/byId/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const levelId = parseInt(req.params.id);
       
@@ -175,11 +175,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     }
   });
   
-  router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const includeRatings = req.query.includeRatings === 'true';
       // Use a READ COMMITTED transaction to avoid locks from updates
-      if (isNaN(parseInt(req.params.id))) {
+      if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
         return res.status(400).json({ error: 'Invalid level ID' });
       }
       const transaction = await sequelize.transaction({

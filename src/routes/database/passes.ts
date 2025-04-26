@@ -358,7 +358,7 @@ const getSortOptions = (sort?: string): OrderItem[] => {
   }
 };
 
-router.get('/level/:levelId', async (req: Request, res: Response) => {
+router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {levelId} = req.params;
 
@@ -520,7 +520,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId)) {
@@ -543,7 +543,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
   }
 });
 
-router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
   logger.debug(`[Passes PUT] Starting update for pass ID: ${req.params.id}`);
   const transaction = await sequelize.transaction();
   try {
@@ -900,7 +900,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1012,7 +1012,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
   },
 );
 
-router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id([0-9]+)/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1097,7 +1097,7 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 );
 
 // Add new route for getting pass by ID as a list
-router.get('/byId/:id', excludePlaceholder.fromResponse(), Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/byId/:id([0-9]+)', excludePlaceholder.fromResponse(), Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId) || passId <= 0) {
@@ -1236,7 +1236,7 @@ router.post('/announce', Auth.superAdmin(), async (req: Request, res: Response) 
 });
 
 // Mark a single pass as announced
-router.post('/markAnnounced/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/markAnnounced/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const passId = parseInt(req.params.id);
     if (!passId || isNaN(passId) || passId <= 0) {

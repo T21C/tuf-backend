@@ -148,7 +148,7 @@ router.get(
   },
 );
 
-router.get('/byId/:creatorId', async (req: Request, res: Response) => {
+router.get('/byId/:creatorId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {creatorId} = req.params;
     const creator = await Creator.findByPk(creatorId, {
@@ -183,7 +183,7 @@ router.get('/byId/:creatorId', async (req: Request, res: Response) => {
 }); 
 
 // Get team by ID with members and levels
-router.get('/teams/byId/:teamId', async (req: Request, res: Response) => {
+router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {teamId} = req.params;
     const team = await Team.findByPk(teamId, {
@@ -416,7 +416,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 // Update level creators
 router.put(
-  '/level/:levelId',
+  '/level/:levelId([0-9]+)',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -461,7 +461,7 @@ router.put(
 
 // Verify level credits
 router.post(
-  '/level/:levelId/verify',
+  '/level/:levelId([0-9]+)/verify',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -500,7 +500,7 @@ router.post(
 
 // Unverify level credits
 router.post(
-  '/level/:levelId/unverify',
+  '/level/:levelId([0-9]+)/unverify',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -780,7 +780,7 @@ router.post(
 );
 
 // Update creator
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -942,7 +942,7 @@ router.get('/teams', async (req: Request, res: Response) => {
 
 // Create or update team for level
 router.put(
-  '/level/:levelId/team',
+  '/level/:levelId([0-9]+)/team',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -1086,7 +1086,7 @@ router.put(
 
 // Delete team association from level
 router.delete(
-  '/level/:levelId/team',
+  '/level/:levelId([0-9]+)/team',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -1137,7 +1137,7 @@ router.delete(
 
 // Delete team
 router.delete(
-  '/team/:teamId',
+  '/team/:teamId([0-9]+)',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -1189,7 +1189,7 @@ router.delete(
 );
 
 // Get team details
-router.get('/team/:teamId', async (req: Request, res: Response) => {
+router.get('/team/:teamId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {teamId} = req.params;
     const team = await Team.findByPk(teamId, {
@@ -1215,7 +1215,7 @@ router.get('/team/:teamId', async (req: Request, res: Response) => {
 
 // Link Discord account to creator
 router.put(
-  '/:creatorId/discord/:userId',
+  '/:creatorId([0-9]+)/discord/:userId',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
@@ -1251,7 +1251,7 @@ router.put(
 
 // Unlink Discord account from creator
 router.delete(
-  '/:creatorId/discord',
+  '/:creatorId([0-9]+)/discord',
   Auth.superAdmin(),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();

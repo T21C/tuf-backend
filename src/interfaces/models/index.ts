@@ -61,6 +61,7 @@ export interface ILevel extends IBaseModel {
   highestAccuracy?: number | null;
   firstPass?: IPass | null;
   ratingAccuracy?: number;
+  totalRatingAccuracyVotes?: number;
 }
 
 // Pass interface
