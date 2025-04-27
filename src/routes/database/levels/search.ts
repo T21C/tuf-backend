@@ -264,7 +264,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         const votes = await RatingAccuracyVote.findAll({
           where: { 
             levelId: parseInt(req.params.id), 
-            diffId: level?.difficulty?.id
+            diffId: level?.difficulty?.id || 0
           },
           include: [
             {
