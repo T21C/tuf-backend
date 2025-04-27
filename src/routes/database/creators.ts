@@ -18,6 +18,8 @@ import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
+import { buildWhereClause, filterLevels } from './levels/index.js';
+import { logger } from '../../utils/logger.js';
 const router: Router = Router();
 
 interface LevelCountResult {
@@ -25,11 +27,11 @@ interface LevelCountResult {
   count: string;
 }
 
+const MAX_LIMIT = 500;
+
+
 // Get all creators with their aliases and level counts
-router.get(
-  '/',
-  excludePlaceholder.fromResponse(),
-  async (req: Request, res: Response) => {
+router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
     try {
       const {
         page = '1',
@@ -213,78 +215,59 @@ router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) =>
 });
 
 // Get levels with their legacy and current creators
-router.get(
-  '/levels-audit',
-  excludePlaceholder.fromResponse(),
-  async (req: Request, res: Response) => {
+router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
     try {
       const offset = parseInt(req.query.offset as string) || 0;
       const limit = parseInt(req.query.limit as string) || 50;
       const searchQuery = (req.query.search as string) || '';
       const hideVerified = req.query.hideVerified === 'true';
-      const excludeAliases = req.query.excludeAliases === 'true';
+      const excludeAliases = req.query.excludeAliases === 'true'; // not used for now sorry
+
+      const normalizedOffset = Math.max(0, offset);
+      const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, limit));
 
       // Build where clause
-      const where: any = {};
-      if (searchQuery) {
-        const escapedSearch = escapeForMySQL(searchQuery);
-        
-        // Handle exact ID search if query starts with #
-        if (escapedSearch.startsWith('#')) {
-          const exactId = parseInt(escapedSearch.substring(1));
-          if (!isNaN(exactId)) {
-            where.id = exactId;
-          }
-        } else {
-          const conditions: WhereOptions[] = [
-            {song: {[Op.like]: `%${escapedSearch}%`}},
-            {artist: {[Op.like]: `%${escapedSearch}%`}},
-          ];
-
-          // Only add ID condition if the search query is a valid number
-          const numericId = parseInt(searchQuery);
-          if (!isNaN(numericId)) {
-            conditions.push({id: numericId});
-          }
-
-          // Include creator search through level_credits and creators table
-          const creatorSubquery = {
-            [Op.in]: sequelize.literal(`(
-            SELECT DISTINCT Level.id 
-            FROM levels AS Level
-            INNER JOIN level_credits ON Level.id = level_credits.levelId
-            INNER JOIN creators ON level_credits.creatorId = creators.id
-            WHERE creators.name LIKE '%${escapedSearch}%'
-            ${!excludeAliases ? "OR EXISTS (SELECT 1 FROM creator_aliases WHERE creator_aliases.creatorId = creators.id AND creator_aliases.name LIKE '%" + escapedSearch + "%')" : ''}
-          )`),
-          };
-
-          conditions.push({id: creatorSubquery});
-          where[Op.or] = conditions;
-        }
-      }
-      if (hideVerified) {
-        where.isVerified = false;
-      }
+      const where = await buildWhereClause(
+        searchQuery, 
+        "show", 
+        "show",
+        false,
+        null
+      ) || {};
 
       // First get total count
+      let startTime = Date.now();
+      let endTime = 0;
+
       const totalCount = await Level.count({where});
 
-      // Then get paginated results
-      const levels = await Level.findAll({
+      if (hideVerified) {
+        where[Op.and] = {
+          ...where,
+          isVerified: false
+        };
+      }
+      const levelIds = await Level.findAll({
         where,
+        attributes: ['id'],
+        offset: normalizedOffset,
+        limit: normalizedLimit,
+      });
+      endTime = Date.now();
+      logger.debug(`Time taken to get total count: ${endTime - startTime}ms`);
+
+
+      // Then get paginated results
+      startTime = Date.now();
+      
+      const levels = await Level.findAll({
+        where: {id: {[Op.in]: levelIds.map(level => level.id)}},
         attributes: ['id', 'song', 'artist', 'creator', 'isVerified', 'teamId'],
         include: [
           {
             model: Creator,
             as: 'levelCreators',
-            through: {attributes: ['role']},
             include: [
-              {
-                model: Level,
-                as: 'createdLevels',
-                through: {attributes: []},
-              },
               {
                 model: CreatorAlias,
                 as: 'creatorAliases',
@@ -310,11 +293,13 @@ router.get(
           },
         ],
         order: [['id', 'ASC']],
-        offset,
-        limit,
       });
+      endTime = Date.now();
+      logger.debug(`Time taken to get paginated results: ${endTime - startTime}ms`);
+
 
       // Get level counts for each creator
+      startTime = Date.now();
       const levelCounts = (await LevelCredit.findAll({
         attributes: [
           'creatorId',
@@ -323,11 +308,17 @@ router.get(
         group: ['creatorId'],
         raw: true,
       })) as unknown as LevelCountResult[];
+      endTime = Date.now();
+      logger.debug(`Time taken to get level counts: ${endTime - startTime}ms`);
 
+      startTime = Date.now();
       const levelCountMap = new Map(
         levelCounts.map(count => [count.creatorId, parseInt(count.count)]),
       );
+      endTime = Date.now();
+      logger.debug(`Time taken to get level count map: ${endTime - startTime}ms`);
 
+      startTime = Date.now();
       const audit = levels.map(level => ({
         id: level.id,
         song: level.song,
@@ -354,6 +345,8 @@ router.get(
           levelCount: levelCountMap.get(creator.id) || 0,
         })),
       }));
+      endTime = Date.now();
+      logger.debug(`Time taken to get audit: ${endTime - startTime}ms`);
 
       return res.json({
         count: totalCount,

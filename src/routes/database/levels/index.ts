@@ -1,4 +1,4 @@
-import {Op, Order, OrderItem, literal, Transaction} from 'sequelize';
+import {Op, Order, OrderItem, literal, Transaction, WhereOptions} from 'sequelize';
 import Level from '../../../models/levels/Level.js';
 import Pass from '../../../models/passes/Pass.js';
 import Player from '../../../models/players/Player.js';
@@ -27,6 +27,7 @@ import modification from "./modification.js";
 import aprilFools from "./aprilFools.js";
 import announcements from "./announcements.js";
 import search from "./search.js";
+import { ILevel } from '../../../interfaces/models/index.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -346,12 +347,12 @@ export const buildFieldSearchCondition = async (
   return result;
 };
 
-export const buildWhereClause = async (
+export async function buildWhereClause(
   query: any, 
   deletedFilter?: string, 
   clearedFilter?: string, 
   onlyMyLikes?: boolean,
-  userId?: string | null) => {
+  userId?: string | null) : Promise<any> {
   const where: any = {};
   const conditions: any[] = [];
 
