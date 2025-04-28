@@ -43,28 +43,14 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
       } = req.query;
 
       const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-      // Build where clause
+      const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
+      
       const where: any = {};
-      if (search && typeof search === 'string') {
-        const nameIdSearch = createMultiFieldSearchCondition(
-          ['name', 'id'],
-          search,
-        );
-        const searchConditions = [...nameIdSearch.conditions];
-
-        if (excludeAliases !== 'true') {
-          // Use a JOIN approach instead of a subquery
-          // We'll handle this in the include section
-          where[Op.or] = searchConditions;
-        } else {
-          where[Op.or] = searchConditions;
-        }
-      }
       if (hideVerified === 'true') {
         where.isVerified = false;
       }
 
+      const escapedSearch = escapeForMySQL(search as string);
       // Build order clause
       let order: any[] = [['name', 'ASC']]; // default sorting
       switch (sort) {
@@ -99,18 +85,31 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
           break;
       }
 
-      // Get total count first
-      const totalCount = await Creator.count({where});
+      const creatorsByName = await Creator.findAll({
+        where: {name: {[Op.like]: `%${escapedSearch}%`}},
+        attributes: ['id'],
+      });
 
+      const creatorsByAlias = await CreatorAlias.findAll({
+        where: {name: {[Op.like]: `%${escapedSearch}%`}},
+        attributes: ['creatorId'],
+      });
+
+      const creatorIds: Set<number> = new Set(creatorsByName.map(creator => creator.id));
+      if (excludeAliases !== 'true') {
+        creatorsByAlias.forEach(alias => creatorIds.add(alias.creatorId));
+      }
+      
+      logger.debug(`Total by id for ${escapedSearch}: ${creatorIds.size}`);
       // Then get paginated results
-      const creators = await Creator.findAll({
-        where,
+      const {rows: creators, count: totalCount} = await Creator.findAndCountAll({
+        where: {id: {[Op.in]: Array.from(creatorIds)}},
         include: [
           {
             model: Level,
             as: 'createdLevels',
             through: {attributes: ['role']},
-            attributes: ['id', 'song', 'artist', 'diffId', 'charter', 'vfxer'],
+            attributes: ['id'],
           },
           {
             model: User,
@@ -121,27 +120,16 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
             model: CreatorAlias,
             as: 'creatorAliases',
             attributes: ['id', 'name'],
-            ...(search && typeof search === 'string' && excludeAliases !== 'true' 
-              ? { where: { name: { [Op.like]: `%${search}%` } } } 
-              : {})
           },
         ],
         order,
         offset,
-        limit: parseInt(limit as string),
+        limit: normalizedLimit,
       });
-
-      // If we're searching by alias, filter the results to only include creators with matching aliases
-      let filteredCreators = creators;
-      if (search && typeof search === 'string' && excludeAliases !== 'true') {
-        filteredCreators = creators.filter(creator => 
-          creator.creatorAliases && creator.creatorAliases.length > 0
-        );
-      }
 
       return res.json({
         count: totalCount,
-        results: filteredCreators,
+        results: creators,
       });
     } catch (error) {
       console.error('Error fetching creators:', error);
@@ -416,10 +404,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Update level creators
-router.put(
-  '/level/:levelId([0-9]+)',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/level/:levelId([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -461,10 +446,7 @@ router.put(
 );
 
 // Verify level credits
-router.post(
-  '/level/:levelId([0-9]+)/verify',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/level/:levelId([0-9]+)/verify', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -500,10 +482,7 @@ router.post(
 );
 
 // Unverify level credits
-router.post(
-  '/level/:levelId([0-9]+)/unverify',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/level/:levelId([0-9]+)/unverify', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -539,10 +518,7 @@ router.post(
 );
 
 // Merge creators
-router.post(
-  '/merge',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {sourceId, targetId} = req.body;
@@ -646,10 +622,7 @@ router.post(
 );
 
 // Split creator
-router.post(
-  '/split',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {creatorId, newNames, roles} = req.body;
@@ -942,10 +915,7 @@ router.get('/teams', async (req: Request, res: Response) => {
 });
 
 // Create or update team for level
-router.put(
-  '/level/:levelId([0-9]+)/team',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -1086,10 +1056,7 @@ router.put(
 );
 
 // Delete team association from level
-router.delete(
-  '/level/:levelId([0-9]+)/team',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -1137,10 +1104,7 @@ router.delete(
 );
 
 // Delete team
-router.delete(
-  '/team/:teamId([0-9]+)',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/team/:teamId([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {teamId} = req.params;
@@ -1215,10 +1179,7 @@ router.get('/team/:teamId([0-9]+)', async (req: Request, res: Response) => {
 });
 
 // Link Discord account to creator
-router.put(
-  '/:creatorId([0-9]+)/discord/:userId',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.put('/:creatorId([0-9]+)/discord/:userId', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {creatorId, userId} = req.params;
@@ -1251,10 +1212,7 @@ router.put(
 );
 
 // Unlink Discord account from creator
-router.delete(
-  '/:creatorId([0-9]+)/discord',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:creatorId([0-9]+)/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {creatorId} = req.params;
@@ -1287,32 +1245,32 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     
     // Function to escape special characters for MySQL
     const escapedName = escapeForMySQL(name);
-    const lowercaseName = escapedName.toLowerCase();
     
+    const creatorsByName = await Creator.findAll({
+      where: {name: {[Op.like]: `%${escapedName}%`}},
+      attributes: ['id'],
+    });
+
+    const creatorsByAlias = await CreatorAlias.findAll({
+      where: {name: {[Op.like]: `%${escapedName}%`}},
+      attributes: ['creatorId'],
+    });
+
+    const creatorIds: Set<number> = 
+    new Set(creatorsByName.map(creator => creator.id)
+    .concat(creatorsByAlias.map(alias => alias.creatorId)));
+
     const creators = await Creator.findAll({
-      where: {
-        [Op.or]: [
-          sequelize.where(
-            sequelize.fn('LOWER', sequelize.col('name')),
-            'LIKE',
-            `%${lowercaseName}%`
-          ),
-          // Use the new alias model for searching
-          sequelize.literal(`EXISTS (
-            SELECT 1 FROM creator_aliases 
-            WHERE creator_aliases.creatorId = Creator.id 
-            AND LOWER(creator_aliases.name) LIKE '%${lowercaseName}%'
-          )`)
-        ]
-      },
+      where: {id: {[Op.in]: Array.from(creatorIds)}},
       include: [
         {
           model: CreatorAlias,
           as: 'creatorAliases',
           attributes: ['id', 'name'],
+          required: false,
         }
       ],
-      limit: 10,
+      limit: 30,
       attributes: ['id', 'name', 'isVerified']
     });
 
@@ -1463,22 +1421,8 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     const teams = await Team.findAll({
       where: {
         [Op.or]: [
-          sequelize.where(
-            sequelize.fn('LOWER', sequelize.col('name')),
-            'LIKE',
-            `%${escapedName.toLowerCase()}%`
-          ),
-          sequelize.where(
-            sequelize.fn('LOWER', sequelize.col('description')),
-            'LIKE',
-            `%${escapedName.toLowerCase()}%`
-          ),
-          // Add search for team aliases
-          sequelize.literal(`EXISTS (
-            SELECT 1 FROM team_aliases 
-            WHERE team_aliases.teamId = Team.id 
-            AND LOWER(team_aliases.name) LIKE '%${escapedName.toLowerCase()}%'
-          )`)
+          {name: {[Op.like]: `%${escapedName}%`}},
+          {aliases: {[Op.like]: `%${escapedName}%`}},
         ]
       },
       include: [

@@ -24,7 +24,7 @@ export function createSearchCondition(
   exact = false,
 ): SearchCondition {
   // Handle special characters in the search value
-  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const searchValue = exact ? value : `%${escapeForMySQL(value)}%`;
 
   return {
     [field]: {[exact ? Op.eq : Op.like]: searchValue},
@@ -43,7 +43,7 @@ export function createMultiFieldSearchCondition(
   value: string,
   exact = false,
 ): MultiSearchResult {
-  const searchValue = exact ? value : `%${value.replace(/(_|%|\\)/g, '\\$1')}%`;
+  const searchValue = exact ? value : `%${escapeForMySQL(value)}%`;
 
   return {
     conditions: fields.map(field => ({
@@ -51,16 +51,6 @@ export function createMultiFieldSearchCondition(
     })),
   };
 }
-
-/**
- * Safely escapes a string for use in LIKE queries
- * @param value The string to escape
- * @returns The escaped string
- */
-export function escapeLikeValue(value: string): string {
-  return value.replace(/(_|%|\\)/g, '\\$1');
-}
-
 
 export const escapeForMySQL = (str: string) => {
   if (!str) return '';
