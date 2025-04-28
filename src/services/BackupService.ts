@@ -1,7 +1,7 @@
 import {exec} from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import {CronJob} from 'cron';
+import { CronJob } from 'cron';
 import config from '../config/backup.config.js';
 import db from '../models/index.js';
 import dotenv from 'dotenv';
@@ -502,6 +502,7 @@ export class BackupService {
           console.error(`Scheduled ${type} MySQL backup failed:`, error);
         }
       });
+      job.start();
     });
 
     // File backups
@@ -516,6 +517,7 @@ export class BackupService {
           console.error(`Scheduled ${type} files backup failed:`, error);
         }
       });
+      job.start();
     });
   }
 }
