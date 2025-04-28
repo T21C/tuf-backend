@@ -1,4 +1,4 @@
-import {Op, WhereOptions} from 'sequelize';
+import {Op, where, WhereOptions} from 'sequelize';
 import {Auth} from '../../middleware/auth.js';
 import Creator from '../../models/credits/Creator.js';
 import Level from '../../models/levels/Level.js';
@@ -225,15 +225,22 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
 
       const normalizedOffset = Math.max(0, offset);
       const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, limit));
-
+      let where: any = {};
+      const directId = searchQuery.match(/^#\d+$/);
+      if (directId) {
+        const levelId = parseInt(directId[0].slice(1));
+        where = {id: levelId};
+      }
+      else {
       // Build where clause
-      const where = await buildWhereClause(
+       where = await buildWhereClause(
         searchQuery, 
         "show", 
         "show",
         false,
         null
       ) || {};
+    }
 
       // First get total count
       let startTime = Date.now();
@@ -247,6 +254,7 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
           isVerified: false
         };
       }
+      
       const levelIds = await Level.findAll({
         where,
         attributes: ['id'],
