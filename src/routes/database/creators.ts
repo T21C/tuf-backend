@@ -875,23 +875,31 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
 router.get('/teams', async (req: Request, res: Response) => {
   try {
     const {search} = req.query;
-    const whereClause = search
-      ? {
-          [Op.or]: [
-            {name: {[Op.like]: `%${search}%`}},
-            {description: {[Op.like]: `%${search}%`}},
-            // Add search for team aliases
-            sequelize.literal(`EXISTS (
-              SELECT 1 FROM team_aliases 
-              WHERE team_aliases.teamId = Team.id 
-              AND team_aliases.name LIKE '%${search}%'
-            )`)
-          ],
-        }
-      : {};
+
+    const escapedSearch = escapeForMySQL(search as string);
+
+    const teamIds: Set<number> = new Set();
+
+    const teamNameIds = await Team.findAll({
+      where: {name: {[Op.like]: `%${escapedSearch}%`}},
+      attributes: ['id'],
+    });
+
+    for (const team of teamNameIds) {
+      teamIds.add(team.id);
+    }
+
+    const teamAliasIds = await TeamAlias.findAll({
+      where: {name: {[Op.like]: `%${escapedSearch}%`}},
+      attributes: ['teamId'],
+    });
+
+    for (const alias of teamAliasIds) {
+      teamIds.add(alias.teamId);
+    }
 
     const teams = await Team.findAll({
-      where: whereClause,
+      where: {id: {[Op.in]: Array.from(teamIds)}},
       include: [
         {
           model: Creator,
