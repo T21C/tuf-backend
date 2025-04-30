@@ -351,8 +351,7 @@ export const buildFieldSearchCondition = async (
       where: {
         creatorId: { [Op.in]: Array.from(creatorIds) }
       },
-      attributes: ['levelId'],
-      logging: console.log
+      attributes: ['levelId']
     });
     logger.debug(`levelsWithCreators: ${JSON.stringify(levelsWithCreators)}`);
     levelIdsWithMatchingCreators = levelsWithCreators.map(credit => credit.levelId);
