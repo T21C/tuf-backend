@@ -369,7 +369,7 @@ export const buildFieldSearchCondition = async (
       ...(levelIdsWithMatchingCreators.length > 0
         ? [{id: {[Op.in]: levelIdsWithMatchingCreators}}]
         : []),
-      ...(teamAliasMatches.length > 0 ? [{ teamId: { [Op.in]: teamAliasMatches } }] : []),
+      ...(teamIds.size > 0 ? [{ teamId: { [Op.in]: Array.from(teamIds) } }] : []),
     ],
   };
   return result;
