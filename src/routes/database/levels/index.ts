@@ -295,24 +295,53 @@ export const buildFieldSearchCondition = async (
     attributes: ['levelId'],
   });
 
+  const creatorMatches = await Creator.findAll({
+    where: {
+      name: searchCondition
+    },
+    attributes: ['id'],
+    logging: console.log
+  });
+
   const creatorAliasMatches = await CreatorAlias.findAll({
     where: {
       name: searchCondition
-    }
+    },
+    attributes: ['creatorId'],
   });
   
+  const teamMatches = await Team.findAll({
+    where: {
+      name: searchCondition
+    },
+    attributes: ['id']
+  });
+
   const teamAliasMatches = await TeamAlias.findAll({
     where: {
       name: searchCondition
     },
-    attributes: ['teamId'],
-    raw: true
+    attributes: ['teamId']
   });
+  logger.debug(`creatorMatches: ${JSON.stringify(creatorMatches)}`);
   // Fix the mapping to correctly access creatorId
-  const creatorIds = creatorAliasMatches.map(alias => {
-    return alias.dataValues ? alias.dataValues.creatorId : alias.creatorId;
-  });
+  const creatorIds: Set<number> = new Set();
+  for (const match of creatorMatches) {
+    creatorIds.add(match.id);
+  }
+  for (const match of creatorAliasMatches) {
+    creatorIds.add(match.creatorId);
+  }
+  logger.debug(`creatorIds: ${JSON.stringify(Array.from(creatorIds))}`);
   
+  const teamIds: Set<number> = new Set();
+  for (const match of teamMatches) {
+    teamIds.add(match.id);
+  }
+  for (const match of teamAliasMatches) {
+    teamIds.add(match.teamId);
+  }
+  logger.debug(`teamIds: ${JSON.stringify(Array.from(teamIds))}`);
   // Instead of using the $ syntax for levelCredits.creatorId, we'll handle this differently
   // by finding levels with matching creator IDs first
   let levelIdsWithMatchingCreators: number[] = [];
@@ -320,12 +349,12 @@ export const buildFieldSearchCondition = async (
     // Find all levels that have credits with the matching creator IDs
     const levelsWithCreators = await LevelCredit.findAll({
       where: {
-        creatorId: { [Op.in]: creatorIds }
+        creatorId: { [Op.in]: Array.from(creatorIds) }
       },
       attributes: ['levelId'],
-      raw: true
+      logging: console.log
     });
-    
+    logger.debug(`levelsWithCreators: ${JSON.stringify(levelsWithCreators)}`);
     levelIdsWithMatchingCreators = levelsWithCreators.map(credit => credit.levelId);
   }
   

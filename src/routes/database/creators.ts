@@ -1426,11 +1426,31 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     const { name } = req.params;
 
     const escapedName = escapeForMySQL(name);
+
+    const teamIds: Set<number> = new Set();
+
+    const teamNameIds = await Team.findAll({
+      where: {name: {[Op.like]: `%${escapedName}%`}},
+      attributes: ['id'],
+    });
+
+    const teamAliasIds = await TeamAlias.findAll({
+      where: {name: {[Op.like]: `%${escapedName}%`}},
+      attributes: ['teamId'],
+    });
+
+    for (const team of teamNameIds) {
+      teamIds.add(team.id);
+    }
+
+    for (const alias of teamAliasIds) {
+      teamIds.add(alias.teamId);
+    }
+
     const teams = await Team.findAll({
       where: {
         [Op.or]: [
-          {name: {[Op.like]: `%${escapedName}%`}},
-          {aliases: {[Op.like]: `%${escapedName}%`}},
+          {id: {[Op.in]: Array.from(teamIds)}},
         ]
       },
       include: [
