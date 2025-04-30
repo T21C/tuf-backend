@@ -300,7 +300,6 @@ export const buildFieldSearchCondition = async (
       name: searchCondition
     },
     attributes: ['id'],
-    logging: console.log
   });
 
   const creatorAliasMatches = await CreatorAlias.findAll({
