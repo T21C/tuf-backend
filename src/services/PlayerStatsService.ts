@@ -963,9 +963,9 @@ export class PlayerStatsService {
         pfp: pass.player?.pfp || null,
       },
       scoreInfo: {
-        currentRankedScore: currentStats?.rankedScore,
-        previousRankedScore: previousStats?.rankedScore,
-        impact,
+        currentRankedScore: currentStats?.rankedScore || 0,
+        previousRankedScore: previousStats?.rankedScore || 0,
+        impact: impact || 0,
         impactRank: topScores.findIndex(score => score.id === passId) + 1
       },
       ranks: {
