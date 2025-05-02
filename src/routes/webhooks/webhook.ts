@@ -529,7 +529,7 @@ router.post(
       }
 
       // Load all levels with their configs
-      const levels = await Level.findAll({
+      const rawLevels = await Level.findAll({
         where: {
           id: {
             [Op.in]: levelIds,
@@ -546,6 +546,11 @@ router.post(
           },
         ],
       });
+
+      const levels = rawLevels.filter(
+        level => 
+          level.previousDiffId !== level.diffId 
+          || level.previousBaseScore !== level.baseScore);
 
       logWebhookEvent('rerate_levels_loaded', {
         requestId,

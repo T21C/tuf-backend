@@ -369,15 +369,7 @@ initializeLanguages().catch(error => {
 // Get list of available languages
 router.get('/languages', async (req: Request, res: Response) => {
   try {
-    // Refresh implementation status
-    await initializeLanguages();
-    
-    const languagesInfo = Object.entries(languages).map(([code, info]) => ({
-      code,
-      ...info,
-    }));
-
-    res.json(languagesInfo);
+    res.json(languages);
   } catch (error) {
     console.error('Error getting languages list:', error);
     res.status(500).json({
@@ -444,6 +436,26 @@ router.get(
     }
   },
 );
+
+router.get('/languages', async (req: Request, res: Response) => {
+  try {
+    const languagesInfo = Object.entries(languages).map(([code, info]) => ({
+      code,
+      display: info.display,
+      countryCode: info.countryCode,
+      status: info.status,
+    }));
+
+    res.json(languagesInfo);
+  } catch (error) {
+    console.error('Error getting languages list:', error);
+    res.status(500).json({
+      error: 'Failed to get languages list',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 
 // Serve the utility navigation page
 router.get('/', (req: Request, res: Response) => {

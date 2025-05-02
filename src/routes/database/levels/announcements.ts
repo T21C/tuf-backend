@@ -84,7 +84,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
   });
   
   // Mark levels as announced - single endpoint for all announcement operations
-  router.post('/announce', Auth.superAdmin(), async (req: Request, res: Response) => {
+  router.post('/markAnnounced', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {levelIds} = req.body;
   
