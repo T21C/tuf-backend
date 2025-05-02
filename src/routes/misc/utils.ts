@@ -4,12 +4,26 @@ import path from 'path';
 import {fileURLToPath} from 'url';
 import upload from '../../middleware/upload.js';
 import AdmZip from 'adm-zip';
+import { logger } from '../../utils/logger.js';
 
 const router: Router = express.Router();
 
 // ES Module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const languageConfigs = {
+  en: {display: 'English', countryCode: 'us'},
+  pl: {display: 'Polish', countryCode: 'pl'},
+  kr: {display: '한국어', countryCode: 'kr'},
+  cn: {display: '中文', countryCode: 'cn'},
+  id: {display: 'Bahasa Indonesia', countryCode: 'id'},
+  jp: {display: '日本語', countryCode: 'jp'},
+  ru: {display: 'Русский', countryCode: 'ru'},
+  de: {display: 'Deutsch', countryCode: 'de'},
+  fr: {display: 'Français', countryCode: 'fr'},
+  es: {display: 'Español', countryCode: 'es'},
+};
 
 interface MulterRequest extends Request {
   file?: Express.Multer.File;
@@ -262,22 +276,102 @@ router.get('/download-translations', async (req: Request, res: Response) => {
   }
 });
 
-// Language configuration
-const languages = {
-  en: {display: 'English', countryCode: 'us', implemented: true},
-  kr: {display: '한국어', countryCode: 'kr', implemented: false},
-  cn: {display: '中文', countryCode: 'cn', implemented: false},
-  id: {display: 'Bahasa Indonesia', countryCode: 'id', implemented: false},
-  jp: {display: '日本語', countryCode: 'jp', implemented: false},
-  ru: {display: 'Русский', countryCode: 'ru', implemented: false},
-  de: {display: 'Deutsch', countryCode: 'de', implemented: false},
-  fr: {display: 'Français', countryCode: 'fr', implemented: false},
-  es: {display: 'Español', countryCode: 'es', implemented: false},
-};
+// Language configuration - now dynamic based on directory check
+const languages: {[key: string]: {display: string; countryCode: string; status: number}} = {};
+
+// Function to check if a language is implemented
+async function checkLanguageImplementation(langCode: string): Promise<number> {
+  try {
+    const langDir = path.resolve(
+      __dirname,
+      `../../../../client/src/translations/languages/${langCode}`,
+    );
+
+    // Check if directory exists
+    if (!fs.existsSync(langDir)) {
+      return 0;
+    }
+
+    // Get all JSON files in the language directory
+    const langFiles = getAllJsonFiles(langDir);
+    if (langFiles.length === 0) {
+      return 0;
+    }
+
+    // Get English translations for comparison
+    const enDir = path.resolve(
+      __dirname,
+      '../../../../client/src/translations/languages/en',
+    );
+    const enFiles = getAllJsonFiles(enDir);
+
+    let missingFiles = 0;
+    let missingKeys = 0;
+    let totalKeys = 0;
+
+    // Check if all English files exist in the language directory
+    for (const enFile of enFiles) {
+      const relativePath = path.relative(enDir, enFile);
+      const langFile = path.join(langDir, relativePath);
+
+      if (!fs.existsSync(langFile)) {
+        missingFiles++;
+        continue;
+      }
+
+      // Compare keys in each file
+      const enContent = JSON.parse(fs.readFileSync(enFile, 'utf8'));
+      const langContent = JSON.parse(fs.readFileSync(langFile, 'utf8'));
+
+      const enKeys = getKeysRecursively(enContent);
+      const langKeys = getKeysRecursively(langContent);
+
+      totalKeys += enKeys.length;
+      missingKeys += enKeys.filter(key => !langKeys.includes(key)).length;
+    }
+
+    // Calculate implementation percentage
+    const fileCompletion = ((enFiles.length - missingFiles) / enFiles.length) * 100;
+    const keyCompletion = ((totalKeys - missingKeys) / totalKeys) * 100;
+    const overallCompletion = (fileCompletion + keyCompletion) / 2;
+
+    logger.debug(`language: ${langCode} completion: ${overallCompletion}`);
+    return overallCompletion;
+  } catch (error) {
+    console.error(`Error checking implementation for ${langCode}:`, error);
+    return 0;
+  }
+}
+
+// Initialize languages configuration
+async function initializeLanguages() {
+  const baseDir = path.resolve(
+    __dirname,
+    '../../../../client/src/translations/languages',
+  );
+
+
+  // Check each language's implementation
+  for (const [code, config] of Object.entries(languageConfigs)) {
+    const status = await checkLanguageImplementation(code);
+    languages[code] = {
+      ...config,
+      status,
+    };
+  }
+}
+
+// Initialize languages on server start
+initializeLanguages().catch(error => {
+  console.error('Error initializing languages:', error);
+});
 
 // Get list of available languages
-router.get('/languages', (req: Request, res: Response) => {
+router.get('/languages', async (req: Request, res: Response) => {
   try {
+    // Refresh implementation status
+    await initializeLanguages();
+    
     const languagesInfo = Object.entries(languages).map(([code, info]) => ({
       code,
       ...info,
@@ -730,12 +824,12 @@ router.get('/', (req: Request, res: Response) => {
               card.innerHTML = \`
                 <div class="language-header">
                   <span class="language-name">\${lang.display}</span>
-                  <span class="language-status \${lang.implemented ? 'status-implemented' : 'status-pending'}">
-                    \${lang.implemented ? 'Implemented' : 'Coming Soon'}
+                  <span class="language-status \${lang.status === 100 ? 'status-implemented' : lang.status > 0 ? 'status-pending' : ''}">
+                    \${lang.status === 100 ? 'Implemented' : lang.status > 0 ? \`\${lang.status.toFixed(2)}% Implemented\` : 'Not Implemented'}
                   </span>
                 </div>
                 <div class="language-download">
-                  <button onclick="downloadTranslation('\${lang.code}')" \${!lang.implemented ? 'disabled' : ''}>
+                  <button onclick="downloadTranslation('\${lang.code}')" \${lang.status === 0 ? 'disabled' : ''}>
                     Download \${lang.display} Translations
                   </button>
                 </div>
