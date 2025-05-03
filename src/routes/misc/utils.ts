@@ -825,8 +825,8 @@ router.get('/', (req: Request, res: Response) => {
         // Fetch and display languages
         async function fetchLanguages() {
           try {
-            const response = await fetch('/v2/utils/languages');
-            const languages = await response.json();
+            const languages = Object.values(${JSON.stringify(languages)}).sort((a, b) => b.status - a.status);
+            console.log(languages);
             const languageList = document.getElementById('languageList');
             
             languages.forEach(lang => {
