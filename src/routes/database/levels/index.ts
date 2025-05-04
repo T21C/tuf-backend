@@ -338,7 +338,7 @@ export const buildFieldSearchCondition = async (
   for (const match of teamAliasMatches) {
     teamIds.add(match.teamId);
   }
-  logger.debug(`teamIds: ${JSON.stringify(Array.from(teamIds))}`);
+  // logger.debug(`teamIds: ${JSON.stringify(Array.from(teamIds))}`);
   // Instead of using the $ syntax for levelCredits.creatorId, we'll handle this differently
   // by finding levels with matching creator IDs first
   let levelIdsWithMatchingCreators: number[] = [];
