@@ -13,7 +13,7 @@ if (!fs.existsSync(logDir)) {
 
 // Color configuration for console transport
 const colors = {
-  date: '\x1b[0;30m',
+  date: '\x1b[0;90m',
   info: '\x1b[0;32m',
   warn: '\x1b[0;33m',
   error: '\x1b[0;31m',
