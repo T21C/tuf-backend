@@ -235,12 +235,12 @@ export const Auth = {
           ){
             incorectPasswords.set(req.user.id, (incorectPasswords.get(req.user.id) || 0) + 1);
             if ((incorectPasswords.get(req.user.id) || 0) >= 5) {
-              console.warn(`User ${req.user.id} has made ${incorectPasswords.get(req.user.id)} incorrect password attempts`);
+              logger.warn(`User ${req.user.id} has made ${incorectPasswords.get(req.user.id)} incorrect password attempts`);
             }
             return res.status(403).json({message: 'Invalid super admin password'});
           }
           if ((incorectPasswords.get(req.user.id) || 0) >= 5) {
-            console.warn(`User ${req.user.id} successfully entered password after ${incorectPasswords.get(req.user.id)} incorrect attempts`);
+            logger.warn(`User ${req.user.id} successfully entered password after ${incorectPasswords.get(req.user.id)} incorrect attempts`);
             incorectPasswords.delete(req.user.id);
           }
           return next();

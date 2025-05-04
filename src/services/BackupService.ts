@@ -491,7 +491,7 @@ export class BackupService {
       try {
         await fs.unlink(file.path);
       } catch (cleanupError) {
-        console.warn('Failed to clean up temporary file:', cleanupError);
+        logger.warn('Failed to clean up temporary file:', cleanupError);
       }
       throw new Error(`Failed to upload backup: ${(error as Error).message}`);
     }

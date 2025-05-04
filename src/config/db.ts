@@ -12,7 +12,7 @@ const sequelize = new Sequelize({
     process.env.NODE_ENV === 'staging'
       ? process.env.DB_STAGING_DATABASE
       : process.env.DB_DATABASE,
-  logging: false, // Set to console.log for debugging
+  logging: false,
   pool: {
     max: 25,
     min: 0,

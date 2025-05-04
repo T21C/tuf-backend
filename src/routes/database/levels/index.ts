@@ -417,7 +417,7 @@ export async function buildWhereClause(
   if (query) {
     // Add type check to ensure query.query is a string
     if (typeof query !== 'string') {
-      console.warn(`Invalid query type: ${typeof query}. Expected string.`);
+      logger.warn(`Invalid query type: ${typeof query}. Expected string.`);
       // Either skip this condition or convert to string
       query = String(query);
     }
