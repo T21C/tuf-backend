@@ -18,6 +18,7 @@ import Rating from "../../../models/levels/Rating.js";
 import LevelLikes from "../../../models/levels/LevelLikes.js";
 import { User } from "../../../models/index.js";
 import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
+import { logger } from "../../../services/LoggerService.js";
 
 const router: Router = Router()
 
@@ -45,7 +46,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         results,
       });
     } catch (error) {
-      console.error('Error fetching levels:', error);
+      logger.error('Error fetching levels:', error);
       return res.status(500).json({error: 'Failed to fetch levels'});
     }
   });
@@ -75,9 +76,9 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         results,
       });
     } catch (error) {
-      console.error('Error filtering levels:', error);
-      console.log("query:", req.query);
-      console.log("body:", req.body);
+      logger.error('Error filtering levels:', error);
+      logger.info("query:", req.query);
+      logger.info("body:", req.body);
       return res.status(500).json({error: 'Failed to filter levels'});
     }
   });
@@ -140,7 +141,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   
       return res.json(level);
     } catch (error) {
-      console.error(`Error fetching level by ID ${req.params.id}:`, (error instanceof Error ? error.toString() : String(error)).slice(0, 1000));
+      logger.error(`Error fetching level by ID ${req.params.id}:`, (error instanceof Error ? error.toString() : String(error)).slice(0, 1000));
       return res.status(500).json({ error: 'Failed to fetch level by ID' });
     }
   });
@@ -170,7 +171,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   
       return res.status(200).end();
     } catch (error) {
-      console.error('Error checking level permissions:', error);
+      logger.error('Error checking level permissions:', error);
       return res.status(500).end();
     }
   });
@@ -318,7 +319,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         throw error;
       }
     } catch (error) {
-      console.error('Error fetching level:', error);
+      logger.error('Error fetching level:', error);
       return res.status(500).json({ error: 'Failed to fetch level' });
     }
   });

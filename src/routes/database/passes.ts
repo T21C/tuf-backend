@@ -15,7 +15,7 @@ import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../../services/LoggerService.js';
 
 // Search query types and interfaces
 interface FieldSearch {
@@ -405,7 +405,7 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
 
     return res.json(passes);
   } catch (error) {
-    console.error('Error fetching passes:', error);
+    logger.error('Error fetching passes:', error);
     return res.status(500).json({error: 'Failed to fetch passes'});
   }
 });
@@ -515,7 +515,7 @@ router.post('/', async (req: Request, res: Response) => {
       results,
     });
   } catch (error) {
-    console.error('Error fetching passes:', error);
+    logger.error('Error fetching passes:', error);
     return res.status(500).json({error: 'Failed to fetch passes'});
   }
 });
@@ -535,7 +535,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
 
     return res.json(pass);
   } catch (error) {
-    console.error('Error fetching pass:', error);
+    logger.error('Error fetching pass:', error);
     return res.status(500).json({
       error: 'Failed to fetch pass',
       details: error instanceof Error ? error.message : String(error),
@@ -850,7 +850,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         await playerStatsService.updatePlayerStats([pass.player.id]);
         logger.debug(`[Passes PUT] Successfully updated player stats for player ID: ${pass.player.id}`);
       } catch (error) {
-        console.error(`[Passes PUT] Error updating player stats for player ID: ${pass.player.id}:`, error);
+        logger.error(`[Passes PUT] Error updating player stats for player ID: ${pass.player.id}:`, error);
         // Continue with the response even if player stats update fails
       }
     }
@@ -878,7 +878,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         });
         logger.debug(`[Passes PUT] Successfully emitted SSE event for player ID: ${updatedPass.player.id}`);
       } catch (error) {
-        console.error(`[Passes PUT] Error getting player stats or emitting SSE event:`, error);
+        logger.error(`[Passes PUT] Error getting player stats or emitting SSE event:`, error);
         // Continue with the response even if this fails
       }
     }
@@ -886,12 +886,12 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
     logger.debug(`[Passes PUT] Successfully completed update for pass ID: ${id}`);
     return res.json(updatedPass);
   } catch (error) {
-    console.error(`[Passes PUT] Error updating pass ID: ${req.params.id}:`, error);
+    logger.error(`[Passes PUT] Error updating pass ID: ${req.params.id}:`, error);
     try {
       await transaction.rollback();
       logger.debug(`[Passes PUT] Successfully rolled back transaction for pass ID: ${req.params.id}`);
     } catch (rollbackError) {
-      console.error(`[Passes PUT] Error rolling back transaction:`, rollbackError);
+      logger.error(`[Passes PUT] Error rolling back transaction:`, rollbackError);
     }
     return res.status(500).json({
       error: 'Failed to update pass',
@@ -1006,7 +1006,7 @@ router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Respo
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error soft deleting pass:', error);
+      logger.error('Error soft deleting pass:', error);
       return res.status(500).json({error: 'Failed to soft delete pass'});
     }
   },
@@ -1090,7 +1090,7 @@ router.patch('/:id([0-9]+)/restore', Auth.superAdmin(), async (req: Request, res
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error restoring pass:', error);
+      logger.error('Error restoring pass:', error);
       return res.status(500).json({error: 'Failed to restore pass'});
     }
   },
@@ -1148,7 +1148,7 @@ router.get('/byId/:id([0-9]+)', excludePlaceholder.fromResponse(), Auth.addUserT
 
       return res.json({count: 1, results: [pass]});
     } catch (error) {
-      console.error('Error fetching pass by ID:', error);
+      logger.error('Error fetching pass by ID:', error);
       return res.status(500).json({error: 'Failed to fetch pass'});
     }
   },
@@ -1197,7 +1197,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
 
     return res.json(passes);
   } catch (error) {
-    console.error('Error fetching unannounced passes:', error);
+    logger.error('Error fetching unannounced passes:', error);
     return res.status(500).json({error: 'Failed to fetch unannounced passes'});
   }
 });
@@ -1230,7 +1230,7 @@ router.post('/markAnnounced', Auth.superAdmin(), async (req: Request, res: Respo
 
     return res.json({success: true, message: 'Passes marked as announced'});
   } catch (error) {
-    console.error('Error marking passes as announced:', error);
+    logger.error('Error marking passes as announced:', error);
     return res.status(500).json({error: 'Failed to mark passes as announced'});
   }
 });
@@ -1257,7 +1257,7 @@ router.post('/markAnnounced/:id([0-9]+)', Auth.superAdmin(), async (req: Request
     await pass.update({isAnnounced: true});
     return res.json({success: true});
   } catch (error) {
-    console.error('Error marking pass as announced:', error);
+    logger.error('Error marking pass as announced:', error);
     return res.status(500).json({
       error: 'Failed to mark pass as announced',
       details: error instanceof Error ? error.message : String(error),
@@ -1379,7 +1379,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
         results,
       });
     } catch (error) {
-      console.error('Error fetching passes:', error);
+      logger.error('Error fetching passes:', error);
       return res.status(500).json({error: 'Failed to fetch passes'});
     }
   },

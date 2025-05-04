@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import sequelize from "../../config/db.js";
 import UsernameChange from '../../models/auth/UsernameChange.js';
 import Player from '../../models/players/Player.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -49,7 +50,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching user profile:', error);
+    logger.error('Error fetching user profile:', error);
     return res.status(500).json({error: 'Failed to fetch user profile'});
   }
 });
@@ -172,7 +173,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     });
   } catch (error) {
     await transaction.rollback();
-    console.error('Error updating user profile:', error);
+    logger.error('Error updating user profile:', error);
     return res.status(500).json({error: 'Failed to update profile'});
   }
 });
@@ -207,7 +208,7 @@ router.put('/password', Auth.user(), async (req: Request, res: Response) => {
 
     return res.json({message: 'Password updated successfully'});
   } catch (error) {
-    console.error('Error updating password:', error);
+    logger.error('Error updating password:', error);
     return res.status(500).json({error: 'Failed to update password'});
   }
 });

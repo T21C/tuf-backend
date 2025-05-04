@@ -10,6 +10,7 @@ import { evaluateDirectiveCondition } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
 import Judgement from '../../models/passes/Judgement.js';
+import { logger } from '../../services/LoggerService.js';
 
 interface AnnouncementConfig {
   webhooks: {
@@ -80,7 +81,7 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
       try {
         return evaluateDirectiveCondition(condition.customFunction, pass, level);
       } catch (error) {
-        console.error('Error evaluating custom condition:', error);
+        logger.error('Error evaluating custom condition:', error);
         return false;
       }
 

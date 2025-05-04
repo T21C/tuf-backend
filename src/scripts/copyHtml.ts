@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { logger } from '../services/LoggerService.js';
 
 // Get the directory name of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -33,7 +34,7 @@ function copyHtmlFiles() {
     count++;
   });
 
-  console.log(`Copied ${count} HTML files to dist directory`);
+  logger.info(`Copied ${count} HTML files to dist directory`);
   return;
 }
 

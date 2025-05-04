@@ -4,6 +4,7 @@ import { fetchDiscordUserInfo } from '../utils/discord.js';
 import { initializeAssociations } from '../models/associations.js';
 import { Op } from 'sequelize';
 import OAuthProvider from '../models/auth/OAuthProvider.js';
+import { logger } from '../services/LoggerService.js';
 
 const BATCH_SIZE = 100;
 const RATE_LIMIT_DELAY = 1000; // 1 second between batches
@@ -14,11 +15,11 @@ const shouldReset = args.includes('--reset');
 
 async function refreshDiscordAvatars() {
   try {
-    console.log('Starting Discord avatar refresh...');
+    logger.info('Starting Discord avatar refresh...');
 
     // If reset flag is provided, clear all avatar URLs first
     if (shouldReset) {
-      console.log('Starting from scratch...');
+      logger.info('Starting from scratch...');
     }
 
     // First, get all users with Discord IDs
@@ -37,18 +38,18 @@ async function refreshDiscordAvatars() {
       ]
     });
 
-    console.log(`Found ${users.length} users with Discord IDs${shouldReset ? '' : ' needing avatar updates'}`);
+    logger.info(`Found ${users.length} users with Discord IDs${shouldReset ? '' : ' needing avatar updates'}`);
 
     // Process users in batches to handle rate limits
     for (let i = 0; i < users.length; i += BATCH_SIZE) {
       const batch = users.slice(i, i + BATCH_SIZE);
-      console.log(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(users.length/BATCH_SIZE)}`);
+      logger.info(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(users.length/BATCH_SIZE)}`);
 
       // Process each user in the batch
       for (const user of batch) {
         try {
           if (!user.providers || !user.providers[0].providerId) {
-            console.log(`Skipping user ${user.id} - no Discord provider ID found`);
+            logger.info(`Skipping user ${user.id} - no Discord provider ID found`);
             continue;
           }
 
@@ -67,10 +68,10 @@ async function refreshDiscordAvatars() {
             avatarUrl: newAvatarUrl
           });
 
-          console.log(`Updated user ${user.id} (${discordInfo.username})`);
+          logger.info(`Updated user ${user.id} (${discordInfo.username})`);
         } catch (error) {
           if (error instanceof Error) {
-            console.error(`Error updating user ${user.id}:`, error.message);
+            logger.error(`Error updating user ${user.id}:`, error.message);
             // Don't throw error, continue with next user
           }
         }
@@ -78,15 +79,15 @@ async function refreshDiscordAvatars() {
 
       // Add delay between batches to respect rate limits
       if (i + BATCH_SIZE < users.length) {
-        console.log(`Waiting ${RATE_LIMIT_DELAY}ms before next batch...`);
+        logger.info(`Waiting ${RATE_LIMIT_DELAY}ms before next batch...`);
         await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
       }
     }
 
-    console.log('\nDiscord avatar refresh completed successfully!');
+    logger.info('\nDiscord avatar refresh completed successfully!');
 
   } catch (error) {
-    console.error('Error during Discord avatar refresh:', error);
+    logger.error('Error during Discord avatar refresh:', error);
     throw error;
   }
 }
@@ -95,14 +96,14 @@ async function refreshDiscordAvatars() {
 sequelize.authenticate()
   .then(() => {
     initializeAssociations();
-    console.log('Database connection established successfully.');
+    logger.info('Database connection established successfully.');
     return refreshDiscordAvatars();
   })
   .then(() => {
-    console.log('Script completed successfully.');
+    logger.info('Script completed successfully.');
     process.exit(0);
   })
   .catch((error) => {
-    console.error('Script failed:', error);
+    logger.error('Script failed:', error);
     process.exit(1);
   }); 

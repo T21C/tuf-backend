@@ -3,6 +3,7 @@ import {validSortOptions} from '../../config/constants.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import User from '../../models/auth/User.js';
 import OAuthProvider from '../../models/auth/OAuthProvider.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -102,7 +103,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     return res.json({ count: total, results: players });
   } catch (error) {
-    console.error('Error fetching leaderboard:', error);
+    logger.error('Error fetching leaderboard:', error);
     return res.status(500).json({
       error: 'Failed to fetch leaderboard',
       details: error instanceof Error ? error.message : String(error),

@@ -8,7 +8,7 @@ import {emailService} from '../utils/email.js';
 import {passwordUtils, tokenUtils} from '../utils/auth.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import {createRateLimiter} from '../utils/rateLimiter.js';
-import { logger } from '../utils/logger.js';
+import { logger } from '../services/LoggerService.js';
 import CaptchaService from '../services/CaptchaService.js';
 
 // Create a singleton instance of CaptchaService
@@ -245,7 +245,7 @@ export const authController = {
         usernameModified: finalUsername !== username,
       });
     } catch (error) {
-      console.error('Registration error:', error);
+      logger.error('Registration error:', error);
       return res.status(500).json({message: 'Registration failed'});
     }
   },
@@ -294,7 +294,7 @@ export const authController = {
 
       return res.json({message: 'Email verified successfully'});
     } catch (error) {
-      console.error('Email verification error:', error);
+      logger.error('Email verification error:', error);
       return res.status(500).json({message: 'Email verification failed'});
     }
   },
@@ -362,7 +362,7 @@ export const authController = {
 
       return res.json({message: 'Verification email sent'});
     } catch (error) {
-      console.error('Resend verification error:', error);
+      logger.error('Resend verification error:', error);
       return res
         .status(500)
         .json({message: 'Failed to resend verification email'});
@@ -493,7 +493,7 @@ export const authController = {
         },
       });
     } catch (error) {
-      console.error('Login error:', error);
+      logger.error('Login error:', error);
       return res.status(500).json({message: 'Login failed'});
     }
   },

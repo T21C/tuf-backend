@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import { exec } from 'child_process';
 import { spawn, ChildProcess } from 'child_process';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -15,7 +16,7 @@ let remoteProfilingProcess: ChildProcess | null = null;
 // Get the profiles directory
 const getProfilesDir = () => {
     const p =path.join(process.cwd(), 'profiles');
-    console.log(p);
+    logger.info(p);
    return  p;
 };
 
@@ -63,7 +64,7 @@ router.get('/list', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     res.json(groupedProfiles);
   } catch (error) {
-    console.error('Failed to list profiles:', error);
+    logger.error('Failed to list profiles:', error);
     res.status(500).json({ error: 'Failed to list profiles' });
   }
 });
@@ -100,7 +101,7 @@ router.get(
       fileStream.pipe(res);
       return;
     } catch (error) {
-      console.error('Failed to download profile:', error);
+      logger.error('Failed to download profile:', error);
       return res.status(500).json({ error: 'Failed to download profile' });
     }
   }
@@ -126,7 +127,7 @@ router.delete(
       await fs.unlink(filePath);
       return res.json({ success: true, message: 'Profile deleted successfully' });
     } catch (error) {
-      console.error('Failed to delete profile:', error);
+      logger.error('Failed to delete profile:', error);
       return res.status(500).json({ error: 'Failed to delete profile' });
     }
   }
@@ -171,7 +172,7 @@ router.post(
         newName,
       });
     } catch (error) {
-      console.error('Failed to rename profile:', error);
+      logger.error('Failed to rename profile:', error);
       return res.status(500).json({ error: 'Failed to rename profile' });
     }
   }
@@ -206,7 +207,7 @@ router.post(
       
       // Store the PID for later use
       const pid = child.pid;
-      console.log(`Started CPU profiling process with PID: ${pid}`);
+      logger.info(`Started CPU profiling process with PID: ${pid}`);
       
       // Detach the child process
       child.unref();
@@ -219,19 +220,19 @@ router.post(
             if (process.platform === 'win32') {
               exec(`taskkill /pid ${pid} /T /F`, (error: any) => {
                 if (error) {
-                  console.error('Error killing profiling process with taskkill:', error);
+                  logger.error('Error killing profiling process with taskkill:', error);
                 } else {
-                  console.log(`Successfully killed profiling process with PID: ${pid}`);
+                  logger.info(`Successfully killed profiling process with PID: ${pid}`);
                 }
               });
             } else {
               // On Unix-like systems, we can use process.kill with a negative PID
               process.kill(-pid);
-              console.log(`Successfully killed profiling process with PID: ${pid}`);
+              logger.info(`Successfully killed profiling process with PID: ${pid}`);
             }
           }
         } catch (error) {
-          console.error('Error killing profiling process:', error);
+          logger.error('Error killing profiling process:', error);
         }
       }, duration * 1000);
       
@@ -242,7 +243,7 @@ router.post(
         pid
       });
     } catch (error) {
-      console.error('Failed to trigger CPU profiling:', error);
+      logger.error('Failed to trigger CPU profiling:', error);
       return res.status(500).json({ error: 'Failed to trigger CPU profiling' });
     }
   }
@@ -275,7 +276,7 @@ router.post(
       
       // Store the PID for later use
       const pid = child.pid;
-      console.log(`Started heap snapshot process with PID: ${pid}`);
+      logger.info(`Started heap snapshot process with PID: ${pid}`);
       
       // Detach the child process
       child.unref();
@@ -288,19 +289,19 @@ router.post(
             if (process.platform === 'win32') {
               exec(`taskkill /pid ${pid} /T /F`, (error: any) => {
                 if (error) {
-                  console.error('Error killing profiling process with taskkill:', error);
+                  logger.error('Error killing profiling process with taskkill:', error);
                 } else {
-                  console.log(`Successfully killed profiling process with PID: ${pid}`);
+                  logger.info(`Successfully killed profiling process with PID: ${pid}`);
                 }
               });
             } else {
               // On Unix-like systems, we can use process.kill with a negative PID
               process.kill(-pid);
-              console.log(`Successfully killed profiling process with PID: ${pid}`);
+              logger.info(`Successfully killed profiling process with PID: ${pid}`);
             }
           }
         } catch (error) {
-          console.error('Error killing profiling process:', error);
+          logger.error('Error killing profiling process:', error);
         }
       }, 30000);
       
@@ -311,7 +312,7 @@ router.post(
         pid
       });
     } catch (error) {
-      console.error('Failed to trigger heap snapshot:', error);
+      logger.error('Failed to trigger heap snapshot:', error);
       return res.status(500).json({ error: 'Failed to trigger heap snapshot' });
     }
   }
@@ -347,7 +348,7 @@ router.post(
       
       // Store the PID for later use
       const pid = child.pid;
-      console.log(`Started combined profiling process with PID: ${pid}`);
+      logger.info(`Started combined profiling process with PID: ${pid}`);
       
       // Detach the child process
       child.unref();
@@ -360,19 +361,19 @@ router.post(
             if (process.platform === 'win32') {
               exec(`taskkill /pid ${pid} /T /F`, (error: any) => {
                 if (error) {
-                  console.error('Error killing profiling process with taskkill:', error);
+                  logger.error('Error killing profiling process with taskkill:', error);
                 } else {
-                  console.log(`Successfully killed profiling process with PID: ${pid}`);
+                  logger.info(`Successfully killed profiling process with PID: ${pid}`);
                 }
               });
             } else {
               // On Unix-like systems, we can use process.kill with a negative PID
               process.kill(-pid);
-              console.log(`Successfully killed profiling process with PID: ${pid}`);
+              logger.info(`Successfully killed profiling process with PID: ${pid}`);
             }
           }
         } catch (error) {
-          console.error('Error killing profiling process:', error);
+          logger.error('Error killing profiling process:', error);
         }
       }, duration * 1000);
       
@@ -384,7 +385,7 @@ router.post(
         pid
       });
     } catch (error) {
-      console.error('Failed to trigger combined profiling:', error);
+      logger.error('Failed to trigger combined profiling:', error);
       return res.status(500).json({ error: 'Failed to trigger combined profiling' });
     }
   }
@@ -419,7 +420,7 @@ router.post(
         
         // Store the PID for later use
         const pid = remoteProfilingProcess.pid;
-        console.log(`Started remote profiling process with PID: ${pid}`);
+        logger.info(`Started remote profiling process with PID: ${pid}`);
         
         // Detach the child process
         remoteProfilingProcess.unref();
@@ -446,19 +447,19 @@ router.post(
             if (process.platform === 'win32') {
               exec(`taskkill /pid ${pid} /T /F`, (error: any) => {
                 if (error) {
-                  console.error('Error killing remote profiling process with taskkill:', error);
+                  logger.error('Error killing remote profiling process with taskkill:', error);
                 } else {
-                  console.log(`Successfully killed remote profiling process with PID: ${pid}`);
+                  logger.info(`Successfully killed remote profiling process with PID: ${pid}`);
                 }
               });
             } else {
               // On Unix-like systems, we can use process.kill with a negative PID
               process.kill(-pid);
-              console.log(`Successfully killed remote profiling process with PID: ${pid}`);
+              logger.info(`Successfully killed remote profiling process with PID: ${pid}`);
             }
           }
         } catch (error) {
-          console.error('Error killing remote profiling process:', error);
+          logger.error('Error killing remote profiling process:', error);
         }
         
         // Clear the reference
@@ -470,7 +471,7 @@ router.post(
         });
       }
     } catch (error) {
-      console.error('Failed to toggle remote profiling:', error);
+      logger.error('Failed to toggle remote profiling:', error);
       return res.status(500).json({ error: 'Failed to toggle remote profiling' });
     }
   }
@@ -491,7 +492,7 @@ router.get(
         pid
       });
     } catch (error) {
-      console.error('Failed to get remote profiling status:', error);
+      logger.error('Failed to get remote profiling status:', error);
       return res.status(500).json({ error: 'Failed to get remote profiling status' });
     }
   }

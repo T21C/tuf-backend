@@ -28,7 +28,7 @@ import Creator from '../../models/credits/Creator.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import User from '../../models/auth/User.js';
 import { Op } from 'sequelize';
-
+import { logger } from '../../services/LoggerService.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -67,7 +67,7 @@ router.get('/levels', excludePlaceholder.fromResponse(), async (req: Request, re
       const levelSubmissions = await LevelSubmission.findAll();
       return res.json(levelSubmissions);
     } catch (error) {
-      console.error('Error fetching level submissions:', error);
+      logger.error('Error fetching level submissions:', error);
       return res.status(500).json({error: 'Failed to fetch level submissions'});
     }
   },
@@ -156,7 +156,7 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
 
     return res.json(submissionsWithStats);
   } catch (error) {
-    console.error('Error fetching pending level submissions:', error);
+    logger.error('Error fetching pending level submissions:', error);
     return res.status(500).json({ error: 'Failed to fetch pending level submissions' });
   }
 });
@@ -178,7 +178,7 @@ router.get('/passes', excludePlaceholder.fromResponse(), async (req: Request, re
       });
       return res.json(passSubmissions);
     } catch (error) {
-      console.error('Error fetching pass submissions:', error);
+      logger.error('Error fetching pass submissions:', error);
       return res.status(500).json({error: 'Failed to fetch pass submissions'});
     }
   },
@@ -217,7 +217,7 @@ router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Respo
       });
       return res.json(submissions);
     } catch (error) {
-      console.error('Error fetching pending pass submissions:', error);
+      logger.error('Error fetching pending pass submissions:', error);
       return res
         .status(500)
         .json({error: 'Failed to fetch pending pass submissions'});
@@ -458,7 +458,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error processing level submission:', error);
+      logger.error('Error processing level submission:', error);
       return res
         .status(500)
         .json({error: 'Failed to process level submission'});
@@ -497,7 +497,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error processing level submission:', error);
+      logger.error('Error processing level submission:', error);
       return res
 
         .status(500)
@@ -683,7 +683,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             throw error;
           }
         } catch (error) {
-          console.error('Error updating player stats:', error);
+          logger.error('Error updating player stats:', error);
           // Don't rollback main transaction here since it's already committed
         }
       }
@@ -707,9 +707,9 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         await transaction.rollback();
       } catch (rollbackError) {
         // Ignore rollback errors - transaction might already be committed
-        console.error('Error rolling back transaction:', rollbackError);
+        logger.error('Error rolling back transaction:', rollbackError);
       }
-      console.error('Error processing pass submission:', error);
+      logger.error('Error processing pass submission:', error);
       return res.status(500).json({error: 'Failed to process pass submission'});
     }
   }
@@ -742,7 +742,7 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error declining pass submission:', error);
+      logger.error('Error declining pass submission:', error);
       return res.status(500).json({error: 'Failed to decline pass submission'});
     }
   }
@@ -834,7 +834,7 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error assigning player:', error);
+      logger.error('Error assigning player:', error);
       return res.status(500).json({error: 'Failed to assign player'});
     }
   }
@@ -1038,7 +1038,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
 
             return {id: submission.id, success: true};
           } catch (error) {
-            console.error(
+            logger.error(
               `Error auto-approving submission ${submission.id}:`,
               error,
             );
@@ -1071,7 +1071,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error in auto-approve process:', error);
+      logger.error('Error in auto-approve process:', error);
       return res.status(500).json({
         error: 'Failed to auto-approve submissions',
         details: error instanceof Error ? error.message : String(error),
@@ -1212,7 +1212,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
 
   } catch (error) {
     await transaction.rollback();
-    console.error('Error updating submission profiles:', error);
+    logger.error('Error updating submission profiles:', error);
     return res.status(500).json({ error: 'Failed to update submission profiles' });
   }
 });
@@ -1284,7 +1284,7 @@ router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request,
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error assigning creator:', error);
+      logger.error('Error assigning creator:', error);
       return res.status(500).json({ error: 'Failed to assign creator' });
     }
   }
@@ -1457,7 +1457,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
 
   } catch (error) {
     await transaction.rollback();
-    console.error('Error creating and assigning creator:', error);
+    logger.error('Error creating and assigning creator:', error);
     return res.status(500).json({ error: 'Failed to create and assign creator' });
   }
 });
@@ -1569,7 +1569,7 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
     return res.json(updatedSubmission);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error adding creator request:', error);
+    logger.error('Error adding creator request:', error);
     return res.status(500).json({ error: 'Failed to add creator request' });
   }
 });
@@ -1660,7 +1660,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
     return res.json(updatedSubmission);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error removing creator request:', error);
+    logger.error('Error removing creator request:', error);
     return res.status(500).json({ error: 'Failed to remove creator request' });
   }
 });

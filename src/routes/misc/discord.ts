@@ -1,5 +1,6 @@
 import {Router} from 'express';
 import {fetchDiscordUserInfo} from '../../utils/discord.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -21,7 +22,7 @@ router.get('/users/:userId', async (req, res) => {
       avatarUrl: userInfo.avatar || null,
     });
   } catch (error) {
-    console.error('Error fetching Discord user:', error);
+    logger.error('Error fetching Discord user:', error);
     return res.status(500).json({error: 'Failed to fetch Discord user info'});
   }
 });

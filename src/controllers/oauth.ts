@@ -8,6 +8,7 @@ import {
   type RESTGetAPIUserResult,
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
+import { logger } from '../services/LoggerService.js';
 
 
 interface ProfileResponse {
@@ -88,7 +89,7 @@ export const OAuthController = {
 
     if (provider === 'discord') {
       if (!process.env.DISCORD_CLIENT_ID) {
-        console.error('DISCORD_CLIENT_ID is not set');
+        logger.error('DISCORD_CLIENT_ID is not set');
         return res.status(500).json({error: 'Discord client ID is not configured'});
       }
 
@@ -176,7 +177,7 @@ export const OAuthController = {
 
           return res.json({success: true});
         } catch (error: any) {
-          console.error('Provider linking error:', error);
+          logger.error('Provider linking error:', error);
           return res.status(400).json({error: error.message || 'Failed to link provider'});
         }
       } else {
@@ -216,7 +217,7 @@ export const OAuthController = {
       if (error instanceof Error && error.message.includes('400')) {
         return res.status(400).json({message: 'Bad authentication code'});
       }
-      //console.error('OAuth callback error:', error);
+      //logger.error('OAuth callback error:', error);
       return res.status(500).json({message: 'Authentication failed'});
     }
   },
@@ -250,7 +251,7 @@ export const OAuthController = {
 
       return res.json(response);
     } catch (error) {
-      console.error('Profile fetch error:', error);
+      logger.error('Profile fetch error:', error);
       return res.status(500).json({error: 'Failed to fetch profile'});
     }
   },
@@ -306,7 +307,7 @@ export const OAuthController = {
 
       return res.status(400).json({error: 'Unsupported provider'});
     } catch (error) {
-      console.error('Provider linking error:', error);
+      logger.error('Provider linking error:', error);
       return res.status(500).json({error: 'Failed to link provider'});
     }
   },
@@ -329,7 +330,7 @@ export const OAuthController = {
       const success = await OAuthService.unlinkProvider(req.user!.id, provider);
       return res.json({success});
     } catch (error) {
-      console.error('Provider unlinking error:', error);
+      logger.error('Provider unlinking error:', error);
       return res.status(500).json({error: 'Failed to unlink provider'});
     }
   },
@@ -385,7 +386,7 @@ export const OAuthController = {
         .status(400)
         .json({error: 'Provider not supported for token refresh'});
     } catch (error) {
-      console.error('Token refresh error:', error);
+      logger.error('Token refresh error:', error);
       return res.status(500).json({error: 'Failed to refresh token'});
     }
   },

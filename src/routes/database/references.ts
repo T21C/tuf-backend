@@ -5,6 +5,7 @@ import Difficulty from '../../models/levels/Difficulty.js';
 import Level from '../../models/levels/Level.js';
 import {Auth} from '../../middleware/auth.js';
 import sequelize from '../../config/db.js';
+import { logger } from '../../services/LoggerService.js';
 
 interface ILevelWithReference extends Level {
   reference?: {
@@ -58,7 +59,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     return res.json(formattedReferences);
   } catch (error) {
-    console.error('Error fetching references:', error);
+    logger.error('Error fetching references:', error);
     return res.status(500).json({error: 'Failed to fetch references'});
   }
 });
@@ -100,7 +101,7 @@ router.get('/difficulty/:difficultyId([0-9]+)', async (req: Request, res: Respon
 
     return res.json(formattedReference);
   } catch (error) {
-    console.error('Error fetching references by difficulty:', error);
+    logger.error('Error fetching references by difficulty:', error);
     return res.status(500).json({error: 'Failed to fetch references'});
   }
 });
@@ -120,7 +121,7 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
     });
     return res.json(references);
   } catch (error) {
-    console.error('Error fetching references by level:', error);
+    logger.error('Error fetching references by level:', error);
     return res.status(500).json({error: 'Failed to fetch references'});
   }
 });
@@ -153,7 +154,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     return res.status(201).json(reference);
   } catch (error) {
-    console.error('Error creating reference:', error);
+    logger.error('Error creating reference:', error);
     return res.status(500).json({error: 'Failed to create reference'});
   }
 });
@@ -193,7 +194,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
 
     return res.json(reference);
   } catch (error) {
-    console.error('Error updating reference:', error);
+    logger.error('Error updating reference:', error);
     return res.status(500).json({error: 'Failed to update reference'});
   }
 });
@@ -214,7 +215,7 @@ router.delete(
       await reference.destroy();
       return res.json({message: 'Reference deleted successfully'});
     } catch (error) {
-      console.error('Error deleting reference:', error);
+      logger.error('Error deleting reference:', error);
       return res.status(500).json({error: 'Failed to delete reference'});
     }
   },
@@ -277,7 +278,7 @@ router.put('/bulk/:difficultyId([0-9]+)', Auth.superAdmin(), async (req: Request
 
     return res.json(result);
   } catch (error) {
-    console.error('Error bulk updating references:', error);
+    logger.error('Error bulk updating references:', error);
     return res.status(500).json({ error: 'Failed to bulk update references' });
   }
 });

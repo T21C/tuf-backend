@@ -4,6 +4,7 @@ import {tokenUtils} from '../utils/auth.js';
 import type {UserAttributes} from '../models/auth/User.js';
 import axios from 'axios';
 import Player from '../models/players/Player.js';
+import { logger } from '../services/LoggerService.js';
 
 // Extend Express Request type to include user
 declare global {
@@ -119,7 +120,7 @@ export const Auth = {
             const newToken = tokenUtils.generateJWT(user);
             res.setHeader('X-New-Token', newToken);
           } catch (error) {
-            //console.error('Failed to refresh Discord token:', error);
+            //logger.error('Failed to refresh Discord token:', error);
             // Continue with request even if refresh fails
           }
         }
@@ -127,7 +128,7 @@ export const Auth = {
         req.user = user;
         next();
       } catch (error) {
-        console.error('Auth middleware error:', error);
+        logger.error('Auth middleware error:', error);
         res.status(401).json({error: 'Authentication failed'});
         return;
       }
@@ -166,7 +167,7 @@ export const Auth = {
         req.user = user;
         next();
       } catch (error) {
-        console.error('Auth middleware error:', error);
+        logger.error('Auth middleware error:', error);
         res.status(401).json({error: 'Authentication failed'});
         return;
       }
@@ -205,7 +206,7 @@ export const Auth = {
         req.user = user;
         next();
       } catch (error) {
-        console.error('Auth middleware error:', error);
+        logger.error('Auth middleware error:', error);
         res.status(401).json({error: 'Authentication failed'});
         return;
       }
@@ -332,7 +333,7 @@ export const Auth = {
         next();
       } catch (error) {
         // On any error, just continue without user
-        console.error('Optional auth middleware error:', error);
+        logger.error('Optional auth middleware error:', error);
         next();
       }
     },

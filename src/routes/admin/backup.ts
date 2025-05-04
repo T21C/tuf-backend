@@ -6,6 +6,7 @@ import { createReadStream } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import os from 'os';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 const backupService = new BackupService();
@@ -20,7 +21,7 @@ const upload = multer({
 });
 
 // Initialize backup schedules
-backupService.initializeSchedules().catch(console.error);
+backupService.initializeSchedules().catch(logger.error);
 
 // Validate upload credentials
 router.head(
@@ -34,7 +35,7 @@ router.head(
       }
       return res.status(200).end();
     } catch (error) {
-      console.error('Upload validation failed:', error);
+      logger.error('Upload validation failed:', error);
       return res.status(500).json({error: 'Upload validation failed'});
     }
   },
@@ -68,7 +69,7 @@ router.post(
         fileName: newFileName,
       });
     } catch (error) {
-      console.error('Failed to upload backup:', error);
+      logger.error('Failed to upload backup:', error);
       return res.status(500).json({error: 'Failed to upload backup'});
     }
   },
@@ -96,7 +97,7 @@ router.post(
 
       res.json({success: true, backups: results});
     } catch (error) {
-      console.error('Backup creation failed:', error);
+      logger.error('Backup creation failed:', error);
       res.status(500).json({error: 'Backup creation failed'});
     }
   },
@@ -143,7 +144,7 @@ router.get('/list', Auth.superAdmin(), async (req: Request, res: Response) => {
       files: fileBackupStats,
     });
   } catch (error) {
-    console.error('Failed to list backups:', error);
+    logger.error('Failed to list backups:', error);
     res.status(500).json({error: 'Failed to list backups'});
   }
 });
@@ -180,7 +181,7 @@ router.post(
 
       return res.json({success: true, message: 'Backup restored successfully'});
     } catch (error) {
-      console.error('Failed to restore backup:', error);
+      logger.error('Failed to restore backup:', error);
       return res.status(500).json({error: 'Failed to restore backup'});
     }
   },
@@ -212,7 +213,7 @@ router.delete(
       await fs.unlink(filePath);
       return res.json({success: true, message: 'Backup deleted successfully'});
     } catch (error) {
-      console.error('Failed to delete backup:', error);
+      logger.error('Failed to delete backup:', error);
       return res.status(500).json({error: 'Failed to delete backup'});
     }
   },
@@ -260,7 +261,7 @@ router.post(
         newName,
       });
     } catch (error) {
-      console.error('Failed to rename backup:', error);
+      logger.error('Failed to rename backup:', error);
       return res.status(500).json({error: 'Failed to rename backup'});
     }
   },
@@ -302,7 +303,7 @@ router.get(
       fileStream.pipe(res);
       return;
     } catch (error) {
-      console.error('Failed to download backup:', error);
+      logger.error('Failed to download backup:', error);
       return res.status(500).json({error: 'Failed to download backup'});
     }
   },

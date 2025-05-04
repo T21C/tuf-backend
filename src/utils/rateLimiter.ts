@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Op } from 'sequelize';
-import { logger } from './logger.js';
+import { logger } from '../services/LoggerService.js';
 import RateLimit, { RateLimitCreationAttributes } from '../models/auth/RateLimit.js';
 
 interface RateLimitConfig {

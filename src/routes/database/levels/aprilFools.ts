@@ -6,6 +6,7 @@ import { Auth } from '../../../middleware/auth.js';
 import { handlePassUpdates, sanitizeTextInput } from './index.js';
 import { getRandomSeed, seededShuffle } from '../../../utils/random.js';
 import { Op } from 'sequelize';
+import { logger } from '../../../services/LoggerService.js';
 
 
 const ENABLE_ROULETTE = process.env.APRIL_FOOLS === 'true';
@@ -121,7 +122,7 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
       return;
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating level difficulty:', error);
+      logger.error('Error updating level difficulty:', error);
       return res.status(500).json({ error: 'Failed to update level difficulty' });
     }
   });
@@ -197,7 +198,7 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
       return;
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating level timeout:', error);
+      logger.error('Error updating level timeout:', error);
       return res.status(500).json({ error: 'Failed to update level' });
     }
   });
@@ -258,7 +259,7 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
         seed: seed
       });
     } catch (error) {
-      console.error('Error fetching slot machine levels:', error);
+      logger.error('Error fetching slot machine levels:', error);
       return res.status(500).json({ error: 'Failed to fetch slot machine levels' });
     }
   });

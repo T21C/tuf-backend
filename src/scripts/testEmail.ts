@@ -1,5 +1,6 @@
 import { emailService } from '../utils/email.js';
 import dotenv from 'dotenv';
+import { logger } from '../services/LoggerService.js';
 
 // Load environment variables
 dotenv.config();
@@ -8,8 +9,8 @@ dotenv.config();
 const TEST_EMAIL = process.argv[2]; // Replace with your test email
 
 async function main() {
-  console.log('Starting email test...');
-  console.log(`Sending test email to: ${TEST_EMAIL}`);
+  logger.info('Starting email test...');
+  logger.info(`Sending test email to: ${TEST_EMAIL}`);
   
   const subject = 'TUF Email Test';
   const text = `
@@ -39,19 +40,19 @@ async function main() {
     });
     
     if (result) {
-      console.log('✅ Email sent successfully!');
+      logger.info('✅ Email sent successfully!');
     } else {
-      console.error('❌ Failed to send email. Check the logs for details.');
+      logger.error('❌ Failed to send email. Check the logs for details.');
     }
   } catch (error) {
-    console.error('❌ Error sending email:', error);
+    logger.error('❌ Error sending email:', error);
   }
   
-  console.log('Email test completed.');
+  logger.info('Email test completed.');
 }
 
 // Run the script
 main().catch(error => {
-  console.error('Unhandled error:', error);
+  logger.error('Unhandled error:', error);
   process.exit(1);
 }); 

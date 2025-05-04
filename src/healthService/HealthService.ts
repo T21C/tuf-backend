@@ -3,6 +3,7 @@ import http from 'http';
 import axios from 'axios';
 import sequelize from '../config/db.js';
 import v8 from 'v8';
+import { logger } from '../services/LoggerService.js';
 
 export class HealthService {
   private static instance: HealthService;
@@ -329,7 +330,7 @@ export class HealthService {
       
       return response.status === 200;
     } catch (error) {
-      console.error(`Main server health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(`Main server health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       this.mainServerInfo = null;
       return false;
     }
@@ -341,7 +342,7 @@ export class HealthService {
       await sequelize.authenticate();
       this.checks.database = true;
     } catch (error) {
-      console.error('Database health check failed:', error);
+      logger.error('Database health check failed:', error);
       this.checks.database = false;
     }
     
@@ -362,7 +363,7 @@ export class HealthService {
 
   public async start(): Promise<void> {
     if (this.isRunning) {
-      console.log('Health service is already running');
+      logger.warn('Health service is already running');
       return;
     }
     
@@ -374,8 +375,8 @@ export class HealthService {
       this.server.listen(this.port, '::', () => {
         this.isRunning = true;
         this.startTime = new Date();
-        console.log(`Health service listening on port ${this.port} (IPv4 and IPv6)`);
-        console.log(`Monitoring main server at ${this.mainServerUrl}`);
+        logger.info(`Health service listening on port ${this.port} (IPv4 and IPv6)`);
+        logger.info(`Monitoring main server at ${this.mainServerUrl}`);
       });
       
       // Run initial health check
@@ -386,13 +387,13 @@ export class HealthService {
         await this.runHealthChecks();
       }, 5000);
     } catch (error) {
-      console.error('Failed to start health service:', error);
+      logger.error('Failed to start health service:', error);
     }
   }
 
   public async stop(): Promise<void> {
     if (!this.isRunning || !this.server) {
-      console.log('Health service is not running');
+      logger.warn('Health service is not running');
       return;
     }
     
@@ -407,12 +408,12 @@ export class HealthService {
         this.server?.close(() => {
           this.isRunning = false;
           this.server = null;
-          console.log('Health service stopped');
+          logger.info('Health service stopped');
           resolve();
         });
       });
     } catch (error) {
-      console.error('Error stopping health service:', error);
+      logger.error('Error stopping health service:', error);
     }
   }
 

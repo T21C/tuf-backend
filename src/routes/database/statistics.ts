@@ -6,6 +6,7 @@ import Player from '../../models/players/Player.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import LevelSubmission from '../../models/submissions/LevelSubmission.js';
 import {PassSubmission} from '../../models/submissions/PassSubmission.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -182,11 +183,11 @@ router.get('/', async (req, res) => {
         },
       });
     } catch (queryError) {
-      console.error('Query execution failed:', queryError);
+      logger.error('Query execution failed:', queryError);
       throw queryError;
     }
   } catch (error) {
-    console.error('Error fetching statistics:', error);
+    logger.error('Error fetching statistics:', error);
     return res.status(500).json({
       error: 'Failed to fetch statistics',
       details: error instanceof Error ? error.message : String(error),
@@ -238,7 +239,7 @@ router.get('/players', async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error('Error fetching player statistics:', error);
+    logger.error('Error fetching player statistics:', error);
     return res.status(500).json({
       error: 'Failed to fetch player statistics',
       details: error instanceof Error ? error.message : String(error),

@@ -1,4 +1,5 @@
 import fetch, {Headers as NodeFetchHeaders} from 'node-fetch';
+import { logger } from '../services/LoggerService.js';
 
 interface DiscordUserInfo {
   id: string;
@@ -47,7 +48,7 @@ async function handleRateLimit(bucket: string): Promise<void> {
   const waitTime = Math.max(0, rateLimit.reset - now) * 1000;
 
   if (waitTime > 0) {
-    console.log(`Rate limit hit for bucket ${bucket}, waiting ${waitTime}ms`);
+    logger.info(`Rate limit hit for bucket ${bucket}, waiting ${waitTime}ms`);
     await new Promise(resolve => setTimeout(resolve, waitTime + 100)); // Add 100ms buffer
   }
 }
@@ -89,14 +90,14 @@ export async function fetchDiscordUserInfo(userId: string): Promise<{
     const retryAfter = response.headers.get('retry-after');
     if (retryAfter) {
       const waitTime = parseInt(retryAfter) * 1000;
-      console.log(`Rate limited by Discord API, waiting ${waitTime}ms`);
+      logger.info(`Rate limited by Discord API, waiting ${waitTime}ms`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       return fetchDiscordUserInfo(userId); // Retry the request
     }
   }
 
   if (!response.ok) {
-    console.error(response);
+    logger.error(JSON.stringify(response));
     throw new DiscordAPIError(
       `Failed to fetch Discord user info: ${response.statusText}`,
       response.status

@@ -1,5 +1,5 @@
 import path from "path";
-import { logger } from "../utils/logger.js";
+import { logger } from "./LoggerService.js";
 import { RecaptchaEnterpriseServiceClient } from '@google-cloud/recaptcha-enterprise';
 import { fileURLToPath } from "url";
 import fs from 'fs';

@@ -7,6 +7,7 @@ import Level from '../../models/levels/Level.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
 import {Sequelize} from 'sequelize';
 import User, {UserAttributes} from '../../models/auth/User.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -75,7 +76,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
       totalPendingSubmissions,
     });
   } catch (error) {
-    console.error('Error fetching statistics:', error);
+    logger.error('Error fetching statistics:', error);
     return res.status(500).json({error: 'Failed to fetch statistics'});
   }
 });

@@ -21,6 +21,7 @@ import { escapeForMySQL } from '../../utils/searchHelpers.js';
 import PlayerModifier from '../../models/players/PlayerModifier.js';
 import { ModifierService } from '../../services/ModifierService.js';
 import { ILevel } from '../../interfaces/models/index.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -87,7 +88,7 @@ router.get('/', async (req: Request, res: Response) => {
     const players = await playerStatsService.getLeaderboard();
     return res.json(players);
   } catch (error) {
-    console.error('Error fetching players:', error);
+    logger.error('Error fetching players:', error);
     return res.status(500).json({
       error: 'Failed to fetch players',
       details: error instanceof Error ? error.message : String(error),
@@ -194,7 +195,7 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
       topScores,
     });
   } catch (error) {
-    console.error('Error fetching player:', error);
+    logger.error('Error fetching player:', error);
     return res.status(500).json({
       error: 'Failed to fetch player',
       details: error instanceof Error ? error.message : String(error),
@@ -248,7 +249,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 
     return res.json(enrichedPlayers);
   } catch (error) {
-    console.error('Error searching players:', error);
+    logger.error('Error searching players:', error);
     return res.status(500).json({
       error: 'Failed to search players',
       details: error instanceof Error ? error.message : String(error),
@@ -375,7 +376,7 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
       return res.json({message: 'Discord info updated successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating player discord info:', error);
+      logger.error('Error updating player discord info:', error);
       return res.status(500).json({
         error: 'Failed to update player discord info',
         details: error instanceof Error ? error.message : String(error),
@@ -405,7 +406,7 @@ router.delete('/:id([0-9]+)/discord', Auth.superAdmin(), async (req: Request, re
 
       return res.json({message: 'Discord info removed successfully'});
     } catch (error) {
-      console.error('Error removing player discord info:', error);
+      logger.error('Error removing player discord info:', error);
       return res.status(500).json({
         error: 'Failed to remove player discord info',
         details: error instanceof Error ? error.message : String(error),
@@ -448,7 +449,7 @@ router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) =>
       const enrichedPlayer = await enrichPlayerData(player);
       return res.status(201).json(enrichedPlayer);
     } catch (error) {
-      console.error('Error creating player:', error);
+      logger.error('Error creating player:', error);
       return res.status(500).json({
         error: 'Failed to create player',
         details: error instanceof Error ? error.message : String(error),
@@ -477,7 +478,7 @@ router.get('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
       });
     } catch (error: any) {
       // Don't expose internal errors that might contain sensitive info
-      console.error('Error fetching Discord user:', error);
+      logger.error('Error fetching Discord user:', error);
       return res.status(error?.status || 500).json({
         error: 'Failed to fetch Discord user',
         details: error?.status === 404 ? 'Discord user not found' : 'Error fetching Discord user information'
@@ -578,7 +579,7 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating Discord info:', error);
+      logger.error('Error updating Discord info:', error);
       return res.status(500).json({
         error: 'Failed to update Discord info',
         details: error instanceof Error ? error.message : String(error),
@@ -628,7 +629,7 @@ router.put('/:id([0-9]+)/name', Auth.superAdmin(), async (req: Request, res: Res
         name: name,
       });
     } catch (error) {
-      console.error('Error updating player name:', error);
+      logger.error('Error updating player name:', error);
       return res.status(500).json({
         error: 'Failed to update player name',
         details: error instanceof Error ? error.message : String(error),
@@ -664,7 +665,7 @@ router.put('/:id([0-9]+)/country', Auth.superAdmin(), async (req: Request, res: 
         country: country.toUpperCase(),
       });
     } catch (error) {
-      console.error('Error updating player country:', error);
+      logger.error('Error updating player country:', error);
       return res.status(500).json({
         error: 'Failed to update player country',
         details: error instanceof Error ? error.message : String(error),
@@ -723,7 +724,7 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating player ban status:', error);
+      logger.error('Error updating player ban status:', error);
       return res
         .status(500)
         .json({error: 'Failed to update player ban status'});
@@ -755,7 +756,7 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating player submission pause status:', error);
+      logger.error('Error updating player submission pause status:', error);
       return res
         .status(500)
         .json({error: 'Failed to update player submission pause status'});
@@ -866,7 +867,7 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Players merged successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error merging players:', error);
+      logger.error('Error merging players:', error);
       return res.status(500).json({
         error: 'Failed to merge players',
         details: error instanceof Error ? error.message : String(error),
@@ -913,7 +914,7 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
       name: player.name
     });
   } catch (error) {
-    console.error('Error creating player profile:', error);
+    logger.error('Error creating player profile:', error);
     return res.status(500).json({ error: 'Failed to create player profile' });
   }
 });
@@ -948,7 +949,7 @@ router.get('/:playerId([0-9]+)/modifiers', Auth.addUserToRequest(), async (req, 
       }
     });
   } catch (error) {
-    console.error('Error fetching modifiers:', error);
+    logger.error('Error fetching modifiers:', error);
     return res.status(500).json({ error: 'Failed to fetch modifiers' });
   }
 });
@@ -995,7 +996,7 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
     
     return res.json({ modifier: result.modifier });
   } catch (error) {
-    console.error('Error generating modifier:', error);
+    logger.error('Error generating modifier:', error);
     return res.status(500).json({ error: 'Failed to generate modifier' });
   }
 });

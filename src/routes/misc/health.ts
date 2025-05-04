@@ -1,6 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import sequelize from '../../config/db.js';
 import { getIO } from '../../utils/socket.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = express.Router();
 
@@ -40,7 +41,7 @@ router.get('/', async (req: Request, res: Response) => {
       system: systemInfo
     });
   } catch (error) {
-    console.error('Health check failed:', error);
+    logger.error('Health check failed:', error);
     res.status(500).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),

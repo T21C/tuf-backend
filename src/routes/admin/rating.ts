@@ -10,7 +10,7 @@ import {Router, Request, Response, NextFunction} from 'express';
 import Team from '../../models/credits/Team.js';
 import Creator from '../../models/credits/Creator.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../../services/LoggerService.js';
 const router: Router = Router();
 
 // Cache for difficulties to avoid repeated DB queries
@@ -365,7 +365,7 @@ router.get('/', async (req: Request, res: Response) => {
     }); 
     return res.json(ratings);
   } catch (error) {
-    console.error('Error fetching ratings:', error);
+    logger.error('Error fetching ratings:', error);
     return res.status(500).json({error: 'Internal Server Error'});
   }
 });
@@ -718,7 +718,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     });
   } catch (error) {
     await transaction.rollback();
-    console.error('Error updating rating:', error);
+    logger.error('Error updating rating:', error);
     return res.status(500).json({error: 'Failed to update rating'});
   }
 });
@@ -851,7 +851,7 @@ router.delete(
       });
     } catch (error: unknown) {
       await transaction.rollback();
-      console.error('Error confirming rating detail:', error);
+      logger.error('Error confirming rating detail:', error);
       return res.status(500).json({error: 'Failed to confirm rating detail'});
     }
   },

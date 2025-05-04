@@ -1,5 +1,6 @@
 import { IPass } from '../interfaces/models/index.js';
 import Level from '../models/levels/Level.js';
+import { logger } from '../services/LoggerService.js';
 
 // Define the available operators and their corresponding JavaScript operators
 const OPERATORS = {
@@ -256,7 +257,7 @@ export function evaluateDirectiveCondition(
 
     return evaluate(fields);
   } catch (error) {
-    console.error('Error evaluating directive condition:', error);
+    logger.error('Error evaluating directive condition:', error);
     return false;
   }
 }

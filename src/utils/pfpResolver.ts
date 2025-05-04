@@ -1,6 +1,7 @@
 // videoDetails.js
 import dotenv from 'dotenv';
 import axios from 'axios';
+import { logger } from '../services/LoggerService.js';
 dotenv.config();
 
 const MAX_RETRIES = 3;
@@ -59,7 +60,7 @@ async function getBilibiliVideoDetails(
         return getBilibiliVideoDetails(url, retryCount + 1);
       }
 
-      // console.error(
+      // logger.error(
       //   `Error fetching Bilibili video details (attempt ${retryCount + 1}/${MAX_RETRIES}):`,
       //   error.message,
       // );
@@ -102,7 +103,7 @@ async function getYouTubeVideoDetails(url: string): Promise<string | null> {
     return channelData.items[0].snippet.thumbnails.default.url;
   } catch (error) {
     if (error instanceof Error) {
-      console.error('Error fetching YouTube video details:', error.message);
+      logger.error('Error fetching YouTube video details:', error.message);
     }
     return null;
   }

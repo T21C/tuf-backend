@@ -8,6 +8,7 @@ import { getScoreV2 } from '../utils/CalcScore.js';
 import type { IJudgements } from '../utils/CalcAcc.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import Judgement from '../models/passes/Judgement.js';
+import { logger } from '../services/LoggerService.js';
 
 // Configuration
 const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues
@@ -17,13 +18,13 @@ async function recalculateScores() {
   const transaction = await sequelize.transaction();
 
   try {
-    console.log('Starting score recalculation...');
-    console.log('This script will recalculate scoreV2 for all passes using the current formula.');
+    logger.info('Starting score recalculation...');
+    logger.info('This script will recalculate scoreV2 for all passes using the current formula.');
     
     if (CONFIRMATION_REQUIRED) {
-      console.log('\nWARNING: This operation will update scoreV2 for all passes in the database.');
-      console.log('Make sure you have backed up your database before proceeding.');
-      console.log('Press Ctrl+C to cancel or wait 5 seconds to continue...');
+      logger.info('\nWARNING: This operation will update scoreV2 for all passes in the database.');
+      logger.info('Make sure you have backed up your database before proceeding.');
+      logger.info('Press Ctrl+C to cancel or wait 5 seconds to continue...');
       
       // Wait for 5 seconds to allow cancellation
       await new Promise(resolve => setTimeout(resolve, 5000));
@@ -34,7 +35,7 @@ async function recalculateScores() {
       where: { isDeleted: false },
       transaction
     });
-    console.log(`Found ${totalPasses} total passes to process`);
+    logger.info(`Found ${totalPasses} total passes to process`);
 
     // Process passes in batches
     let processedCount = 0;
@@ -70,12 +71,12 @@ async function recalculateScores() {
         transaction
       });
 
-      console.log(`Processing batch ${Math.floor(offset/BATCH_SIZE) + 1}/${Math.ceil(totalPasses/BATCH_SIZE)}`);
+      logger.info(`Processing batch ${Math.floor(offset/BATCH_SIZE) + 1}/${Math.ceil(totalPasses/BATCH_SIZE)}`);
 
       for (const pass of passes) {
         try {
           if (!pass.level) {
-            console.error(`Pass ${pass.id} has no associated level, skipping...`);
+            logger.error(`Pass ${pass.id} has no associated level, skipping...`);
             continue;
           }
 
@@ -115,29 +116,29 @@ async function recalculateScores() {
           
           // Log significant changes
           if (Math.abs(currentScore - newScore) > 1) {
-            console.log(`Pass ${pass.id} (Level: ${pass.level.difficulty?.name}): Score updated from ${currentScore.toFixed(2)} to ${newScore.toFixed(2)}`);
+            logger.info(`Pass ${pass.id} (Level: ${pass.level.difficulty?.name}): Score updated from ${currentScore.toFixed(2)} to ${newScore.toFixed(2)}`);
             updatedCount++;
           }
         } catch (error) {
-          console.error(`Error processing pass ${pass.id}:`, error);
+          logger.error(`Error processing pass ${pass.id}:`, error);
           errorCount++;
         }
       }
     }
 
     // Log summary
-    console.log('\nRecalculation summary:');
-    console.log(`Total passes processed: ${processedCount}`);
-    console.log(`Passes with score changes: ${updatedCount}`);
-    console.log(`Errors encountered: ${errorCount}`);
+    logger.info('\nRecalculation summary:');
+    logger.info(`Total passes processed: ${processedCount}`);
+    logger.info(`Passes with score changes: ${updatedCount}`);
+    logger.info(`Errors encountered: ${errorCount}`);
 
     // Commit transaction
     await transaction.commit();
-    console.log('\nScore recalculation completed successfully!');
+    logger.info('\nScore recalculation completed successfully!');
 
   } catch (error) {
     await transaction.rollback();
-    console.error('Error during score recalculation:', error);
+    logger.error('Error during score recalculation:', error);
     throw error;
   }
 }
@@ -146,14 +147,14 @@ async function recalculateScores() {
 sequelize.authenticate()
   .then(() => {
     initializeAssociations();
-    console.log('Database connection established successfully.');
+    logger.info('Database connection established successfully.');
     return recalculateScores();
   })
   .then(() => {
-    console.log('Script completed successfully.');
+    logger.info('Script completed successfully.');
     process.exit(0);
   })
   .catch((error) => {
-    console.error('Script failed:', error);
+    logger.error('Script failed:', error);
     process.exit(1);
   }); 

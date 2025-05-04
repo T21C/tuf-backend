@@ -4,6 +4,7 @@ import {UserAttributes} from '../models/auth/User.js';
 import {raterList, SUPER_ADMINS} from '../config/constants.js';
 import Player from '../models/players/Player.js';
 import {findPlayerByDiscordId} from '../utils/playerMapping.js';
+import { logger } from './LoggerService.js';
 
 interface OAuthProfile {
   id: string;
@@ -133,7 +134,7 @@ class OAuthService {
 
         return [user, true];
       } catch (error) {
-        console.error('[OAuthService] Error creating user:', error);
+        logger.error('[OAuthService] Error creating user:', error);
         throw error;
       }
     }
@@ -214,7 +215,7 @@ class OAuthService {
 
       return oauthProvider;
     } catch (error) {
-      console.error('[OAuthService] Error linking provider:', error);
+      logger.error('[OAuthService] Error linking provider:', error);
       throw error;
     }
   }

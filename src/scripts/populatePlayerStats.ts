@@ -1,42 +1,43 @@
 import Player from '../models/players/Player.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import sequelize from '../config/db.js';
+import { logger } from '../services/LoggerService.js';
 
 async function populatePlayerStats() {
   const playerStatsService = PlayerStatsService.getInstance();
   const transaction = await sequelize.transaction();
 
   try {
-    console.log('Starting player stats population...');
+    logger.info('Starting player stats population...');
 
     // Get all players
     const players = await Player.findAll({
       transaction,
     });
 
-    console.log(`Found ${players.length} players to process`);
+    logger.info(`Found ${players.length} players to process`);
 
     // Update stats for each player
     for (let i = 0; i < players.length; i++) {
       const player = players[i];
-      console.log(
+      logger.info(
         `Processing player ${i + 1}/${players.length}: ${player.name}`,
       );
 
       try {
         await playerStatsService.updatePlayerStats([player.id]);
-        console.log(`Successfully updated stats for player ${player.name}`);
+        logger.info(`Successfully updated stats for player ${player.name}`);
       } catch (error) {
-        console.error(`Error updating stats for player ${player.name}:`, error);
+        logger.error(`Error updating stats for player ${player.name}:`, error);
       }
     }
 
     await transaction.commit();
-    console.log('Successfully populated player stats');
+    logger.info('Successfully populated player stats');
     return;
   } catch (error) {
     await transaction.rollback();
-    console.error('Error populating player stats:', error);
+    logger.error('Error populating player stats:', error);
     throw error;
   }
 }
@@ -46,6 +47,6 @@ populatePlayerStats()
     return;
   })
   .catch(error => {
-    console.error('Error populating player stats:', error);
+    logger.error('Error populating player stats:', error);
     return;
   });

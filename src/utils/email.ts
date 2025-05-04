@@ -1,5 +1,6 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
+import { logger } from '../services/LoggerService.js';
 
 dotenv.config();
 
@@ -30,7 +31,7 @@ export const emailService = {
   async sendEmail({to, subject, text, html}: EmailOptions): Promise<boolean> {
     try {
       if (!MAILERSEND_API_TOKEN) {
-        console.error('MailerSend API token is not configured');
+        logger.error('MailerSend API token is not configured');
         return false;
       }
 
@@ -62,10 +63,10 @@ export const emailService = {
         return true;
       }
       
-      console.error('Email sending failed with status:', response.status);
+      logger.error('Email sending failed with status:', response.status);
       return false;
     } catch (error) {
-      console.error('Email sending failed:', error);
+      logger.error('Email sending failed:', error);
       return false;
     }
   },

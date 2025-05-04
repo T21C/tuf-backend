@@ -16,6 +16,7 @@ import LevelLikes from "../../../models/levels/LevelLikes.js";
 import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
 import User from "../../../models/auth/User.js";
 import Player from "../../../models/players/Player.js";
+import { logger } from "../../../services/LoggerService.js";
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -278,7 +279,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
                     );
   
                     if (!currentDifficulty) {
-                      console.error(`No difficulty found for pass ${pass.id}`);
+                      logger.error(`No difficulty found for pass ${pass.id}`);
                       return;
                     }
   
@@ -333,20 +334,20 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             throw error;
           }
         } catch (error) {
-          console.error('Error in async operations after level update:', error);
+          logger.error('Error in async operations after level update:', error);
         }
       })()
         .then(() => {
           return;
         })
         .catch(error => {
-          console.error('Error in async operations after level update:', error);
+          logger.error('Error in async operations after level update:', error);
           return;
         });
       return;
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating level:', error);
+      logger.error('Error updating level:', error);
       return res.status(500).json({error: 'Failed to update level'});
     }
   });
@@ -448,7 +449,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       }
     } catch (error) {
       await transaction.rollback();
-      console.error('Error toggling rating status:', error);
+      logger.error('Error toggling rating status:', error);
       return res.status(500).json({
         error: 'Failed to toggle rating status',
         details: error instanceof Error ? error.message : String(error),
@@ -524,7 +525,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             sseManager.broadcast({type: 'levelUpdate'});
             sseManager.broadcast({type: 'ratingUpdate'});
           } catch (error) {
-            console.error(
+            logger.error(
               'Error in async operations after level deletion:',
               error,
             );
@@ -534,7 +535,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             return;
           })
           .catch(error => {
-            console.error(
+            logger.error(
               'Error in async operations after level deletion:',
               error,
             );
@@ -543,7 +544,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         return;
       } catch (error) {
         await transaction.rollback();
-        console.error('Error soft deleting level:', error);
+        logger.error('Error soft deleting level:', error);
         return res.status(500).json({error: 'Failed to soft delete level'});
       }
     },
@@ -609,7 +610,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         });
       } catch (error) {
         await transaction.rollback();
-        console.error('Error restoring level:', error);
+        logger.error('Error restoring level:', error);
         return res.status(500).json({error: 'Failed to restore level'});
       }
     },
@@ -654,7 +655,7 @@ router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: 
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error toggling level hidden status:', error);
+      logger.error('Error toggling level hidden status:', error);
       return res.status(500).json({
         error: 'Failed to toggle level hidden status',
         details: error instanceof Error ? error.message : String(error),
@@ -735,7 +736,7 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error toggling level like:', error);
+      logger.error('Error toggling level like:', error);
       return res.status(500).json({ error: 'Failed to toggle level like' });
     }
   });
@@ -848,7 +849,7 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
         votes: req.user?.isSuperAdmin ? votes : undefined });
   } catch (error) {
     await transaction.rollback();
-    console.error('Error voting on rating accuracy:', error);
+    logger.error('Error voting on rating accuracy:', error);
     return res.status(500).json({ error: 'Failed to vote on rating accuracy' });
   }
 })

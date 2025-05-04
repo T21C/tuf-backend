@@ -16,6 +16,7 @@ import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmiss
 import LevelSubmissionTeamRequest from '../../models/submissions/LevelSubmissionTeamRequest.js';
 import Player from '../../models/players/Player.js';
 import sequelize from "../../config/db.js";
+import { logger } from '../../services/LoggerService.js';
 const router: Router = express.Router();
 
 // Add this helper function after the router declaration
@@ -348,7 +349,7 @@ router.post(
     } catch (error) {
       // Rollback transaction on error
       await transaction.rollback();
-      console.error('Submission error:', error);
+      logger.error('Submission error:', error);
       return res.status(500).json({
         error: 'Failed to process submission',
         details: error instanceof Error ? error.message : String(error),

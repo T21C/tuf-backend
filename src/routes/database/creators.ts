@@ -19,7 +19,7 @@ import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmiss
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import { buildWhereClause, filterLevels } from './levels/index.js';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../../services/LoggerService.js';
 const router: Router = Router();
 
 interface LevelCountResult {
@@ -132,7 +132,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
         results: creators,
       });
     } catch (error) {
-      console.error('Error fetching creators:', error);
+      logger.error('Error fetching creators:', error);
       return res.status(500).json({error: 'Failed to fetch creators'});
     }
   },
@@ -167,7 +167,7 @@ router.get('/byId/:creatorId([0-9]+)', async (req: Request, res: Response) => {
 
     return res.json(creator);
   } catch (error) {
-    console.error('Error fetching creator:', error);
+    logger.error('Error fetching creator:', error);
     return res.status(500).json({ error: 'Failed to fetch creator details' });
   }
 }); 
@@ -197,7 +197,7 @@ router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) =>
 
     return res.json(team);
   } catch (error) {
-    console.error('Error fetching team:', error);
+    logger.error('Error fetching team:', error);
     return res.status(500).json({ error: 'Failed to fetch team details' });
   }
 });
@@ -349,7 +349,7 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
         results: audit,
       });
     } catch (error) {
-      console.error('Error fetching levels audit:', error);
+      logger.error('Error fetching levels audit:', error);
       return res.status(500).json({error: 'Failed to fetch levels audit'});
     }
   },
@@ -398,7 +398,7 @@ router.post('/', async (req: Request, res: Response) => {
     return res.json(creatorWithAliases);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error creating creator:', error);
+    logger.error('Error creating creator:', error);
     return res.status(500).json({ error: 'Failed to create creator' });
   }
 });
@@ -439,7 +439,7 @@ router.put('/level/:levelId([0-9]+)', Auth.superAdmin(), async (req: Request, re
       return res.json({message: 'Level creators updated successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating level creators:', error);
+      logger.error('Error updating level creators:', error);
       return res.status(500).json({error: 'Failed to update level creators'});
     }
   },
@@ -475,7 +475,7 @@ router.post('/level/:levelId([0-9]+)/verify', Auth.superAdmin(), async (req: Req
       return res.json({message: 'Level credits verified successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error verifying level credits:', error);
+      logger.error('Error verifying level credits:', error);
       return res.status(500).json({error: 'Failed to verify level credits'});
     }
   },
@@ -511,7 +511,7 @@ router.post('/level/:levelId([0-9]+)/unverify', Auth.superAdmin(), async (req: R
       return res.json({message: 'Level credits unverified successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error unverifying level credits:', error);
+      logger.error('Error unverifying level credits:', error);
       return res.status(500).json({error: 'Failed to unverify level credits'});
     }
   },
@@ -615,7 +615,7 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       return res.json({success: true});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error merging creators:', error);
+      logger.error('Error merging creators:', error);
       return res.status(500).json({error: 'Failed to merge creators'});
     }
   },
@@ -747,7 +747,7 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error splitting creator:', error);
+      logger.error('Error splitting creator:', error);
       return res.status(500).json({error: 'Failed to split creator'});
     }
   },
@@ -866,7 +866,7 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
     return res.json(updatedCreator);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error updating creator:', error);
+    logger.error('Error updating creator:', error);
     return res.status(500).json({error: 'Failed to update creator'});
   }
 });
@@ -917,7 +917,7 @@ router.get('/teams', async (req: Request, res: Response) => {
 
     return res.json(teams);
   } catch (error) {
-    console.error('Error fetching teams:', error);
+    logger.error('Error fetching teams:', error);
     return res.status(500).json({error: 'Failed to fetch teams'});
   }
 });
@@ -1057,7 +1057,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
       });
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating team:', error);
+      logger.error('Error updating team:', error);
       return res.status(500).json({error: 'Failed to update team'});
     }
   },
@@ -1105,7 +1105,7 @@ router.delete('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Req
       return res.json({message: 'Team association removed successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error removing team:', error);
+      logger.error('Error removing team:', error);
       return res.status(500).json({error: 'Failed to remove team'});
     }
   },
@@ -1155,7 +1155,7 @@ router.delete('/team/:teamId([0-9]+)', Auth.superAdmin(), async (req: Request, r
       return res.json({message: 'Team deleted successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error deleting team:', error);
+      logger.error('Error deleting team:', error);
       return res.status(500).json({error: 'Failed to delete team'});
     }
   },
@@ -1181,7 +1181,7 @@ router.get('/team/:teamId([0-9]+)', async (req: Request, res: Response) => {
 
     return res.json(team);
   } catch (error) {
-    console.error('Error fetching team:', error);
+    logger.error('Error fetching team:', error);
     return res.status(500).json({error: 'Failed to fetch team'});
   }
 });
@@ -1213,7 +1213,7 @@ router.put('/:creatorId([0-9]+)/discord/:userId', Auth.superAdmin(), async (req:
       return res.json({message: 'Discord account linked successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error linking Discord account:', error);
+      logger.error('Error linking Discord account:', error);
       return res.status(500).json({error: 'Failed to link Discord account'});
     }
   },
@@ -1239,7 +1239,7 @@ router.delete('/:creatorId([0-9]+)/discord', Auth.superAdmin(), async (req: Requ
       return res.json({message: 'Discord account unlinked successfully'});
     } catch (error) {
       await transaction.rollback();
-      console.error('Error unlinking Discord account:', error);
+      logger.error('Error unlinking Discord account:', error);
       return res.status(500).json({error: 'Failed to unlink Discord account'});
     }
   },
@@ -1284,7 +1284,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 
     return res.json(creators);
   } catch (error) {
-    console.error('Error searching creators:', error);
+    logger.error('Error searching creators:', error);
     return res.status(500).json({
       error: 'Failed to search creators',
       details: error instanceof Error ? error.message : String(error)
@@ -1415,7 +1415,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     });
   } catch (error) {
     await transaction.rollback();
-    console.error('Error creating team:', error);
+    logger.error('Error creating team:', error);
     return res.status(500).json({ error: 'Failed to create team' });
   }
 });
@@ -1481,7 +1481,7 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     })));
 
   } catch (error) {
-    console.error('Error searching teams:', error);
+    logger.error('Error searching teams:', error);
     return res.status(500).json({ error: 'Failed to search teams' });
   }
 });

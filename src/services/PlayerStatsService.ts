@@ -10,7 +10,7 @@ import Judgement from '../models/passes/Judgement.js';
 import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
 import { ModifierService } from '../services/ModifierService.js';
-import { logger } from '../utils/logger.js';
+import { logger } from './LoggerService.js';
 import { checkMemoryUsage } from '../utils/memUtils.js';
 // Define operation types for the queue
 type QueueOperation = {
@@ -215,7 +215,7 @@ export class PlayerStatsService {
       this.reloadAllStatsCron();
       this.isInitialized = true;
     } catch (error) {
-      console.error('Error initializing PlayerStatsService:', error);
+      logger.error('Error initializing PlayerStatsService:', error);
       // Don't set isInitialized to true if there was an error
     }
   }
@@ -400,12 +400,12 @@ export class PlayerStatsService {
 
         } catch (error) {
           this.updating = false;
-          console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
+          logger.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
           try {
             await transaction.rollback();
             // logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
           } catch (rollbackError) {
-            console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
+            logger.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
           }
         }
       }
@@ -417,7 +417,7 @@ export class PlayerStatsService {
       // logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
-      console.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
+      logger.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
     }
     this.updating = false;
     // Emit SSE event
@@ -524,12 +524,12 @@ export class PlayerStatsService {
 
         } catch (error) {
           this.updating = false;
-          console.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
+          logger.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
           try {
             await transaction.rollback();
             // logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
           } catch (rollbackError) {
-            console.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
+            logger.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
           }
         }
       
@@ -540,7 +540,7 @@ export class PlayerStatsService {
       // logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
-      console.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
+      logger.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
     }
 
     // Emit SSE event
@@ -612,12 +612,12 @@ export class PlayerStatsService {
         }
       });
     } catch (error) {
-      console.error('[PlayerStatsService] FAILURE: Error in updateRanks:', error);
+      logger.error('[PlayerStatsService] FAILURE: Error in updateRanks:', error);
       try {
         await transaction.rollback();
         // logger.debug('[PlayerStatsService] Successfully rolled back rank updates');
       } catch (rollbackError) {
-        console.error('[PlayerStatsService] FAILURE: Error rolling back rank updates:', rollbackError);
+        logger.error('[PlayerStatsService] FAILURE: Error rolling back rank updates:', rollbackError);
       }
       throw error;
     }
@@ -876,7 +876,7 @@ export class PlayerStatsService {
         players: mappedPlayers
       };
     } catch (error) {
-      console.error('Error in getLeaderboard:', error);
+      logger.error('Error in getLeaderboard:', error);
       throw error;
     }
   }

@@ -5,6 +5,7 @@ import Player from '../../models/players/Player.js';
 import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import {Op} from 'sequelize';
 import {tokenUtils} from '../../utils/auth.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -63,7 +64,7 @@ router.get('/raters', async (req: Request, res: Response) => {
       }),
     );
   } catch (error) {
-    console.error('Failed to fetch raters:', error);
+    logger.error('Failed to fetch raters:', error);
     return res.status(500).json({error: 'Failed to fetch raters'});
   }
 });
@@ -114,7 +115,7 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
       }),
     );
   } catch (error) {
-    console.error('Failed to fetch users:', error);
+    logger.error('Failed to fetch users:', error);
     return res.status(500).json({error: 'Failed to fetch users'});
   }
 });
@@ -171,8 +172,8 @@ router.post(
         },
       });
     } catch (error: any) {
-      console.error('Failed to grant role:', error);
-      console.error('Error details:', {
+      logger.error('Failed to grant role:', error);
+      logger.error('Error details:', {
         name: error.name,
         message: error.message,
         stack: error.stack,
@@ -248,8 +249,8 @@ router.post(
         token: newToken,
       });
     } catch (error: any) {
-      console.error('Failed to revoke role:', error);
-      console.error('Error details:', {
+      logger.error('Failed to revoke role:', error);
+      logger.error('Error details:', {
         name: error.name,
         message: error.message,
         stack: error.stack,
@@ -290,7 +291,7 @@ router.post(
             updates.push(discordId);
           }
         } catch (error) {
-          console.error(
+          logger.error(
             `Failed to fetch Discord info for ${discordId}:`,
             error,
           );
@@ -304,8 +305,8 @@ router.post(
         failedIds: errors,
       });
     } catch (error: any) {
-      console.error('Failed to sync Discord info:', error);
-      console.error('Error details:', {
+      logger.error('Failed to sync Discord info:', error);
+      logger.error('Error details:', {
         name: error.name,
         message: error.message,
         stack: error.stack,
@@ -353,8 +354,8 @@ router.patch(
         },
       });
     } catch (error: any) {
-      console.error('Failed to update rating ban status:', error);
-      console.error('Error details:', {
+      logger.error('Failed to update rating ban status:', error);
+      logger.error('Error details:', {
         name: error.name,
         message: error.message,
         stack: error.stack,
@@ -393,8 +394,8 @@ router.get('/check/:discordId', async (req: Request, res: Response) => {
       isSuperAdmin: provider.oauthUser.isSuperAdmin,
     });
   } catch (error: any) {
-    console.error('Failed to check roles:', error);
-    console.error('Error details:', {
+    logger.error('Failed to check roles:', error);
+    logger.error('Error details:', {
       name: error.name,
       message: error.message,
       stack: error.stack,
@@ -436,8 +437,8 @@ router.get(
         avatarUrl: provider.oauthUser.avatarUrl,
       });
     } catch (error: any) {
-      console.error('Error fetching user by Discord ID:', error);
-      console.error('Error details:', {
+      logger.error('Error fetching user by Discord ID:', error);
+      logger.error('Error details:', {
         name: error.name,
         message: error.message,
         stack: error.stack,

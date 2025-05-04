@@ -1,5 +1,6 @@
 import twemoji from 'twemoji';
 import axios from 'axios';
+import { logger } from '../services/LoggerService.js';
 
 interface VideoDetails {
   title: string;
@@ -145,7 +146,7 @@ async function getBilibiliVideoDetails(
       pfp: pfpUrl,
     };
   } catch (error) {
-    console.error('Error fetching Bilibili video details:', JSON.stringify(error).slice(0, 500));
+    logger.error('Error fetching Bilibili video details:', JSON.stringify(error).slice(0, 500));
     return null;
   }
 }
@@ -199,7 +200,7 @@ async function getYouTubeVideoDetails(
       pfp: channelData.items[0].snippet.thumbnails.default.url,
     };
   } catch (error) {
-    console.error('Error fetching YouTube video details:', error);
+    logger.error('Error fetching YouTube video details:', error);
     return null;
   }
 }
@@ -272,7 +273,7 @@ async function getDriveFromYt(link: string): Promise<DriveResult | null> {
       };
     }
   } catch (error) {
-    console.error('Error fetching YouTube video details:', error);
+    logger.error('Error fetching YouTube video details:', error);
     return null;
   }
 

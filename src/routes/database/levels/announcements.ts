@@ -6,6 +6,7 @@ import Level from "../../../models/levels/Level.js";
 import { Router, Request, Response } from "express";
 import LevelCredit from "../../../models/levels/LevelCredit.js";
 import Team from "../../../models/credits/Team.js";
+import { logger } from "../../../services/LoggerService.js";
 
 // Get unannounced new levels
 const router: Router = Router();
@@ -34,7 +35,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
   
       return res.json(levels);
     } catch (error) {
-      console.error('Error fetching unannounced new levels:', error);
+      logger.error('Error fetching unannounced new levels:', error);
       return res
         .status(500)
         .json({error: 'Failed to fetch unannounced new levels'});
@@ -78,7 +79,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
   
       return res.json(levels);
     } catch (error) {
-      console.error('Error fetching unannounced rerates:', error);
+      logger.error('Error fetching unannounced rerates:', error);
       return res.status(500).json({error: 'Failed to fetch unannounced rerates'});
     }
   });
@@ -108,7 +109,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
   
       return res.json({success: true, message: 'Levels marked as announced'});
     } catch (error) {
-      console.error('Error marking levels as announced:', error);
+      logger.error('Error marking levels as announced:', error);
       return res.status(500).json({error: 'Failed to mark levels as announced'});
     }
   });
@@ -133,7 +134,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
   
       return res.json({success: true});
     } catch (error) {
-      console.error('Error marking level as announced:', error);
+      logger.error('Error marking level as announced:', error);
       return res.status(500).json({
         error: 'Failed to mark level as announced',
         details: error instanceof Error ? error.message : String(error),

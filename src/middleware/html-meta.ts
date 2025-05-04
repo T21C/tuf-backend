@@ -6,6 +6,7 @@ import Difficulty from '../models/levels/Difficulty.js';
 import Creator from '../models/credits/Creator.js';
 import fs from 'fs';
 import path from 'path';
+import { logger } from '../services/LoggerService.js';
 
 const clientUrlEnv =
   process.env.NODE_ENV === 'production'
@@ -55,7 +56,7 @@ try {
   const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
   manifest = JSON.parse(manifestContent);
 } catch (error) {
-  console.error('Error reading manifest file:', error);
+  logger.error('Error reading manifest file:', error);
 }
 
 // Helper function to get all required assets
@@ -269,7 +270,7 @@ export const htmlMetaMiddleware = async (
 
     res.send(html);
   } catch (error) {
-    console.error('Error serving HTML:', error);
+    logger.error('Error serving HTML:', error);
     next(error);
   }
 };

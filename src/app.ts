@@ -21,32 +21,32 @@ import profilingRouter from './routes/misc/profiling.js';
 import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
-
+import { logger } from './services/LoggerService.js';
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {
-  console.error('UNCAUGHT EXCEPTION! Shutting down...');
-  console.error(error);
+  logger.error('UNCAUGHT EXCEPTION! Shutting down...');
+  logger.error(error.message);
   // Log to file or external service
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('UNHANDLED REJECTION! Shutting down...');
-  console.error('Reason:', reason);
-  console.error('Promise:', promise);
+  logger.error('UNHANDLED REJECTION! Shutting down...');
+  logger.error('Reason:', reason);
+  logger.error('Promise:', promise);
   // Log to file or external service
   process.exit(1);
 });
 
 // Add a handler for SIGTERM and SIGINT
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
+  logger.info('SIGTERM received. Shutting down gracefully...');
   // Perform cleanup
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down gracefully...');
+  logger.info('SIGINT received. Shutting down gracefully...');
   // Perform cleanup
   process.exit(0);
 });
@@ -111,7 +111,7 @@ setIO(io);
 // Socket connection handler
 io.on('connection', socket => {
   socket.on('disconnect', reason => {
-    console.log('Socket disconnected:', reason);
+    logger.info('Socket disconnected:', reason);
   });
 });
 
@@ -125,7 +125,7 @@ async function startServer() {
       await db.sequelize.sync({force: true});
     }
 
-    console.log('Database connection established.');
+    logger.info('Database connection established.');
 
     // Initialize PlayerStatsService after database is ready
     const playerStatsService = PlayerStatsService.getInstance();
@@ -224,7 +224,7 @@ async function startServer() {
     // Start the server
     await new Promise<void>(resolve => {
       httpServer.listen(Number(port), '127.0.0.1', () => {
-        console.log(
+        logger.info(
           `Server running on ${ownUrl} (${process.env.NODE_ENV} environment)`,
         );
         resolve();
@@ -232,14 +232,14 @@ async function startServer() {
     });
 
   } catch (error) {
-    console.error('Failed to start server:', error);
+    logger.error('Failed to start server:', error);
     throw error;
   }
 }
 
 // Start the server
 startServer().catch(error => {
-  console.error('Failed to start server:', error);
+  logger.error('Failed to start server:', error);
   throw error;
 });
 

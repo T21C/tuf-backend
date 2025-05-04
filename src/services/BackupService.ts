@@ -1,10 +1,12 @@
 import {exec} from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { CronJob } from 'cron';
 import config from '../config/backup.config.js';
 import db from '../models/index.js';
 import dotenv from 'dotenv';
+import { logger } from './LoggerService.js';
 dotenv.config();
 
 const DATABASE_NAME =
@@ -19,7 +21,13 @@ export class BackupService {
   constructor() {
     this.config = config;
     this.isWindows = process.env.OS === 'Windows_NT';
-    console.log(
+    if (!fsSync.existsSync(this.config.mysql.backupPath)) {
+      fs.mkdir(this.config.mysql.backupPath, {recursive: true});
+    }
+    if (!fsSync.existsSync(this.config.files.backupPath)) {
+      fs.mkdir(this.config.files.backupPath, {recursive: true});
+    }
+    logger.info(
       `BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`,
     );
   }
@@ -76,7 +84,7 @@ export class BackupService {
           else {
             try {
               await db.sequelize.sync({force: false});
-              console.log(
+              logger.info(
                 `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
               );
               resolve(true);
@@ -133,7 +141,7 @@ export class BackupService {
   async restoreFileBackup(backupPath: string) {
     let extractPath = path.join(this.config.files.backupPath, 'temp_restore');
     if (extractPath.startsWith('/')) {
-      console.log('WARNING: Extract path is absolute, converting to relative:', extractPath);
+      logger.warn('WARNING: Extract path is absolute, converting to relative:', extractPath);
       extractPath = path.join(process.cwd(), extractPath);
     }
     
@@ -392,11 +400,11 @@ export class BackupService {
         }
       }
 
-      console.log(
+      logger.info(
         `Files backup restored successfully from: ${path.basename(backupPath)}`,
       );
     } catch (error) {
-      console.error('Error during backup restoration:', error);
+      logger.error('Error during backup restoration:', error);
       throw error;
     } finally {
       // Clean up temporary directory
@@ -427,7 +435,7 @@ export class BackupService {
     }
 
     if (removedCount > 0) {
-      //console.log(`Cleaned up ${removedCount} old ${type} MySQL backups`);
+      //logger.info(`Cleaned up ${removedCount} old ${type} MySQL backups`);
     }
   }
 
@@ -450,7 +458,7 @@ export class BackupService {
     }
 
     if (removedCount > 0) {
-      //console.log(`Cleaned up ${removedCount} old ${type} file backups`);
+      //logger.info(`Cleaned up ${removedCount} old ${type} file backups`);
     }
   }
 
@@ -499,7 +507,7 @@ export class BackupService {
             type as keyof typeof config.mysql.retention,
           );
         } catch (error) {
-          console.error(`Scheduled ${type} MySQL backup failed:`, error);
+          logger.error(`Scheduled ${type} MySQL backup failed:`, error);
         }
       });
       job.start();
@@ -514,7 +522,7 @@ export class BackupService {
             type as keyof typeof config.files.retention,
           );
         } catch (error) {
-          console.error(`Scheduled ${type} files backup failed:`, error);
+          logger.error(`Scheduled ${type} files backup failed:`, error);
         }
       });
       job.start();

@@ -23,6 +23,7 @@ import {getVideoDetails} from '../../utils/videoDetailParser.js';
 import LevelSubmission from '../../models/submissions/LevelSubmission.js';
 import {calcAcc, IJudgements} from '../../utils/CalcAcc.js';
 import {Auth} from '../../middleware/auth.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = express.Router();
 
@@ -41,7 +42,7 @@ const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
 function logWebhookEvent(type: string, details: Record<string, any>) {
   if (process.env.NODE_ENV === 'development') {
     const timestamp = new Date().toISOString();
-    console.log(JSON.stringify({
+    logger.debug(JSON.stringify({
       timestamp,
       type: `webhook_${type}`,
       ...details
@@ -234,7 +235,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
       return;
     })
     .catch(error => {
-      console.error('Error sending webhook:', error);
+      logger.error('Error sending webhook:', error);
       return;
     });
   return embed;
@@ -320,7 +321,7 @@ export async function passSubmissionHook(
       return;
     })
     .catch(error => {
-      console.error('Error sending webhook:', error);
+      logger.error('Error sending webhook:', error);
       return;
     });
   return embed;
@@ -403,7 +404,7 @@ router.post(
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      console.error('Error sending webhook:', error);
+      logger.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',
         details: error instanceof Error ? error.message : String(error),
@@ -498,7 +499,7 @@ router.post(
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      console.error('Error sending webhook:', error);
+      logger.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',
         details: error instanceof Error ? error.message : String(error),
@@ -612,7 +613,7 @@ router.post(
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      console.error('Error sending webhook:', error);
+      logger.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',
         details: error instanceof Error ? error.message : String(error),

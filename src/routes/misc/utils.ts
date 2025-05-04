@@ -4,7 +4,7 @@ import path from 'path';
 import {fileURLToPath} from 'url';
 import upload from '../../middleware/upload.js';
 import AdmZip from 'adm-zip';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = express.Router();
 
@@ -103,7 +103,7 @@ function cleanupFiles(...paths: (string | undefined | null)[]): void {
         }
       }
     } catch (error) {
-      console.error(`Failed to cleanup path ${path}:`, error);
+      logger.error(`Failed to cleanup path ${path}:`, error);
     }
   }
 }
@@ -224,7 +224,7 @@ router.post(
       // Clean up on error
       cleanupFiles(tempDir, uploadedFile);
 
-      console.error('Error verifying translations:', error);
+      logger.error('Error verifying translations:', error);
       return res.status(500).json({
         error: 'Failed to verify translations',
         details: error instanceof Error ? error.message : String(error),
@@ -263,12 +263,12 @@ router.get('/download-translations', async (req: Request, res: Response) => {
     res.download(tempZipPath, 'en-translations.zip', err => {
       cleanupFiles(tempZipPath);
       if (err) {
-        console.error('Error sending translations zip:', err);
+        logger.error('Error sending translations zip:', err);
       }
     });
   } catch (error) {
     cleanupFiles(tempZipPath);
-    console.error('Error creating translations zip:', error);
+    logger.error('Error creating translations zip:', error);
     res.status(500).json({
       error: 'Failed to create translations zip',
       details: error instanceof Error ? error.message : String(error),
@@ -338,7 +338,7 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
     logger.debug(`language: ${langCode} completion: ${overallCompletion}`);
     return overallCompletion;
   } catch (error) {
-    console.error(`Error checking implementation for ${langCode}:`, error);
+    logger.error(`Error checking implementation for ${langCode}:`, error);
     return 0;
   }
 }
@@ -363,7 +363,7 @@ async function initializeLanguages() {
 
 // Initialize languages on server start
 initializeLanguages().catch(error => {
-  console.error('Error initializing languages:', error);
+  logger.error('Error initializing languages:', error);
 });
 
 // Get list of available languages
@@ -371,7 +371,7 @@ router.get('/languages', async (req: Request, res: Response) => {
   try {
     res.json(languages);
   } catch (error) {
-    console.error('Error getting languages list:', error);
+    logger.error('Error getting languages list:', error);
     res.status(500).json({
       error: 'Failed to get languages list',
       details: error instanceof Error ? error.message : String(error),
@@ -423,12 +423,12 @@ router.get(
       return res.download(tempZipPath, `${lang}-translations.zip`, err => {
         cleanupFiles(tempZipPath);
         if (err) {
-          console.error(`Error sending ${lang} translations zip:`, err);
+          logger.error(`Error sending ${lang} translations zip:`, err);
         }
       });
     } catch (error) {
       cleanupFiles(tempZipPath);
-      console.error(`Error creating ${lang} translations zip:`, error);
+      logger.error(`Error creating ${lang} translations zip:`, error);
       res.status(500).json({
         error: 'Failed to create translations zip',
         details: error instanceof Error ? error.message : String(error),
@@ -448,7 +448,7 @@ router.get('/languages', async (req: Request, res: Response) => {
 
     res.json(languagesInfo);
   } catch (error) {
-    console.error('Error getting languages list:', error);
+    logger.error('Error getting languages list:', error);
     res.status(500).json({
       error: 'Failed to get languages list',
       details: error instanceof Error ? error.message : String(error),
@@ -850,7 +850,7 @@ router.get('/', (req: Request, res: Response) => {
               languageList.appendChild(card);
             });
           } catch (error) {
-            console.error('Error fetching languages:', error);
+            logger.error('Error fetching languages:', error);
           }
         }
 

@@ -16,7 +16,7 @@ import {PlayerStatsService} from '../../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
 import { escapeForMySQL } from '../../../utils/searchHelpers.js';
 import User from '../../../models/auth/User.js';
-import { logger } from '../../../utils/logger.js';
+import { logger } from '../../../services/LoggerService.js';
 import {CreatorAlias} from '../../../models/credits/CreatorAlias.js';
 import { checkMemoryUsage } from '../../../utils/memUtils.js';
 import { TeamAlias } from '../../../models/credits/TeamAlias.js';
@@ -45,7 +45,7 @@ export async function handleLevelUpdate() {
     // Schedule a reload of all player stats
     await playerStatsService.reloadAllStats();
   } catch (error) {
-    console.error('Error reloading player stats after level update:', error);
+    logger.error('Error reloading player stats after level update:', error);
   }
 }
 
@@ -86,7 +86,7 @@ export const handlePassUpdates = async (levelId: number, diffId: number, baseSco
             );
 
             if (!currentDifficulty) {
-              console.error(`No difficulty found for pass ${pass.id}`);
+              logger.error(`No difficulty found for pass ${pass.id}`);
               return;
             }
 
@@ -137,7 +137,7 @@ export const handlePassUpdates = async (levelId: number, diffId: number, baseSco
       throw error;
     }
   } catch (error) {
-    console.error('Error in async operations after level update:', error);
+    logger.error('Error in async operations after level update:', error);
   }
 }
 // Search query types and interfaces
@@ -704,7 +704,7 @@ router.head('/:id', async (req: Request, res: Response) => {
 
     return res.status(200).end();
   } catch (error) {
-    console.error('Error checking level permissions:', error);
+    logger.error('Error checking level permissions:', error);
     return res.status(500).end();
   }
 });

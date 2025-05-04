@@ -12,7 +12,7 @@ import User from '../../models/auth/User.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '../../utils/random.js';
-import { logger } from '../../utils/logger.js';
+import { logger } from '../../services/LoggerService.js';
 import { checkMemoryUsage } from '../../utils/memUtils.js';
 import Creator from '../../models/credits/Creator.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
@@ -29,8 +29,7 @@ const THUMBNAIL_SIZES = {
 } as const;
 
 // Cache directories
-const CACHE_DIR = path.join(process.cwd(), 'cache');
-const THUMBNAILS_CACHE_DIR = path.join(CACHE_DIR, 'thumbnails');
+const THUMBNAILS_CACHE_DIR = process.env.THUMBNAILS_CACHE_PATH || path.join(process.cwd(), 'cache', 'thumbnails');
 
 // Ensure cache directories exist
 [THUMBNAILS_CACHE_DIR].forEach(dir => {
@@ -40,7 +39,7 @@ const THUMBNAILS_CACHE_DIR = path.join(CACHE_DIR, 'thumbnails');
 });
 
 // Cache TTL in milliseconds (20 seconds) for development, 12 hours for production
-const CACHE_TTL = process.env.NODE_ENV === 'production' ? 12 * 60 * 60 * 1000 : 20 * 1000;
+const CACHE_TTL = process.env.NODE_ENV === 'production' ? 48 * 60 * 60 * 1000 : 20 * 1000;
 
 // Cleanup interval in milliseconds (5 minutes)
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
@@ -105,25 +104,139 @@ function getThumbnailPath(levelId: number, size: keyof typeof THUMBNAIL_SIZES): 
 
 // Singleton Puppeteer instance
 let browser: puppeteer.Browser | null = null;
+let browserRetries = 0;
+const MAX_BROWSER_RETRIES = 5;
 
 async function getBrowser(): Promise<puppeteer.Browser> {
-  if (!browser) {
-    browser = await puppeteer.launch({
-      headless: true,
-      defaultViewport: null,
-      args: [
-        '--disable-setuid-sandbox',
-        '--no-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    });
+  try {
+    if (!browser || !browser.isConnected()) {
+      if (browser) {
+        // Try to close properly before recreating
+        try {
+          await browser.close();
+        } catch (err) {
+          logger.warn(`Failed to close existing browser: ${err}`);
+        }
+        browser = null;
+      }
+
+      logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
+      browser = await puppeteer.launch({
+        headless: true,
+        defaultViewport: null,
+        args: [
+          '--disable-setuid-sandbox',
+          '--no-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--single-process',  // More stable in containerized environments
+          '--disable-extensions',
+          '--disable-features=site-per-process',
+          '--js-flags="--max-old-space-size=512"'  // Limit memory usage
+        ],
+        timeout: 60000, // 60 second timeout
+      });
+
+      // Reset retry counter after successful launch
+      browserRetries = 0;
+      
+      // Set up disconnection handler to mark the browser as needing recreation
+      browser.on('disconnected', () => {
+        logger.warn('Browser disconnected, will recreate on next request');
+        browser = null;
+      });
+    }
+    return browser;
+  } catch (error) {
+    logger.error(`Failed to create browser: ${error instanceof Error ? error.message : String(error)}`);
+    browserRetries++;
+    
+    if (browserRetries >= MAX_BROWSER_RETRIES) {
+      browserRetries = 0;
+      throw new Error(`Failed to create browser after ${MAX_BROWSER_RETRIES} attempts`);
+    }
+    
+    // Wait before retrying
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return getBrowser();
   }
-  return browser;
 }
+
+// Function to convert HTML to PNG with retry logic
+async function htmlToPng(html: string, width: number, height: number, maxRetries = 3): Promise<Buffer> {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let page = null;
+    try {
+      logger.debug(`HTML to PNG conversion attempt ${attempt}/${maxRetries}`);
+      const browser = await getBrowser();
+      page = await browser.newPage();
+      
+      await page.setViewport({ width, height });
+      await page.setContent(html, { timeout: 30000 }); // 30 second timeout
+      
+      const pngBuffer = await page.screenshot({
+        type: 'png',
+        omitBackground: true,
+      });
+      
+      return Buffer.from(pngBuffer);
+    } catch (error) {
+      lastError = error;
+      logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
+      
+      // If this is a connection issue, mark browser for recreation
+      if (error instanceof Error && 
+          (error.message.includes('Protocol error') || 
+           error.message.includes('Connection closed') ||
+           error.message.includes('Target closed'))) {
+        browser = null;
+      }
+    } finally {
+      if (page) {
+        try {
+          await page.close();
+        } catch (err) {
+          logger.warn(`Failed to close page: ${err}`);
+        }
+      }
+    }
+    
+    // Wait before retrying
+    await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+  }
+  
+  throw lastError || new Error('HTML to PNG conversion failed');
+}
+
+// Graceful shutdown handler
+process.on('SIGTERM', async () => {
+  if (browser) {
+    logger.info('Shutting down browser on SIGTERM');
+    try {
+      await browser.close();
+    } catch (err) {
+      logger.error(`Error closing browser: ${err}`);
+    }
+    browser = null;
+  }
+});
+
+process.on('SIGINT', async () => {
+  if (browser) {
+    logger.info('Shutting down browser on SIGINT');
+    try {
+      await browser.close();
+    } catch (err) {
+      logger.error(`Error closing browser: ${err}`);
+    }
+    browser = null;
+  }
+});
 
 // Add this helper function for retrying image downloads
 async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 5000): Promise<Buffer> {
@@ -150,26 +263,6 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
   throw lastError;
 }
 
-// Function to convert HTML to PNG
-async function htmlToPng(html: string, width: number, height: number): Promise<Buffer> {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
-  
-  try {
-    await page.setViewport({ width, height });
-    await page.setContent(html);
-    
-    const pngBuffer = await page.screenshot({
-      type: 'png',
-      omitBackground: true
-    });
-    
-    return Buffer.from(pngBuffer);
-  } finally {
-    await page.close();
-  }
-}
-
 const router: Router = express.Router();
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
@@ -188,7 +281,7 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
 
     return res.send(response.data);
   } catch (error) {
-    console.error('Error fetching image:', error);
+    logger.error('Error fetching image:', error);
     res.status(500).send('Error fetching image.');
     return;
   }
@@ -208,7 +301,7 @@ router.get('/bilibili', async (req: Request, res: Response) => {
 
     return res.json(data);
   } catch (error) {
-    console.error('Error fetching data:', error);
+    logger.error('Error fetching data:', error);
     return res.status(500).json({error: 'Internal Server Error'});
   }
 });
@@ -241,7 +334,7 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
 
     return res.sendFile(avatarPath);
   } catch (error) {
-    console.error('Error serving avatar:', error);
+    logger.error('Error serving avatar:', error);
     return res.status(500).send('Error serving avatar');
   }
 });
@@ -262,7 +355,7 @@ router.get('/github-asset', async (req: Request, res: Response) => {
     res.set('Content-Type', contentType);
     return res.send(response.data);
   } catch (error) {
-    console.error('Error fetching GitHub asset:', error);
+    logger.error('Error fetching GitHub asset:', error);
     res.status(500).send('Error fetching asset.');
     return;
   }
@@ -312,7 +405,7 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
     res.set('Content-Type', contentType);
     return res.sendFile(fullPath);
   } catch (error) {
-    console.error('Error serving cached image:', error);
+    logger.error('Error serving cached image:', error);
     return res.status(500).send('Error serving image');
   }
 });
@@ -640,11 +733,11 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     return;
   } catch (error) {
     if (typeof error === 'string' && (error.startsWith("ProtocolError") || error.startsWith("Error: Protocol error"))) {
-      console.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
+      logger.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
       return res.status(500).send('Generation failed: puppeteer protocol error');
     }
-    console.error(`Error generating image for level ${req.params.levelId}:`, error);
-    console.error(`Error details:`, {
+    logger.error(`Error generating image for level ${req.params.levelId}:`, error);
+    logger.error(`Error details:`, {
       message: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : 'No stack trace available',
     });
@@ -751,7 +844,7 @@ router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
     res.set('Content-Type', 'image/png');
     return res.send(buffer);
   } catch (error) {
-    console.error('Error generating wheel image:', error);
+    logger.error('Error generating wheel image:', error);
     return res.status(500).send('Error generating wheel image');
   }
 });

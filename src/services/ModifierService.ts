@@ -13,6 +13,7 @@ import Difficulty from '../models/levels/Difficulty.js';
 import { calcAcc } from '../utils/CalcAcc.js';
 import { getScoreV2 } from '../utils/CalcScore.js';
 import { env } from 'process';
+import { logger } from './LoggerService.js';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === "true";
 
@@ -104,7 +105,7 @@ export class ModifierService {
     // For multiply and add modifiers, ensure we have a valid value
     if (type === ModifierType.RANKED_MULTIPLY || type === ModifierType.RANKED_ADD) {
       if (value === null) {
-        console.error(`[ModifierService] Invalid value for ${type} modifier`);
+        logger.error(`[ModifierService] Invalid value for ${type} modifier`);
         throw new Error(`Invalid value for ${type} modifier`);
       }
     }
@@ -211,11 +212,11 @@ export class ModifierService {
 
           await modifier.destroy();
         } catch (error) {
-          console.error(`[ModifierService] Error processing expired modifier ${modifier.type} for player ${modifier.playerId}:`, error);
+          logger.error(`[ModifierService] Error processing expired modifier ${modifier.type} for player ${modifier.playerId}:`, error);
         }
       }
     } catch (error) {
-      console.error('[ModifierService] Error checking expired modifiers:', error);
+      logger.error('[ModifierService] Error checking expired modifiers:', error);
     }
   }
 
@@ -236,7 +237,7 @@ export class ModifierService {
         }
       );
     } catch (error) {
-      console.error('Error recalculating level clear count:', error);
+      logger.error('Error recalculating level clear count:', error);
     }
   }
 
@@ -290,14 +291,14 @@ export class ModifierService {
       }
       
     } catch (error) {
-      console.error(`[KOC] Error handling kingofcastle for player ${playerId}:`, error);
+      logger.error(`[KOC] Error handling kingofcastle for player ${playerId}:`, error);
     }
   }
 
   public async handleBanHammer(playerId: number, ban: boolean = true): Promise<void> {
     const player = await Player.findByPk(playerId);
     if (!player) {
-      console.error(`[Ban Hammer] Player ${playerId} not found`);
+      logger.error(`[Ban Hammer] Player ${playerId} not found`);
       return;
     }
     if (!ban) {
@@ -323,11 +324,11 @@ export class ModifierService {
     });
     if (enable && user?.isSuperAdmin) {
       sourceModifier.destroy();
-      console.log(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
+      logger.info(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
       return;
     }
     if (!user) {
-      console.error(`[Super Admin] Player ${playerId} not found`);
+      logger.error(`[Super Admin] Player ${playerId} not found`);
       return;
     }
     user.update({
@@ -419,7 +420,7 @@ export class ModifierService {
         throw error;
       }
     } catch (error) {
-      console.error(`[Oops All Miss] Error processing for player ${playerId}:`, error);
+      logger.error(`[Oops All Miss] Error processing for player ${playerId}:`, error);
       throw error;
     }
   }
@@ -448,7 +449,7 @@ export class ModifierService {
       }
       
     } catch (error) {
-      console.error(`[ModifierService] Error applying modifier ${modifier.type} for player ${playerId}:`, error);
+      logger.error(`[ModifierService] Error applying modifier ${modifier.type} for player ${playerId}:`, error);
       throw error;
     }
   }
@@ -463,11 +464,11 @@ export class ModifierService {
         try {
           await this.applyModifier(modifier);
         } catch (error) {
-          console.error(`[ModifierService] Error processing modifier ${modifier.type} for player ${playerId}:`, error);
+          logger.error(`[ModifierService] Error processing modifier ${modifier.type} for player ${playerId}:`, error);
         }
       }
     } catch (error) {
-      console.error(`[ModifierService] Error applying modifiers for player ${playerId}:`, error);
+      logger.error(`[ModifierService] Error applying modifiers for player ${playerId}:`, error);
     }
   }
 
@@ -523,7 +524,7 @@ export class ModifierService {
         if (modifier.value) ids.push(modifier.value);
         return ids;
       }, [] as number[]);
-      console.log(playersInSwapIds);
+      logger.info(JSON.stringify(playersInSwapIds));
       const allPlayers = await Player.findAll({
         where: {
           id: {
@@ -536,7 +537,7 @@ export class ModifierService {
 
       return randomPlayer?.id || null;
     } catch (error) {
-      console.error('[Player Swap] Error getting random player:', error);
+      logger.error('[Player Swap] Error getting random player:', error);
       return null;
     }
   }
@@ -553,10 +554,10 @@ export class ModifierService {
       if (modifier.value) ids.push(modifier.value);
       return ids;
     }, [] as number[]);
-    console.log(playersInSwapIds);
+    logger.info(JSON.stringify(playersInSwapIds));
     let targetPlayerId = await this.getRandomNonBannedPlayerId(playerId);
     if (!targetPlayerId) {
-      console.error(`[Player Swap] No valid target found for player ${playerId}`);
+      logger.error(`[Player Swap] No valid target found for player ${playerId}`);
       return;
     }
     try {
@@ -582,7 +583,7 @@ export class ModifierService {
       const targetPlayer = await Player.findByPk(targetPlayerId);
       
       if (!player || !targetPlayer) {
-        console.error(`[Player Swap] Player lookup failed - Player ${playerId}: ${!!player}, Target ${targetPlayerId}: ${!!targetPlayer}`);
+        logger.error(`[Player Swap] Player lookup failed - Player ${playerId}: ${!!player}, Target ${targetPlayerId}: ${!!targetPlayer}`);
         return;
       }
 
@@ -605,7 +606,7 @@ export class ModifierService {
         });
 
         if (!swap) {
-          console.error(`[Player Swap] Failed to create swap`);
+          logger.error(`[Player Swap] Failed to create swap`);
           return;
         }
       }
@@ -684,11 +685,11 @@ export class ModifierService {
         await transaction.commit();
       } catch (error) {
         await transaction.rollback();
-        console.error(`[Player Swap] Transaction failed, rolling back:`, error);
+        logger.error(`[Player Swap] Transaction failed, rolling back:`, error);
         throw error;
       }
     } catch (error) {
-      console.error(`[Player Swap] Error during ${undo ? 'undo' : 'swap'} process:`, error);
+      logger.error(`[Player Swap] Error during ${undo ? 'undo' : 'swap'} process:`, error);
       throw error;
     }
   }
@@ -774,7 +775,7 @@ export class ModifierService {
 
       return { modifier };
     } catch (error) {
-      console.error('Error handling modifier generation:', error);
+      logger.error('Error handling modifier generation:', error);
       return { modifier: null, error: 'Failed to generate modifier' };
     }
   }

@@ -22,6 +22,7 @@ import AnnouncementRole from '../../models/announcements/AnnouncementRole.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 import { evaluateDirectiveCondition, DirectiveParser } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
+import { logger } from '../../services/LoggerService.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -41,7 +42,7 @@ async function calculateDifficultiesHash(): Promise<string> {
     const hash = crypto.createHash('sha256').update(diffsString).digest('hex');
     return hash;
   } catch (error) {
-    console.error('Error calculating difficulties hash:', error);
+    logger.error('Error calculating difficulties hash:', error);
     return '';
   }
 }
@@ -80,7 +81,7 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
       const response = await axios.get(iconUrl, {responseType: 'arraybuffer'});
       await fs.writeFile(filePath, Buffer.from(response.data));
     } catch (error) {
-      console.error(`Failed to cache icon for ${diffName}:`, error);
+      logger.error(`Failed to cache icon for ${diffName}:`, error);
       // If caching fails but file exists, continue using existing cache
       if (!(await fs.stat(filePath).catch(() => false))) {
         throw error; // Re-throw if no cached file exists
@@ -89,7 +90,7 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
 
     return newUrl;
   } catch (error) {
-    console.error(`Failed to process icon for ${diffName}:`, error);
+    logger.error(`Failed to process icon for ${diffName}:`, error);
     return iconUrl; // Return original URL as fallback
   }
 }
@@ -120,7 +121,7 @@ router.get('/hash', async (req, res) => {
   try {
     res.json({ hash: difficultiesHash });
   } catch (error) {
-    console.error('Error fetching difficulties hash:', error);
+    logger.error('Error fetching difficulties hash:', error);
     res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -134,7 +135,7 @@ router.get('/channels', Auth.superAdminPassword(), async (req, res) => {
     });
     res.json(channels);
   } catch (error) {
-    console.error('Error fetching channels:', error);
+    logger.error('Error fetching channels:', error);
     res.status(500).json({ error: 'Failed to fetch channels' });
   }
 });
@@ -156,7 +157,7 @@ router.post('/channels', Auth.superAdminPassword(), async (req, res) => {
 
     return res.status(201).json({ message: 'Channel created successfully', channel });
   } catch (error) {
-    console.error('Error creating channel:', error);
+    logger.error('Error creating channel:', error);
     return res.status(500).json({ error: 'Failed to create channel' });
   }
 });
@@ -189,7 +190,7 @@ router.put('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
 
     return res.json({ message: 'Channel updated successfully', channel });
   } catch (error) {
-    console.error('Error updating channel:', error);
+    logger.error('Error updating channel:', error);
     return res.status(500).json({ error: 'Failed to update channel' });
   }
 });
@@ -215,7 +216,7 @@ router.delete('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, re
 
     return res.json({ message: 'Channel deleted successfully' });
   } catch (error) {
-    console.error('Error deleting channel:', error);
+    logger.error('Error deleting channel:', error);
     return res.status(500).json({ error: 'Failed to delete channel' });
   }
 });
@@ -229,7 +230,7 @@ router.get('/roles', Auth.superAdminPassword(), async (req, res) => {
     });
     res.json(roles);
   } catch (error) {
-    console.error('Error fetching roles:', error);
+    logger.error('Error fetching roles:', error);
     res.status(500).json({ error: 'Failed to fetch roles' });
   }
 });
@@ -251,7 +252,7 @@ router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
 
     return res.status(201).json({ message: 'Role created successfully', role });
   } catch (error) {
-    console.error('Error creating role:', error);
+    logger.error('Error creating role:', error);
     return res.status(500).json({ error: 'Failed to create role' });
   }
 });
@@ -284,7 +285,7 @@ router.put('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => 
 
     return res.json({ message: 'Role updated successfully', role });
   } catch (error) {
-    console.error('Error updating role:', error);
+    logger.error('Error updating role:', error);
     return res.status(500).json({ error: 'Failed to update role' });
   }
 });
@@ -310,7 +311,7 @@ router.delete('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
 
     return res.json({ message: 'Role deleted successfully' });
   } catch (error) {
-    console.error('Error deleting role:', error);
+    logger.error('Error deleting role:', error);
     return res.status(500).json({ error: 'Failed to delete role' });
   }
 });
@@ -322,7 +323,7 @@ router.get('/', async (req, res) => {
     const diffsList = diffs.map(diff => diff.toJSON());
     res.json(diffsList);
   } catch (error) {
-    console.error('Error fetching difficulties:', error);
+    logger.error('Error fetching difficulties:', error);
     res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -387,7 +388,7 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
 
       return res.status(201).json(difficulty);
     } catch (error) {
-      console.error('Error creating difficulty:', error);
+      logger.error('Error creating difficulty:', error);
       return res.status(500).json({error: 'Failed to create difficulty'});
     }
   },
@@ -555,7 +556,7 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
             },
           });
         } catch (error) {
-          console.error('Error reloading stats:', error);
+          logger.error('Error reloading stats:', error);
           return res.status(500).json({
             error:
               'Difficulty updated but failed to reload stats. Please reload manually.',
@@ -584,7 +585,7 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
       return res.json(difficulty);
     } catch (error) {
       await transaction.rollback();
-      console.error('Error updating difficulty:', error);
+      logger.error('Error updating difficulty:', error);
       return res.status(500).json({error: 'Failed to update difficulty'});
     }
   },
@@ -651,7 +652,7 @@ router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, re
         throw error;
       }
     } catch (error) {
-      console.error('Error deleting difficulty:', error);
+      logger.error('Error deleting difficulty:', error);
       return res.status(500).json({error: 'Failed to delete difficulty'});
     }
   },
@@ -714,7 +715,7 @@ router.get('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req: Req
 
     return res.json(directives);
   } catch (error) {
-    console.error('Error fetching announcement directives:', error);
+    logger.error('Error fetching announcement directives:', error);
     return res.status(500).json({ error: 'Failed to fetch announcement directives' });
   }
 });
@@ -877,7 +878,7 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
     return res.json(fullDirectives);
   } catch (error) {
     await transaction.rollback();
-    console.error('Error creating directives:', error);
+    logger.error('Error creating directives:', error);
     return res.status(500).json({ error: 'Failed to create directives' });
   }
 });
@@ -935,7 +936,7 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
     return res.json({ message: 'Sort orders updated successfully' });
   } catch (error) {
     await transaction.rollback();
-    console.error('Error updating sort orders:', error);
+    logger.error('Error updating sort orders:', error);
     return res.status(500).json({ 
       error: 'Failed to update sort orders',
       details: error instanceof Error ? error.message : String(error)

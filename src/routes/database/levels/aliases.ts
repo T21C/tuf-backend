@@ -5,6 +5,7 @@ import Level from '../../../models/levels/Level.js';
 import { Auth } from '../../../middleware/auth.js';
 import { sanitizeTextInput } from './index.js';
 import { Op } from 'sequelize';
+import { logger } from '../../../services/LoggerService.js';
 const router = Router();
 
 // Get all aliases for a level
@@ -21,7 +22,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
   
       return res.json(aliases);
     } catch (error) {
-      console.error('Error fetching level aliases:', error);
+      logger.error('Error fetching level aliases:', error);
       return res.status(500).json({error: 'Failed to fetch level aliases'});
     }
   });
@@ -157,7 +158,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         });
       } catch (error) {
         await transaction.rollback();
-        console.error('Error adding level alias:', error);
+        logger.error('Error adding level alias:', error);
         return res.status(500).json({error: 'Failed to add level alias'});
       }
     },
@@ -205,7 +206,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         });
       } catch (error) {
         await transaction.rollback();
-        console.error('Error updating level alias:', error);
+        logger.error('Error updating level alias:', error);
         return res.status(500).json({error: 'Failed to update level alias'});
       }
     },
@@ -243,7 +244,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         });
       } catch (error) {
         await transaction.rollback();
-        console.error('Error deleting level alias:', error);
+        logger.error('Error deleting level alias:', error);
         return res.status(500).json({error: 'Failed to delete level alias'});
       }
     },
@@ -291,7 +292,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
           matchType,
         });
       } catch (error) {
-        console.error('Error getting alias propagation count:', error);
+        logger.error('Error getting alias propagation count:', error);
         return res
           .status(500)
           .json({error: 'Failed to get alias propagation count'});
