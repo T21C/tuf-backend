@@ -827,6 +827,7 @@ router.get('/', (req: Request, res: Response) => {
           try {
             const languages = Object.values(${JSON.stringify(languages)}).sort((a, b) => b.status - a.status);
             const languageList = document.getElementById('languageList');
+            console.log(languages);
             
             languages.forEach(lang => {
               const card = document.createElement('div');
@@ -840,7 +841,7 @@ router.get('/', (req: Request, res: Response) => {
                   </span>
                 </div>
                 <div class="language-download">
-                  <button onclick="downloadTranslation('\${lang.code}')" \${lang.status === 0 ? 'disabled' : ''}>
+                  <button onclick="downloadTranslation('\${lang.countryCode}')" \${lang.status === 0 ? 'disabled' : ''}>
                     Download \${lang.display} Translations
                   </button>
                 </div>

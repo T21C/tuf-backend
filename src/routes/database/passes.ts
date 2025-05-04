@@ -472,7 +472,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     const uniqueIds = [...new Set(allIds.map(level => level.id))];
-    logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
+    // logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
     
     // Apply pagination to the unique IDs
     let hasMore = uniqueIds.length > normalizedLimit;
