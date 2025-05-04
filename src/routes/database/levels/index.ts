@@ -322,7 +322,6 @@ export const buildFieldSearchCondition = async (
     },
     attributes: ['teamId']
   });
-  logger.debug(`creatorMatches: ${JSON.stringify(creatorMatches)}`);
   // Fix the mapping to correctly access creatorId
   const creatorIds: Set<number> = new Set();
   for (const match of creatorMatches) {
@@ -331,7 +330,6 @@ export const buildFieldSearchCondition = async (
   for (const match of creatorAliasMatches) {
     creatorIds.add(match.creatorId);
   }
-  logger.debug(`creatorIds: ${JSON.stringify(Array.from(creatorIds))}`);
   
   const teamIds: Set<number> = new Set();
   for (const match of teamMatches) {
@@ -352,7 +350,6 @@ export const buildFieldSearchCondition = async (
       },
       attributes: ['levelId']
     });
-    logger.debug(`levelsWithCreators: ${JSON.stringify(levelsWithCreators)}`);
     levelIdsWithMatchingCreators = levelsWithCreators.map(credit => credit.levelId);
   }
   
@@ -598,11 +595,11 @@ export async function filterLevels(
     order: searchOrder,
   });
   
-  logger.debug(`search query took ${Date.now() - startTime}ms`);
+  // logger.debug(`search query took ${Date.now() - startTime}ms`);
   
   // Extract unique level IDs to avoid duplicates
   const uniqueIds = searchResults.map(level => level.id);
-  logger.debug(`Found ${uniqueIds.length} unique levels`);
+  // logger.debug(`Found ${uniqueIds.length} unique levels`);
   
   // Apply pagination to the unique IDs
   let hasMore = uniqueIds.length > normalizedLimit;
@@ -610,7 +607,7 @@ export async function filterLevels(
     uniqueIds.pop();
   }
   
-  logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
+  // logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
 
   startTime = Date.now();
   const results = await Level.findAll({
@@ -674,9 +671,9 @@ export async function filterLevels(
     order: fetchOrder,
   });
   
-  logger.debug(`fetch query took ${Date.now() - startTime}ms`);
-  logger.debug(`memory usage on fetch: `);
-  checkMemoryUsage()
+  // logger.debug(`fetch query took ${Date.now() - startTime}ms`);
+  // logger.debug(`memory usage on fetch: `);
+  // checkMemoryUsage()
   return {results, hasMore};
 }
 
