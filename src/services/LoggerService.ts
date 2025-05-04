@@ -22,9 +22,33 @@ const colors = {
 
 const reset = '\x1b[0m';
 
+/**
+ * Safely stringify objects with potential circular references
+ */
+const safeStringify = (obj: any): string => {
+  if (!obj || Object.keys(obj).length === 0) return '';
+  
+  try {
+    // Handle circular references by using a cache
+    const cache: any[] = [];
+    return JSON.stringify(obj, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        // Check for circular reference
+        if (cache.includes(value)) {
+          return '[Circular Reference]';
+        }
+        cache.push(value);
+      }
+      return value;
+    });
+  } catch (error) {
+    return `[Error serializing object: ${error instanceof Error ? error.message : String(error)}]`;
+  }
+};
+
 // Define log format
 const logFormat = winston.format.printf(({ level, message, timestamp, ...metadata }) => {
-  const meta = Object.keys(metadata).length ? JSON.stringify(metadata) : '';
+  const meta = Object.keys(metadata).length ? safeStringify(metadata) : '';
   return `[${timestamp}] [${level.toUpperCase()}] ${message} ${meta}`;
 });
 
@@ -49,7 +73,7 @@ const consoleFormat = winston.format.printf(({ level, message, timestamp, ...met
   }
 
   const coloredTimestamp = `${colors.date}[${timestamp}]${reset}`;
-  const meta = Object.keys(metadata).length ? JSON.stringify(metadata) : '';
+  const meta = Object.keys(metadata).length ? safeStringify(metadata) : '';
   return `${coloredTimestamp} ||| ${coloredLevel} ${message} ${meta}`;
 });
 
