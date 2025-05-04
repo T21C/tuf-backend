@@ -405,7 +405,7 @@ export async function buildWhereClause(
   }
 
   if (onlyMyLikes && userId) {
-    logger.debug(`${await LevelLikes.findAll({where: {userId}, attributes: ['levelId']}).then(likes => likes.map(l => l.levelId))}`);
+    // logger.debug(`${await LevelLikes.findAll({where: {userId}, attributes: ['levelId']}).then(likes => likes.map(l => l.levelId))}`);
     conditions.push({
       id: {
         [Op.in]: await LevelLikes.findAll({where: {userId}, attributes: ['levelId']}).then(likes => likes.map(l => l.levelId))

@@ -40,7 +40,7 @@ export default class CaptchaService {
 public verifyCaptcha = async (token: string, action: string): Promise<number | null> => {
     try {
         // Check if required environment variables are set
-        logger.debug('Verifying reCAPTCHA token', { token, action });
+        // logger.debug('Verifying reCAPTCHA token', { token, action });
         if (!process.env.GOOGLE_CLOUD_PROJECT_ID) {
             logger.error('GOOGLE_CLOUD_PROJECT_ID is not set in environment variables');
             return null;
@@ -71,11 +71,11 @@ public verifyCaptcha = async (token: string, action: string): Promise<number | n
 
         // Create the assessment
         const [response] = await client.createAssessment(request);
-        logger.debug('reCAPTCHA assessment created', {
-            action,
-            response: JSON.stringify(response),
-            valid: response?.tokenProperties?.valid
-        });
+        // logger.debug('reCAPTCHA assessment created', {
+        //     action,
+        //     response: JSON.stringify(response),
+        //     valid: response?.tokenProperties?.valid
+        // });
 
         // Check if the token is valid
         if (!response?.tokenProperties?.valid) {
@@ -89,11 +89,11 @@ public verifyCaptcha = async (token: string, action: string): Promise<number | n
         const score = response?.riskAnalysis?.score;
 
         // Log the risk score and reasons
-        logger.debug('reCAPTCHA verification successful', {
-            action,
-            score,
-            reasons: response?.riskAnalysis?.reasons
-        });
+        // logger.debug('reCAPTCHA verification successful', {
+        //     action,
+        //     score,
+        //     reasons: response?.riskAnalysis?.reasons
+        // });
     
         return score || null;
     
