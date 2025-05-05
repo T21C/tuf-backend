@@ -15,7 +15,7 @@ export class HealthService {
   private isRunning: boolean = false;
   private startTime: Date | null = null;
   private lastCheckTime: Date | null = null;
-  private status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+  private status: 'online' | 'degraded' | 'offline' = 'online';
   private checks: Record<string, boolean> = {
     database: false,
     mainServer: false
@@ -105,10 +105,10 @@ export class HealthService {
               border-radius: 4px;
               background-color: #f5f5f5;
             }
-            .check.healthy {
+            .check.online {
               border-left: 4px solid #4CAF50;
             }
-            .check.unhealthy {
+            .check.offline {
               border-left: 4px solid #F44336;
             }
             .check.degraded {
@@ -168,11 +168,11 @@ export class HealthService {
           
           <h2>Component Status</h2>
           
-          <div class="check ${this.checks.database ? 'healthy' : 'unhealthy'}">
+          <div class="check ${this.checks.database ? 'online' : 'offline'}">
             <p><strong>Database:</strong> ${this.checks.database ? 'Connected' : 'Disconnected'}</p>
           </div>
           
-          <div class="check ${this.checks.mainServer ? 'healthy' : 'unhealthy'}">
+          <div class="check ${this.checks.mainServer ? 'online' : 'offline'}">
             <p><strong>Main Server:</strong> ${this.checks.mainServer ? 'Running' : 'Not Running'}</p>
             <p><strong>Status:</strong> <span style="color: ${this.getStatusColorForServer(mainServerStatus)}">${mainServerStatus.toUpperCase()}</span></p>
           </div>
@@ -283,11 +283,11 @@ export class HealthService {
 
   private getStatusColor(): string {
     switch (this.status) {
-      case 'healthy':
+      case 'online':
         return '#4CAF50';
       case 'degraded':
         return '#FF9800';
-      case 'unhealthy':
+      case 'offline':
         return '#F44336';
       default:
         return '#000000';
@@ -296,11 +296,11 @@ export class HealthService {
   
   private getStatusColorForServer(status: string): string {
     switch (status) {
-      case 'healthy':
+      case 'online':
         return '#4CAF50';
       case 'degraded':
         return '#FF9800';
-      case 'unhealthy':
+      case 'offline':
         return '#F44336';
       default:
         return '#000000';
@@ -350,14 +350,14 @@ export class HealthService {
     this.checks.mainServer = await this.checkMainServer();
     
     // Determine overall status
-    const unhealthyCount = Object.values(this.checks).filter(check => !check).length;
+    const offlineCount = Object.values(this.checks).filter(check => !check).length;
     
-    if (unhealthyCount === 0) {
-      this.status = 'healthy';
-    } else if (unhealthyCount === 1) {
+    if (offlineCount === 0) {
+      this.status = 'online';
+    } else if (offlineCount === 1) {
       this.status = 'degraded';
     } else {
-      this.status = 'unhealthy';
+      this.status = 'offline';
     }
   }
 
@@ -417,7 +417,7 @@ export class HealthService {
     }
   }
 
-  public getStatus(): 'healthy' | 'degraded' | 'unhealthy' {
+  public getStatus(): 'online' | 'degraded' | 'offline' {
     return this.status;
   }
 

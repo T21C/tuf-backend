@@ -34,7 +34,7 @@ function copyHtmlFiles() {
     count++;
   });
 
-  logger.info(`Copied ${count} HTML files to dist directory`);
+  console.log(`Copied ${count} HTML files to dist directory`);
   return;
 }
 

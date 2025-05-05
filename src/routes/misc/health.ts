@@ -27,8 +27,8 @@ router.get('/', async (req: Request, res: Response) => {
     };
     
     // Determine overall health status
-    const isHealthy = dbStatus.connected && socketStatus.connected;
-    const status = isHealthy ? 'healthy' : 'degraded';
+    const isonline = dbStatus.connected && socketStatus.connected;
+    const status = isonline ? 'online' : 'degraded';
     
     // Return health information
     res.status(200).json({
@@ -43,7 +43,7 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Health check failed:', error);
     res.status(500).json({
-      status: 'unhealthy',
+      status: 'offline',
       timestamp: new Date().toISOString(),
       error: error instanceof Error ? error.message : 'Unknown error'
     });
