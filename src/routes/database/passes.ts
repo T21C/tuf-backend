@@ -513,8 +513,8 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     const delay = Date.now() - startTime
-    if (delay > 150) {
-      logger.debug(`pass filter took ${delay}ms`);
+    if (delay > 400) {
+      logger.debug(`pass filter took ${delay}ms with ${uniqueIds.length} passes`);
     }
 
     return res.json({

@@ -671,8 +671,8 @@ export async function filterLevels(
   });
   
   const delay = Date.now() - startTime
-  if (delay > 150) {
-    logger.debug(`level filter took ${delay}ms`);
+  if (delay > 400) {
+    logger.debug(`level filter took ${delay}ms with ${uniqueIds.length} levels`);
   }
   // logger.debug(`memory usage on fetch: `);
   // checkMemoryUsage()

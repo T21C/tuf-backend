@@ -129,8 +129,8 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
       });
 
       const delay = Date.now() - startTime
-      if (delay > 150) {
-        logger.debug(`creators filter took ${delay}ms`);
+      if (delay > 400) {
+        logger.debug(`creators filter took ${delay}ms with ${creators.length} creators`);
       }
 
       return res.json({
