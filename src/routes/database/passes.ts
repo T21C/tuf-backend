@@ -441,6 +441,8 @@ router.post('/', async (req: Request, res: Response) => {
     const normalizedOffset = offset && offset > 0 ? offset : 0;
 
     const order = getSortOptions(sort);
+
+    const startTime = Date.now();
     // First get all IDs in correct order
     const allIds = await Pass.findAll({
       where,
@@ -509,6 +511,11 @@ router.post('/', async (req: Request, res: Response) => {
       ],
       order,
     });
+
+    const delay = Date.now() - startTime
+    if (delay > 150) {
+      logger.debug(`pass filter took ${delay}ms`);
+    }
 
     return res.json({
       count: hasMore ? 999999 : 0,

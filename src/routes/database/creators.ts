@@ -45,6 +45,7 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
       const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
       const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
       
+      const startTime = Date.now();
       const where: any = {};
       if (hideVerified === 'true') {
         where.isVerified = false;
@@ -126,6 +127,11 @@ router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Res
         offset,
         limit: normalizedLimit,
       });
+
+      const delay = Date.now() - startTime
+      if (delay > 150) {
+        logger.debug(`creators filter took ${delay}ms`);
+      }
 
       return res.json({
         count: totalCount,
@@ -232,7 +238,6 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
 
       // First get total count
       let startTime = Date.now();
-      let endTime = 0;
 
       const totalCount = await Level.count({where});
 
@@ -249,12 +254,6 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
         offset: normalizedOffset,
         limit: normalizedLimit,
       });
-      endTime = Date.now();
-      logger.debug(`Time taken to get total count: ${endTime - startTime}ms`);
-
-
-      // Then get paginated results
-      startTime = Date.now();
       
       const levels = await Level.findAll({
         where: {id: {[Op.in]: levelIds.map(level => level.id)}},
@@ -290,12 +289,7 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
         ],
         order: [['id', 'ASC']],
       });
-      endTime = Date.now();
-      logger.debug(`Time taken to get paginated results: ${endTime - startTime}ms`);
 
-
-      // Get level counts for each creator
-      startTime = Date.now();
       const levelCounts = (await LevelCredit.findAll({
         attributes: [
           'creatorId',
@@ -304,17 +298,10 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
         group: ['creatorId'],
         raw: true,
       })) as unknown as LevelCountResult[];
-      endTime = Date.now();
-      logger.debug(`Time taken to get level counts: ${endTime - startTime}ms`);
-
       startTime = Date.now();
       const levelCountMap = new Map(
         levelCounts.map(count => [count.creatorId, parseInt(count.count)]),
       );
-      endTime = Date.now();
-      logger.debug(`Time taken to get level count map: ${endTime - startTime}ms`);
-
-      startTime = Date.now();
       const audit = levels.map(level => ({
         id: level.id,
         song: level.song,
@@ -341,8 +328,10 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
           levelCount: levelCountMap.get(creator.id) || 0,
         })),
       }));
-      endTime = Date.now();
-      logger.debug(`Time taken to get audit: ${endTime - startTime}ms`);
+      const delay = Date.now() - startTime
+      if (delay > 150) {
+        logger.debug(`levels audit took ${delay}ms`);
+      }
 
       return res.json({
         count: totalCount,

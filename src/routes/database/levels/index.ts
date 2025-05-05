@@ -609,7 +609,6 @@ export async function filterLevels(
   
   // logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
 
-  startTime = Date.now();
   const results = await Level.findAll({
     where: {
       id: {
@@ -671,7 +670,10 @@ export async function filterLevels(
     order: fetchOrder,
   });
   
-  // logger.debug(`fetch query took ${Date.now() - startTime}ms`);
+  const delay = Date.now() - startTime
+  if (delay > 150) {
+    logger.debug(`level filter took ${delay}ms`);
+  }
   // logger.debug(`memory usage on fetch: `);
   // checkMemoryUsage()
   return {results, hasMore};
