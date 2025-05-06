@@ -638,7 +638,7 @@ export async function filterLevels(
       startTime['fetch'] = Date.now();
       const results = await fetchLevelDetails(uniqueIds, fetchOrder);
       endTime['fetch'] = Date.now();
-      if (endTime['fetch'] - startTime['search'] > 50) {
+      if (endTime['fetch'] - startTime['search'] > 500) {
         logger.debug(`level filter took ${endTime['fetch'] - startTime['search']}ms with ${uniqueIds.length} levels // ${endTime['search'] - startTime['search']}ms to search, ${endTime['fetch'] - startTime['fetch']}ms to fetch`);
       }
       

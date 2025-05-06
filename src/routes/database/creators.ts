@@ -329,7 +329,7 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
         })),
       }));
       const delay = Date.now() - startTime
-      if (delay > 150) {
+      if (delay > 400) {
         logger.debug(`levels audit took ${delay}ms`);
       }
 
