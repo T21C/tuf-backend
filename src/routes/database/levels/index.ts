@@ -508,18 +508,161 @@ export async function filterLevels(
   clearedFilter?: string, 
   onlyMyLikes?: boolean, 
   userId?: string | null) {
-  const where = await buildWhereClause(
-    query,
-    deletedFilter,
-    clearedFilter,
-    onlyMyLikes,
-    userId
-  );
+  
+  const startTime = Date.now();
+  
+  // Apply sensible defaults and normalization for pagination
+  const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30;
+  const normalizedOffset = offset && offset > 0 ? offset : 0;
+  
+  // Get sort options early
+  const {searchOrder, fetchOrder} = getSortOptions(sort as string);
+  
+  // Handle user likes filtering - separate flow for better performance
+  if (onlyMyLikes && userId) {
+    try {
+      // First get the liked level IDs - this is fast
+      const likedLevelIds = await LevelLikes.findAll({
+        where: { userId },
+        attributes: ['levelId']
+      }).then(likes => likes.map(l => l.levelId));
+      
+      // If no likes, return empty result immediately
+      if (likedLevelIds.length === 0) {
+        return { results: [], hasMore: false };
+      }
+      
+      // Build the where clause with additional condition for liked IDs
+      const where = await buildWhereClause(
+        query,
+        deletedFilter,
+        clearedFilter
+      );
+      
+      // Add the liked IDs condition
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        { id: { [Op.in]: likedLevelIds } }
+      ];
+      
+      // Add difficulty filtering
+      const difficultyConditions = await getDifficultyConditions(pguRange, specialDifficulties);
+      if (difficultyConditions.length > 0) {
+        where[Op.and].push({[Op.or]: difficultyConditions});
+      }
+      
+      // Use the LevelSearchView for the initial search
+      const searchResults = await LevelSearchView.findAll({
+        where,
+        offset: normalizedOffset,
+        limit: normalizedLimit + 1, // +1 to check if there are more
+        order: searchOrder,
+      });
+      
+      // Apply pagination
+      const hasMore = searchResults.length > normalizedLimit;
+      const uniqueIds = hasMore 
+        ? searchResults.slice(0, normalizedLimit).map(level => level.id)
+        : searchResults.map(level => level.id);
+      
+      // Fetch the full level data
+      const results = await fetchLevelDetails(uniqueIds, fetchOrder);
+      
+      const delay = Date.now() - startTime;
+      if (delay > 400) {
+        logger.debug(`level filter (likes) took ${delay}ms with ${results.length} levels`);
+      }
+      
+      return { results, hasMore };
+    } catch (error) {
+      logger.error('Error in likes filtering:', error);
+      // Continue with normal flow if error occurs
+    }
+  }
+  
+  // Normal filtering flow
+  try {
+    // Build the where clause - most expensive operation, do it only once
+    const where = await buildWhereClause(
+      query,
+      deletedFilter,
+      clearedFilter,
+      onlyMyLikes,
+      userId
+    );
+    
+    // Add difficulty filtering conditions
+    const difficultyConditions = await getDifficultyConditions(pguRange, specialDifficulties);
+    if (difficultyConditions.length > 0) {
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        {[Op.or]: difficultyConditions},
+      ];
+    }
+    
+    // Use the LevelSearchView for the initial search - use a transaction for consistency
+    const searchTransaction = await sequelize.transaction({
+      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED
+    });
+    try {
+      const startTime: {[key: string]: number} = {};
+      const endTime: {[key: string]: number} = {};
+      // First count query to get total (useful for client pagination)
+      startTime['search'] = Date.now();
+      const totalCount = await LevelSearchView.count({ 
+        where,
+        transaction: searchTransaction
+      });
+      const searchResults = await LevelSearchView.findAll({
+        where,
+        attributes: ['id'], // Only fetch IDs for better performance
+        offset: normalizedOffset,
+        limit: normalizedLimit + 1, // +1 to check if there are more
+        order: searchOrder,
+        transaction: searchTransaction
+      });
+      await searchTransaction.commit();
+      endTime['search'] = Date.now();
+      
+      // Apply pagination
+      const hasMore = searchResults.length > normalizedLimit;
+      const uniqueIds = hasMore 
+        ? searchResults.slice(0, normalizedLimit).map(level => level.id)
+        : searchResults.map(level => level.id);
+      
+      if (uniqueIds.length === 0) {
+        return { results: [], hasMore: false, totalCount };
+      }
+      
+      // Fetch the full level data
+      startTime['fetch'] = Date.now();
+      const results = await fetchLevelDetails(uniqueIds, fetchOrder);
+      endTime['fetch'] = Date.now();
+      if (endTime['fetch'] - startTime['search'] > 50) {
+        logger.debug(`level filter took ${endTime['fetch'] - startTime['search']}ms with ${uniqueIds.length} levels // ${endTime['search'] - startTime['search']}ms to search, ${endTime['fetch'] - startTime['fetch']}ms to fetch`);
+      }
+      
+      return { results, hasMore, totalCount };
+    } catch (error) {
+      await searchTransaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    logger.error('Error filtering levels:', error);
+    
+    // Return empty results on error
+    return { results: [], hasMore: false };
+  }
+}
 
-  // Add difficulty filtering conditions
+// Helper function to get difficulty conditions
+async function getDifficultyConditions(
+  pguRange?: {from: string, to: string}, 
+  specialDifficulties?: string[]
+): Promise<any[]> {
   const difficultyConditions: any[] = [];
-
-  // Handle PGU range if provided
+  
+  // Handle PGU range if provided - cache common difficulty queries
   if (pguRange?.from || pguRange?.to) {
     const [fromDiff, toDiff] = await Promise.all([
       pguRange.from
@@ -535,7 +678,7 @@ export async function filterLevels(
           })
         : null,
     ]);
-
+    
     if (fromDiff || toDiff) {
       const pguDifficulties = await Difficulty.findAll({
         where: {
@@ -547,6 +690,7 @@ export async function filterLevels(
         },
         attributes: ['id'],
       });
+      
       if (pguDifficulties.length > 0) {
         difficultyConditions.push({
           diffId: {[Op.in]: pguDifficulties.map(d => d.id)},
@@ -554,7 +698,7 @@ export async function filterLevels(
       }
     }
   }
-
+  
   // Handle special difficulties if provided
   if (specialDifficulties && specialDifficulties.length > 0) {
     const specialDiffs = await Difficulty.findAll({
@@ -564,52 +708,24 @@ export async function filterLevels(
       },
       attributes: ['id'],
     });
-
+    
     if (specialDiffs.length > 0) {
       difficultyConditions.push({
         diffId: {[Op.in]: specialDiffs.map(d => d.id)},
       });
     }
   }
+  
+  return difficultyConditions;
+}
 
-  // Add difficulty conditions to the where clause if any exist
-  if (difficultyConditions.length > 0) {
-    where[Op.and] = [
-      ...(where[Op.and] || []),
-      {[Op.or]: difficultyConditions},
-    ];
-  }
-
-  // Get sort options
-  const {searchOrder, fetchOrder}= getSortOptions(sort as string);
-  let startTime = Date.now();
-  
-  const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30; // took me 13 hours to find out this was needed :3
-  const normalizedOffset = offset && offset > 0 ? offset : 0;
-  
-  // Use the LevelSearchView for the initial search
-  const searchResults = await LevelSearchView.findAll({
-    where,
-    offset: normalizedOffset,
-    limit: normalizedLimit + 1,
-    order: searchOrder,
-  });
-  
-  // logger.debug(`search query took ${Date.now() - startTime}ms`);
-  
-  // Extract unique level IDs to avoid duplicates
-  const uniqueIds = searchResults.map(level => level.id);
-  // logger.debug(`Found ${uniqueIds.length} unique levels`);
-  
-  // Apply pagination to the unique IDs
-  let hasMore = uniqueIds.length > normalizedLimit;
-  if (hasMore) {
-    uniqueIds.pop();
+// Helper function to fetch level details
+async function fetchLevelDetails(uniqueIds: number[], fetchOrder: Order): Promise<ILevel[]> {
+  if (uniqueIds.length === 0) {
+    return [];
   }
   
-  // logger.debug(`Pagination: ${normalizedOffset} to ${normalizedOffset + normalizedLimit}, returning ${uniqueIds.length} levels with ${hasMore ? 'more' : 'no more'} results`);
-
-  const results = await Level.findAll({
+  return Level.findAll({
     where: {
       id: {
         [Op.in]: uniqueIds,
@@ -669,14 +785,6 @@ export async function filterLevels(
     ],
     order: fetchOrder,
   });
-  
-  const delay = Date.now() - startTime
-  if (delay > 400) {
-    logger.debug(`level filter took ${delay}ms with ${uniqueIds.length} levels`);
-  }
-  // logger.debug(`memory usage on fetch: `);
-  // checkMemoryUsage()
-  return {results, hasMore};
 }
 
 // Add HEAD endpoint for permission check

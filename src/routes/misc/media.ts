@@ -21,6 +21,9 @@ import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import sharp from 'sharp';
 
+// Promise map for tracking ongoing thumbnail generation
+const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
+
 // Define size presets
 const THUMBNAIL_SIZES = {
   SMALL: {width: 400, height: 210, multiplier: 0.5}, // 16:9 ratio
@@ -43,6 +46,18 @@ const CACHE_TTL = process.env.NODE_ENV === 'production' ? 48 * 60 * 60 * 1000 : 
 
 // Cleanup interval in milliseconds (5 minutes)
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
+
+function logWithCondition(message: string, source: string): void {
+  if (source === 'thumbnail' && 1==1) {
+    logger.debug('[Thumbnail] ' + message);
+  } else if (source === 'wheel' && 1!==1) {
+    logger.debug('[Wheel] ' + message);
+  } else if (source === 'avatar' && 1!==1) {
+    logger.debug('[Avatar] ' + message);
+  } else if (source === 'github' && 1!==1) {
+    logger.debug('[Github] ' + message);
+  }
+}
 
 // Function to check if a cached file is expired
 function isCacheExpired(filePath: string): boolean {
@@ -89,6 +104,21 @@ function cleanExpiredCacheDirectory(directory: string): void {
 // Function to clean all expired cache files
 function cleanAllExpiredCache(): void {
   cleanExpiredCacheDirectory(THUMBNAILS_CACHE_DIR);
+  
+  // Also clean up any stale promises that might be hanging around
+  const now = Date.now();
+  const MAX_PROMISE_AGE = 5 * 60 * 1000; // 5 minutes
+  
+  // Add timestamp to promises if not present
+  for (const [key, promise] of thumbnailGenerationPromises.entries()) {
+    if (!(promise as any).__timestamp) {
+      (promise as any).__timestamp = now;
+    } else if (now - (promise as any).__timestamp > MAX_PROMISE_AGE) {
+      // Clean up promises older than MAX_PROMISE_AGE
+      logger.warn(`Removing stale thumbnail generation promise for ${key}`);
+      thumbnailGenerationPromises.delete(key);
+    }
+  }
 }
 
 // Start periodic cleanup
@@ -172,7 +202,7 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     let page = null;
     try {
-      logger.debug(`HTML to PNG conversion attempt ${attempt}/${maxRetries}`);
+      logWithCondition(`HTML to PNG conversion attempt ${attempt}/${maxRetries}`, 'thumbnail');
       const browser = await getBrowser();
       page = await browser.newPage();
       
@@ -244,16 +274,16 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      logger.debug(`Attempting to download image from ${url} (attempt ${attempt}/${maxRetries})`);
+      logWithCondition(`Attempting to download image from ${url} (attempt ${attempt}/${maxRetries})`, 'thumbnail');
       const response = await axios.get(url, { responseType: 'arraybuffer' });
-      logger.debug(`Successfully downloaded image from ${url} on attempt ${attempt}`);
+      logWithCondition(`Successfully downloaded image from ${url} on attempt ${attempt}`, 'thumbnail');
       return response.data;
     } catch (error: unknown) {
       lastError = error;
       logger.warn(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`);
       
       if (attempt < maxRetries) {
-        logger.debug(`Waiting ${delayMs}ms before retrying...`);
+        logWithCondition(`Waiting ${delayMs}ms before retrying...`, 'thumbnail');
         await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
@@ -414,298 +444,342 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
-    logger.debug(`Generating thumbnail for level ${levelId} with size ${size}`);
+    logWithCondition(`Thumbnail requested for level ${levelId} with size ${size}`, 'thumbnail');
 
     // Get the cache path for LARGE version only
     const largeCachePath = getThumbnailPath(levelId, 'LARGE');
+    const promiseKey = `level-${levelId}`;
 
     // Clean expired cache file
     cleanExpiredCache(largeCachePath);
 
     // Check if we have a valid cached LARGE version
-    let largeBuffer: Buffer;
+    let largeBuffer: Buffer | undefined;
     if (fs.existsSync(largeCachePath) && !isCacheExpired(largeCachePath)) {
-      logger.debug(`Using cached LARGE thumbnail for level ${levelId}`);
+      logWithCondition(`Using cached LARGE thumbnail for level ${levelId}`, 'thumbnail');
       largeBuffer = await fs.promises.readFile(largeCachePath);
     } else {
-      // Generate and cache LARGE version
-      const level = await Level.findOne({
-        where: {id: levelId},
-        include: [
-          {model: Difficulty, as: 'difficulty'},
-          {model: LevelCredit, as: 'levelCredits', 
-            attributes: ['role'],
+      // Check if generation is already in progress
+      if (thumbnailGenerationPromises.has(promiseKey)) {
+        logWithCondition(`Thumbnail generation for level ${levelId} already in progress, waiting...`, 'thumbnail');
+        try {
+          largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
+          
+          // Verify the file was actually saved
+          if (!fs.existsSync(largeCachePath)) {
+            logger.warn(`Promise resolved but thumbnail file not found for level ${levelId}, regenerating...`);
+            // Remove the promise and continue to regeneration
+            thumbnailGenerationPromises.delete(promiseKey);
+          } else {
+            logWithCondition(`Successfully obtained thumbnail from concurrent generation for level ${levelId}`, 'thumbnail');
+            }
+          } catch (error) {
+            logger.warn(`Error while waiting for concurrent thumbnail generation for level ${levelId}:`, error);
+            thumbnailGenerationPromises.delete(promiseKey);
+          }
+        }
+      
+      // If we don't have the buffer yet (no concurrent generation or it failed)
+      if (!largeBuffer) {
+        // Create a new generation promise
+        const generationPromise = (async () => {
+          logWithCondition(`Generating new thumbnail for level ${levelId}`, 'thumbnail');
+          
+          const level = await Level.findOne({
+            where: {id: levelId},
             include: [
-              {model: Creator, as: 'creator', 
-                attributes: ['name'],
+              {model: Difficulty, as: 'difficulty'},
+              {model: LevelCredit, as: 'levelCredits', 
+                attributes: ['role'],
                 include: [
-                  {model: CreatorAlias, as: 'creatorAliases', attributes: ['name']}
+                  {model: Creator, as: 'creator', 
+                    attributes: ['name'],
+                    include: [
+                      {model: CreatorAlias, as: 'creatorAliases', attributes: ['name']}
+                    ],
+                  },
                 ],
               },
+              {model: Team, as: 'teamObject', 
+                attributes: ['name'],
+                include: [
+                  {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
+                ],
+              },
+              {model: Pass, as: 'passes', attributes: ['id']},
             ],
-          },
-          {model: Team, as: 'teamObject', 
-            attributes: ['name'],
-            include: [
-              {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
-            ],
-          },
-          {model: Pass, as: 'passes', attributes: ['id']},
-        ],
-      });
+          });
 
-      if (!level) {
-        return res.status(404).send('Level or difficulty not found');
-      }
+          if (!level) {
+            throw new Error('Level or difficulty not found');
+          }
 
-      const {song, artist, difficulty: diff} = level.dataValues;
-      if (!diff) {
-        return res.status(404).send('Difficulty not found');
-      }
+          const {song, artist, difficulty: diff} = level.dataValues;
+          if (!diff) {
+            throw new Error('Difficulty not found');
+          }
+          const  details = await getVideoDetails(level.dataValues.videoLink);
+          if (!details || !details.image) {
+            throw new Error('Video details not found');
+          }
 
-      const details = await getVideoDetails(level.dataValues.videoLink);
-      if (!details || !details.image) {
-        return res.status(404).send('Video details not found');
-      }
+          // Generate the HTML and PNG for LARGE size
+          const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
+          const iconSize = Math.floor(height * 0.184);
 
-      // Generate the HTML and PNG for LARGE size
-      const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
-      const iconSize = Math.floor(height * 0.184);
+          // Download background image with retry logic
+          let backgroundBuffer: Buffer;
+          try {
+            backgroundBuffer = await downloadImageWithRetry(details.image);
+          } catch (error: unknown) {
+            logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
+            // Create a black background
+            backgroundBuffer = Buffer.alloc(width * height * 4, 0);
+          }
 
-      // Download background image with retry logic
-      let backgroundBuffer: Buffer;
-      try {
-        backgroundBuffer = await downloadImageWithRetry(details.image);
-      } catch (error: unknown) {
-        logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
-        // Create a black background
-        backgroundBuffer = Buffer.alloc(width * height * 4, 0);
-      }
-
-      // Download difficulty icon with retry logic
-      let iconBuffer: Buffer;
-      try {
-        // Extract the icon path from the URL
-        const iconUrl = new URL(diff.icon);
-        const iconPath = iconUrl.pathname.split('/').pop();
-        
-        if (!iconPath) {
-          throw new Error('Invalid icon URL');
-        }
-        
-        // Sanitize the path to prevent directory traversal
-        const sanitizedPath = path
-          .normalize(iconPath)
-          .replace(/^(\.\.(\/|\\|$))+/, '');
-        
-        // Construct the full path to the icon in the cache
-        const basePath = path.join(process.cwd(), 'cache', 'icons');
-        const fullPath = path.join(basePath, sanitizedPath);
-        
-        // Verify the path is within the allowed directory
-        if (!fullPath.startsWith(basePath)) {
-          throw new Error('Access denied');
-        }
-        
-        // Check if file exists in cache
-        if (fs.existsSync(fullPath)) {
-          iconBuffer = await fs.promises.readFile(fullPath);
-        } else {
-          iconBuffer = await downloadImageWithRetry(diff.icon);
-        }
-      } catch (error: unknown) {
-        logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
-        // Create a placeholder icon
-        iconBuffer = Buffer.alloc(iconSize * iconSize * 4, 100);
-      }
-      const artistOverflow = artist.length > 35;
-      const songOverflow = song.length > 35;
-
-      const charters = level.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name) || [];
-      const vfxers = level.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name) || [];
-
-      const firstRow = level.teamObject ? "By " + level.teamObject.name :   
-        vfxers?.length > 0 ?
-        "Chart: " + charters.join(', ')
-        : 
-           charters?.length > 4 ?
-            "By " + charters.slice(0, 4).join(', ') + " and " + (charters.length - 4) + " more"
-            : "By " + charters.join(', ');
-
-      const secondRow = !level.teamObject 
-      && vfxers.length > 0 && charters.length > 0
-      ? "VFX: " + vfxers.join(', ')
-      : "";
-
-      const html = `
-        <html>
-          <head>
-            <style>
-              body { 
-                margin: 0; 
-                padding: 0;
-                width: ${width}px;
-                height: ${height}px;
-                
-                position: relative;
-                overflow: hidden;
-                font-family: 'NotoSansKR', 'NotoSansJP', 'NotoSansSC', 'NotoSansTC', sans-serif;
-              .text {
-                overflow: hidden;
-                display: -webkit-box;
-                -webkit-line-clamp: 2;
-                -webkit-box-orient: vertical;
-                max-width: ${520*multiplier}px;
-              }
-              .background-image {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                object-fit: cover;
-                z-index: 1;
-              }
-              .header {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: ${(110 + (artistOverflow && songOverflow ? 10 : 0))*multiplier}px;
-                background-color: rgba(0, 0, 0, 0.8);
-                z-index: 2;
-                display: flex;
-                align-items: center;
-                padding: 0 ${25*multiplier}px;
-                box-sizing: border-box;
-              }
-              .header-left {
-                display: flex;
-                align-items: center;
-                flex: 1;
-              }
-              .header-right {
-                display: flex;
-                padding-top: ${12*multiplier}px;
-                align-self: start;
-                align-items: center;
-                justify-content: flex-end;
-              }
-              .difficulty-icon {
-                width: ${iconSize}px;
-                height: ${iconSize}px;
-                margin-right: ${25*multiplier}px;
-              }
-              .song-info {
-                display: flex;
-                gap: ${5*multiplier}px;
-                flex-direction: column;
-                justify-content: center;
-              }
-              .song-title {
-                font-weight: 800;
-                font-size: ${35*multiplier*(songOverflow ? 0.8 : 1)}px;
-                color: white;
-                margin: 0;
-                line-height: 1.2;
-              }
-              .artist-name {
-                font-weight: 400;
-                font-size: ${25*multiplier*(artistOverflow ? 0.8 : 1)}px;
-                color: white;
-                margin: 0;
-                line-height: 1.2;
-              }
-              .level-id {
-                font-weight: 700;
-                font-size: ${40*multiplier}px;
-                color: #bbbbbb;
-              }
-              .footer {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                height: ${110*multiplier}px;
-                background-color: rgba(0, 0, 0, 0.8);
-                z-index: 2;
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: ${10*multiplier}px ${25*multiplier}px;
-                box-sizing: border-box;
-              }
-              .footer-left {
-                display: flex;
-                align-items: start;
-                flex-direction: column;
-              }
-              .footer-right {
-                  display: flex;
-                  max-width: 70%;
-                  gap: ${10*multiplier}px;
-                  flex-direction: column;
-              }
-              .pp-value, .pass-count {
-                font-weight: 700;
-                font-size: ${30*multiplier}px;
-                color: #bbbbbb;
-              }
-              .creator-name {
-                font-weight: 600;
-                text-align: right;
-                font-size: ${30*multiplier*(secondRow ? 0.9 : 1)}px;
-                color: white;
-              }
-            </style>
-          </head>
-          <body>
-            <!-- Background image -->
-            <img 
-              class="background-image"
-              src="data:image/png;base64,${backgroundBuffer.toString('base64')}" 
-              alt="Background"
-            />
+          // Download difficulty icon with retry logic
+          let iconBuffer: Buffer;
+          try {
+            // Extract the icon path from the URL
+            const iconUrl = new URL(diff.icon);
+            const iconPath = iconUrl.pathname.split('/').pop();
             
-            <!-- Header -->
-            <div class="header">
-              <div class="header-left">
+            if (!iconPath) {
+              throw new Error('Invalid icon URL');
+            }
+            
+            // Sanitize the path to prevent directory traversal
+            const sanitizedPath = path
+              .normalize(iconPath)
+              .replace(/^(\.\.(\/|\\|$))+/, '');
+            
+            // Construct the full path to the icon in the cache
+            const basePath = path.join(process.cwd(), 'cache', 'icons');
+            const fullPath = path.join(basePath, sanitizedPath);
+            
+            // Verify the path is within the allowed directory
+            if (!fullPath.startsWith(basePath)) {
+              throw new Error('Access denied');
+            }
+            
+            // Check if file exists in cache
+            if (fs.existsSync(fullPath)) {
+              iconBuffer = await fs.promises.readFile(fullPath);
+            } else {
+              iconBuffer = await downloadImageWithRetry(diff.icon);
+            }
+          } catch (error: unknown) {
+            logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
+            // Create a placeholder icon
+            iconBuffer = Buffer.alloc(iconSize * iconSize * 4, 100);
+          }
+          const artistOverflow = artist.length > 35;
+          const songOverflow = song.length > 35;
+
+          const charters = level.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name) || [];
+          const vfxers = level.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name) || [];
+
+          const firstRow = level.teamObject ? "By " + level.teamObject.name :   
+            vfxers?.length > 0 ?
+            "Chart: " + charters.join(', ')
+            : 
+              charters?.length > 4 ?
+                "By " + charters.slice(0, 4).join(', ') + " and " + (charters.length - 4) + " more"
+                : "By " + charters.join(', ');
+
+          const secondRow = !level.teamObject 
+          && vfxers.length > 0 && charters.length > 0
+          ? "VFX: " + vfxers.join(', ')
+          : "";
+
+          const html = `
+            <html>
+              <head>
+                <style>
+                  body { 
+                    margin: 0; 
+                    padding: 0;
+                    width: ${width}px;
+                    height: ${height}px;
+                    
+                    position: relative;
+                    overflow: hidden;
+                    font-family: 'NotoSansKR', 'NotoSansJP', 'NotoSansSC', 'NotoSansTC', sans-serif;
+                  .text {
+                    overflow: hidden;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    -webkit-box-orient: vertical;
+                    max-width: ${520*multiplier}px;
+                  }
+                  .background-image {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                    z-index: 1;
+                  }
+                  .header {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: ${(110 + (artistOverflow && songOverflow ? 10 : 0))*multiplier}px;
+                    background-color: rgba(0, 0, 0, 0.8);
+                    z-index: 2;
+                    display: flex;
+                    align-items: center;
+                    padding: 0 ${25*multiplier}px;
+                    box-sizing: border-box;
+                  }
+                  .header-left {
+                    display: flex;
+                    align-items: center;
+                    flex: 1;
+                  }
+                  .header-right {
+                    display: flex;
+                    padding-top: ${12*multiplier}px;
+                    align-self: start;
+                    align-items: center;
+                    justify-content: flex-end;
+                  }
+                  .difficulty-icon {
+                    width: ${iconSize}px;
+                    height: ${iconSize}px;
+                    margin-right: ${25*multiplier}px;
+                  }
+                  .song-info {
+                    display: flex;
+                    gap: ${5*multiplier}px;
+                    flex-direction: column;
+                    justify-content: center;
+                  }
+                  .song-title {
+                    font-weight: 800;
+                    font-size: ${35*multiplier*(songOverflow ? 0.8 : 1)}px;
+                    color: white;
+                    margin: 0;
+                    line-height: 1.2;
+                  }
+                  .artist-name {
+                    font-weight: 400;
+                    font-size: ${25*multiplier*(artistOverflow ? 0.8 : 1)}px;
+                    color: white;
+                    margin: 0;
+                    line-height: 1.2;
+                  }
+                  .level-id {
+                    font-weight: 700;
+                    font-size: ${40*multiplier}px;
+                    color: #bbbbbb;
+                  }
+                  .footer {
+                    position: absolute;
+                    bottom: 0;
+                    left: 0;
+                    width: 100%;
+                    height: ${110*multiplier}px;
+                    background-color: rgba(0, 0, 0, 0.8);
+                    z-index: 2;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: ${10*multiplier}px ${25*multiplier}px;
+                    box-sizing: border-box;
+                  }
+                  .footer-left {
+                    display: flex;
+                    align-items: start;
+                    flex-direction: column;
+                  }
+                  .footer-right {
+                      display: flex;
+                      max-width: 70%;
+                      gap: ${10*multiplier}px;
+                      flex-direction: column;
+                  }
+                  .pp-value, .pass-count {
+                    font-weight: 700;
+                    font-size: ${30*multiplier}px;
+                    color: #bbbbbb;
+                  }
+                  .creator-name {
+                    font-weight: 600;
+                    text-align: right;
+                    font-size: ${30*multiplier*(secondRow ? 0.9 : 1)}px;
+                    color: white;
+                  }
+                </style>
+              </head>
+              <body>
+                <!-- Background image -->
                 <img 
-                  class="difficulty-icon"
-                  src="data:image/png;base64,${iconBuffer.toString('base64')}" 
-                  alt="Difficulty Icon"
+                  class="background-image"
+                  src="data:image/png;base64,${backgroundBuffer.toString('base64')}" 
+                  alt="Background"
                 />
-                <div class="song-info">
-                  <div class="song-title text">${song}</div>
-                  <div class="artist-name text" 
-                    style="-webkit-line-clamp: 1">${artist}</div>
+                
+                <!-- Header -->
+                <div class="header">
+                  <div class="header-left">
+                    <img 
+                      class="difficulty-icon"
+                      src="data:image/png;base64,${iconBuffer.toString('base64')}" 
+                      alt="Difficulty Icon"
+                    />
+                    <div class="song-info">
+                      <div class="song-title text">${song}</div>
+                      <div class="artist-name text" 
+                        style="-webkit-line-clamp: 1">${artist}</div>
+                    </div>
+                  </div>
+                  <div class="header-right">
+                    <div class="level-id">#${levelId}</div>
+                  </div>
                 </div>
-              </div>
-              <div class="header-right">
-                <div class="level-id">#${levelId}</div>
-              </div>
-            </div>
-            
-            <!-- Footer -->
-            <div class="footer">
-              <div class="footer-left">
-                <div class="pp-value">${level.baseScore || diff.baseScore || 0}PP</div>
-                <div class="pass-count">${level.passes?.length || 0} pass${(level.passes?.length || 0) === 1 ? '' : 'es'}</div>
-              </div>
-              <div class="footer-right">
-                <div class="creator-name">${firstRow}</div>
-                ${secondRow ? `<div class="creator-name">${secondRow}</div>` : ''}
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
-      // Convert to PNG
-      largeBuffer = await htmlToPng(html, width, height);
-      
-      // Save the LARGE version to cache
-      await fs.promises.writeFile(largeCachePath, largeBuffer)
-      logger.debug(`Saved LARGE thumbnail for level ${levelId} to cache`);
+                
+                <!-- Footer -->
+                <div class="footer">
+                  <div class="footer-left">
+                    <div class="pp-value">${level.baseScore || diff.baseScore || 0}PP</div>
+                    <div class="pass-count">${level.passes?.length || 0} pass${(level.passes?.length || 0) === 1 ? '' : 'es'}</div>
+                  </div>
+                  <div class="footer-right">
+                    <div class="creator-name">${firstRow}</div>
+                    ${secondRow ? `<div class="creator-name">${secondRow}</div>` : ''}
+                  </div>
+                </div>
+              </body>
+            </html>
+          `;
+          // Convert to PNG
+          const buffer = await htmlToPng(html, width, height);
+          
+          // Save the LARGE version to cache
+          await fs.promises.writeFile(largeCachePath, buffer);
+          logWithCondition(`Saved LARGE thumbnail for level ${levelId} to cache`, 'thumbnail');
+          
+          return buffer;
+        })();
+        
+        // Store the promise in the map
+        thumbnailGenerationPromises.set(promiseKey, generationPromise);
+        
+        try {
+          // Wait for the generation to complete
+          largeBuffer = await generationPromise;
+        } catch (error) {
+          // If any error occurs, clean up the promise and rethrow
+          thumbnailGenerationPromises.delete(promiseKey);
+          throw error;
+        }
+        
+        // Clean up the promise after successful completion
+        thumbnailGenerationPromises.delete(promiseKey);
+      }
     }
 
     // If LARGE was requested, just pipe the existing file
@@ -728,19 +802,19 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     res.set('Content-Type', 'image/png');
     res.send(resizedBuffer);
     
-    logger.debug(`Memory usage after generation`);
+    logWithCondition(`Memory usage after generation`, 'thumbnail');
     checkMemoryUsage();
     return;
   } catch (error) {
-    if (typeof error === 'string' && (error.startsWith("ProtocolError") || error.startsWith("Error: Protocol error"))) {
+    if (error instanceof Error && error.message.startsWith("Video details not found")) {
+      logger.error(`Error generating image for level ${req.params.levelId} due to missing video details`);
+      return res.status(500).send('Generation failed: missing video details');
+    }
+    if (error instanceof Error && (error.message.startsWith("ProtocolError") || error.message.startsWith("Error: Protocol error"))) {
       logger.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
       return res.status(500).send('Generation failed: puppeteer protocol error');
     }
     logger.error(`Error generating image for level ${req.params.levelId}:`, error);
-    logger.error(`Error details:`, {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : 'No stack trace available',
-    });
     return res.status(500).send('Error generating image');
   }
 });
