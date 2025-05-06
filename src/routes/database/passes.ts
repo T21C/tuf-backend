@@ -32,7 +32,7 @@ interface SearchGroup {
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
-const MAX_LIMIT = 500;
+const MAX_LIMIT = 200;
 
 // Add this helper function after the router declaration
 const sanitizeTextInput = (input: string | null | undefined): string => {

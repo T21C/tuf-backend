@@ -27,7 +27,7 @@ interface LevelCountResult {
   count: string;
 }
 
-const MAX_LIMIT = 500;
+const MAX_LIMIT = 200;
 
 
 // Get all creators with their aliases and level counts
