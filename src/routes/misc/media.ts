@@ -136,6 +136,8 @@ function getThumbnailPath(levelId: number, size: keyof typeof THUMBNAIL_SIZES): 
 let browser: puppeteer.Browser | null = null;
 let browserRetries = 0;
 const MAX_BROWSER_RETRIES = 5;
+const MAX_CONCURRENT_PAGES = 5;
+let activePages = 0;
 
 async function getBrowser(): Promise<puppeteer.Browser> {
   try {
@@ -165,7 +167,34 @@ async function getBrowser(): Promise<puppeteer.Browser> {
           '--single-process',  // More stable in containerized environments
           '--disable-extensions',
           '--disable-features=site-per-process',
-          '--js-flags="--max-old-space-size=512"'  // Limit memory usage
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-default-apps',
+          '--disable-dev-shm-usage',
+          '--disable-domain-reliability',
+          '--disable-features=AudioServiceOutOfProcess,IsolateOrigins,site-per-process',
+          '--disable-hang-monitor',
+          '--disable-ipc-flooding-protection',
+          '--disable-notifications',
+          '--disable-renderer-backgrounding',
+          '--disable-setuid-sandbox',
+          '--disable-speech-api',
+          '--disable-sync',
+          '--hide-scrollbars',
+          '--ignore-certificate-errors',
+          '--metrics-recording-only',
+          '--mute-audio',
+          '--no-default-browser-check',
+          '--no-first-run',
+          '--no-pings',
+          '--no-sandbox',
+          '--no-zygote',
+          '--password-store=basic',
+          '--use-mock-keychain',
+          '--window-size=1920,1080'
         ],
         timeout: 60000, // 60 second timeout
       });
@@ -202,8 +231,14 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     let page = null;
     try {
+      // Wait if we have too many active pages
+      while (activePages >= MAX_CONCURRENT_PAGES) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       logWithCondition(`HTML to PNG conversion attempt ${attempt}/${maxRetries}`, 'thumbnail');
       const browser = await getBrowser();
+      activePages++;
       page = await browser.newPage();
       
       await page.setViewport({ width, height });
@@ -233,6 +268,7 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
         } catch (err) {
           logger.warn(`Failed to close page: ${err}`);
         }
+        activePages--;
       }
     }
     
@@ -241,6 +277,36 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
   }
   
   throw lastError || new Error('HTML to PNG conversion failed');
+}
+
+// Add this helper function for retrying image downloads
+async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 5000): Promise<Buffer> {
+  let lastError: Error | unknown;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      logWithCondition(`Attempting to download image from ${url} (attempt ${attempt}/${maxRetries})`, 'thumbnail');
+      const response = await axios.get(url, { 
+        responseType: 'arraybuffer',
+        timeout: 10000, // 10 second timeout
+        maxContentLength: 10 * 1024 * 1024, // 10MB max
+        maxBodyLength: 10 * 1024 * 1024, // 10MB max
+      });
+      logWithCondition(`Successfully downloaded image from ${url} on attempt ${attempt}`, 'thumbnail');
+      return response.data;
+    } catch (error: unknown) {
+      lastError = error;
+      logger.warn(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`);
+      
+      if (attempt < maxRetries) {
+        logWithCondition(`Waiting ${delayMs}ms before retrying...`, 'thumbnail');
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  
+  logger.error(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`);
+  throw lastError;
 }
 
 // Graceful shutdown handler
@@ -268,30 +334,18 @@ process.on('SIGINT', async () => {
   }
 });
 
-// Add this helper function for retrying image downloads
-async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 5000): Promise<Buffer> {
-  let lastError: Error | unknown;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+// Add periodic browser cleanup
+setInterval(async () => {
+  if (browser && activePages === 0) {
+    logger.debug('Performing periodic browser cleanup');
     try {
-      logWithCondition(`Attempting to download image from ${url} (attempt ${attempt}/${maxRetries})`, 'thumbnail');
-      const response = await axios.get(url, { responseType: 'arraybuffer' });
-      logWithCondition(`Successfully downloaded image from ${url} on attempt ${attempt}`, 'thumbnail');
-      return response.data;
-    } catch (error: unknown) {
-      lastError = error;
-      logger.warn(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`);
-      
-      if (attempt < maxRetries) {
-        logWithCondition(`Waiting ${delayMs}ms before retrying...`, 'thumbnail');
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
+      await browser.close();
+      browser = null;
+    } catch (err) {
+      logger.warn(`Failed to perform periodic browser cleanup: ${err}`);
     }
   }
-  
-  logger.error(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`);
-  throw lastError;
-}
+}, 5 * 60 * 1000); // Every 5 minutes
 
 const router: Router = express.Router();
 
