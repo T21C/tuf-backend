@@ -147,10 +147,9 @@ let activePages = 0;
 async function killExistingPuppeteerProcesses(): Promise<void> {
   try {
     if (process.platform === 'win32') {
-      // Windows - Get all chrome processes and filter by Puppeteer path
+      // Windows implementation remains the same
       const { stdout } = await execAsync('wmic process where "name=\'chrome.exe\'" get ExecutablePath,ProcessId /format:csv');
       
-      // Parse the output to find Puppeteer Chrome processes
       const lines = stdout.split('\n').filter(line => line.trim());
       const puppeteerProcesses = lines
         .filter(line => line.toLowerCase().includes('puppeteer'))
@@ -161,7 +160,6 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
         .filter((pid): pid is string => pid !== null);
 
       if (puppeteerProcesses.length > 0) {
-        // Kill each Puppeteer Chrome process
         for (const pid of puppeteerProcesses) {
           try {
             await execAsync(`taskkill /F /PID ${pid}`);
@@ -174,9 +172,54 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
         logger.debug('No Puppeteer Chrome processes found');
       }
     } else {
-      // Linux/Mac
-      await execAsync('pkill -f "chrome.*puppeteer"');
-      logger.info('Killed existing Puppeteer Chrome processes');
+      // Linux/Mac - More robust implementation
+      try {
+        // First, try to find Chrome processes
+        const { stdout: psOutput } = await execAsync('ps aux | grep -i chrome');
+        logger.debug('Found Chrome processes:', psOutput);
+
+        // Try multiple patterns to catch Puppeteer Chrome processes
+        const patterns = [
+          'chrome.*puppeteer',
+          'chrome.*--no-sandbox',
+          'chrome.*--disable-setuid-sandbox',
+          'chrome.*--disable-dev-shm-usage'
+        ];
+
+        let killedAny = false;
+        for (const pattern of patterns) {
+          try {
+            const { stdout } = await execAsync(`pkill -f "${pattern}"`);
+            if (stdout) {
+              logger.debug(`pkill output for pattern "${pattern}":`, stdout);
+            }
+            killedAny = true;
+          } catch (err) {
+            // Ignore "no process found" errors
+            if (err instanceof Error && !err.message.includes('no process found')) {
+              logger.warn(`Error with pattern "${pattern}":`, err);
+            }
+          }
+        }
+
+        if (killedAny) {
+          logger.info('Successfully killed Puppeteer Chrome processes');
+        } else {
+          logger.debug('No Puppeteer Chrome processes found to kill');
+        }
+
+        // Double-check if any Chrome processes remain
+        try {
+          const { stdout: remainingProcesses } = await execAsync('ps aux | grep -i chrome');
+          if (remainingProcesses.trim()) {
+            logger.debug('Remaining Chrome processes:', remainingProcesses);
+          }
+        } catch (err) {
+          // Ignore grep errors when no processes are found
+        }
+      } catch (error) {
+        logger.error('Error during Linux process cleanup:', error);
+      }
     }
   } catch (error) {
     // Ignore errors if no processes were found
