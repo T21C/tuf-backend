@@ -18,6 +18,7 @@
     "staging": "cross-env NODE_ENV=staging node --max-old-space-size=512 --expose-gc dist/app.js",
     "production": "cross-env NODE_ENV=production node --no-deprecation dist/app.js",
     "debug": "cross-env NODE_ENV=production MODE=debug node --inspect --max-old-space-size=2048 --expose-gc dist/app.js",
+    "stress-test": "cross-env NODE_ENV=development tsx watch --inspect --max-old-space-size=512 src/scripts/puppeteer-stress-test.ts",
     "lint": "gts lint",
     "type-check": "tsc --noEmit",
     "clean": "rimraf dist tsconfig.tsbuildinfo",

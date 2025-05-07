@@ -20,6 +20,10 @@ import Team from '../../models/credits/Team.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import sharp from 'sharp';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 // Promise map for tracking ongoing thumbnail generation
 const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
@@ -139,6 +143,49 @@ const MAX_BROWSER_RETRIES = 5;
 const MAX_CONCURRENT_PAGES = 5;
 let activePages = 0;
 
+// Function to kill existing Puppeteer Chrome processes
+async function killExistingPuppeteerProcesses(): Promise<void> {
+  try {
+    if (process.platform === 'win32') {
+      // Windows - Get all chrome processes and filter by Puppeteer path
+      const { stdout } = await execAsync('wmic process where "name=\'chrome.exe\'" get ExecutablePath,ProcessId /format:csv');
+      
+      // Parse the output to find Puppeteer Chrome processes
+      const lines = stdout.split('\n').filter(line => line.trim());
+      const puppeteerProcesses = lines
+        .filter(line => line.toLowerCase().includes('puppeteer'))
+        .map(line => {
+          const match = line.match(/(\d+),/);
+          return match ? match[1] : null;
+        })
+        .filter((pid): pid is string => pid !== null);
+
+      if (puppeteerProcesses.length > 0) {
+        // Kill each Puppeteer Chrome process
+        for (const pid of puppeteerProcesses) {
+          try {
+            await execAsync(`taskkill /F /PID ${pid}`);
+            logger.info(`Killed Puppeteer Chrome process with PID: ${pid}`);
+          } catch (err) {
+            logger.warn(`Failed to kill process ${pid}:`, err);
+          }
+        }
+      } else {
+        logger.debug('No Puppeteer Chrome processes found');
+      }
+    } else {
+      // Linux/Mac
+      await execAsync('pkill -f "chrome.*puppeteer"');
+      logger.info('Killed existing Puppeteer Chrome processes');
+    }
+  } catch (error) {
+    // Ignore errors if no processes were found
+    if (error instanceof Error && !error.message.includes('no process found')) {
+      logger.warn('Error killing Puppeteer processes:', error);
+    }
+  }
+}
+
 async function getBrowser(): Promise<puppeteer.Browser> {
   try {
     if (!browser || !browser.isConnected()) {
@@ -152,6 +199,9 @@ async function getBrowser(): Promise<puppeteer.Browser> {
         browser = null;
       }
 
+      // Kill any existing Puppeteer processes before creating a new one
+      await killExistingPuppeteerProcesses();
+
       logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
       browser = await puppeteer.launch({
         headless: true,
@@ -164,7 +214,7 @@ async function getBrowser(): Promise<puppeteer.Browser> {
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu',
-          '--single-process',  // More stable in containerized environments
+          '--single-process',
           '--disable-extensions',
           '--disable-features=site-per-process',
           '--disable-background-networking',
@@ -194,18 +244,21 @@ async function getBrowser(): Promise<puppeteer.Browser> {
           '--no-zygote',
           '--password-store=basic',
           '--use-mock-keychain',
-          '--window-size=1920,1080'
+          '--window-size=1920,1080',
+          '--js-flags="--max-old-space-size=512"' // Limit V8 heap size
         ],
-        timeout: 60000, // 60 second timeout
+        timeout: 60000,
       });
 
       // Reset retry counter after successful launch
       browserRetries = 0;
       
       // Set up disconnection handler to mark the browser as needing recreation
-      browser.on('disconnected', () => {
+      browser.on('disconnected', async () => {
         logger.warn('Browser disconnected, will recreate on next request');
         browser = null;
+        // Kill any zombie processes
+        await killExistingPuppeteerProcesses();
       });
     }
     return browser;
@@ -227,9 +280,9 @@ async function getBrowser(): Promise<puppeteer.Browser> {
 // Function to convert HTML to PNG with retry logic
 async function htmlToPng(html: string, width: number, height: number, maxRetries = 3): Promise<Buffer> {
   let lastError;
+  let page = null;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    let page = null;
     try {
       // Wait if we have too many active pages
       while (activePages >= MAX_CONCURRENT_PAGES) {
@@ -241,8 +294,23 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
       activePages++;
       page = await browser.newPage();
       
+      // Set up page error handling
+      page.on('error', err => {
+        logger.error('Page error:', err);
+      });
+      
+      // Set up page console logging
+      page.on('console', msg => {
+        logger.debug('Page console:', msg.text());
+      });
+      
       await page.setViewport({ width, height });
-      await page.setContent(html, { timeout: 30000 }); // 30 second timeout
+      await page.setContent(html, { timeout: 30000 });
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+      }
       
       const pngBuffer = await page.screenshot({
         type: 'png',
@@ -254,7 +322,6 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
       lastError = error;
       logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
       
-      // If this is a connection issue, mark browser for recreation
       if (error instanceof Error && 
           (error.message.includes('Protocol error') || 
            error.message.includes('Connection closed') ||
@@ -309,10 +376,9 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
   throw lastError;
 }
 
-// Graceful shutdown handler
-process.on('SIGTERM', async () => {
+// Improve shutdown handlers
+async function cleanupBrowser(): Promise<void> {
   if (browser) {
-    logger.info('Shutting down browser on SIGTERM');
     try {
       await browser.close();
     } catch (err) {
@@ -320,18 +386,35 @@ process.on('SIGTERM', async () => {
     }
     browser = null;
   }
+  // Kill any remaining processes
+  await killExistingPuppeteerProcesses();
+}
+
+// Graceful shutdown handlers
+process.on('SIGTERM', async () => {
+  logger.info('Received SIGTERM signal');
+  await cleanupBrowser();
+  process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  if (browser) {
-    logger.info('Shutting down browser on SIGINT');
-    try {
-      await browser.close();
-    } catch (err) {
-      logger.error(`Error closing browser: ${err}`);
-    }
-    browser = null;
-  }
+  logger.info('Received SIGINT signal');
+  await cleanupBrowser();
+  process.exit(0);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', async (error) => {
+  logger.error('Uncaught exception:', error);
+  await cleanupBrowser();
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', async (reason, promise) => {
+  logger.error('Unhandled promise rejection:', reason);
+  await cleanupBrowser();
+  process.exit(1);
 });
 
 // Add periodic browser cleanup
