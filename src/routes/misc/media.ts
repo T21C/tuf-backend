@@ -20,7 +20,7 @@ import Team from '../../models/credits/Team.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import sharp from 'sharp';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
@@ -147,10 +147,9 @@ let activePages = 0;
 async function killExistingPuppeteerProcesses(): Promise<void> {
   try {
     if (process.platform === 'win32') {
-      // Windows - Get all chrome processes and filter by Puppeteer path
+      // Windows implementation remains the same
       const { stdout } = await execAsync('wmic process where "name=\'chrome.exe\'" get ExecutablePath,ProcessId /format:csv');
       
-      // Parse the output to find Puppeteer Chrome processes
       const lines = stdout.split('\n').filter(line => line.trim());
       const puppeteerProcesses = lines
         .filter(line => line.toLowerCase().includes('puppeteer'))
@@ -161,7 +160,6 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
         .filter((pid): pid is string => pid !== null);
 
       if (puppeteerProcesses.length > 0) {
-        // Kill each Puppeteer Chrome process
         for (const pid of puppeteerProcesses) {
           try {
             await execAsync(`taskkill /F /PID ${pid}`);
@@ -174,9 +172,33 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
         logger.debug('No Puppeteer Chrome processes found');
       }
     } else {
-      // Linux/Mac
-      await execAsync('pkill -15 chrome');
-      logger.info('Killed existing Puppeteer Chrome processes');
+      // Linux/Mac - Using spawn for better process control
+      return new Promise((resolve, reject) => {
+        const pkill = spawn('pkill', ['-15', 'chrome']);
+        
+        pkill.stdout.on('data', (data) => {
+          logger.debug('pkill stdout:', data.toString());
+        });
+        
+        pkill.stderr.on('data', (data) => {
+          logger.debug('pkill stderr:', data.toString());
+        });
+        
+        pkill.on('close', (code) => {
+          if (code === 0 || code === 1) { // 0 = success, 1 = no processes found
+            logger.info('Successfully executed pkill command');
+            resolve();
+          } else {
+            logger.warn(`pkill exited with code ${code}`);
+            resolve(); // Still resolve as this might be a non-error case
+          }
+        });
+        
+        pkill.on('error', (err) => {
+          logger.error('Error executing pkill:', err);
+          reject(err);
+        });
+      });
     }
   } catch (error) {
     // Ignore errors if no processes were found
