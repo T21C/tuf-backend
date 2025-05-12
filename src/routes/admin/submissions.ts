@@ -841,245 +841,150 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
 );
 
 // Auto-approve pass submissions
-/*
 router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+  const transaction = await sequelize.transaction();
 
-    try {
-      // Find all pending submissions
-      const pendingSubmissions = await PassSubmission.findAll({
-        where: {
-          status: 'pending',
+  try {
+    // Find all pending submissions with assigned players and required data
+    const pendingSubmissions = await PassSubmission.findAll({
+      where: { status: 'pending' },
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          include: [{ model: Difficulty, as: 'difficulty' }],
+          required: true
         },
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-            required: true,
-          },
-          {
-            model: Player,
-            as: 'assignedPlayer',
-            required: false,
-          },
-        ],
-        transaction,
-      });
+        {
+          model: Player,
+          as: 'assignedPlayer',
+          required: true
+        },
+        {
+          model: PassSubmissionFlags,
+          as: 'flags',
+          required: true
+        },
+        {
+          model: PassSubmissionJudgements,
+          as: 'judgements',
+          required: true
+        }
+      ],
+      transaction
+    });
 
-      const matchingSubmissions = await Promise.all(
-        pendingSubmissions.map(async submission => {
-          // Only process submissions that have an assigned player
-          if (!submission.assignedPlayerId) {
-            return null;
-          }
+    const results = [];
 
-          // Reload submission to get fresh data
-          await submission.reload({
-            include: [
-              {
-                model: Player,
-                as: 'assignedPlayer',
-                required: true,
-              },
-            ],
-            transaction,
-          });
+    for (const submission of pendingSubmissions) {
+      try {
+        if (!submission.flags || !submission.judgements || !submission.level || !submission.level.difficulty) {
+          throw new Error('Missing required submission data');
+        }
 
-          return submission;
-        }),
-      );
-
-      // Filter out null values and ensure all required data exists
-      const validSubmissions = matchingSubmissions.filter(
-        (sub): sub is PassSubmission =>
-          sub !== null &&
-          !!sub.assignedPlayerId &&
-          !!sub.flags &&
-          !!sub.judgements &&
-          !!sub.level,
-      );
-
-      const approvalResults = await Promise.all(
-        validSubmissions.map(async submission => {
-          try {
-            // Validate level and difficulty data
-            if (!submission.level) {
-              await transaction.rollback();
-              return {
-                id: submission.id,
-                success: false,
-                error: 'Level data not found',
-              };
-            }
-
-            if (!submission.level.difficulty) {
-              await transaction.rollback();
-              return {
-                id: submission.id,
-                success: false,
-                error: 'Difficulty data not found',
-              };
-            }
-
-            // Create properly structured level data for score calculation
-            const levelData = {
+        // Create pass
+        const pass = await Pass.create({
+          levelId: submission.levelId,
+          playerId: submission.assignedPlayerId!,
+          speed: submission.speed || 1,
+          vidTitle: submission.title,
+          videoLink: submission.videoLink,
+          vidUploadTime: submission.rawTime || new Date(),
+          is12K: submission.flags.is12K || false,
+          is16K: submission.flags.is16K || false,
+          isNoHoldTap: submission.flags.isNoHoldTap || false,
+          accuracy: calcAcc(submission.judgements),
+          scoreV2: getScoreV2(
+            {
+              speed: submission.speed || 1,
+              judgements: submission.judgements,
+              isNoHoldTap: submission.flags.isNoHoldTap || false
+            },
+            {
               baseScore: submission.level.baseScore,
-              difficulty: submission.level.difficulty,
-            };
-
-            // Create pass
-            const pass = await Pass.create(
-              {
-                levelId: submission.levelId,
-                playerId: submission.assignedPlayerId!,
-                speed: submission.speed || 1,
-                vidTitle: submission.title,
-                videoLink: submission.videoLink,
-                vidUploadTime: submission.rawTime || new Date(),
-                is12K: submission.flags?.is12K || false,
-                is16K: submission.flags?.is16K || false,
-                isNoHoldTap: submission.flags?.isNoHoldTap || false,
-                accuracy: calcAcc(
-                  submission.judgements ||
-                    ({
-                      earlyDouble: 0,
-                      earlySingle: 0,
-                      ePerfect: 0,
-                      perfect: 0,
-                      lPerfect: 0,
-                      lateSingle: 0,
-                      lateDouble: 0,
-                    } as IPassSubmissionJudgements),
-                ),
-                scoreV2: getScoreV2(
-                  {
-                    speed: submission.speed || 1,
-                    judgements:
-                      submission.judgements ||
-                      ({
-                        earlyDouble: 0,
-                        earlySingle: 0,
-                        ePerfect: 0,
-                        perfect: 0,
-                        lPerfect: 0,
-                        lateSingle: 0,
-                        lateDouble: 0,
-                      } as IPassSubmissionJudgements),
-                    isNoHoldTap: submission.flags?.isNoHoldTap || false,
-                  },
-                  levelData,
-                ),
-                isAnnounced: false,
-                isDeleted: false,
-              },
-              {transaction},
-            );
-
-            // Create judgements
-            if (submission.judgements) {
-              const now = new Date();
-              await Judgement.create(
-                {
-                  id: pass.id,
-                  earlyDouble: submission.judgements.earlyDouble || 0,
-                  earlySingle: submission.judgements.earlySingle || 0,
-                  ePerfect: submission.judgements.ePerfect || 0,
-                  perfect: submission.judgements.perfect || 0,
-                  lPerfect: submission.judgements.lPerfect || 0,
-                  lateSingle: submission.judgements.lateSingle || 0,
-                  lateDouble: submission.judgements.lateDouble || 0,
-                  createdAt: now,
-                  updatedAt: now,
-                },
-                {transaction},
-              );
+              difficulty: submission.level.difficulty
             }
+          ),
+          isAnnounced: false,
+          isDeleted: false
+        }, { transaction });
 
-            // Update submission status
-            await submission.update(
-              {
-                status: 'approved',
-                passId: pass.id,
-              },
-              {transaction},
-            );
+        // Create judgements with default values for any undefined fields
+        await Judgement.create({
+          id: pass.id,
+          earlyDouble: submission.judgements.earlyDouble || 0,
+          earlySingle: submission.judgements.earlySingle || 0,
+          ePerfect: submission.judgements.ePerfect || 0,
+          perfect: submission.judgements.perfect || 0,
+          lPerfect: submission.judgements.lPerfect || 0,
+          lateSingle: submission.judgements.lateSingle || 0,
+          lateDouble: submission.judgements.lateDouble || 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }, { transaction });
 
-            // Update worlds first status if needed
-            await updateWorldsFirstStatus(submission.levelId, transaction);
+        // Update submission status
+        await submission.update({
+          status: 'approved',
+          passId: pass.id
+        }, { transaction });
 
-            // Update player stats
-            if (submission.assignedPlayerId) {
-              await playerStatsService.updatePlayerStats(
-                submission.assignedPlayerId,
-              );
+        // Update worlds first status
+        await updateWorldsFirstStatus(submission.levelId, transaction);
 
-              // Get player's new stats
-              const playerStats = await playerStatsService.getPlayerStats(
-                submission.assignedPlayerId,
-              );
+        // Update player stats
+        await playerStatsService.updatePlayerStats([submission.assignedPlayerId!]);
+        const playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId!);
 
-              // Emit SSE event with pass update data
-              sseManager.broadcast({
-                type: 'passUpdate',
-                data: {
-                  playerId: submission.assignedPlayerId,
-                  passedLevelId: submission.levelId,
-                  newScore: playerStats?.rankedScore || 0,
-                  action: 'create',
-                },
-              });
-            }
-
-            return {id: submission.id, success: true};
-          } catch (error) {
-            logger.error(
-              `Error auto-approving submission ${submission.id}:`,
-              error,
-            );
-            return {id: submission.id, success: false, error};
+        // Broadcast updates
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId: submission.assignedPlayerId,
+            passedLevelId: submission.levelId,
+            newScore: playerStats?.rankedScore || 0,
+            action: 'create'
           }
-        }),
-      );
+        });
 
-      await transaction.commit();
-
-      // Broadcast updates
-      sseManager.broadcast({type: 'submissionUpdate'});
-      sseManager.broadcast({
-        type: 'submissionUpdate',
-        data: {
-          action: 'auto-approve',
-          submissionType: 'pass',
-          count: approvalResults.filter(r => r.success).length,
-        },
-      });
-
-      const io = getIO();
-      io.emit('leaderboardUpdated');
-
-      return res.json({
-        message: `Auto-approved ${
-          approvalResults.filter(r => r.success).length
-        } submissions`,
-        results: approvalResults,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      logger.error('Error in auto-approve process:', error);
-      return res.status(500).json({
-        error: 'Failed to auto-approve submissions',
-        details: error instanceof Error ? error.message : String(error),
-      });
+        results.push({ id: submission.id, success: true });
+      } catch (error) {
+        logger.error(`Error auto-approving submission ${submission.id}:`, error);
+        results.push({ id: submission.id, success: false, error: error instanceof Error ? error.message : String(error) });
+      }
     }
-  },
-);
-*/
+
+    await transaction.commit();
+
+    // Broadcast final updates
+    sseManager.broadcast({ type: 'submissionUpdate' });
+    sseManager.broadcast({
+      type: 'submissionUpdate',
+      data: {
+        action: 'auto-approve',
+        submissionType: 'pass',
+        count: results.filter(r => r.success).length
+      }
+    });
+
+    const io = getIO();
+    io.emit('leaderboardUpdated');
+
+    return res.json({
+      message: `Auto-approved ${results.filter(r => r.success).length} submissions`,
+      results
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error in auto-approve process:', error);
+    return res.status(500).json({
+      error: 'Failed to auto-approve submissions',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 
 // Add endpoint to update profiles
 router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
