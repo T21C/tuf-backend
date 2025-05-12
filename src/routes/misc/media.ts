@@ -146,23 +146,32 @@ let activePages = 0;
 // Add browser management lock
 let browserManagementLock: Promise<void> | null = null;
 let browserManagementLockResolve: (() => void) | null = null;
+let lockAcquiredBy: string | null = null;
 
 // Function to acquire browser management lock
 async function acquireBrowserLock(): Promise<void> {
+  const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
   if (browserManagementLock) {
+    logger.debug(`[Lock] Waiting for lock to be released. Current holder: ${lockAcquiredBy}`);
     await browserManagementLock;
   }
   browserManagementLock = new Promise(resolve => {
     browserManagementLockResolve = resolve;
+    lockAcquiredBy = caller;
+    logger.debug(`[Lock] Lock acquired by: ${lockAcquiredBy}`);
   });
 }
 
 // Function to release browser management lock
 function releaseBrowserLock(): void {
   if (browserManagementLockResolve) {
+    logger.debug(`[Lock] Lock released by: ${lockAcquiredBy}`);
     browserManagementLockResolve();
     browserManagementLock = null;
     browserManagementLockResolve = null;
+    lockAcquiredBy = null;
+  } else {
+    logger.warn('[Lock] Attempted to release lock that was not held');
   }
 }
 
