@@ -182,15 +182,16 @@ export async function createRerateEmbed(
     .setThumbnail(level.difficulty?.icon || placeHolder)
     .addField('', '', false);
 
+  const currentBaseScore = level.baseScore || level.difficulty?.baseScore || 0;
+  const previousBaseScore = level.previousBaseScore || level.previousDifficulty?.baseScore || 0;
   // Check if this is a baseScore change without difficulty change
-  const isBaseScoreChange = level.previousBaseScore !== null && 
-                           level.previousBaseScore !== level.baseScore &&
-                           level.previousDiffId === level.diffId;
+  const isBaseScoreChange = previousBaseScore !== currentBaseScore 
+                          && level.previousDiffId === level.diffId;
 
   if (isBaseScoreChange) {
     embed.addField(
       'Base Score Update',
-      `**${level.previousBaseScore || level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
+      `**${previousBaseScore}**pp ➔ **${currentBaseScore}**pp`,
       true,
     );
   } else if (level.previousDiffId) {

@@ -55,12 +55,20 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         return res.status(404).json({error: 'Level not found'});
       }
   
+      // Initialize previous state variables
+      let previousDiffId = level.previousDiffId || 0;
+      let previousBaseScore = level.previousBaseScore || 0;
+  
       // Handle rating creation/deletion if toRate is changing
       if (
         typeof req.body.toRate === 'boolean' &&
         req.body.toRate !== level.toRate
       ) {
         if (req.body.toRate) {
+          // Freeze current state when sending to rating
+          previousDiffId = level.diffId || 0;
+          previousBaseScore = level.baseScore || 0;
+
           // Create new rating if toRate is being set to true
           const existingRating = await Rating.findOne({
             where: {
@@ -146,32 +154,42 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       else if (req.body.isHidden !== undefined) {
         isHidden = req.body.isHidden;
       }
-  
+
       // Handle isAnnounced logic
       if (req.body.isAnnounced !== undefined) {
         isAnnounced = req.body.isAnnounced;
-      } else {
+      } 
+      else {
         // Set isAnnounced to true if toRate is being set to true
         if (req.body.toRate === true) {
           isAnnounced = true;
         }
-        // Set isAnnounced to false if toRate is being set to false and it was previously true
         else if (req.body.toRate === false && level.toRate === true) {
-          isAnnounced = false;
+          const hasChanges = 
+            (level.previousDiffId !== req.body.diffId || level.diffId || 0) ||
+            (level.previousBaseScore !== req.body.baseScore || level.baseScore || 0);
+          
+          isAnnounced = !hasChanges;
         }
       }
   
-      let previousDiffId = req.body.previousDiffId ?? level.diffId ?? 0;
-      previousDiffId =
-        previousDiffId === req.body.diffId && req.body.previousDiffId === undefined
-          ? level.previousDiffId
-          : previousDiffId;
+      // Only update previousDiffId and previousBaseScore if they're explicitly provided
+      // or if we're not sending to rating (in which case we want to keep the frozen state)
+      if (req.body.previousDiffId !== undefined && req.body.previousDiffId !== null && !req.body.toRate) {
+        previousDiffId = req.body.previousDiffId;
+        logger.info(`Setting previousDiffId to ${previousDiffId} for level ${levelId}`);
+      }
       
-      let previousBaseScore = req.body.previousBaseScore ?? level.baseScore ?? 0;
-      previousBaseScore =
-        previousBaseScore === req.body.baseScore
-          ? level.previousBaseScore
-          : previousBaseScore;
+      if (req.body.previousBaseScore !== undefined && req.body.previousBaseScore !== null && !req.body.toRate) {
+        previousBaseScore = req.body.previousBaseScore;
+        logger.info(`Setting previousBaseScore to ${previousBaseScore} for level ${levelId}`);
+      }
+
+      // Log when freezing state for rating
+      if (req.body.toRate === true && !level.toRate) {
+        logger.info(`Freezing state for level ${levelId} - previousDiffId: ${previousDiffId}, previousBaseScore: ${previousBaseScore}`);
+      }
+
       // Clean up the update data to handle null values correctly
       const updateData = {
         song: sanitizeTextInput(req.body.song),
@@ -224,9 +242,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         ],
         transaction,
       });
-  
+
+      
       await transaction.commit();
-  
       // Send response immediately after commit
       const response = {
         message: 'Level updated successfully',

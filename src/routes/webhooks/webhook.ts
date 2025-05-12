@@ -549,9 +549,14 @@ router.post(
       });
 
       const levels = rawLevels.filter(
-        level => 
-          level.previousDiffId !== level.diffId 
-          || level.previousBaseScore !== level.baseScore);
+        level => {
+          const previousBaseScore = level.previousBaseScore || level.previousDifficulty?.baseScore || 0;
+          const currentBaseScore = level.baseScore || level.difficulty?.baseScore || 0;
+
+          return previousBaseScore !== currentBaseScore 
+              || level.previousDiffId !== level.diffId;
+        }
+      );
 
       logWebhookEvent('rerate_levels_loaded', {
         requestId,
