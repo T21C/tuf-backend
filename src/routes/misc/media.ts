@@ -223,7 +223,8 @@ async function getBrowser(): Promise<puppeteer.Browser> {
 
       // Kill any existing Puppeteer processes before creating a new one
       await killExistingPuppeteerProcesses();
-
+      logger.debug(`Waiting for 1 second before creating new browser instance`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
       browser = await puppeteer.launch({
         headless: true,
