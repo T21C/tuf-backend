@@ -971,8 +971,8 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     return;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Video details not found")) {
-      logger.error(`Error generating image for level ${req.params.levelId} due to missing video details`);
-      return res.status(500).send('Generation failed: missing video details');
+      logger.debug(`Error generating image for level ${req.params.levelId} due to missing video details`);
+      return res.status(404).send('Generation failed: missing video details');
     }
     if (error instanceof Error && (error.message.startsWith("ProtocolError") || error.message.startsWith("Error: Protocol error"))) {
       logger.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);

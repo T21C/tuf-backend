@@ -29,7 +29,6 @@ export class PlayerStatsService {
   private updating = false;
   private operationQueue: QueueOperation[] = [];
   private isProcessingQueue = false;
-  private readonly MAX_MEMORY_USAGE = 700; // 700MB max memory usage
   private statsQuery = 
   `
   WITH PassesData AS (
@@ -286,24 +285,29 @@ export class PlayerStatsService {
 
   // Rename existing methods to private implementation methods
   private async _reloadAllStats(): Promise<void> {
-    // logger.debug(`[PlayerStatsService] Starting reloadAllStats`);
+    const startTime = Date.now();
+    logger.debug(`[PlayerStatsService] Starting full stats reload`);
 
     if (this.updating) {
+      logger.warn(`[PlayerStatsService] Reload already in progress, skipping`);
       return;
     }
     this.updating = true;
     const playerCount = await Player.count();
+    logger.debug(`[PlayerStatsService] Processing ${playerCount} players`);
     
     // Process in smaller chunks to reduce memory pressure
     const BATCH_SIZE = Math.ceil(this.CHUNK_SIZE / this.BATCHES_PER_CHUNK);
     
-    // logger.debug(`[PlayerStatsService] Processing in chunks of ${this.CHUNK_SIZE} with ${this.BATCHES_PER_CHUNK} batches per chunk`);
-    let timeStart = Date.now();
+    
+    let totalBatches = 0;
+    let successfulBatches = 0;
+    let failedBatches = 0;
+    
     for (let chunkStart = 0; chunkStart < playerCount; chunkStart += this.CHUNK_SIZE) {
-      // checkMemoryUsage()
-      
+      const chunkStartTime = Date.now();
       const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, playerCount);
-
+      
       // Get IDs for this chunk
       const chunkPlayerIds = await Player.findAll({
         attributes: ['id'],
@@ -313,16 +317,13 @@ export class PlayerStatsService {
       });
       
       const playerIds = chunkPlayerIds.map(player => player.id);
-      // logger.debug(`[PlayerStatsService] Found ${playerIds.length} player IDs in current chunk`);
-
+      
       // Process this chunk in batches
       for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
-        // Check memory usage before processing each batch
-        // checkMemoryUsage()
-        
+        totalBatches++;
+        const batchStartTime = Date.now();
         const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-        let batchTimeStart = Date.now();
- 
+       
         // Use a single transaction for the entire batch
         const transaction = await sequelize.transaction();
         try {
@@ -392,33 +393,34 @@ export class PlayerStatsService {
             }));
             
             await PlayerStats.bulkCreate(emptyStats, { transaction });
-            // logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
           }
           
           await transaction.commit();
-          // logger.debug(`[PlayerStatsService] Successfully processed batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(playerIds.length/BATCH_SIZE)} in current chunk in ${Date.now() - batchTimeStart}ms`);
-
+          successfulBatches++;
+          
         } catch (error) {
+          failedBatches++;
           this.updating = false;
-          logger.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
+          logger.error(`[PlayerStatsService] Batch processing failed:`, error);
           try {
             await transaction.rollback();
-            // logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
+            logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
           } catch (rollbackError) {
-            logger.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
+            logger.error(`[PlayerStatsService] Failed to roll back batch transaction:`, rollbackError);
           }
         }
       }
+      
     }
     
     // After all batches are processed, update ranks in a single transaction
     try {
       await this._updateRanks();
-      // logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
-      logger.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
+      logger.error('[PlayerStatsService] Failed to update ranks:', error);
     }
+    
     this.updating = false;
     // Emit SSE event
     sseManager.broadcast({
@@ -427,14 +429,17 @@ export class PlayerStatsService {
         action: 'fullReload',
       },
     });
-    // logger.debug(`[PlayerStatsService] Successfully completed reloadAllStats in ${Date.now() - timeStart}ms`);
+    
+    const totalDuration = Date.now() - startTime;
+    logger.debug(`[PlayerStatsService] Full stats reload completed in ${totalDuration}ms`);
+    logger.debug(`[PlayerStatsService] Batch statistics: ${successfulBatches}/${totalBatches} successful, ${failedBatches} failed`);
   }
 
   private async _updatePlayerStats(
     playerIds: number[]
   ): Promise<void> {
-    // logger.debug(`[PlayerStatsService] Starting updatePlayerStats`);
-
+    const startTime = Date.now();
+    
     if (this.updating) {
       return;
     }
@@ -444,103 +449,100 @@ export class PlayerStatsService {
       this.updating = false;
       return;
     }
+    logger.debug(`[PlayerStatsService] Starting stats update for ${playerIds.length} players`);
 
-    // checkMemoryUsage()
-    
     this.updating = true;
     // Use a single transaction for the entire batch
     const transaction = await sequelize.transaction();
-        try {
-          // First, delete existing stats for these players
-          await PlayerStats.destroy({
-            where: { id: playerIds },
-            transaction
-          });
+    try {
+      // First, delete existing stats for these players
+      await PlayerStats.destroy({
+        where: { id: playerIds },
+        transaction
+      });
 
-          // Calculate all stats in a single query
-          const statsUpdates = await sequelize.query(this.statsQuery,
-            {
-              replacements: { 
-                playerIds,
-                excludedLevelIds: null,
-                excludedPassIds: null
-              },
-              type: QueryTypes.SELECT,
-              transaction
-            }
-          ) as any[];
-
-          // Create a lookup table for difficulty IDs
-          const difficultyLookup = await sequelize.query(
-            `SELECT id, sortOrder FROM difficulties WHERE type = 'PGU'`,
-            { type: QueryTypes.SELECT }
-          ) as { id: number, sortOrder: number }[];
-          
-          // Create a map of sortOrder to id for quick lookups
-          const sortOrderToIdMap = new Map<number, number>();
-          difficultyLookup.forEach(diff => {
-            sortOrderToIdMap.set(diff.sortOrder, diff.id);
-          });
-          
-          // Process the stats updates to add the correct difficulty IDs
-          if (statsUpdates.length > 0) {
-            // Add the correct difficulty IDs based on sort order
-            statsUpdates.forEach(stat => {
-                stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
-                stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
-            });
-            
-            // Bulk insert all stats in a single query
-            await PlayerStats.bulkCreate(statsUpdates, { transaction });
-          }
-          
-          // Create stats for players who don't have any passes
-          const playersWithStats = new Set(statsUpdates.map(stat => stat.id));
-          const playersWithoutStats = playerIds.filter(id => !playersWithStats.has(id));
-          
-          if (playersWithoutStats.length > 0) {
-            const emptyStats = playersWithoutStats.map(id => ({
-              id,
-              rankedScore: 0,
-              generalScore: 0,
-              ppScore: 0,
-              wfScore: 0,
-              score12K: 0,
-              averageXacc: 0,
-              universalPassCount: 0,
-              worldsFirstCount: 0,
-              topDiffId: 0,
-              top12kDiffId: 0,
-              lastUpdated: new Date(),
-              createdAt: new Date(),
-              updatedAt: new Date()
-            }));
-            
-            await PlayerStats.bulkCreate(emptyStats, { transaction });
-            // logger.debug(`[PlayerStatsService] Created empty stats for ${emptyStats.length} players without passes`);
-          }
-          
-          await transaction.commit();
-
-        } catch (error) {
-          this.updating = false;
-          logger.error(`[PlayerStatsService] FAILURE: Error processing batch:`, error);
-          try {
-            await transaction.rollback();
-            // logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
-          } catch (rollbackError) {
-            logger.error(`[PlayerStatsService] FAILURE: Error rolling back batch transaction:`, rollbackError);
-          }
+      // Calculate all stats in a single query
+      const statsUpdates = await sequelize.query(this.statsQuery,
+        {
+          replacements: { 
+            playerIds,
+            excludedLevelIds: null,
+            excludedPassIds: null
+          },
+          type: QueryTypes.SELECT,
+          transaction
         }
+      ) as any[];
+
+      // Create a lookup table for difficulty IDs
+      const difficultyLookup = await sequelize.query(
+        `SELECT id, sortOrder FROM difficulties WHERE type = 'PGU'`,
+        { type: QueryTypes.SELECT }
+      ) as { id: number, sortOrder: number }[];
       
+      // Create a map of sortOrder to id for quick lookups
+      const sortOrderToIdMap = new Map<number, number>();
+      difficultyLookup.forEach(diff => {
+        sortOrderToIdMap.set(diff.sortOrder, diff.id);
+      });
+      
+      // Process the stats updates to add the correct difficulty IDs
+      if (statsUpdates.length > 0) {
+        // Add the correct difficulty IDs based on sort order
+        statsUpdates.forEach(stat => {
+            stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
+            stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
+        });
+        
+        // Bulk insert all stats in a single query
+        await PlayerStats.bulkCreate(statsUpdates, { transaction });
+      }
+      
+      // Create stats for players who don't have any passes
+      const playersWithStats = new Set(statsUpdates.map(stat => stat.id));
+      const playersWithoutStats = playerIds.filter(id => !playersWithStats.has(id));
+      
+      if (playersWithoutStats.length > 0) {
+        const emptyStats = playersWithoutStats.map(id => ({
+          id,
+          rankedScore: 0,
+          generalScore: 0,
+          ppScore: 0,
+          wfScore: 0,
+          score12K: 0,
+          averageXacc: 0,
+          universalPassCount: 0,
+          worldsFirstCount: 0,
+          topDiffId: 0,
+          top12kDiffId: 0,
+          lastUpdated: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }));
+        
+        await PlayerStats.bulkCreate(emptyStats, { transaction });
+      }
+      
+      await transaction.commit();
+      logger.debug(`[PlayerStatsService] Stats updated for ${statsUpdates.length} players with stats, ${playersWithoutStats.length} players without stats`);
+
+    } catch (error) {
+      this.updating = false;
+      logger.error(`[PlayerStatsService] Failed to update player stats:`, error);
+      try {
+        await transaction.rollback();
+        logger.debug(`[PlayerStatsService] Successfully rolled back transaction`);
+      } catch (rollbackError) {
+        logger.error(`[PlayerStatsService] Failed to roll back transaction:`, rollbackError);
+      }
+    }
     
     // After all batches are processed, update ranks in a single transaction
     try {
       await this._updateRanks();
-      // logger.debug(`[PlayerStatsService] Successfully updated ranks`);
     } catch (error) {
       this.updating = false;
-      logger.error('[PlayerStatsService] FAILURE: Error updating ranks:', error);
+      logger.error('[PlayerStatsService] Failed to update ranks:', error);
     }
 
     // Emit SSE event
@@ -550,16 +552,15 @@ export class PlayerStatsService {
         action: 'fullReload',
       },
     });
+    
     this.updating = false;
-    // logger.debug(`[PlayerStatsService] Successfully completed updatePlayerStats`);
+    const totalDuration = Date.now() - startTime;
+    logger.debug(`[PlayerStatsService] Player stats update completed in ${totalDuration}ms`);
   }
 
   private async _updateRanks(): Promise<void> {
-    // logger.debug('[PlayerStatsService] Starting updateRanks');
-    
-    // Check memory usage before processing
-    // checkMemoryUsage()
-
+    const startTime = Date.now();
+    logger.debug(`[PlayerStatsService] Starting rank updates`);
     
     const transaction = await sequelize.transaction();
     try {
@@ -602,7 +603,8 @@ export class PlayerStatsService {
       );
 
       await transaction.commit();
-      // logger.debug('[PlayerStatsService] Successfully committed rank updates');
+      const duration = Date.now() - startTime;
+      logger.debug(`[PlayerStatsService] Rank updates completed in ${duration}ms`);
 
       // Notify clients about the rank updates
       sseManager.broadcast({
@@ -612,12 +614,12 @@ export class PlayerStatsService {
         }
       });
     } catch (error) {
-      logger.error('[PlayerStatsService] FAILURE: Error in updateRanks:', error);
+      logger.error('[PlayerStatsService] Failed to update ranks:', error);
       try {
         await transaction.rollback();
-        // logger.debug('[PlayerStatsService] Successfully rolled back rank updates');
+        logger.debug(`[PlayerStatsService] Successfully rolled back rank updates`);
       } catch (rollbackError) {
-        logger.error('[PlayerStatsService] FAILURE: Error rolling back rank updates:', rollbackError);
+        logger.error('[PlayerStatsService] Failed to roll back rank updates:', rollbackError);
       }
       throw error;
     }
