@@ -237,6 +237,12 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
 async function createBrowser(): Promise<puppeteer.Browser> {
   await acquireBrowserCreationLock();
   try {
+    // Check if browser was already created while we were waiting for the lock
+    if (browser && browser.isConnected()) {
+      logger.debug('Browser was already created while waiting for lock, returning existing instance');
+      return browser;
+    }
+
     // Kill any existing Puppeteer processes before creating a new one
     await killExistingPuppeteerProcesses();
     logger.debug(`Waiting for 1 second before creating new browser instance`);
@@ -301,6 +307,8 @@ async function createBrowser(): Promise<puppeteer.Browser> {
       await killExistingPuppeteerProcesses();
     });
 
+    // Set the browser instance before returning
+    browser = newBrowser;
     return newBrowser;
   } catch (error) {
     logger.error(`Failed to create browser: ${error instanceof Error ? error.message : String(error)}`);
