@@ -143,8 +143,32 @@ const MAX_BROWSER_RETRIES = 5;
 const MAX_CONCURRENT_PAGES = 5;
 let activePages = 0;
 
+// Add browser management lock
+let browserManagementLock: Promise<void> | null = null;
+let browserManagementLockResolve: (() => void) | null = null;
+
+// Function to acquire browser management lock
+async function acquireBrowserLock(): Promise<void> {
+  if (browserManagementLock) {
+    await browserManagementLock;
+  }
+  browserManagementLock = new Promise(resolve => {
+    browserManagementLockResolve = resolve;
+  });
+}
+
+// Function to release browser management lock
+function releaseBrowserLock(): void {
+  if (browserManagementLockResolve) {
+    browserManagementLockResolve();
+    browserManagementLock = null;
+    browserManagementLockResolve = null;
+  }
+}
+
 // Function to kill existing Puppeteer Chrome processes
 async function killExistingPuppeteerProcesses(): Promise<void> {
+  await acquireBrowserLock();
   try {
     if (process.platform === 'win32') {
       // Windows implementation remains the same
@@ -205,10 +229,13 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
     if (error instanceof Error && !error.message.includes('no process found')) {
       logger.warn('Error killing Puppeteer processes:', error);
     }
+  } finally {
+    releaseBrowserLock();
   }
 }
 
 async function getBrowser(): Promise<puppeteer.Browser> {
+  await acquireBrowserLock();
   try {
     if (!browser || !browser.isConnected()) {
       if (browser) {
@@ -297,6 +324,8 @@ async function getBrowser(): Promise<puppeteer.Browser> {
     // Wait before retrying
     await new Promise(resolve => setTimeout(resolve, 1000));
     return getBrowser();
+  } finally {
+    releaseBrowserLock();
   }
 }
 
@@ -401,16 +430,21 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
 
 // Improve shutdown handlers
 async function cleanupBrowser(): Promise<void> {
-  if (browser) {
-    try {
-      await browser.close();
-    } catch (err) {
-      logger.error(`Error closing browser: ${err}`);
+  await acquireBrowserLock();
+  try {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (err) {
+        logger.error(`Error closing browser: ${err}`);
+      }
+      browser = null;
     }
-    browser = null;
+    // Kill any remaining processes
+    await killExistingPuppeteerProcesses();
+  } finally {
+    releaseBrowserLock();
   }
-  // Kill any remaining processes
-  await killExistingPuppeteerProcesses();
 }
 
 // Graceful shutdown handlers
