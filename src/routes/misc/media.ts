@@ -144,183 +144,164 @@ const MAX_CONCURRENT_PAGES = 5;
 let activePages = 0;
 
 // Add browser management lock
-let browserManagementLock: Promise<void> | null = null;
-let browserManagementLockResolve: (() => void) | null = null;
+let browserCreationLock: Promise<void> | null = null;
+let browserCreationLockResolve: (() => void) | null = null;
 let lockAcquiredBy: string | null = null;
 
-// Function to acquire browser management lock
-async function acquireBrowserLock(): Promise<void> {
+// Function to acquire browser creation lock
+async function acquireBrowserCreationLock(): Promise<void> {
   const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
-  if (browserManagementLock) {
-    logger.debug(`[Lock] Waiting for lock to be released. Current holder: ${lockAcquiredBy}`);
-    await browserManagementLock;
+  if (browserCreationLock) {
+    logger.debug(`[Lock] Waiting for browser creation lock to be released. Current holder: ${lockAcquiredBy}`);
+    await browserCreationLock;
   }
-  browserManagementLock = new Promise(resolve => {
-    browserManagementLockResolve = resolve;
+  browserCreationLock = new Promise(resolve => {
+    browserCreationLockResolve = resolve;
     lockAcquiredBy = caller;
-    logger.debug(`[Lock] Lock acquired by: ${lockAcquiredBy}`);
+    logger.debug(`[Lock] Browser creation lock acquired by: ${lockAcquiredBy}`);
   });
 }
 
-// Function to release browser management lock
-function releaseBrowserLock(): void {
-  if (browserManagementLockResolve) {
-    logger.debug(`[Lock] Lock released by: ${lockAcquiredBy}`);
-    browserManagementLockResolve();
-    browserManagementLock = null;
-    browserManagementLockResolve = null;
+// Function to release browser creation lock
+function releaseBrowserCreationLock(): void {
+  if (browserCreationLockResolve) {
+    logger.debug(`[Lock] Browser creation lock released by: ${lockAcquiredBy}`);
+    browserCreationLockResolve();
+    browserCreationLock = null;
+    browserCreationLockResolve = null;
     lockAcquiredBy = null;
   } else {
-    logger.warn('[Lock] Attempted to release lock that was not held');
+    logger.warn('[Lock] Attempted to release browser creation lock that was not held');
   }
 }
 
 // Function to kill existing Puppeteer Chrome processes
 async function killExistingPuppeteerProcesses(): Promise<void> {
-  await acquireBrowserLock();
-  try {
-    if (process.platform === 'win32') {
-      // Windows implementation remains the same
-      const { stdout } = await execAsync('wmic process where "name=\'chrome.exe\'" get ExecutablePath,ProcessId /format:csv');
-      
-      const lines = stdout.split('\n').filter(line => line.trim());
-      const puppeteerProcesses = lines
-        .filter(line => line.toLowerCase().includes('puppeteer'))
-        .map(line => {
-          const match = line.match(/(\d+),/);
-          return match ? match[1] : null;
-        })
-        .filter((pid): pid is string => pid !== null);
+  if (process.platform === 'win32') {
+    // Windows implementation
+    const { stdout } = await execAsync('wmic process where "name=\'chrome.exe\'" get ExecutablePath,ProcessId /format:csv');
+    
+    const lines = stdout.split('\n').filter(line => line.trim());
+    const puppeteerProcesses = lines
+      .filter(line => line.toLowerCase().includes('puppeteer'))
+      .map(line => {
+        const match = line.match(/(\d+),/);
+        return match ? match[1] : null;
+      })
+      .filter((pid): pid is string => pid !== null);
 
-      if (puppeteerProcesses.length > 0) {
-        for (const pid of puppeteerProcesses) {
-          try {
-            await execAsync(`taskkill /F /PID ${pid}`);
-            logger.info(`Killed Puppeteer Chrome process with PID: ${pid}`);
-          } catch (err) {
-            logger.warn(`Failed to kill process ${pid}:`, err);
-          }
+    if (puppeteerProcesses.length > 0) {
+      for (const pid of puppeteerProcesses) {
+        try {
+          await execAsync(`taskkill /F /PID ${pid}`);
+          logger.info(`Killed Puppeteer Chrome process with PID: ${pid}`);
+        } catch (err) {
+          logger.warn(`Failed to kill process ${pid}:`, err);
         }
-      } else {
-        logger.debug('No Puppeteer Chrome processes found');
       }
     } else {
-      // Linux/Mac - Using spawn for better process control
-      return new Promise((resolve, reject) => {
-        const pkill = spawn('pkill', ['-15', 'chrome']);
-        
-        pkill.stdout.on('data', (data) => {
-          logger.debug('pkill stdout:', data.toString());
-        });
-        
-        pkill.stderr.on('data', (data) => {
-          logger.debug('pkill stderr:', data.toString());
-        });
-        
-        pkill.on('close', (code) => {
-          if (code === 0 || code === 1) { // 0 = success, 1 = no processes found
-            logger.info('Successfully executed pkill command');
-            resolve();
-          } else {
-            logger.warn(`pkill exited with code ${code}`);
-            resolve(); // Still resolve as this might be a non-error case
-          }
-        });
-        
-        pkill.on('error', (err) => {
-          logger.error('Error executing pkill:', err);
-          reject(err);
-        });
+      logger.debug('No Puppeteer Chrome processes found');
+    }
+  } else {
+    // Linux/Mac - Using spawn for better process control
+    return new Promise((resolve, reject) => {
+      const pkill = spawn('pkill', ['-15', 'chrome']);
+      
+      pkill.stdout.on('data', (data) => {
+        logger.debug('pkill stdout:', data.toString());
       });
-    }
-  } catch (error) {
-    // Ignore errors if no processes were found
-    if (error instanceof Error && !error.message.includes('no process found')) {
-      logger.warn('Error killing Puppeteer processes:', error);
-    }
-  } finally {
-    releaseBrowserLock();
+      
+      pkill.stderr.on('data', (data) => {
+        logger.debug('pkill stderr:', data.toString());
+      });
+      
+      pkill.on('close', (code) => {
+        if (code === 0 || code === 1) { // 0 = success, 1 = no processes found
+          logger.info('Successfully executed pkill command');
+          resolve();
+        } else {
+          logger.warn(`pkill exited with code ${code}`);
+          resolve(); // Still resolve as this might be a non-error case
+        }
+      });
+      
+      pkill.on('error', (err) => {
+        logger.error('Error executing pkill:', err);
+        reject(err);
+      });
+    });
   }
 }
 
-async function getBrowser(): Promise<puppeteer.Browser> {
-  await acquireBrowserLock();
+// Function to create a new browser instance
+async function createBrowser(): Promise<puppeteer.Browser> {
+  await acquireBrowserCreationLock();
   try {
-    if (!browser || !browser.isConnected()) {
-      if (browser) {
-        // Try to close properly before recreating
-        try {
-          await browser.close();
-        } catch (err) {
-          logger.warn(`Failed to close existing browser: ${err}`);
-        }
-        browser = null;
-      }
+    // Kill any existing Puppeteer processes before creating a new one
+    await killExistingPuppeteerProcesses();
+    logger.debug(`Waiting for 1 second before creating new browser instance`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
+    
+    const newBrowser = await puppeteer.launch({
+      headless: true,
+      defaultViewport: null,
+      args: [
+        '--disable-setuid-sandbox',
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-extensions',
+        '--disable-features=site-per-process',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-breakpad',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-default-apps',
+        '--disable-dev-shm-usage',
+        '--disable-domain-reliability',
+        '--disable-features=AudioServiceOutOfProcess,IsolateOrigins,site-per-process',
+        '--disable-hang-monitor',
+        '--disable-ipc-flooding-protection',
+        '--disable-notifications',
+        '--disable-renderer-backgrounding',
+        '--disable-setuid-sandbox',
+        '--disable-speech-api',
+        '--disable-sync',
+        '--hide-scrollbars',
+        '--ignore-certificate-errors',
+        '--metrics-recording-only',
+        '--mute-audio',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-pings',
+        '--no-sandbox',
+        '--no-zygote',
+        '--password-store=basic',
+        '--use-mock-keychain',
+        '--window-size=1920,1080',
+        '--js-flags="--max-old-space-size=512"' // Limit V8 heap size
+      ],
+      timeout: 60000,
+    });
 
-      // Kill any existing Puppeteer processes before creating a new one
+    // Reset retry counter after successful launch
+    browserRetries = 0;
+    
+    // Set up disconnection handler to mark the browser as needing recreation
+    newBrowser.on('disconnected', async () => {
+      logger.warn('Browser disconnected, will recreate on next request');
+      browser = null;
+      // Kill any zombie processes
       await killExistingPuppeteerProcesses();
-      logger.debug(`Waiting for 1 second before creating new browser instance`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
-      browser = await puppeteer.launch({
-        headless: true,
-        defaultViewport: null,
-        args: [
-          '--disable-setuid-sandbox',
-          '--no-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu',
-          '--single-process',
-          '--disable-extensions',
-          '--disable-features=site-per-process',
-          '--disable-background-networking',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-breakpad',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-default-apps',
-          '--disable-dev-shm-usage',
-          '--disable-domain-reliability',
-          '--disable-features=AudioServiceOutOfProcess,IsolateOrigins,site-per-process',
-          '--disable-hang-monitor',
-          '--disable-ipc-flooding-protection',
-          '--disable-notifications',
-          '--disable-renderer-backgrounding',
-          '--disable-setuid-sandbox',
-          '--disable-speech-api',
-          '--disable-sync',
-          '--hide-scrollbars',
-          '--ignore-certificate-errors',
-          '--metrics-recording-only',
-          '--mute-audio',
-          '--no-default-browser-check',
-          '--no-first-run',
-          '--no-pings',
-          '--no-sandbox',
-          '--no-zygote',
-          '--password-store=basic',
-          '--use-mock-keychain',
-          '--window-size=1920,1080',
-          '--js-flags="--max-old-space-size=512"' // Limit V8 heap size
-        ],
-        timeout: 60000,
-      });
+    });
 
-      // Reset retry counter after successful launch
-      browserRetries = 0;
-      
-      // Set up disconnection handler to mark the browser as needing recreation
-      browser.on('disconnected', async () => {
-        logger.warn('Browser disconnected, will recreate on next request');
-        browser = null;
-        // Kill any zombie processes
-        await killExistingPuppeteerProcesses();
-      });
-    }
-    return browser;
+    return newBrowser;
   } catch (error) {
     logger.error(`Failed to create browser: ${error instanceof Error ? error.message : String(error)}`);
     browserRetries++;
@@ -332,10 +313,27 @@ async function getBrowser(): Promise<puppeteer.Browser> {
     
     // Wait before retrying
     await new Promise(resolve => setTimeout(resolve, 1000));
-    return getBrowser();
+    return createBrowser();
   } finally {
-    releaseBrowserLock();
+    releaseBrowserCreationLock();
   }
+}
+
+// Function to get or create browser instance
+async function getBrowser(): Promise<puppeteer.Browser> {
+  if (!browser || !browser.isConnected()) {
+    if (browser) {
+      // Try to close properly before recreating
+      try {
+        await browser.close();
+      } catch (err) {
+        logger.warn(`Failed to close existing browser: ${err}`);
+      }
+      browser = null;
+    }
+    browser = await createBrowser();
+  }
+  return browser;
 }
 
 // Function to convert HTML to PNG with retry logic
@@ -439,7 +437,7 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
 
 // Improve shutdown handlers
 async function cleanupBrowser(): Promise<void> {
-  await acquireBrowserLock();
+  await acquireBrowserCreationLock();
   try {
     if (browser) {
       try {
@@ -452,7 +450,7 @@ async function cleanupBrowser(): Promise<void> {
     // Kill any remaining processes
     await killExistingPuppeteerProcesses();
   } finally {
-    releaseBrowserLock();
+    releaseBrowserCreationLock();
   }
 }
 
