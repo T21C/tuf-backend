@@ -25,10 +25,13 @@ export class PlayerStatsService {
   private readonly RELOAD_INTERVAL = 10 * 60 * 1000; // 10 minutes
   private readonly CHUNK_SIZE = 500; // Reduced from 2000 to 500 to lower memory usage
   private readonly BATCHES_PER_CHUNK = 4; // Number of batches to split each chunk into
+  private readonly DEBOUNCE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
   private modifierService: ModifierService | null = null;
   private updating = false;
   private operationQueue: QueueOperation[] = [];
   private isProcessingQueue = false;
+  private pendingPlayerIds: Set<number> = new Set();
+  private debounceTimer: NodeJS.Timeout | null = null;
   private statsQuery = 
   `
   WITH PassesData AS (
@@ -631,15 +634,35 @@ export class PlayerStatsService {
     await this.addToQueue({ type: 'reloadAllStats', priority: 1 });
   }
 
-  public async updatePlayerStats(
-    playerIds: number[]
-  ): Promise<void> {
-    // logger.debug(`[PlayerStatsService] Queueing updatePlayerStats operation`);
+  private async handleDebouncedUpdate(): Promise<void> {
+    if (this.pendingPlayerIds.size === 0) return;
+
+    const playerIds = Array.from(this.pendingPlayerIds);
+    this.pendingPlayerIds.clear();
+    this.debounceTimer = null;
+
     await this.addToQueue({ 
       type: 'updatePlayerStats', 
       params: playerIds,
       priority: 2
     });
+  }
+
+  public async updatePlayerStats(
+    playerIds: number[]
+  ): Promise<void> {
+    // Add new player IDs to the pending set
+    playerIds.forEach(id => this.pendingPlayerIds.add(id));
+
+    // Clear existing timer if any
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+    }
+
+    // Set new timer
+    this.debounceTimer = setTimeout(() => {
+      this.handleDebouncedUpdate();
+    }, this.DEBOUNCE_DELAY);
   }
 
   public async updateRanks(): Promise<void> {
