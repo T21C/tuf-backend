@@ -739,27 +739,6 @@ async function fetchLevelDetails(uniqueIds: number[], fetchOrder: Order): Promis
         attributes: ['id', 'type'],
       },
       {
-        model: Pass,
-        as: 'passes',
-        required: false,
-        attributes: ['id', 'accuracy', 'isDeleted', 'isHidden', 'isWorldsFirst'],
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            required: false,
-            attributes: ["pfp"],
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ["avatarUrl"],
-              }
-            ]
-          }
-        ]
-      },
-      {
         model: LevelAlias,
         as: 'aliases',
         required: false,
