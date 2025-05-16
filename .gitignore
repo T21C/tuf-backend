@@ -138,6 +138,7 @@ clearlist.json
 playerlist.json
 pfpList.json
 rankList.json
+mapping-hash.json
 cache/
 backups/
 profiles/
