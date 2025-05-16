@@ -1,5 +1,10 @@
 import { Client } from '@elastic/elasticsearch';
 import { logger } from '../services/LoggerService.js';
+import fs from 'fs';
+
+// Read the CA certificate
+const caPath = process.env.ELASTICSEARCH_CA_PATH || '/mnt/misc_volume_01/elasticsearch/elasticsearch-9.0.0/config/certs/ca/ca.crt';
+const ca = fs.readFileSync(caPath);
 
 const client = new Client({
   node: process.env.ELASTICSEARCH_URL || 'https://localhost:9200',
@@ -8,7 +13,8 @@ const client = new Client({
     password: process.env.ELASTICSEARCH_PASSWORD || 'changeme'
   },
   tls: {
-    rejectUnauthorized: false // Only use this for testing! Remove in production
+    rejectUnauthorized: true,
+    ca: ca
   },
   maxRetries: 5,
   requestTimeout: 60000,
