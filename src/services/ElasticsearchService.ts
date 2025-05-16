@@ -1,4 +1,14 @@
-import client, { levelIndexName, passIndexName } from '../config/elasticsearch.js';
+import client, { 
+  levelIndexName, 
+  passIndexName, 
+  levelMapping, 
+  passMapping,
+  storeMappingHash,
+  initializeElasticsearch,
+  indices,
+  generateMappingHash,
+  updateMappingHash
+} from '../config/elasticsearch.js';
 import { logger } from './LoggerService.js';
 import { ILevel } from '../interfaces/models/index.js';
 import { Op } from 'sequelize';
@@ -13,6 +23,8 @@ import Player from '../models/players/Player.js';
 import Judgement from '../models/passes/Judgement.js';
 import { CreatorAlias } from '../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../models/credits/TeamAlias.js';
+import path from 'path';
+import fs from 'fs';
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -36,9 +48,29 @@ class ElasticsearchService {
     try {
       logger.info('Starting ElasticsearchService initialization...');
       
+      // Initialize Elasticsearch indices
+      const needsReindex = await initializeElasticsearch();
+      
       // Set up database change listeners
       await this.setupChangeListeners();
       logger.info('Database change listeners set up successfully');
+
+      
+      if (needsReindex) {
+        logger.info('Starting data reindexing...');
+        await Promise.all([
+          this.reindexAllLevels().catch(error => {
+            logger.error('Failed to reindex levels:', error);
+            throw error;
+          }),
+          this.reindexAllPasses().catch(error => {
+            logger.error('Failed to reindex passes:', error);
+            throw error;
+          }),
+        ]);
+        logger.info('Data reindexing completed successfully');
+        updateMappingHash();
+      }
 
       this.isInitialized = true;
       logger.info('ElasticsearchService initialized successfully');
@@ -312,6 +344,13 @@ class ElasticsearchService {
       });
 
       await this.bulkIndexLevels(levels);
+      
+      // Update hash after successful reindexing
+      const currentHash = generateMappingHash({
+        [levelIndexName]: levelMapping,
+        [passIndexName]: passMapping
+      });
+      storeMappingHash(currentHash);
     } catch (error) {
       logger.error('Error reindexing all levels:', error);
       throw error;
@@ -345,6 +384,13 @@ class ElasticsearchService {
       });
 
       await this.bulkIndexPasses(passes);
+      
+      // Update hash after successful reindexing
+      const currentHash = generateMappingHash({
+        [levelIndexName]: levelMapping,
+        [passIndexName]: passMapping
+      });
+      storeMappingHash(currentHash);
     } catch (error) {
       logger.error('Error reindexing all passes:', error);
       throw error;

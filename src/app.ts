@@ -22,7 +22,7 @@ import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
 import { logger } from './services/LoggerService.js';
-import { initializeElasticsearch } from './config/elasticsearch.js';
+import client, { initializeElasticsearch, checkIfReindexingNeeded } from './config/elasticsearch.js';
 import ElasticsearchService from './services/ElasticsearchService.js';
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {
@@ -132,25 +132,9 @@ export async function startServer() {
     // Initialize Elasticsearch
     try {
       logger.info('Starting Elasticsearch initialization...');
-      await initializeElasticsearch();
       const elasticsearchService = ElasticsearchService.getInstance();
-      
-      // Initialize the service first
       await elasticsearchService.initialize();
-      
-      // Then reindex data
-      logger.info('Starting data reindexing...');
-      await Promise.all([
-        elasticsearchService.reindexAllLevels().catch(error => {
-          logger.error('Failed to reindex levels:', error);
-          throw error;
-        }),
-        elasticsearchService.reindexAllPasses().catch(error => {
-          logger.error('Failed to reindex passes:', error);
-          throw error;
-        }),
-      ]);
-      logger.info('Elasticsearch initialized and data indexed successfully');
+      logger.info('Elasticsearch initialization completed');
     } catch (error) {
       logger.error('Error initializing Elasticsearch:', error);
       // Don't throw here, allow the app to start even if Elasticsearch fails
