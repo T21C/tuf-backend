@@ -16,6 +16,7 @@ import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {Router, Request, Response} from 'express';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
 import { logger } from '../../services/LoggerService.js';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
 
 // Search query types and interfaces
 interface FieldSearch {
@@ -358,6 +359,117 @@ const getSortOptions = (sort?: string): OrderItem[] => {
   }
 };
 
+// Unified search bridge function
+async function unifiedPassSearch(query: any, useElasticsearch: boolean = true) {
+  try {
+    if (useElasticsearch) {
+      const elasticsearchService = ElasticsearchService.getInstance();
+      const { hits, total } = await elasticsearchService.searchPasses(query.query, {
+        deletedFilter: query.deletedFilter,
+        minDiff: query.minDiff,
+        maxDiff: query.maxDiff,
+        keyFlag: query.keyFlag,
+        specialDifficulties: query.specialDifficulties,
+        sort: query.sort
+      });
+
+      return {
+        count: total,
+        results: hits
+      };
+    } else {
+      // Legacy MySQL search
+      const where = await buildWhereClause({
+        deletedFilter: query.deletedFilter,
+        minDiff: query.minDiff,
+        maxDiff: query.maxDiff,
+        keyFlag: query.keyFlag,
+        levelId: query.levelId,
+        player: query.player,
+        query: query.query,
+        specialDifficulties: query.specialDifficulties,
+      });
+
+      const order = getSortOptions(query.sort);
+      const offsetNum = Math.max(0, Number(query.offset) || 0);
+      const limitNum = Math.max(1, Math.min(100, Number(query.limit) || 30));
+
+      const allIds = await Pass.findAll({
+        where,
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            where: {isBanned: false},
+            required: true,
+          },
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+                required: false,
+              },
+            ],
+          },
+        ],
+        order,
+        attributes: ['id'],
+        raw: true,
+      });
+
+      const paginatedIds = allIds
+        .map((pass: any) => pass.id)
+        .slice(offsetNum, offsetNum + limitNum);
+
+      const results = await Pass.findAll({
+        where: {
+          ...where,
+          id: {
+            [Op.in]: paginatedIds,
+          },
+        },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['name', 'country', 'isBanned'],
+            where: {isBanned: false},
+            required: true,
+          },
+          {
+            model: Level,
+            as: 'level',
+            where: {isHidden: false},
+            attributes: ['song', 'artist', 'baseScore'],
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+            ],
+          },
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        order,
+      });
+
+      return {
+        count: allIds.length,
+        results,
+      };
+    }
+  } catch (error) {
+    logger.error('Error in unified pass search:', error);
+    throw error;
+  }
+}
+
 router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {levelId} = req.params;
@@ -410,6 +522,45 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
   }
 });
 
+// Update the GET endpoint to use the unified search
+router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+  try {
+    const {
+      deletedFilter,
+      minDiff,
+      maxDiff,
+      keyFlag,
+      levelId,
+      player,
+      specialDifficulties,
+      query: searchQuery,
+      offset = '0',
+      limit = '30',
+      sort,
+    } = req.query;
+
+    const result = await unifiedPassSearch({
+      deletedFilter: ensureString(deletedFilter),
+      minDiff: ensureString(minDiff),
+      maxDiff: ensureString(maxDiff),
+      keyFlag: ensureString(keyFlag),
+      levelId: ensureString(levelId),
+      player: ensureString(player),
+      specialDifficulties,
+      query: ensureString(searchQuery),
+      offset,
+      limit,
+      sort: ensureString(sort)
+    });
+
+    return res.json(result);
+  } catch (error) {
+    logger.error('Error fetching passes:', error);
+    return res.status(500).json({error: 'Failed to fetch passes'});
+  }
+});
+
+// Update the POST endpoint to use the unified search
 router.post('/', async (req: Request, res: Response) => {
   try {
     const {
@@ -426,101 +577,21 @@ router.post('/', async (req: Request, res: Response) => {
       sort,
     } = req.body;
 
-    const where = await buildWhereClause({
+    const result = await unifiedPassSearch({
       deletedFilter,
       minDiff,
       maxDiff,
       keyFlag,
       levelId,
       player,
-      query: searchQuery,
       specialDifficulties,
+      query: searchQuery,
+      offset,
+      limit,
+      sort
     });
 
-    const normalizedLimit = limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : 30; // took me 13 hours to find out this was needed :3
-    const normalizedOffset = offset && offset > 0 ? offset : 0;
-
-    const order = getSortOptions(sort);
-
-    const startTime = Date.now();
-    // First get all IDs in correct order
-    const allIds = await Pass.findAll({
-      where,
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          where: {isBanned: false},
-          required: true,
-        },
-        {
-          model: Level,
-          as: 'level',
-          where: {isHidden: false, isDeleted: false},
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-              required: false,
-            },
-          ],
-        },
-      ],
-      order,
-      offset: normalizedOffset,
-      limit: normalizedLimit+1,
-      attributes: ['id'],
-      raw: true,
-    });
-
-    const uniqueIds = [...new Set(allIds.map(level => level.id))];
-    // logger.debug(`Found ${uniqueIds.length} unique levels out of ${allIds.length} total results`);
-    
-    // Apply pagination to the unique IDs
-    let hasMore = uniqueIds.length > normalizedLimit;
-
-    const results = await Pass.findAll({
-      where: {
-        id: {
-          [Op.in]: uniqueIds,
-        },
-      },
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          attributes: ['name', 'country', 'isBanned'],
-          where: {isBanned: false},
-          required: true,
-        },
-        {
-          model: Level,
-          as: 'level',
-          where: {isHidden: false},
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-          ],
-        },
-        {
-          model: Judgement,
-          as: 'judgements',
-        },
-      ],
-      order,
-    });
-
-    const delay = Date.now() - startTime
-    if (delay > 400) {
-      logger.debug(`pass filter took ${delay}ms with ${uniqueIds.length} passes`);
-    }
-
-    return res.json({
-      count: hasMore ? 999999 : 0,
-      results,
-    });
+    return res.json(result);
   } catch (error) {
     logger.error('Error fetching passes:', error);
     return res.status(500).json({error: 'Failed to fetch passes'});
@@ -1279,118 +1350,5 @@ const ensureString = (value: any): string | undefined => {
   if (value?.toString) return value.toString();
   return undefined;
 };
-
-// Main GET endpoint with search
-router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
-    try {
-      const {
-        deletedFilter,
-        minDiff,
-        maxDiff,
-        keyFlag,
-        levelId,
-        player,
-        specialDifficulties,
-        query: searchQuery,
-        offset = '0',
-        limit = '30',
-        sort,
-      } = req.query;
-
-      const where = await buildWhereClause({
-        deletedFilter: ensureString(deletedFilter),
-        minDiff: ensureString(minDiff),
-        maxDiff: ensureString(maxDiff),
-        keyFlag: ensureString(keyFlag),
-        levelId: ensureString(levelId),
-        specialDifficulties,
-        player: ensureString(player),
-        query: ensureString(searchQuery),
-      });
-
-      const order = getSortOptions(ensureString(sort));
-      // First get all IDs in correct order
-      const allIds = await Pass.findAll({
-        where,
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            where: {isBanned: false},
-            required: true,
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-                required: false,
-              },
-            ],
-          },
-        ],
-        order,
-        attributes: ['id'],
-        raw: true,
-      });
-
-      // Then get paginated results using those IDs in their original order
-      const offsetNum = Math.max(0, Number(ensureString(offset)) || 0);
-      const limitNum = Math.max(
-        1,
-        Math.min(100, Number(ensureString(limit)) || 30),
-      );
-      const paginatedIds = allIds
-        .map((pass: any) => pass.id)
-        .slice(offsetNum, offsetNum + limitNum);
-
-      const results = await Pass.findAll({
-        where: {
-          ...where,
-          id: {
-            [Op.in]: paginatedIds,
-          },
-        },
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            attributes: ['name', 'country', 'isBanned'],
-            where: {isBanned: false},
-            required: true,
-          },
-          {
-            model: Level,
-            as: 'level',
-            where: {isHidden: false},
-            attributes: ['song', 'artist', 'baseScore'],
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-        ],
-        order,
-      });
-
-      return res.json({
-        count: allIds.length,
-        results,
-      });
-    } catch (error) {
-      logger.error('Error fetching passes:', error);
-      return res.status(500).json({error: 'Failed to fetch passes'});
-    }
-  },
-);
-
 
 export default router;

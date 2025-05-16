@@ -19,309 +19,331 @@ import LevelLikes from "../../../models/levels/LevelLikes.js";
 import { User } from "../../../models/index.js";
 import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
 import { logger } from "../../../services/LoggerService.js";
+import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import { MAX_LIMIT } from '../index.js';
 
 const router: Router = Router()
+const elasticsearchService = ElasticsearchService.getInstance();
 
 router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-    try {
-      const {query, sort, offset, limit, deletedFilter, clearedFilter, pguRange, specialDifficulties, onlyMyLikes} =
-        req.query;
-      const pguRangeObj = pguRange ? {from: (pguRange as string).split(',')[0], to: (pguRange as string).split(',')[1]} : undefined;
-      const specialDifficultiesObj = specialDifficulties ? (specialDifficulties as string).split(',') : undefined;
-      // Build the base where clause using the shared function
-      const {results, hasMore} = await filterLevels(
-        query, 
-        pguRangeObj, 
-        specialDifficultiesObj, 
-        sort, 
-        parseInt(offset as string), 
-        parseInt(limit as string), 
-        deletedFilter as string, 
-        clearedFilter as string,
-        onlyMyLikes === 'true',
-        req.user?.id || null);
-  
-      return res.json({
-        hasMore,
-        results,
-      });
-    } catch (error) {
-      logger.error('Error fetching levels:', error);
-      return res.status(500).json({error: 'Failed to fetch levels'});
+  try {
+    const {
+      query,
+      pguRange,
+      specialDifficulties,
+      sort,
+      offset = 0,
+      limit = 30,
+      deletedFilter,
+      clearedFilter,
+      onlyMyLikes,
+    } = req.query;
+
+    // Normalize pagination parameters
+    const normalizedLimit = Math.min(Math.max(Number(limit), 1), MAX_LIMIT);
+    const normalizedOffset = Math.max(Number(offset), 0);
+
+    // Parse pguRange from comma-separated string
+    let parsedPguRange;
+    if (pguRange) {
+      const [from, to] = (pguRange as string).split(',').map(s => s.trim());
+      parsedPguRange = { from, to };
     }
+
+    // Parse specialDifficulties from string
+    let parsedSpecialDifficulties;
+    if (specialDifficulties) {
+      try {
+        // Try parsing as JSON first
+        parsedSpecialDifficulties = JSON.parse(specialDifficulties as string);
+      } catch {
+        // If not JSON, treat as comma-separated string
+        parsedSpecialDifficulties = (specialDifficulties as string).split(',').map(s => s.trim());
+      }
+    }
+
+    // Get liked level IDs if needed
+    let likedLevelIds;
+    if (onlyMyLikes === 'true' && req.user?.id) {
+      likedLevelIds = await LevelLikes.findAll({
+        where: { userId: req.user.id },
+        attributes: ['levelId']
+      }).then(likes => likes.map(l => l.levelId));
+      logger.info('Liked level IDs:', likedLevelIds);
+    }
+
+    // Search using Elasticsearch
+    const { hits, total } = await elasticsearchService.searchLevels(
+      query as string,
+      {
+        pguRange: parsedPguRange,
+        specialDifficulties: parsedSpecialDifficulties,
+        sort: sort as string,
+        deletedFilter: deletedFilter as string,
+        clearedFilter: clearedFilter as string,
+        userId: req.user?.id,
+        offset: normalizedOffset,
+        limit: normalizedLimit,
+        likedLevelIds
+      }
+    );
+
+    logger.info('Search results:', {
+      total,
+      resultsCount: hits?.length,
+      hasMore: normalizedOffset + normalizedLimit < total
+    });
+
+    res.json({
+      results: hits || [],
+      hasMore: normalizedOffset + normalizedLimit < total,
+      total
+    });
+  } catch (error) {
+    logger.error('Error in level search:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    
+  // Check if levelId is not a valid number
+  if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
+    return res.status(400).json({error: 'Invalid level ID'});
+  }
+
+  const level = await Level.findOne({
+    where: { id: levelId },
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty',
+        required: false,
+      },
+      {
+        model: Pass,
+        as: 'passes',
+        required: false,
+        attributes: ['id'],
+      },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        required: false,
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+          },
+        ],
+      },
+      {
+        model: LevelAlias,
+        as: 'aliases',
+        required: false,
+      },
+      {
+        model: Team,
+        as: 'teamObject',
+        required: false,
+      }
+    ],
   });
-  
-  // Add the new filtering endpoint
-  router.post('/filter', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-    try {
-      const {pguRange, specialDifficulties} = req.body;
-      const {query, sort, offset, limit, deletedFilter, clearedFilter, onlyMyLikes} =
-        req.query;
-  
-      // Build the base where clause using the shared function
-      const {results, hasMore} = await filterLevels(
-        query, 
-        pguRange, 
-        specialDifficulties, 
-        sort, 
-        parseInt(offset as string), 
-        parseInt(limit as string), 
-        deletedFilter as string, 
-        clearedFilter as string,
-        onlyMyLikes === 'true',
-        req.user?.id || null);
-  
-      return res.json({
-        hasMore,
-        results,
-      });
-    } catch (error) {
-      logger.error('Error filtering levels:', error);
-      logger.info("query:", req.query);
-      logger.info("body:", req.body);
-      return res.status(500).json({error: 'Failed to filter levels'});
+
+  if (!level) {    
+    return res.status(404).json({ error: 'Level not found' });
+  }
+
+  // If level is deleted and user is not super admin, return 404
+  if (level.isDeleted && !req.user?.isSuperAdmin) {
+    return res.status(404).json({ error: 'Level not found' });
+  }
+
+    return res.json(level);
+  } catch (error) {
+    logger.error(`Error fetching level by ID ${req.params.id}:`, (error instanceof Error ? error.toString() : String(error)).slice(0, 1000));
+    return res.status(500).json({ error: 'Failed to fetch level by ID' });
+  }
+});
+
+// Add HEAD endpoint for byId permission check
+router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    
+    if (isNaN(levelId)) {
+      return res.status(400).end();
     }
-  });
-  
-  router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-    try {
-      const levelId = parseInt(req.params.id);
-      
-    // Check if levelId is not a valid number
-    if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
-      return res.status(400).json({error: 'Invalid level ID'});
-    }
-  
+
     const level = await Level.findOne({
       where: { id: levelId },
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: Pass,
-          as: 'passes',
-          required: false,
-          attributes: ['id'],
-        },
-        {
-          model: LevelCredit,
-          as: 'levelCredits',
-          required: false,
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-            },
-          ],
-        },
-        {
-          model: LevelAlias,
-          as: 'aliases',
-          required: false,
-        },
-        {
-          model: Team,
-          as: 'teamObject',
-          required: false,
-        }
-      ],
+      attributes: ['isDeleted']
     });
-  
-    if (!level) {    
-      return res.status(404).json({ error: 'Level not found' });
+
+    if (!level) {
+      return res.status(404).end();
     }
-  
-    // If level is deleted and user is not super admin, return 404
+
+    // If level is deleted and user is not super admin, return 403
     if (level.isDeleted && !req.user?.isSuperAdmin) {
-      return res.status(404).json({ error: 'Level not found' });
+      return res.status(404).end();
     }
-  
-      return res.json(level);
-    } catch (error) {
-      logger.error(`Error fetching level by ID ${req.params.id}:`, (error instanceof Error ? error.toString() : String(error)).slice(0, 1000));
-      return res.status(500).json({ error: 'Failed to fetch level by ID' });
+
+    return res.status(200).end();
+  } catch (error) {
+    logger.error('Error checking level permissions:', error);
+    return res.status(500).end();
+  }
+});
+
+router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const includeRatings = req.query.includeRatings === 'true';
+    // Use a READ COMMITTED transaction to avoid locks from updates
+    if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
+      return res.status(400).json({ error: 'Invalid level ID' });
     }
-  });
-  
-  // Add HEAD endpoint for byId permission check
-  router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction({
+      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+    });
+
     try {
-      const levelId = parseInt(req.params.id);
-      
-      if (isNaN(levelId)) {
-        return res.status(400).end();
-      }
-  
       const level = await Level.findOne({
-        where: { id: levelId },
-        attributes: ['isDeleted']
+        where: { id: parseInt(req.params.id) },
+        include: [
+          {
+            model: Pass,
+            as: 'passes',
+            include: [
+              {
+                model: Player,
+                as: 'player',
+              },
+              {
+                model: Judgement,
+                as: 'judgements',
+              },
+            ],
+          },
+          {
+            model: Difficulty,
+            as: 'difficulty',
+          },
+          {
+            model: LevelAlias,
+            as: 'aliases',
+            required: false,
+          },
+          {
+            model: LevelCredit,
+            as: 'levelCredits',
+            required: false,
+            include: [
+              {
+                model: Creator,
+                as: 'creator',
+                include: [
+                  {
+                    model: CreatorAlias,
+                    as: 'creatorAliases',
+                    attributes: ['name'],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            model: Team,
+            as: 'teamObject',
+            required: false,
+          },
+        ],
+        transaction,
       });
-  
+
+      const ratings = await Rating.findOne({
+        where: {
+          levelId: parseInt(req.params.id),
+          [Op.not]: {confirmedAt: null}
+        },
+        include: [
+          {
+            model: RatingDetail,
+            as: 'details',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['username', 'avatarUrl'],
+              },
+            ],
+          },
+        ],
+        transaction,
+      });
+      
+      const votes = await RatingAccuracyVote.findAll({
+        where: { 
+          levelId: parseInt(req.params.id), 
+          diffId: level?.difficulty?.id || 0
+        },
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['username', 'avatarUrl'],
+            include: [
+              {
+                model: Player,
+                as: 'player',
+                attributes: ['name'],
+              },
+            ],
+          },
+        ],
+      });
+
+      const totalVotes = votes.length;
+
+      const isLiked = req.user ? !!(await LevelLikes.findOne({
+        where: { levelId: parseInt(req.params.id), userId: req.user?.id },
+      })) : false;
+
+      const isCleared = req.user?.playerId ? !!(await Pass.findOne({
+        where: { levelId: parseInt(req.params.id), playerId: req.user?.playerId },
+      })) : false;
+
+      await transaction.commit();
+
+
       if (!level) {
-        return res.status(404).end();
+        return res.status(404).json({ error: 'Level not found' });
       }
-  
-      // If level is deleted and user is not super admin, return 403
+
+      // If level is deleted and user is not super admin, return 404
       if (level.isDeleted && !req.user?.isSuperAdmin) {
-        return res.status(404).end();
+        return res.status(404).json({ error: 'Level not found' });
       }
-  
-      return res.status(200).end();
-    } catch (error) {
-      logger.error('Error checking level permissions:', error);
-      return res.status(500).end();
-    }
-  });
-  
-  router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
-    try {
-      const includeRatings = req.query.includeRatings === 'true';
-      // Use a READ COMMITTED transaction to avoid locks from updates
-      if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
-        return res.status(400).json({ error: 'Invalid level ID' });
-      }
-      const transaction = await sequelize.transaction({
-        isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+      
+
+      return res.json({
+        level,
+        ratings: includeRatings ? ratings : undefined,
+        votes: req.user?.isSuperAdmin ? votes : undefined,
+        totalVotes,
+        isLiked,
+        isCleared,
       });
-  
-      try {
-        const level = await Level.findOne({
-          where: { id: parseInt(req.params.id) },
-          include: [
-            {
-              model: Pass,
-              as: 'passes',
-              include: [
-                {
-                  model: Player,
-                  as: 'player',
-                },
-                {
-                  model: Judgement,
-                  as: 'judgements',
-                },
-              ],
-            },
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-            {
-              model: LevelAlias,
-              as: 'aliases',
-              required: false,
-            },
-            {
-              model: LevelCredit,
-              as: 'levelCredits',
-              required: false,
-              include: [
-                {
-                  model: Creator,
-                  as: 'creator',
-                  include: [
-                    {
-                      model: CreatorAlias,
-                      as: 'creatorAliases',
-                      attributes: ['name'],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              model: Team,
-              as: 'teamObject',
-              required: false,
-            },
-          ],
-          transaction,
-        });
-  
-        const ratings = await Rating.findOne({
-          where: {
-            levelId: parseInt(req.params.id),
-            [Op.not]: {confirmedAt: null}
-          },
-          include: [
-            {
-              model: RatingDetail,
-              as: 'details',
-              include: [
-                {
-                  model: User,
-                  as: 'user',
-                  attributes: ['username', 'avatarUrl'],
-                },
-              ],
-            },
-          ],
-          transaction,
-        });
-        
-        const votes = await RatingAccuracyVote.findAll({
-          where: { 
-            levelId: parseInt(req.params.id), 
-            diffId: level?.difficulty?.id || 0
-          },
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['username', 'avatarUrl'],
-              include: [
-                {
-                  model: Player,
-                  as: 'player',
-                  attributes: ['name'],
-                },
-              ],
-            },
-          ],
-        });
-
-        const totalVotes = votes.length;
-
-        const isLiked = req.user ? !!(await LevelLikes.findOne({
-          where: { levelId: parseInt(req.params.id), userId: req.user?.id },
-        })) : false;
-  
-        const isCleared = req.user?.playerId ? !!(await Pass.findOne({
-          where: { levelId: parseInt(req.params.id), playerId: req.user?.playerId },
-        })) : false;
-  
-        await transaction.commit();
-  
-  
-        if (!level) {
-          return res.status(404).json({ error: 'Level not found' });
-        }
-  
-        // If level is deleted and user is not super admin, return 404
-        if (level.isDeleted && !req.user?.isSuperAdmin) {
-          return res.status(404).json({ error: 'Level not found' });
-        }
-        
-  
-        return res.json({
-          level,
-          ratings: includeRatings ? ratings : undefined,
-          votes: req.user?.isSuperAdmin ? votes : undefined,
-          totalVotes,
-          isLiked,
-          isCleared,
-        });
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
-      }
     } catch (error) {
-      logger.error('Error fetching level:', error);
-      return res.status(500).json({ error: 'Failed to fetch level' });
+      await transaction.rollback();
+      throw error;
     }
-  });
-  
-  export default router;
+  } catch (error) {
+    logger.error('Error fetching level:', error);
+    return res.status(500).json({ error: 'Failed to fetch level' });
+  }
+});
+
+export default router;

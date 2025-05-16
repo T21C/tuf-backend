@@ -1,0 +1,342 @@
+import { Client } from '@elastic/elasticsearch';
+import { logger } from '../services/LoggerService.js';
+
+const client = new Client({
+  node: process.env.ELASTICSEARCH_URL || 'https://localhost:9200',
+  auth: {
+    username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
+    password: process.env.ELASTICSEARCH_PASSWORD || 'changeme'
+  },
+  tls: {
+    rejectUnauthorized: false // Only use this for testing! Remove in production
+  },
+  maxRetries: 5,
+  requestTimeout: 60000,
+  sniffOnStart: true
+});
+
+// Index names
+export const levelIndexName = 'levels_v1';
+export const passIndexName = 'passes_v1';
+
+// Alias names
+export const levelAlias = 'levels';
+export const passAlias = 'passes';
+export const creditsAlias = 'credits';
+
+// Combined index and alias configuration
+
+
+export const levelMapping = {
+  mappings: {
+    properties: {
+      id: { type: 'integer' as const },
+      song: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const }
+        }
+      },
+      artist: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const }
+        }
+      },
+      creator: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      charter: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const }
+        }
+      },
+      vfxer: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      team: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const }
+        }
+      },
+      teamId: { type: 'integer' as const },
+      diffId: { type: 'integer' as const },
+      baseScore: { type: 'long' as const },
+      previousBaseScore: { type: 'long' as const },
+      videoLink: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      dlLink: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      workshopLink: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      publicComments: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      submitterDiscordId: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      toRate: { type: 'boolean' as const },
+      rerateReason: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      rerateNum: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
+      previousDiffId: { type: 'long' as const },
+      isAnnounced: { type: 'boolean' as const },
+      isDeleted: { type: 'boolean' as const },
+      isHidden: { type: 'boolean' as const },
+      isVerified: { type: 'boolean' as const },
+      isCleared: { type: 'boolean' as const },
+      createdAt: { type: 'date' as const },
+      updatedAt: { type: 'date' as const },
+      clears: { type: 'integer' as const },
+      likes: { type: 'integer' as const },
+      ratingAccuracy: { type: 'float' as const },
+      totalRatingAccuracyVotes: { type: 'integer' as const },
+      difficulty: {
+        properties: {
+          id: { type: 'integer' as const },
+          name: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } },
+          type: { type: 'keyword' as const },
+          icon: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } },
+          emoji: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } },
+          color: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } },
+          createdAt: { type: 'date' as const },
+          updatedAt: { type: 'date' as const },
+          baseScore: { type: 'long' as const },
+          sortOrder: { type: 'integer' as const },
+          legacy: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } },
+          legacyIcon: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } },
+          legacyEmoji: { type: 'text' as const, fields: { keyword: { type: 'keyword' as const, ignore_above: 256 } } }
+        }
+      },
+      aliases: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'long' as const },
+          levelId: { type: 'long' as const },
+          field: { type: 'keyword' as const },
+          originalValue: { type: 'text' as const },
+          alias: { type: 'text' as const },
+          createdAt: { type: 'date' as const },
+          updatedAt: { type: 'date' as const }
+        }
+      },
+      levelCredits: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'long' as const },
+          levelId: { type: 'long' as const },
+          creatorId: { type: 'integer' as const },
+          role: { 
+            type: 'text' as const,
+            fields: {
+              keyword: { type: 'keyword' as const, ignore_above: 256 }
+            }
+          },
+          isVerified: { type: 'boolean' as const },
+          creator: {
+            type: 'nested' as const,
+            properties: {
+              id: { type: 'integer' as const },
+              name: { type: 'text' as const },
+              createdAt: { type: 'date' as const },
+              updatedAt: { type: 'date' as const },
+              isVerified: { type: 'boolean' as const },
+              userId: { type: 'keyword' as const },
+              creatorAliases: {
+                type: 'nested' as const,
+                properties: {
+                  id: { type: 'long' as const },
+                  creatorId: { type: 'long' as const },
+                  name: { type: 'text' as const },
+                  createdAt: { type: 'date' as const },
+                  updatedAt: { type: 'date' as const }
+                }
+              }
+            }
+          }
+        }
+      },
+      teamObject: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: { type: 'text' as const },
+          createdAt: { type: 'date' as const },
+          updatedAt: { type: 'date' as const },
+          aliases: {
+            type: 'nested' as const,
+            properties: {
+              id: { type: 'integer' as const },
+              name: { type: 'text' as const }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+export const passMapping = {
+  mappings: {
+    properties: {
+      id: { type: 'integer' as const },
+      levelId: { type: 'integer' as const },
+      playerId: { type: 'integer' as const },
+      vidUploadTime: { type: 'date' as const },
+      speed: { type: 'float' as const },
+      feelingRating: { type: 'text' as const },
+      vidTitle: { type: 'text' as const },
+      videoLink: { type: 'text' as const },
+      is12K: { type: 'boolean' as const },
+      is16K: { type: 'boolean' as const },
+      isNoHoldTap: { type: 'boolean' as const },
+      accuracy: { type: 'float' as const },
+      scoreV2: { type: 'float' as const },
+      isDeleted: { type: 'boolean' as const },
+      isAnnounced: { type: 'boolean' as const },
+      isDuplicate: { type: 'boolean' as const },
+      isWorldsFirst: { type: 'boolean' as const },
+      player: {
+        properties: {
+          name: { type: 'text' as const },
+          country: { type: 'keyword' as const },
+          isBanned: { type: 'boolean' as const }
+        }
+      },
+      level: {
+        properties: {
+          song: { type: 'text' as const },
+          artist: { type: 'text' as const },
+          baseScore: { type: 'float' as const },
+          diffId: { type: 'integer' as const },
+          difficulty: {
+            properties: {
+              id: { type: 'integer' as const },
+              name: { type: 'keyword' as const },
+              type: { type: 'keyword' as const },
+              sortOrder: { type: 'integer' as const }
+            }
+          }
+        }
+      },
+      judgements: {
+        properties: {
+          earlyDouble: { type: 'integer' as const },
+          earlySingle: { type: 'integer' as const },
+          ePerfect: { type: 'integer' as const },
+          perfect: { type: 'integer' as const },
+          lPerfect: { type: 'integer' as const },
+          lateSingle: { type: 'integer' as const },
+          lateDouble: { type: 'integer' as const }
+        }
+      }
+    }
+  }
+};
+
+export const indices = {
+  [levelIndexName]: {
+    alias: levelAlias,
+    mappings: levelMapping.mappings
+  },
+  [passIndexName]: {
+    alias: passAlias,
+    mappings: passMapping.mappings
+  }
+};
+
+async function waitForElasticsearch(retries = 5, delay = 5000): Promise<boolean> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const health = await client.cluster.health();
+      if (health.status === 'green' || health.status === 'yellow') {
+        logger.info('Elasticsearch is ready');
+        return true;
+      }
+      logger.info(`Elasticsearch status: ${health.status}, waiting...`);
+    } catch (error) {
+      logger.warn(`Elasticsearch not ready (attempt ${i + 1}/${retries}):`, error);
+    }
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+  return false;
+}
+
+export async function initializeElasticsearch() {
+  try {
+    const isReady = await waitForElasticsearch();
+    if (!isReady) {
+      throw new Error('Elasticsearch failed to initialize after multiple retries');
+    }
+
+    // Delete any existing indices and aliases
+    await client.indices.delete({ 
+      index: [levelIndexName, passIndexName, levelAlias, passAlias, creditsAlias],
+      ignore_unavailable: true 
+    }).catch(() => {});
+
+    // Create indices with their mappings
+    for (const [indexName, config] of Object.entries(indices)) {
+      await client.indices.create({
+        index: indexName,
+        mappings: config.mappings
+      });
+      logger.info(`Created index: ${indexName}`);
+
+      // Create alias
+      await client.indices.putAlias({
+        index: indexName,
+        name: config.alias
+      });
+      logger.info(`Created alias: ${config.alias} -> ${indexName}`);
+    }
+
+    // Create credits alias pointing to levels index
+    await client.indices.putAlias({
+      index: levelIndexName,
+      name: creditsAlias
+    });
+    logger.info(`Created alias: ${creditsAlias} -> ${levelIndexName}`);
+
+  } catch (error) {
+    logger.error('Error initializing Elasticsearch:', error);
+    throw error;
+  }
+}
+
+export default client; 

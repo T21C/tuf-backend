@@ -962,7 +962,14 @@ export class PlayerStatsService {
       return null;
     }
 
-    const currentStats = await PlayerStatsService.getInstance().getPlayerStats(pass.player?.id || 0);
+    const currentStats = await sequelize.query(this.statsQuery, {
+      replacements: { 
+        playerIds: [pass.player?.id || 0],
+        excludedLevelIds: null,
+        excludedPassIds: null,
+      },
+      type: QueryTypes.SELECT,
+    }).then((result: any) => result[0])
     const previousStats = await sequelize.query(this.statsQuery, {
       replacements: { 
         playerIds: [pass.player?.id || 0],

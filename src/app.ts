@@ -22,6 +22,8 @@ import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
 import { logger } from './services/LoggerService.js';
+import { initializeElasticsearch } from './config/elasticsearch.js';
+import ElasticsearchService from './services/ElasticsearchService.js';
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {
   logger.error('UNCAUGHT EXCEPTION! Shutting down...');
@@ -116,7 +118,7 @@ io.on('connection', socket => {
 });
 
 // Initialize database and start server
-async function startServer() {
+export async function startServer() {
   try {
     // First, verify database connection
     await db.sequelize.authenticate();
@@ -126,6 +128,35 @@ async function startServer() {
     }
 
     logger.info('Database connection established.');
+
+    // Initialize Elasticsearch
+    try {
+      logger.info('Starting Elasticsearch initialization...');
+      await initializeElasticsearch();
+      const elasticsearchService = ElasticsearchService.getInstance();
+      
+      // Initialize the service first
+      await elasticsearchService.initialize();
+      
+      // Then reindex data
+      logger.info('Starting data reindexing...');
+      await Promise.all([
+        elasticsearchService.reindexAllLevels().catch(error => {
+          logger.error('Failed to reindex levels:', error);
+          throw error;
+        }),
+        elasticsearchService.reindexAllPasses().catch(error => {
+          logger.error('Failed to reindex passes:', error);
+          throw error;
+        }),
+      ]);
+      logger.info('Elasticsearch initialized and data indexed successfully');
+    } catch (error) {
+      logger.error('Error initializing Elasticsearch:', error);
+      // Don't throw here, allow the app to start even if Elasticsearch fails
+      // The search functionality will fall back to MySQL in this case
+      logger.warn('Application will continue without Elasticsearch functionality');
+    }
 
     // Initialize PlayerStatsService after database is ready
     const playerStatsService = PlayerStatsService.getInstance();

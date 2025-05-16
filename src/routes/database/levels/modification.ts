@@ -17,9 +17,10 @@ import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
 import User from "../../../models/auth/User.js";
 import Player from "../../../models/players/Player.js";
 import { logger } from "../../../services/LoggerService.js";
+import ElasticsearchService from '../../../services/ElasticsearchService.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
-
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const router = Router();
 
@@ -362,6 +363,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           logger.error('Error in async operations after level update:', error);
           return;
         });
+
+      // After updating the level, update it in Elasticsearch
+      if (updatedLevel) {
+        await elasticsearchService.indexLevel(updatedLevel);
+      }
+      
       return;
     } catch (error) {
       await transaction.rollback();
@@ -559,7 +566,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             );
             return;
           });
-        return;
+
+        // After deleting the level, remove it from Elasticsearch
+        await elasticsearchService.deleteLevel(levelId);
+        
+        return res.status(204).end();
       } catch (error) {
         await transaction.rollback();
         logger.error('Error soft deleting level:', error);
