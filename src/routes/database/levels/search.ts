@@ -39,6 +39,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       onlyMyLikes,
     } = req.query;
 
+    const startTime = Date.now();
     // Normalize pagination parameters
     const normalizedLimit = Math.min(Math.max(Number(limit), 1), MAX_LIMIT);
     const normalizedOffset = Math.max(Number(offset), 0);
@@ -88,11 +89,8 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       }
     );
 
-    logger.info('Search results:', {
-      total,
-      resultsCount: hits?.length,
-      hasMore: normalizedOffset + normalizedLimit < total
-    });
+    const elapsed = Date.now() - startTime;
+    logger.debug(`[Levels] Search for ${query} completed in ${elapsed}ms with ${total} results`);
 
     res.json({
       results: hits || [],

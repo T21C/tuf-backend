@@ -10,7 +10,7 @@ class Team extends Model implements ITeam {
   declare createdAt: Date;
   declare updatedAt: Date;
   declare members: ICreator[];
-  declare teamAliases: TeamAlias[];
+  declare aliases: TeamAlias[];
 }
 
 Team.init(

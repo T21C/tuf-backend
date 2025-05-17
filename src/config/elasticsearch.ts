@@ -1,10 +1,22 @@
 import { Client } from '@elastic/elasticsearch';
 import { logger } from '../services/LoggerService.js';
 import fs from 'fs';
+import hash from 'object-hash';
+import path from 'path';
 
-// Read the CA certificate
-const caPath = process.env.ELASTICSEARCH_CA_PATH || '/mnt/misc_volume_01/elasticsearch/elasticsearch-9.0.0/config/certs/ca/ca.crt';
-const ca = fs.readFileSync(caPath);
+// Read the CA certificate only in production
+const isProduction = process.env.NODE_ENV === 'production';
+let ca: Buffer | undefined;
+
+if (isProduction) {
+  const caPath = process.env.ELASTICSEARCH_CA_PATH || '/mnt/misc_volume_01/elasticsearch/elasticsearch-9.0.0/config/certs/ca/ca.crt';
+  try {
+    ca = fs.readFileSync(caPath);
+  } catch (error) {
+    logger.error('Failed to read Elasticsearch CA certificate:', error);
+    throw error;
+  }
+}
 
 const client = new Client({
   node: process.env.ELASTICSEARCH_URL || 'https://localhost:9200',
@@ -12,9 +24,11 @@ const client = new Client({
     username: process.env.ELASTICSEARCH_USERNAME || 'elastic',
     password: process.env.ELASTICSEARCH_PASSWORD || 'changeme'
   },
-  tls: {
+  tls: isProduction ? {
     rejectUnauthorized: true,
     ca: ca
+  } : {
+    rejectUnauthorized: false
   },
   maxRetries: 5,
   requestTimeout: 60000,
@@ -31,46 +45,98 @@ export const passAlias = 'passes';
 export const creditsAlias = 'credits';
 
 // Combined index and alias configuration
-
+const settings = {
+  analysis: {
+    analyzer: {
+      custom_text_analyzer: {
+        type: 'custom' as const,
+        tokenizer: 'whitespace',
+        filter: [
+          'lowercase',
+          'asciifolding'
+        ]
+      },
+      exact_match_analyzer: {
+        type: 'custom' as const,
+        tokenizer: 'keyword',
+        filter: [
+          'lowercase',
+          'asciifolding'
+        ]
+      }
+    }
+  }
+}
 
 export const levelMapping = {
+  settings,
   mappings: {
     properties: {
       id: { type: 'integer' as const },
       song: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          exact: {
+            type: 'text' as const,
+            analyzer: 'exact_match_analyzer'
+          },
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       artist: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       creator: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { 
+            type: 'keyword' as const, 
+            ignore_above: 256,
+            normalizer: 'lowercase'
+          }
         }
       },
       charter: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       vfxer: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { 
+            type: 'keyword' as const, 
+            ignore_above: 256,
+            normalizer: 'lowercase'
+          }
         }
       },
       team: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       teamId: { type: 'integer' as const },
@@ -218,6 +284,7 @@ export const levelMapping = {
 };
 
 export const passMapping = {
+  settings,
   mappings: {
     properties: {
       id: { type: 'integer' as const },
@@ -278,13 +345,77 @@ export const passMapping = {
 export const indices = {
   [levelIndexName]: {
     alias: levelAlias,
+    settings: levelMapping.settings,
     mappings: levelMapping.mappings
   },
   [passIndexName]: {
     alias: passAlias,
+    settings: passMapping.settings,
     mappings: passMapping.mappings
   }
 };
+
+// Function to generate hash of mappings
+export function generateMappingHash(mappings: any): string {
+  return hash(mappings, { 
+    respectType: false,
+    unorderedArrays: true,
+    unorderedSets: true,
+    unorderedObjects: true
+  });
+}
+
+export function updateMappingHash(): void {
+  storeMappingHash(generateMappingHash(indices));
+}
+
+// Function to read stored mapping hash
+export function readStoredMappingHash(): string | null {
+  const hashPath = path.join(process.cwd(), 'mapping-hash.json');
+  try {
+    if (fs.existsSync(hashPath)) {
+      const data = JSON.parse(fs.readFileSync(hashPath, 'utf8'));
+      return data.hash;
+    }
+  } catch (error) {
+    logger.warn('Failed to read mapping hash file:', error);
+  }
+  return null;
+}
+
+// Function to store mapping hash
+export function storeMappingHash(hash: string): void {
+  const hashPath = path.join(process.cwd(), 'mapping-hash.json');
+  try {
+    fs.writeFileSync(hashPath, JSON.stringify({ hash, timestamp: new Date().toISOString() }));
+  } catch (error) {
+    logger.error('Failed to store mapping hash:', error);
+  }
+}
+
+// Function to check if reindexing is needed
+export async function checkIfReindexingNeeded(client: Client): Promise<{ needsReindex: boolean }> {
+  try {
+    // Generate hash of the current index configuration
+    const currentHash = generateMappingHash(indices);
+    
+    // Get stored hash
+    const storedHash = readStoredMappingHash();
+    
+    // If hashes don't match, reindexing is needed
+    if (currentHash !== storedHash) {
+      logger.info('Index configuration has changed, reindexing needed');
+      return { needsReindex: true };
+    }
+
+    logger.info('No reindexing needed, index configuration matches stored hash');
+    return { needsReindex: false };
+  } catch (error) {
+    logger.error('Error checking if reindexing is needed:', error);
+    // If we can't determine, assume reindexing is needed
+    return { needsReindex: true };
+  }
+}
 
 async function waitForElasticsearch(retries = 5, delay = 5000): Promise<boolean> {
   for (let i = 0; i < retries; i++) {
@@ -310,34 +441,56 @@ export async function initializeElasticsearch() {
       throw new Error('Elasticsearch failed to initialize after multiple retries');
     }
 
-    // Delete any existing indices and aliases
-    await client.indices.delete({ 
-      index: [levelIndexName, passIndexName, levelAlias, passAlias, creditsAlias],
-      ignore_unavailable: true 
-    }).catch(() => {});
+    const { needsReindex } = await checkIfReindexingNeeded(client);
+    const indexExists = await Promise.all([
+      client.indices.exists({ index: levelIndexName }),
+      client.indices.exists({ index: passIndexName }),
+      client.indices.exists({ index: levelAlias }),
+      client.indices.exists({ index: passAlias }),
+      client.indices.exists({ index: creditsAlias })
+    ]).then(results => results.every(Boolean));
+    const doReindex = needsReindex || !indexExists || process.env.NODE_ENV === 'development';
+    if (doReindex) {
+      logger.info('Performing reindex...');
 
-    // Create indices with their mappings
-    for (const [indexName, config] of Object.entries(indices)) {
-      await client.indices.create({
-        index: indexName,
-        mappings: config.mappings
-      });
-      logger.info(`Created index: ${indexName}`);
+      // Delete any existing indices and aliases
+      await client.indices.delete({ 
+        index: [levelIndexName, passIndexName, levelAlias, passAlias, creditsAlias],
+        ignore_unavailable: true 
+      }).catch(() => {});
 
-      // Create alias
+      // Create indices with their mappings
+      for (const [indexName, config] of Object.entries(indices)) {
+        await client.indices.create({
+          index: indexName,
+          settings: config.settings,
+          mappings: config.mappings
+        });
+        logger.info(`Created index: ${indexName}`);
+
+        // Create alias
+        await client.indices.putAlias({
+          index: indexName,
+          name: config.alias
+        });
+        logger.info(`Created alias: ${config.alias} -> ${indexName}`);
+      }
+
+      // Create credits alias pointing to levels index
       await client.indices.putAlias({
-        index: indexName,
-        name: config.alias
+        index: levelIndexName,
+        name: creditsAlias
       });
-      logger.info(`Created alias: ${config.alias} -> ${indexName}`);
-    }
+      logger.info(`Created alias: ${creditsAlias} -> ${levelIndexName}`);
 
-    // Create credits alias pointing to levels index
-    await client.indices.putAlias({
-      index: levelIndexName,
-      name: creditsAlias
-    });
-    logger.info(`Created alias: ${creditsAlias} -> ${levelIndexName}`);
+      // Store new hash
+      logger.info('Updated mapping hash stored');
+
+    } else {
+      logger.info('No mapping changes detected, skipping reindex');
+
+    }
+    return doReindex;
 
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);

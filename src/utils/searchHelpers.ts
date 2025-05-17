@@ -11,6 +11,34 @@ type MultiSearchResult = {
   conditions: SearchCondition[];
 };
 
+// Private Use Area (PUA) character mappings
+const SPECIAL_CHAR_MAP = {
+  '*': '\uE000', // Asterisk
+  '%': '\uE001', // Percent
+  '+': '\uE002', // Plus
+  '-': '\uE003', // Minus
+  '&': '\uE004', // Ampersand
+  '|': '\uE005', // Vertical bar
+  '!': '\uE006', // Exclamation mark
+  '(': '\uE007', // Opening parenthesis
+  ')': '\uE008', // Closing parenthesis
+  '{': '\uE009', // Opening brace
+  '}': '\uE00A', // Closing brace
+  '[': '\uE00B', // Opening bracket
+  ']': '\uE00C', // Closing bracket
+  '^': '\uE00D', // Caret
+  '"': '\uE00E', // Double quote
+  '~': '\uE00F', // Tilde
+  ':': '\uE010', // Colon
+  ' ': '\uE011', // Space
+} as const;
+
+// Reverse mapping for converting back
+const PUA_CHAR_MAP = Object.entries(SPECIAL_CHAR_MAP).reduce((acc, [key, value]) => {
+  acc[value] = key;
+  return acc;
+}, {} as Record<string, string>);
+
 /**
  * Creates a search condition for a field that properly handles special characters
  * @param field The field to search in
@@ -79,4 +107,46 @@ export const escapeForMySQL = (str: string) => {
         return char;
     }
   });
+};
+
+/**
+ * Converts special characters to PUA characters for indexing
+ * @param str The string to convert
+ * @returns The converted string with special characters replaced by PUA characters
+ */
+export const convertToPUA = (str: string): string => {
+  if (!str) return '';
+  
+  // Create a regex pattern from all special characters
+  const pattern = new RegExp(`[\\${Object.keys(SPECIAL_CHAR_MAP).join('\\')}]`, 'g');
+
+  return str.replace(pattern, char => SPECIAL_CHAR_MAP[char as keyof typeof SPECIAL_CHAR_MAP] || char);
+};
+
+/**
+ * Converts PUA characters back to their original special characters
+ * @param str The string to convert
+ * @returns The converted string with PUA characters replaced by original special characters
+ */
+export const convertFromPUA = (str: string): string => {
+  if (!str) return '';
+  
+  // Create a regex pattern from all PUA characters
+  const pattern = new RegExp(`[${Object.values(SPECIAL_CHAR_MAP).join('')}]`, 'g');
+  
+  return str.replace(pattern, char => PUA_CHAR_MAP[char] || char);
+};
+
+/**
+ * Converts special characters in search terms to their PUA equivalents
+ * @param str The search term to convert
+ * @returns The converted search term
+ */
+export const prepareSearchTerm = (str: string): string => {
+  if (!str) return '';
+  
+  // Convert special characters to PUA characters
+  return convertToPUA(str)
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
 };

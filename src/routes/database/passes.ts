@@ -364,14 +364,20 @@ async function unifiedPassSearch(query: any, useElasticsearch: boolean = true) {
   try {
     if (useElasticsearch) {
       const elasticsearchService = ElasticsearchService.getInstance();
+      const startTime = Date.now();
       const { hits, total } = await elasticsearchService.searchPasses(query.query, {
         deletedFilter: query.deletedFilter,
         minDiff: query.minDiff,
         maxDiff: query.maxDiff,
         keyFlag: query.keyFlag,
         specialDifficulties: query.specialDifficulties,
-        sort: query.sort
+        sort: query.sort,
+        offset: query.offset,
+        limit: query.limit
       });
+
+      const duration = Date.now() - startTime;
+      logger.debug(`[Passes] Search completed in ${duration}ms with ${total} results`);
 
       return {
         count: total,
@@ -392,7 +398,7 @@ async function unifiedPassSearch(query: any, useElasticsearch: boolean = true) {
 
       const order = getSortOptions(query.sort);
       const offsetNum = Math.max(0, Number(query.offset) || 0);
-      const limitNum = Math.max(1, Math.min(100, Number(query.limit) || 30));
+      const limitNum = Math.min(100, Math.max(1, Number(query.limit) || 30));
 
       const allIds = await Pass.findAll({
         where,

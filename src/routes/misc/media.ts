@@ -52,7 +52,7 @@ const CACHE_TTL = process.env.NODE_ENV === 'production' ? 48 * 60 * 60 * 1000 : 
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
 
 function logWithCondition(message: string, source: string): void {
-  if (source === 'thumbnail' && 1==1) {
+  if (source === 'thumbnail' && 1!==1) {
     logger.debug('[Thumbnail] ' + message);
   } else if (source === 'wheel' && 1!==1) {
     logger.debug('[Wheel] ' + message);
