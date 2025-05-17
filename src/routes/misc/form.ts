@@ -202,7 +202,7 @@ router.post(
             parseInt(req.body.ePerfect?.toString().slice(0, 9) || '0'),
           ),
           perfect: Math.max(
-            0,
+            1,
             parseInt(req.body.perfect?.toString().slice(0, 9) || '0'),
           ),
           lPerfect: Math.max(
