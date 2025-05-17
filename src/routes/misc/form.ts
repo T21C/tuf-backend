@@ -296,90 +296,100 @@ router.post(
 
         const accuracy = calcAcc(sanitizedJudgements);
         
-        // Create the pass submission within transaction
-        const submission = await PassSubmission.create({
-          levelId: req.body.levelId,
-          speed: req.body.speed ? parseFloat(req.body.speed) : 1,
-          scoreV2: score,
-          accuracy,
-          passer: sanitizeTextInput(req.body.passer),
-          passerId: req.body.passerId,
-          passerRequest: req.body.passerRequest === true,
-          feelingDifficulty: sanitizeTextInput(req.body.feelingDifficulty),
-          title: req.body.title,
-          videoLink: cleanVideoUrl(req.body.videoLink),
-          rawTime: new Date(req.body.rawTime),
-          submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username,
-          submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id,
-          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
-          status: 'pending',
-          assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
-        }, { transaction });
+        try {
+          // Create the pass submission within transaction
+          const submission = await PassSubmission.create({
+            levelId: req.body.levelId,
+            speed: req.body.speed ? parseFloat(req.body.speed) : 1,
+            scoreV2: score,
+            accuracy,
+            passer: sanitizeTextInput(req.body.passer),
+            passerId: req.body.passerId,
+            passerRequest: req.body.passerRequest === true,
+            feelingDifficulty: sanitizeTextInput(req.body.feelingDifficulty),
+            title: req.body.title,
+            videoLink: cleanVideoUrl(req.body.videoLink),
+            rawTime: new Date(req.body.rawTime),
+            submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username,
+            submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id,
+            submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
+            status: 'pending',
+            assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
+          }, { transaction });
 
-        await PassSubmissionJudgements.create({
-          ...sanitizedJudgements,
-          passSubmissionId: submission.id,
-        }, { transaction });
+          await PassSubmissionJudgements.create({
+            ...sanitizedJudgements,
+            passSubmissionId: submission.id,
+          }, { transaction });
 
-        // Create flags with proper validation
-        const flags = {
-          passSubmissionId: submission.id,
-          is12K: req.body.is12K === true,
-          isNoHoldTap: req.body.isNoHoldTap === true,
-          is16K: req.body.is16K === true,
-        };
+          // Create flags with proper validation
+          const flags = {
+            passSubmissionId: submission.id,
+            is12K: req.body.is12K === true,
+            isNoHoldTap: req.body.isNoHoldTap === true,
+            is16K: req.body.is16K === true,
+          };
 
-        await PassSubmissionFlags.create(flags, { transaction });
-        
-        const passObj = await PassSubmission.findByPk(submission.id, {
-          include: [
-            {
-              model: PassSubmissionJudgements,
-              as: 'judgements',
+          await PassSubmissionFlags.create(flags, { transaction });
+          
+          const passObj = await PassSubmission.findByPk(submission.id, {
+            include: [
+              {
+                model: PassSubmissionJudgements,
+                as: 'judgements',
+              },
+              {
+                model: PassSubmissionFlags,
+                as: 'flags',
+              },
+              {
+                model: Level,
+                as: 'level',
+                include: [
+                  {
+                    model: Difficulty,
+                    as: 'difficulty',
+                  },
+                ],
+              },
+            ],
+            transaction
+          });
+
+          if (!passObj) {
+            throw new Error('Failed to create pass submission');
+          }
+
+          // Commit the transaction
+          await transaction.commit();
+
+          await passSubmissionHook(passObj, sanitizedJudgements);
+
+          // Broadcast submission update
+          sseManager.broadcast({
+            type: 'submissionUpdate',
+            data: {
+              action: 'create',
+              submissionId: submission.id,
+              submissionType: 'pass',
             },
-            {
-              model: PassSubmissionFlags,
-              as: 'flags',
-            },
-            {
-              model: Level,
-              as: 'level',
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                },
-              ],
-            },
-          ],
-          transaction
-        });
+          });
 
-        if (!passObj) {
-          await transaction.rollback();
-          return res.status(500).json({error: 'Failed to create pass submission'});
-        }
-
-        // Commit the transaction
-        await transaction.commit();
-
-        await passSubmissionHook(passObj, sanitizedJudgements);
-
-        // Broadcast submission update
-        sseManager.broadcast({
-          type: 'submissionUpdate',
-          data: {
-            action: 'create',
+          return res.json({
+            success: true,
+            message: 'Pass submission saved successfully',
             submissionId: submission.id,
-            submissionType: 'pass',
-          },
-        });
-
-        return res.json({
-          success: true,
-          message: 'Pass submission saved successfully',
-          submissionId: submission.id,
-        });
+          });
+        } catch (error) {
+          // Only rollback if the transaction hasn't been rolled back already
+          try {
+            await transaction.rollback();
+          } catch (rollbackError) {
+            // Ignore rollback errors - transaction might already be rolled back
+            logger.warn('Transaction rollback failed:', rollbackError);
+          }
+          throw error; // Re-throw to be caught by outer catch
+        }
       }
 
       await transaction.rollback();
