@@ -45,46 +45,98 @@ export const passAlias = 'passes';
 export const creditsAlias = 'credits';
 
 // Combined index and alias configuration
-
+const settings = {
+  analysis: {
+    analyzer: {
+      custom_text_analyzer: {
+        type: 'custom' as const,
+        tokenizer: 'whitespace',
+        filter: [
+          'lowercase',
+          'asciifolding'
+        ]
+      },
+      exact_match_analyzer: {
+        type: 'custom' as const,
+        tokenizer: 'keyword',
+        filter: [
+          'lowercase',
+          'asciifolding'
+        ]
+      }
+    }
+  }
+}
 
 export const levelMapping = {
+  settings,
   mappings: {
     properties: {
       id: { type: 'integer' as const },
       song: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          exact: {
+            type: 'text' as const,
+            analyzer: 'exact_match_analyzer'
+          },
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       artist: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       creator: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { 
+            type: 'keyword' as const, 
+            ignore_above: 256,
+            normalizer: 'lowercase'
+          }
         }
       },
       charter: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       vfxer: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { 
+            type: 'keyword' as const, 
+            ignore_above: 256,
+            normalizer: 'lowercase'
+          }
         }
       },
       team: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const }
+          keyword: { 
+            type: 'keyword' as const,
+            normalizer: 'lowercase'
+          }
         }
       },
       teamId: { type: 'integer' as const },
@@ -232,6 +284,7 @@ export const levelMapping = {
 };
 
 export const passMapping = {
+  settings,
   mappings: {
     properties: {
       id: { type: 'integer' as const },
@@ -292,10 +345,12 @@ export const passMapping = {
 export const indices = {
   [levelIndexName]: {
     alias: levelAlias,
+    settings: levelMapping.settings,
     mappings: levelMapping.mappings
   },
   [passIndexName]: {
     alias: passAlias,
+    settings: passMapping.settings,
     mappings: passMapping.mappings
   }
 };
@@ -387,7 +442,15 @@ export async function initializeElasticsearch() {
     }
 
     const { needsReindex } = await checkIfReindexingNeeded(client);
-    if (needsReindex) {
+    const indexExists = await Promise.all([
+      client.indices.exists({ index: levelIndexName }),
+      client.indices.exists({ index: passIndexName }),
+      client.indices.exists({ index: levelAlias }),
+      client.indices.exists({ index: passAlias }),
+      client.indices.exists({ index: creditsAlias })
+    ]).then(results => results.every(Boolean));
+    const doReindex = needsReindex || !indexExists || process.env.NODE_ENV === 'development';
+    if (doReindex) {
       logger.info('Performing reindex...');
 
       // Delete any existing indices and aliases
@@ -400,6 +463,7 @@ export async function initializeElasticsearch() {
       for (const [indexName, config] of Object.entries(indices)) {
         await client.indices.create({
           index: indexName,
+          settings: config.settings,
           mappings: config.mappings
         });
         logger.info(`Created index: ${indexName}`);
@@ -426,7 +490,7 @@ export async function initializeElasticsearch() {
       logger.info('No mapping changes detected, skipping reindex');
 
     }
-    return needsReindex;
+    return doReindex;
 
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);

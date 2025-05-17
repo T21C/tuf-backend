@@ -3,6 +3,9 @@ import {UserAttributes} from '../../models/auth/User.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
+import LevelAlias from '../../models/levels/LevelAlias.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
+import Team from '../../models/credits/Team.js';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -54,10 +57,12 @@ export interface ILevel extends IBaseModel {
   isVerified: boolean;
   teamId?: number | null;
   passes?: IPass[];
+  aliases?: LevelAlias[] | null;
+  levelCredits?: LevelCredit[] | null;
   difficulty?: IDifficulty;
   previousDifficulty?: IDifficulty;
   levelCreators?: ICreator[];
-  teamObject?: ITeam;
+  teamObject?: Team;
   highestAccuracy?: number | null;
   firstPass?: IPass | null;
   ratingAccuracy?: number;
@@ -215,8 +220,8 @@ export interface IPassSubmission extends IBaseModel {
 export interface ITeam extends IBaseModel {
   name: string;
   members: ICreator[];
-  teamAliases: TeamAlias[];
   description?: string | null;
+  aliases?: TeamAlias[] | null;
 }
 
 export interface IAnnouncementChannel {

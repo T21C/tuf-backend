@@ -3,10 +3,7 @@ import client, {
   passIndexName, 
   levelMapping, 
   passMapping,
-  storeMappingHash,
   initializeElasticsearch,
-  indices,
-  generateMappingHash,
   updateMappingHash
 } from '../config/elasticsearch.js';
 import { logger } from './LoggerService.js';
@@ -23,8 +20,8 @@ import Player from '../models/players/Player.js';
 import Judgement from '../models/passes/Judgement.js';
 import { CreatorAlias } from '../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../models/credits/TeamAlias.js';
-import path from 'path';
-import fs from 'fs';
+import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/searchHelpers.js';
+
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -207,10 +204,45 @@ class ElasticsearchService {
     try {
       const levelWithRelations = await this.getLevelWithRelations(level.id);
       if (levelWithRelations) {
+        // Convert special characters in text fields before indexing
+        const processedLevel = {
+          ...levelWithRelations.get({ plain: true }),
+          song: convertToPUA(levelWithRelations.song),
+          artist: convertToPUA(levelWithRelations.artist),
+          creator: convertToPUA(levelWithRelations.creator),
+          charter: convertToPUA(levelWithRelations.charter),
+          team: convertToPUA(levelWithRelations.team),
+          // Process nested fields
+          aliases: levelWithRelations.aliases?.map(alias => ({
+            ...alias.get({ plain: true }),
+            originalValue: convertToPUA(alias.originalValue),
+            alias: convertToPUA(alias.alias)
+          })),
+          levelCredits: levelWithRelations.levelCredits?.map(credit => ({
+            ...credit.get({ plain: true }),
+            creator: credit.creator ? {
+              ...credit.creator.get({ plain: true }),
+              name: convertToPUA(credit.creator.name),
+              creatorAliases: credit.creator.creatorAliases?.map(alias => ({
+                ...alias.get({ plain: true }),
+                name: convertToPUA(alias.name)
+              }))
+            } : null
+          })),
+          teamObject: levelWithRelations.teamObject ? {
+            ...levelWithRelations.teamObject.get({ plain: true }),
+            name: convertToPUA(levelWithRelations.teamObject.name),
+            aliases: levelWithRelations.teamObject.aliases?.map(alias => ({
+              ...alias.get({ plain: true }),
+              name: convertToPUA(alias.name)
+            }))
+          } : null
+        };
+
         await client.index({
           index: levelIndexName,
           id: level.id.toString(),
-          document: levelWithRelations
+          document: processedLevel
         });
       }
     } catch (error) {
@@ -219,17 +251,53 @@ class ElasticsearchService {
     }
   }
 
-  public async bulkIndexLevels(levels: ILevel[]): Promise<void> {
+  public async bulkIndexLevels(levels: Level[]): Promise<void> {
     try {
       const BATCH_SIZE = 200;
       const totalBatches = Math.ceil(levels.length / BATCH_SIZE);
       
       for (let i = 0; i < levels.length; i += BATCH_SIZE) {
         const batch = levels.slice(i, i + BATCH_SIZE);
-        const operations = batch.flatMap(level => [
-          { index: { _index: levelIndexName, _id: level.id.toString() } },
-          level
-        ]);
+        const operations = batch.flatMap(level => {
+
+          const processedLevel = {
+            ...level.get({ plain: true }), // Convert to plain object
+            song: convertToPUA(level.song),
+            artist: convertToPUA(level.artist),
+            creator: convertToPUA(level.creator),
+            charter: convertToPUA(level.charter),
+            team: convertToPUA(level.team),
+            // Process nested fields
+            aliases: level.aliases?.map(alias => ({
+              ...alias.get({ plain: true }),
+              originalValue: convertToPUA(alias.originalValue),
+              alias: convertToPUA(alias.alias)
+            })),
+            levelCredits: level.levelCredits?.map(credit => ({
+              ...credit.get({ plain: true }),
+              creator: credit.creator ? {
+                ...credit.creator.get({ plain: true }),
+                name: convertToPUA(credit.creator.name),
+                creatorAliases: credit.creator.creatorAliases?.map(alias => ({
+                  ...alias.get({ plain: true }),
+                  name: convertToPUA(alias.name)
+                }))
+              } : null
+            })),
+            teamObject: level.teamObject ? {
+              ...level.teamObject.get({ plain: true }),
+              name: convertToPUA(level.teamObject.name),
+              aliases: level.teamObject.aliases?.map(alias => ({
+                ...alias.get({ plain: true }),
+                name: convertToPUA(alias.name)
+              }))
+            } : null
+          };
+          return [
+            { index: { _index: levelIndexName, _id: level.id.toString() } },
+            processedLevel
+          ];
+        });
 
         if (operations.length > 0) {
           await client.bulk({ operations });
@@ -256,10 +324,25 @@ class ElasticsearchService {
 
   public async indexPass(pass: any): Promise<void> {
     try {
+      const processedPass = {
+        ...pass.get({ plain: true }),
+        vidTitle: convertToPUA(pass.vidTitle),
+        videoLink: convertToPUA(pass.videoLink),
+        player: pass.player ? {
+          ...pass.player.get({ plain: true }),
+          name: convertToPUA(pass.player.name)
+        } : null,
+        level: pass.level ? {
+          ...pass.level.get({ plain: true }),
+          song: convertToPUA(pass.level.song),
+          artist: convertToPUA(pass.level.artist)
+        } : null
+      };
+
       await client.index({
         index: passIndexName,
         id: pass.id.toString(),
-        document: pass
+        document: processedPass
       });
     } catch (error) {
       logger.error(`Error indexing pass ${pass.id}:`, error);
@@ -274,10 +357,26 @@ class ElasticsearchService {
       
       for (let i = 0; i < passes.length; i += BATCH_SIZE) {
         const batch = passes.slice(i, i + BATCH_SIZE);
-        const operations = batch.flatMap(pass => [
-          { index: { _index: passIndexName, _id: pass.id.toString() } },
-          pass
-        ]);
+        const operations = batch.flatMap(pass => {
+          const processedPass = {
+            ...pass.get({ plain: true }),
+            vidTitle: convertToPUA(pass.vidTitle),
+            videoLink: convertToPUA(pass.videoLink),
+            player: pass.player ? {
+              ...pass.player.get({ plain: true }),
+              name: convertToPUA(pass.player.name)
+            } : null,
+            level: pass.level ? {
+              ...pass.level.get({ plain: true }),
+              song: convertToPUA(pass.level.song),
+              artist: convertToPUA(pass.level.artist)
+            } : null
+          };
+          return [
+            { index: { _index: passIndexName, _id: pass.id.toString() } },
+            processedPass
+          ];
+        });
 
         if (operations.length > 0) {
           await client.bulk({ operations });
@@ -344,13 +443,6 @@ class ElasticsearchService {
       });
 
       await this.bulkIndexLevels(levels);
-      
-      // Update hash after successful reindexing
-      const currentHash = generateMappingHash({
-        [levelIndexName]: levelMapping,
-        [passIndexName]: passMapping
-      });
-      storeMappingHash(currentHash);
     } catch (error) {
       logger.error('Error reindexing all levels:', error);
       throw error;
@@ -385,12 +477,6 @@ class ElasticsearchService {
 
       await this.bulkIndexPasses(passes);
       
-      // Update hash after successful reindexing
-      const currentHash = generateMappingHash({
-        [levelIndexName]: levelMapping,
-        [passIndexName]: passMapping
-      });
-      storeMappingHash(currentHash);
     } catch (error) {
       logger.error('Error reindexing all passes:', error);
       throw error;
@@ -467,22 +553,62 @@ class ElasticsearchService {
         
         orTerms.forEach(term => {
           // Split each OR term by AND operator
-          const andTerms = term.split(',').map(t => t.trim());
+          const andTerms = term.split(',').map(t => prepareSearchTerm(t.trim()));
           
           const termQueries = andTerms.map(andTerm => ({
             bool: {
               should: [
-                { wildcard: { 'song': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'artist': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'charter': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'team': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'creator': { value: `*${andTerm}*`, case_insensitive: true } } },
+                { 
+                  wildcard: { 
+                    'song': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'artist': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'charter': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'team': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'creator': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
                 // Handle level aliases
                 {
                   nested: {
                     path: 'aliases',
                     query: {
-                      wildcard: { 'aliases.alias': { value: `*${andTerm}*`, case_insensitive: true } }
+                      wildcard: { 
+                        'aliases.alias': { 
+                          value: `*${andTerm}*`,
+                          case_insensitive: true
+                        } 
+                      }
                     }
                   }
                 },
@@ -493,7 +619,14 @@ class ElasticsearchService {
                     query: {
                       bool: {
                         should: [
-                          { wildcard: { 'levelCredits.creator.name': { value: `*${andTerm}*`, case_insensitive: true } } },
+                          { 
+                            wildcard: { 
+                              'levelCredits.creator.name': { 
+                                value: `*${andTerm}*`,
+                                case_insensitive: true
+                              } 
+                            } 
+                          },
                           {
                             nested: {
                               path: 'levelCredits.creator',
@@ -501,7 +634,12 @@ class ElasticsearchService {
                                 nested: {
                                   path: 'levelCredits.creator.creatorAliases',
                                   query: {
-                                    wildcard: { 'levelCredits.creator.creatorAliases.name': { value: `*${andTerm}*`, case_insensitive: true } }
+                                    wildcard: { 
+                                      'levelCredits.creator.creatorAliases.name': { 
+                                        value: `*${andTerm}*`,
+                                        case_insensitive: true
+                                      } 
+                                    }
                                   }
                                 }
                               }
@@ -519,12 +657,24 @@ class ElasticsearchService {
                     query: {
                       bool: {
                         should: [
-                          { wildcard: { 'teamObject.name': { value: `*${andTerm}*`, case_insensitive: true } } },
+                          { 
+                            wildcard: { 
+                              'teamObject.name': { 
+                                value: `*${andTerm}*`,
+                                case_insensitive: true
+                              } 
+                            } 
+                          },
                           {
                             nested: {
                               path: 'teamObject.aliases',
                               query: {
-                                wildcard: { 'teamObject.aliases.name': { value: `*${andTerm}*`, case_insensitive: true } }
+                                wildcard: { 
+                                  'teamObject.aliases.name': { 
+                                    value: `*${andTerm}*`,
+                                    case_insensitive: true
+                                  } 
+                                }
                               }
                             }
                           }
@@ -566,7 +716,8 @@ class ElasticsearchService {
       }
 
       // Handle liked levels filter
-      if (filters.onlyMyLikes && filters.likedLevelIds?.length > 0) {
+      if (filters.likedLevelIds?.length > 0) {
+        // logger.info('Only my likes filter applied with', filters.likedLevelIds.length, 'level ids');
         must.push({
           terms: {
             id: filters.likedLevelIds
@@ -623,8 +774,45 @@ class ElasticsearchService {
         size: filters.limit || 30
       });
 
+      // Convert PUA characters back to original special characters in the results
+      const hits = response.hits.hits.map(hit => {
+        const source = hit._source as Record<string, any>;
+        return {
+          ...source,
+          song: convertFromPUA(source.song as string),
+          artist: convertFromPUA(source.artist as string),
+          creator: convertFromPUA(source.creator as string),
+          charter: convertFromPUA(source.charter as string),
+          team: convertFromPUA(source.team as string),
+          aliases: source.aliases?.map((alias: Record<string, any>) => ({
+            ...alias,
+            originalValue: convertFromPUA(alias.originalValue as string),
+            alias: convertFromPUA(alias.alias as string)
+          })),
+          levelCredits: source.levelCredits?.map((credit: Record<string, any>) => ({
+            ...credit,
+            creator: credit.creator ? {
+              ...credit.creator,
+              name: convertFromPUA(credit.creator.name as string),
+              creatorAliases: credit.creator.creatorAliases?.map((alias: Record<string, any>) => ({
+                ...alias,
+                name: convertFromPUA(alias.name as string)
+              }))
+            } : null
+          })),
+          teamObject: source.teamObject ? {
+            ...source.teamObject,
+            name: convertFromPUA(source.teamObject.name as string),
+            aliases: source.teamObject.aliases?.map((alias: Record<string, any>) => ({
+              ...alias,
+              name: convertFromPUA(alias.name as string)
+            }))
+          } : null
+        };
+      });
+
       return {
-        hits: response.hits.hits.map(hit => hit._source),
+        hits,
         total: response.hits.total ? (typeof response.hits.total === 'number' ? response.hits.total : response.hits.total.value) : 0
       };
     } catch (error) {
@@ -668,16 +856,51 @@ class ElasticsearchService {
         
         orTerms.forEach(term => {
           // Split each OR term by AND operator
-          const andTerms = term.split(',').map(t => t.trim());
+          const andTerms = term.split(',').map(t => prepareSearchTerm(t.trim()));
           
           const termQueries = andTerms.map(andTerm => ({
             bool: {
               should: [
-                { wildcard: { 'player.name': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'level.song': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'level.artist': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'videoLink': { value: `*${andTerm}*`, case_insensitive: true } } },
-                { wildcard: { 'vidTitle': { value: `*${andTerm}*`, case_insensitive: true } } }
+                { 
+                  wildcard: { 
+                    'player.name': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'level.song': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'level.artist': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'videoLink': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                },
+                { 
+                  wildcard: { 
+                    'vidTitle': { 
+                      value: `*${andTerm}*`,
+                      case_insensitive: true
+                    } 
+                  } 
+                }
               ],
               minimum_should_match: 1
             }
@@ -789,16 +1012,40 @@ class ElasticsearchService {
         }
       };
 
+      // Handle pagination
+      const offset = Math.max(0, Number(filters.offset) || 0);
+      const limit = Math.min(100, Math.max(1, Number(filters.limit) || 30));
+
       const response = await client.search({
         index: passIndexName,
         query: searchQuery,
         sort: this.getPassSortOptions(filters.sort),
-        from: filters.offset || 0,
-        size: filters.limit || 30
+        from: offset,
+        size: limit,
+        track_total_hits: true // Ensure we get accurate total count
+      });
+
+      // Convert PUA characters back to original special characters in the results
+      const hits = response.hits.hits.map(hit => {
+        const source = hit._source as Record<string, any>;
+        return {
+          ...source,
+          vidTitle: convertFromPUA(source.vidTitle as string),
+          videoLink: convertFromPUA(source.videoLink as string),
+          player: source.player ? {
+            ...source.player,
+            name: convertFromPUA(source.player.name as string)
+          } : null,
+          level: source.level ? {
+            ...source.level,
+            song: convertFromPUA(source.level.song as string),
+            artist: convertFromPUA(source.level.artist as string)
+          } : null
+        };
       });
 
       return {
-        hits: response.hits.hits.map(hit => hit._source),
+        hits,
         total: response.hits.total ? (typeof response.hits.total === 'number' ? response.hits.total : response.hits.total.value) : 0
       };
     } catch (error) {

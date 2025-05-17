@@ -8,6 +8,8 @@ import {
   ITeam,
 } from '../../interfaces/models/index.js';
 import LevelCredit from './LevelCredit.js';
+import LevelAlias from './LevelAlias.js';
+import Team from '../credits/Team.js';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -50,7 +52,7 @@ class Level
   declare isHidden: boolean;
   declare isVerified: boolean;
   declare teamId: number | null;
-  declare teamObject: ITeam;
+  declare teamObject: Team;
   declare highestAccuracy: number | null;
   declare firstPass: IPass | null;
   // Virtual fields from associations
@@ -59,6 +61,7 @@ class Level
   declare previousDifficulty?: IDifficulty;
   declare levelCreators?: ICreator[];
   declare levelCredits?: LevelCredit[];   
+  declare aliases?: LevelAlias[] | null;
 }
 
 Level.init(

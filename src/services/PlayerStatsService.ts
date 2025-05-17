@@ -289,15 +289,15 @@ export class PlayerStatsService {
   // Rename existing methods to private implementation methods
   private async _reloadAllStats(): Promise<void> {
     const startTime = Date.now();
-    logger.debug(`[PlayerStatsService] Starting full stats reload`);
+    //logger.debug(`[PlayerStatsService] Starting full stats reload`);
 
     if (this.updating) {
-      logger.warn(`[PlayerStatsService] Reload already in progress, skipping`);
+      //logger.warn(`[PlayerStatsService] Reload already in progress, skipping`);
       return;
     }
     this.updating = true;
     const playerCount = await Player.count();
-    logger.debug(`[PlayerStatsService] Processing ${playerCount} players`);
+    //logger.debug(`[PlayerStatsService] Processing ${playerCount} players`);
     
     // Process in smaller chunks to reduce memory pressure
     const BATCH_SIZE = Math.ceil(this.CHUNK_SIZE / this.BATCHES_PER_CHUNK);
@@ -434,8 +434,8 @@ export class PlayerStatsService {
     });
     
     const totalDuration = Date.now() - startTime;
-    logger.debug(`[PlayerStatsService] Full stats reload completed in ${totalDuration}ms`);
-    logger.debug(`[PlayerStatsService] Batch statistics: ${successfulBatches}/${totalBatches} successful, ${failedBatches} failed`);
+    logger.debug(`[PlayerStatsService] Full stats reload for ${playerCount} players completed in ${totalDuration}ms`);
+    //logger.debug(`[PlayerStatsService] Batch statistics: ${successfulBatches}/${totalBatches} successful, ${failedBatches} failed`);
   }
 
   private async _updatePlayerStats(
@@ -563,7 +563,7 @@ export class PlayerStatsService {
 
   private async _updateRanks(): Promise<void> {
     const startTime = Date.now();
-    logger.debug(`[PlayerStatsService] Starting rank updates`);
+    // logger.debug(`[PlayerStatsService] Starting rank updates`);
     
     const transaction = await sequelize.transaction();
     try {
@@ -607,7 +607,7 @@ export class PlayerStatsService {
 
       await transaction.commit();
       const duration = Date.now() - startTime;
-      logger.debug(`[PlayerStatsService] Rank updates completed in ${duration}ms`);
+      // logger.debug(`[PlayerStatsService] Rank updates completed in ${duration}ms`);
 
       // Notify clients about the rank updates
       sseManager.broadcast({

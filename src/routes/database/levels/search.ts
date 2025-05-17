@@ -90,7 +90,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     );
 
     const elapsed = Date.now() - startTime;
-    logger.info(`Search for ${hits.length} levels completed in ${elapsed}ms`);
+    logger.debug(`[Levels] Search for ${query} completed in ${elapsed}ms with ${total} results`);
 
     res.json({
       results: hits || [],
