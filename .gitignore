@@ -40,6 +40,7 @@ build/Release
 
 # Dependency directories
 node_modules/
+node-compile-cache/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
@@ -143,6 +144,7 @@ backups/
 profiles/
 src/database/generate_meta_inserts.bat
 src/database/meta_inserts.sql
+*.sh
 __pycache__/
 
 # ts builds
