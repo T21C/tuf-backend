@@ -557,8 +557,8 @@ router.get('/bilibili', async (req: Request, res: Response) => {
       // Wait 1 second before retrying
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    return res.status(500).json({error: 'Internal Server Error'});
   }
+  return res.status(500).json({error: 'Internal Server Error'});
 });
 
 router.get('/avatar/:userId', async (req: Request, res: Response) => {
