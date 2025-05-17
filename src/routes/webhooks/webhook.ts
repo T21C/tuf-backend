@@ -282,7 +282,7 @@ export async function passSubmissionHook(
       levelLink,
     )
     .setTitle(
-      `New clear submission ${trim(pass.submitterDiscordUsername || 'Unknown Player', 25)}`,
+      `New clear submission ${trim(pass.submitterDiscordUsername || pass.passer || 'Unknown Player', 25)}`,
     )
     .setColor('#000000')
     .setThumbnail(
@@ -292,7 +292,7 @@ export async function passSubmissionHook(
     .addField('Player', `**${pass.passer || 'Unknown Player'}**`, true)
     .addField(
       'Submitter',
-      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || 'Unknown Player'}**`,
+      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || pass.passer || 'Unknown Player'}**`,
       true,
     )
     .addField('', '', false)

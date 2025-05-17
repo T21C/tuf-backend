@@ -449,7 +449,7 @@ export async function initializeElasticsearch() {
       client.indices.exists({ index: passAlias }),
       client.indices.exists({ index: creditsAlias })
     ]).then(results => results.every(Boolean));
-    const doReindex = needsReindex || !indexExists || process.env.NODE_ENV === 'development';
+    const doReindex = needsReindex || !indexExists;// || process.env.NODE_ENV === 'development';
     if (doReindex) {
       logger.info('Performing reindex...');
 

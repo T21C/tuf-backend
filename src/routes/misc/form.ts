@@ -17,6 +17,8 @@ import LevelSubmissionTeamRequest from '../../models/submissions/LevelSubmission
 import Player from '../../models/players/Player.js';
 import sequelize from "../../config/db.js";
 import { logger } from '../../services/LoggerService.js';
+import Pass from '../../models/passes/Pass.js';
+import Judgement from '../../models/passes/Judgement.js';
 const router: Router = express.Router();
 
 // Add this helper function after the router declaration
@@ -240,6 +242,43 @@ router.post(
           return res.status(404).json({error: 'Difficulty not found'});
         }
 
+        const existingJudgement = await Judgement.findOne({
+          where: {
+            earlyDouble: sanitizedJudgements.earlyDouble,
+            earlySingle: sanitizedJudgements.earlySingle,
+            ePerfect: sanitizedJudgements.ePerfect,
+            perfect: sanitizedJudgements.perfect,
+            lPerfect: sanitizedJudgements.lPerfect,
+            lateSingle: sanitizedJudgements.lateSingle,
+            lateDouble: sanitizedJudgements.lateDouble,
+          },
+        });
+        logger.info(`Existing judgement: ${existingJudgement}`);
+        const existingPass = existingJudgement ? await Pass.findOne({
+          where: {
+            id: existingJudgement.id,
+            levelId: req.body.levelId,
+            speed: parseFloat(req.body.speed || "1"),
+            videoLink: cleanVideoUrl(req.body.videoLink),
+            is12K: req.body.is12K === true,
+            isNoHoldTap: req.body.isNoHoldTap === true,
+            is16K: req.body.is16K === true,
+          },
+        }) : null;
+        logger.info(`Existing pass: ${existingPass?.id}`);
+        if (existingPass) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: 'A pass with identical video, judgements, and flags already exists for this level and speed',
+            details: {
+              levelId: req.body.levelId,
+              speed: req.body.speed || 1,
+              videoLink: cleanVideoUrl(req.body.videoLink),
+              title: req.body.title,
+            }
+          });
+        }
+
         // Create properly structured level data for score calculation
         const levelData = {
           baseScore: level.baseScore,
@@ -289,7 +328,6 @@ router.post(
           isNoHoldTap: req.body.isNoHoldTap === true,
           is16K: req.body.is16K === true,
         };
-``
 
         await PassSubmissionFlags.create(flags, { transaction });
         

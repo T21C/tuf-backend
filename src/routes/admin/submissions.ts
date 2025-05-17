@@ -944,8 +944,12 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           isDeleted: false
         }, { transaction });
 
+        logger.info(`Pass created: ${pass}`);
+        if (!pass) {
+          throw new Error(`Pass for submission #${submission.id} not created`);
+        }
         // Create judgements with default values for any undefined fields
-        await Judgement.create({
+        const judgements = await Judgement.create({
           id: pass.id,
           earlyDouble: submission.judgements.earlyDouble || 0,
           earlySingle: submission.judgements.earlySingle || 0,
@@ -957,6 +961,10 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           createdAt: new Date(),
           updatedAt: new Date()
         }, { transaction });
+
+        if (!judgements) {
+          throw new Error(`Judgements for pass #${pass.id} not created`);
+        }
 
         // Update submission status
         await submission.update({
