@@ -567,9 +567,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             return;
           });
 
-        // After deleting the level, remove it from Elasticsearch
-        await elasticsearchService.deleteLevel(levelId);
-        
         return res.status(204).end();
       } catch (error) {
         await transaction.rollback();
