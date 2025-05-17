@@ -1028,7 +1028,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     res.send(resizedBuffer);
     
     logWithCondition(`Memory usage after generation`, 'thumbnail');
-    checkMemoryUsage();
+    //checkMemoryUsage();
     return;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Video details not found")) {

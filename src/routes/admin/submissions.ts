@@ -643,13 +643,35 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       // Update worlds first status if needed
       await updateWorldsFirstStatus(submission.levelId, transaction);
 
-      // Commit the transaction before non-transactional operations
-      await transaction.commit();
-
-      // Index the pass in Elasticsearch after transaction is committed
-      const elasticsearchService = ElasticsearchService.getInstance();
-      await elasticsearchService.indexPass(pass);
-
+        // Commit the transaction for this submission
+        
+        const newPass = await Pass.findByPk(pass.id, {
+          include: [
+            {
+              model: Player,
+              as: 'player',
+            },
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+            {
+              model: Judgement,
+              as: 'judgements',
+            },
+          ],
+          transaction,
+        });
+        await transaction.commit();
+        // Index the pass in Elasticsearch after transaction is committed
+        const elasticsearchService = ElasticsearchService.getInstance();
+        await elasticsearchService.indexPass(newPass!);
       // Update player stats - these operations don't need to be part of the transaction
       if (submission.assignedPlayerId) {
         try {
@@ -942,11 +964,34 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         await updateWorldsFirstStatus(submission.levelId, transaction);
 
         // Commit the transaction for this submission
+        
+        const newPass = await Pass.findByPk(pass.id, {
+          include: [
+            {
+              model: Player,
+              as: 'player',
+            },
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+            {
+              model: Judgement,
+              as: 'judgements',
+            },
+          ],
+          transaction,
+        });
         await transaction.commit();
-
         // Index the pass in Elasticsearch after transaction is committed
         const elasticsearchService = ElasticsearchService.getInstance();
-        await elasticsearchService.indexPass(pass);
+        await elasticsearchService.indexPass(newPass!);
 
         // Update player stats
         await playerStatsService.updatePlayerStats([submission.assignedPlayerId!]);

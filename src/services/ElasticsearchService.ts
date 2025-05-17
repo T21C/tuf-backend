@@ -401,7 +401,7 @@ class ElasticsearchService {
     try {
       logger.debug(`Indexing pass ${pass.id}`);
       // If we have a direct pass object with relations, use it directly
-      const processedPass = pass.player && pass.level ? {
+      const processedPass = pass.player && pass.level && pass.judgements ? {
         ...pass.get({ plain: true }),
         vidTitle: pass.vidTitle ? convertToPUA(pass.vidTitle) : null,
         videoLink: pass.videoLink ? convertToPUA(pass.videoLink) : null,
