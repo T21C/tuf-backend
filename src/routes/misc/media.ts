@@ -534,18 +534,29 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
 router.get('/bilibili', async (req: Request, res: Response) => {
   const bvid = req.query.bvid;
   const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
+  const maxAttempts = 5;
+  let attempt = 1;
 
-  try {
-    const response = await fetch(apiUrl);
-    const data = await response.json();
+  while (attempt <= maxAttempts) {
+    try {
+      const response = await fetch(apiUrl);
+      const data = await response.json();
 
-    if (!response.ok) {
-      return res.status(response.status).json(data);
+      if (!response.ok) {
+        return res.status(response.status).json(data);
+      }
+
+      return res.json(data);
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        logger.error(`Error fetching data after ${maxAttempts} attempts:`, error);
+        return res.status(500).json({error: 'Internal Server Error'});
+      }
+      logger.warn(`Attempt ${attempt} failed, retrying...`);
+      attempt++;
+      // Wait 1 second before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-
-    return res.json(data);
-  } catch (error) {
-    logger.error('Error fetching data:', error);
     return res.status(500).json({error: 'Internal Server Error'});
   }
 });
