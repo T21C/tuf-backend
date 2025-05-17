@@ -377,7 +377,9 @@ async function unifiedPassSearch(query: any, useElasticsearch: boolean = true) {
       });
 
       const duration = Date.now() - startTime;
-      logger.debug(`[Passes] Search completed in ${duration}ms with ${total} results`);
+      if (duration > 1000) {
+        logger.debug(`[Passes] Search completed in ${duration}ms with ${total} results`);
+      }
 
       return {
         count: total,

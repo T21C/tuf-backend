@@ -89,8 +89,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       }
     );
 
-    const elapsed = Date.now() - startTime;
-    logger.debug(`[Levels] Search for ${query} completed in ${elapsed}ms with ${total} results`);
+    const duration = Date.now() - startTime;
+    if (duration > 1000) {
+      logger.debug(`[Levels] Search for ${query} completed in ${duration}ms with ${total} results`);
+    }
 
     res.json({
       results: hits || [],
