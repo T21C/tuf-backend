@@ -612,10 +612,12 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         {transaction},
       );
 
+      if (!submission.judgements) {
+        throw new Error(`Judgements for pass #${pass.id} not found`);
+      }
       // Create judgements
-      if (submission.judgements) {
         const now = new Date();
-        await Judgement.create(
+        const judgements = await Judgement.create(
           {
             id: pass.id,
             earlyDouble: submission.judgements.earlyDouble || 0,
@@ -629,8 +631,10 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             updatedAt: now,
           },
           {transaction},
-        );
-      }
+        )
+        if (!judgements) {
+          throw new Error(`Judgement for pass #${pass.id} not created`);
+        }
 
       // Update submission status
       await submission.update(
@@ -645,7 +649,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Commit the transaction for this submission
         
-        const newPass = await Pass.findByPk(pass.id, {
+      const newPass = await Pass.findByPk(pass.id, {
           include: [
             {
               model: Player,

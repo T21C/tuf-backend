@@ -481,7 +481,10 @@ async function unifiedPassSearch(query: any, useElasticsearch: boolean = true) {
 router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {levelId} = req.params;
-
+    const level = await Level.findByPk(levelId);
+    if (!level || (level.isDeleted || level.isHidden) && !req.user?.isSuperAdmin) {
+      return res.status(404).json({error: 'Level not found'});
+    }
     const passes = await Pass.findAll({
       where: {
         levelId: parseInt(levelId),
@@ -508,17 +511,9 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
           ],
         },
         {
-          model: Level,
-          as: 'level',
-          where: {
-            isDeleted: false,
-            isHidden: false
-          },
-          required: true
-        },
-        {
           model: Judgement,
           as: 'judgements',
+          required: true,
         },
       ],
     });
