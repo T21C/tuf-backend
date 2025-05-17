@@ -7,7 +7,7 @@ import client, {
   updateMappingHash
 } from '../config/elasticsearch.js';
 import { logger } from './LoggerService.js';
-import { ILevel } from '../interfaces/models/index.js';
+import { ILevel, IPass } from '../interfaces/models/index.js';
 import { Op } from 'sequelize';
 import Level from '../models/levels/Level.js';
 import Difficulty from '../models/levels/Difficulty.js';
@@ -85,51 +85,45 @@ class ElasticsearchService {
     const boundIndexPass = this.indexPass.bind(this);
     const boundDeletePass = this.deletePass.bind(this);
 
-    // Level hooks
-    Level.addHook('afterCreate', 'elasticsearchIndexCreate', async (level: Level) => {
-      await boundIndexLevel(level.get());
-    });
+    // Level hooks should be external
 
     Level.addHook('afterUpdate', 'elasticsearchIndexUpdate', async (level: Level) => {
-      await boundIndexLevel(level.get());
+      await boundIndexLevel(level);
     });
 
     Level.addHook('afterDestroy', 'elasticsearchIndexDelete', async (level: Level) => {
-      await boundDeleteLevel(level.get('id'));
+      await boundDeleteLevel(level);
     });
 
-    // Pass hooks
-    Pass.addHook('afterCreate', 'elasticsearchPassCreate', async (pass: Pass) => {
-      await boundIndexPass(pass.get());
-    });
+    // Pass hooks should also be external
 
     Pass.addHook('afterUpdate', 'elasticsearchPassUpdate', async (pass: Pass) => {
-      await boundIndexPass(pass.get());
+      await boundIndexPass(pass);
     });
 
     Pass.addHook('afterDestroy', 'elasticsearchPassDelete', async (pass: Pass) => {
-      await boundDeletePass(pass.get('id'));
+      await boundDeletePass(pass);
     });
 
     // LevelCredit hooks
     LevelCredit.addHook('afterCreate', 'elasticsearchCreditCreate', async (credit: LevelCredit) => {
       const level = await this.getLevelWithRelations(credit.get('levelId'));
       if (level) {
-        await boundIndexLevel(level.get());
+        await boundIndexLevel(level);
       }
     });
 
     LevelCredit.addHook('afterUpdate', 'elasticsearchCreditUpdate', async (credit: LevelCredit) => {
       const level = await this.getLevelWithRelations(credit.get('levelId'));
       if (level) {
-        await boundIndexLevel(level.get());
+        await boundIndexLevel(level);
       }
     });
 
     LevelCredit.addHook('afterDestroy', 'elasticsearchCreditDelete', async (credit: LevelCredit) => {
       const level = await this.getLevelWithRelations(credit.get('levelId'));
       if (level) {
-        await boundIndexLevel(level.get());
+        await boundIndexLevel(level);
       }
     });
 
@@ -140,21 +134,21 @@ class ElasticsearchService {
           {
             model: LevelCredit,
             as: 'levelCredits',
-            where: { creatorId: creator.get('id') }
+            where: { creatorId: creator.id }
           }
         ]
       });
       for (const level of levels) {
-        await boundIndexLevel(level.get());
+        await boundIndexLevel(level);
       }
     });
 
     Team.addHook('afterUpdate', 'elasticsearchTeamUpdate', async (team: Team) => {
       const levels = await Level.findAll({
-        where: { teamId: team.get('id') }
+        where: { teamId: team.id }
       });
       for (const level of levels) {
-        await boundIndexLevel(level.get());
+        await boundIndexLevel(level);
       }
     });
   }
@@ -200,45 +194,126 @@ class ElasticsearchService {
     });
   }
 
-  public async indexLevel(level: ILevel): Promise<void> {
-    try {
-      const levelWithRelations = await this.getLevelWithRelations(level.id);
-      if (levelWithRelations) {
-        // Convert special characters in text fields before indexing
-        const processedLevel = {
-          ...levelWithRelations.get({ plain: true }),
-          song: convertToPUA(levelWithRelations.song),
-          artist: convertToPUA(levelWithRelations.artist),
-          creator: convertToPUA(levelWithRelations.creator),
-          charter: convertToPUA(levelWithRelations.charter),
-          team: convertToPUA(levelWithRelations.team),
-          // Process nested fields
-          aliases: levelWithRelations.aliases?.map(alias => ({
+  private async getParsedLevel(id: number): Promise<ILevel | null> {
+    const level = await this.getLevelWithRelations(id);
+    if (!level) return null;
+    const processedLevel = {
+      ...level.get({ plain: true }),
+      song: convertToPUA(level.song),
+      artist: convertToPUA(level.artist),
+      creator: convertToPUA(level.creator),
+      charter: convertToPUA(level.charter),
+      team: convertToPUA(level.team),
+      // Process nested fields
+      aliases: level.aliases?.map(alias => ({
+        ...alias.get({ plain: true }),
+        originalValue: convertToPUA(alias.originalValue),
+        alias: convertToPUA(alias.alias)
+      })),
+      levelCredits: level.levelCredits?.map(credit => ({
+        ...credit.get({ plain: true }),
+        creator: credit.creator ? {
+          ...credit.creator.get({ plain: true }),
+          name: convertToPUA(credit.creator.name),
+          creatorAliases: credit.creator.creatorAliases?.map(alias => ({
             ...alias.get({ plain: true }),
-            originalValue: convertToPUA(alias.originalValue),
-            alias: convertToPUA(alias.alias)
-          })),
-          levelCredits: levelWithRelations.levelCredits?.map(credit => ({
-            ...credit.get({ plain: true }),
-            creator: credit.creator ? {
-              ...credit.creator.get({ plain: true }),
-              name: convertToPUA(credit.creator.name),
-              creatorAliases: credit.creator.creatorAliases?.map(alias => ({
-                ...alias.get({ plain: true }),
-                name: convertToPUA(alias.name)
-              }))
-            } : null
-          })),
-          teamObject: levelWithRelations.teamObject ? {
-            ...levelWithRelations.teamObject.get({ plain: true }),
-            name: convertToPUA(levelWithRelations.teamObject.name),
-            aliases: levelWithRelations.teamObject.aliases?.map(alias => ({
-              ...alias.get({ plain: true }),
-              name: convertToPUA(alias.name)
-            }))
-          } : null
-        };
+            name: convertToPUA(alias.name)
+          }))
+        } : null
+      })),
+      teamObject: level.teamObject ? {
+        ...level.teamObject.get({ plain: true }),
+        name: convertToPUA(level.teamObject.name),
+        aliases: level.teamObject.aliases?.map(alias => ({
+          ...alias.get({ plain: true }),
+          name: convertToPUA(alias.name)
+        }))
+      } : null
+    };
+    return processedLevel as ILevel;
+  }
 
+  private async getPassWithRelations(passId: number): Promise<Pass | null> {
+    return Pass.findByPk(passId, {
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          attributes: ['name', 'country', 'isBanned']
+        },
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty'
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [
+                {
+                  model: Creator,
+                  as: 'creator',
+                  include: [
+                    {
+                      model: CreatorAlias,
+                      as: 'creatorAliases'
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              model: Team,
+              as: 'teamObject',
+              include: [
+                {
+                  model: TeamAlias,
+                  as: 'teamAliases'
+                }
+              ]
+            },
+            {
+              model: LevelAlias,
+              as: 'aliases'
+            }
+          ]
+        },
+        {
+          model: Judgement,
+          as: 'judgements'
+        }
+      ]
+    });
+  }
+  
+  private async getParsedPass(id: number): Promise<IPass | null> {
+    const pass = await this.getPassWithRelations(id);
+    if (!pass) return null;
+    const processedPass = {
+      ...pass.get({ plain: true }),
+      vidTitle: pass.vidTitle ? convertToPUA(pass.vidTitle) : null,
+      videoLink: pass.videoLink ? convertToPUA(pass.videoLink) : null,
+      player: pass.player ? {
+        ...pass.player.get({ plain: true }),
+        name: convertToPUA(pass.player.name)
+      } : null,
+      level: pass.level ? {
+        ...pass.level.get({ plain: true }),
+        song: convertToPUA(pass.level.song),
+        artist: convertToPUA(pass.level.artist)
+      } : null
+    };
+    return processedPass as IPass;
+  }
+
+
+  public async indexLevel(level: Level): Promise<void> {
+    try {
+      const processedLevel = await this.getParsedLevel(level.id);
+      if (processedLevel) {
         await client.index({
           index: levelIndexName,
           id: level.id.toString(),
@@ -310,24 +385,26 @@ class ElasticsearchService {
     }
   }
 
-  public async deleteLevel(levelId: number): Promise<void> {
+  public async deleteLevel(level: Level): Promise<void> {
     try {
       await client.delete({
         index: levelIndexName,
-        id: levelId.toString()
+        id: level.id.toString()
       });
     } catch (error) {
-      logger.error(`Error deleting level ${levelId} from index:`, error);
+      logger.error(`Error deleting level ${level.id} from index:`, error);
       throw error;
     }
   }
 
-  public async indexPass(pass: any): Promise<void> {
+  public async indexPass(pass: Pass): Promise<void> {
     try {
-      const processedPass = {
+      logger.debug(`Indexing pass ${pass.id}`);
+      // If we have a direct pass object with relations, use it directly
+      const processedPass = pass.player && pass.level ? {
         ...pass.get({ plain: true }),
-        vidTitle: convertToPUA(pass.vidTitle),
-        videoLink: convertToPUA(pass.videoLink),
+        vidTitle: pass.vidTitle ? convertToPUA(pass.vidTitle) : null,
+        videoLink: pass.videoLink ? convertToPUA(pass.videoLink) : null,
         player: pass.player ? {
           ...pass.player.get({ plain: true }),
           name: convertToPUA(pass.player.name)
@@ -337,13 +414,20 @@ class ElasticsearchService {
           song: convertToPUA(pass.level.song),
           artist: convertToPUA(pass.level.artist)
         } : null
-      };
+      } : await this.getParsedPass(pass.id);
+
+      if (!processedPass) {
+        logger.error(`Pass ${pass.id} not found`);
+        return;
+      }
 
       await client.index({
         index: passIndexName,
         id: pass.id.toString(),
-        document: processedPass
+        document: processedPass,
+        refresh: true
       });
+      logger.debug(`Successfully indexed pass ${pass.id}`);
     } catch (error) {
       logger.error(`Error indexing pass ${pass.id}:`, error);
       throw error;
@@ -389,14 +473,14 @@ class ElasticsearchService {
     }
   }
 
-  public async deletePass(passId: number): Promise<void> {
+  public async deletePass(pass: Pass): Promise<void> {
     try {
       await client.delete({
         index: passIndexName,
-        id: passId.toString()
+        id: pass.id.toString()
       });
     } catch (error) {
-      logger.error(`Error deleting pass ${passId} from index:`, error);
+      logger.error(`Error deleting pass ${pass.id} from index:`, error);
       throw error;
     }
   }

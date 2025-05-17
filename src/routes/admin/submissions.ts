@@ -29,6 +29,7 @@ import LevelCredit from '../../models/levels/LevelCredit.js';
 import User from '../../models/auth/User.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -441,6 +442,10 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         await transaction.commit();
 
+        // Index the level in Elasticsearch after transaction is committed
+        const elasticsearchService = ElasticsearchService.getInstance();
+        await elasticsearchService.indexLevel(newLevel);
+
         // Broadcast updates
         sseManager.broadcast({type: 'submissionUpdate'});
         sseManager.broadcast({type: 'levelUpdate'});
@@ -640,6 +645,10 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
       // Commit the transaction before non-transactional operations
       await transaction.commit();
+
+      // Index the pass in Elasticsearch after transaction is committed
+      const elasticsearchService = ElasticsearchService.getInstance();
+      await elasticsearchService.indexPass(pass);
 
       // Update player stats - these operations don't need to be part of the transaction
       if (submission.assignedPlayerId) {
@@ -931,6 +940,13 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
 
         // Update worlds first status
         await updateWorldsFirstStatus(submission.levelId, transaction);
+
+        // Commit the transaction for this submission
+        await transaction.commit();
+
+        // Index the pass in Elasticsearch after transaction is committed
+        const elasticsearchService = ElasticsearchService.getInstance();
+        await elasticsearchService.indexPass(pass);
 
         // Update player stats
         await playerStatsService.updatePlayerStats([submission.assignedPlayerId!]);

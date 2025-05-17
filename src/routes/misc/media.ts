@@ -171,7 +171,7 @@ function releaseBrowserCreationLock(): void {
     browserCreationLockResolve = null;
     lockAcquiredBy = null;
   } else {
-    logger.warn('[Lock] Attempted to release browser creation lock that was not held');
+    //logger.warn('[Lock] Attempted to release browser creation lock that was not held');
   }
 }
 
@@ -239,7 +239,7 @@ async function createBrowser(): Promise<puppeteer.Browser> {
   try {
     // Check if browser was already created while we were waiting for the lock
     if (browser && browser.isConnected()) {
-      logger.debug('Browser was already created while waiting for lock, returning existing instance');
+      //logger.debug('Browser was already created while waiting for lock, returning existing instance');
       return browser;
     }
 
