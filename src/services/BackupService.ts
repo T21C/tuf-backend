@@ -7,6 +7,7 @@ import config from '../config/backup.config.js';
 import db from '../models/index.js';
 import dotenv from 'dotenv';
 import { logger } from './LoggerService.js';
+import ElasticsearchService from './ElasticsearchService.js';
 dotenv.config();
 
 const DATABASE_NAME =
@@ -87,6 +88,11 @@ export class BackupService {
               logger.info(
                 `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
               );
+              await Promise.all([
+                ElasticsearchService.getInstance().reindexAllLevels(),
+                ElasticsearchService.getInstance().reindexAllPasses(),
+              ]);
+              logger.info('Elasticsearch reindexed successfully');
               resolve(true);
             } catch (syncError) {
               reject(syncError);

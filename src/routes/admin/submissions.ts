@@ -851,8 +851,6 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
 
 // Auto-approve pass submissions
 router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
-
   try {
     // Find all pending submissions with assigned players and required data
     const pendingSubmissions = await PassSubmission.findAll({
@@ -879,13 +877,15 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           as: 'judgements',
           required: true
         }
-      ],
-      transaction
+      ]
     });
 
     const results = [];
 
     for (const submission of pendingSubmissions) {
+      // Create a new transaction for each submission
+      const transaction = await sequelize.transaction();
+      
       try {
         if (!submission.flags || !submission.judgements || !submission.level || !submission.level.difficulty) {
           throw new Error('Missing required submission data');
@@ -965,12 +965,12 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
 
         results.push({ id: submission.id, success: true });
       } catch (error) {
+        // Rollback the transaction for this submission
+        await transaction.rollback();
         logger.error(`Error auto-approving submission ${submission.id}:`, error);
         results.push({ id: submission.id, success: false, error: error instanceof Error ? error.message : String(error) });
       }
     }
-
-    await transaction.commit();
 
     // Broadcast final updates
     sseManager.broadcast({ type: 'submissionUpdate' });
@@ -992,7 +992,6 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
     });
 
   } catch (error) {
-    await transaction.rollback();
     logger.error('Error in auto-approve process:', error);
     return res.status(500).json({
       error: 'Failed to auto-approve submissions',
