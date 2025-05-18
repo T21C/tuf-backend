@@ -13,16 +13,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const languageConfigs = {
-  en: {display: 'English', countryCode: 'us'},
-  pl: {display: 'Polish', countryCode: 'pl'},
-  kr: {display: '한국어', countryCode: 'kr'},
-  cn: {display: '中文', countryCode: 'cn'},
-  id: {display: 'Bahasa Indonesia', countryCode: 'id'},
-  jp: {display: '日本語', countryCode: 'jp'},
-  ru: {display: 'Русский', countryCode: 'ru'},
-  de: {display: 'Deutsch', countryCode: 'de'},
-  fr: {display: 'Français', countryCode: 'fr'},
-  es: {display: 'Español', countryCode: 'es'},
+  en: {display: 'English', countryCode: 'us', folder: 'en'},
+  pl: {display: 'Polish', countryCode: 'pl', folder: 'pl'},
+  kr: {display: '한국어', countryCode: 'kr', folder: 'kr'},
+  cn: {display: '中文', countryCode: 'cn', folder: 'cn'},
+  id: {display: 'Bahasa Indonesia', countryCode: 'id', folder: 'id'},
+  jp: {display: '日本語', countryCode: 'jp', folder: 'jp'},
+  ru: {display: 'Русский', countryCode: 'ru', folder: 'ru'},
+  de: {display: 'Deutsch', countryCode: 'de', folder: 'de'},
+  fr: {display: 'Français', countryCode: 'fr', folder: 'fr'},
+  es: {display: 'Español', countryCode: 'es', folder: 'es'},
 };
 
 interface MulterRequest extends Request {
@@ -166,10 +166,7 @@ router.post(
       }
 
       // Get base English translations with correct path resolution
-      const enTranslationsDir = path.resolve(
-        __dirname,
-        '../../../../client/src/translations/languages/en',
-      );
+      const enTranslationsDir = process.env.TRANSLATIONS_PATH + "/languages/en";
 
       // Get all JSON files from both directories
       const enFiles = getAllJsonFiles(enTranslationsDir);
@@ -239,10 +236,7 @@ router.get('/download-translations', async (req: Request, res: Response) => {
 
   try {
     // Update path resolution for English translations
-    const enTranslationsDir = path.resolve(
-      __dirname,
-      '../../../../client/src/translations/languages/en',
-    );
+    const enTranslationsDir = process.env.TRANSLATIONS_PATH + "/languages/en";
     tempZipPath = path.join(
       'uploads',
       'en-translations-' +
@@ -277,15 +271,12 @@ router.get('/download-translations', async (req: Request, res: Response) => {
 });
 
 // Language configuration - now dynamic based on directory check
-const languages: {[key: string]: {display: string; countryCode: string; status: number}} = {};
+const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number}} = {};
 
 // Function to check if a language is implemented
 async function checkLanguageImplementation(langCode: string): Promise<number> {
   try {
-    const langDir = path.resolve(
-      __dirname,
-      `../../../../client/src/translations/languages/${langCode}`,
-    );
+    const langDir = process.env.TRANSLATIONS_PATH + "/languages/" + langCode;
 
     // Check if directory exists
     if (!fs.existsSync(langDir)) {
@@ -299,10 +290,7 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
     }
 
     // Get English translations for comparison
-    const enDir = path.resolve(
-      __dirname,
-      '../../../../client/src/translations/languages/en',
-    );
+    const enDir = process.env.TRANSLATIONS_PATH + "/languages/en";
     const enFiles = getAllJsonFiles(enDir);
 
     let missingFiles = 0;
@@ -345,11 +333,11 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
 
 // Initialize languages configuration
 async function initializeLanguages() {
-  const baseDir = path.resolve(
-    __dirname,
-    '../../../../client/src/translations/languages',
-  );
-
+  const baseDir = process.env.TRANSLATIONS_PATH + "/languages";
+  if (!fs.existsSync(baseDir)) {
+    logger.error('Translations path does not exist:', baseDir);
+    return;
+  }
 
   // Check each language's implementation
   for (const [code, config] of Object.entries(languageConfigs)) {
@@ -395,10 +383,7 @@ router.get(
       }
 
       // Update path resolution for translations
-      const translationsDir = path.resolve(
-        __dirname,
-        `../../../../client/src/translations/languages/${lang}`,
-      );
+      const translationsDir = process.env.TRANSLATIONS_PATH + "/languages/" + lang;
 
       // Check if directory exists
       if (!fs.existsSync(translationsDir)) {
@@ -443,6 +428,7 @@ router.get('/languages', async (req: Request, res: Response) => {
       code,
       display: info.display,
       countryCode: info.countryCode,
+      folder: info.folder,
       status: info.status,
     }));
 
@@ -841,7 +827,7 @@ router.get('/', (req: Request, res: Response) => {
                   </span>
                 </div>
                 <div class="language-download">
-                  <button onclick="downloadTranslation('\${lang.countryCode}')" \${lang.status === 0 ? 'disabled' : ''}>
+                  <button onclick="downloadTranslation('\${lang.folder}')" \${lang.status === 0 ? 'disabled' : ''}>
                     Download \${lang.display} Translations
                   </button>
                 </div>

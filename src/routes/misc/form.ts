@@ -253,7 +253,7 @@ router.post(
             lateDouble: sanitizedJudgements.lateDouble,
           },
         });
-        logger.info(`Existing judgement: ${existingJudgement}`);
+        //logger.info(`Existing judgement: ${existingJudgement}`);
         const existingPass = existingJudgement ? await Pass.findOne({
           where: {
             id: existingJudgement.id,
@@ -265,7 +265,7 @@ router.post(
             is16K: req.body.is16K === true,
           },
         }) : null;
-        logger.info(`Existing pass: ${existingPass?.id}`);
+        //logger.info(`Existing pass: ${existingPass?.id}`);
         if (existingPass) {
           await transaction.rollback();
           return res.status(400).json({

@@ -217,7 +217,7 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
       
       pkill.on('close', (code) => {
         if (code === 0 || code === 1) { // 0 = success, 1 = no processes found
-          logger.info('Successfully executed pkill command');
+          //logger.info('Successfully executed pkill command');
           resolve();
         } else {
           logger.warn(`pkill exited with code ${code}`);
@@ -301,7 +301,7 @@ async function createBrowser(): Promise<puppeteer.Browser> {
     
     // Set up disconnection handler to mark the browser as needing recreation
     newBrowser.on('disconnected', async () => {
-      logger.warn('Browser disconnected, will recreate on next request');
+      logger.debug('Browser disconnected, will recreate on next request');
       browser = null;
       // Kill any zombie processes
       await killExistingPuppeteerProcesses();

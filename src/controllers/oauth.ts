@@ -177,6 +177,9 @@ export const OAuthController = {
 
           return res.json({success: true});
         } catch (error: any) {
+          if (error.message.includes('ERR_BAD_REQUEST')) {
+            return res.status(400).json({error: 'Invalid code'});
+          }
           logger.error('Provider linking error:', error);
           return res.status(400).json({error: error.message || 'Failed to link provider'});
         }
