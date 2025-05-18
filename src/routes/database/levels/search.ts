@@ -70,7 +70,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         where: { userId: req.user.id },
         attributes: ['levelId']
       }).then(likes => likes.map(l => l.levelId));
-      logger.info('Liked level IDs:', likedLevelIds);
+      //logger.info('Liked level IDs:', likedLevelIds);
     }
 
     // Search using Elasticsearch
