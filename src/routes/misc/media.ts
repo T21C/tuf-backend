@@ -552,7 +552,7 @@ router.get('/bilibili', async (req: Request, res: Response) => {
         logger.error(`Error fetching data after ${maxAttempts} attempts:`, error);
         return res.status(500).json({error: 'Internal Server Error'});
       }
-      logger.warn(`Attempt ${attempt} failed, retrying...`);
+      logger.debug(`Bilibili call attempt #${attempt} failed, retrying...`);
       attempt++;
       // Wait 1 second before retrying
       await new Promise(resolve => setTimeout(resolve, 1000));
