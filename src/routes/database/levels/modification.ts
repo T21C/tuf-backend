@@ -188,7 +188,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
       // Log when freezing state for rating
       if (req.body.toRate === true && !level.toRate) {
-        logger.info(`Freezing state for level ${levelId} - previousDiffId: ${previousDiffId}, previousBaseScore: ${previousBaseScore}`);
+        logger.debug(`Freezing state for level ${levelId} - previousDiffId: ${previousDiffId}, previousBaseScore: ${previousBaseScore}`);
       }
 
       // Clean up the update data to handle null values correctly

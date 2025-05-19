@@ -944,7 +944,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           isDeleted: false
         }, { transaction });
 
-        logger.info(`Pass created: ${pass}`);
+        //logger.info(`Pass created: ${pass}`);
         if (!pass) {
           throw new Error(`Pass for submission #${submission.id} not created`);
         }

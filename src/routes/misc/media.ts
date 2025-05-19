@@ -387,7 +387,7 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
       return Buffer.from(pngBuffer);
     } catch (error) {
       lastError = error;
-      logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
+      //logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
       
       if (error instanceof Error && 
           (error.message.includes('Protocol error') || 
