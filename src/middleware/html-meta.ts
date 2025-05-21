@@ -189,26 +189,35 @@ export const htmlMetaMiddleware = async (
         ],
       });
 
-      if (pass && pass.player && pass.level) {
+      if (pass && !pass.isDeleted && pass.player && pass.level) {
         const difficultyName = escapeMetaText(pass.level.difficulty?.name || 'Unknown Difficulty');
         const playerName = escapeMetaText(pass.player.name);
         const songName = escapeMetaText(pass.level.song);
         
         metaTags = `
-    <meta name="description" content="${difficultyName} • Score: ${pass.scoreV2}" />
-    <meta property="og:site_name" content="The Universal Forum" />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
-    <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
-    <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="420" />
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
-    <meta name="theme-color" content="#090909" />
-    <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
+          <meta name="description" content="${difficultyName} • Score: ${pass.scoreV2}" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
+          <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
+          <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta property="og:image:width" content="800" />
+          <meta property="og:image:height" content="420" />
+          <meta property="twitter:card" content="summary_large_image" />
+          <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta name="theme-color" content="#090909" />
+          <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
-    } else if (req.path.startsWith('/levels/')) {
+      else {
+        metaTags = `
+          <meta name="description" content="Pass not found" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta name="theme-color" content="#330000" />
+        `;
+      }
+    } 
+    else if (req.path.startsWith('/levels/')) {
       const level = await Level.findByPk(id, {
         include: [
           {model: Difficulty, as: 'difficulty'},
@@ -219,7 +228,7 @@ export const htmlMetaMiddleware = async (
         ],
       });
 
-      if (level) {
+      if (level && !level.isDeleted && !level.isHidden) {
         const creators =
           level.levelCreators
             ?.map((creator: any) => {
@@ -232,42 +241,60 @@ export const htmlMetaMiddleware = async (
         const artistName = escapeMetaText(level.artist);
         
         metaTags = `
-    <meta name="description" content="Created by ${creators}" />
-    <meta property="og:site_name" content="The Universal Forum" />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="${songName} by ${artistName}" />
-    <meta property="og:description" content="Created by ${creators}" />
-    <meta property="og:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="420" />
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
-    <meta name="theme-color" content="${level.difficulty?.color || '#090909'}" />
-    <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
+          <meta name="description" content="Created by ${creators}" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta property="og:title" content="${songName} by ${artistName}" />
+          <meta property="og:description" content="Created by ${creators}" />
+          <meta property="og:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
+          <meta property="og:image:width" content="800" />
+          <meta property="og:image:height" content="420" />
+          <meta property="twitter:card" content="summary_large_image" />
+          <meta property="twitter:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
+          <meta name="theme-color" content="${level.difficulty?.color || '#090909'}" />
+          <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
-    } else if (req.path.startsWith('/player/')) {
-      metaTags = `
-    <meta name="description" content="View player details" />
-    <meta property="og:site_name" content="The Universal Forum" />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="Player ${id}" />
-    <meta property="og:description" content="View player details" />
-    <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="420" />
-    <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
-    <meta name="theme-color" content="#090909" />
-    <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
+      else{
+        metaTags = `
+          <meta name="description" content="Level not found" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta name="theme-color" content="#330000" />
+        `;
+      }
     }
+    else if (req.path.startsWith('/player/')) {
+      const player = await Player.findByPk(id, {
+        include: [{model: Level, as: 'levels'}],
+      });
 
-    // Insert meta tags into HTML
+      if (player && !player.isBanned) {
+        metaTags = `
+          <meta name="description" content="View player details" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta property="og:title" content="Player ${id}" />
+          <meta property="og:description" content="View player details" />
+          <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta property="og:image:width" content="800" />
+          <meta property="og:image:height" content="420" />
+          <meta property="twitter:card" content="summary_large_image" />
+          <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta name="theme-color" content="#090909" />
+          <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
+      }
+      else {
+        metaTags = `
+          <meta name="description" content="Player not found" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta name="theme-color" content="#330000" />`;
+      }
+    }
     const html = getBaseHtml(clientUrlEnv || '').replace(
       '<!-- METADATA_PLACEHOLDER -->',
       metaTags,
     );
-
-
     res.send(html);
   } catch (error) {
     logger.error('Error serving HTML:', error);

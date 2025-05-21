@@ -669,6 +669,11 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);
+    const level = await Level.findByPk(levelId);
+    if (!level || level.isDeleted || level.isHidden) {
+      return res.status(404).send('Level not found');
+    }
+    
     logWithCondition(`Thumbnail requested for level ${levelId} with size ${size}`, 'thumbnail');
 
     // Get the cache path for LARGE version only
@@ -699,8 +704,10 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
             logWithCondition(`Successfully obtained thumbnail from concurrent generation for level ${levelId}`, 'thumbnail');
             }
           } catch (error) {
-            logger.warn(`Error while waiting for concurrent thumbnail generation for level ${levelId}:`, error);
-            thumbnailGenerationPromises.delete(promiseKey);
+            if (!JSON.stringify(error).includes('Video details not found')) {
+              logger.warn(`Error while waiting for concurrent thumbnail generation for level ${levelId}:`, error);
+              thumbnailGenerationPromises.delete(promiseKey);
+            }
           }
         }
       
