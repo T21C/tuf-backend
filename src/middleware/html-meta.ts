@@ -174,6 +174,14 @@ export const htmlMetaMiddleware = async (
     <meta property="og:type" content="website" />
     <meta name="theme-color" content="#090909" />`;
 
+    const notFoundTags =`
+      <meta property="og:site_name" content="The Universal Forum" />
+      <meta property="og:type" content="website" />
+      <meta property="og:title" content="Not found" />
+      <meta name="theme-color" content="#330000" />
+    `
+
+
     if (req.path.startsWith('/passes/')) {
       const pass = await Pass.findByPk(id, {
         include: [
@@ -209,12 +217,7 @@ export const htmlMetaMiddleware = async (
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
       else {
-        metaTags = `
-          <meta name="description" content="Pass not found" />
-          <meta property="og:site_name" content="The Universal Forum" />
-          <meta property="og:type" content="website" />
-          <meta name="theme-color" content="#330000" />
-        `;
+        metaTags = notFoundTags.replace('Not found', 'Pass not found')
       }
     } 
     else if (req.path.startsWith('/levels/')) {
@@ -255,12 +258,7 @@ export const htmlMetaMiddleware = async (
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
       else{
-        metaTags = `
-          <meta name="description" content="Level not found" />
-          <meta property="og:site_name" content="The Universal Forum" />
-          <meta property="og:type" content="website" />
-          <meta name="theme-color" content="#330000" />
-        `;
+        metaTags = notFoundTags.replace('Not found', 'Level not found');
       }
     }
     else if (req.path.startsWith('/player/')) {
@@ -284,11 +282,7 @@ export const htmlMetaMiddleware = async (
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
       else {
-        metaTags = `
-          <meta name="description" content="Player not found" />
-          <meta property="og:site_name" content="The Universal Forum" />
-          <meta property="og:type" content="website" />
-          <meta name="theme-color" content="#330000" />`;
+        metaTags = notFoundTags.replace('Not found', 'Player not found');
       }
     }
     const html = getBaseHtml(clientUrlEnv || '').replace(
