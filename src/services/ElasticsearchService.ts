@@ -1,8 +1,6 @@
 import client, { 
   levelIndexName, 
   passIndexName, 
-  levelMapping, 
-  passMapping,
   initializeElasticsearch,
   updateMappingHash
 } from '../config/elasticsearch.js';
@@ -22,6 +20,17 @@ import { CreatorAlias } from '../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../models/credits/TeamAlias.js';
 import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/searchHelpers.js';
 
+// Add these type definitions at the top of the file, after imports
+type FieldSearch = {
+  field: string;
+  value: string;
+  exact: boolean;
+};
+
+type SearchGroup = {
+  terms: FieldSearch[];
+  operation: 'AND' | 'OR';
+};
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -626,104 +635,164 @@ class ElasticsearchService {
     }
   }
 
-  public async searchLevels(query: string, filters: any = {}): Promise<{ hits: any[], total: number }> {
-    try {
-      const must: any[] = [];
-      const should: any[] = [];
+  private parseFieldSearch(term: string): FieldSearch | null {
+    // Trim the term here when parsing
+    const trimmedTerm = term.trim();
+    if (!trimmedTerm) return null;
 
-      // Handle text search with composite operators
-      if (query) {
-        // Split by OR operator first
-        const orTerms = query.split('|').map(term => term.trim());
-        
-        orTerms.forEach(term => {
-          // Split each OR term by AND operator
-          const andTerms = term.split(',').map(t => prepareSearchTerm(t.trim()));
-          const termQueries = andTerms.map(andTerm => ({
+    // Check for exact match with equals sign
+    const exactMatch = trimmedTerm.match(/^(song|artist|charter|team|vfxer|creator)=(.+)$/i);
+    if (exactMatch) {
+      return {
+        field: exactMatch[1].toLowerCase(),
+        value: exactMatch[2].trim(),
+        exact: true,
+      };
+    }
+
+    // Check for partial match with colon
+    const partialMatch = trimmedTerm.match(/^(song|artist|charter|team|vfxer|creator):(.+)$/i);
+    if (partialMatch) {
+      return {
+        field: partialMatch[1].toLowerCase(),
+        value: partialMatch[2].trim(),
+        exact: false,
+      };
+    }
+
+    return null;
+  }
+
+  private parseSearchQuery(query: string): SearchGroup[] {
+    if (!query) return [];
+
+    // Split by | for OR groups and handle trimming here
+    const groups = query
+      .split('|')
+      .map(group => {
+        // Split by comma for AND terms within each group
+        const terms = group
+          .split(',')
+          .map(term => term.trim())
+          .filter(term => term.length > 0)
+          .map(term => {
+            const fieldSearch = this.parseFieldSearch(term);
+            if (fieldSearch) {
+              return fieldSearch;
+            }
+            return {
+              field: 'any',
+              value: term.trim(),
+              exact: false,
+            };
+          });
+
+        return {
+          terms,
+          operation: 'AND' as const,
+        };
+      })
+      .filter(group => group.terms.length > 0); // Remove empty groups
+
+    return groups;
+  }
+
+  private buildFieldSearchQuery(fieldSearch: FieldSearch): any {
+    const { field, value, exact } = fieldSearch;
+    const searchValue = prepareSearchTerm(value);
+
+    // For field-specific searches
+    if (field !== 'any') {
+      // For exact matches (using =), use term query with case-insensitive match
+      if (exact) {
+        // Handle role-based searches (charter, vfxer, creator)
+        if (field === 'charter' || field === 'vfxer' || field === 'creator') {
+          return {
             bool: {
               should: [
-                { 
-                  wildcard: { 
-                    'song': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
-                    } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'artist': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
-                    } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'charter': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
-                    } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'team': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
-                    } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'creator': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
-                    } 
-                  } 
-                },
-                // Handle level aliases
+                // Search in root level creator field
                 {
-                  nested: {
-                    path: 'aliases',
-                    query: {
-                      wildcard: { 
-                        'aliases.alias': { 
-                          value: `*${andTerm}*`,
-                          case_insensitive: true
-                        } 
-                      }
+                  term: {
+                    'creator.keyword': {
+                      value: searchValue,
+                      case_insensitive: true
                     }
                   }
                 },
-                // Handle creator search with nested aliases
+                // Search in nested levelCredits
                 {
                   nested: {
                     path: 'levelCredits',
                     query: {
                       bool: {
-                        should: [
-                          { 
-                            wildcard: { 
-                              'levelCredits.creator.name': { 
-                                value: `*${andTerm}*`,
+                        must: [
+                          {
+                            term: {
+                              'levelCredits.creator.name.keyword': {
+                                value: searchValue,
                                 case_insensitive: true
-                              } 
-                            } 
+                              }
+                            }
+                          },
+                          ...(field === 'charter' ? [{
+                            term: {
+                              'levelCredits.role.keyword': 'charter'
+                            }
+                          }] : []),
+                          ...(field === 'vfxer' ? [{
+                            term: {
+                              'levelCredits.role.keyword': 'vfxer'
+                            }
+                          }] : [])
+                        ]
+                      }
+                    }
+                  }
+                }
+              ],
+              minimum_should_match: 1
+            }
+          };
+        }
+
+        // Handle other exact matches
+        const searchCondition = {
+          term: {
+            [`${field}.keyword`]: {
+              value: searchValue,
+              case_insensitive: true
+            }
+          }
+        };
+
+        // Handle team special case
+        if (field === 'team') {
+          return {
+            bool: {
+              should: [
+                searchCondition,
+                {
+                  nested: {
+                    path: 'teamObject',
+                    query: {
+                      bool: {
+                        should: [
+                          {
+                            term: {
+                              'teamObject.name.keyword': {
+                                value: searchValue,
+                                case_insensitive: true
+                              }
+                            }
                           },
                           {
                             nested: {
-                              path: 'levelCredits.creator',
+                              path: 'teamObject.aliases',
                               query: {
-                                nested: {
-                                  path: 'levelCredits.creator.creatorAliases',
-                                  query: {
-                                    wildcard: { 
-                                      'levelCredits.creator.creatorAliases.name': { 
-                                        value: `*${andTerm}*`,
-                                        case_insensitive: true
-                                      } 
-                                    }
+                                term: {
+                                  'teamObject.aliases.name.keyword': {
+                                    value: searchValue,
+                                    case_insensitive: true
                                   }
                                 }
                               }
@@ -733,56 +802,221 @@ class ElasticsearchService {
                       }
                     }
                   }
-                },
-                // Handle team search with nested aliases
-                {
-                  nested: {
-                    path: 'teamObject',
-                    query: {
-                      bool: {
-                        should: [
-                          { 
-                            wildcard: { 
-                              'teamObject.name': { 
-                                value: `*${andTerm}*`,
-                                case_insensitive: true
-                              } 
-                            } 
-                          },
-                          {
-                            nested: {
-                              path: 'teamObject.aliases',
-                              query: {
-                                wildcard: { 
-                                  'teamObject.aliases.name': { 
-                                    value: `*${andTerm}*`,
+                }
+              ]
+            }
+          };
+        }
+
+        return searchCondition;
+      }
+
+      // For partial matches (using :), use wildcard query
+      const wildcardValue = `*${searchValue}*`;
+
+      // Handle role-based searches for partial matches
+      if (field === 'charter' || field === 'vfxer' || field === 'creator') {
+        return {
+          bool: {
+            should: [
+              // Search in root level creator field
+              {
+                wildcard: {
+                  'creator': {
+                    value: wildcardValue,
+                    case_insensitive: true
+                  }
+                }
+              },
+              // Search in nested levelCredits
+              {
+                nested: {
+                  path: 'levelCredits',
+                  query: {
+                    bool: {
+                      must: [
+                        {
+                          bool: {
+                            should: [
+                              {
+                                wildcard: {
+                                  'levelCredits.creator.name': {
+                                    value: wildcardValue,
                                     case_insensitive: true
-                                  } 
+                                  }
+                                }
+                              },
+                              {
+                                nested: {
+                                  path: 'levelCredits.creator.creatorAliases',
+                                  query: {
+                                    wildcard: {
+                                      'levelCredits.creator.creatorAliases.name': {
+                                        value: wildcardValue,
+                                        case_insensitive: true
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        ...(field === 'charter' ? [{
+                          term: {
+                            'levelCredits.role.keyword': 'charter'
+                          }
+                        }] : []),
+                        ...(field === 'vfxer' ? [{
+                          term: {
+                            'levelCredits.role.keyword': 'vfxer'
+                          }
+                        }] : [])
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        };
+      }
+
+      // Handle other partial matches
+      const searchCondition = {
+        wildcard: {
+          [field]: {
+            value: wildcardValue,
+            case_insensitive: true
+          }
+        }
+      };
+
+      // Handle team special case
+      if (field === 'team') {
+        return {
+          bool: {
+            should: [
+              searchCondition,
+              {
+                nested: {
+                  path: 'teamObject',
+                  query: {
+                    bool: {
+                      should: [
+                        {
+                          wildcard: {
+                            'teamObject.name': {
+                              value: wildcardValue,
+                              case_insensitive: true
+                            }
+                          }
+                        },
+                        {
+                          nested: {
+                            path: 'teamObject.aliases',
+                            query: {
+                              wildcard: {
+                                'teamObject.aliases.name': {
+                                  value: wildcardValue,
+                                  case_insensitive: true
                                 }
                               }
                             }
                           }
-                        ]
-                      }
+                        }
+                      ]
                     }
                   }
                 }
-              ],
-              minimum_should_match: 1
-            }
-          }));
-          
-          // If there are multiple AND terms, they all must match
-          if (termQueries.length > 1) {
-            should.push({
-              bool: {
-                must: termQueries
               }
-            });
-          } else {
-            should.push(termQueries[0]);
+            ]
           }
-        });
+        };
+      }
+
+      return searchCondition;
+    }
+
+    // For general searches (field === 'any'), use wildcard search across all fields
+    const wildcardValue = `*${searchValue}*`;
+    return {
+      bool: {
+        should: [
+          { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { creator: { value: wildcardValue, case_insensitive: true } } },
+          {
+            nested: {
+              path: 'aliases',
+              query: {
+                wildcard: {
+                  'aliases.alias': {
+                    value: wildcardValue,
+                    case_insensitive: true
+                  }
+                }
+              }
+            }
+          },
+          {
+            nested: {
+              path: 'levelCredits',
+              query: {
+                bool: {
+                  should: [
+                    {
+                      wildcard: {
+                        'levelCredits.creator.name': {
+                          value: wildcardValue,
+                          case_insensitive: true
+                        }
+                      }
+                    },
+                    {
+                      nested: {
+                        path: 'levelCredits.creator.creatorAliases',
+                        query: {
+                          wildcard: {
+                            'levelCredits.creator.creatorAliases.name': {
+                              value: wildcardValue,
+                              case_insensitive: true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    };
+  }
+
+  public async searchLevels(query: string, filters: any = {}): Promise<{ hits: any[], total: number }> {
+    try {
+      const must: any[] = [];
+      const should: any[] = [];
+
+      // Handle text search with new parsing
+      if (query) {
+        const searchGroups = this.parseSearchQuery(query.trim());
+
+        if (searchGroups.length > 0) {
+          const orConditions = searchGroups.map(group => {
+            const andConditions = group.terms.map(term => this.buildFieldSearchQuery(term));
+
+            return andConditions.length === 1
+              ? andConditions[0]
+              : { bool: { must: andConditions } };
+          });
+
+          should.push(...orConditions);
+        }
       }
 
       // Handle filters
@@ -801,7 +1035,6 @@ class ElasticsearchService {
 
       // Handle liked levels filter
       if (filters.likedLevelIds?.length > 0) {
-        // logger.info('Only my likes filter applied with', filters.likedLevelIds.length, 'level ids');
         must.push({
           terms: {
             id: filters.likedLevelIds
@@ -850,13 +1083,18 @@ class ElasticsearchService {
         }
       };
 
-      const response = await client.search({
+      // Log the query for debugging
+      const debugQuery = {
         index: levelIndexName,
         query: searchQuery,
         sort: this.getSortOptions(filters.sort),
         from: filters.offset || 0,
         size: filters.limit || 30
-      });
+      };
+      
+      logger.debug('Elasticsearch Query:', debugQuery);
+
+      const response = await client.search(debugQuery);
 
       // Convert PUA characters back to original special characters in the results
       const hits = response.hits.hits.map(hit => {
