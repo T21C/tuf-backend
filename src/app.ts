@@ -13,7 +13,6 @@ import db from './models/index.js';
 import {setIO} from './utils/socket.js';
 import {htmlMetaMiddleware} from './middleware/html-meta.js';
 import path from 'path';
-import fs from 'fs';
 import discordRouter from './routes/misc/discord.js';
 import eventsRouter from './routes/misc/events.js';
 import utilsRouter from './routes/misc/utils.js';
@@ -22,7 +21,6 @@ import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
 import { logger } from './services/LoggerService.js';
-import client, { initializeElasticsearch, checkIfReindexingNeeded } from './config/elasticsearch.js';
 import ElasticsearchService from './services/ElasticsearchService.js';
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {

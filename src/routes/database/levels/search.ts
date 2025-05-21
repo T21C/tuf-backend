@@ -54,13 +54,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     // Parse specialDifficulties from string
     let parsedSpecialDifficulties;
     if (specialDifficulties) {
-      try {
-        // Try parsing as JSON first
-        parsedSpecialDifficulties = JSON.parse(specialDifficulties as string);
-      } catch {
-        // If not JSON, treat as comma-separated string
         parsedSpecialDifficulties = (specialDifficulties as string).split(',').map(s => s.trim());
-      }
     }
 
     // Get liked level IDs if needed

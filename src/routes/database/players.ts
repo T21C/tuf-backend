@@ -9,7 +9,7 @@ import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket.js';
 import {Auth} from '../../middleware/auth.js';
 import sequelize from '../../config/db.js';
-import {updateWorldsFirstStatus} from './passes.js';
+import {updateWorldsFirstStatus} from './passes/index.js';
 import {sseManager} from '../../utils/sse.js';
 import User from '../../models/auth/User.js';
 import OAuthProvider from '../../models/auth/OAuthProvider.js';

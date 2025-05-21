@@ -310,18 +310,19 @@ class ElasticsearchService {
   }
 
 
-  public async indexLevel(level: Level): Promise<void> {
+  public async indexLevel(level: Level | number): Promise<void> {
+    const id = typeof level === 'number' ? level : level.id;
     try {
-      const processedLevel = await this.getParsedLevel(level.id);
+      const processedLevel = await this.getParsedLevel(id);
       if (processedLevel) {
         await client.index({
           index: levelIndexName,
-          id: level.id.toString(),
+          id: id.toString(),
           document: processedLevel
         });
       }
     } catch (error) {
-      logger.error(`Error indexing level ${level.id}:`, error);
+      logger.error(`Error indexing level ${id}:`, error);
       throw error;
     }
   }
@@ -638,7 +639,6 @@ class ElasticsearchService {
         orTerms.forEach(term => {
           // Split each OR term by AND operator
           const andTerms = term.split(',').map(t => prepareSearchTerm(t.trim()));
-          
           const termQueries = andTerms.map(andTerm => ({
             bool: {
               should: [

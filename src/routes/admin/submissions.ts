@@ -16,7 +16,7 @@ import sequelize from '../../config/db.js';
 import {sseManager} from '../../utils/sse.js';
 import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
-import {updateWorldsFirstStatus} from '../database/passes.js';
+import {updateWorldsFirstStatus} from '../database/passes/index.js';
 import {IPassSubmissionJudgements} from '../../interfaces/models/index.js';
 import LevelSubmission from '../../models/submissions/LevelSubmission.js';
 import Rating from '../../models/levels/Rating.js';
@@ -32,6 +32,7 @@ import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
+const elasticsearchService = ElasticsearchService.getInstance();
 
 enum CreditRole {
   CHARTER = 'charter',
@@ -443,7 +444,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         await transaction.commit();
 
         // Index the level in Elasticsearch after transaction is committed
-        const elasticsearchService = ElasticsearchService.getInstance();
         await elasticsearchService.indexLevel(newLevel);
 
         // Broadcast updates
@@ -672,10 +672,11 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           ],
           transaction,
         });
-        await transaction.commit();
-        // Index the pass in Elasticsearch after transaction is committed
-        const elasticsearchService = ElasticsearchService.getInstance();
-        await elasticsearchService.indexPass(newPass!);
+      await transaction.commit();
+      // Index the pass in Elasticsearch after transaction is committed
+      await elasticsearchService.indexPass(newPass!);
+      await elasticsearchService.indexLevel(newPass!.level!);
+
       // Update player stats - these operations don't need to be part of the transaction
       if (submission.assignedPlayerId) {
         try {
@@ -1002,8 +1003,8 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         });
         await transaction.commit();
         // Index the pass in Elasticsearch after transaction is committed
-        const elasticsearchService = ElasticsearchService.getInstance();
         await elasticsearchService.indexPass(newPass!);
+        await elasticsearchService.indexLevel(newPass!.level!);
 
         // Update player stats
         await playerStatsService.updatePlayerStats([submission.assignedPlayerId!]);
