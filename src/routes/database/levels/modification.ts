@@ -1,4 +1,3 @@
-import { handleLevelUpdate, sanitizeTextInput } from "./index.js";
 import { Router, Request, Response } from 'express';
 import sequelize from '../../../config/db.js';
 import Level from '../../../models/levels/Level.js';
@@ -18,6 +17,7 @@ import User from "../../../models/auth/User.js";
 import Player from "../../../models/players/Player.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import { sanitizeTextInput } from '../../../utils/Utility.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -628,7 +628,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         sseManager.broadcast({type: 'ratingUpdate'});
   
         // Reload stats for new level
-        await handleLevelUpdate();
+        await playerStatsService.reloadAllStats();
   
         return res.json({
           message: 'Level restored successfully',

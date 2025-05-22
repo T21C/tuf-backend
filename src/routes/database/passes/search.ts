@@ -4,23 +4,19 @@ import { Auth } from '../../../middleware/auth.js';
 import Pass from '../../../models/passes/Pass.js';
 import Player from '../../../models/players/Player.js';
 import Level from '../../../models/levels/Level.js';
-import { excludePlaceholder } from '../../../middleware/excludePlaceholder.js';
 import Judgement from '../../../models/passes/Judgement.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
 import { logger } from '../../../services/LoggerService.js';
 import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
 import { User } from '../../../models/index.js';
-import { unifiedPassSearch } from './index.js';
-import { ensureString } from './index.js';
+import { searchPasses } from './index.js';
+import { ensureString } from '../../../utils/Utility.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
-
 const router = Router();
 
 
-
-
-router.get('/byId/:id([0-9]+)', excludePlaceholder.fromResponse(), Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
     const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId) || passId <= 0) {
@@ -149,7 +145,7 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
   });
   
   // Update the GET endpoint to use the unified search
-  router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+  router.get('/', async (req: Request, res: Response) => {
     try {
       const {
         deletedFilter,
@@ -165,7 +161,7 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
         sort,
       } = req.query;
   
-      const result = await unifiedPassSearch({
+      const result = await searchPasses({
         deletedFilter: ensureString(deletedFilter),
         minDiff: ensureString(minDiff),
         maxDiff: ensureString(maxDiff),
@@ -185,46 +181,5 @@ router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
       return res.status(500).json({error: 'Failed to fetch passes'});
     }
   });
-  
-  // Update the POST endpoint to use the unified search
-  router.post('/', async (req: Request, res: Response) => {
-    try {
-      const {
-        deletedFilter,
-        minDiff,
-        maxDiff,
-        keyFlag,
-        levelId,
-        player,
-        specialDifficulties,
-        query: searchQuery,
-        offset = 0,
-        limit = 30,
-        sort,
-      } = req.body;
-  
-      const result = await unifiedPassSearch({
-        deletedFilter,
-        minDiff,
-        maxDiff,
-        keyFlag,
-        levelId,
-        player,
-        specialDifficulties,
-        query: searchQuery,
-        offset,
-        limit,
-        sort
-      });
-  
-      return res.json(result);
-    } catch (error) {
-      logger.error('Error fetching passes:', error);
-      return res.status(500).json({error: 'Failed to fetch passes'});
-    }
-  });
-  
-  
-  
-  
-  export default router;
+
+export default router;

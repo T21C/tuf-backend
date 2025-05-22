@@ -8,8 +8,6 @@ import referenceRoutes from './references.js';
 import statisticsRoutes from './statistics.js';
 import creatorRoutes from './creators.js';
 
-export const MAX_LIMIT = 200;
-
 export default function createDatabaseRouter(): Router {
   const router = Router();
 

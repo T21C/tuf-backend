@@ -14,7 +14,6 @@ import {getScoreV2} from '../../utils/CalcScore.js';
 import {getIO} from '../../utils/socket.js';
 import sequelize from '../../config/db.js';
 import {sseManager} from '../../utils/sse.js';
-import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import {updateWorldsFirstStatus} from '../database/passes/index.js';
 import {IPassSubmissionJudgements} from '../../interfaces/models/index.js';
@@ -64,7 +63,7 @@ interface CreatorRequest {
 }
 
 // Get all level submissions
-router.get('/levels', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+router.get('/levels', async (req: Request, res: Response) => {
     try {
       const levelSubmissions = await LevelSubmission.findAll();
       return res.json(levelSubmissions);
@@ -164,7 +163,7 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
 });
 
 // Get all pass submissions
-router.get('/passes', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+router.get('/passes', async (req: Request, res: Response) => {
     try {
       const passSubmissions = await PassSubmission.findAll({
         include: [

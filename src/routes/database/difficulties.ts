@@ -5,7 +5,7 @@ import Pass from '../../models/passes/Pass.js';
 import Judgement from '../../models/passes/Judgement.js';
 import {Auth} from '../../middleware/auth.js';
 import {Op} from 'sequelize';
-import {DirectiveCondition, IAnnouncementDirective, IDifficulty} from '../../interfaces/models/index.js';
+import {DirectiveCondition, IDifficulty} from '../../interfaces/models/index.js';
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
@@ -20,7 +20,7 @@ import AnnouncementDirective from '../../models/announcements/AnnouncementDirect
 import AnnouncementChannel from '../../models/announcements/AnnouncementChannel.js';
 import AnnouncementRole from '../../models/announcements/AnnouncementRole.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
-import { evaluateDirectiveCondition, DirectiveParser } from '../../utils/directiveParser.js';
+import { DirectiveParser } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
 import { logger } from '../../services/LoggerService.js';
 

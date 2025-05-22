@@ -7,19 +7,18 @@ import {CreditRole} from '../../models/levels/LevelCredit.js';
 import sequelize from '../../config/db.js';
 import Team from '../../models/credits/Team.js';
 import TeamMember from '../../models/credits/TeamMember.js';
-import {excludePlaceholder} from '../../middleware/excludePlaceholder.js';
 import User from '../../models/auth/User.js';
 import {
-  createMultiFieldSearchCondition,
-  createSearchCondition,
   escapeForMySQL,
 } from '../../utils/searchHelpers.js';
 import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
-import { buildWhereClause, filterLevels } from './levels/index.js';
 import { logger } from '../../services/LoggerService.js';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
+
+const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
 
 interface LevelCountResult {
@@ -31,7 +30,7 @@ const MAX_LIMIT = 200;
 
 
 // Get all creators with their aliases and level counts
-router.get('/', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
     try {
       const {
         page = '1',
@@ -209,88 +208,32 @@ router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) =>
 });
 
 // Get levels with their legacy and current creators
-router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Request, res: Response) => {
+router.get('/levels-audit', async (req: Request, res: Response) => {
     try {
       const offset = parseInt(req.query.offset as string) || 0;
       const limit = parseInt(req.query.limit as string) || 50;
       const searchQuery = (req.query.search as string) || '';
-      const hideVerified = req.query.hideVerified === 'true';
-      const excludeAliases = req.query.excludeAliases === 'true'; // not used for now sorry
+      const hideVerified = req.query.hideVerified;
+      const excludeAliases = req.query.excludeAliases;
 
       const normalizedOffset = Math.max(0, offset);
       const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, limit));
-      let where: any = {};
-      const directId = searchQuery.match(/^#\d+$/);
-      if (directId) {
-        const levelId = parseInt(directId[0].slice(1));
-        where = {id: levelId};
-      }
-      else {
-      // Build where clause
-       where = await buildWhereClause(
-        searchQuery, 
-        "show", 
-        "show",
-        false,
-        null
-      ) || {};
-    }
 
-      // First get total count
-      let startTime = Date.now();
-
-      const totalCount = await Level.count({where});
-
-      if (hideVerified) {
-        where[Op.and] = {
-          ...where,
-          isVerified: false
-        };
-      }
-      
-      const levelIds = await Level.findAll({
-        where,
-        attributes: ['id'],
+      // Use ElasticsearchService to search levels
+      const { hits, total } = await elasticsearchService.searchLevels(searchQuery, {
         offset: normalizedOffset,
         limit: normalizedLimit,
-      });
-      
-      const levels = await Level.findAll({
-        where: {id: {[Op.in]: levelIds.map(level => level.id)}},
-        attributes: ['id', 'song', 'artist', 'creator', 'isVerified', 'teamId'],
-        include: [
-          {
-            model: Creator,
-            as: 'levelCreators',
-            include: [
-              {
-                model: CreatorAlias,
-                as: 'creatorAliases',
-                attributes: ['id', 'name'],
-              }
-            ],
-          },
-          {
-            model: Team,
-            as: 'teamObject',
-            include: [
-              {
-                model: Creator,
-                as: 'members',
-                through: {attributes: []},
-              },
-              {
-                model: TeamAlias,
-                as: 'teamAliases',
-                attributes: ['id', 'name'],
-              }
-            ],
-          },
-        ],
-        order: [['id', 'ASC']],
+        hideVerified,
+        excludeAliases
       });
 
+      // Get level counts for creators
       const levelCounts = (await LevelCredit.findAll({
+        where: {
+          levelId: {
+            [Op.in]: hits.map(level => level.id)
+          }
+        },
         attributes: [
           'creatorId',
           [sequelize.fn('COUNT', sequelize.col('levelId')), 'count'],
@@ -298,11 +241,13 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
         group: ['creatorId'],
         raw: true,
       })) as unknown as LevelCountResult[];
-      startTime = Date.now();
+
       const levelCountMap = new Map(
         levelCounts.map(count => [count.creatorId, parseInt(count.count)]),
       );
-      const audit = levels.map(level => ({
+
+      // Format the response
+      const audit = hits.map(level => ({
         id: level.id,
         song: level.song,
         artist: level.artist,
@@ -315,26 +260,27 @@ router.get('/levels-audit', excludePlaceholder.fromResponse(), async (req: Reque
               name: level.teamObject.name,
               description: level.teamObject.description,
               members: level.teamObject.members,
-              aliases: level.teamObject.teamAliases?.map(alias => alias.name) || []
+              aliases: level.teamObject.aliases || []
             }
           : null,
-        currentCreators: (
-          level.levelCreators as (Creator & {LevelCredit: {role: CreditRole}; creatorAliases?: CreatorAlias[]})[]
-        )?.map(creator => ({
-          id: creator.id,
-          name: creator.name,
-          role: creator.LevelCredit.role,
-          aliases: creator.creatorAliases?.map((alias: CreatorAlias) => alias.name) || [],
-          levelCount: levelCountMap.get(creator.id) || 0,
-        })),
+        currentCreators: level.levelCredits?.map((credit: { 
+          creator: { 
+            id: number; 
+            name: string; 
+            creatorAliases?: { name: string }[] 
+          }; 
+          role: CreditRole 
+        }) => ({
+          id: credit.creator.id,
+          name: credit.creator.name,
+          role: credit.role,
+          aliases: credit.creator.creatorAliases?.map((alias: { name: string }) => alias.name) || [],
+          levelCount: levelCountMap.get(credit.creator.id) || 0,
+        })) || [],
       }));
-      const delay = Date.now() - startTime
-      if (delay > 400) {
-        logger.debug(`levels audit took ${delay}ms`);
-      }
 
       return res.json({
-        count: totalCount,
+        count: total,
         results: audit,
       });
     } catch (error) {
@@ -425,6 +371,10 @@ router.put('/level/:levelId([0-9]+)', Auth.superAdmin(), async (req: Request, re
       }
 
       await transaction.commit();
+      
+      // Wait for indexing to complete
+      await elasticsearchService.indexLevel(parseInt(levelId));
+      
       return res.json({message: 'Level creators updated successfully'});
     } catch (error) {
       await transaction.rollback();
@@ -461,6 +411,10 @@ router.post('/level/:levelId([0-9]+)/verify', Auth.superAdmin(), async (req: Req
       );
 
       await transaction.commit();
+      
+      // Wait for indexing to complete
+      await elasticsearchService.indexLevel(parseInt(levelId));
+      
       return res.json({message: 'Level credits verified successfully'});
     } catch (error) {
       await transaction.rollback();
@@ -497,6 +451,10 @@ router.post('/level/:levelId([0-9]+)/unverify', Auth.superAdmin(), async (req: R
       );
 
       await transaction.commit();
+      
+      // Wait for indexing to complete
+      await elasticsearchService.indexLevel(parseInt(levelId));
+      
       return res.json({message: 'Level credits unverified successfully'});
     } catch (error) {
       await transaction.rollback();
@@ -601,6 +559,9 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       await sourceCreator.destroy({transaction});
 
       await transaction.commit();
+
+      await elasticsearchService.reindexByCreatorId(parseInt(sourceId));
+      await elasticsearchService.reindexByCreatorId(parseInt(targetId));
       return res.json({success: true});
     } catch (error) {
       await transaction.rollback();
@@ -730,6 +691,8 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
       await source.destroy({transaction});
 
       await transaction.commit();
+
+      elasticsearchService.reindexByCreatorId(parseInt(creatorId));
       return res.json({
         message: 'Creator split successfully',
         newCreators: targetCreators,
@@ -851,7 +814,7 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
         }
       ],
     });
-
+    elasticsearchService.reindexByCreatorId(parseInt(id));
     return res.json(updatedCreator);
   } catch (error) {
     await transaction.rollback();
@@ -1040,6 +1003,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
         return res.status(500).json({ error: 'Failed to fetch created team' });
       }
 
+      elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({
         message: 'Team updated successfully',
         team: updatedTeam,
@@ -1091,6 +1055,7 @@ router.delete('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Req
       await level.update({teamId: null}, {transaction});
 
       await transaction.commit();
+      elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team association removed successfully'});
     } catch (error) {
       await transaction.rollback();
@@ -1141,6 +1106,7 @@ router.delete('/team/:teamId([0-9]+)', Auth.superAdmin(), async (req: Request, r
       }
 
       await transaction.commit();
+      elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team deleted successfully'});
     } catch (error) {
       await transaction.rollback();

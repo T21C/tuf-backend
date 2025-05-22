@@ -6,7 +6,7 @@ import client, {
 } from '../config/elasticsearch.js';
 import { logger } from './LoggerService.js';
 import { ILevel, IPass } from '../interfaces/models/index.js';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import Level from '../models/levels/Level.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import LevelAlias from '../models/levels/LevelAlias.js';
@@ -19,6 +19,8 @@ import Judgement from '../models/passes/Judgement.js';
 import { CreatorAlias } from '../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../models/credits/TeamAlias.js';
 import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/searchHelpers.js';
+import sequelize from '../config/db.js';
+import LevelLikes from '../models/levels/LevelLikes.js';
 
 // Add these type definitions at the top of the file, after imports
 type FieldSearch = {
@@ -58,18 +60,18 @@ class ElasticsearchService {
       const needsReindex = await initializeElasticsearch();
       
       // Set up database change listeners
-      await this.setupChangeListeners();
+      this.setupChangeListeners()
       logger.info('Database change listeners set up successfully');
 
       
       if (needsReindex) {
         logger.info('Starting data reindexing...');
         await Promise.all([
-          this.reindexAllLevels().catch(error => {
+          this.reindexLevels().catch(error => {
             logger.error('Failed to reindex levels:', error);
             throw error;
           }),
-          this.reindexAllPasses().catch(error => {
+          this.reindexPasses().catch(error => {
             logger.error('Failed to reindex passes:', error);
             throw error;
           }),
@@ -87,120 +89,187 @@ class ElasticsearchService {
     }
   }
 
-  private async setupChangeListeners(): Promise<void> {
-    // Bind the methods to this instance
-    const boundIndexLevel = this.indexLevel.bind(this);
-    const boundDeleteLevel = this.deleteLevel.bind(this);
-    const boundIndexPass = this.indexPass.bind(this);
-    const boundDeletePass = this.deletePass.bind(this);
+  private setupChangeListeners() {
+    // Remove existing hooks first to prevent duplicates
+    Pass.removeHook('beforeSave', 'elasticsearchPassUpdate');
+    LevelLikes.removeHook('beforeSave', 'elasticsearchLevelLikesUpdate');
+    Level.removeHook('beforeSave', 'elasticsearchLevelUpdate');
+    Pass.removeHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate');
+    Level.removeHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate');
 
-    // Level hooks should be external
-
-    Level.addHook('afterUpdate', 'elasticsearchIndexUpdate', async (level: Level) => {
-      await boundIndexLevel(level);
-    });
-
-    Level.addHook('afterDestroy', 'elasticsearchIndexDelete', async (level: Level) => {
-      await boundDeleteLevel(level);
-    });
-
-    // Pass hooks should also be external
-
-    Pass.addHook('afterUpdate', 'elasticsearchPassUpdate', async (pass: Pass) => {
-      await boundIndexPass(pass);
-    });
-
-    Pass.addHook('afterDestroy', 'elasticsearchPassDelete', async (pass: Pass) => {
-      await boundDeletePass(pass);
-    });
-
-    // LevelCredit hooks
-    LevelCredit.addHook('afterCreate', 'elasticsearchCreditCreate', async (credit: LevelCredit) => {
-      const level = await this.getLevelWithRelations(credit.get('levelId'));
-      if (level) {
-        await boundIndexLevel(level);
+    // Add hooks with unique names
+    Pass.addHook('beforeSave', 'elasticsearchPassUpdate', async (pass: Pass, options: any) => {
+      logger.debug(`Pass saved hook triggered for pass ${pass.id}`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            logger.debug(`Indexing pass ${pass.id} and level ${pass.levelId} after transaction commit`);
+            await this.indexPass(pass);
+            await this.indexLevel(pass.levelId);
+          });
+        } else {
+          logger.debug(`Indexing pass ${pass.id} and level ${pass.levelId} outside of transaction`);
+          await this.indexPass(pass);
+          await this.indexLevel(pass.levelId);
+        }
+      } catch (error) {
+        logger.error(`Error in pass afterSave hook for pass ${pass.id}:`, error);
       }
+      return;
     });
 
-    LevelCredit.addHook('afterUpdate', 'elasticsearchCreditUpdate', async (credit: LevelCredit) => {
-      const level = await this.getLevelWithRelations(credit.get('levelId'));
-      if (level) {
-        await boundIndexLevel(level);
-      }
-    });
-
-    LevelCredit.addHook('afterDestroy', 'elasticsearchCreditDelete', async (credit: LevelCredit) => {
-      const level = await this.getLevelWithRelations(credit.get('levelId'));
-      if (level) {
-        await boundIndexLevel(level);
-      }
-    });
-
-    // Creator and Team hooks
-    Creator.addHook('afterUpdate', 'elasticsearchCreatorUpdate', async (creator: Creator) => {
-      const levels = await Level.findAll({
-        include: [
-          {
-            model: LevelCredit,
-            as: 'levelCredits',
-            where: { creatorId: creator.id }
+    // Add afterBulkUpdate hook for Pass model
+    Pass.addHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate', async (options: any) => {
+      logger.debug(`Pass bulk update hook triggered`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            // If we have a specific pass ID, update that pass
+            if (options.where?.id) {
+              logger.debug(`Indexing pass ${options.where.id} after bulk update`);
+              await this.indexPass(options.where.id);
+            }
+            // If we have a levelId, update all passes for that level
+            if (options.where?.levelId) {
+              logger.debug(`Indexing level ${options.where.levelId} after bulk update`);
+              await this.indexLevel(options.where.levelId);
+            }
+          });
+        } else {
+          if (options.where?.id) {
+            await this.indexPass(options.where.id);
           }
-        ]
-      });
-      for (const level of levels) {
-        await boundIndexLevel(level);
+          if (options.where?.levelId) {
+            await this.indexLevel(options.where.levelId);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in pass afterBulkUpdate hook:`, error);
       }
     });
 
-    Team.addHook('afterUpdate', 'elasticsearchTeamUpdate', async (team: Team) => {
-      const levels = await Level.findAll({
-        where: { teamId: team.id }
-      });
-      for (const level of levels) {
-        await boundIndexLevel(level);
+    LevelLikes.addHook('beforeSave', 'elasticsearchLevelLikesUpdate', async (levelLikes: LevelLikes, options: any) => {
+      logger.debug(`LevelLikes saved hook triggered for level ${levelLikes.levelId}`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            logger.debug(`Indexing level ${levelLikes.levelId} after transaction commit`);
+            await this.indexLevel(levelLikes.levelId);
+          });
+        } else {
+          logger.debug(`Indexing level ${levelLikes.levelId} outside of transaction`);
+          await this.indexLevel(levelLikes.levelId);
+        }
+      } catch (error) {
+        logger.error(`Error in levelLikes afterSave hook for level ${levelLikes.levelId}:`, error);
+      }
+      return;
+    });
+
+    Level.addHook('beforeSave', 'elasticsearchLevelUpdate', async (level: Level, options: any) => {
+      logger.debug(`Level saved hook triggered for level ${level.id}`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            logger.debug(`Indexing level ${level.id} after transaction commit`);
+            await this.indexLevel(level);
+          });
+        } else {
+          logger.debug(`Indexing level ${level.id} outside of transaction`);
+          await this.indexLevel(level);
+        }
+      } catch (error) {
+        logger.error(`Error in level afterSave hook for level ${level.id}:`, error);
+      }
+      return;
+    });
+
+    // Add afterBulkUpdate hook for Level model
+    Level.addHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate', async (options: any) => {
+      logger.debug(`Level bulk update hook triggered`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            if (options.where?.id) {
+              logger.debug(`Indexing level ${options.where.id} after bulk update`);
+              await this.indexLevel(options.where.id);
+            }
+          });
+        } else {
+          if (options.where?.id) {
+            await this.indexLevel(options.where.id);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in level afterBulkUpdate hook:`, error);
       }
     });
   }
 
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
-    return Level.findByPk(levelId, {
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty'
+    try {
+      const level = await Level.findByPk(levelId, {
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty'
+          },
+          {
+            model: LevelAlias,
+            as: 'aliases'
+          },
+          {
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [
+              {
+                model: Creator,
+                as: 'creator',
+                include: [
+                  {
+                    model: CreatorAlias,
+                    as: 'creatorAliases'
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            model: Team,
+            as: 'teamObject',
+            include: [
+              {
+                model: TeamAlias,
+                as: 'teamAliases'
+              }
+            ]
+          }
+        ],
+        lock: true,
+      });
+      if (!level) return null;
+      const clears = await Pass.count({
+        where: {
+          levelId: levelId,
+          isDeleted: false,
+          isHidden: false,
         },
-        {
-          model: LevelAlias,
-          as: 'aliases'
-        },
-        {
-          model: LevelCredit,
-          as: 'levelCredits',
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-              include: [
-                {
-                  model: CreatorAlias,
-                  as: 'creatorAliases'
-                }
-              ]
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            where: {
+              isBanned: false
             }
-          ]
-        },
-        {
-          model: Team,
-          as: 'teamObject',
-          include: [
-            {
-              model: TeamAlias,
-              as: 'teamAliases'
-            }
-          ]
-        }
-      ]
-    });
+          }
+        ]
+      });
+      level.clears = clears;
+      logger.debug(`Level ${level.id} has ${clears} clears`);
+      return level;
+    } catch (error) {
+      throw error;
+    }
   }
 
   private async getParsedLevel(id: number): Promise<ILevel | null> {
@@ -243,9 +312,11 @@ class ElasticsearchService {
   }
 
   private async getPassWithRelations(passId: number): Promise<Pass | null> {
-    return Pass.findByPk(passId, {
-      include: [
-        {
+    const transaction = await sequelize.transaction();
+    try {
+      const pass = await Pass.findByPk(passId, {
+        include: [
+          {
           model: Player,
           as: 'player',
           attributes: ['name', 'country', 'isBanned']
@@ -296,6 +367,12 @@ class ElasticsearchService {
         }
       ]
     });
+    await transaction.commit();
+    return pass;
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
   
   private async getParsedPass(id: number): Promise<IPass | null> {
@@ -327,13 +404,27 @@ class ElasticsearchService {
         await client.index({
           index: levelIndexName,
           id: id.toString(),
-          document: processedLevel
+          document: processedLevel,
+          refresh: true // Force refresh to make the document immediately searchable
         });
       }
     } catch (error) {
       logger.error(`Error indexing level ${id}:`, error);
       throw error;
     }
+  }
+
+  public async reindexByCreatorId(creatorId: number): Promise<void> {
+    const levels = await Level.findAll({
+      include: [
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          where: {creatorId},
+        },
+      ],
+    });
+    await this.reindexLevels(levels.map(level => level.id));
   }
 
   public async bulkIndexLevels(levels: Level[]): Promise<void> {
@@ -407,9 +498,12 @@ class ElasticsearchService {
     }
   }
 
-  public async indexPass(pass: Pass): Promise<void> {
+  public async indexPass(pass: Pass | number): Promise<void> {
+    const id = typeof pass === 'number' ? pass : pass.id;
     try {
-      logger.debug(`Indexing pass ${pass.id}`);
+      const pass = await this.getPassWithRelations(id);
+      if (pass) {
+      logger.debug(`Indexing pass ${id}`);
       // If we have a direct pass object with relations, use it directly
       const processedPass = pass.player && pass.level && pass.judgements ? {
         ...pass.get({ plain: true }),
@@ -436,10 +530,11 @@ class ElasticsearchService {
         id: pass.id.toString(),
         document: processedPass,
         refresh: true
-      });
-      logger.debug(`Successfully indexed pass ${pass.id}`);
+        });
+        logger.debug(`Successfully indexed pass ${pass.id}`);
+      }
     } catch (error) {
-      logger.error(`Error indexing pass ${pass.id}:`, error);
+      logger.error(`Error indexing pass ${id}:`, error);
       throw error;
     }
   }
@@ -495,9 +590,10 @@ class ElasticsearchService {
     }
   }
 
-  public async reindexAllLevels(): Promise<void> {
+  public async reindexLevels(levelIds?: number[]): Promise<void> {
     try {
       const levels = await Level.findAll({
+        where: levelIds ? { id: { [Op.in]: levelIds } } : undefined,
         include: [
           {
             model: Difficulty,
@@ -543,9 +639,10 @@ class ElasticsearchService {
     }
   }
 
-  public async reindexAllPasses(): Promise<void> {
+  public async reindexPasses(passIds?: number[]): Promise<void> {
     try {
       const passes = await Pass.findAll({
+        where: passIds ? { id: { [Op.in]: passIds } } : undefined,
         include: [
           {
             model: Player,
@@ -697,7 +794,7 @@ class ElasticsearchService {
     return groups;
   }
 
-  private buildFieldSearchQuery(fieldSearch: FieldSearch): any {
+  private buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases: boolean = false): any {
     const { field, value, exact } = fieldSearch;
     const searchValue = prepareSearchTerm(value);
 
@@ -785,7 +882,7 @@ class ElasticsearchService {
                               }
                             }
                           },
-                          {
+                          ...(excludeAliases ? [] : [{
                             nested: {
                               path: 'teamObject.aliases',
                               query: {
@@ -797,7 +894,7 @@ class ElasticsearchService {
                                 }
                               }
                             }
-                          }
+                          }])
                         ]
                       }
                     }
@@ -846,7 +943,7 @@ class ElasticsearchService {
                                   }
                                 }
                               },
-                              {
+                              ...(excludeAliases ? [] : [{
                                 nested: {
                                   path: 'levelCredits.creator.creatorAliases',
                                   query: {
@@ -858,7 +955,7 @@ class ElasticsearchService {
                                     }
                                   }
                                 }
-                              }
+                              }])
                             ]
                           }
                         },
@@ -913,7 +1010,7 @@ class ElasticsearchService {
                             }
                           }
                         },
-                        {
+                        ...(excludeAliases ? [] : [{
                           nested: {
                             path: 'teamObject.aliases',
                             query: {
@@ -925,7 +1022,7 @@ class ElasticsearchService {
                               }
                             }
                           }
-                        }
+                        }])
                       ]
                     }
                   }
@@ -947,7 +1044,7 @@ class ElasticsearchService {
           { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { creator: { value: wildcardValue, case_insensitive: true } } },
-          {
+          ...(excludeAliases ? [] : [{
             nested: {
               path: 'aliases',
               query: {
@@ -959,7 +1056,7 @@ class ElasticsearchService {
                 }
               }
             }
-          },
+          }]),
           {
             nested: {
               path: 'levelCredits',
@@ -974,7 +1071,7 @@ class ElasticsearchService {
                         }
                       }
                     },
-                    {
+                    ...(excludeAliases ? [] : [{
                       nested: {
                         path: 'levelCredits.creator.creatorAliases',
                         query: {
@@ -986,7 +1083,7 @@ class ElasticsearchService {
                           }
                         }
                       }
-                    }
+                    }])
                   ]
                 }
               }
@@ -1008,7 +1105,7 @@ class ElasticsearchService {
 
         if (searchGroups.length > 0) {
           const orConditions = searchGroups.map(group => {
-            const andConditions = group.terms.map(term => this.buildFieldSearchQuery(term));
+            const andConditions = group.terms.map(term => this.buildFieldSearchQuery(term, filters.excludeAliases === 'true'));
 
             return andConditions.length === 1
               ? andConditions[0]
@@ -1031,6 +1128,28 @@ class ElasticsearchService {
         must.push({ term: { clears: 0 } });
       } else if (filters.clearedFilter === 'only') {
         must.push({ range: { clears: { gt: 0 } } });
+      }
+
+      // Handle hideVerified filter
+      if (filters.hideVerified === 'true') {
+        must.push({
+          bool: {
+            must: [
+              {
+                nested: {
+                  path: 'levelCredits',
+                  query: {
+                    bool: {
+                      must: [
+                        { term: { 'levelCredits.isVerified': false } }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        });
       }
 
       // Handle liked levels filter
@@ -1091,9 +1210,6 @@ class ElasticsearchService {
         from: filters.offset || 0,
         size: filters.limit || 30
       };
-      
-      logger.debug('Elasticsearch Query:', debugQuery);
-
       const response = await client.search(debugQuery);
 
       // Convert PUA characters back to original special characters in the results

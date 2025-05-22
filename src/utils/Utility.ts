@@ -51,3 +51,15 @@ export function formatScore(score: number) {
 export function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+export const ensureString = (value: any): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value[0]?.toString();
+  if (value?.toString) return value.toString();
+  return undefined;
+};
+
+export const sanitizeTextInput = (input: string | null | undefined): string => {
+  if (input === null || input === undefined) return '';
+  return input.trim();
+};

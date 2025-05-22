@@ -3,9 +3,10 @@ import sequelize from '../../../config/db.js';
 import LevelAlias from '../../../models/levels/LevelAlias.js';
 import Level from '../../../models/levels/Level.js';
 import { Auth } from '../../../middleware/auth.js';
-import { sanitizeTextInput } from './index.js';
 import { Op } from 'sequelize';
 import { logger } from '../../../services/LoggerService.js';
+import { sanitizeTextInput } from '../../../utils/Utility.js';
+
 const router = Router();
 
 // Get all aliases for a level

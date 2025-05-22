@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
 import { Auth } from "../../../middleware/auth.js";
-import { filterLevels } from "./index.js";
 import Difficulty from "../../../models/levels/Difficulty.js";
 import Level from "../../../models/levels/Level.js";
 import Pass from "../../../models/passes/Pass.js";
@@ -20,7 +19,8 @@ import { User } from "../../../models/index.js";
 import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
-import { MAX_LIMIT } from '../index.js';
+
+const MAX_LIMIT = 200;
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();

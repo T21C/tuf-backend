@@ -3,11 +3,18 @@ import sequelize from '../../../config/db.js';
 import Level from '../../../models/levels/Level.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
 import { Auth } from '../../../middleware/auth.js';
-import { handlePassUpdates, sanitizeTextInput } from './index.js';
+import { sanitizeTextInput } from '../../../utils/Utility.js';
 import { getRandomSeed, seededShuffle } from '../../../utils/random.js';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import { logger } from '../../../services/LoggerService.js';
+import { sseManager } from '../../../utils/sse.js';
+import Pass from '../../../models/passes/Pass.js';
+import Judgement from '../../../models/passes/Judgement.js';
+import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
+import { calcAcc } from '../../../utils/CalcAcc.js';
+import { getScoreV2 } from '../../../utils/CalcScore.js';
 
+const playerStatsService = PlayerStatsService.getInstance();
 
 const ENABLE_ROULETTE = process.env.APRIL_FOOLS === 'true';
 const bigWheelTimeout = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -15,6 +22,99 @@ const individualLevelTimeout = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 const userTimeouts = new Map<string, number>();
 const levelTimeouts = new Map<number, number>();
+
+
+const handlePassUpdates = async (levelId: number, diffId: number, baseScore: number) => {
+  try {
+    const recalcTransaction = await sequelize.transaction({
+      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
+    });
+
+    try {
+      const passes = await Pass.findAll({
+        where: { levelId },
+        include: [
+          {
+            model: Judgement,
+            as: 'judgements',
+          },
+        ],
+        transaction: recalcTransaction,
+      });
+
+      // Process passes in batches
+      const batchSize = 100;
+      for (let i = 0; i < passes.length; i += batchSize) {
+        const batch = passes.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async passData => {
+            const pass = passData.dataValues;
+            if (!pass.judgements) return;
+
+            const accuracy = calcAcc(pass.judgements);
+
+            const currentDifficulty = await Difficulty.findByPk(
+              diffId,
+              {
+                transaction: recalcTransaction,
+              },
+            );
+
+            if (!currentDifficulty) {
+              logger.error(`No difficulty found for pass ${pass.id}`);
+              return;
+            }
+
+            const levelData = {
+              baseScore: baseScore || 0,
+              difficulty: currentDifficulty,
+            };
+
+            const scoreV2 = getScoreV2(
+              {
+                speed: pass.speed || 1,
+                judgements: pass.judgements,
+                isNoHoldTap: pass.isNoHoldTap || false,
+              },
+              levelData,
+            );
+
+            await Pass.update(
+              { accuracy, scoreV2 },
+              {
+                where: { id: pass.id },
+                transaction: recalcTransaction,
+              },
+            );
+          }),
+        );
+      }
+
+      // Schedule stats update for affected players
+      const affectedPlayerIds = new Set(passes.map(pass => pass.playerId));
+
+      playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+
+
+      await recalcTransaction.commit();
+
+      // Broadcast updates
+      sseManager.broadcast({ type: 'levelUpdate' });
+      sseManager.broadcast({
+        type: 'passUpdate',
+        data: {
+          levelId,
+          action: 'levelUpdate',
+        },
+      });
+    } catch (error) {
+      await recalcTransaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    logger.error('Error in async operations after level update:', error);
+  }
+}
 
 const checkUserTimeout = (userId: string): number | null => {
     const timeout = userTimeouts.get(userId);

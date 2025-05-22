@@ -89,8 +89,8 @@ export class BackupService {
                 `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
               );
               await Promise.all([
-                ElasticsearchService.getInstance().reindexAllLevels(),
-                ElasticsearchService.getInstance().reindexAllPasses(),
+                ElasticsearchService.getInstance().reindexLevels(),
+                ElasticsearchService.getInstance().reindexPasses(),
               ]);
               logger.info('Elasticsearch reindexed successfully');
               resolve(true);
