@@ -18,7 +18,6 @@ import ElasticsearchService from '../../../services/ElasticsearchService.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
-const io = getIO();
 const router = Router();
 
 router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
@@ -303,6 +302,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             passedLevelId: updatedPass.levelId,
             action: 'update',
           }
+          const io = getIO();
           io.emit('passUpdated', updateData);
           sseManager.broadcast({
             type: 'passUpdate',
@@ -424,6 +424,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             newScore: playerStats?.rankedScore || 0,
             action: 'delete',
           }
+          const io = getIO();
           io.emit('passDeleted', updateData);
           sseManager.broadcast({
             type: 'passUpdate',
@@ -504,6 +505,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             passedLevelId: levelId,
             action: 'restore',
           }
+          const io = getIO();
           io.emit('passUpdated', updateData);
           sseManager.broadcast({
             type: 'passUpdate',
