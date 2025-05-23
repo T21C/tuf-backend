@@ -97,7 +97,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
     }
   });
   
-router.get('/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
+router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const {levelId} = req.params;
       const level = await Level.findByPk(levelId);
