@@ -93,15 +93,36 @@ class OAuthService {
 
         // If no player found, create a new one
         if (!playerId) {
-          const player = await Player.create({
-            name: profile.username,
-            country: 'XX', // Default country
-            isBanned: false,
-            isSubmissionsPaused: false,
-            createdAt: now,
-            updatedAt: now
-          });
-          playerId = player.id;
+          let playerName = profile.username;
+          let attempts = 0;
+          const maxAttempts = 5;
+
+          while (attempts < maxAttempts) {
+            try {
+              const player = await Player.create({
+                name: playerName,
+                country: 'XX', // Default country
+                isBanned: false,
+                isSubmissionsPaused: false,
+                createdAt: now,
+                updatedAt: now
+              });
+              playerId = player.id;
+              break;
+            } catch (error: any) {
+              if (error.name === 'SequelizeUniqueConstraintError' && error.errors?.[0]?.path === 'name') {
+                // If name is duplicate, append a random number and try again
+                playerName = `${profile.username}${Math.floor(Math.random() * 10000)}`;
+                attempts++;
+                continue;
+              }
+              throw error;
+            }
+          }
+
+          if (!playerId) {
+            throw new Error('Failed to create player after multiple attempts');
+          }
         }
 
         user = await User.create({

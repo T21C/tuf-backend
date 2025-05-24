@@ -704,10 +704,10 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
             logWithCondition(`Successfully obtained thumbnail from concurrent generation for level ${levelId}`, 'thumbnail');
             }
           } catch (error) {
-            if (!JSON.stringify(error).includes('Video details not found')) {
+            if (error instanceof Error && !error.message.includes('Video details not found')) {
               logger.warn(`Error while waiting for concurrent thumbnail generation for level ${levelId}:`, error);
-              thumbnailGenerationPromises.delete(promiseKey);
             }
+            thumbnailGenerationPromises.delete(promiseKey);
           }
         }
       

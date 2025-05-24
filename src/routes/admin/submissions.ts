@@ -273,11 +273,27 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         }
 
         const submission = submissionObj.dataValues;
+        
+        // Get the next available ID in a transaction-safe way
         const lastLevel = await Level.findOne({
           order: [['id', 'DESC']],
           transaction,
+          lock: true // Lock the row to prevent race conditions
         });
-        const nextId = lastLevel ? lastLevel.id + 1 : 1;
+        
+        // Start from 1 if no levels exist, otherwise increment the last ID
+        let nextId = 1;
+        if (lastLevel) {
+          nextId = lastLevel.id + 1;
+          
+          // Double check this ID isn't taken (in case of gaps)
+          const existingLevel = await Level.findByPk(nextId, { transaction });
+          while (existingLevel) {
+            nextId++;
+            const checkLevel = await Level.findByPk(nextId, { transaction });
+            if (!checkLevel) break;
+          }
+        }
 
         // Get first charter and vfxer from creator requests
         const firstCharter = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'charter');

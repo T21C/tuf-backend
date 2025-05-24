@@ -57,6 +57,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       }
   
       // Initialize previous state variables
+      let baseScore = level.baseScore || 0;
       let previousDiffId = level.previousDiffId || 0;
       let previousBaseScore = level.previousBaseScore || 0;
   
@@ -174,16 +175,19 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         }
       }
   
-      // Only update previousDiffId and previousBaseScore if they're explicitly provided
-      // or if we're not sending to rating (in which case we want to keep the frozen state)
+      if (req.body.baseScore && !isNaN(Number(req.body.baseScore))) {
+        baseScore = Number(req.body.baseScore);
+        logger.debug(`Setting baseScore to ${baseScore} for level ${levelId}`);
+      }
+
       if (req.body.previousDiffId !== undefined && req.body.previousDiffId !== null && !req.body.toRate) {
-        previousDiffId = req.body.previousDiffId;
-        logger.info(`Setting previousDiffId to ${previousDiffId} for level ${levelId}`);
+        previousDiffId = Number(req.body.previousDiffId);
+        logger.debug(`Setting previousDiffId to ${previousDiffId} for level ${levelId}`);
       }
       
       if (req.body.previousBaseScore !== undefined && req.body.previousBaseScore !== null && !req.body.toRate) {
-        previousBaseScore = req.body.previousBaseScore;
-        logger.info(`Setting previousBaseScore to ${previousBaseScore} for level ${levelId}`);
+        previousBaseScore = Number(req.body.previousBaseScore);
+        logger.debug(`Setting previousBaseScore to ${previousBaseScore} for level ${levelId}`);
       }
 
       // Log when freezing state for rating
@@ -199,12 +203,9 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         charter: sanitizeTextInput(req.body.charter),
         vfxer: sanitizeTextInput(req.body.vfxer),
         team: sanitizeTextInput(req.body.team),
-        diffId: req.body.diffId || 0,
+        diffId: Number(req.body.diffId) || 0,
         previousDiffId,
-        baseScore:
-          req.body.baseScore === ''
-            ? null
-            : (req.body.baseScore ?? level.baseScore),
+        baseScore,
         previousBaseScore,
         videoLink: sanitizeTextInput(req.body.videoLink),
         dlLink: sanitizeTextInput(req.body.dlLink),
