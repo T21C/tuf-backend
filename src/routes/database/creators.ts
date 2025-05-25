@@ -1203,8 +1203,17 @@ router.delete('/:creatorId([0-9]+)/discord', Auth.superAdmin(), async (req: Requ
 // Add search endpoint for creators
 router.get('/search/:name', async (req: Request, res: Response) => {
   try {
-    // Decode the URI encoded search term
-    const name = decodeURIComponent(req.params.name);
+    // Safely decode the URI encoded search term
+    let name: string;
+    try {
+      name = decodeURIComponent(req.params.name);
+    } catch (error) {
+      logger.warn('Invalid URI encoding in creator search:', req.params.name);
+      return res.status(400).json({
+        error: 'Invalid search parameter encoding',
+        details: 'The search term contains invalid characters'
+      });
+    }
     
     // Function to escape special characters for MySQL
     const escapedName = escapeForMySQL(name);

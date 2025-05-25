@@ -1204,54 +1204,28 @@ class ElasticsearchService {
 
       // Validate and limit offset to prevent integer overflow
       const maxOffset = 2147483647; // Maximum 32-bit integer
+      const maxResultWindow = 10000; // Elasticsearch's default max_result_window
       const offset = Math.min(Math.max(0, Number(filters.offset) || 0), maxOffset);
       const limit = Math.min(100, Math.max(1, Number(filters.limit) || 30));
 
-      // Log the query for debugging
-      const debugQuery = {
+      // If we need to access results beyond maxResultWindow, use scroll API
+      if (offset + limit > maxResultWindow) {
+        return this.searchLevelsWithScroll(searchQuery, filters.sort, offset, limit);
+      }
+
+      // Regular search for results within maxResultWindow
+      const response = await client.search({
         index: levelIndexName,
         query: searchQuery,
         sort: this.getSortOptions(filters.sort),
         from: offset,
         size: limit
-      };
-      const response = await client.search(debugQuery);
+      });
 
       // Convert PUA characters back to original special characters in the results
       const hits = response.hits.hits.map(hit => {
         const source = hit._source as Record<string, any>;
-        return {
-          ...source,
-          song: convertFromPUA(source.song as string),
-          artist: convertFromPUA(source.artist as string),
-          creator: convertFromPUA(source.creator as string),
-          charter: convertFromPUA(source.charter as string),
-          team: convertFromPUA(source.team as string),
-          aliases: source.aliases?.map((alias: Record<string, any>) => ({
-            ...alias,
-            originalValue: convertFromPUA(alias.originalValue as string),
-            alias: convertFromPUA(alias.alias as string)
-          })),
-          levelCredits: source.levelCredits?.map((credit: Record<string, any>) => ({
-            ...credit,
-            creator: credit.creator ? {
-              ...credit.creator,
-              name: convertFromPUA(credit.creator.name as string),
-              creatorAliases: credit.creator.creatorAliases?.map((alias: Record<string, any>) => ({
-                ...alias,
-                name: convertFromPUA(alias.name as string)
-              }))
-            } : null
-          })),
-          teamObject: source.teamObject ? {
-            ...source.teamObject,
-            name: convertFromPUA(source.teamObject.name as string),
-            aliases: source.teamObject.aliases?.map((alias: Record<string, any>) => ({
-              ...alias,
-              name: convertFromPUA(alias.name as string)
-            }))
-          } : null
-        };
+        return this.convertPUAFields(source);
       });
 
       return {
@@ -1262,6 +1236,253 @@ class ElasticsearchService {
       logger.error('Error searching levels:', error);
       throw error;
     }
+  }
+
+  private async searchLevelsWithScroll(
+    searchQuery: any,
+    sort: string | undefined,
+    offset: number,
+    limit: number
+  ): Promise<{ hits: any[], total: number }> {
+    try {
+      // Get sort options
+      const sortOptions = this.getSortOptions(sort);
+      
+      // Check if we should use regular search instead of scroll
+      if (this.shouldUseRegularSearch(sortOptions)) {
+        logger.warn('Using regular search instead of scroll due to sort type');
+        return this.searchLevelsWithRegularSearch(searchQuery, sortOptions, offset, limit);
+      }
+
+      // Initialize scroll with optimized settings
+      const initialResponse = await client.search({
+        index: levelIndexName,
+        query: this.optimizeQueryForScroll(searchQuery),
+        sort: sortOptions,
+        size: Math.min(1000, offset + limit),
+        scroll: '1m',
+        track_total_hits: true, // Ensure accurate total count
+        track_scores: true // Keep scores for sorting
+      });
+
+      const scrollId = initialResponse._scroll_id;
+      let hits: any[] = [];
+      let total = initialResponse.hits.total ? 
+        (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
+
+      try {
+        // Process initial batch
+        hits = initialResponse.hits.hits.map(hit => {
+          const source = hit._source as Record<string, any>;
+          return this.convertPUAFields(source);
+        });
+
+        // If we need more results, continue scrolling
+        let scrollCount = 0;
+        const maxScrolls = Math.ceil((offset + limit) / 1000) + 1; // Add 1 for safety
+
+        while (hits.length < offset + limit && scrollCount < maxScrolls) {
+          const scrollResponse = await client.scroll({
+            scroll_id: scrollId,
+            scroll: '1m'
+          });
+
+          if (scrollResponse.hits.hits.length === 0) {
+            break; // No more results
+          }
+
+          const newHits = scrollResponse.hits.hits.map(hit => {
+            const source = hit._source as Record<string, any>;
+            return this.convertPUAFields(source);
+          });
+
+          hits = hits.concat(newHits);
+          scrollCount++;
+
+          // Log progress for long-running scrolls
+          if (scrollCount % 5 === 0) {
+            logger.debug(`Scroll progress: ${hits.length} results fetched after ${scrollCount} scrolls`);
+          }
+        }
+
+        // Slice the results to get the requested range
+        hits = hits.slice(offset, offset + limit);
+
+        return { hits, total };
+      } finally {
+        // Clean up scroll context
+        if (scrollId) {
+          await client.clearScroll({ scroll_id: scrollId });
+        }
+      }
+    } catch (error) {
+      logger.error('Error in scroll search:', error);
+      throw error;
+    }
+  }
+
+  private shouldUseRegularSearch(sortOptions: any[]): boolean {
+    // Check if any sort option uses random or script
+    return sortOptions.some(option => 
+      option._script !== undefined || 
+      (typeof option === 'object' && Object.keys(option).some(key => key === '_script'))
+    );
+  }
+
+  private async searchLevelsWithRegularSearch(
+    searchQuery: any,
+    sortOptions: any[],
+    offset: number,
+    limit: number
+  ): Promise<{ hits: any[], total: number }> {
+    try {
+      // For random sorting, we'll use a different approach
+      if (this.isRandomSort(sortOptions)) {
+        return this.searchLevelsWithRandomSort(searchQuery, offset, limit);
+      }
+
+      // For other cases, use regular search with increased max_result_window
+      const response = await client.search({
+        index: levelIndexName,
+        query: searchQuery,
+        sort: sortOptions,
+        from: offset,
+        size: limit,
+        track_total_hits: true
+      });
+
+      const hits = response.hits.hits.map(hit => {
+        const source = hit._source as Record<string, any>;
+        return this.convertPUAFields(source);
+      });
+
+      return {
+        hits,
+        total: response.hits.total ? (typeof response.hits.total === 'number' ? response.hits.total : response.hits.total.value) : 0
+      };
+    } catch (error) {
+      logger.error('Error in regular search:', error);
+      throw error;
+    }
+  }
+
+  private isRandomSort(sortOptions: any[]): boolean {
+    return sortOptions.some(option => 
+      option._script?.script === 'Math.random()'
+    );
+  }
+
+  private async searchLevelsWithRandomSort(
+    searchQuery: any,
+    offset: number,
+    limit: number
+  ): Promise<{ hits: any[], total: number }> {
+    try {
+      // For random sorting, we'll use a different approach:
+      // 1. Get total count
+      const countResponse = await client.count({
+        index: levelIndexName,
+        query: searchQuery
+      });
+
+      const total = countResponse.count;
+
+      // 2. Generate random offsets
+      const randomOffsets = new Set<number>();
+      while (randomOffsets.size < limit) {
+        const randomOffset = Math.floor(Math.random() * total);
+        randomOffsets.add(randomOffset);
+      }
+
+      // 3. Fetch results for each random offset
+      const hits = await Promise.all(
+        Array.from(randomOffsets).map(async (randomOffset) => {
+          const response = await client.search({
+            index: levelIndexName,
+            query: searchQuery,
+            from: randomOffset,
+            size: 1
+          });
+
+          if (response.hits.hits.length > 0) {
+            const source = response.hits.hits[0]._source as Record<string, any>;
+            return this.convertPUAFields(source);
+          }
+          return null;
+        })
+      );
+
+      return {
+        hits: hits.filter(hit => hit !== null),
+        total
+      };
+    } catch (error) {
+      logger.error('Error in random sort search:', error);
+      throw error;
+    }
+  }
+
+  private optimizeQueryForScroll(searchQuery: any): any {
+    // Create a deep copy of the query
+    const optimizedQuery = JSON.parse(JSON.stringify(searchQuery));
+
+    // Optimize wildcard queries
+    if (optimizedQuery.bool) {
+      if (optimizedQuery.bool.should) {
+        optimizedQuery.bool.should = optimizedQuery.bool.should.map((should: any) => {
+          if (should.wildcard) {
+            // Convert leading wildcards to match_phrase for better performance
+            Object.keys(should.wildcard).forEach(field => {
+              const value = should.wildcard[field].value;
+              if (value.startsWith('*') && !value.endsWith('*')) {
+                should.match_phrase = {
+                  [field]: value.substring(1)
+                };
+                delete should.wildcard;
+              }
+            });
+          }
+          return should;
+        });
+      }
+    }
+
+    return optimizedQuery;
+  }
+
+  private convertPUAFields(source: Record<string, any>): any {
+    return {
+      ...source,
+      song: convertFromPUA(source.song as string),
+      artist: convertFromPUA(source.artist as string),
+      creator: convertFromPUA(source.creator as string),
+      charter: convertFromPUA(source.charter as string),
+      team: convertFromPUA(source.team as string),
+      aliases: source.aliases?.map((alias: Record<string, any>) => ({
+        ...alias,
+        originalValue: convertFromPUA(alias.originalValue as string),
+        alias: convertFromPUA(alias.alias as string)
+      })),
+      levelCredits: source.levelCredits?.map((credit: Record<string, any>) => ({
+        ...credit,
+        creator: credit.creator ? {
+          ...credit.creator,
+          name: convertFromPUA(credit.creator.name as string),
+          creatorAliases: credit.creator.creatorAliases?.map((alias: Record<string, any>) => ({
+            ...alias,
+            name: convertFromPUA(alias.name as string)
+          }))
+        } : null
+      })),
+      teamObject: source.teamObject ? {
+        ...source.teamObject,
+        name: convertFromPUA(source.teamObject.name as string),
+        aliases: source.teamObject.aliases?.map((alias: Record<string, any>) => ({
+          ...alias,
+          name: convertFromPUA(alias.name as string)
+        }))
+      } : null
+    };
   }
 
   private getSortOptions(sort?: string): any[] {
@@ -1455,36 +1676,31 @@ class ElasticsearchService {
         }
       };
 
-      // Handle pagination
-      const offset = Math.max(0, Number(filters.offset) || 0);
+      // Validate and limit offset to prevent integer overflow
+      const maxOffset = 2147483647; // Maximum 32-bit integer
+      const maxResultWindow = 10000; // Elasticsearch's default max_result_window
+      const offset = Math.min(Math.max(0, Number(filters.offset) || 0), maxOffset);
       const limit = Math.min(100, Math.max(1, Number(filters.limit) || 30));
 
+      // If we need to access results beyond maxResultWindow, use scroll API
+      if (offset + limit > maxResultWindow) {
+        return this.searchPassesWithScroll(searchQuery, filters.sort, offset, limit);
+      }
+
+      // Regular search for results within maxResultWindow
       const response = await client.search({
         index: passIndexName,
         query: searchQuery,
         sort: this.getPassSortOptions(filters.sort),
         from: offset,
         size: limit,
-        track_total_hits: true // Ensure we get accurate total count
+        track_total_hits: true
       });
 
       // Convert PUA characters back to original special characters in the results
       const hits = response.hits.hits.map(hit => {
         const source = hit._source as Record<string, any>;
-        return {
-          ...source,
-          vidTitle: convertFromPUA(source.vidTitle as string),
-          videoLink: convertFromPUA(source.videoLink as string),
-          player: source.player ? {
-            ...source.player,
-            name: convertFromPUA(source.player.name as string)
-          } : null,
-          level: source.level ? {
-            ...source.level,
-            song: convertFromPUA(source.level.song as string),
-            artist: convertFromPUA(source.level.artist as string)
-          } : null
-        };
+        return this.convertPassPUAFields(source);
       });
 
       return {
@@ -1495,6 +1711,193 @@ class ElasticsearchService {
       logger.error('Error searching passes:', error);
       throw error;
     }
+  }
+
+  private async searchPassesWithScroll(
+    searchQuery: any,
+    sort: string | undefined,
+    offset: number,
+    limit: number
+  ): Promise<{ hits: any[], total: number }> {
+    try {
+      // Get sort options
+      const sortOptions = this.getPassSortOptions(sort);
+      
+      // Check if we should use regular search instead of scroll
+      if (this.shouldUseRegularSearch(sortOptions)) {
+        logger.warn('Using regular search instead of scroll due to sort type');
+        return this.searchPassesWithRegularSearch(searchQuery, sortOptions, offset, limit);
+      }
+
+      // Initialize scroll with optimized settings
+      const initialResponse = await client.search({
+        index: passIndexName,
+        query: this.optimizeQueryForScroll(searchQuery),
+        sort: sortOptions,
+        size: Math.min(1000, offset + limit),
+        scroll: '1m',
+        track_total_hits: true,
+        track_scores: true
+      });
+
+      const scrollId = initialResponse._scroll_id;
+      let hits: any[] = [];
+      let total = initialResponse.hits.total ? 
+        (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
+
+      try {
+        // Process initial batch
+        hits = initialResponse.hits.hits.map(hit => {
+          const source = hit._source as Record<string, any>;
+          return this.convertPassPUAFields(source);
+        });
+
+        // If we need more results, continue scrolling
+        let scrollCount = 0;
+        const maxScrolls = Math.ceil((offset + limit) / 1000) + 1; // Add 1 for safety
+
+        while (hits.length < offset + limit && scrollCount < maxScrolls) {
+          const scrollResponse = await client.scroll({
+            scroll_id: scrollId,
+            scroll: '1m'
+          });
+
+          if (scrollResponse.hits.hits.length === 0) {
+            break; // No more results
+          }
+
+          const newHits = scrollResponse.hits.hits.map(hit => {
+            const source = hit._source as Record<string, any>;
+            return this.convertPassPUAFields(source);
+          });
+
+          hits = hits.concat(newHits);
+          scrollCount++;
+
+          // Log progress for long-running scrolls
+          if (scrollCount % 5 === 0) {
+            logger.debug(`Scroll progress: ${hits.length} results fetched after ${scrollCount} scrolls`);
+          }
+        }
+
+        // Slice the results to get the requested range
+        hits = hits.slice(offset, offset + limit);
+
+        return { hits, total };
+      } finally {
+        // Clean up scroll context
+        if (scrollId) {
+          await client.clearScroll({ scroll_id: scrollId });
+        }
+      }
+    } catch (error) {
+      logger.error('Error in scroll search:', error);
+      throw error;
+    }
+  }
+
+  private async searchPassesWithRegularSearch(
+    searchQuery: any,
+    sortOptions: any[],
+    offset: number,
+    limit: number
+  ): Promise<{ hits: any[], total: number }> {
+    try {
+      // For random sorting, we'll use a different approach
+      if (this.isRandomSort(sortOptions)) {
+        return this.searchPassesWithRandomSort(searchQuery, offset, limit);
+      }
+
+      // For other cases, use regular search with increased max_result_window
+      const response = await client.search({
+        index: passIndexName,
+        query: searchQuery,
+        sort: sortOptions,
+        from: offset,
+        size: limit,
+        track_total_hits: true
+      });
+
+      const hits = response.hits.hits.map(hit => {
+        const source = hit._source as Record<string, any>;
+        return this.convertPassPUAFields(source);
+      });
+
+      return {
+        hits,
+        total: response.hits.total ? (typeof response.hits.total === 'number' ? response.hits.total : response.hits.total.value) : 0
+      };
+    } catch (error) {
+      logger.error('Error in regular search:', error);
+      throw error;
+    }
+  }
+
+  private async searchPassesWithRandomSort(
+    searchQuery: any,
+    offset: number,
+    limit: number
+  ): Promise<{ hits: any[], total: number }> {
+    try {
+      // For random sorting, we'll use a different approach:
+      // 1. Get total count
+      const countResponse = await client.count({
+        index: passIndexName,
+        query: searchQuery
+      });
+
+      const total = countResponse.count;
+
+      // 2. Generate random offsets
+      const randomOffsets = new Set<number>();
+      while (randomOffsets.size < limit) {
+        const randomOffset = Math.floor(Math.random() * total);
+        randomOffsets.add(randomOffset);
+      }
+
+      // 3. Fetch results for each random offset
+      const hits = await Promise.all(
+        Array.from(randomOffsets).map(async (randomOffset) => {
+          const response = await client.search({
+            index: passIndexName,
+            query: searchQuery,
+            from: randomOffset,
+            size: 1
+          });
+
+          if (response.hits.hits.length > 0) {
+            const source = response.hits.hits[0]._source as Record<string, any>;
+            return this.convertPassPUAFields(source);
+          }
+          return null;
+        })
+      );
+
+      return {
+        hits: hits.filter(hit => hit !== null),
+        total
+      };
+    } catch (error) {
+      logger.error('Error in random sort search:', error);
+      throw error;
+    }
+  }
+
+  private convertPassPUAFields(source: Record<string, any>): any {
+    return {
+      ...source,
+      vidTitle: convertFromPUA(source.vidTitle as string),
+      videoLink: convertFromPUA(source.videoLink as string),
+      player: source.player ? {
+        ...source.player,
+        name: convertFromPUA(source.player.name as string)
+      } : null,
+      level: source.level ? {
+        ...source.level,
+        song: convertFromPUA(source.level.song as string),
+        artist: convertFromPUA(source.level.artist as string)
+      } : null
+    };
   }
 
   private getPassSortOptions(sort?: string): any[] {
