@@ -1202,13 +1202,18 @@ class ElasticsearchService {
         }
       };
 
+      // Validate and limit offset to prevent integer overflow
+      const maxOffset = 2147483647; // Maximum 32-bit integer
+      const offset = Math.min(Math.max(0, Number(filters.offset) || 0), maxOffset);
+      const limit = Math.min(100, Math.max(1, Number(filters.limit) || 30));
+
       // Log the query for debugging
       const debugQuery = {
         index: levelIndexName,
         query: searchQuery,
         sort: this.getSortOptions(filters.sort),
-        from: filters.offset || 0,
-        size: filters.limit || 30
+        from: offset,
+        size: limit
       };
       const response = await client.search(debugQuery);
 
