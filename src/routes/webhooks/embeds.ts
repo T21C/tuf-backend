@@ -209,7 +209,7 @@ export async function createRerateEmbed(
   if (charter) embed.addField('', `Chart\n**${formatString(charter)}**`, true);
   else if (creator)
     embed.addField('', `Creator\n**${formatString(creator)}**`, true);
-  if (comment && level.difficulty?.name === '-2')
+  if (comment && level.difficulty?.name === 'Censored')
     embed.addField('Reason', `**${formatString(comment)}**`, false);
 
   embed
@@ -254,7 +254,7 @@ export async function createNewLevelEmbed(
     .addField('', '', false)
     .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo)}**`, true)
     .addField('', '', false);
-  if (comment && level.difficulty?.name === '-2')
+  if (comment && level.difficulty?.name === 'Censored')
     embed.addField('Reason', `**${formatString(comment)}**`, false);
   if (team) embed.addField('', `Team\n**${formatString(team)}**`, true);
   if (vfxer) embed.addField('', `VFX\n**${formatString(vfxer)}**`, true);
