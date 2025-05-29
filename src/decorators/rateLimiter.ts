@@ -1,7 +1,157 @@
-import { Request, Response, NextFunction } from 'express';
-import { Op } from 'sequelize';
+import { NextFunction, Request, Response } from 'express';
 import { logger } from '../services/LoggerService.js';
-import RateLimit, { RateLimitCreationAttributes } from '../models/auth/RateLimit.js';
+import { Op } from 'sequelize';
+import { RateLimit } from '../models/index.js';
+import { RateLimitCreationAttributes } from '../models/auth/RateLimit.js';
+
+export interface RateLimiterConfig {
+  windowMs: number;
+  maxAttempts: number;
+  blockDuration: number;
+  type: string;
+  incrementOnFailure?: boolean;
+  incrementOnSuccess?: boolean;
+}
+
+export function RateLimiter(config: RateLimiterConfig) {
+  const { incrementOnFailure = true, incrementOnSuccess = false } = config;
+
+  return function (
+    target: any,
+    propertyKey: string,
+    descriptor: PropertyDescriptor
+  ) {
+    const originalMethod = descriptor.value;
+
+    descriptor.value = async function (req: Request, res: Response) {
+      // Get client IP
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const ip = typeof forwardedFor === 'string' 
+        ? forwardedFor.split(',')[0].trim() 
+        : req.ip || req.connection.remoteAddress || '127.0.0.1';
+
+      try {
+        // Check if IP is blocked BEFORE processing the request
+        const { blocked, retryAfter } = await isBlocked(ip, config);
+        if (blocked) {
+          logger.warn(`Request blocked for IP ${ip} due to rate limiting. Retry after: ${retryAfter}ms`);
+          return res.status(429).json({
+            message: 'Too many attempts. Please try again later.',
+            retryAfter,
+          });
+        }
+
+        // Execute the original method
+        const result = await originalMethod.apply(this, [req, res]);
+
+        // Check if the response indicates success (2xx status code)
+        const isSuccess = res.statusCode >= 200 && res.statusCode < 300;
+
+        // Increment based on success/failure and configuration
+        if (isSuccess && incrementOnSuccess) {
+          await increment(ip, config);
+          logger.debug(`Incremented rate limit for successful attempt from IP ${ip}`);
+        } else if (!isSuccess && incrementOnFailure) {
+          await increment(ip, config);
+          logger.debug(`Incremented rate limit for failed attempt from IP ${ip}`);
+        }
+
+        return result;
+      } catch (error) {
+        // If incrementOnFailure is true, increment on error
+        if (incrementOnFailure) {
+          try {
+            await increment(ip, config);
+            logger.debug(`Incremented rate limit for error from IP ${ip}`);
+          } catch (incrementError) {
+            logger.error('Failed to increment rate limit:', incrementError);
+          }
+        }
+
+        // Re-throw the original error
+        throw error;
+      }
+    };
+
+    return descriptor;
+  };
+}
+
+// Helper functions
+async function isBlocked(ip: string, config: RateLimiterConfig) {
+  try {
+    const blockedRecord = await RateLimit.findOne({
+      where: {
+        ip,
+        type: config.type,
+        blocked: true,
+        blockedUntil: {
+          [Op.gt]: new Date()
+        }
+      }
+    });
+    
+    if (blockedRecord) {
+      return {
+        blocked: true,
+        retryAfter: Math.ceil((blockedRecord.blockedUntil!.getTime() - Date.now()))
+      };
+    }
+    
+    return { blocked: false, retryAfter: 0 };
+  } catch (error) {
+    logger.error('Rate limiter isBlocked error:', error);
+    return { blocked: false, retryAfter: 0 };
+  }
+}
+
+async function increment(ip: string, config: RateLimiterConfig) {
+  try {
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + config.windowMs);
+    
+    let rateLimit = await RateLimit.findOne({
+      where: {
+        ip,
+        type: config.type,
+        windowEnd: {
+          [Op.gt]: now
+        }
+      },
+      order: [['windowEnd', 'DESC']]
+    });
+
+    if (!rateLimit) {
+      rateLimit = await RateLimit.create({
+        ip,
+        type: config.type,
+        attempts: 1,
+        windowStart: now,
+        windowEnd,
+      } as RateLimitCreationAttributes);
+    } else {
+      await rateLimit.increment('attempts');
+      await rateLimit.reload();
+    }
+
+    // Check if limit exceeded
+    if (rateLimit.attempts > config.maxAttempts) {
+      const blockedUntil = new Date(now.getTime() + config.blockDuration);
+      await rateLimit.update({
+        blocked: true,
+        blockedUntil
+      });
+      
+      logger.warn(`IP ${ip} blocked for exceeding ${config.type} limit`);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    logger.error('Rate limiter increment error:', error);
+    return false;
+  }
+}
 
 interface RateLimitConfig {
   windowMs: number;      // Time window in milliseconds
