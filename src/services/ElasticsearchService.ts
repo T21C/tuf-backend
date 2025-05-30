@@ -166,7 +166,7 @@ class ElasticsearchService {
       return;
     });
 
-    Level.addHook('beforeSave', 'elasticsearchLevelUpdate', async (level: Level, options: any) => {
+    Level.addHook('afterSave', 'elasticsearchLevelUpdate', async (level: Level, options: any) => {
       logger.debug(`Level saved hook triggered for level ${level.id}`);
       try {
         if (options.transaction) {
@@ -191,13 +191,14 @@ class ElasticsearchService {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
             if (options.where?.id) {
-              logger.debug(`Indexing level ${options.where.id} after bulk update`);
-              await this.indexLevel(options.where.id);
+              logger.debug(`Indexing level ${options.where.id} ${typeof options.where.id} after bulk update`);
+              await this.indexLevel(Number(options.where.id));
             }
           });
         } else {
           if (options.where?.id) {
-            await this.indexLevel(options.where.id);
+            logger.debug(`Indexing level ${options.where.id} ${typeof options.where.id} after bulk update`);
+            await this.indexLevel(Number(options.where.id));
           }
         }
       } catch (error) {
@@ -207,6 +208,7 @@ class ElasticsearchService {
   }
 
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
+    logger.debug(`Getting level with relations for level ${levelId} ${typeof levelId}`);
     try {
       const level = await Level.findByPk(levelId, {
         include: [
@@ -245,9 +247,10 @@ class ElasticsearchService {
             ]
           }
         ],
-        lock: true,
       });
+      logger.debug(`Level ${level}`);
       if (!level) return null;
+      logger.debug(`Level ${level.id} isDeleted: ${level.isDeleted}`);
       const clears = await Pass.count({
         where: {
           levelId: levelId,
