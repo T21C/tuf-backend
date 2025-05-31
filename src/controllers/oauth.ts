@@ -51,11 +51,12 @@ const clientUrlEnv =
 async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
   tokens: RESTPostOAuth2AccessTokenResult;
   profile: RESTGetAPIUserResult;
-}> {
+} | null> {
   // Exchange code for token
-  const tokenResponse = await axios.post(
-    'https://discord.com/api/oauth2/token',
-    new URLSearchParams({
+  try{ 
+    const tokenResponse = await axios.post(
+      'https://discord.com/api/oauth2/token',
+      new URLSearchParams({
       client_id: process.env.DISCORD_CLIENT_ID!,
       client_secret: process.env.DISCORD_CLIENT_SECRET!,
       code: code.toString(),
@@ -72,12 +73,16 @@ async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
   // Get user profile
   const userResponse = await axios.get('https://discord.com/api/users/@me', {
     headers: {Authorization: `Bearer ${tokens.access_token}`},
-  });
+  })
 
   return {
     tokens,
     profile: userResponse.data,
   };
+} catch (error) {
+  logger.error('Discord OAuth token exchange error:', error);
+  return null;
+}
 }
 
 export const OAuthController = {
@@ -272,7 +277,11 @@ export const OAuthController = {
 
     try {
       if (provider === 'discord') {
-        const {tokens, profile} = await handleDiscordOAuth(code, true);
+        const result = await handleDiscordOAuth(code, true);
+        if (!result) {
+          return res.status(400).json({error: 'Failed to exchange code for tokens'});
+        }
+        const {tokens, profile} = result;
 
         // Check if this provider is already linked to another user
         const existingProvider = await OAuthProvider.findOne({
