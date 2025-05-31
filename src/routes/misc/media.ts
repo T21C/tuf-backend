@@ -119,7 +119,7 @@ function cleanAllExpiredCache(): void {
       (promise as any).__timestamp = now;
     } else if (now - (promise as any).__timestamp > MAX_PROMISE_AGE) {
       // Clean up promises older than MAX_PROMISE_AGE
-      logger.warn(`Removing stale thumbnail generation promise for ${key}`);
+      logger.debug(`Removing stale thumbnail generation promise for ${key}`);
       thumbnailGenerationPromises.delete(key);
     }
   }
