@@ -482,7 +482,7 @@ class ElasticsearchService {
           await client.bulk({ operations });
         }
       }
-      logger.info(`Successfully indexed ${levels.length} levels in ${totalBatches} batches`);
+      logger.debug(`Successfully indexed ${levels.length} levels in ${totalBatches} batches`);
     } catch (error) {
       logger.error('Error bulk indexing levels:', error);
       throw error;
@@ -574,7 +574,7 @@ class ElasticsearchService {
           await client.bulk({ operations });
         }
       }
-      logger.info(`Successfully indexed ${passes.length} passes in ${totalBatches} batches`);
+      logger.debug(`Successfully indexed ${passes.length} passes in ${totalBatches} batches`);
     } catch (error) {
       logger.error('Error bulk indexing passes:', error);
       throw error;

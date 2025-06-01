@@ -146,7 +146,7 @@ async function getBilibiliVideoDetails(
       pfp: pfpUrl,
     };
   } catch (error) {
-    logger.error('Error fetching Bilibili video details:', JSON.stringify(error).slice(0, 500));
+    logger.debug('Error fetching Bilibili video details:', error);
     return null;
   }
 }
