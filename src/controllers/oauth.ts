@@ -80,7 +80,6 @@ async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
     profile: userResponse.data,
   };
 } catch (error) {
-  logger.error('Discord OAuth token exchange error:', error);
   return null;
 }
 }
