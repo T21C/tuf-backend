@@ -19,6 +19,7 @@ import sequelize from "../../config/db.js";
 import { logger } from '../../services/LoggerService.js';
 import Pass from '../../models/passes/Pass.js';
 import Judgement from '../../models/passes/Judgement.js';
+import { Op } from 'sequelize';
 const router: Router = express.Router();
 
 // Add this helper function after the router declaration
@@ -88,6 +89,22 @@ router.post(
         const discordProvider = req.user?.providers?.find(
           (provider: any) => provider.dataValues?.provider === 'discord',
         );
+
+        const existingSubmissions = await LevelSubmission.findAll({
+          where: {
+            artist: req.body.artist,
+            song: req.body.song,
+            directDL: req.body.directDL || '',
+            wsLink: req.body.wsLink || '',
+            videoLink: cleanVideoUrl(req.body.videoLink),
+          },
+        });
+        if (existingSubmissions.length > 0) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: 'Identical submission already exists',
+          });
+        }
 
         // Create the base level submission within transaction
         const submission = await LevelSubmission.create({
