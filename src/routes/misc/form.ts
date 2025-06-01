@@ -259,6 +259,54 @@ router.post(
           return res.status(404).json({error: 'Difficulty not found'});
         }
 
+        const existingSubmission = await PassSubmission.findOne({
+          where: {
+            levelId: req.body.levelId,
+            speed: req.body.speed ? parseFloat(req.body.speed) : 1,
+            passer: sanitizeTextInput(req.body.passer),
+            passerRequest: req.body.passerRequest === true,
+            title: req.body.title,
+            videoLink: cleanVideoUrl(req.body.videoLink),
+            rawTime: new Date(req.body.rawTime),
+          },
+        });
+
+        let existingSubmissionJudgements: PassSubmissionJudgements | null = null;
+        let existingSubmissionFlags: PassSubmissionFlags | null = null;
+        if (existingSubmission) {
+          existingSubmissionJudgements = await PassSubmissionJudgements.findOne({
+            where: {
+              passSubmissionId: existingSubmission?.id,
+              earlyDouble: sanitizedJudgements.earlyDouble,
+              earlySingle: sanitizedJudgements.earlySingle,
+              ePerfect: sanitizedJudgements.ePerfect,
+              perfect: sanitizedJudgements.perfect,
+              lPerfect: sanitizedJudgements.lPerfect,
+              lateSingle: sanitizedJudgements.lateSingle,
+              lateDouble: sanitizedJudgements.lateDouble,
+            },
+          });
+          existingSubmissionFlags = await PassSubmissionFlags.findOne({
+            where: {
+              passSubmissionId: existingSubmission?.id,
+              is12K: req.body.is12K === true,
+              isNoHoldTap: req.body.isNoHoldTap === true,
+              is16K: req.body.is16K === true,
+            },
+          });
+        }
+
+        if (existingSubmissionJudgements && existingSubmissionFlags) {
+          return res.status(400).json({
+            error: 'Identical submission already exists',
+            details: {
+              levelId: req.body.levelId,
+              speed: req.body.speed || 1,
+              videoLink: cleanVideoUrl(req.body.videoLink),
+            }
+          });
+        }
+
         const existingJudgement = await Judgement.findOne({
           where: {
             earlyDouble: sanitizedJudgements.earlyDouble,
