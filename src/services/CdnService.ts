@@ -36,7 +36,7 @@ export class CdnService {
     async uploadImage(
         imageBuffer: Buffer, 
         filename: string,
-        purpose: 'PROFILE' | 'BANNER' | 'THUMBNAIL'
+        type: 'PROFILE' | 'BANNER' | 'THUMBNAIL'
     ): Promise<{
         success: boolean;
         fileId: string;
@@ -50,16 +50,16 @@ export class CdnService {
                 contentType: this.getContentType(filename)
             });
 
-            const response = await this.client.post(`/images/${purpose.toLowerCase()}`, formData, {
+            const response = await this.client.post(`/images/${type.toLowerCase()}`, formData, {
                 headers: {
                     ...formData.getHeaders(),
-                    'X-File-Purpose': purpose
+                    'X-File-Type': type
                 }
             });
 
             return response.data;
         } catch (error) {
-            logger.error(`Failed to upload ${purpose.toLowerCase()} image to CDN:`, error);
+            logger.error(`Failed to upload ${type.toLowerCase()} image to CDN:`, error);
             
             if (error instanceof AxiosError && error.response?.data) {
                 const errorData = error.response.data;
@@ -71,9 +71,91 @@ export class CdnService {
             }
             
             throw new CdnError(
-                `Failed to upload ${purpose.toLowerCase()} image`,
+                `Failed to upload ${type.toLowerCase()} image`,
                 'UPLOAD_ERROR',
                 { originalError: error instanceof Error ? error.message : String(error) }
+            );
+        }
+    }
+
+    async uploadLevelZip(
+        zipBuffer: Buffer,
+        filename: string
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        metadata: any;
+    }> {
+        logger.info('Starting level zip upload to CDN:', {
+            filename,
+            bufferSize: zipBuffer.length,
+            timestamp: new Date().toISOString()
+        });
+
+        try {
+            const formData = new FormData();
+            formData.append('file', zipBuffer, {
+                filename,
+                contentType: 'application/zip'
+            });
+
+            // Encode filename in base64 to preserve all characters
+            formData.append('originalname', Buffer.from(filename).toString('base64'));
+
+            logger.debug('FormData prepared for CDN upload:', {
+                filename,
+                contentType: 'application/zip',
+                formDataSize: formData.getLengthSync()
+            });
+
+            const response = await this.client.post('/zips', formData, {
+                headers: {
+                    ...formData.getHeaders(),
+                    'X-File-Type': 'LEVELZIP'
+                }
+            });
+
+            logger.info('Level zip successfully uploaded to CDN:', {
+                fileId: response.data.fileId,
+                filename,
+                timestamp: new Date().toISOString()
+            });
+
+            return {
+                success: true,
+                fileId: response.data.fileId,
+                metadata: response.data.metadata
+            };
+        } catch (error) {
+            logger.error('Failed to upload level zip to CDN:', {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                filename,
+                bufferSize: zipBuffer.length,
+                timestamp: new Date().toISOString()
+            });
+            
+            if (error instanceof AxiosError && error.response?.data) {
+                const errorData = error.response.data;
+                throw new CdnError(
+                    errorData.error || 'Failed to upload level zip',
+                    errorData.code || 'UPLOAD_ERROR',
+                    {
+                        ...errorData.details,
+                        originalError: errorData.error,
+                        status: error.response.status,
+                        responseData: errorData
+                    }
+                );
+            }
+            
+            throw new CdnError(
+                'Failed to upload level zip',
+                'UPLOAD_ERROR',
+                { 
+                    originalError: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined
+                }
             );
         }
     }
@@ -88,6 +170,44 @@ export class CdnService {
                 'DELETE_ERROR',
                 { originalError: error instanceof Error ? error.message : String(error) }
             );
+        }
+    }
+
+    async getLevelFiles(fileId: string): Promise<Array<{
+        name: string;
+        size: number;
+        hasYouTubeStream: boolean;
+        songFilename?: string;
+        artist?: string;
+        song?: string;
+        author?: string;
+        difficulty?: number;
+        bpm?: number;
+    }>> {
+        try {
+            const response = await this.client.get(`/zips/${fileId}/levels`);
+            return response.data.levels;
+        } catch (error) {
+            throw new CdnError('Failed to get level files', 'GET_FILES_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
+    async setTargetLevel(fileId: string, targetLevel: string): Promise<{
+        success: boolean;
+        fileId: string;
+        targetLevel: string;
+    }> {
+        try {
+            const response = await this.client.put(`/zips/${fileId}/target-level`, {
+                targetLevel
+            });
+            return response.data;
+        } catch (error) {
+            throw new CdnError('Failed to set target level', 'SET_TARGET_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
         }
     }
 

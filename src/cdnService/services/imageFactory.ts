@@ -47,7 +47,7 @@ export class ImageFactory {
             
             const fileId = path.parse(filePath).name;
             const imageConfig = IMAGE_TYPES[imageType];
-            const imageDir = path.join(CDN_CONFIG.root, 'images', imageConfig.name, fileId);
+            const imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
             
             // Create directory for this image's versions
             fs.mkdirSync(imageDir, { recursive: true });
@@ -63,7 +63,7 @@ export class ImageFactory {
             // Create database entry
             await CdnFile.create({
                 id: fileId,
-                purpose: imageType,
+                type: imageType,
                 filePath: `images/${imageConfig.name}/${fileId}`,
                 fileSize: fs.statSync(originalPath).size,
                 isDirectory: true,

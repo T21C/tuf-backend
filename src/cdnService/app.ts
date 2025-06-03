@@ -10,8 +10,8 @@ dotenv.config();
 const app = express();
 
 // Ensure CDN root directory exists
-if (!fs.existsSync(CDN_CONFIG.root)) {
-    fs.mkdirSync(CDN_CONFIG.root, { recursive: true });
+if (!fs.existsSync(CDN_CONFIG.user_root)) {
+    fs.mkdirSync(CDN_CONFIG.user_root, { recursive: true });
 }
 
 // Middleware

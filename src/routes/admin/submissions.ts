@@ -29,6 +29,9 @@ import User from '../../models/auth/User.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
+import { cleanupFiles } from '../../cdnService/services/storage.js';
+import path from 'path';
+import { CDN_CONFIG } from '../../cdnService/config.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -493,33 +496,48 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
     try {
       const {id} = req.params;
 
-        await LevelSubmission.update(
-          {status: 'declined'},
-          {
-            where: {id},
-            transaction,
-          },
-        );
+      // Get the submission to check if it has a level zip
+      const submission = await LevelSubmission.findByPk(id);
+      if (!submission) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Submission not found'});
+      }
 
-        await transaction.commit();
+      // Check if the directDL is a local CDN URL
+      if (submission.directDL && submission.directDL.startsWith(`${CDN_CONFIG.baseUrl}/cdn/levels/`)) {
+        const levelId = submission.directDL.split('/').pop();
+        if (levelId) {
+          const levelPath = path.join(CDN_CONFIG.user_root, 'levels', levelId);
+          cleanupFiles(levelPath);
+        }
+      }
 
-        // Broadcast updates
-        sseManager.broadcast({type: 'submissionUpdate'});
-        sseManager.broadcast({
-          type: 'submissionUpdate',
-          data: {
-            action: 'decline',
-            submissionId: id,
-            submissionType: 'level',
-          },
-        });
+      await LevelSubmission.update(
+        {status: 'declined'},
+        {
+          where: {id},
+          transaction,
+        },
+      );
+
+      await transaction.commit();
+
+      // Broadcast updates
+      sseManager.broadcast({type: 'submissionUpdate'});
+      sseManager.broadcast({
+        type: 'submissionUpdate',
+        data: {
+          action: 'decline',
+          submissionId: id,
+          submissionType: 'level',
+        },
+      });
 
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
       await transaction.rollback();
       logger.error('Error processing level submission:', error);
       return res
-
         .status(500)
         .json({error: 'Failed to process level submission'});
     }

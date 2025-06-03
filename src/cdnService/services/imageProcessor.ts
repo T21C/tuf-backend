@@ -9,7 +9,7 @@ export async function processImage(filePath: string, imageType: ImageType, fileI
     const processedFiles: Record<string, { path: string; mimeType: string }> = {};
     
     // Create directory for this image's versions
-    const imageDir = path.join(CDN_CONFIG.root, 'images', imageConfig.name, fileId);
+    const imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
     fs.mkdirSync(imageDir, { recursive: true });
 
     // Process each size

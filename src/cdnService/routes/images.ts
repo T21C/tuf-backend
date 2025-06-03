@@ -21,11 +21,11 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Invalid image type or size' });
         }
 
-        // Find the original file by ID and purpose
+        // Find the original file by ID and type
         const file = await CdnFile.findOne({
             where: {
                 id: fileId,
-                purpose: imageType
+                type: imageType
             }
         });
 
@@ -35,7 +35,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         }
 
         // Convert database path to filesystem path
-        const fsPath = path.join(CDN_CONFIG.root, file.filePath, `${imageSize}.png`);
+        const fsPath = path.join(CDN_CONFIG.user_root, file.filePath, `${imageSize}.png`);
 
         if (!fs.existsSync(fsPath)) {
             logger.error(`File not found on disk: ${fsPath}`);
@@ -64,7 +64,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
 // Upload image endpoint
 router.post('/:type', (req: Request, res: Response) => {
     const imageType = req.params.type.toUpperCase() as ImageType;
-    const purposeHeader = req.headers['x-file-purpose'] as ImageType;
+    const typeHeader = req.headers['x-file-type'] as ImageType;
     
     if (!IMAGE_TYPES[imageType]) {
         return res.status(400).json({ 
@@ -73,12 +73,12 @@ router.post('/:type', (req: Request, res: Response) => {
         });
     }
 
-    // Validate that purpose header matches the URL parameter
-    if (purposeHeader && purposeHeader !== imageType) {
+    // Validate that type header matches the URL parameter
+    if (typeHeader && typeHeader !== imageType) {
         return res.status(400).json({ 
-            error: 'Purpose mismatch',
-            code: 'PURPOSE_MISMATCH',
-            details: 'The X-File-Purpose header does not match the image type in the URL'
+            error: 'Type mismatch',
+            code: 'TYPE_MISMATCH',
+            details: 'The X-File-Type header does not match the image type in the URL'
         });
     }
 

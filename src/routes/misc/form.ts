@@ -20,7 +20,29 @@ import { logger } from '../../services/LoggerService.js';
 import Pass from '../../models/passes/Pass.js';
 import Judgement from '../../models/passes/Judgement.js';
 import { Op } from 'sequelize';
+import cdnService from '../../services/CdnService.js';
+import { CdnError } from '../../services/CdnService.js';
+import { CDN_CONFIG } from '../../cdnService/config.js';
+import multer from 'multer';
+import fs from 'fs';
+
 const router: Router = express.Router();
+
+// Configure multer for handling file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 1000 * 1024 * 1024 // 1GB limit
+  }
+});
 
 // Add this helper function after the router declaration
 const sanitizeTextInput = (input: string | null | undefined): string => {
@@ -65,6 +87,7 @@ const cleanVideoUrl = (url: string) => {
 router.post(
   '/form-submit',
   Auth.verified(),
+  upload.single('levelZip'),
   express.json(),
   async (req: Request, res: Response) => {
     // Start a transaction
@@ -92,6 +115,7 @@ router.post(
 
         const existingSubmissions = await LevelSubmission.findAll({
           where: {
+            status: 'pending',
             artist: req.body.artist,
             song: req.body.song,
             directDL: req.body.directDL || '',
@@ -106,13 +130,83 @@ router.post(
           });
         }
 
+        // Handle level zip file if present
+        let directDL: string | null = null;
+        let hasZipUpload = false;
+        let levelFiles: any[] = [];
+        let fileId: string | null = null;
+
+        if (req.file) {
+          try {
+            logger.debug('Attempting to upload zip file to CDN');
+            
+            // Read file from disk instead of using buffer
+            const fileBuffer = await fs.promises.readFile(req.file.path);
+            
+            const uploadResult = await cdnService.uploadLevelZip(fileBuffer, req.file.originalname);
+            logger.info('Successfully uploaded zip file to CDN:', {
+              fileId: uploadResult.fileId,
+              timestamp: new Date().toISOString()
+            });
+
+            // Clean up the temporary file
+            await fs.promises.unlink(req.file.path);
+            logger.debug('Temporary file cleaned up:', {
+              path: req.file.path,
+              timestamp: new Date().toISOString()
+            });
+
+            // Get the level files from the CDN service
+            levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
+            fileId = uploadResult.fileId;
+            
+            // If only one level file, use it directly
+            directDL = `${CDN_CONFIG.baseUrl}/${fileId}`;
+            hasZipUpload = true;
+          } catch (error) {
+            // Clean up the temporary file in case of error
+            if (req.file?.path) {
+              try {
+                await fs.promises.unlink(req.file.path);
+                logger.debug('Temporary file cleaned up after error:', {
+                  path: req.file.path,
+                  timestamp: new Date().toISOString()
+                });
+              } catch (cleanupError) {
+                logger.error('Failed to clean up temporary file:', {
+                  error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                  path: req.file.path,
+                  timestamp: new Date().toISOString()
+                });
+              }
+            }
+
+            logger.error('Failed to upload zip file to CDN:', {
+              error: error instanceof Error ? {
+                message: error.message,
+                stack: error.stack
+              } : error,
+              filename: req.file.originalname,
+              size: req.file.size,
+              timestamp: new Date().toISOString()
+            });
+            throw error;
+          }
+        }
+
         // Create the base level submission within transaction
+        logger.info('Creating level submission entry:', {
+          hasZipFile: hasZipUpload,
+          directDL: directDL || req.body.directDL || '',
+          timestamp: new Date().toISOString()
+        });
+
         const submission = await LevelSubmission.create({
           artist: req.body.artist,
           song: req.body.song,
           diff: req.body.diff,
           videoLink: cleanVideoUrl(req.body.videoLink),
-          directDL: req.body.directDL || '',
+          directDL: directDL || req.body.directDL || '',
           wsLink: req.body.wsLink || '',
           submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username || '',
           submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id || '',
@@ -178,10 +272,51 @@ router.post(
           },
         });
 
+        // If we have multiple level files, return them to the client
+        if (levelFiles.length > 1) {
+          // Broadcast level selection event
+          sseManager.broadcast({
+            type: 'levelSelection',
+            data: {
+              fileId,
+              levelFiles: levelFiles.map(file => ({
+                name: file.name,
+                size: file.size,
+                hasYouTubeStream: file.hasYouTubeStream,
+                songFilename: file.songFilename,
+                artist: file.artist,
+                song: file.song,
+                author: file.author,
+                difficulty: file.difficulty,
+                bpm: file.bpm
+              }))
+            }
+          });
+
+          return res.json({
+            success: true,
+            message: 'Level submission saved successfully',
+            submissionId: submission.id,
+            requiresLevelSelection: true,
+            levelFiles: levelFiles.map(file => ({
+              name: file.name,
+              size: file.size,
+              hasYouTubeStream: file.hasYouTubeStream,
+              songFilename: file.songFilename,
+              artist: file.artist,
+              song: file.song,
+              author: file.author,
+              difficulty: file.difficulty,
+              bpm: file.bpm
+            })),
+            fileId
+          });
+        }
+
         return res.json({
           success: true,
           message: 'Level submission saved successfully',
-          submissionId: submission.id,
+          submissionId: submission.id
         });
       }
 
@@ -470,5 +605,74 @@ router.post(
     }
   },
 );
+
+// Level selection endpoint
+router.post('/select-level', Auth.verified(), async (req: Request, res: Response) => {
+    const { fileId, selectedLevel } = req.body;
+
+    if (!fileId || !selectedLevel) {
+        return res.status(400).json({
+            success: false,
+            error: 'Missing required parameters'
+        });
+    }
+
+    try {
+        logger.info('Processing level selection:', {
+            fileId,
+            selectedLevel,
+            timestamp: new Date().toISOString()
+        });
+
+        // Set the target level in CDN
+        await cdnService.setTargetLevel(fileId, selectedLevel);
+
+        // Get the updated level files
+        const levelFiles = await cdnService.getLevelFiles(fileId);
+        const selectedFile = levelFiles.find(file => file.name === selectedLevel);
+
+        if (!selectedFile) {
+            logger.error('Selected level file not found:', {
+                fileId,
+                selectedLevel,
+                availableFiles: levelFiles.map(f => f.name),
+                timestamp: new Date().toISOString()
+            });
+            return res.status(400).json({
+                success: false,
+                error: 'Selected level file not found'
+            });
+        }
+
+
+        return res.json({
+            success: true
+        });
+    } catch (error) {
+        logger.error('Failed to process level selection:', {
+            error: error instanceof Error ? {
+                message: error.message,
+                stack: error.stack
+            } : error,
+            fileId,
+            selectedLevel,
+            timestamp: new Date().toISOString()
+        });
+
+        if (error instanceof CdnError) {
+            return res.status(400).json({
+                success: false,
+                error: error.message,
+                code: error.code,
+                details: error.details
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to process level selection'
+        });
+    }
+});
 
 export default router;

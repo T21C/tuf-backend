@@ -11,12 +11,32 @@ export function cleanupFiles(...paths: (string | undefined | null)[]): void {
         if (!path) continue;
 
         try {
-            if (fs.existsSync(path)) {
-                const stats = fs.statSync(path);
+            // Validate path is not empty or root
+            if (!path || path === '/' || path === '') {
+                logger.error('Invalid path provided for cleanup');
+                return;
+            }
+
+            // Normalize and check path is within CDN_CONFIG.user_root
+            const normalizedPath = path.normalize().replace(/\\/g, '/');
+            if (!normalizedPath.startsWith(CDN_CONFIG.user_root)) {
+                logger.error('Attempted to delete file outside of user root directory', normalizedPath);
+                console.log(path)
+                console.log(normalizedPath)
+                return;
+            }
+
+            if (fs.existsSync(normalizedPath)) {
+                const stats = fs.statSync(normalizedPath);
                 if (stats.isDirectory()) {
-                    fs.rmSync(path, { recursive: true, force: true });
+                    // Additional check before recursive delete
+                    if (normalizedPath === CDN_CONFIG.user_root) {
+                        logger.error('Attempted to delete user root directory');
+                        return;
+                    }
+                    fs.rmSync(normalizedPath, { recursive: true, force: true });
                 } else {
-                    fs.unlinkSync(path);
+                    fs.unlinkSync(normalizedPath);
                 }
             }
         } catch (error) {
@@ -28,7 +48,7 @@ export function cleanupFiles(...paths: (string | undefined | null)[]): void {
 // Configure storage for regular files
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadDir = path.join(CDN_CONFIG.root, 'temp');
+        const uploadDir = path.join(CDN_CONFIG.user_root, 'temp');
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -48,7 +68,7 @@ const imageStorage = multer.diskStorage({
         if (!IMAGE_TYPES[imageType]) {
             throw new Error('Invalid image type');
         }
-        const uploadDir = path.join(CDN_CONFIG.root, 'images', IMAGE_TYPES[imageType].name);
+        const uploadDir = path.join(CDN_CONFIG.user_root, 'images', IMAGE_TYPES[imageType].name);
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
         }

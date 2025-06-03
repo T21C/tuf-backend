@@ -1,12 +1,128 @@
 import { Router, Request, Response } from "express";
 import { logger } from "../../services/LoggerService.js";
-import { cleanupFiles } from "../services/storage.js";
 import CdnFile from "../../models/cdn/CdnFile.js";
-import { CDN_CONFIG } from "../config.js";
+import { CDN_CONFIG, MIME_TYPES } from "../config.js";
 import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
 const router = Router();
+
+// Helper function to safely set headers with proper encoding
+function setSafeHeader(res: Response, name: string, value: string | number | object): void {
+    try {
+        if (typeof value === 'object') {
+            // For JSON objects, stringify and encode
+            const encodedValue = encodeURIComponent(JSON.stringify(value));
+            res.setHeader(name, `UTF-8''${encodedValue}`);
+        } else {
+            // For strings and numbers, encode directly
+            const encodedValue = encodeURIComponent(String(value));
+            res.setHeader(name, `UTF-8''${encodedValue}`);
+        }
+    } catch (error) {
+        logger.error('Error setting header:', {
+            header: name,
+            error: error instanceof Error ? error.message : String(error)
+        });
+    }
+}
+
+async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
+        // For level zips, get the original zip from metadata
+        const fileId = file.id;
+        const metadata = file.metadata as {
+            originalZip?: {
+                name: string;
+                path: string;
+                size: number;
+            };
+            allLevelFiles?: Array<{
+                name: string;
+                path: string;
+                size: number;
+                hasYouTubeStream?: boolean;
+                songFilename?: string;
+            }>;
+            songFiles?: Record<string, {
+                name: string;
+                path: string;
+                size: number;
+                type: string;
+            }>;
+            targetLevel?: string | null;
+            pathConfirmed?: boolean;
+        };
+
+        if (!metadata.originalZip) {
+            return res.status(404).json({ error: 'Original zip not found in metadata' });
+        }
+
+        const { originalZip } = metadata;
+
+        const zipPath = path.join(CDN_CONFIG.file_root, originalZip.path);
+        
+        // Check if file exists
+        try {
+            await fs.promises.access(zipPath, fs.constants.F_OK);
+        } catch (error) {
+            logger.error('Zip file not found on disk:', {
+                fileId,
+                path: zipPath,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return res.status(404).json({ error: 'Zip file not found' });
+        }
+
+        // Get file stats
+        const stats = await fs.promises.stat(zipPath);
+
+        logger.info('Setting headers for zip file:', {
+            fileId,
+            zipPath,
+            baseName: originalZip.name
+        });
+
+        // Set basic headers
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Length', stats.size);
+        
+        // Set encoded filename in Content-Disposition
+        const encodedFilename = encodeURIComponent(originalZip.name);
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+        
+        // Set encoded metadata headers
+        setSafeHeader(res, 'X-Level-FileId', fileId);
+        setSafeHeader(res, 'X-Level-Name', originalZip.name);
+        setSafeHeader(res, 'X-Level-Size', originalZip.size);
+        setSafeHeader(res, 'X-Level-Files', {
+            levelFiles: metadata.allLevelFiles,
+            songFiles: metadata.songFiles
+        });
+        setSafeHeader(res, 'X-Level-Target', {
+            targetLevel: metadata.targetLevel,
+            pathConfirmed: metadata.pathConfirmed
+        });
+
+        
+        file.increment('accessCount');
+        // Stream the file
+        const fileStream = fs.createReadStream(zipPath);
+        fileStream.pipe(res);
+
+        // Handle errors during streaming
+        fileStream.on('error', (error) => {
+            logger.error('Error streaming zip file:', {
+                fileId,
+                path: zipPath,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Error streaming file' });
+            }
+        });
+        return;
+    }
+    
 
 router.get('/:fileId', async (req: Request, res: Response) => {
     try {
@@ -17,8 +133,8 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        if (file.isDirectory) {
-            return res.status(400).json({ error: 'Cannot download directory' });
+        if (file.type === 'LEVELZIP') {
+            return handleZipRequest(req, res, file);
         }
         
         await FileAccessLog.create({
@@ -29,7 +145,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 
         await file.increment('accessCount');
 
-        res.setHeader('Content-Type', file.mimeType);
+        res.setHeader('Content-Type', MIME_TYPES[file.type]);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
         fs.createReadStream(file.filePath).pipe(res);
     } catch (error) {
@@ -50,17 +166,13 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
         }
 
         // Get the full path relative to CDN root
-        const fullPath = path.join(CDN_CONFIG.root, file.filePath);
+        const fullPath = path.join(CDN_CONFIG.user_root, file.filePath);
         
-        if (file.isDirectory) {
-            // If it's a directory, recursively delete all contents
-            if (fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory() && path.basename(fullPath) === fileId) {
-                fs.rmSync(fullPath, { recursive: true });
-            }
-        } else {
-            // For single files, just delete the file
-            cleanupFiles(file.filePath);
+
+        if (fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory() && path.basename(fullPath) === fileId) {
+            fs.rmSync(fullPath, { recursive: true });
         }
+        
         
         // Delete the database entry
         await file.destroy();

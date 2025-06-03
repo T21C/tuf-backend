@@ -253,8 +253,12 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
             req.file.originalname,
             'PROFILE'
         );
-        if (user.avatarId) {
-            await cdnService.deleteImage(user.avatarId);
+        try {
+            if (user.avatarId) {
+                await cdnService.deleteImage(user.avatarId);
+            }
+        } catch (error) {
+            logger.error('Error deleting old avatar from CDN:', error);
         }
 
         // Update user's avatar information

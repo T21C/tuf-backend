@@ -2,17 +2,19 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config();
 
-if (!process.env.CDN_PORT || !process.env.CDN_ROOT || !process.env.CDN_URL) {
-    throw new Error('CDN_PORT, CDN_ROOT, and CDN_URL must be set');
+if (!process.env.USER_CDN_ROOT || !process.env.FILE_CDN_ROOT || !process.env.CDN_URL) {
+    throw new Error('USER_CDN_ROOT, FILE_CDN_ROOT, and CDN_URL must be set');
 }
 
 export const CDN_CONFIG = {
-    port: process.env.CDN_PORT,
-    root: process.env.CDN_ROOT,
-    maxFileSize: 50 * 1024 * 1024, // 50MB
+    user_root: process.env.USER_CDN_ROOT,
+    file_root: process.env.FILE_CDN_ROOT,
+    temp_root: path.join(process.env.USER_CDN_ROOT, 'temp'),
+    maxFileSize: 1000 * 1024 * 1024, // 1GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
     cacheControl: 'public, max-age=31536000', // 1 year
-    baseUrl: process.env.CDN_URL
+    baseUrl: process.env.CDN_URL,
+    port: process.env.CDN_URL.split(':')[2]
 } as const;
 // Image type configurations
 export const IMAGE_TYPES = {
@@ -50,6 +52,14 @@ export const IMAGE_TYPES = {
         formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
         maxSize: 2 * 1024 * 1024 // 2MB
     }
+} as const;
+
+export const MIME_TYPES = {
+    'PROFILE': 'image/png',
+    'BANNER': 'image/png',
+    'THUMBNAIL': 'image/png',
+    'LEVELZIP': 'application/zip',
+    'GENERAL': 'application/octet-stream'
 } as const;
 
 export type ImageType = keyof typeof IMAGE_TYPES;
