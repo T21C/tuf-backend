@@ -14,12 +14,10 @@ import {getScoreV2} from '../../utils/CalcScore.js';
 import {calcAcc} from '../../utils/CalcAcc.js';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '../../models/submissions/LevelSubmissionTeamRequest.js';
-import Player from '../../models/players/Player.js';
 import sequelize from "../../config/db.js";
 import { logger } from '../../services/LoggerService.js';
 import Pass from '../../models/passes/Pass.js';
 import Judgement from '../../models/passes/Judgement.js';
-import { Op } from 'sequelize';
 import cdnService from '../../services/CdnService.js';
 import { CdnError } from '../../services/CdnService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
@@ -138,23 +136,13 @@ router.post(
 
         if (req.file) {
           try {
-            logger.debug('Attempting to upload zip file to CDN');
-            
             // Read file from disk instead of using buffer
             const fileBuffer = await fs.promises.readFile(req.file.path);
             
             const uploadResult = await cdnService.uploadLevelZip(fileBuffer, req.file.originalname);
-            logger.info('Successfully uploaded zip file to CDN:', {
-              fileId: uploadResult.fileId,
-              timestamp: new Date().toISOString()
-            });
 
             // Clean up the temporary file
             await fs.promises.unlink(req.file.path);
-            logger.debug('Temporary file cleaned up:', {
-              path: req.file.path,
-              timestamp: new Date().toISOString()
-            });
 
             // Get the level files from the CDN service
             levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
@@ -168,10 +156,6 @@ router.post(
             if (req.file?.path) {
               try {
                 await fs.promises.unlink(req.file.path);
-                logger.debug('Temporary file cleaned up after error:', {
-                  path: req.file.path,
-                  timestamp: new Date().toISOString()
-                });
               } catch (cleanupError) {
                 logger.error('Failed to clean up temporary file:', {
                   error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
@@ -194,12 +178,6 @@ router.post(
           }
         }
 
-        // Create the base level submission within transaction
-        logger.info('Creating level submission entry:', {
-          hasZipFile: hasZipUpload,
-          directDL: directDL || req.body.directDL || '',
-          timestamp: new Date().toISOString()
-        });
 
         const submission = await LevelSubmission.create({
           artist: req.body.artist,
@@ -217,26 +195,28 @@ router.post(
           team: ''
         }, { transaction });
 
+        const parsedCreatorRequests = JSON.parse(req.body.creatorRequests);
         // Create the creator request records within transaction
-        if (Array.isArray(req.body.creatorRequests)) {
-          await Promise.all(req.body.creatorRequests.map(async (request: any) => {
+        if (Array.isArray(parsedCreatorRequests)) {
+          await Promise.all(parsedCreatorRequests.map(async (request: any) => {
             return LevelSubmissionCreatorRequest.create({
               submissionId: submission.id,
               creatorName: request.creatorName,
               creatorId: request.creatorId || null,
               role: request.role,
-              isNewRequest: request.isNewRequest
+              isNewRequest: request.isNewRequest || false
             }, { transaction });
           }));
         }
 
         // Create team request record if present within transaction
-        if (req.body.teamRequest && req.body.teamRequest.teamName) {
+        const parsedTeamRequest = JSON.parse(req.body.teamRequest);
+        if (req.body.teamRequest && parsedTeamRequest.teamName) {
           await LevelSubmissionTeamRequest.create({
             submissionId: submission.id,
-            teamName: req.body.teamRequest.teamName,
-            teamId: req.body.teamRequest.teamId || null,
-            isNewRequest: req.body.teamRequest.isNewRequest
+            teamName: parsedTeamRequest.teamName,
+            teamId: parsedTeamRequest.teamId || null,
+            isNewRequest: parsedTeamRequest.isNewRequest
           }, { transaction });
         }
 
@@ -618,12 +598,6 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
     }
 
     try {
-        logger.info('Processing level selection:', {
-            fileId,
-            selectedLevel,
-            timestamp: new Date().toISOString()
-        });
-
         // Set the target level in CDN
         await cdnService.setTargetLevel(fileId, selectedLevel);
 
