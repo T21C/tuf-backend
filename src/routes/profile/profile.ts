@@ -6,8 +6,27 @@ import sequelize from "../../config/db.js";
 import UsernameChange from '../../models/auth/UsernameChange.js';
 import Player from '../../models/players/Player.js';
 import { logger } from '../../services/LoggerService.js';
+import multer from 'multer';
+import cdnService from '../../services/CdnService.js';
+import { CdnError } from '../../services/CdnService.js';
 
 const router: Router = Router();
+
+// Configure multer for memory storage
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPEG, PNG and WebP are allowed.'));
+        }
+    }
+});
 
 // Get current user profile
 router.get('/me', Auth.user(), async (req: Request, res: Response) => {
@@ -211,6 +230,105 @@ router.put('/password', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error updating password:', error);
     return res.status(500).json({error: 'Failed to update password'});
   }
+});
+
+// Upload avatar
+router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request, res: Response) => {
+    try {
+        const user = req.user;
+        if (!user) {
+            return res.status(401).json({error: 'User not authenticated'});
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                error: 'No file uploaded',
+                code: 'NO_FILE'
+            });
+        }
+
+        // Upload to CDN
+        const result = await cdnService.uploadImage(
+            req.file.buffer,
+            req.file.originalname,
+            'PROFILE'
+        );
+        if (user.avatarId) {
+            await cdnService.deleteImage(user.avatarId);
+        }
+
+        // Update user's avatar information
+        await User.update(
+            {
+                avatarUrl: result.urls.original,
+                avatarId: result.fileId
+            },
+            {where: {id: user.id}}
+        );
+
+        return res.json({
+            message: 'Avatar uploaded successfully',
+            avatar: {
+                id: result.fileId,
+                urls: result.urls,
+            }
+        });
+    } catch (error) {
+        logger.error('Error uploading avatar:', error);
+        
+        if (error instanceof CdnError) {
+            return res.status(400).json({
+                error: error.message,
+                code: error.code,
+                details: error.details
+            });
+        }
+        
+        return res.status(500).json({
+            error: 'Failed to upload avatar',
+            code: 'SERVER_ERROR',
+            details: error instanceof Error ? error.message : String(error)
+        });
+    }
+});
+
+// Remove avatar
+router.delete('/avatar', Auth.user(), async (req: Request, res: Response) => {
+    try {
+        const user = req.user;
+        if (!user) {
+            return res.status(401).json({error: 'User not authenticated'});
+        }
+
+        if (!user.avatarId) {
+            return res.status(400).json({error: 'No avatar to remove'});
+        }
+
+        // Store the avatar ID before clearing it
+        const oldAvatarId = user.avatarId;
+
+        // Update user's avatar information first
+        await User.update(
+            {
+                avatarUrl: null,
+                avatarId: null
+            },
+            {where: {id: user.id}}
+        );
+
+        // Delete from CDN after updating user record
+        try {
+            await cdnService.deleteImage(oldAvatarId);
+        } catch (error) {
+            // Log the error but don't fail the request since user record is already updated
+            logger.error('Error deleting old avatar from CDN:', error);
+        }
+
+        return res.json({message: 'Avatar removed successfully'});
+    } catch (error) {
+        logger.error('Error removing avatar:', error);
+        return res.status(500).json({error: 'Failed to remove avatar'});
+    }
 });
 
 export default router;

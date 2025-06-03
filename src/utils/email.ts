@@ -34,8 +34,9 @@ export const emailService = {
         logger.error('MailerSend API token is not configured');
         return false;
       }
-
-      const response = await axios.post(
+      let response;
+      try {
+      response = await axios.post(
         MAILERSEND_API_URL,
         {
           from: {
@@ -58,12 +59,16 @@ export const emailService = {
           },
         }
       );
-
-      if (response.status === 202) {
+    } catch (error) {
+      logger.error(`Axios request failed, error type: ${typeof error}, error: ${error}, response: ${response}`);
+      return false;
+    }
+      
+      if (response?.status === 202) {
         return true;
       }
       
-      logger.error('Email sending failed with status:', response.status);
+      logger.error('Email sending failed with status:', response?.status);
       return false;
     } catch (error) {
       logger.error('Email sending failed:', error);

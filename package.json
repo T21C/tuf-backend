@@ -30,7 +30,8 @@
     "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
     "migrate:create": "sequelize-cli migration:create --name",
     "health": "cross-env tsx src/healthService/startHealthService.ts",
-    "health:prod": "cross-env NODE_ENV=production tsx src/healthService/startHealthService.ts"
+    "health:prod": "cross-env NODE_ENV=production tsx src/healthService/startHealthService.ts",
+    "cdn": "cross-env tsx watch src/cdnService/app.ts"
   },
   "keywords": [],
   "author": "",

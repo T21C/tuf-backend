@@ -3,7 +3,7 @@ import loginRoutes from './login.js';
 import registerRoutes from './register.js';
 import verificationRoutes from './verification.js';
 import oauthRoutes from './oauth.js';
-import profileRoutes from './profile.js';
+import profileRoutes from '../profile/profile.js';
 
 const router: Router = Router();
 

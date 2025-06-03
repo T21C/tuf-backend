@@ -192,13 +192,13 @@ class ElasticsearchService {
           await options.transaction.afterCommit(async () => {
             if (options.where?.id) {
               logger.debug(`Indexing level ${options.where.id} ${typeof options.where.id} after bulk update`);
-              await this.indexLevel(Number(options.where.id));
+              await this.indexLevel(options.where.id);
             }
           });
         } else {
           if (options.where?.id) {
             logger.debug(`Indexing level ${options.where.id} ${typeof options.where.id} after bulk update`);
-            await this.indexLevel(Number(options.where.id));
+            await this.indexLevel(options.where.id);
           }
         }
       } catch (error) {
@@ -400,7 +400,9 @@ class ElasticsearchService {
 
 
   public async indexLevel(level: Level | number): Promise<void> {
-    const id = typeof level === 'number' ? level : level.id;
+    const id = typeof level === 'number' ? level 
+    : typeof level === 'string' ? parseInt(level)
+    : level.id;
     try {
       const processedLevel = await this.getParsedLevel(id);
       if (processedLevel) {
