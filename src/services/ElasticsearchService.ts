@@ -27,6 +27,7 @@ type FieldSearch = {
   field: string;
   value: string;
   exact: boolean;
+  isNot: boolean;
 };
 
 type SearchGroup = {
@@ -742,27 +743,39 @@ class ElasticsearchService {
     const trimmedTerm = term.trim();
     if (!trimmedTerm) return null;
 
+    // Check for NOT operator
+    const isNot = trimmedTerm.startsWith('\\!');
+    const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
+
     // Check for exact match with equals sign
-    const exactMatch = trimmedTerm.match(/^(song|artist|charter|team|vfxer|creator)=(.+)$/i);
+    const exactMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink)=(.+)$/i);
     if (exactMatch) {
       return {
         field: exactMatch[1].toLowerCase(),
         value: exactMatch[2].trim(),
         exact: true,
+        isNot
       };
     }
 
     // Check for partial match with colon
-    const partialMatch = trimmedTerm.match(/^(song|artist|charter|team|vfxer|creator):(.+)$/i);
+    const partialMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink):(.+)$/i);
     if (partialMatch) {
       return {
         field: partialMatch[1].toLowerCase(),
         value: partialMatch[2].trim(),
         exact: false,
+        isNot
       };
     }
 
-    return null;
+    // Handle general search term with NOT operator
+    return {
+      field: 'any',
+      value: searchTerm.trim(),
+      exact: false,
+      isNot
+    };
   }
 
   private parseSearchQuery(query: string): SearchGroup[] {
@@ -786,6 +799,7 @@ class ElasticsearchService {
               field: 'any',
               value: term.trim(),
               exact: false,
+              isNot: false
             };
           });
 
@@ -800,7 +814,7 @@ class ElasticsearchService {
   }
 
   private buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases: boolean = false): any {
-    const { field, value, exact } = fieldSearch;
+    const { field, value, exact, isNot } = fieldSearch;
     const searchValue = prepareSearchTerm(value);
 
     // For field-specific searches
@@ -809,7 +823,7 @@ class ElasticsearchService {
       if (exact) {
         // Handle role-based searches (charter, vfxer, creator)
         if (field === 'charter' || field === 'vfxer' || field === 'creator') {
-          return {
+          const query = {
             bool: {
               should: [
                 // Search in root level creator field
@@ -855,6 +869,20 @@ class ElasticsearchService {
               minimum_should_match: 1
             }
           };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle download link search
+        if (field === 'dllink') {
+          const query = {
+            term: {
+              'dlLink.keyword': {
+                value: searchValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
         }
 
         // Handle other exact matches
@@ -869,7 +897,7 @@ class ElasticsearchService {
 
         // Handle team special case
         if (field === 'team') {
-          return {
+          const query = {
             bool: {
               should: [
                 searchCondition,
@@ -908,9 +936,10 @@ class ElasticsearchService {
               ]
             }
           };
+          return isNot ? { bool: { must_not: [query] } } : query;
         }
 
-        return searchCondition;
+        return isNot ? { bool: { must_not: [searchCondition] } } : searchCondition;
       }
 
       // For partial matches (using :), use wildcard query
@@ -918,7 +947,7 @@ class ElasticsearchService {
 
       // Handle role-based searches for partial matches
       if (field === 'charter' || field === 'vfxer' || field === 'creator') {
-        return {
+        const query = {
           bool: {
             should: [
               // Search in root level creator field
@@ -983,6 +1012,20 @@ class ElasticsearchService {
             minimum_should_match: 1
           }
         };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle download link partial match
+      if (field === 'dllink') {
+        const query = {
+          wildcard: {
+            'dlLink': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
       }
 
       // Handle other partial matches
@@ -997,7 +1040,7 @@ class ElasticsearchService {
 
       // Handle team special case
       if (field === 'team') {
-        return {
+        const query = {
           bool: {
             should: [
               searchCondition,
@@ -1036,19 +1079,21 @@ class ElasticsearchService {
             ]
           }
         };
+        return isNot ? { bool: { must_not: [query] } } : query;
       }
 
-      return searchCondition;
+      return isNot ? { bool: { must_not: [searchCondition] } } : searchCondition;
     }
 
     // For general searches (field === 'any'), use wildcard search across all fields
     const wildcardValue = `*${searchValue}*`;
-    return {
+    const query = {
       bool: {
         should: [
           { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { creator: { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { dlLink: { value: wildcardValue, case_insensitive: true } } },
           ...(excludeAliases ? [] : [{
             nested: {
               path: 'aliases',
@@ -1097,6 +1142,7 @@ class ElasticsearchService {
         ]
       }
     };
+    return isNot ? { bool: { must_not: [query] } } : query;
   }
 
   public async searchLevels(query: string, filters: any = {}): Promise<{ hits: any[], total: number }> {
@@ -1525,55 +1571,75 @@ class ElasticsearchService {
         
         orTerms.forEach(term => {
           // Split each OR term by AND operator
-          const andTerms = term.split(',').map(t => prepareSearchTerm(t.trim()));
+          const andTerms = term.split(',').map(t => {
+            const trimmedTerm = t.trim();
+            // Check for NOT operator
+            const isNot = trimmedTerm.startsWith('\\!');
+            const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
+            return {
+              term: prepareSearchTerm(searchTerm),
+              isNot
+            };
+          });
           
-          const termQueries = andTerms.map(andTerm => ({
-            bool: {
-              should: [
-                { 
-                  wildcard: { 
-                    'player.name': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
+          const termQueries = andTerms.map(({ term: andTerm, isNot }) => {
+            const query = {
+              bool: {
+                should: [
+                  { 
+                    wildcard: { 
+                      'player.name': { 
+                        value: `*${andTerm}*`,
+                        case_insensitive: true
+                      } 
                     } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'level.song': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
+                  },
+                  { 
+                    wildcard: { 
+                      'level.song': { 
+                        value: `*${andTerm}*`,
+                        case_insensitive: true
+                      } 
                     } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'level.artist': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
+                  },
+                  { 
+                    wildcard: { 
+                      'level.artist': { 
+                        value: `*${andTerm}*`,
+                        case_insensitive: true
+                      } 
                     } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'videoLink': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
+                  },
+                  { 
+                    wildcard: { 
+                      'videoLink': { 
+                        value: `*${andTerm}*`,
+                        case_insensitive: true
+                      } 
                     } 
-                  } 
-                },
-                { 
-                  wildcard: { 
-                    'vidTitle': { 
-                      value: `*${andTerm}*`,
-                      case_insensitive: true
+                  },
+                  { 
+                    wildcard: { 
+                      'vidTitle': { 
+                        value: `*${andTerm}*`,
+                        case_insensitive: true
+                      } 
                     } 
-                  } 
-                }
-              ],
-              minimum_should_match: 1
-            }
-          }));
+                  },
+                  {
+                    wildcard: {
+                      'level.dlLink': {
+                        value: `*${andTerm}*`,
+                        case_insensitive: true
+                      }
+                    }
+                  }
+                ],
+                minimum_should_match: 1
+              }
+            };
+            return isNot ? { bool: { must_not: [query] } } : query;
+          });
           
           // If there are multiple AND terms, they all must match
           if (termQueries.length > 1) {
