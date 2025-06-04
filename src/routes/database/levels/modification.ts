@@ -18,15 +18,46 @@ import Player from "../../../models/players/Player.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import { sanitizeTextInput } from '../../../utils/Utility.js';
+import cdnService from '../../../services/CdnService.js';
+import { CDN_CONFIG } from '../../../cdnService/config.js';
+import multer from 'multer';
+import fs from 'fs';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
 const router = Router();
 
+// Configure multer for handling file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 1000 * 1024 * 1024 // 1GB limit
+  }
+});
+
+// Helper function to check if a URL is from our CDN
+const isCdnUrl = (url: string): boolean => {
+  return url.startsWith(CDN_CONFIG.baseUrl);
+};
+
+// Helper function to extract file ID from CDN URL
+const getFileIdFromCdnUrl = (url: string): string | null => {
+  if (!isCdnUrl(url)) return null;
+  const parts = url.split('/');
+  return parts[parts.length - 1];
+};
+
 // Update a level
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
-    // Start a transaction with REPEATABLE READ to ensure consistency during the update
     const transaction = await sequelize.transaction({
       isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ,
     });
@@ -48,12 +79,20 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           },
         ],
         transaction,
-        lock: true, // Lock this row for update
+        lock: true,
       });
   
       if (!level) {
         await transaction.rollback();
         return res.status(404).json({error: 'Level not found'});
+      }
+
+      // Check if trying to modify a CDN-managed download link
+      if (req.body.dlLink && isCdnUrl(level.dlLink) && req.body.dlLink !== level.dlLink) {
+        await transaction.rollback();
+        return res.status(403).json({
+          error: 'Cannot modify CDN-managed download link directly. Use the upload management endpoints instead.'
+        });
       }
   
       // Initialize previous state variables
@@ -880,5 +919,212 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
     return res.status(500).json({ error: 'Failed to vote on rating accuracy' });
   }
 })
+
+// Upload management endpoints
+router.post('/:id/upload', Auth.superAdmin(), upload.single('levelZip'), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).json({error: 'Invalid level ID'});
+    }
+
+    if (!req.file) {
+      return res.status(400).json({error: 'No file uploaded'});
+    }
+
+    // Get current level
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'Level not found'});
+    }
+
+    // Delete old file if it exists
+    if (level.dlLink && isCdnUrl(level.dlLink)) {
+      const oldFileId = getFileIdFromCdnUrl(level.dlLink);
+      if (oldFileId) {
+        try {
+          await cdnService.deleteFile(oldFileId);
+        } catch (error) {
+          logger.warn('Failed to delete old file:', error);
+        }
+      }
+    }
+
+    // Upload new file
+    try {
+      const fileBuffer = await fs.promises.readFile(req.file.path);
+      const uploadResult = await cdnService.uploadLevelZip(fileBuffer, req.file.originalname);
+      
+      // Clean up temp file
+      await fs.promises.unlink(req.file.path);
+
+      // Get level files
+      const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
+      
+      // Update level with new download link
+      await Level.update({
+        dlLink: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`
+      }, {
+        where: { id: levelId },
+        transaction
+      });
+
+      // Fetch the updated level with all necessary associations
+      const updatedLevel = await Level.findOne({
+        where: { id: levelId },
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+            required: false,
+          },
+          {
+            model: Pass,
+            as: 'passes',
+            required: false,
+            attributes: ['id'],
+          },
+        ],
+        transaction
+      });
+
+      await transaction.commit();
+
+      return res.json({
+        success: true,
+        message: 'Level file uploaded successfully',
+        fileId: uploadResult.fileId,
+        level: updatedLevel,
+        levelFiles: levelFiles.map(file => ({
+          name: file.name,
+          size: file.size,
+          hasYouTubeStream: file.hasYouTubeStream,
+          songFilename: file.songFilename,
+          artist: file.artist,
+          song: file.song,
+          author: file.author,
+          difficulty: file.difficulty,
+          bpm: file.bpm
+        }))
+      });
+    } catch (error) {
+      // Clean up temp file
+      if (req.file?.path) {
+        try {
+          await fs.promises.unlink(req.file.path);
+        } catch (cleanupError) {
+          logger.warn('Failed to clean up temp file:', cleanupError);
+        }
+      }
+      throw error;
+    }
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error uploading level file:', error);
+    return res.status(500).json({
+      error: 'Failed to upload level file',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { selectedLevel } = req.body;
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId) || !selectedLevel) {
+      return res.status(400).json({error: 'Invalid level ID or missing selected level'});
+    }
+
+    const level = await Level.findByPk(levelId, { transaction }); 
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'Level not found'});
+    }
+
+    const fileId = getFileIdFromCdnUrl(level.dlLink);
+    if (!fileId) {
+      await transaction.rollback();
+      return res.status(400).json({error: 'File ID is required'});
+    }
+
+    const file = await cdnService.setTargetLevel(fileId, selectedLevel);
+    if (!file) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'File not found'});
+    }
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      message: 'Level file selected successfully'
+    });
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error selecting level file:', error);
+    return res.status(500).json({
+      error: 'Failed to select level file',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+})
+
+router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).json({error: 'Invalid level ID'});
+    }
+
+    // Get current level
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      await transaction.rollback();
+      return res.status(404).json({error: 'Level not found'});
+    }
+
+    // Check if level has a CDN-managed file
+    if (!level.dlLink || !isCdnUrl(level.dlLink)) {
+      await transaction.rollback();
+      return res.status(400).json({error: 'Level does not have a CDN-managed file'});
+    }
+
+    // Delete file from CDN
+    const fileId = getFileIdFromCdnUrl(level.dlLink)!;
+    logger.debug(`Deleting file from CDN: ${fileId}`);
+    await cdnService.deleteFile(fileId);
+
+    // Update level to remove download link
+    await Level.update({
+      dlLink: 'removed'
+    }, {
+      where: { id: levelId },
+      transaction
+    });
+
+    await transaction.commit();
+
+    return res.json({
+      success: true,
+      dlLink: 'removed',
+      message: 'Level file deleted successfully'
+    });
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error deleting level file:', error);
+    return res.status(500).json({
+      error: 'Failed to delete level file',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
 
 export default router;

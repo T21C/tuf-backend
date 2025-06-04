@@ -5,6 +5,7 @@ import { CDN_CONFIG, MIME_TYPES } from "../config.js";
 import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
+import { cleanupFiles } from "../services/storage.js";
 const router = Router();
 
 // Helper function to safely set headers with proper encoding
@@ -155,6 +156,22 @@ router.get('/:fileId', async (req: Request, res: Response) => {
     return;
 });
 
+router.get('/:fileId/metadata', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        const file = await CdnFile.findByPk(fileId);
+
+        if (!file) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        res.json({ metadata: file.metadata });
+    } catch (error) {
+        logger.error('File metadata retrieval error:', error);
+        res.status(500).json({ error: 'File metadata retrieval failed' });
+    }
+    return;
+});
+
 // Delete file endpoint
 router.delete('/:fileId', async (req: Request, res: Response) => {
     try {
@@ -165,14 +182,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        // Get the full path relative to CDN root
-        const fullPath = path.join(CDN_CONFIG.user_root, file.filePath);
-        
-
-        if (fs.existsSync(fullPath) && fs.lstatSync(fullPath).isDirectory() && path.basename(fullPath) === fileId) {
-            fs.rmSync(fullPath, { recursive: true });
-        }
-        
+        await cleanupFiles(file.filePath);
         
         // Delete the database entry
         await file.destroy();

@@ -160,13 +160,13 @@ export class CdnService {
         }
     }
 
-    async deleteImage(fileId: string): Promise<void> {
+    async deleteFile(fileId: string): Promise<void> {
         try {
             await this.client.delete(`/${fileId}`);
         } catch (error) {
-            logger.error('Failed to delete image from CDN:', error);
+            logger.error('Failed to delete file from CDN:', error);
             throw new CdnError(
-                'Failed to delete image',
+                'Failed to delete file',
                 'DELETE_ERROR',
                 { originalError: error instanceof Error ? error.message : String(error) }
             );

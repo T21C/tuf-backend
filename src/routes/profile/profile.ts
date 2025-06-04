@@ -255,7 +255,7 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
         );
         try {
             if (user.avatarId) {
-                await cdnService.deleteImage(user.avatarId);
+                await cdnService.deleteFile(user.avatarId);
             }
         } catch (error) {
             logger.error('Error deleting old avatar from CDN:', error);
@@ -322,7 +322,7 @@ router.delete('/avatar', Auth.user(), async (req: Request, res: Response) => {
 
         // Delete from CDN after updating user record
         try {
-            await cdnService.deleteImage(oldAvatarId);
+            await cdnService.deleteFile(oldAvatarId);
         } catch (error) {
             // Log the error but don't fail the request since user record is already updated
             logger.error('Error deleting old avatar from CDN:', error);
