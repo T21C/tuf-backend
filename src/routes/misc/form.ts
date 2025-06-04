@@ -141,8 +141,7 @@ router.post(
             
             const uploadResult = await cdnService.uploadLevelZip(
               fileBuffer, 
-              req.file.originalname,
-              req.body.originalname // Pass the base64 encoded original name
+              req.file.originalname
             );
 
             // Clean up the temporary file

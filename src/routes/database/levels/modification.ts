@@ -956,6 +956,7 @@ router.post('/:id/upload', Auth.superAdmin(), upload.single('levelZip'), async (
     // Upload new file
     try {
       const fileBuffer = await fs.promises.readFile(req.file.path);
+      logger.debug(`Uploading file to CDN: ${req.file.originalname}`);
       const uploadResult = await cdnService.uploadLevelZip(fileBuffer, req.file.originalname);
       
       // Clean up temp file

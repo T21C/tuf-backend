@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import { logger } from './LoggerService.js';
 
-const CDN_BASE_URL = process.env.CDN_URL || 'http://localhost:3001';
+const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
 export class CdnError extends Error {
     constructor(
@@ -80,8 +80,7 @@ class CdnService {
 
     async uploadLevelZip(
         zipBuffer: Buffer,
-        filename: string,
-        originalname?: string
+        filename: string
     ): Promise<{
         success: boolean;
         fileId: string;
@@ -99,11 +98,6 @@ class CdnService {
                 filename,
                 contentType: 'application/zip'
             });
-
-            // Pass the base64 encoded original name if provided
-            if (originalname) {
-                formData.append('originalname', originalname);
-            }
 
             logger.debug('FormData prepared for CDN upload:', {
                 filename,

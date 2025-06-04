@@ -169,6 +169,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 router.get('/:fileId/metadata', async (req: Request, res: Response) => {
     try {
         const { fileId } = req.params;
+        logger.debug(`Fetching metadata for file: ${fileId}`);
         const file = await CdnFile.findByPk(fileId);
 
         if (!file) {

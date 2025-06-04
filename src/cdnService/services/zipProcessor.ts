@@ -97,8 +97,8 @@ function decodeFilename(hex: string): string {
     }
 }
 
-export async function processZipFile(zipFilePath: string, zipFileId: string, originalZipName?: string): Promise<void> {
-    logger.info('Starting zip file processing:', { zipFilePath, zipFileId });
+export async function processZipFile(zipFilePath: string, zipFileId: string, encodedFilename: string): Promise<void> {
+    logger.info('Starting zip file processing:', { zipFilePath, zipFileId, encodedFilename });
     
     try {
         const zipEntries = await extractZipEntries(zipFilePath);
@@ -121,18 +121,15 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
             await fs.promises.mkdir(permanentDir, { recursive: true });
             logger.info('Created permanent storage directory:', { permanentDir });
 
-            // Use the provided original zip name or fallback to a default
-            const finalZipName = originalZipName 
-                ? decodeFilename(originalZipName)
-                : 'level.zip';
-                
-            logger.info('Using original zip name:', { 
+            // Decode the filename from the encoded filename
+            const finalZipName = decodeFilename(encodedFilename);
+            logger.info('Using decoded zip name:', { 
                 finalZipName,
-                encodedName: originalZipName,
+                encodedName: encodedFilename,
                 decodedSuccessfully: finalZipName !== 'level.zip'
             });
 
-            // Store the original zip file with its original name
+            // Store the original zip file with its decoded name
             const originalZipPath = path.join(permanentDir, finalZipName);
             await fs.promises.copyFile(zipFilePath, originalZipPath);
             logger.info('Stored original zip file:', { 

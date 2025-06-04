@@ -6,6 +6,7 @@ import { processZipFile } from "../services/zipProcessor.js";
 import { Request, Response, Router } from 'express';
 import CdnFile from "../../models/cdn/CdnFile.js";
 import { LevelAnalyzer } from "../services/levelAnalyzer.js";
+import crypto from 'crypto';
 
 const router = Router();
 
@@ -128,12 +129,13 @@ router.post('/', (req: Request, res: Response) => {
         });
 
         try {
-            const fileId = path.parse(req.file.filename).name;
-            logger.info('Generated file ID for zip:', { fileId });
+            // Generate a UUID for the database entry
+            const fileId = crypto.randomUUID();
+            logger.info('Generated UUID for database entry:', { fileId });
             
             // Process zip file first to validate contents
             logger.info('Starting zip file processing');
-            await processZipFile(req.file.path, fileId, req.body.originalname);
+            await processZipFile(req.file.path, fileId, req.file.originalname);
             logger.info('Successfully processed zip file');
 
             // Clean up the original zip file since we've extracted what we need
