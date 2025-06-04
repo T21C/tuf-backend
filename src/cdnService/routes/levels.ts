@@ -1,0 +1,212 @@
+import { Router, Request, Response } from "express";
+import { logger } from "../../services/LoggerService.js";
+import CdnFile from "../../models/cdn/CdnFile.js";
+import { CDN_CONFIG } from "../config.js";
+import FileAccessLog from "../../models/cdn/FileAccessLog.js";
+import fs from "fs";
+import path from "path";
+import { transformLevel } from "../services/levelTransformer.js";
+import { repackZipFile } from "../services/zipProcessor.js";
+import { LevelService } from "../services/levelService.js";
+const router = Router();
+// Transform level endpoint
+router.get('/:fileId/transform', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        const file = await CdnFile.findByPk(fileId);
+
+        if (!file) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        if (file.type !== 'LEVELZIP') {
+            return res.status(400).json({ error: 'File is not a level zip' });
+        }
+
+        const metadata = file.metadata as {
+            allLevelFiles?: Array<{
+                name: string;
+                path: string;
+                size: number;
+                hasYouTubeStream?: boolean;
+                songFilename?: string;
+            }>;
+            songFiles?: Record<string, {
+                name: string;
+                path: string;
+                size: number;
+                type: string;
+            }>;
+            targetLevel?: string | null;
+        };
+
+        // Log metadata structure for debugging
+        logger.debug('Level metadata structure:', {
+            hasMetadata: !!file.metadata,
+            metadataKeys: file.metadata ? Object.keys(file.metadata) : [],
+            targetLevel: metadata.targetLevel,
+            hasSongFiles: !!metadata.songFiles,
+            songFileCount: metadata.songFiles ? Object.keys(metadata.songFiles).length : 0,
+            hasAllLevelFiles: !!metadata.allLevelFiles,
+            levelFileCount: metadata.allLevelFiles?.length || 0
+        });
+
+        // Validate metadata structure
+        if (!file.metadata) {
+            logger.error('Missing metadata object:', { fileId });
+            return res.status(400).json({ error: 'Level metadata is missing' });
+        }
+
+        if (!metadata.songFiles) {
+            logger.error('Missing song files in metadata:', { 
+                fileId,
+                metadata: file.metadata 
+            });
+            return res.status(400).json({ error: 'Song files not found in metadata' });
+        }
+
+        // If targetLevel is missing, find the largest level file
+        if (!metadata.targetLevel) {
+            if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
+                logger.error('No level files found in metadata:', { 
+                    fileId,
+                    metadata: file.metadata 
+                });
+                return res.status(400).json({ error: 'No level files found in metadata' });
+            }
+
+            // Sort by size and pick the largest
+            const largestLevel = metadata.allLevelFiles.reduce((largest, current) => {
+                return (current.size > largest.size) ? current : largest;
+            });
+
+            logger.info('Selected largest level file as target:', {
+                fileId,
+                selectedLevel: largestLevel.name,
+                size: largestLevel.size,
+                path: largestLevel.path
+            });
+
+            metadata.targetLevel = largestLevel.path;
+        }
+
+        // Validate target level exists
+        try {
+            await fs.promises.access(metadata.targetLevel, fs.constants.F_OK);
+        } catch (error) {
+            logger.error('Target level file not found:', {
+                fileId,
+                targetLevel: metadata.targetLevel,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return res.status(400).json({ error: 'Target level file not found on disk' });
+        }
+
+        // Parse query parameters
+        const {
+            keepEvents,
+            dropEvents,
+            extraProtectedEvents,
+            baseCameraZoom,
+            stripDecorations,
+            format = 'json' // New parameter: 'json' or 'zip'
+        } = req.query;
+
+        // Build transform options
+        const options = {
+            keepEventTypes: keepEvents ? new Set(String(keepEvents).split(',')) : undefined,
+            dropEventTypes: dropEvents ? new Set(String(dropEvents).split(',')) : undefined,
+            extraProtectedEventTypes: extraProtectedEvents ? new Set(String(extraProtectedEvents).split(',')) : undefined,
+            baseCameraZoom: baseCameraZoom ? parseFloat(String(baseCameraZoom)) : undefined,
+            decorationFilter: stripDecorations === 'true' ? 
+                (deco: Record<string, any>) => true : // Remove all decorations
+                undefined
+        };
+
+        // Read the level file
+        const levelPath = metadata.targetLevel;
+        const parsedLevel = await LevelService.readLevelFile(levelPath);
+        // Transform the level
+        const transformedLevel = transformLevel(parsedLevel, options);
+
+        // Log the transformation
+        await FileAccessLog.create({
+            fileId: fileId,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent') || null,
+            action: 'transform'
+        });
+
+        await file.increment('accessCount');
+
+        // Handle different response formats
+        if (format === 'zip') {
+            // Create a temporary file for the transformed level
+            const tempDir = path.join(CDN_CONFIG.user_root, 'temp');
+            await fs.promises.mkdir(tempDir, { recursive: true });
+            
+            const tempLevelPath = path.join(tempDir, `transformed_${Date.now()}.adofai`);
+            await fs.promises.writeFile(tempLevelPath, JSON.stringify(transformedLevel, null, 2));
+
+            // Find the song file referenced in the level
+            const songFilename = transformedLevel.settings?.songFilename;
+            if (!songFilename || !metadata.songFiles[songFilename]) {
+                await fs.promises.unlink(tempLevelPath);
+                return res.status(400).json({ error: 'Song file not found in level' });
+            }
+
+            // Create a temporary metadata object for repacking
+            const tempMetadata = {
+                levelFile: {
+                    name: path.basename(levelPath),
+                    path: tempLevelPath,
+                    size: (await fs.promises.stat(tempLevelPath)).size
+                },
+                songFile: {
+                    name: songFilename,
+                    path: metadata.songFiles[songFilename].path,
+                    size: metadata.songFiles[songFilename].size,
+                    type: metadata.songFiles[songFilename].type
+                }
+            };
+
+            // Repack the zip
+            const zipPath = await repackZipFile(tempMetadata);
+            
+            // Set headers for zip download
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="transformed_${path.basename(levelPath)}.zip"`);
+            
+            // Stream the zip file
+            const fileStream = fs.createReadStream(zipPath);
+            fileStream.pipe(res);
+
+            // Clean up after streaming
+            fileStream.on('end', () => {
+                fs.promises.unlink(zipPath).catch(() => {});
+                fs.promises.unlink(tempLevelPath).catch(() => {});
+            });
+
+            fileStream.on('error', (error) => {
+                logger.error('Error streaming zip file:', error);
+                fs.promises.unlink(zipPath).catch(() => {});
+                fs.promises.unlink(tempLevelPath).catch(() => {});
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Error streaming file' });
+                }
+            });
+        } else {
+            // Return JSON response
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', `attachment; filename="transformed_${path.basename(levelPath)}"`);
+            res.setHeader('Cache-Control', 'no-store');
+            res.json(transformedLevel);
+        }
+    } catch (error) {
+        logger.error('Level transformation error:', error);
+        res.status(500).json({ error: 'Level transformation failed' });
+    }
+    return;
+});
+
+export default router;

@@ -5,7 +5,7 @@ import { CDN_CONFIG } from "../config.js";
 import { processZipFile } from "../services/zipProcessor.js";
 import { Request, Response, Router } from 'express';
 import CdnFile from "../../models/cdn/CdnFile.js";
-import { LevelAnalyzer } from "../services/levelAnalyzer.js";
+import { LevelService } from "../services/levelService.js";
 import crypto from 'crypto';
 
 const router = Router();
@@ -50,8 +50,8 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     ? file.path.replace(/\\/g, '/')
                     : path.resolve(file.path).replace(/\\/g, '/');
 
-                const levelData = await LevelAnalyzer.readLevelFile(normalizedPath);
-                const analysis = LevelAnalyzer.analyzeLevelData(levelData);
+                const levelData = await LevelService.readLevelFile(normalizedPath);
+                const analysis = LevelService.analyzeLevelData(levelData);
                 
                 return {
                     name: file.name,

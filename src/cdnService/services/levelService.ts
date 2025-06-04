@@ -22,7 +22,7 @@ interface LevelAnalysis {
     };
 }
 
-export class LevelAnalyzer {
+export class LevelService {
     /**
      * Reads and parses a level file from disk
      * @param levelPath Path to the .adofai file

@@ -5,7 +5,7 @@ import { CDN_CONFIG } from '../config.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { logger } from '../../services/LoggerService.js';
 import { storageManager } from './storageManager.js';
-import { LevelAnalyzer } from './levelAnalyzer.js';
+import { LevelService } from './levelService.js';
 
 interface ZipEntry {
     name: string;
@@ -150,8 +150,8 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                     await extractFile(zipFilePath, entry, tempPath);
 
                     try {
-                        const levelData = await LevelAnalyzer.readLevelFile(tempPath);
-                        const analysis = LevelAnalyzer.analyzeLevelData(levelData);
+                        const levelData = await LevelService.readLevelFile(tempPath);
+                        const analysis = LevelService.analyzeLevelData(levelData);
                         
                         // Move file to permanent storage with original filename
                         const levelFilename = path.basename(entry.relativePath);
@@ -218,14 +218,28 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                 }
             }
 
+            // Clean up the parent temp directory
+            const tempDir = path.join(storageRoot, 'temp');
+            storageManager.cleanupFiles(tempDir);
+
             // Determine target level
             let targetLevel: string | null = null;
             let pathConfirmed = false;
 
-            if (allLevelFiles.length === 1) {
-                // If only one level, automatically set it as target
-                targetLevel = allLevelFiles[0].path; // Use absolute path
-                pathConfirmed = true;
+            if (allLevelFiles.length > 0) {
+                // Always select the largest level file as target
+                const largestLevel = allLevelFiles.reduce((largest, current) => {
+                    return (current.size > largest.size) ? current : largest;
+                });
+
+                targetLevel = largestLevel.path; // Use absolute path
+
+                logger.info('Selected largest level file as target:', {
+                    selectedLevel: largestLevel.name,
+                    size: largestLevel.size,
+                    path: largestLevel.path,
+                    totalLevels: allLevelFiles.length
+                });
             }
 
             // Create database entry with absolute path
@@ -271,35 +285,26 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
     }
 }
 
-export async function repackZipFile(zipFileId: string) {
+interface RepackMetadata {
+    levelFile: {
+        name: string;
+        path: string;
+        size: number;
+    };
+    songFile: {
+        name: string;
+        path: string;
+        size: number;
+        type: string;
+    };
+}
+
+export async function repackZipFile(metadata: RepackMetadata): Promise<string> {
     let tempZipPath: string | null = null;
     
-    logger.info('Starting zip file repacking:', { zipFileId });
+    logger.info('Starting zip file repacking:', { metadata });
     
     try {
-        const levelEntry = await CdnFile.findByPk(zipFileId);
-        if (!levelEntry || !levelEntry.metadata) {
-            logger.error('Level entry not found or invalid:', {
-                zipFileId,
-                hasEntry: !!levelEntry,
-                hasMetadata: !!levelEntry?.metadata
-            });
-            throw new Error('Level entry not found or invalid');
-        }
-
-        const { levelFile, songFile } = levelEntry.metadata as {
-            levelFile: LevelFile;
-            songFile: SongFile;
-        };
-
-        if (!levelFile || !songFile) {
-            logger.error('Missing level or song file metadata:', {
-                hasLevelFile: !!levelFile,
-                hasSongFile: !!songFile
-            });
-            throw new Error('Missing level or song file metadata');
-        }
-
         // Reserve a drive for all operations
         const storageRoot = await storageManager.reserveDrive();
         
@@ -316,26 +321,18 @@ export async function repackZipFile(zipFileId: string) {
             // Add level and song files to zip
             logger.info('Adding files to zip:', {
                 levelFile: {
-                    name: levelFile.name,
-                    path: levelFile.path
+                    name: metadata.levelFile.name,
+                    path: metadata.levelFile.path
                 },
                 songFile: {
-                    name: songFile.name,
-                    path: songFile.path
+                    name: metadata.songFile.name,
+                    path: metadata.songFile.path
                 }
             });
 
-            // Use absolute paths from the database
-            zip.addLocalFile(
-                path.join(levelEntry.filePath, levelFile.name),
-                '',
-                levelFile.name
-            );
-            zip.addLocalFile(
-                path.join(levelEntry.filePath, songFile.name),
-                '',
-                songFile.name
-            );
+            // Use absolute paths from the metadata
+            zip.addLocalFile(metadata.levelFile.path, '', metadata.levelFile.name);
+            zip.addLocalFile(metadata.songFile.path, '', metadata.songFile.name);
 
             logger.info('Writing zip file to disk:', { tempZipPath });
             zip.writeZip(tempZipPath);
@@ -350,7 +347,7 @@ export async function repackZipFile(zipFileId: string) {
         logger.error('Error repacking zip file:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
-            zipFileId,
+            metadata,
             tempZipPath
         });
         
