@@ -29,9 +29,8 @@ import User from '../../models/auth/User.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
-import { cleanupFiles } from '../../cdnService/services/storage.js';
-import path from 'path';
 import { CDN_CONFIG } from '../../cdnService/config.js';
+import cdnService from '../../services/CdnService.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -505,10 +504,9 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
 
       // Check if the directDL is a local CDN URL
       if (submission.directDL && submission.directDL.startsWith(`${CDN_CONFIG.baseUrl}/cdn/levels/`)) {
-        const levelId = submission.directDL.split('/').pop();
-        if (levelId) {
-          const levelPath = path.join(CDN_CONFIG.user_root, 'levels', levelId);
-          cleanupFiles(levelPath);
+        const fileId = submission.directDL.split('/').pop();
+        if (fileId) {
+          await cdnService.deleteFile(fileId);
         }
       }
 

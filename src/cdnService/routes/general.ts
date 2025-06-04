@@ -5,7 +5,7 @@ import { CDN_CONFIG, MIME_TYPES } from "../config.js";
 import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
-import { cleanupFiles } from "../services/storage.js";
+import { storageManager } from "../services/storageManager.js";
 const router = Router();
 
 // Helper function to safely set headers with proper encoding
@@ -59,27 +59,25 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         }
 
         const { originalZip } = metadata;
-
-        const zipPath = path.join(CDN_CONFIG.file_root, originalZip.path);
         
         // Check if file exists
         try {
-            await fs.promises.access(zipPath, fs.constants.F_OK);
+            await fs.promises.access(originalZip.path, fs.constants.F_OK);
         } catch (error) {
             logger.error('Zip file not found on disk:', {
                 fileId,
-                path: zipPath,
+                path: originalZip.path,
                 error: error instanceof Error ? error.message : String(error)
             });
             return res.status(404).json({ error: 'Zip file not found' });
         }
 
         // Get file stats
-        const stats = await fs.promises.stat(zipPath);
+        const stats = await fs.promises.stat(originalZip.path);
 
         logger.info('Setting headers for zip file:', {
             fileId,
-            zipPath,
+            path: originalZip.path,
             baseName: originalZip.name
         });
 
@@ -107,14 +105,14 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         
         file.increment('accessCount');
         // Stream the file
-        const fileStream = fs.createReadStream(zipPath);
+        const fileStream = fs.createReadStream(originalZip.path);
         fileStream.pipe(res);
 
         // Handle errors during streaming
         fileStream.on('error', (error) => {
             logger.error('Error streaming zip file:', {
                 fileId,
-                path: zipPath,
+                path: originalZip.path,
                 error: error instanceof Error ? error.message : String(error)
             });
             if (!res.headersSent) {
@@ -145,6 +143,18 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         });
 
         await file.increment('accessCount');
+
+        // Check if file exists
+        try {
+            await fs.promises.access(file.filePath, fs.constants.F_OK);
+        } catch (error) {
+            logger.error('File not found on disk:', {
+                fileId,
+                path: file.filePath,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return res.status(404).json({ error: 'File not found' });
+        }
 
         res.setHeader('Content-Type', MIME_TYPES[file.type]);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
@@ -182,7 +192,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        await cleanupFiles(file.filePath);
+        storageManager.cleanupFiles(file.filePath);
         
         // Delete the database entry
         await file.destroy();

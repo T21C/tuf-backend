@@ -1,12 +1,12 @@
 import { logger } from "../../services/LoggerService.js";
 import imageFactory, { ImageProcessingError } from "../services/imageFactory.js";
-import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize } from "../config.js";
+import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from "../config.js";
 import { Request, Response, Router } from 'express';
 import CdnFile from "../../models/cdn/CdnFile.js";
 import fs from 'fs';
 import path from 'path';
 import FileAccessLog from "../../models/cdn/FileAccessLog.js";
-import { cleanupFiles, imageUpload } from "../services/storage.js";
+import { storageManager } from "../services/storageManager.js";
 
 const router = Router();
 
@@ -34,8 +34,8 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Image not found' });
         }
 
-        // Convert database path to filesystem path
-        const fsPath = path.join(CDN_CONFIG.user_root, file.filePath, `${imageSize}.png`);
+        // Use the absolute path directly
+        const fsPath = path.join(file.filePath, `${imageSize}.png`);
 
         if (!fs.existsSync(fsPath)) {
             logger.error(`File not found on disk: ${fsPath}`);
@@ -51,7 +51,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
 
         await file.increment('accessCount');
 
-        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Content-Type', MIME_TYPES[file.type]);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
         fs.createReadStream(fsPath).pipe(res);
     } catch (error) {
@@ -82,7 +82,7 @@ router.post('/:type', (req: Request, res: Response) => {
         });
     }
 
-    imageUpload(req, res, async (err) => {
+    storageManager.imageUpload(req, res, async (err) => {
         if (err) {
             logger.error('Image upload error:', err);
             return res.status(400).json({ 
@@ -107,7 +107,7 @@ router.post('/:type', (req: Request, res: Response) => {
             res.json(result);
         } catch (error) {
             logger.error('Image processing error:', error);
-            cleanupFiles(req.file.path);
+            storageManager.cleanupFiles(req.file.path);
             
             if (error instanceof ImageProcessingError) {
                 return res.status(400).json({

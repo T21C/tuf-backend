@@ -36,7 +36,19 @@ CdnFile.init({
     sequelize,
     modelName: 'CdnFile',
     tableName: 'cdn_files',
-    timestamps: true
+    timestamps: true,
+    hooks: {
+        beforeCreate: (instance: CdnFile) => {
+            if (instance.filePath) {
+                instance.filePath = instance.filePath.replace(/\\/g, '/');
+            }
+        },
+        beforeUpdate: (instance: CdnFile) => {
+            if (instance.changed('filePath')) {
+                instance.filePath = instance.filePath.replace(/\\/g, '/');
+            }
+        }
+    }
 });
 
 export default CdnFile; 

@@ -1,6 +1,6 @@
 import path from "path";
 import { logger } from "../../services/LoggerService.js";
-import { cleanupFiles, upload } from "../services/storage.js";
+import { storageManager } from "../services/storageManager.js";
 import { CDN_CONFIG } from "../config.js";
 import { processZipFile } from "../services/zipProcessor.js";
 import { Request, Response, Router } from 'express';
@@ -44,7 +44,12 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         // Get fresh analysis for each level file
         const levelFiles = await Promise.all(allLevelFiles.map(async (file) => {
             try {
-                const levelData = await LevelAnalyzer.readLevelFile(path.join(CDN_CONFIG.file_root, file.path));
+                // Normalize the path to use forward slashes and ensure it's absolute
+                const normalizedPath = path.isAbsolute(file.path) 
+                    ? file.path.replace(/\\/g, '/')
+                    : path.resolve(file.path).replace(/\\/g, '/');
+
+                const levelData = await LevelAnalyzer.readLevelFile(normalizedPath);
                 const analysis = LevelAnalyzer.analyzeLevelData(levelData);
                 
                 return {
@@ -61,7 +66,10 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
             } catch (error) {
                 logger.error('Failed to analyze level file:', {
                     error: error instanceof Error ? error.message : String(error),
-                    path: file.path
+                    path: file.path,
+                    normalizedPath: path.isAbsolute(file.path) 
+                        ? file.path.replace(/\\/g, '/')
+                        : path.resolve(file.path).replace(/\\/g, '/')
                 });
                 return {
                     name: file.name,
@@ -96,7 +104,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
 router.post('/', (req: Request, res: Response) => {
     logger.info('Received zip upload request');
     
-    upload(req, res, async (err) => {
+    storageManager.upload(req, res, async (err) => {
         if (err) {
             logger.error('Multer error during zip upload:', {
                 error: err.message,
@@ -125,12 +133,12 @@ router.post('/', (req: Request, res: Response) => {
             
             // Process zip file first to validate contents
             logger.info('Starting zip file processing');
-            await processZipFile(req.file.path, fileId);
+            await processZipFile(req.file.path, fileId, req.body.originalname);
             logger.info('Successfully processed zip file');
 
             // Clean up the original zip file since we've extracted what we need
             logger.info('Cleaning up original zip file');
-            cleanupFiles(req.file.path);
+            storageManager.cleanupFiles(req.file.path);
             logger.info('Original zip file cleaned up');
 
             const response = {
@@ -152,7 +160,7 @@ router.post('/', (req: Request, res: Response) => {
                 } : null
             });
             
-            cleanupFiles(req.file.path);
+            storageManager.cleanupFiles(req.file.path);
 
             // Try to parse error message if it's JSON
             let errorDetails;

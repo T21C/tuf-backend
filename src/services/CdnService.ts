@@ -15,7 +15,7 @@ export class CdnError extends Error {
     }
 }
 
-export class CdnService {
+class CdnService {
     private static instance: CdnService;
     private client: AxiosInstance;
 
@@ -80,7 +80,8 @@ export class CdnService {
 
     async uploadLevelZip(
         zipBuffer: Buffer,
-        filename: string
+        filename: string,
+        originalname?: string
     ): Promise<{
         success: boolean;
         fileId: string;
@@ -99,8 +100,10 @@ export class CdnService {
                 contentType: 'application/zip'
             });
 
-            // Encode filename in base64 to preserve all characters
-            formData.append('originalname', Buffer.from(filename).toString('base64'));
+            // Pass the base64 encoded original name if provided
+            if (originalname) {
+                formData.append('originalname', originalname);
+            }
 
             logger.debug('FormData prepared for CDN upload:', {
                 filename,

@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { CDN_CONFIG } from '../config.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { logger } from '../../services/LoggerService.js';
-import { cleanupFiles } from './storage.js';
+import { storageManager } from './storageManager.js';
 
 export interface ImageValidationResult {
     isValid: boolean;
@@ -127,7 +127,7 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
             });
         } else {
             // Delete the file and its record
-            cleanupFiles(file.filePath);
+            storageManager.cleanupFiles(file.filePath);
             await file.destroy();
         }
 

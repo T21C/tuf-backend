@@ -139,7 +139,11 @@ router.post(
             // Read file from disk instead of using buffer
             const fileBuffer = await fs.promises.readFile(req.file.path);
             
-            const uploadResult = await cdnService.uploadLevelZip(fileBuffer, req.file.originalname);
+            const uploadResult = await cdnService.uploadLevelZip(
+              fileBuffer, 
+              req.file.originalname,
+              req.body.originalname // Pass the base64 encoded original name
+            );
 
             // Clean up the temporary file
             await fs.promises.unlink(req.file.path);
@@ -211,7 +215,7 @@ router.post(
 
         // Create team request record if present within transaction
         const parsedTeamRequest = JSON.parse(req.body.teamRequest);
-        if (req.body.teamRequest && parsedTeamRequest.teamName) {
+        if (parsedTeamRequest && parsedTeamRequest.teamName) {
           await LevelSubmissionTeamRequest.create({
             submissionId: submission.id,
             teamName: parsedTeamRequest.teamName,

@@ -4,8 +4,9 @@ import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
 import { logger } from '../../services/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
 import { processImage } from './imageProcessor.js';
-import { cleanupFiles } from './storage.js';
+import { storageManager } from './storageManager.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
+
 
 export interface ImageUploadResult {
     success: boolean;
@@ -55,16 +56,16 @@ export class ImageFactory {
             // Save original file
             const originalPath = path.join(imageDir, 'original.png');
             fs.copyFileSync(filePath, originalPath);
-            cleanupFiles(filePath);
+            storageManager.cleanupFiles(filePath);
 
             // Process variants
             const processedFiles = await processImage(originalPath, imageType, fileId);
             
-            // Create database entry
+            // Create database entry with absolute path
             await CdnFile.create({
                 id: fileId,
                 type: imageType,
-                filePath: `images/${imageConfig.name}/${fileId}`,
+                filePath: imageDir, // Store absolute path
                 fileSize: fs.statSync(originalPath).size,
                 isDirectory: true,
             });
@@ -87,7 +88,7 @@ export class ImageFactory {
             };
         } catch (error) {
             logger.error('Image processing error:', error);
-            cleanupFiles(filePath);
+            storageManager.cleanupFiles(filePath);
             
             if (error instanceof ImageValidationError) {
                 throw new ImageProcessingError(

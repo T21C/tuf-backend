@@ -2,14 +2,12 @@ import path from 'path';
 import dotenv from 'dotenv';
 dotenv.config();
 
-if (!process.env.USER_CDN_ROOT || !process.env.FILE_CDN_ROOT || !process.env.CDN_URL) {
-    throw new Error('USER_CDN_ROOT, FILE_CDN_ROOT, and CDN_URL must be set');
+if (!process.env.USER_CDN_ROOT || !process.env.CDN_URL) {
+    throw new Error('USER_CDN_ROOT and CDN_URL must be set');
 }
 
 export const CDN_CONFIG = {
     user_root: process.env.USER_CDN_ROOT,
-    file_root: process.env.FILE_CDN_ROOT,
-    temp_root: path.join(process.env.USER_CDN_ROOT, 'temp'),
     maxFileSize: 1000 * 1024 * 1024, // 1GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
     cacheControl: 'public, max-age=31536000', // 1 year
