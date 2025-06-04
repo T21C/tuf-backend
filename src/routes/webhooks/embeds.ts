@@ -314,7 +314,7 @@ export async function createClearEmbed(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)}\n— ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''}\n— ${trim(level?.artist || 'Unknown Artist', 30)}`,
       pass.level?.difficulty?.icon || '',
       `${clientUrlEnv}/passes/${pass.id}`,
     )
