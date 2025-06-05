@@ -5,7 +5,7 @@ import { CDN_CONFIG } from "../config.js";
 import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
-import { transformLevel } from "../services/levelTransformer.js";
+import { PROTECTED_EVENT_TYPES, transformLevel } from "../services/levelTransformer.js";
 import { repackZipFile } from "../services/zipProcessor.js";
 import { LevelService } from "../services/levelService.js";
 import { ParsedQs } from "qs";
@@ -31,6 +31,10 @@ const extractLevelTypes = (levelData: LevelData) => {
 
     if (levelData.actions) {
         levelData.actions.forEach((action: LevelAction) => {
+            if (PROTECTED_EVENT_TYPES.has(action.eventType)) {
+                return;
+            }
+
             // Extract event types
             if (action.eventType) {
                 eventTypes.add(action.eventType);
@@ -166,7 +170,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             dropEventTypes: dropEvents ? new Set(String(dropEvents).split(',')) : undefined,
             extraProtectedEventTypes: extraProtectedEvents ? new Set(String(extraProtectedEvents).split(',')) : undefined,
             baseCameraZoom: baseCameraZoom ? parseFloat(String(baseCameraZoom)) : undefined,
-            constantBackgroundColor: constantBackgroundColor ? `#${String(constantBackgroundColor)}` : undefined,
+            constantBackgroundColor: constantBackgroundColor ? String(constantBackgroundColor) : undefined,
             removeForegroundFlash: removeForegroundFlash === 'true',
             dropFilters: dropFilters ? new Set(String(dropFilters).split(',')) : undefined
         };
