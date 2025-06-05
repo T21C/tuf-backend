@@ -156,3 +156,4 @@ src/config/recaptcha-service-key.json
 
 # tsimp
 .tsimp/
+src/cdnService/misc/event types.adofai

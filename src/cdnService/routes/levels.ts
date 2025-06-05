@@ -8,7 +8,52 @@ import path from "path";
 import { transformLevel } from "../services/levelTransformer.js";
 import { repackZipFile } from "../services/zipProcessor.js";
 import { LevelService } from "../services/levelService.js";
+import { ParsedQs } from "qs";
+
+interface LevelAction {
+    eventType: string;
+    filter?: string;
+    [key: string]: any;
+}
+
+interface LevelData {
+    actions?: LevelAction[];
+    [key: string]: any;
+}
+
 const router = Router();
+
+// Function to extract unique event types and filters from a level file
+const extractLevelTypes = (levelData: LevelData) => {
+    const eventTypes = new Set<string>();
+    const filterTypes = new Set<string>();
+    const advancedFilterTypes = new Set<string>();
+
+    if (levelData.actions) {
+        levelData.actions.forEach((action: LevelAction) => {
+            // Extract event types
+            if (action.eventType) {
+                eventTypes.add(action.eventType);
+            }
+
+            // Extract filter types
+            if (action.eventType === 'SetFilter' && action.filter) {
+                filterTypes.add(action.filter);
+            }
+            // Extract advanced filter types
+            else if (action.eventType === 'SetFilterAdvanced' && action.filter) {
+                advancedFilterTypes.add(action.filter);
+            }
+        });
+    }
+
+    return {
+        eventTypes: Array.from(eventTypes).sort(),
+        filterTypes: Array.from(filterTypes).sort(),
+        advancedFilterTypes: Array.from(advancedFilterTypes).sort()
+    };
+};
+
 // Transform level endpoint
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
     try {
@@ -109,6 +154,9 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             extraProtectedEvents,
             baseCameraZoom,
             stripDecorations,
+            constantBackgroundColor,
+            removeForegroundFlash,
+            dropFilters,
             format = 'json' // New parameter: 'json' or 'zip'
         } = req.query;
 
@@ -118,14 +166,18 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             dropEventTypes: dropEvents ? new Set(String(dropEvents).split(',')) : undefined,
             extraProtectedEventTypes: extraProtectedEvents ? new Set(String(extraProtectedEvents).split(',')) : undefined,
             baseCameraZoom: baseCameraZoom ? parseFloat(String(baseCameraZoom)) : undefined,
-            decorationFilter: stripDecorations === 'true' ? 
-                (deco: Record<string, any>) => true : // Remove all decorations
-                undefined
+            constantBackgroundColor: constantBackgroundColor ? `#${String(constantBackgroundColor)}` : undefined,
+            removeForegroundFlash: removeForegroundFlash === 'true',
+            dropFilters: dropFilters ? new Set(String(dropFilters).split(',')) : undefined
         };
 
         // Read the level file
         const levelPath = metadata.targetLevel;
         const parsedLevel = await LevelService.readLevelFile(levelPath);
+
+        // Extract available types from the level
+        const availableTypes = extractLevelTypes(parsedLevel);
+
         // Transform the level
         const transformedLevel = transformLevel(parsedLevel, options);
 
@@ -195,10 +247,15 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     res.status(500).json({ error: 'Error streaming file' });
                 }
             });
-        } else {
+        } else if (format === 'adofai') {
             // Return JSON response
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Content-Disposition', `attachment; filename="transformed_${path.basename(levelPath)}"`);
+            res.setHeader('Cache-Control', 'no-store');
+            res.json(transformedLevel);
+        }
+        else {
+            res.setHeader('Content-Type', 'application/json');
             res.setHeader('Cache-Control', 'no-store');
             res.json(transformedLevel);
         }
@@ -207,6 +264,71 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Level transformation failed' });
     }
     return;
+});
+
+router.get('/transform-options', async (req: Request, res: Response) => {
+    try {
+        const fileId = req.query.fileId as string;
+        
+        if (!fileId) {
+            return res.status(400).json({ error: 'File ID is required' });
+        }
+
+        const file = await CdnFile.findByPk(fileId);
+        if (!file) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        if (file.type !== 'LEVELZIP') {
+            return res.status(400).json({ error: 'File is not a level zip' });
+        }
+
+        const metadata = file.metadata as {
+            allLevelFiles?: Array<{
+                name: string;
+                path: string;
+                size: number;
+            }>;
+            targetLevel?: string | null;
+        };
+
+        // If targetLevel is missing, find the largest level file
+        if (!metadata.targetLevel) {
+            if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
+                logger.error('No level files found in metadata:', { 
+                    fileId,
+                    metadata: file.metadata 
+                });
+                return res.status(400).json({ error: 'No level files found in metadata' });
+            }
+
+            // Sort by size and pick the largest
+            const largestLevel = metadata.allLevelFiles.reduce((largest, current) => {
+                return (current.size > largest.size) ? current : largest;
+            });
+
+            logger.info('Selected largest level file as target:', {
+                fileId,
+                selectedLevel: largestLevel.name,
+                size: largestLevel.size,
+                path: largestLevel.path
+            });
+
+            metadata.targetLevel = largestLevel.path;
+        }
+
+        // Read the level file
+        const parsedLevel = await LevelService.readLevelFile(metadata.targetLevel);
+        
+        // Extract available types from the level
+        const availableTypes = extractLevelTypes(parsedLevel);
+
+        res.json(availableTypes);
+    } catch (error) {
+        logger.error('Error getting transform options:', error);
+        res.status(500).json({ error: 'Failed to get transform options' });
+    }
+    return
 });
 
 export default router;

@@ -18,6 +18,7 @@ export const PROTECTED_EVENT_TYPES: ReadonlySet<string> = new Set([
     'Hide',
     'ScaleMargin',
     'SetPlanetRotation',
+    'AutoPlayTiles'
     // safeguard — extend from frontend if needed
 ]);
 
@@ -33,6 +34,8 @@ export const ALWAYS_REMOVE_EVENTS: ReadonlySet<RegExp> = new Set([
     /.*Text.*/,
     // Remove all particle-related events
     /.*Particle.*/,
+
+    /.*Object.*/,
 ]);
 
 /* -----------------------------------------------------------
@@ -58,12 +61,6 @@ export interface TransformOptions {
     dropEventTypes?: Set<string>;
 
     /**
-     * Remove decoration items for which this predicate returns `true`.  
-     * Useful for things like `decorationImage.endsWith('.txt')` etc.
-     */
-    decorationFilter?: (deco: Record<string, any>) => boolean;
-
-    /**
      * Multiply every `MoveCamera` / zoom-like event by this factor.  
      * Defaults to `1` (no change).
      */
@@ -79,6 +76,23 @@ export interface TransformOptions {
      * Events matching these patterns will be removed.
      */
     additionalPatterns?: Set<RegExp>;
+
+    /**
+     * Set a constant background color and remove all background flash events.
+     * Format: #rrggbbaa (hex color with alpha)
+     */
+    constantBackgroundColor?: string;
+
+    /**
+     * Remove all flash events that have their plane set to "Foreground"
+     */
+    removeForegroundFlash?: boolean;
+
+    /**
+     * Remove filter events that have their filter field matching any of these values.
+     * Applies to both SetFilter and SetFilterAdvanced events.
+     */
+    dropFilters?: Set<string>;
 }
 
 const isNumber = (val: any): val is number => typeof val === 'number' && !isNaN(val);
@@ -97,10 +111,12 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
     const {
         keepEventTypes,
         dropEventTypes,
-        decorationFilter,
         baseCameraZoom = 1,
         extraProtectedEventTypes = new Set<string>(),
-        additionalPatterns = new Set<RegExp>()
+        additionalPatterns = new Set<RegExp>(),
+        constantBackgroundColor,
+        removeForegroundFlash,
+        dropFilters
     } = options;
 
     // Create a copy so we never mutate caller data
@@ -117,6 +133,23 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
             // Always keep protected events
             if (PROTECTED_EVENT_TYPES.has(type) || extraProtectedEventTypes.has(type)) {
                 return true;
+            }
+
+            // Remove background flash events if constantBackgroundColor is set
+            if (constantBackgroundColor && type === 'Flash' && act.plane === 'Background') {
+                return false;
+            }
+
+            // Remove foreground flash events if removeForegroundFlash is true
+            if (removeForegroundFlash && type === 'Flash' && act.plane === 'Foreground') {
+                return false;
+            }
+
+            // Remove filter events if their filter matches any in dropFilters
+            if (dropFilters && (type === 'SetFilter' || type === 'SetFilterAdvanced') && act.filter) {
+                if (dropFilters.has(act.filter)) {
+                    return false;
+                }
             }
 
             // Check against all patterns (built-in and additional)
@@ -147,11 +180,13 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
         });
     }
 
-    /* --------------------
-     *  DECORATIONS
-     * ------------------*/
-    if (Array.isArray(cloned.decorations) && decorationFilter) {
-        cloned.decorations = cloned.decorations.filter((deco) => !decorationFilter(deco));
+    // Remove decorations
+    cloned.decorations = []
+
+    if (constantBackgroundColor) {
+        cloned.actions?.push(
+            {"floor":0,"eventType":"Flash","duration":0,"plane":"Background","startColor":constantBackgroundColor,"startOpacity":100,"endColor":constantBackgroundColor,"endOpacity":100,"angleOffset":-99999,"ease":"Linear","eventTag":""}
+        )
     }
 
     /*
@@ -165,7 +200,10 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
         dropEventTypes: dropEventTypes ? Array.from(dropEventTypes) : undefined,
         baseCameraZoom,
         additionalPatterns: additionalPatterns.size > 0 ? 
-            Array.from(additionalPatterns).map(p => p.toString()) : undefined
+            Array.from(additionalPatterns).map(p => p.toString()) : undefined,
+        constantBackgroundColor,
+        removeForegroundFlash,
+        dropFilters: dropFilters ? Array.from(dropFilters) : undefined
     });
 
     return cloned;
