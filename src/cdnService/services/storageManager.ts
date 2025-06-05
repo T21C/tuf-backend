@@ -172,21 +172,24 @@ export class StorageManager {
         // Update drive usage information
         await this.updateDriveUsage();
 
-        // Sort drives by usage percentage
-        this.drives.sort((a, b) => a.usagePercentage - b.usagePercentage);
+        // Sort drives by available space (descending) and filter out drives above threshold
+        const availableDrives = this.drives
+            .filter(drive => drive.usagePercentage < this.STORAGE_THRESHOLD)
+            .sort((a, b) => b.availableSpace - a.availableSpace);
 
-        // Get the first drive that's below threshold
-        const availableDrive = this.drives[0];
-        
-        if (!availableDrive || availableDrive.usagePercentage >= this.STORAGE_THRESHOLD) {
+        if (availableDrives.length === 0) {
             throw new Error('No available storage drives below threshold');
         }
 
-        this.reservedDrive = availableDrive.storagePath;
+        // Get the drive with most available space
+        const selectedDrive = availableDrives[0];
+        
+        this.reservedDrive = selectedDrive.storagePath;
         this.reservationCount = 1;
 
         logger.info(`Reserved drive: ${this.reservedDrive}`, {
-            usagePercentage: availableDrive.usagePercentage,
+            availableSpace: this.formatBytes(selectedDrive.availableSpace),
+            usagePercentage: selectedDrive.usagePercentage,
             threshold: this.STORAGE_THRESHOLD
         });
 
@@ -221,15 +224,14 @@ export class StorageManager {
                 );
 
                 if (disk) {
-                    drive.usedSpace = disk.used;
-                    drive.availableSpace = disk.available;
+                    // Convert Linux KiB to bytes if needed
+                    const multiplier = this.isWindows ? 1 : 1024;
+                    drive.usedSpace = disk.used * multiplier;
+                    drive.availableSpace = disk.available * multiplier;
                     drive.usagePercentage = parseFloat(disk.capacity);
                     drive.isActive = drive.usagePercentage < this.STORAGE_THRESHOLD;
                 }
             }
-
-            // Sort drives by usage percentage
-            this.drives.sort((a, b) => a.usagePercentage - b.usagePercentage);
         } catch (error) {
             logger.error('Failed to update drive usage:', error);
         }
