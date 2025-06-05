@@ -180,6 +180,22 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
         });
     }
 
+    if (Object.keys(cloned).includes('settings')) {
+        // Handle settings as a single object instead of an array
+        const settings = cloned.settings;
+        if (constantBackgroundColor) {
+            // Extract opacity from the hex color (last 2 digits)
+            const opacity = parseInt(constantBackgroundColor.slice(-2), 16) / 255;
+            const color = constantBackgroundColor.slice(0, -2);
+            settings.backgroundColor = color;
+            settings.bgImage = "";
+            settings.showDefaultBGIfNoImage = "Disabled";
+        }
+        if (baseCameraZoom !== 1) {
+            settings.zoom *= baseCameraZoom;
+        }
+    }
+
     // Remove decorations
     cloned.decorations = []
 

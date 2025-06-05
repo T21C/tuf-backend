@@ -41,7 +41,8 @@ export interface ILevel extends IBaseModel {
   clears: number;
   likes: number;
   videoLink: string;
-  dlLink: string;
+  dlLink: string; 
+  legacyDllink: string | null;
   workshopLink: string;
   publicComments: string;
   submitterDiscordId: string | null;

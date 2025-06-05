@@ -139,21 +139,21 @@ async function migrateLevelZips() {
       const level = levels[i];
       try {
         logger.info(`Processing level ${i + 1}/${levels.length}: ${level.id} - ${level.song} - ${level.artist}`);
-
+        const initialLink = level.dlLink
         // Skip if URL is invalid
-        if (!level.dlLink.startsWith('https://') && !level.dlLink.startsWith('http://')) {
-          level.dlLink = 'https://' + level.dlLink;
+        if (!initialLink.startsWith('https://') && !initialLink.startsWith('http://')) {
+          level.dlLink = 'https://' + initialLink;
         }
-        if (!isValidUrl(level.dlLink)) {
+        if (!isValidUrl(initialLink)) {
           console.log(level);
-          logger.error(`Invalid URL for level ${level.id}: ${level.dlLink}`);
+          logger.error(`Invalid URL for level ${level.id}: ${initialLink}`);
           stats.skipped++;
           continue;
         }
 
         // Download the file
         const tempPath = path.join(tempDir, `level_${level.id}.zip`);
-        await downloadFile(level.dlLink, tempPath);
+        await downloadFile(initialLink, tempPath);
 
         // Read the file
         const fileBuffer = await fs.promises.readFile(tempPath);
@@ -171,10 +171,12 @@ async function migrateLevelZips() {
 
         // Update level with new download link
         await level.update({
-          dlLink: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`
+          dlLink: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
+          legacyDllink: level.dlLink
         });
 
         logger.info(`Successfully migrated level ${level.id}`);
+        logger.info(`Legacy download link: ${initialLink}`);
         logger.info(`New download link: ${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`);
         logger.info(`Found ${levelFiles.length} files in the zip`);
 

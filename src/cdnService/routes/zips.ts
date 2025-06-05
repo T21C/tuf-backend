@@ -219,38 +219,67 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             pathConfirmed: boolean;
         };
 
-        // Verify the target level exists in the zip
-        const levelExists = metadata.allLevelFiles.some(file => 
-            path.basename(file.path) === path.basename(targetLevel)
-        );
-        if (!levelExists) {
+        // Get the target filename regardless of path
+        const targetFilename = path.basename(targetLevel);
+
+        // Find matching level file by recursively checking paths
+        const matchingLevel = metadata.allLevelFiles.find(file => {
+            const filePath = file.path.replace(/\\/g, '/');
+            const targetPath = targetLevel.replace(/\\/g, '/');
+            
+            // Direct path match
+            if (filePath === targetPath) {
+                return true;
+            }
+            
+            // Filename match
+            if (path.basename(filePath) === targetFilename) {
+                return true;
+            }
+            
+            // Check if target is a relative path and matches any subdirectory
+            if (!path.isAbsolute(targetPath)) {
+                const fileDir = path.dirname(filePath);
+                const targetDir = path.dirname(targetPath);
+                return fileDir.endsWith(targetDir) && path.basename(filePath) === targetFilename;
+            }
+            
+            return false;
+        });
+
+        if (!matchingLevel) {
             logger.error('Target level not found in zip:', {
                 fileId,
                 targetLevel,
-                availableLevels: metadata.allLevelFiles.map(f => path.basename(f.path))
+                targetFilename,
+                availableLevels: metadata.allLevelFiles.map(f => ({
+                    path: f.path,
+                    name: f.name
+                }))
             });
             return res.status(400).json({ error: 'Target level not found in zip' });
         }
 
-        // Update metadata
+        // Update metadata with the actual file path from the zip
         await levelEntry.update({
             metadata: {
                 ...metadata,
-                targetLevel,
+                targetLevel: matchingLevel.path,
                 pathConfirmed: true
             }
         });
 
         logger.info('Successfully set target level:', {
             fileId,
-            targetLevel,
+            targetLevel: matchingLevel.path,
+            originalTarget: targetLevel,
             timestamp: new Date().toISOString()
         });
 
         res.json({
             success: true,
             fileId,
-            targetLevel
+            targetLevel: matchingLevel.path
         });
     } catch (error) {
         logger.error('Error setting target level:', {

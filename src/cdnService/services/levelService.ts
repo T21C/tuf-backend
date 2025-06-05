@@ -52,6 +52,9 @@ export class LevelService {
                 .replace(/\r\n/g, '\n') // Normalize line endings
                 .replace(/\r/g, '\n')   // Handle any remaining \r
                 .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+                // Add trailing commas to arrays and objects
+                .replace(/([}\]])[\s\n]*([}\]])/g, '$1,$2') // Add comma between closing brackets
+                .replace(/([}\]])[\s\n]*("decorations"|"actions"|"settings")/g, '$1,$2') // Add comma before main sections
                 .trim();
 
             // Function to safely parse JSON with multiple fallback strategies
@@ -65,7 +68,9 @@ export class LevelService {
 
                 try {
                     const cleaned = str
-                        .replace(/,(\s*[}\]])/g, '$1')
+                        .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas before closing brackets
+                        .replace(/([}\]])[\s\n]*([}\]])/g, '$1,$2') // Ensure comma between closing brackets
+                        .replace(/([}\]])[\s\n]*("decorations"|"actions"|"settings")/g, '$1,$2'); // Ensure comma before main sections
                     
                     return JSON5.parse(cleaned);
                 } catch (e) {

@@ -38,6 +38,7 @@ class Level
   declare totalRatingAccuracyVotes: number;
   declare videoLink: string;
   declare dlLink: string;
+  declare legacyDllink: string | null;
   declare workshopLink: string;
   declare publicComments: string;
   declare submitterDiscordId: string | null;
@@ -120,6 +121,11 @@ Level.init(
     dlLink: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    legacyDllink: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null
     },
     workshopLink: {
       type: DataTypes.TEXT,
