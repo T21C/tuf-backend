@@ -159,7 +159,11 @@ class CdnService {
 
     async deleteFile(fileId: string): Promise<void> {
         try {
-            await this.client.delete(`/${fileId}`);
+            const response = await this.client.delete(`/${fileId}`);
+            if (response.status === 404) {
+                logger.warn(`File ${fileId} not found in CDN`);
+                return;
+            }
         } catch (error) {
             logger.error('Failed to delete file from CDN:', error);
             throw new CdnError(
