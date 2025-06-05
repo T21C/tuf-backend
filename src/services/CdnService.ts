@@ -59,10 +59,14 @@ class CdnService {
 
             return response.data;
         } catch (error) {
-            logger.error(`Failed to upload ${type.toLowerCase()} image to CDN:`, error);
-            
             if (error instanceof AxiosError && error.response?.data) {
                 const errorData = error.response.data;
+                logger.error('Failed to upload image to CDN:', {
+                    error: errorData.error || 'Failed to upload image',
+                    code: errorData.code || 'UPLOAD_ERROR',
+                    details: errorData.details,
+                    timestamp: new Date().toISOString()
+                });
                 throw new CdnError(
                     errorData.error || 'Failed to upload image',
                     errorData.code || 'UPLOAD_ERROR',
@@ -70,6 +74,10 @@ class CdnService {
                 );
             }
             
+            logger.error('Failed to upload image to CDN:', {
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString()
+            });
             throw new CdnError(
                 `Failed to upload ${type.toLowerCase()} image`,
                 'UPLOAD_ERROR',
@@ -157,20 +165,42 @@ class CdnService {
         }
     }
 
+    async checkFileExists(fileId: string): Promise<boolean> {
+        try {
+            const response = await this.client.head(`/${fileId}`);
+            return response.status === 200;
+        } catch (error) {
+            if (error instanceof Error && 'response' in error && (error as any).response?.status === 404) {
+                return false;
+            }
+            throw new CdnError('Failed to check file exists', 'CHECK_FILE_EXISTS_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
+    async getFile(fileId: string): Promise<Buffer> {
+        try {
+            const response = await this.client.get(`/${fileId}`, {
+                responseType: 'arraybuffer'
+            });
+            return Buffer.from(response.data);
+        } catch (error) {
+            throw new CdnError('Failed to get file', 'GET_FILE_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
     async deleteFile(fileId: string): Promise<void> {
         try {
-            const response = await this.client.delete(`/${fileId}`);
-            if (response.status === 404) {
-                logger.warn(`File ${fileId} not found in CDN`);
-                return;
+            if (await this.checkFileExists(fileId)) {
+                await this.client.delete(`/${fileId}`);
             }
         } catch (error) {
-            logger.error('Failed to delete file from CDN:', error);
-            throw new CdnError(
-                'Failed to delete file',
-                'DELETE_ERROR',
-                { originalError: error instanceof Error ? error.message : String(error) }
-            );
+            throw new CdnError('Failed to delete file', 'DELETE_FILE_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
         }
     }
 

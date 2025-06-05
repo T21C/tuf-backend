@@ -81,10 +81,25 @@ const cleanVideoUrl = (url: string) => {
   return url;
 };
 
+
+async function cleanUpFile(req: Request) {
+  if (req.file?.path) {
+    try {
+      await fs.promises.unlink(req.file.path);
+    } catch (cleanupError) {
+      logger.error('Failed to clean up temporary file:', {
+        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        path: req.file.path,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+}
+
 // Form submission endpoint
 router.post(
   '/form-submit',
-  Auth.verified(),
+  Auth.user(),
   upload.single('levelZip'),
   express.json(),
   async (req: Request, res: Response) => {
@@ -93,15 +108,21 @@ router.post(
 
     try {
       if (req.user?.player?.isBanned) {
-        return res.status(403).json({error: 'User is banned'});
+        // Clean up any uploaded file
+        await cleanUpFile(req);
+        return res.status(403).json({error: 'You are banned'});
       }
 
       if (req.user?.player?.isSubmissionsPaused) {
-        return res.status(403).json({error: 'User submissions are paused'});
+        // Clean up any uploaded file
+        await cleanUpFile(req);
+        return res.status(403).json({error: 'Your submissions are paused'});
       }
 
       if (!req.user?.isEmailVerified) {
-        return res.status(403).json({error: 'User email is not verified'});
+        // Clean up any uploaded file
+        await cleanUpFile(req);
+        return res.status(403).json({error: 'Your email is not verified'});
       }
 
 
@@ -116,15 +137,16 @@ router.post(
             status: 'pending',
             artist: req.body.artist,
             song: req.body.song,
-            directDL: req.body.directDL || '',
-            wsLink: req.body.wsLink || '',
+            userId: req.user?.id,
             videoLink: cleanVideoUrl(req.body.videoLink),
           },
         });
         if (existingSubmissions.length > 0) {
+          // Clean up the temporary file if it exists
+          await cleanUpFile(req);
           await transaction.rollback();
           return res.status(400).json({
-            error: 'Identical submission already exists',
+            error: "You've already submitted this level, please wait for approval.",
           });
         }
 
@@ -156,17 +178,7 @@ router.post(
             hasZipUpload = true;
           } catch (error) {
             // Clean up the temporary file in case of error
-            if (req.file?.path) {
-              try {
-                await fs.promises.unlink(req.file.path);
-              } catch (cleanupError) {
-                logger.error('Failed to clean up temporary file:', {
-                  error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-                  path: req.file.path,
-                  timestamp: new Date().toISOString()
-                });
-              }
-            }
+            await cleanUpFile(req);
 
             logger.error('Failed to upload zip file to CDN:', {
               error: error instanceof Error ? {
@@ -188,6 +200,7 @@ router.post(
           diff: req.body.diff,
           videoLink: cleanVideoUrl(req.body.videoLink),
           directDL: directDL || req.body.directDL || '',
+          userId: req.user?.id,
           wsLink: req.body.wsLink || '',
           submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username || '',
           submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id || '',
@@ -591,9 +604,9 @@ router.post(
 
 // Level selection endpoint
 router.post('/select-level', Auth.verified(), async (req: Request, res: Response) => {
-    const { fileId, selectedLevel } = req.body;
+    const { submissionId, selectedLevel } = req.body;
 
-    if (!fileId || !selectedLevel) {
+    if (!submissionId || !selectedLevel) {
         return res.status(400).json({
             success: false,
             error: 'Missing required parameters'
@@ -602,9 +615,40 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
 
     try {
         // Set the target level in CDN
+        const submission = await LevelSubmission.findOne({
+            where: {
+                id: submissionId,
+                userId: req.user?.id,
+                status: 'pending'
+            }
+        });
+
+        if (!submission) {
+            return res.status(404).json({
+                success: false,
+                error: 'Level submission not found'
+            });
+        }
+
+        if (!submission.directDL.startsWith(CDN_CONFIG.baseUrl)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Download link is not on local CDN',
+                directDL: submission.directDL
+            });
+        }
+
+        const fileId = submission.directDL.split('/').pop() || '';
+        if (!fileId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid directDL URL',
+                directDL: submission.directDL
+            });
+        }
+
         await cdnService.setTargetLevel(fileId, selectedLevel);
 
-        // Get the updated level files
         const levelFiles = await cdnService.getLevelFiles(fileId);
         const selectedFile = levelFiles.find(file => file.name === selectedLevel);
 
@@ -631,7 +675,7 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
                 message: error.message,
                 stack: error.stack
             } : error,
-            fileId,
+            submissionId,
             selectedLevel,
             timestamp: new Date().toISOString()
         });

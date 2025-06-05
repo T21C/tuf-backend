@@ -3,6 +3,7 @@ import sequelize from '../../config/db.js';
 import BaseModel from '../BaseModel.js';
 import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
+import User from '../auth/User.js';
 
 class LevelSubmission extends BaseModel {
   declare artist: string;
@@ -14,6 +15,7 @@ class LevelSubmission extends BaseModel {
   declare videoLink: string;
   declare directDL: string;
   declare wsLink: string;
+  declare submitterId: string;
   declare submitterDiscordUsername: string;
   declare submitterDiscordPfp: string;
   declare submitterDiscordId: string;
@@ -24,10 +26,12 @@ class LevelSubmission extends BaseModel {
   declare vfxerRequest: boolean;
   declare teamId: number | null;
   declare teamRequest: boolean;
+  declare userId: string | null;
 
   // Virtual fields from associations
   declare creatorRequests?: LevelSubmissionCreatorRequest[];
   declare teamRequestData?: LevelSubmissionTeamRequest;
+  declare user?: User;
 
   static associate(models: any) {
     LevelSubmission.hasMany(models.LevelSubmissionCreatorRequest, {
@@ -37,6 +41,10 @@ class LevelSubmission extends BaseModel {
     LevelSubmission.hasOne(models.LevelSubmissionTeamRequest, {
       foreignKey: 'submissionId',
       as: 'teamRequestData'
+    });
+    LevelSubmission.belongsTo(models.User, {
+      foreignKey: 'userId',
+      as: 'user'
     });
   }
 }
@@ -129,6 +137,14 @@ LevelSubmission.init(
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
+    userId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
+    },
   },
   {
     sequelize,
@@ -137,6 +153,7 @@ LevelSubmission.init(
       {fields: ['charter']},
       {fields: ['artist']},
       {fields: ['status']},
+      {fields: ['userId']},
     ],
   },
 );

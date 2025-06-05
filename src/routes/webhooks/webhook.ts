@@ -213,7 +213,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     .setColor('#000000')
     .setAuthor('New level submission', submitterDiscordPfp || placeHolder, '')
     .setTitle(`${song || 'Unknown Song'} — ${artist || 'Unknown Artist'}`)
-    .addField('', `<@${submitterDiscordId}>`, false)
+    .addField('', `${submitterDiscordId ? `<@${submitterDiscordId}>` : `${level.user?.username || 'Unknown user'}`}`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
     .addField('', '', false);
 
