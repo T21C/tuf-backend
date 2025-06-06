@@ -171,6 +171,7 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
     logger.error('Chunk upload error:', error);
     res.status(500).json({ error: 'Failed to process upload' });
   }
+  return
 });
 
 // Validate upload status   
