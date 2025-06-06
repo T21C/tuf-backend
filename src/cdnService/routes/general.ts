@@ -156,12 +156,44 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
+        // Get file stats
+        const stats = await fs.promises.stat(file.filePath);
+        
+        // Set headers
         res.setHeader('Content-Type', MIME_TYPES[file.type]);
+        res.setHeader('Content-Length', stats.size);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-        fs.createReadStream(file.filePath).pipe(res);
+
+        // Create read stream with error handling
+        const fileStream = fs.createReadStream(file.filePath);
+        
+        // Handle stream errors
+        fileStream.on('error', (error) => {
+            logger.error('Error streaming file:', {
+                fileId,
+                path: file.filePath,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Error streaming file' });
+            }
+        });
+
+        // Handle client disconnect
+        req.on('close', () => {
+            fileStream.destroy();
+        });
+
+        // Pipe the file to response
+        fileStream.pipe(res);
     } catch (error) {
-        logger.error('File delivery error:', error);
-        res.status(500).json({ error: 'File delivery failed' });
+        logger.error('File delivery error:', {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+        });
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'File delivery failed' });
+        }
     }
     return;
 });
