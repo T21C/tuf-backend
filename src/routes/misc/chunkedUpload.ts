@@ -245,7 +245,7 @@ const cleanupUserUploads = async (userId: string) => {
       }
     }
 
-    logger.info(`Cleaned up all uploads for user ${userId}`);
+    logger.debug(`Cleaned up all uploads for user ${userId}`);
   } catch (error) {
     logger.error('Failed to clean up user uploads:', error);
     throw error;

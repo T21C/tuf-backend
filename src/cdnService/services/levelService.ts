@@ -30,7 +30,7 @@ export class LevelService {
      */
     static async readLevelFile(levelPath: string): Promise<LevelData> {
         try {
-            logger.info('Reading level file:', { levelPath });
+            logger.debug('Reading level file:', { levelPath });
 
             // Check if file exists
             if (!fs.existsSync(levelPath)) {

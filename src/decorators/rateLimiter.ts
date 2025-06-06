@@ -178,7 +178,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         ? forwardedFor.split(',')[0].trim() 
         : req.ip || req.connection.remoteAddress || '127.0.0.1';
       
-      logger.info(`Rate limiter IP: ${ip}`);
+      logger.debug(`Rate limiter IP: ${ip}`);
       try {
         // Check if IP is blocked
         const blockedRecord = await RateLimit.findOne({

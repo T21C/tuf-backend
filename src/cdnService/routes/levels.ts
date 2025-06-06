@@ -129,7 +129,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 return (current.size > largest.size) ? current : largest;
             });
 
-            logger.info('Selected largest level file as target:', {
+            logger.debug('Selected largest level file as target:', {
                 fileId,
                 selectedLevel: largestLevel.name,
                 size: largestLevel.size,
@@ -311,7 +311,7 @@ router.get('/transform-options', async (req: Request, res: Response) => {
                 return (current.size > largest.size) ? current : largest;
             });
 
-            logger.info('Selected largest level file as target:', {
+            logger.debug('Selected largest level file as target:', {
                 fileId,
                 selectedLevel: largestLevel.name,
                 size: largestLevel.size,

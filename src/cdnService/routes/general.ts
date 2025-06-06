@@ -75,7 +75,7 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         // Get file stats
         const stats = await fs.promises.stat(originalZip.path);
 
-        logger.info('Setting headers for zip file:', {
+        logger.debug('Setting headers for zip file:', {
             fileId,
             path: originalZip.path,
             baseName: originalZip.name

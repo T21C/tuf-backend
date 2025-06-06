@@ -14,7 +14,7 @@ const router = Router();
 router.get('/:fileId/levels', async (req: Request, res: Response) => {
     const { fileId } = req.params;
     
-    logger.info('Getting level files for zip:', { fileId });
+    logger.debug('Getting level files for zip:', { fileId });
     
     try {
         const levelEntry = await CdnFile.findByPk(fileId);
@@ -80,7 +80,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
             }
         }));
 
-        logger.info('Successfully retrieved level files:', {
+        logger.debug('Successfully retrieved level files:', {
             fileId,
             count: levelFiles.length
         });
@@ -103,7 +103,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
 
 // Level zip upload endpoint
 router.post('/', (req: Request, res: Response) => {
-    logger.info('Received zip upload request');
+    logger.debug('Received zip upload request');
     
     storageManager.upload(req, res, async (err) => {
         if (err) {
@@ -121,7 +121,7 @@ router.post('/', (req: Request, res: Response) => {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        logger.info('Processing uploaded zip file:', {
+        logger.debug('Processing uploaded zip file:', {
             filename: req.file.filename,
             size: req.file.size,
             mimetype: req.file.mimetype,
@@ -131,24 +131,24 @@ router.post('/', (req: Request, res: Response) => {
         try {
             // Generate a UUID for the database entry
             const fileId = crypto.randomUUID();
-            logger.info('Generated UUID for database entry:', { fileId });
+            logger.debug('Generated UUID for database entry:', { fileId });
             
             // Process zip file first to validate contents
-            logger.info('Starting zip file processing');
+            logger.debug('Starting zip file processing');
             await processZipFile(req.file.path, fileId, req.file.originalname);
-            logger.info('Successfully processed zip file');
+            logger.debug('Successfully processed zip file');
 
             // Clean up the original zip file since we've extracted what we need
-            logger.info('Cleaning up original zip file');
+            logger.debug('Cleaning up original zip file');
             storageManager.cleanupFiles(req.file.path);
-            logger.info('Original zip file cleaned up');
+            logger.debug('Original zip file cleaned up');
 
             const response = {
                 success: true,
                 fileId: fileId,
                 url: `${CDN_CONFIG.baseUrl}/${fileId}`,
             };
-            logger.info('Zip upload completed successfully:', response);
+            logger.debug('Zip upload completed successfully:', response);
             
             res.json(response);
         } catch (error) {
@@ -194,7 +194,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const { targetLevel } = req.body;
     
-    logger.info('Setting target level for zip:', { fileId, targetLevel });
+    logger.debug('Setting target level for zip:', { fileId, targetLevel });
     
     try {
         const levelEntry = await CdnFile.findByPk(fileId);
@@ -269,7 +269,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             }
         });
 
-        logger.info('Successfully set target level:', {
+        logger.debug('Successfully set target level:', {
             fileId,
             targetLevel: matchingLevel.path,
             originalTarget: targetLevel,
