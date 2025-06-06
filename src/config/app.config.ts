@@ -32,7 +32,7 @@ export const ownUrl =
 export const corsOptions = {
   origin: [
     clientUrlEnv || 'http://localhost:5173',
-    'https://localhost:5173',
+    'http://localhost:5173',
     'https://tuforums.com',
     'https://api.tuforums.com',
     'https://4p437dcj-5173.eun1.devtunnels.ms',
