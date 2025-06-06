@@ -36,14 +36,7 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     const fileId = req.headers['x-file-id'] as string;
     const chunkIndex = req.headers['x-chunk-index'] as string;
-    
-    logger.info('Processing chunk upload:', { 
-      fileId, 
-      chunkIndex, 
-      fieldname: file.fieldname,
-      originalname: file.originalname,
-      headers: req.headers
-    });
+
 
     if (!fileId || chunkIndex === undefined) {
       logger.error('Missing fileId or chunkIndex in headers', { 
@@ -94,11 +87,6 @@ router.get('/', (req: Request, res: Response) => {
 // Update the upload endpoint
 router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Request, res: Response) => {
   try {
-    logger.info('Received chunk upload request:', {
-      headers: req.headers,
-      file: req.file
-    });
-
     const fileId = req.headers['x-file-id'] as string;
     const chunkIndex = parseInt(req.headers['x-chunk-index'] as string);
     const totalChunks = parseInt(req.headers['x-total-chunks'] as string);
@@ -136,7 +124,7 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
       // Read and write chunks in order
       for (let i = 0; i < metadata.totalChunks; i++) {
         const chunkPath = path.join('uploads', 'chunks', userId, `${fileId}_${i}`);
-        logger.info('Reading chunk:', { chunkPath });
+        
         const chunkBuffer = fs.readFileSync(chunkPath);
         writeStream.write(chunkBuffer);
         // Remove chunk after writing
