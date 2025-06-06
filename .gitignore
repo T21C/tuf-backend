@@ -141,6 +141,7 @@ pfpList.json
 rankList.json
 mapping-hash.json
 uploads/
+temp/
 cache/
 backups/
 profiles/

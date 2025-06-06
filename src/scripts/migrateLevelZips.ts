@@ -52,10 +52,26 @@ function encodeFilename(filename: string): string {
     .join('');
 }
 
+// Helper function to extract Google Drive file ID
+function extractGoogleDriveFileId(url: string): string {
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? `https://drive.usercontent.google.com/download?id=${match[1]}` : '';
+}
+
 // Helper function to download a file
 async function downloadFile(url: string, filepath: string): Promise<void> {
   if (!isValidUrl(url)) {
     throw new Error('Invalid URL');
+  }
+
+  // Check if it's a Google Drive link
+  if (url.includes('drive.google.com')) {
+    url = extractGoogleDriveFileId(url);
+    if (url === '') {
+      throw new Error('Empty Google Drive URL');
+    }
+    
+    logger.info(`Resolved Google Drive URL to: ${url}`);
   }
 
   const response = await axios({
@@ -64,7 +80,10 @@ async function downloadFile(url: string, filepath: string): Promise<void> {
     responseType: 'stream',
     timeout: 30000, // 30 second timeout
     maxContentLength: 1000 * 1024 * 1024, // 1GB max
-    validateStatus: (status) => status === 200 // Only accept 200 status
+    validateStatus: (status) => status === 200, // Only accept 200 status
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
   });
 
   const writer = fs.createWriteStream(filepath);
@@ -124,7 +143,6 @@ async function migrateLevelZips() {
         dlLink: {
           [Op.and]: [
             { [Op.notLike]: `${CDN_CONFIG.baseUrl}%` },
-            { [Op.notLike]: 'https://drive.google.com/%' },
             { [Op.ne]: 'removed' },
             { [Op.ne]: '' }
           ]
