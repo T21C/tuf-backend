@@ -48,6 +48,21 @@ const sanitizeTextInput = (input: string | null | undefined): string => {
   return input.trim();
 };
 
+// Add safe parsing function
+const safeParseJSON = (input: string | object | null | undefined): any => {
+  if (input === null || input === undefined) return null;
+  if (typeof input === 'object') return input;
+  try {
+    return JSON.parse(input);
+  } catch (error) {
+    logger.error('Failed to parse JSON:', {
+      error: error instanceof Error ? error.message : String(error),
+      input,
+      timestamp: new Date().toISOString()
+    });
+    return null;
+  }
+};
 
 const cleanVideoUrl = (url: string) => {
   // Match various video URL formats
@@ -211,7 +226,7 @@ router.post(
           team: ''
         }, { transaction });
 
-        const parsedCreatorRequests = JSON.parse(req.body.creatorRequests);
+        const parsedCreatorRequests = safeParseJSON(req.body.creatorRequests);
         // Create the creator request records within transaction
         if (Array.isArray(parsedCreatorRequests)) {
           await Promise.all(parsedCreatorRequests.map(async (request: any) => {
@@ -226,7 +241,7 @@ router.post(
         }
 
         // Create team request record if present within transaction
-        const parsedTeamRequest = JSON.parse(req.body.teamRequest);
+        const parsedTeamRequest = safeParseJSON(req.body.teamRequest);
         if (parsedTeamRequest && parsedTeamRequest.teamName) {
           await LevelSubmissionTeamRequest.create({
             submissionId: submission.id,
