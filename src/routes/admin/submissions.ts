@@ -945,11 +945,12 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
       const transaction = await sequelize.transaction();
       
       try {
+        // Validate required data
         if (!submission.flags || !submission.judgements || !submission.level || !submission.level.difficulty) {
           throw new Error('Missing required submission data');
         }
 
-        // Create pass
+        // Create pass with all required fields
         const pass = await Pass.create({
           levelId: submission.levelId,
           playerId: submission.assignedPlayerId!,
@@ -960,6 +961,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           is12K: submission.flags.is12K || false,
           is16K: submission.flags.is16K || false,
           isNoHoldTap: submission.flags.isNoHoldTap || false,
+          feelingRating: submission.feelingDifficulty || null,
           accuracy: calcAcc(submission.judgements),
           scoreV2: getScoreV2(
             {
@@ -976,11 +978,11 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           isDeleted: false
         }, { transaction });
 
-        //logger.info(`Pass created: ${pass}`);
         if (!pass) {
           throw new Error(`Pass for submission #${submission.id} not created`);
         }
-        // Create judgements with default values for any undefined fields
+
+        // Create judgements with proper error handling
         const judgements = await Judgement.create({
           id: pass.id,
           earlyDouble: submission.judgements.earlyDouble || 0,
@@ -1007,8 +1009,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         // Update worlds first status
         await updateWorldsFirstStatus(submission.levelId, transaction);
 
-        // Commit the transaction for this submission
-        
+        // Get the complete pass object with all associations
         const newPass = await Pass.findByPk(pass.id, {
           include: [
             {
@@ -1032,32 +1033,59 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           ],
           transaction,
         });
+
+        if (!newPass) {
+          throw new Error(`Failed to fetch created pass #${pass.id}`);
+        }
+
+        // Commit the transaction
         await transaction.commit();
-        // Index the pass in Elasticsearch after transaction is committed
-        await elasticsearchService.indexPass(newPass!);
-        await elasticsearchService.indexLevel(newPass!.level!);
 
-        // Update player stats
-        await playerStatsService.updatePlayerStats([submission.assignedPlayerId!]);
-        const playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId!);
+        // Index in Elasticsearch after transaction is committed
+        await elasticsearchService.indexPass(newPass);
+        await elasticsearchService.indexLevel(newPass.level!);
 
-        // Broadcast updates
-        sseManager.broadcast({
-          type: 'passUpdate',
-          data: {
-            playerId: submission.assignedPlayerId,
-            passedLevelId: submission.levelId,
-            newScore: playerStats?.rankedScore || 0,
-            action: 'create'
+        // Update player stats in a separate transaction
+        if (submission.assignedPlayerId) {
+          try {
+            const statsTransaction = await sequelize.transaction();
+            try {
+              await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
+              await statsTransaction.commit();
+
+              // Get updated player stats
+              const playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId);
+
+              // Broadcast updates
+              sseManager.broadcast({
+                type: 'passUpdate',
+                data: {
+                  playerId: submission.assignedPlayerId,
+                  passedLevelId: submission.levelId,
+                  newScore: playerStats?.rankedScore || 0,
+                  action: 'create'
+                }
+              });
+            } catch (error) {
+              await statsTransaction.rollback();
+              throw error;
+            }
+          } catch (error) {
+            logger.error('Error updating player stats:', error);
+            // Don't rollback main transaction since it's already committed
           }
-        });
+        }
 
         results.push({ id: submission.id, success: true });
       } catch (error) {
         // Rollback the transaction for this submission
         await transaction.rollback();
         logger.error(`Error auto-approving submission ${submission.id}:`, error);
-        results.push({ id: submission.id, success: false, error: error instanceof Error ? error.message : String(error) });
+        results.push({ 
+          id: submission.id, 
+          success: false, 
+          error: error instanceof Error ? error.message : String(error) 
+        });
       }
     }
 

@@ -22,6 +22,8 @@ import cdnService from '../../../services/CdnService.js';
 import { CDN_CONFIG } from '../../../cdnService/config.js';
 import multer from 'multer';
 import fs from 'fs';
+import path from 'path';
+import { cleanupUserUploads } from '../../misc/chunkedUpload.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -921,104 +923,76 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
 })
 
 // Upload management endpoints
-router.post('/:id/upload', Auth.superAdmin(), upload.single('levelZip'), async (req: Request, res: Response) => {
+router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
+    const { fileId, fileName, fileSize } = req.body;
     const levelId = parseInt(req.params.id);
+
     if (isNaN(levelId)) {
+      await transaction.rollback();
       return res.status(400).json({error: 'Invalid level ID'});
     }
 
-    if (!req.file) {
-      return res.status(400).json({error: 'No file uploaded'});
+    if (!fileId || !fileName || !fileSize) {
+      await transaction.rollback();
+      return res.status(400).json({error: 'Missing required file information'});
     }
 
-    // Get current level
     const level = await Level.findByPk(levelId, { transaction });
     if (!level) {
       await transaction.rollback();
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // Delete old file if it exists
-    if (level.dlLink && isCdnUrl(level.dlLink)) {
-      const oldFileId = getFileIdFromCdnUrl(level.dlLink);
-      if (oldFileId) {
-        try {
-          await cdnService.deleteFile(oldFileId);
-        } catch (error) {
-          logger.warn('Failed to delete old file:', error);
-        }
-      }
-    }
-
-    // Upload new file
     try {
-      const fileBuffer = await fs.promises.readFile(req.file.path);
-      logger.debug(`Uploading file to CDN: ${req.file.originalname}`);
-      const uploadResult = await cdnService.uploadLevelZip(fileBuffer, req.file.originalname);
+      // Read the assembled file
+      const assembledFilePath = path.join('uploads', 'assembled', req.user!.id, `${fileId}.zip`);
+      const fileBuffer = await fs.promises.readFile(assembledFilePath);
       
-      // Clean up temp file
-      await fs.promises.unlink(req.file.path);
+      const uploadResult = await cdnService.uploadLevelZip(
+        fileBuffer, 
+        fileName
+      );
 
-      // Get level files
+      // Clean up the assembled file
+      await fs.promises.unlink(assembledFilePath);
+
+      // Get the level files from the CDN service
       const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
       
       // Update level with new download link
-      await Level.update({
-        dlLink: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`
-      }, {
-        where: { id: levelId },
-        transaction
-      });
+      level.dlLink = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+      await level.save({ transaction });
 
-      // Fetch the updated level with all necessary associations
-      const updatedLevel = await Level.findOne({
-        where: { id: levelId },
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-            required: false,
-          },
-          {
-            model: Pass,
-            as: 'passes',
-            required: false,
-            attributes: ['id'],
-          },
-        ],
-        transaction
-      });
-
+      // Commit the transaction
       await transaction.commit();
+
+      // Clean up all user uploads after successful processing
+      try {
+        await cleanupUserUploads(req.user!.id);
+      } catch (cleanupError) {
+        // Log cleanup error but don't fail the request
+        logger.warn('Failed to clean up user uploads after successful processing:', cleanupError);
+      }
 
       return res.json({
         success: true,
-        message: 'Level file uploaded successfully',
-        fileId: uploadResult.fileId,
-        level: updatedLevel,
-        levelFiles: levelFiles.map(file => ({
-          name: file.name,
-          size: file.size,
-          hasYouTubeStream: file.hasYouTubeStream,
-          songFilename: file.songFilename,
-          artist: file.artist,
-          song: file.song,
-          author: file.author,
-          difficulty: file.difficulty,
-          bpm: file.bpm
-        }))
+        level: {
+          ...level,
+          dlLink: level.dlLink
+        },
+        levelFiles
       });
+
     } catch (error) {
-      // Clean up temp file
-      if (req.file?.path) {
-        try {
-          await fs.promises.unlink(req.file.path);
-        } catch (cleanupError) {
-          logger.warn('Failed to clean up temp file:', cleanupError);
-        }
+      // Clean up the assembled file in case of error
+      try {
+        const assembledFilePath = path.join('uploads', 'assembled', req.user!.id, `${fileId}.zip`);
+        await fs.promises.unlink(assembledFilePath);
+      } catch (cleanupError) {
+        logger.warn('Failed to clean up assembled file:', cleanupError);
       }
       throw error;
     }

@@ -16,11 +16,13 @@ import path from 'path';
 import discordRouter from './routes/misc/discord.js';
 import eventsRouter from './routes/misc/events.js';
 import utilsRouter from './routes/misc/utils.js';
+import chunkedUploadRouter from './routes/misc/chunkedUpload.js';
 import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
 import { logger } from './services/LoggerService.js';
 import ElasticsearchService from './services/ElasticsearchService.js';
+import { clientUrlEnv, port, ownUrl, corsOptions } from './config/app.config.js';
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {
   logger.error('UNCAUGHT EXCEPTION! Shutting down...');
@@ -61,34 +63,6 @@ app.set('trust proxy', true);
 // ES Module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// Get environment-specific configuration
-const clientUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
-
-const port =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_PORT
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_PORT
-      : process.env.NODE_ENV === 'development'
-        ? process.env.PORT
-        : '3002';
-
-const ownUrl =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_API_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_API_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.DEV_URL
-        : 'http://localhost:3002';
 
 // Create Socket.IO instance
 const io = new Server(httpServer, {
@@ -143,45 +117,6 @@ export async function startServer() {
     const playerStatsService = PlayerStatsService.getInstance();
     await playerStatsService.initialize();
 
-    // Set up Express middleware
-    const corsOptions = {
-      origin: [
-        clientUrlEnv || 'http://localhost:5173',
-        'https://tuforums.com',
-        'https://api.tuforums.com',
-        'https://4p437dcj-5173.eun1.devtunnels.ms',
-        'https://4p437dcj-3002.eun1.devtunnels.ms',
-      ],
-      methods: [
-        'GET',
-        'POST',
-        'PUT',
-        'DELETE',
-        'OPTIONS',
-        'PATCH',
-        'HEAD',
-        'CONNECT',
-        'TRACE',
-      ],
-      credentials: true,
-      allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'Cache-Control',
-        'Last-Event-ID',
-        'X-Form-Type',
-        'X-Super-Admin-Password',
-      ],
-      exposedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'Cache-Control',
-        'Last-Event-ID',
-        'X-Form-Type',
-        'X-Super-Admin-Password',
-      ],
-    };
-
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
 
@@ -202,6 +137,7 @@ export async function startServer() {
     app.use('/events', eventsRouter);
     app.use('/v2/utils', utilsRouter);
     app.use('/health', healthRouter);
+    app.use('/v2/chunked-upload', chunkedUploadRouter);
     // HTML meta tags middleware for specific routes BEFORE static files
     app.get(['/passes/:id', '/levels/:id', '/player/:id'], htmlMetaMiddleware);
 

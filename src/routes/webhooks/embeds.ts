@@ -5,23 +5,7 @@ import {MessageBuilder} from '../../webhook/index.js';
 import {getVideoDetails} from '../../utils/videoDetailParser.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import { OAuthProvider } from '../../models/index.js';
-const ownUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_API_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_API_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.DEV_URL
-        : 'http://localhost:3002';
-
-const clientUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
+import { clientUrlEnv, ownUrl } from '../../config/app.config.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -152,7 +136,7 @@ export function formatString(str: string): string {
   return str.replace(/\n/g, ' ');
 }
 
-const placeHolder = ownUrlEnv + '/v2/media/image/soggycat.png';
+const placeHolder = ownUrl + '/v2/media/image/soggycat.png';
 
 export async function createRerateEmbed(
   levelInfo: Level | null,

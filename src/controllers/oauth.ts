@@ -9,6 +9,7 @@ import {
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
 import { logger } from '../services/LoggerService.js';
+import { clientUrlEnv, ownUrl } from '../config/app.config.js';
 
 
 interface ProfileResponse {
@@ -28,24 +29,6 @@ interface ProfileResponse {
 }
 
 dotenv.config();
-
-const ownUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_API_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_API_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.DEV_URL
-        : 'http://localhost:3002';
-
-const clientUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
 
 // Helper function to handle Discord OAuth token exchange
 async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
@@ -237,7 +220,7 @@ export const OAuthController = {
       const providers = await OAuthService.getUserProviders(req.user!.id);
 
       const avatarUrl = req.user!.avatarUrl
-        ? `${ownUrlEnv}/v2/media/avatar/${req.user!.id}`
+        ? `${ownUrl}/v2/media/avatar/${req.user!.id}`
         : null;
 
       const response: ProfileResponse = {

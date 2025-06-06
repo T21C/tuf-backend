@@ -7,35 +7,7 @@ import Creator from '../models/credits/Creator.js';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../services/LoggerService.js';
-
-const clientUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
-
-/* eslint-disable @typescript-eslint/no-unused-vars */
-const portEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_PORT
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_PORT
-      : process.env.NODE_ENV === 'development'
-        ? process.env.PORT
-        : '3002';
-
-const ownUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_API_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_API_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.DEV_URL
-        : 'http://localhost:3002';
-
+import { clientUrlEnv, ownUrl } from '../config/app.config.js';
 // Add type for manifest entries
 type ManifestEntry = {
   file: string;
@@ -208,11 +180,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
           <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
-          <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta property="og:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta property="twitter:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
@@ -249,11 +221,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="${songName} by ${artistName}" />
           <meta property="og:description" content="Created by ${creators}" />
-          <meta property="og:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
+          <meta property="og:image" content="${ownUrl}/v2/media/thumbnail/level/${id}" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="${ownUrlEnv}/v2/media/thumbnail/level/${id}" />
+          <meta property="twitter:image" content="${ownUrl}/v2/media/thumbnail/level/${id}" />
           <meta name="theme-color" content="${level.difficulty?.color || '#090909'}" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
@@ -273,11 +245,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="Player ${id}" />
           <meta property="og:description" content="View player details" />
-          <meta property="og:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta property="og:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="${ownUrlEnv}/v2/media/image/soggycat.webp" />
+          <meta property="twitter:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }

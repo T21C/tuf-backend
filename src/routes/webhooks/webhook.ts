@@ -24,17 +24,9 @@ import LevelSubmission from '../../models/submissions/LevelSubmission.js';
 import {calcAcc, IJudgements} from '../../utils/CalcAcc.js';
 import {Auth} from '../../middleware/auth.js';
 import { logger } from '../../services/LoggerService.js';
+import { clientUrlEnv } from '../../config/app.config.js';
 
 const router: Router = express.Router();
-
-const clientUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
 
 const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
 

@@ -3,6 +3,7 @@ import {sseManager} from '../../utils/sse.js';
 import {Auth} from '../../middleware/auth.js';
 import {Request, Response} from 'express';
 import User from '../../models/auth/User.js';
+import { clientUrlEnv } from '../../config/app.config.js';
 
 const router: Router = Router();
 
@@ -17,13 +18,6 @@ interface SSERequest extends Request {
 // SSE endpoint
 router.get('/', async (req: SSERequest, res: Response) => {
   // Get environment-specific client URL
-  const clientUrlEnv = process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
 
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');

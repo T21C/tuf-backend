@@ -1,6 +1,7 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { logger } from '../services/LoggerService.js';
+import { clientUrlEnv } from '../config/app.config.js';
 
 dotenv.config();
 
@@ -8,14 +9,6 @@ dotenv.config();
 const MAILERSEND_API_URL = 'https://api.mailersend.com/v1/email';
 const MAILERSEND_API_TOKEN = process.env.MAILERSEND_API_TOKEN;
 
-const clientUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_CLIENT_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_CLIENT_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.CLIENT_URL
-        : 'http://localhost:5173';
 
 interface EmailOptions {
   to: string;
