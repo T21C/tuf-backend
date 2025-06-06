@@ -615,6 +615,7 @@ router.get('/github-asset', async (req: Request, res: Response) => {
     return;
   }
 });
+
 router.get('/image/:type/:path', async (req: Request, res: Response) => {
   const {type, path: imagePath} = req.params;
   try {
@@ -646,6 +647,22 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
       return res.status(404).send('Image not found');
     }
 
+    // Get file stats for cache headers
+    const stats = fs.statSync(fullPath);
+    const lastModified = stats.mtime.toUTCString();
+    const etag = `"${stats.size}-${stats.mtimeMs}"`;
+
+    // Check if client has a cached version
+    const ifNoneMatch = req.headers['if-none-match'];
+    const ifModifiedSince = req.headers['if-modified-since'];
+
+    if (
+      (ifNoneMatch && ifNoneMatch === etag) ||
+      (ifModifiedSince && new Date(ifModifiedSince) >= stats.mtime)
+    ) {
+      return res.status(304).end(); // Not Modified
+    }
+
     // Get file extension and set content type
     const ext = path.extname(fullPath).toLowerCase();
     const contentType =
@@ -657,7 +674,14 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
         '.webp': 'image/webp',
       }[ext] || 'application/octet-stream';
 
-    res.set('Content-Type', contentType);
+    // Set cache headers
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=86400, stale-while-revalidate=3600',
+      'ETag': etag,
+      'Last-Modified': lastModified
+    });
+
     return res.sendFile(fullPath);
   } catch (error) {
     logger.error('Error serving cached image:', error);

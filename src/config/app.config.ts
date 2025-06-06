@@ -59,6 +59,8 @@ export const corsOptions = {
     'X-File-Id',
     'X-Chunk-Index',
     'X-Total-Chunks',
+    'If-None-Match',
+    'If-Modified-Since'
   ],
   exposedHeaders: [
     'Content-Type',
@@ -70,5 +72,7 @@ export const corsOptions = {
     'X-File-Id',
     'X-Chunk-Index',
     'X-Total-Chunks',
+    'ETag',
+    'Last-Modified'
   ],
 }; 
