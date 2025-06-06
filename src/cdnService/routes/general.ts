@@ -121,21 +121,25 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         });
         return;
     }
-    
+
 
 router.get('/:fileId', async (req: Request, res: Response) => {
     try {
         const { fileId } = req.params;
         const file = await CdnFile.findByPk(fileId);
-
         if (!file) {
             return res.status(404).json({ error: 'File not found' });
         }
+
+        let filePath = file.filePath;
 
         if (file.type === 'LEVELZIP') {
             return handleZipRequest(req, res, file);
         }
         
+        if (file.type === 'PROFILE') {
+            filePath = path.join(file.filePath, 'original.png');
+        }
         await FileAccessLog.create({
             fileId: fileId,
             ipAddress: req.ip,
@@ -146,7 +150,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 
         // Check if file exists
         try {
-            await fs.promises.access(file.filePath, fs.constants.F_OK);
+            await fs.promises.access(filePath, fs.constants.F_OK);
         } catch (error) {
             logger.error('File not found on disk:', {
                 fileId,
@@ -157,7 +161,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         }
 
         // Get file stats
-        const stats = await fs.promises.stat(file.filePath);
+        const stats = await fs.promises.stat(filePath);
         
         // Set headers
         res.setHeader('Content-Type', MIME_TYPES[file.type]);
@@ -165,13 +169,13 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
 
         // Create read stream with error handling
-        const fileStream = fs.createReadStream(file.filePath);
+        const fileStream = fs.createReadStream(filePath);
         
         // Handle stream errors
         fileStream.on('error', (error) => {
             logger.error('Error streaming file:', {
                 fileId,
-                path: file.filePath,
+                path: filePath,
                 error: error instanceof Error ? error.message : String(error)
             });
             if (!res.headersSent) {
