@@ -143,6 +143,18 @@ router.post(
 
       const formType = req.headers['x-form-type'];
       if (formType === 'level') {
+
+        if (req.body.directDL && req.body.directDL.startsWith(CDN_CONFIG.baseUrl)) {
+          await cleanUpFile(req);
+          await transaction.rollback();
+          return res.status(400).json({
+            error: 'Direct download cannot point to local CDN',
+            details: {
+              directDL: req.body.directDL
+            }
+          });
+        }
+
         const discordProvider = req.user?.providers?.find(
           (provider: any) => provider.dataValues?.provider === 'discord',
         );
