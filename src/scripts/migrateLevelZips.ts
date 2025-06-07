@@ -620,7 +620,8 @@ async function migrateLevelZips() {
           [Op.and]: [
             { [Op.notLike]: `${CDN_CONFIG.baseUrl}%` },
             { [Op.ne]: 'removed' },
-            { [Op.ne]: '' }
+            { [Op.ne]: '' },
+            { [Op.notLike]: '%#DUPLICATEOF%' }
           ]
         }
       }
