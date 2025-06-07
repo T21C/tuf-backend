@@ -375,67 +375,151 @@ async function debugSingleLink(url: string) {
   }
 }
 
-async function migrateLevelZips() {
-  // Check for debug mode
-  const debugUrl = 'https://drive.google.com/file/d/1qjNyVZduQlbOaKeT8FbmZHnW8zA1cRcX/edit'
-  if (debugUrl && process.env.NODE_ENV === 'development') {
-    await debugSingleLink(debugUrl);
-    return;
+// Helper function to create fresh temp directory
+async function createFreshTempDir(): Promise<string> {
+  const tempDir = path.join(__dirname, '../../temp');
+  
+  // Clean up entire temp directory
+  if (fs.existsSync(tempDir)) {
+    try {
+      // Remove all contents of temp directory
+      const files = fs.readdirSync(tempDir);
+      for (const file of files) {
+        const filePath = path.join(tempDir, file);
+        if (fs.statSync(filePath).isDirectory()) {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(filePath);
+        }
+      }
+      logger.info('Cleaned up entire temp directory');
+    } catch (error) {
+      logger.warn('Failed to clean up temp directory:', error);
+    }
+  } else {
+    // Create temp directory if it doesn't exist
+    fs.mkdirSync(tempDir, { recursive: true });
+    logger.info('Created temp directory');
   }
+  
+  return tempDir;
+}
 
+// Helper function to clean up temp directory
+async function cleanupTempDir(tempDir: string): Promise<void> {
+  if (fs.existsSync(tempDir)) {
+    try {
+      // Remove all contents of temp directory
+      const files = fs.readdirSync(tempDir);
+      for (const file of files) {
+        const filePath = path.join(tempDir, file);
+        if (fs.statSync(filePath).isDirectory()) {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(filePath);
+        }
+      }
+      logger.info('Cleaned up entire temp directory');
+    } catch (error) {
+      logger.warn('Failed to clean up temp directory:', error);
+    }
+  }
+}
+
+// Helper function to process levels in alternating order
+function getAlternatingLevels(levels: Level[]): Level[] {
+  const result: Level[] = [];
+  let start = 0;
+  let end = levels.length - 1;
+  
+  while (start <= end) {
+    // Add from start
+    result.push(levels[start]);
+    start++;
+    
+    // Add from end if there are more levels
+    if (start <= end) {
+      result.push(levels[end]);
+      end--;
+    }
+  }
+  
+  return result;
+}
+
+// Helper function to check and migrate levels in a continuous flow
+async function processLevelsContinuously(levels: Level[], tempDir: string, batchSize: number = 5): Promise<{ successful: number; failed: number; skipped: number; errors: Map<string, number> }> {
   const stats = {
-    total: 0,
     successful: 0,
     failed: 0,
     skipped: 0,
     errors: new Map<string, number>()
   };
 
-  try {
-    // Get all levels that don't have a CDN-managed download link
-    const levels = await Level.findAll({
-      where: {
-        dlLink: {
-          [Op.and]: [
-            { [Op.notLike]: `${CDN_CONFIG.baseUrl}%` },
-            { [Op.ne]: 'removed' },
-            { [Op.ne]: '' }
-          ]
+  // Get alternating order first
+  const alternatingLevels = getAlternatingLevels(levels);
+  logger.info(`Processing ${alternatingLevels.length} levels in alternating order`);
+
+  // Process levels in a continuous flow
+  for (let i = 0; i < alternatingLevels.length; i += batchSize) {
+    const batch = alternatingLevels.slice(i, i + batchSize);
+    logger.info(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(alternatingLevels.length/batchSize)}`);
+
+    // Clean temp directory before each batch
+    try {
+      const files = fs.readdirSync(tempDir);
+      for (const file of files) {
+        const filePath = path.join(tempDir, file);
+        if (fs.statSync(filePath).isDirectory()) {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(filePath);
         }
       }
-    });
+      logger.info('Cleaned temp directory before batch processing');
+    } catch (error) {
+      logger.warn('Failed to clean temp directory:', error);
+    }
 
-    stats.total = levels.length;
-    logger.info(`Found ${levels.length} levels to migrate`);
-
-    // Pre-check URLs to identify inaccessible ones
-    logger.info('Pre-checking URLs for accessibility...');
-    const accessibleLevels = [];
-    for (const level of levels) {
-      let dlLink = level.dlLink;
+    // Check URLs in parallel
+    const checkPromises = batch.map(async (level) => {
+      let dlLink = level.dlLink.trim();
       if (!dlLink.startsWith('https://') && !dlLink.startsWith('http://')) {
         dlLink = 'https://' + dlLink;
       }
+      
       if (!isValidUrl(dlLink)) {
         logger.warn(`Invalid URL for level ${level.id}: ${dlLink}`);
-        stats.skipped++;
-        continue;
+        return null;
       }
-      if (await isUrlAccessible(dlLink)) {
-        accessibleLevels.push(level);
-      } else {
-        stats.skipped++;
+      
+      try {
+        const response = await axios({
+          method: 'HEAD',
+          url: dlLink,
+          timeout: 10000,
+          validateStatus: (status) => status < 400,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+          }
+        });
+        return level;
+      } catch (error) {
+        logger.warn(`URL not accessible for level ${level.id}: ${dlLink} - ${formatError(error)}`);
+        return null;
       }
-    }
-    logger.info(`Found ${accessibleLevels.length} accessible URLs out of ${levels.length} total`);
+    });
 
-    // Process accessible levels
-    for (let i = 0; i < accessibleLevels.length; i++) {
-      const level = accessibleLevels[i];
+    // Wait for URL checks to complete
+    const accessibleLevels = (await Promise.all(checkPromises)).filter((level): level is Level => level !== null);
+    stats.skipped += batch.length - accessibleLevels.length;
+
+    // Immediately process accessible levels
+    for (const level of accessibleLevels) {
       const tempPath = path.join(tempDir, `level_${level.id}`);
       try {
-        logger.info(`Processing level ${i + 1}/${accessibleLevels.length}: ${level.id} - ${level.song} - ${level.artist}`);
-        let dlLink = level.dlLink;
+        logger.info(`Processing level ${level.id} - ${level.song} - ${level.artist}`);
+        let dlLink = level.dlLink.trim();
         if (!dlLink.startsWith('https://') && !dlLink.startsWith('http://')) {
           dlLink = 'https://' + dlLink;
         }
@@ -479,11 +563,57 @@ async function migrateLevelZips() {
         const err = error as any;
         const errorType = err.response ? `HTTP ${err.response.status}` : err.code || 'Unknown';
         stats.errors.set(errorType, (stats.errors.get(errorType) || 0) + 1);
-      } finally {
-        // Clean up temp files
-        await cleanupTempFiles(tempPath, tempPath + '.zip', tempPath + '.rar');
       }
     }
+
+    logger.info(`Batch ${Math.floor(i/batchSize) + 1} complete. Success: ${stats.successful}, Failed: ${stats.failed}, Skipped: ${stats.skipped}`);
+  }
+
+  return stats;
+}
+
+async function migrateLevelZips() {
+  // Check for debug mode
+  const debugUrl = ''
+  if (debugUrl && process.env.NODE_ENV === 'development') {
+    await debugSingleLink(debugUrl);
+    return;
+  }
+
+  const stats = {
+    total: 0,
+    successful: 0,
+    failed: 0,
+    skipped: 0,
+    errors: new Map<string, number>()
+  };
+
+  // Create fresh temp directory for this migration run
+  const tempDir = await createFreshTempDir();
+
+  try {
+    // Get all levels that don't have a CDN-managed download link
+    const levels = await Level.findAll({
+      where: {
+        dlLink: {
+          [Op.and]: [
+            { [Op.notLike]: `${CDN_CONFIG.baseUrl}%` },
+            { [Op.ne]: 'removed' },
+            { [Op.ne]: '' }
+          ]
+        }
+      }
+    });
+
+    stats.total = levels.length;
+    logger.info(`Found ${levels.length} levels to migrate`);
+
+    // Process levels in a continuous flow
+    const migrationStats = await processLevelsContinuously(levels, tempDir, 5);
+    stats.successful = migrationStats.successful;
+    stats.failed = migrationStats.failed;
+    stats.skipped = migrationStats.skipped;
+    stats.errors = migrationStats.errors;
 
     // Print summary
     logger.info('Migration completed');
@@ -503,6 +633,9 @@ async function migrateLevelZips() {
 
   } catch (error: unknown) {
     logger.error('Migration failed:', formatError(error));
+  } finally {
+    // Clean up the entire temp directory
+    await cleanupTempDir(tempDir);
   }
 }
 
