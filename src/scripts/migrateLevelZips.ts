@@ -8,9 +8,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Op } from 'sequelize';
 import AdmZip from 'adm-zip';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const execAsync = promisify(exec);
 
 // Create temp directory if it doesn't exist
 const tempDir = path.join(__dirname, '../../temp');
@@ -83,8 +87,79 @@ function parseGoogleDriveForm(html: string): string {
   return `${baseUrl}?${params.toString()}`;
 }
 
+// Helper function to check if file is RAR
+function isRarFile(filepath: string): boolean {
+  return filepath.toLowerCase().endsWith('.rar');
+}
+
+// Helper function to extract RAR file
+async function extractRar(rarPath: string, extractDir: string): Promise<void> {
+  try {
+    // Check if unrar is installed
+    try {
+      await execAsync('unrar');
+    } catch {
+      throw new Error('unrar command not found. Please install unrar to handle RAR files.');
+    }
+
+    // Create extraction directory if it doesn't exist
+    if (!fs.existsSync(extractDir)) {
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+
+    // Extract RAR file
+    await execAsync(`unrar x "${rarPath}" "${extractDir}" -y`);
+    logger.info(`Successfully extracted RAR file to ${extractDir}`);
+  } catch (error) {
+    logger.error('Failed to extract RAR file:', error);
+    throw error;
+  }
+}
+
+// Helper function to create ZIP from directory
+async function createZipFromDir(dirPath: string, zipPath: string): Promise<void> {
+  try {
+    const zip = new AdmZip();
+    
+    // Add all files from directory to zip
+    const files = fs.readdirSync(dirPath);
+    for (const file of files) {
+      const filePath = path.join(dirPath, file);
+      const stats = fs.statSync(filePath);
+      
+      if (stats.isFile()) {
+        zip.addLocalFile(filePath);
+      }
+    }
+    
+    // Write zip file
+    zip.writeZip(zipPath);
+    logger.info(`Successfully created ZIP file at ${zipPath}`);
+  } catch (error) {
+    logger.error('Failed to create ZIP file:', error);
+    throw error;
+  }
+}
+
+// Helper function to clean up temporary files
+async function cleanupTempFiles(...paths: string[]): Promise<void> {
+  for (const path of paths) {
+    if (fs.existsSync(path)) {
+      try {
+        if (fs.statSync(path).isDirectory()) {
+          fs.rmSync(path, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(path);
+        }
+      } catch (error) {
+        logger.warn(`Failed to clean up ${path}:`, error);
+      }
+    }
+  }
+}
+
 // Helper function to download a file
-async function downloadFile(url: string, filepath: string): Promise<void> {
+async function downloadFile(url: string, filepath: string): Promise<{ finalFilepath: string; originalFilename: string }> {
   if (!isValidUrl(url)) {
     throw new Error('Invalid URL');
   }
@@ -133,23 +208,78 @@ async function downloadFile(url: string, filepath: string): Promise<void> {
     }
   });
 
-  const writer = fs.createWriteStream(filepath);
+  // Get content disposition from headers
+  const contentDisposition = fileResponse.headers['content-disposition'];
+  
+  // Extract filename from content-disposition
+  let originalFilename = '';
+  if (contentDisposition) {
+    const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (filenameMatch && filenameMatch[1]) {
+      originalFilename = filenameMatch[1].replace(/['"]/g, '');
+      logger.info(`Extracted filename from Content-Disposition: ${originalFilename}`);
+    }
+  }
+
+  // If no filename in content-disposition, use the original filepath
+  if (!originalFilename) {
+    originalFilename = path.basename(filepath);
+    logger.info(`No filename in Content-Disposition, using: ${originalFilename}`);
+  }
+
+  // Get the extension from the original filename
+  const fileExtension = path.extname(originalFilename);
+  
+  // Update filepath with correct extension
+  const finalFilepath = filepath.replace(/\.[^/.]+$/, '') + fileExtension;
+  logger.info(`Using file extension: ${fileExtension}`);
+
+  const writer = fs.createWriteStream(finalFilepath);
   fileResponse.data.pipe(writer);
 
   return new Promise((resolve, reject) => {
-    writer.on('finish', () => {
-      if (!isValidZipFile(filepath)) {
-        reject(new Error('Downloaded file is not a valid zip'));
-        return;
+    writer.on('finish', async () => {
+      try {
+        // Check if the downloaded file is a RAR
+        if (isRarFile(finalFilepath)) {
+          logger.info('Downloaded file is a RAR archive, converting to ZIP...');
+          
+          // Create temporary directories
+          const extractDir = path.join(tempDir, `extract_${Date.now()}`);
+          const zipPath = finalFilepath.replace('.rar', '.zip');
+          
+          try {
+            // Extract RAR
+            await extractRar(finalFilepath, extractDir);
+            
+            // Create ZIP
+            await createZipFromDir(extractDir, zipPath);
+            
+            // Replace original file with ZIP
+            await fs.promises.unlink(finalFilepath);
+            await fs.promises.rename(zipPath, finalFilepath);
+            
+            logger.info('Successfully converted RAR to ZIP');
+          } finally {
+            // Clean up temporary files
+            await cleanupTempFiles(extractDir, zipPath);
+          }
+        }
+        
+        // Validate the final file is a valid zip
+        if (!isValidZipFile(finalFilepath)) {
+          reject(new Error('Downloaded file is not a valid zip'));
+          return;
+        }
+        
+        resolve({ finalFilepath, originalFilename });
+      } catch (error) {
+        reject(error);
       }
-      resolve();
     });
     writer.on('error', reject);
   });
 }
-
-// Helper function to sleep
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Helper function to format error message
 function formatError(error: unknown): string {
@@ -185,7 +315,7 @@ async function debugSingleLink(url: string) {
     logger.info(`File saved to: ${tempPath}`);
     logger.info('File is a valid zip');
   } catch (error) {
-    logger.error('Download failed:', formatError(error));
+    logger.error('Download failed:', error);
   } finally {
     // Clean up
     const tempPath = path.join(tempDir, 'debug_test.zip');
@@ -197,7 +327,7 @@ async function debugSingleLink(url: string) {
 
 async function migrateLevelZips() {
   // Check for debug mode
-  const debugUrl = 'https://drive.google.com/file/d/1doan9YKW-Td67bZKd_f-vpq7DH6O-MZ_/view'
+  const debugUrl = 'https://drive.google.com/file/d/1qjNyVZduQlbOaKeT8FbmZHnW8zA1cRcX/edit'
   if (debugUrl && process.env.NODE_ENV === 'development') {
     await debugSingleLink(debugUrl);
     return;
@@ -245,18 +375,18 @@ async function migrateLevelZips() {
         }
 
         // Download the file
-        const tempPath = path.join(tempDir, `level_${level.id}.zip`);
-        await downloadFile(dlLink, tempPath);
+        const tempPath = path.join(tempDir, `level_${level.id}`);
+        const { finalFilepath, originalFilename } = await downloadFile(dlLink, tempPath);
 
         // Read the file
-        const fileBuffer = await fs.promises.readFile(tempPath);
+        const fileBuffer = await fs.promises.readFile(finalFilepath);
 
-        // Create encoded filename
-        const encodedFilename = encodeFilename(`${level.song} - ${level.artist}.zip`);
-        logger.info(`Using encoded filename: ${encodedFilename}`);
+        // Use the original filename from Content-Disposition for CDN upload
+        const encodedFilename = encodeFilename(originalFilename);
+        logger.info(`Using encoded filename from Content-Disposition: ${encodedFilename}`);
 
         // Upload to CDN
-        logger.info(`Uploading level ${level.id} to CDN`);
+        logger.info(`Uploading level ${level.id} to CDN - ${originalFilename}`);
         const uploadResult = await cdnService.uploadLevelZip(fileBuffer, encodedFilename);
 
         // Get level files
@@ -274,7 +404,7 @@ async function migrateLevelZips() {
         logger.info(`Found ${levelFiles.length} files in the zip`);
 
         // Clean up temp file
-        await fs.promises.unlink(tempPath);
+        await fs.promises.unlink(finalFilepath);
 
         stats.successful++;
 
@@ -289,7 +419,7 @@ async function migrateLevelZips() {
         stats.errors.set(errorType, (stats.errors.get(errorType) || 0) + 1);
 
         // Clean up temp file if it exists
-        const tempPath = path.join(tempDir, `level_${level.id}.zip`);
+        const tempPath = path.join(tempDir, `level_${level.id}`);
         if (fs.existsSync(tempPath)) {
           await fs.promises.unlink(tempPath);
         }
