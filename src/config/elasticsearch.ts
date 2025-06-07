@@ -155,6 +155,12 @@ export const levelMapping = {
           keyword: { type: 'keyword' as const, ignore_above: 256 }
         }
       },
+      legacyDllink: { 
+        type: 'text' as const,
+        fields: {
+          keyword: { type: 'keyword' as const, ignore_above: 256 }
+        }
+      },
       workshopLink: { 
         type: 'text' as const,
         fields: {

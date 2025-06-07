@@ -748,7 +748,7 @@ class ElasticsearchService {
     const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
 
     // Check for exact match with equals sign
-    const exactMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink)=(.+)$/i);
+    const exactMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink)=(.+)$/i);
     if (exactMatch) {
       return {
         field: exactMatch[1].toLowerCase(),
@@ -759,7 +759,7 @@ class ElasticsearchService {
     }
 
     // Check for partial match with colon
-    const partialMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink):(.+)$/i);
+    const partialMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink):(.+)$/i);
     if (partialMatch) {
       return {
         field: partialMatch[1].toLowerCase(),
@@ -877,6 +877,18 @@ class ElasticsearchService {
           const query = {
             term: {
               'dlLink.keyword': {
+                value: searchValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        if (field === 'legacydllink') {
+          const query = {
+            term: {
+              'legacyDllink.keyword': {
                 value: searchValue,
                 case_insensitive: true
               }
