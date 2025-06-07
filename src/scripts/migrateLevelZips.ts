@@ -456,6 +456,9 @@ async function processLevelsContinuously(levels: Level[], tempDir: string, batch
     errors: new Map<string, number>()
   };
 
+  // Track migrated levels and their download links
+  const migratedLevels = new Map<string, string>(); // Map of download link -> fileId
+
   // Get alternating order first
   const alternatingLevels = getAlternatingLevels(levels);
   logger.info(`Processing ${alternatingLevels.length} levels in alternating order`);
@@ -524,6 +527,21 @@ async function processLevelsContinuously(levels: Level[], tempDir: string, batch
           dlLink = 'https://' + dlLink;
         }
 
+        // Check if this is a duplicate download link
+        const existingFileId = migratedLevels.get(dlLink);
+        if (existingFileId) {
+          logger.info(`Found duplicate download link for level ${level.id}, referencing level with fileId ${existingFileId}`);
+          
+          // Update level with duplicate marker
+          await level.update({
+            dlLink: `${level.dlLink}#DUPLICATEOF${level.id}`
+          });
+          
+          logger.info(`Skipped duplicate download for level ${level.id}`);
+          stats.successful++;
+          continue;
+        }
+
         // Download the file
         const { finalFilepath, originalFilename } = await downloadFile(dlLink, tempPath);
 
@@ -537,6 +555,9 @@ async function processLevelsContinuously(levels: Level[], tempDir: string, batch
         // Upload to CDN
         logger.info(`Uploading level ${level.id} to CDN - ${originalFilename}`);
         const uploadResult = await cdnService.uploadLevelZip(fileBuffer, encodedFilename);
+
+        // Store the fileId for future duplicate checks
+        migratedLevels.set(dlLink, uploadResult.fileId);
 
         // Get level files
         const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
