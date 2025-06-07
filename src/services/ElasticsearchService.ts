@@ -1027,6 +1027,18 @@ class ElasticsearchService {
         return isNot ? { bool: { must_not: [query] } } : query;
       }
 
+      if (field === 'legacydllink') {
+        const query = {
+          wildcard: {
+            'legacyDllink': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
       // Handle download link partial match
       if (field === 'dllink') {
         const query = {
