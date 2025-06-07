@@ -22,7 +22,7 @@ class CdnService {
     private constructor() {
         this.client = axios.create({
             baseURL: CDN_BASE_URL,
-            timeout: 120000, // 30 seconds timeout for file uploads
+            timeout: 300000, // 30 seconds timeout for file uploads
         });
     }
 
