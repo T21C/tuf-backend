@@ -98,7 +98,12 @@ function decodeFilename(hex: string): string {
 }
 
 export async function processZipFile(zipFilePath: string, zipFileId: string, encodedFilename: string): Promise<void> {
-    logger.debug('Starting zip file processing:', { zipFilePath, zipFileId, encodedFilename });
+    logger.debug('Starting zip file processing:', { 
+        zipFilePath, 
+        zipFileId, 
+        encodedFilename,
+        fileSize: (await fs.promises.stat(zipFilePath)).size
+    });
     
     try {
         const zipEntries = await extractZipEntries(zipFilePath);
@@ -114,12 +119,21 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
 
         // Reserve a drive for all operations
         const storageRoot = await storageManager.reserveDrive();
+        logger.info(`Processing zip file on drive:`, {
+            drive: storageRoot,
+            fileId: zipFileId,
+            totalEntries: zipEntries.length,
+            totalSize: zipEntries.reduce((sum, entry) => sum + entry.size, 0)
+        });
         
         try {
             // Create permanent storage directory for this zip
             const permanentDir = path.join(storageRoot, 'levels', zipFileId);
             await fs.promises.mkdir(permanentDir, { recursive: true });
-            logger.debug('Created permanent storage directory:', { permanentDir });
+            logger.debug('Created permanent storage directory:', { 
+                permanentDir,
+                drive: storageRoot
+            });
 
             // Decode the filename from the encoded filename
             const finalZipName = decodeFilename(encodedFilename);
@@ -132,12 +146,16 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
             // Store the original zip file with its decoded name
             const originalZipPath = path.join(permanentDir, finalZipName);
             await fs.promises.copyFile(zipFilePath, originalZipPath);
+            const originalZipSize = (await fs.promises.stat(originalZipPath)).size;
             logger.debug('Stored original zip file:', { 
                 originalZipPath,
-                finalZipName
+                finalZipName,
+                size: originalZipSize,
+                drive: storageRoot
             });
 
             // First pass: collect all level files
+            let totalLevelSize = 0;
             for (const entry of zipEntries) {
                 if (entry.relativePath.endsWith('.adofai')) {
                     // Skip backup files
@@ -180,10 +198,12 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                             hasYouTubeStream: levelFile.hasYouTubeStream,
                             songFilename: levelFile.songFilename
                         });
+                        totalLevelSize += entry.size;
                     } catch (error) {
                         logger.error('Failed to analyze level file:', {
                             error: error instanceof Error ? error.message : String(error),
-                            path: entry.relativePath
+                            path: entry.relativePath,
+                            drive: storageRoot
                         });
                         // Clean up temp file even if analysis fails
                         await fs.promises.unlink(tempPath).catch(() => {});
@@ -197,6 +217,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
 
             // Second pass: extract all song files
             const audioExtensions = ['.mp3', '.ogg', '.wav', '.m4a', '.flac'];
+            let totalSongSize = 0;
             for (const entry of zipEntries) {
                 if (!entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())) {
                     // Extract song to temp first
@@ -215,6 +236,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                         size: entry.size,
                         type: path.extname(entry.relativePath).toLowerCase().slice(1)
                     };
+                    totalSongSize += entry.size;
                 }
             }
 
@@ -256,15 +278,20 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                     originalZip: {
                         name: finalZipName,
                         path: originalZipPath, // Store absolute path
-                        size: (await fs.promises.stat(originalZipPath)).size
+                        size: originalZipSize
                     }
                 }
             });
 
             logger.info('Successfully processed zip file:', {
                 fileId: zipFileId,
+                drive: storageRoot,
                 levelCount: allLevelFiles.length,
                 songCount: Object.keys(songFiles).length,
+                totalLevelSize,
+                totalSongSize,
+                originalZipSize,
+                totalSize: totalLevelSize + totalSongSize + originalZipSize,
                 targetLevel,
                 pathConfirmed,
                 permanentDir,

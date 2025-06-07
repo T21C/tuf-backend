@@ -166,6 +166,7 @@ export class StorageManager {
     public async reserveDrive(): Promise<string> {
         if (this.reservedDrive) {
             this.reservationCount++;
+            logger.debug(`Reusing reserved drive: ${this.reservedDrive} (count: ${this.reservationCount})`);
             return this.reservedDrive;
         }
 
@@ -178,7 +179,16 @@ export class StorageManager {
             .sort((a, b) => b.availableSpace - a.availableSpace);
 
         if (availableDrives.length === 0) {
-            throw new Error('No available storage drives below threshold');
+            const error = 'No available storage drives below threshold';
+            logger.error(error, {
+                threshold: this.STORAGE_THRESHOLD,
+                drives: this.drives.map(d => ({
+                    path: d.storagePath,
+                    usage: d.usagePercentage,
+                    available: this.formatBytes(d.availableSpace)
+                }))
+            });
+            throw new Error(error);
         }
 
         // Get the drive with most available space
@@ -187,10 +197,18 @@ export class StorageManager {
         this.reservedDrive = selectedDrive.storagePath;
         this.reservationCount = 1;
 
-        logger.info(`Reserved drive: ${this.reservedDrive}`, {
+        logger.info(`Selected least occupied drive for storage:`, {
+            drive: this.reservedDrive,
             availableSpace: this.formatBytes(selectedDrive.availableSpace),
             usagePercentage: selectedDrive.usagePercentage,
-            threshold: this.STORAGE_THRESHOLD
+            threshold: this.STORAGE_THRESHOLD,
+            totalDrives: this.drives.length,
+            availableDrives: availableDrives.length,
+            allDrives: this.drives.map(d => ({
+                path: d.storagePath,
+                usage: d.usagePercentage,
+                available: this.formatBytes(d.availableSpace)
+            }))
         });
 
         return this.reservedDrive;
@@ -226,10 +244,26 @@ export class StorageManager {
                 if (disk) {
                     // Convert Linux KiB to bytes if needed
                     const multiplier = this.isWindows ? 1 : 1024;
+                    const oldUsage = drive.usagePercentage;
+                    const oldAvailable = drive.availableSpace;
+                    
                     drive.usedSpace = disk.used * multiplier;
                     drive.availableSpace = disk.available * multiplier;
                     drive.usagePercentage = parseFloat(disk.capacity);
                     drive.isActive = drive.usagePercentage < this.STORAGE_THRESHOLD;
+
+                    // Log significant changes in drive usage
+                    if (Math.abs(oldUsage - drive.usagePercentage) > 1 || 
+                        Math.abs(oldAvailable - drive.availableSpace) > 1024 * 1024 * 100) { // 100MB change
+                        logger.info(`Drive usage updated:`, {
+                            drive: drive.storagePath,
+                            oldUsage: `${oldUsage}%`,
+                            newUsage: `${drive.usagePercentage}%`,
+                            oldAvailable: this.formatBytes(oldAvailable),
+                            newAvailable: this.formatBytes(drive.availableSpace),
+                            isActive: drive.isActive
+                        });
+                    }
                 }
             }
         } catch (error) {
