@@ -18,11 +18,6 @@ if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir, { recursive: true });
 }
 
-// Helper function to check if a URL is from our CDN
-const isCdnUrl = (url: string): boolean => {
-  return url.startsWith(CDN_CONFIG.baseUrl);
-};
-
 // Helper function to validate URL
 function isValidUrl(url: string): boolean {
   try {
@@ -53,9 +48,39 @@ function encodeFilename(filename: string): string {
 }
 
 // Helper function to extract Google Drive file ID
-function extractGoogleDriveFileId(url: string): string {
+function extractGoogleDriveFileUrl(url: string): string {
   const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
   return match ? `https://drive.usercontent.google.com/download?id=${match[1]}` : '';
+}
+
+// Helper function to check if response is HTML
+function isHtmlResponse(content: string): boolean {
+  return content.trim().toLowerCase().startsWith('<!doctype html') || 
+         content.trim().toLowerCase().startsWith('<html');
+}
+
+// Helper function to parse Google Drive form
+function parseGoogleDriveForm(html: string): string {
+  const formMatch = html.match(/<form[^>]*action="([^"]*)"[^>]*>/);
+  const idMatch = html.match(/name="id"\s+value="([^"]*)"/);
+  const exportMatch = html.match(/name="export"\s+value="([^"]*)"/);
+  const confirmMatch = html.match(/name="confirm"\s+value="([^"]*)"/);
+  const uuidMatch = html.match(/name="uuid"\s+value="([^"]*)"/);
+  const atMatch = html.match(/name="at"\s+value="([^"]*)"/);
+
+  if (!formMatch || !idMatch) {
+    throw new Error('Could not parse Google Drive form');
+  }
+
+  const baseUrl = formMatch[1];
+  const params = new URLSearchParams();
+  params.append('id', idMatch[1]);
+  if (exportMatch) params.append('export', exportMatch[1]);
+  if (confirmMatch) params.append('confirm', confirmMatch[1]);
+  if (uuidMatch) params.append('uuid', uuidMatch[1]);
+  if (atMatch) params.append('at', atMatch[1]);
+
+  return `${baseUrl}?${params.toString()}`;
 }
 
 // Helper function to download a file
@@ -66,32 +91,53 @@ async function downloadFile(url: string, filepath: string): Promise<void> {
 
   // Check if it's a Google Drive link
   if (url.includes('drive.google.com')) {
-    url = extractGoogleDriveFileId(url);
-    if (url === '') {
+    const initialUrl = extractGoogleDriveFileUrl(url);
+    if (initialUrl === '') {
       throw new Error('Empty Google Drive URL');
     }
     
-    logger.info(`Resolved Google Drive URL to: ${url}`);
+    logger.info(`Initial Google Drive URL: ${initialUrl}`);
+    
+    // First request to check if we get HTML or direct download
+    const response = await axios({
+      method: 'GET',
+      url: initialUrl,
+      responseType: 'text',
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    // If we got HTML, parse the form and get the actual download URL
+    if (isHtmlResponse(response.data)) {
+      logger.info('Received HTML response, parsing Google Drive form...');
+      url = parseGoogleDriveForm(response.data);
+      logger.info(`Resolved to download URL: ${url}`);
+    } else {
+      logger.info('Received direct download response');
+      url = initialUrl;
+    }
   }
 
-  const response = await axios({
+  // Now download the actual file
+  const fileResponse = await axios({
     method: 'GET',
     url: url,
     responseType: 'stream',
-    timeout: 30000, // 30 second timeout
+    timeout: 30000,
     maxContentLength: 1000 * 1024 * 1024, // 1GB max
-    validateStatus: (status) => status === 200, // Only accept 200 status
+    validateStatus: (status) => status === 200,
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
   });
 
   const writer = fs.createWriteStream(filepath);
-  response.data.pipe(writer);
+  fileResponse.data.pipe(writer);
 
   return new Promise((resolve, reject) => {
     writer.on('finish', () => {
-      // Validate the downloaded file is a valid zip
       if (!isValidZipFile(filepath)) {
         reject(new Error('Downloaded file is not a valid zip'));
         return;
@@ -127,13 +173,42 @@ function formatError(error: unknown): string {
   return 'Unknown error';
 }
 
+// Add debug mode function
+async function debugSingleLink(url: string) {
+  logger.info('Debug mode: Testing single link');
+  logger.info(`URL: ${url}`);
+  
+  try {
+    const tempPath = path.join(tempDir, 'debug_test.zip');
+    await downloadFile(url, tempPath);
+    logger.info('Download successful!');
+    logger.info(`File saved to: ${tempPath}`);
+    logger.info('File is a valid zip');
+  } catch (error) {
+    logger.error('Download failed:', formatError(error));
+  } finally {
+    // Clean up
+    const tempPath = path.join(tempDir, 'debug_test.zip');
+    if (fs.existsSync(tempPath)) {
+      await fs.promises.unlink(tempPath);
+    }
+  }
+}
+
 async function migrateLevelZips() {
+  // Check for debug mode
+  const debugUrl = 'https://drive.google.com/file/d/1doan9YKW-Td67bZKd_f-vpq7DH6O-MZ_/view'
+  if (debugUrl && process.env.NODE_ENV === 'development') {
+    await debugSingleLink(debugUrl);
+    return;
+  }
+
   const stats = {
     total: 0,
     successful: 0,
     failed: 0,
     skipped: 0,
-    errors: new Map<string, number>() // Track error types
+    errors: new Map<string, number>()
   };
 
   try {
@@ -157,21 +232,21 @@ async function migrateLevelZips() {
       const level = levels[i];
       try {
         logger.info(`Processing level ${i + 1}/${levels.length}: ${level.id} - ${level.song} - ${level.artist}`);
-        const initialLink = level.dlLink
+        let dlLink = level.dlLink
         // Skip if URL is invalid
-        if (!initialLink.startsWith('https://') && !initialLink.startsWith('http://')) {
-          level.dlLink = 'https://' + initialLink;
+        if (!dlLink.startsWith('https://') && !dlLink.startsWith('http://')) {
+          dlLink = 'https://' + dlLink;
         }
-        if (!isValidUrl(initialLink)) {
+        if (!isValidUrl(dlLink)) {
           console.log(level);
-          logger.error(`Invalid URL for level ${level.id}: ${initialLink}`);
+          logger.error(`Invalid URL for level ${level.id}: ${dlLink}`);
           stats.skipped++;
           continue;
         }
 
         // Download the file
         const tempPath = path.join(tempDir, `level_${level.id}.zip`);
-        await downloadFile(initialLink, tempPath);
+        await downloadFile(dlLink, tempPath);
 
         // Read the file
         const fileBuffer = await fs.promises.readFile(tempPath);
@@ -194,7 +269,7 @@ async function migrateLevelZips() {
         });
 
         logger.info(`Successfully migrated level ${level.id}`);
-        logger.info(`Legacy download link: ${initialLink}`);
+        logger.info(`Legacy download link: ${dlLink}`);
         logger.info(`New download link: ${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`);
         logger.info(`Found ${levelFiles.length} files in the zip`);
 
