@@ -96,7 +96,7 @@ class CdnService {
     }> {
         logger.info('Starting level zip upload to CDN:', {
             filename,
-            bufferSize: zipBuffer.length,
+            bufferSize: (zipBuffer.length / 1024 / 1024).toFixed(2) + 'MB',
             timestamp: new Date().toISOString()
         });
 
