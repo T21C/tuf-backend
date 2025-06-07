@@ -161,6 +161,25 @@ async function extractRar(rarPath: string, extractDir: string): Promise<void> {
   }
 }
 
+// Helper function to check if URL is accessible
+async function isUrlAccessible(url: string): Promise<boolean> {
+  try {
+    const response = await axios({
+      method: 'HEAD',
+      url: url,
+      timeout: 10000,
+      validateStatus: (status) => status < 400,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    return true;
+  } catch (error) {
+    logger.warn(`URL not accessible: ${url} - ${formatError(error)}`);
+    return false;
+  }
+}
+
 // Helper function to clean up temporary files
 async function cleanupTempFiles(...paths: string[]): Promise<void> {
   for (const path of paths) {
@@ -171,6 +190,7 @@ async function cleanupTempFiles(...paths: string[]): Promise<void> {
         } else {
           fs.unlinkSync(path);
         }
+        logger.info(`Cleaned up temporary file: ${path}`);
       } catch (error) {
         logger.warn(`Failed to clean up ${path}:`, error);
       }
@@ -388,24 +408,39 @@ async function migrateLevelZips() {
     stats.total = levels.length;
     logger.info(`Found ${levels.length} levels to migrate`);
 
-    for (let i = 0; i < levels.length; i++) {
-      const level = levels[i];
+    // Pre-check URLs to identify inaccessible ones
+    logger.info('Pre-checking URLs for accessibility...');
+    const accessibleLevels = [];
+    for (const level of levels) {
+      let dlLink = level.dlLink;
+      if (!dlLink.startsWith('https://') && !dlLink.startsWith('http://')) {
+        dlLink = 'https://' + dlLink;
+      }
+      if (!isValidUrl(dlLink)) {
+        logger.warn(`Invalid URL for level ${level.id}: ${dlLink}`);
+        stats.skipped++;
+        continue;
+      }
+      if (await isUrlAccessible(dlLink)) {
+        accessibleLevels.push(level);
+      } else {
+        stats.skipped++;
+      }
+    }
+    logger.info(`Found ${accessibleLevels.length} accessible URLs out of ${levels.length} total`);
+
+    // Process accessible levels
+    for (let i = 0; i < accessibleLevels.length; i++) {
+      const level = accessibleLevels[i];
+      const tempPath = path.join(tempDir, `level_${level.id}`);
       try {
-        logger.info(`Processing level ${i + 1}/${levels.length}: ${level.id} - ${level.song} - ${level.artist}`);
-        let dlLink = level.dlLink
-        // Skip if URL is invalid
+        logger.info(`Processing level ${i + 1}/${accessibleLevels.length}: ${level.id} - ${level.song} - ${level.artist}`);
+        let dlLink = level.dlLink;
         if (!dlLink.startsWith('https://') && !dlLink.startsWith('http://')) {
           dlLink = 'https://' + dlLink;
         }
-        if (!isValidUrl(dlLink)) {
-          console.log(level);
-          logger.error(`Invalid URL for level ${level.id}: ${dlLink}`);
-          stats.skipped++;
-          continue;
-        }
 
         // Download the file
-        const tempPath = path.join(tempDir, `level_${level.id}`);
         const { finalFilepath, originalFilename } = await downloadFile(dlLink, tempPath);
 
         // Read the file
@@ -433,9 +468,6 @@ async function migrateLevelZips() {
         logger.info(`New download link: ${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`);
         logger.info(`Found ${levelFiles.length} files in the zip`);
 
-        // Clean up temp file
-        await fs.promises.unlink(finalFilepath);
-
         stats.successful++;
 
       } catch (error: unknown) {
@@ -447,12 +479,9 @@ async function migrateLevelZips() {
         const err = error as any;
         const errorType = err.response ? `HTTP ${err.response.status}` : err.code || 'Unknown';
         stats.errors.set(errorType, (stats.errors.get(errorType) || 0) + 1);
-
-        // Clean up temp file if it exists
-        const tempPath = path.join(tempDir, `level_${level.id}`);
-        if (fs.existsSync(tempPath)) {
-          await fs.promises.unlink(tempPath);
-        }
+      } finally {
+        // Clean up temp files
+        await cleanupTempFiles(tempPath, tempPath + '.zip', tempPath + '.rar');
       }
     }
 

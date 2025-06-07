@@ -8,9 +8,9 @@ if (!process.env.USER_CDN_ROOT || !process.env.CDN_URL || !process.env.LOCAL_CDN
 
 export const CDN_CONFIG = {
     user_root: process.env.USER_CDN_ROOT,
-    maxFileSize: 1000 * 1024 * 1024, // 1GB
+    maxFileSize: 4000 * 1024 * 1024, // 4GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
-    cacheControl: 'public, max-age=31536000', // 1 year
+    cacheControl: 'public, max-age=604800', // 1 week
     baseUrl: process.env.CDN_URL,
     port: process.env.LOCAL_CDN_URL.split(':')[2]
 } as const;
