@@ -28,11 +28,8 @@ interface StorageDrive {
 export class StorageManager {
     private static instance: StorageManager;
     private drives: StorageDrive[] = [];
-    private currentDriveIndex: number = 0;
     private readonly STORAGE_THRESHOLD = 90; // 90% usage threshold
     private readonly isWindows = process.platform === 'win32';
-    private reservedDrive: string | null = null;
-    private reservationCount: number = 0;
 
     constructor() {
         this.initializeDrives();
@@ -163,13 +160,7 @@ export class StorageManager {
         return `${Math.round(bytes / Math.pow(1024, i))} ${sizes[i]}`;
     }
 
-    public async reserveDrive(): Promise<string> {
-        if (this.reservedDrive) {
-            this.reservationCount++;
-            logger.debug(`Reusing reserved drive: ${this.reservedDrive} (count: ${this.reservationCount})`);
-            return this.reservedDrive;
-        }
-
+    public async getDrive(): Promise<string> {
         // Update drive usage information
         await this.updateDriveUsage();
 
@@ -194,11 +185,9 @@ export class StorageManager {
         // Get the drive with most available space
         const selectedDrive = availableDrives[0];
         
-        this.reservedDrive = selectedDrive.storagePath;
-        this.reservationCount = 1;
 
         logger.info(`Selected least occupied drive for storage:`, {
-            drive: this.reservedDrive,
+            drive: selectedDrive.storagePath,
             availableSpace: this.formatBytes(selectedDrive.availableSpace),
             usagePercentage: selectedDrive.usagePercentage,
             threshold: this.STORAGE_THRESHOLD,
@@ -211,25 +200,7 @@ export class StorageManager {
             }))
         });
 
-        return this.reservedDrive;
-    }
-
-    public releaseDrive(): void {
-        if (!this.reservedDrive) return;
-        
-        this.reservationCount--;
-        if (this.reservationCount <= 0) {
-            logger.info(`Released drive: ${this.reservedDrive}`);
-            this.reservedDrive = null;
-            this.reservationCount = 0;
-        }
-    }
-
-    public async getNextAvailableDrive(): Promise<string> {
-        if (this.reservedDrive) {
-            return this.reservedDrive;
-        }
-        return this.reserveDrive();
+        return selectedDrive.storagePath;
     }
 
     private async updateDriveUsage() {
@@ -345,7 +316,7 @@ export class StorageManager {
     private storage = multer.diskStorage({
         destination: async (req, file, cb) => {
             try {
-                const uploadDir = path.join(await this.getNextAvailableDrive(), 'temp');
+                const uploadDir = path.join(await this.getDrive(), 'temp');
                 if (!fs.existsSync(uploadDir)) {
                     fs.mkdirSync(uploadDir, { recursive: true });
                 }
@@ -369,7 +340,7 @@ export class StorageManager {
                 if (!IMAGE_TYPES[imageType]) {
                     throw new Error('Invalid image type');
                 }
-                const uploadDir = path.join(await this.getNextAvailableDrive(), 'images', IMAGE_TYPES[imageType].name);
+                const uploadDir = path.join(CDN_CONFIG.user_root, 'images', IMAGE_TYPES[imageType].name);
                 if (!fs.existsSync(uploadDir)) {
                     fs.mkdirSync(uploadDir, { recursive: true });
                 }
