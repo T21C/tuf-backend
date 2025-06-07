@@ -631,7 +631,7 @@ async function migrateLevelZips() {
     logger.info(`Found ${levels.length} levels to migrate`);
 
     // Process levels in a continuous flow
-    const migrationStats = await processLevelsContinuously(levels, tempDir, 10);
+    const migrationStats = await processLevelsContinuously(levels, tempDir, 20);
     stats.successful = migrationStats.successful;
     stats.failed = migrationStats.failed;
     stats.skipped = migrationStats.skipped;
