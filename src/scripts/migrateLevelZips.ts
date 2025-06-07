@@ -92,6 +92,43 @@ function isRarFile(filepath: string): boolean {
   return filepath.toLowerCase().endsWith('.rar');
 }
 
+// Helper function to create ZIP from directory
+async function createZipFromDir(dirPath: string, zipPath: string): Promise<void> {
+  try {
+    const zip = new AdmZip();
+    
+    // Add all files from directory to zip recursively
+    function addFilesToZip(currentPath: string, basePath: string = '') {
+      const files = fs.readdirSync(currentPath);
+      
+      for (const file of files) {
+        const filePath = path.join(currentPath, file);
+        const stats = fs.statSync(filePath);
+        
+        if (stats.isDirectory()) {
+          // Recursively add files from subdirectories
+          addFilesToZip(filePath, path.join(basePath, file));
+        } else {
+          // Add file to zip with relative path
+          const relativePath = path.join(basePath, file);
+          zip.addLocalFile(filePath, basePath);
+          logger.info(`Adding file to zip: ${relativePath}`);
+        }
+      }
+    }
+    
+    // Start adding files from the root directory
+    addFilesToZip(dirPath);
+    
+    // Write zip file
+    zip.writeZip(zipPath);
+    logger.info(`Successfully created ZIP file at ${zipPath}`);
+  } catch (error) {
+    logger.error('Failed to create ZIP file:', error);
+    throw error;
+  }
+}
+
 // Helper function to extract RAR file
 async function extractRar(rarPath: string, extractDir: string): Promise<void> {
   try {
@@ -107,36 +144,19 @@ async function extractRar(rarPath: string, extractDir: string): Promise<void> {
       fs.mkdirSync(extractDir, { recursive: true });
     }
 
-    // Extract RAR file
+    // Extract RAR file with full paths
     await execAsync(`unrar x "${rarPath}" "${extractDir}" -y`);
-    logger.info(`Successfully extracted RAR file to ${extractDir}`);
-  } catch (error) {
-    logger.error('Failed to extract RAR file:', error);
-    throw error;
-  }
-}
-
-// Helper function to create ZIP from directory
-async function createZipFromDir(dirPath: string, zipPath: string): Promise<void> {
-  try {
-    const zip = new AdmZip();
     
-    // Add all files from directory to zip
-    const files = fs.readdirSync(dirPath);
-    for (const file of files) {
-      const filePath = path.join(dirPath, file);
-      const stats = fs.statSync(filePath);
-      
-      if (stats.isFile()) {
-        zip.addLocalFile(filePath);
-      }
+    // Verify extraction
+    const files = fs.readdirSync(extractDir);
+    if (files.length === 0) {
+      throw new Error('No files were extracted from the RAR archive');
     }
     
-    // Write zip file
-    zip.writeZip(zipPath);
-    logger.info(`Successfully created ZIP file at ${zipPath}`);
+    logger.info(`Successfully extracted RAR file to ${extractDir}`);
+    logger.info(`Extracted files: ${files.join(', ')}`);
   } catch (error) {
-    logger.error('Failed to create ZIP file:', error);
+    logger.error('Failed to extract RAR file:', error);
     throw error;
   }
 }
@@ -230,40 +250,49 @@ async function downloadFile(url: string, filepath: string): Promise<{ finalFilep
   // Get the extension from the original filename
   const fileExtension = path.extname(originalFilename);
   
-  // Update filepath with correct extension
-  const finalFilepath = filepath.replace(/\.[^/.]+$/, '') + fileExtension;
-  logger.info(`Using file extension: ${fileExtension}`);
+  // Create a temporary filepath for the downloaded file
+  const tempFilepath = path.join(path.dirname(filepath), `temp_${Date.now()}${fileExtension}`);
+  logger.info(`Using temporary filepath: ${tempFilepath}`);
 
-  const writer = fs.createWriteStream(finalFilepath);
+  const writer = fs.createWriteStream(tempFilepath);
   fileResponse.data.pipe(writer);
 
   return new Promise((resolve, reject) => {
     writer.on('finish', async () => {
       try {
+        let finalFilepath = tempFilepath;
+        
         // Check if the downloaded file is a RAR
-        if (isRarFile(finalFilepath)) {
+        if (isRarFile(tempFilepath)) {
           logger.info('Downloaded file is a RAR archive, converting to ZIP...');
           
           // Create temporary directories
           const extractDir = path.join(tempDir, `extract_${Date.now()}`);
-          const zipPath = finalFilepath.replace('.rar', '.zip');
+          const zipPath = path.join(path.dirname(filepath), `temp_${Date.now()}.zip`);
           
           try {
             // Extract RAR
-            await extractRar(finalFilepath, extractDir);
+            await extractRar(tempFilepath, extractDir);
             
             // Create ZIP
             await createZipFromDir(extractDir, zipPath);
             
-            // Replace original file with ZIP
-            await fs.promises.unlink(finalFilepath);
-            await fs.promises.rename(zipPath, finalFilepath);
+            // Update final filepath to the new zip
+            finalFilepath = zipPath;
             
             logger.info('Successfully converted RAR to ZIP');
           } finally {
             // Clean up temporary files
-            await cleanupTempFiles(extractDir, zipPath);
+            await cleanupTempFiles(extractDir, tempFilepath);
           }
+        }
+        
+        // Ensure the final file has .zip extension
+        if (!finalFilepath.toLowerCase().endsWith('.zip')) {
+          const newPath = path.join(path.dirname(finalFilepath), `${path.basename(finalFilepath, path.extname(finalFilepath))}.zip`);
+          await fs.promises.rename(finalFilepath, newPath);
+          finalFilepath = newPath;
+          logger.info(`Renamed file to ensure .zip extension: ${finalFilepath}`);
         }
         
         // Validate the final file is a valid zip
@@ -272,7 +301,7 @@ async function downloadFile(url: string, filepath: string): Promise<{ finalFilep
           return;
         }
         
-        resolve({ finalFilepath, originalFilename });
+        resolve({ finalFilepath, originalFilename: originalFilename.replace(/.rar$/g, '.zip') });
       } catch (error) {
         reject(error);
       }
@@ -310,10 +339,11 @@ async function debugSingleLink(url: string) {
   
   try {
     const tempPath = path.join(tempDir, 'debug_test.zip');
-    await downloadFile(url, tempPath);
+    const { finalFilepath, originalFilename } = await downloadFile(url, tempPath);
+    logger.info(`File saved to: ${finalFilepath}`);
+    logger.info(`Original filename: ${originalFilename}`);
     logger.info('Download successful!');
-    logger.info(`File saved to: ${tempPath}`);
-    logger.info('File is a valid zip');
+    logger.info('encoded filename: ' + encodeFilename(originalFilename));
   } catch (error) {
     logger.error('Download failed:', error);
   } finally {
