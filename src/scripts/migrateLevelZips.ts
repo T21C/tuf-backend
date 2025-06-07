@@ -125,7 +125,7 @@ async function downloadFile(url: string, filepath: string): Promise<void> {
     method: 'GET',
     url: url,
     responseType: 'stream',
-    timeout: 30000,
+    timeout: 120000,
     maxContentLength: 1000 * 1024 * 1024, // 1GB max
     validateStatus: (status) => status === 200,
     headers: {
