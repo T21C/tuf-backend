@@ -289,7 +289,7 @@ export class StorageManager {
 
                 // Check if path is within any of our storage paths
                 const isWithinStorage = this.drives.some(drive => 
-                    path.startsWith(drive.storagePath)
+                    path.startsWith(drive.storagePath) || path.startsWith("/mnt/misc_volume_01")
                 );
 
                 if (!isWithinStorage) {

@@ -58,6 +58,170 @@ const getFileIdFromCdnUrl = (url: string): string | null => {
   return parts[parts.length - 1];
 };
 
+// Helper functions for level updates
+const handleRatingChanges = async (level: Level, req: Request, transaction: Transaction) => {
+  if (typeof req.body.toRate === 'boolean' && req.body.toRate !== level.toRate) {
+    if (req.body.toRate) {
+      // Create new rating if toRate is being set to true
+      const existingRating = await Rating.findOne({
+        where: {
+          levelId: level.id,
+          confirmedAt: null,
+        },
+        transaction,
+      });
+
+      if (!existingRating) {
+        const lowDiff = req.body.rerateNum
+          ? /^[pP]\d/.test(req.body.rerateNum)
+          : false;
+
+        await Rating.create(
+          {
+            levelId: level.id,
+            currentDifficultyId: 0,
+            lowDiff,
+            requesterFR: '',
+            averageDifficultyId: null,
+            communityDifficultyId: null,
+            confirmedAt: null,
+          },
+          {transaction},
+        );
+      }
+    } else {
+      // Delete rating if toRate is being set to false
+      const existingRating = await Rating.findOne({
+        where: {
+          levelId: level.id,
+          confirmedAt: null,
+        },
+        transaction,
+      });
+
+      if (existingRating) {
+        await Rating.update({
+          confirmedAt: new Date(),
+        }, {
+          where: {id: existingRating.id},
+          transaction,
+        });
+      }
+    }
+  }
+};
+
+const handleLowDiffFlag = async (level: Level, req: Request, transaction: Transaction) => {
+  const existingRating = await Rating.findOne({
+    where: {
+      levelId: level.id,
+      confirmedAt: null,
+    },
+    transaction,
+  });
+
+  if (existingRating) {
+    const lowDiff =
+      /^[pP]\d/.test(req.body.rerateNum) ||
+      /^[pP]\d/.test(existingRating.dataValues.requesterFR);
+    await existingRating.update({lowDiff}, {transaction});
+  }
+};
+
+const handleFlagChanges = (level: Level, req: Request) => {
+  let isDeleted = level.isDeleted;
+  let isHidden = level.isHidden;
+  let isAnnounced = level.isAnnounced;
+
+  if (req.body.isDeleted === true) {
+    isDeleted = true;
+    isHidden = true;
+  } else if (req.body.isDeleted === false) {
+    isDeleted = false;
+    isHidden = false;
+  } else if (req.body.isHidden !== undefined) {
+    isHidden = req.body.isHidden;
+  }
+
+  if (req.body.isAnnounced !== undefined) {
+    isAnnounced = req.body.isAnnounced;
+  } else {
+    if (req.body.toRate === true && level.toRate === false) {
+      isAnnounced = true;
+    } else if (req.body.toRate === false && level.toRate === true) {
+      const hasChanges = 
+        (level.diffId !== (req.body.diffId || level.diffId || 0)) ||
+        (level.baseScore !== (req.body.baseScore || level.baseScore || 0));
+      
+      isAnnounced = !hasChanges;
+    }
+  }
+
+  return { isDeleted, isHidden, isAnnounced };
+};
+
+const handleScoreRecalculations = async (levelId: number, updateData: any, transaction: Transaction) => {
+  const passes = await Pass.findAll({
+    where: {levelId},
+    include: [
+      {
+        model: Judgement,
+        as: 'judgements',
+      },
+    ],
+    transaction,
+  });
+
+  const batchSize = 100;
+  for (let i = 0; i < passes.length; i += batchSize) {
+    const batch = passes.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map(async passData => {
+        const pass = passData.dataValues;
+        if (!pass.judgements) return;
+
+        const accuracy = calcAcc(pass.judgements);
+        const currentDifficulty = await Difficulty.findByPk(
+          updateData.diffId || pass.level?.diffId,
+          {
+            transaction,
+          },
+        );
+
+        if (!currentDifficulty) {
+          logger.error(`No difficulty found for pass ${pass.id}`);
+          return;
+        }
+
+        const levelData = {
+          baseScore:
+            updateData.baseScore || pass.level?.baseScore || 0,
+          difficulty: currentDifficulty,
+        };
+
+        const scoreV2 = getScoreV2(
+          {
+            speed: pass.speed || 1,
+            judgements: pass.judgements,
+            isNoHoldTap: pass.isNoHoldTap || false,
+          },
+          levelData,
+        );
+
+        await Pass.update(
+          {accuracy, scoreV2},
+          {
+            where: {id: pass.id},
+            transaction,
+          },
+        );
+      }),
+    );
+  }
+
+  return passes.map(pass => pass.playerId);
+};
+
 // Update a level
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction({
@@ -70,7 +234,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         return res.status(400).json({error: 'Invalid level ID'});
       }
   
-      // First get the current level data
       const level = await Level.findOne({
         where: {id: levelId},
         include: [
@@ -89,7 +252,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         return res.status(404).json({error: 'Level not found'});
       }
 
-      // Check if trying to modify a CDN-managed download link
       if (req.body.dlLink && isCdnUrl(level.dlLink) && req.body.dlLink !== level.dlLink) {
         await transaction.rollback();
         return res.status(403).json({
@@ -102,119 +264,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       let previousDiffId = level.previousDiffId || 0;
       let previousBaseScore = level.previousBaseScore || 0;
   
-      // Handle rating creation/deletion if toRate is changing
-      if (
-        typeof req.body.toRate === 'boolean' &&
-        req.body.toRate !== level.toRate
-      ) {
-        if (req.body.toRate) {
-          // Freeze current state when sending to rating
-          previousDiffId = level.diffId || 0;
-          previousBaseScore = level.baseScore || 0;
-
-          // Create new rating if toRate is being set to true
-          const existingRating = await Rating.findOne({
-            where: {
-              levelId,
-              confirmedAt: null,
-            },
-            transaction,
-          });
-  
-          if (!existingRating) {
-            // Check if rerateNum starts with 'p' or 'P' followed by a number
-            const lowDiff = req.body.rerateNum
-              ? /^[pP]\d/.test(req.body.rerateNum)
-              : false;
-  
-            await Rating.create(
-              {
-                levelId,
-                currentDifficultyId: 0,
-                lowDiff,
-                requesterFR: '',
-                averageDifficultyId: null,
-                communityDifficultyId: null,
-                confirmedAt: null,
-              },
-              {transaction},
-            );
-          }
-        } else {
-          // Delete rating if toRate is being set to false
-          const existingRating = await Rating.findOne({
-            where: {
-              levelId,
-              confirmedAt: null,
-            },
-            transaction,
-          });
-  
-          if (existingRating) {
-            // Delete rating details first
-            await Rating.update({
-              confirmedAt: new Date(),
-            }, {
-              where: {id: existingRating.id},
-              transaction,
-            });
-          }
-        }
-      }
-  
-      // Update lowDiff flag if there's an existing rating
-      const existingRating = await Rating.findOne({
-        where: {
-          levelId,
-          confirmedAt: null,
-        },
-        transaction,
-      });
-  
-      if (existingRating) {
-        const lowDiff =
-          /^[pP]\d/.test(req.body.rerateNum) ||
-          /^[pP]\d/.test(existingRating.dataValues.requesterFR);
-        await existingRating.update({lowDiff}, {transaction});
-      }
+      // Handle rating-related changes
+      await handleRatingChanges(level, req, transaction);
+      await handleLowDiffFlag(level, req, transaction);
   
       // Handle flag changes
-      let isDeleted = level.isDeleted;
-      let isHidden = level.isHidden;
-      let isAnnounced = level.isAnnounced;
-  
-      // If isDeleted is being set to true, also set isHidden to true
-      if (req.body.isDeleted === true) {
-        isDeleted = true;
-        isHidden = true;
-      }
-      // If isDeleted is being set to false, also set isHidden to false
-      else if (req.body.isDeleted === false) {
-        isDeleted = false;
-        isHidden = false;
-      }
-      // If only isHidden is being changed, respect that change
-      else if (req.body.isHidden !== undefined) {
-        isHidden = req.body.isHidden;
-      }
-
-      // Handle isAnnounced logic
-      if (req.body.isAnnounced !== undefined) {
-        isAnnounced = req.body.isAnnounced;
-      } 
-      else {
-        // Set isAnnounced to true if toRate is being set to true
-        if (req.body.toRate === true) {
-          isAnnounced = true;
-        }
-        else if (req.body.toRate === false && level.toRate === true) {
-          const hasChanges = 
-            (level.previousDiffId !== req.body.diffId || level.diffId || 0) ||
-            (level.previousBaseScore !== req.body.baseScore || level.baseScore || 0);
-          
-          isAnnounced = !hasChanges;
-        }
-      }
+      const { isDeleted, isHidden, isAnnounced } = handleFlagChanges(level, req);
   
       if (req.body.baseScore && !isNaN(Number(req.body.baseScore))) {
         baseScore = Number(req.body.baseScore);
@@ -231,12 +286,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         logger.debug(`Setting previousBaseScore to ${previousBaseScore} for level ${levelId}`);
       }
 
-      // Log when freezing state for rating
       if (req.body.toRate === true && !level.toRate) {
+        previousDiffId = level.diffId || 0;
+        previousBaseScore = level.baseScore || 0;
         logger.debug(`Freezing state for level ${levelId} - previousDiffId: ${previousDiffId}, previousBaseScore: ${previousBaseScore}`);
       }
 
-      // Clean up the update data to handle null values correctly
       const updateData = {
         song: sanitizeTextInput(req.body.song),
         artist: sanitizeTextInput(req.body.artist),
@@ -261,13 +316,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         updatedAt: new Date(),
       };
   
-      // Update the level
       await Level.update(updateData, {
         where: {id: levelId},
         transaction,
       });
   
-      // Fetch the updated record with minimal associations for the response
       const updatedLevel = await Level.findOne({
         where: {id: levelId},
         include: [
@@ -286,101 +339,29 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         transaction,
       });
 
-      
       await transaction.commit();
-      // Send response immediately after commit
+      
       const response = {
         message: 'Level updated successfully',
         level: updatedLevel,
       };
       res.json(response);
   
-      // Handle cache updates and score recalculations asynchronously
+      // Handle async operations
       (async () => {
         try {
-          // Start a new transaction for score recalculations
           const recalcTransaction = await sequelize.transaction({
             isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
           });
   
           try {
-            // If baseScore or diffId changed, recalculate all passes for this level
-            if (
-              req.body.baseScore !== undefined ||
-              req.body.diffId !== undefined
-            ) {
-              const passes = await Pass.findAll({
-                where: {levelId},
-                include: [
-                  {
-                    model: Judgement,
-                    as: 'judgements',
-                  },
-                ],
-                transaction: recalcTransaction,
-              });
-  
-              // Process passes in batches to avoid memory issues
-              const batchSize = 100;
-              for (let i = 0; i < passes.length; i += batchSize) {
-                const batch = passes.slice(i, i + batchSize);
-                await Promise.all(
-                  batch.map(async passData => {
-                    const pass = passData.dataValues;
-                    if (!pass.judgements) return;
-  
-                    const accuracy = calcAcc(pass.judgements);
-  
-                    // Get the current difficulty data
-                    const currentDifficulty = await Difficulty.findByPk(
-                      updateData.diffId || pass.level?.diffId,
-                      {
-                        transaction: recalcTransaction,
-                      },
-                    );
-  
-                    if (!currentDifficulty) {
-                      logger.error(`No difficulty found for pass ${pass.id}`);
-                      return;
-                    }
-  
-                    // Create properly structured level data for score calculation
-                    const levelData = {
-                      baseScore:
-                        updateData.baseScore || pass.level?.baseScore || 0,
-                      difficulty: currentDifficulty,
-                    };
-  
-                    const scoreV2 = getScoreV2(
-                      {
-                        speed: pass.speed || 1,
-                        judgements: pass.judgements,
-                        isNoHoldTap: pass.isNoHoldTap || false,
-                      },
-                      levelData,
-                    );
-  
-                    await Pass.update(
-                      {accuracy, scoreV2},
-                      {
-                        where: {id: pass.id},
-                        transaction: recalcTransaction,
-                      },
-                    );
-                  }),
-                );
-              }
-  
-              // Schedule stats update for affected players
-              const affectedPlayerIds = new Set(
-                passes.map(pass => pass.playerId),
-              );
-              playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+            if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+              const affectedPlayerIds = await handleScoreRecalculations(levelId, updateData, recalcTransaction);
+              playerStatsService.updatePlayerStats(Array.from(new Set(affectedPlayerIds)));
             }
   
             await recalcTransaction.commit();
   
-            // Broadcast updates
             sseManager.broadcast({type: 'ratingUpdate'});
             sseManager.broadcast({type: 'levelUpdate'});
             sseManager.broadcast({
@@ -406,7 +387,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           return;
         });
 
-      // After updating the level, update it in Elasticsearch
       if (updatedLevel) {
         await elasticsearchService.indexLevel(updatedLevel);
       }
