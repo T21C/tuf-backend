@@ -20,19 +20,20 @@ type Manifest = {
   [key: string]: ManifestEntry;
 };
 
-// Read manifest once at startup
-const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', '.vite', 'manifest.json');
-let manifest: Manifest = {};
-
-try {
-  const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
-  manifest = JSON.parse(manifestContent);
-} catch (error) {
-  logger.error('Error reading manifest file:', error);
-}
+// Function to read manifest file
+const readManifest = (): Manifest => {
+  const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', '.vite', 'manifest.json');
+  try {
+    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+    return JSON.parse(manifestContent);
+  } catch (error) {
+    logger.error('Error reading manifest file:', error);
+    return {};
+  }
+};
 
 // Helper function to get all required assets
-const getRequiredAssets = () => {
+const getRequiredAssets = (manifest: Manifest) => {
   const entry = manifest['index.html'];
   if (!entry) return { js: [], css: [], imports: [] };
 
@@ -85,7 +86,8 @@ const getBaseHtml = (clientUrl: string) => {
   }
 
   // Production mode - use manifest
-  const { js, css, imports } = getRequiredAssets();
+  const manifest = readManifest();
+  const { js, css, imports } = getRequiredAssets(manifest);
   
   // Get vendor and UI chunks from manifest
   const vendorChunk = Object.entries(manifest).find(([key]) => key.includes('vendor'))?.[1]?.file;
