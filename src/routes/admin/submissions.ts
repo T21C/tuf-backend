@@ -376,6 +376,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             isAnnounced: false,
             isHidden: false,
             teamId: teamId,
+            isExternallyAvailable: false,
           },
           {transaction},
         );
