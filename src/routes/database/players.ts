@@ -151,8 +151,9 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
     if (enrichedPlayer?.passes) {
       enrichedPlayer.passes = enrichedPlayer.passes.map((pass: any) => {
         // Handle both Sequelize model instances and plain objects
-        if (pass.level && pass.level.isHidden) {
-          const { level, ...passWithoutLevel } = pass;
+        const plainPass = pass.get ? pass.get({plain: true}) : pass;
+        if (plainPass.level && plainPass.level.isHidden) {
+          const { level, ...passWithoutLevel } = plainPass;
           return {
             level: {
               isHidden: true
@@ -160,18 +161,27 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
             ...passWithoutLevel
           };
         }
-        return pass.get({plain: true});
+        return plainPass;
       });
     }
 
-    // Calculate impact values for top 20 scores
-
+    // Convert enriched player to plain object and remove any circular references
+    const plainEnrichedPlayer = enrichedPlayer ? {
+      ...enrichedPlayer,
+      passes: enrichedPlayer.passes,
+      topScores: enrichedPlayer.topScores?.map((score: any) => 
+        score.get ? score.get({plain: true}) : score
+      ),
+      potentialTopScores: enrichedPlayer.potentialTopScores?.map((score: any) => 
+        score.get ? score.get({plain: true}) : score
+      )
+    } : null;
 
     return res.json({
-      ...enrichedPlayer,
+      ...plainEnrichedPlayer,
       stats: playerStats,
-      topScores: enrichedPlayer?.topScores,
-      potentialTopScores: enrichedPlayer?.potentialTopScores,
+      topScores: plainEnrichedPlayer?.topScores,
+      potentialTopScores: plainEnrichedPlayer?.potentialTopScores,
     });
   } catch (error) {
     logger.error('Error fetching player:', error);
