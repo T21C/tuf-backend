@@ -36,6 +36,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       limit = 30,
       deletedFilter,
       clearedFilter,
+      availableDlFilter,
       onlyMyLikes,
     } = req.query;
 
@@ -76,6 +77,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         sort: sort as string,
         deletedFilter: deletedFilter as string,
         clearedFilter: clearedFilter as string,
+        availableDlFilter: availableDlFilter as string,
         userId: req.user?.id,
         offset: normalizedOffset,
         limit: normalizedLimit,

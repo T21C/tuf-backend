@@ -11,13 +11,20 @@ import { escapeForMySQL } from '../utils/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
 import { ModifierService } from '../services/ModifierService.js';
 import { logger } from './LoggerService.js';
-import { checkMemoryUsage } from '../utils/memUtils.js';
+import { IPlayer } from '../interfaces/models/index.js';
+import { OAuthProvider } from '../models/index.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
   params?: any;
   priority?: number;
 };
+
+type EnrichedPlayer = IPlayer & {
+  topScores: {id: number, impact: number}[];
+  potentialTopScores: {id: number, impact: number}[];
+  uniquePasses: Map<number, Pass>;
+}
 
 export class PlayerStatsService {
   private static instance: PlayerStatsService;
@@ -38,6 +45,7 @@ export class PlayerStatsService {
     SELECT 
       p.playerId, 
       p.levelId, 
+      p.availability_status,
       MAX(p.isWorldsFirst) as isWorldsFirst,
       MAX(p.is12K) as is12K,
       MAX(p.accuracy) as accuracy,
@@ -52,6 +60,7 @@ export class PlayerStatsService {
     SELECT 
       p.playerId, 
       p.levelId, 
+      p.availability_status,
       SUM(p.scoreV2) as levelScore
     FROM player_pass_summary p
     WHERE p.playerId IN (:playerIds)
@@ -65,6 +74,7 @@ export class PlayerStatsService {
       p.scoreV2,
       ROW_NUMBER() OVER (PARTITION BY p.playerId ORDER BY p.scoreV2 DESC) as rank_num
     FROM PassesData p
+    WHERE p.availability_status != 'Not Available'
   ),
   RankedScoreCalc AS (
     SELECT 
@@ -949,6 +959,7 @@ export class PlayerStatsService {
         p.scoreV2
       FROM player_pass_summary p
       WHERE p.playerId = :playerId
+      AND p.availability_status != 'Not Available'
       ORDER BY p.scoreV2 DESC
       LIMIT 20
       `, {
@@ -1008,4 +1019,156 @@ export class PlayerStatsService {
     return response;
   }
 
-}
+  public async getEnrichedPlayer(playerId: number): Promise<EnrichedPlayer | null> {
+
+    const player = await Player.findByPk(playerId, {
+      include: [
+        {
+          model: User,
+          as: 'user',
+        },
+      ],
+    });
+
+    if (!player) return null;
+
+    // Load all passes for these players in one query
+    const allPasses = await Pass.findAll({
+      where: {
+        playerId: playerId,
+        isDeleted: false,
+      },
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          where: {
+            isDeleted: false,
+          },
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+          ],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+        },
+      ],
+    });
+  
+    // Load all user data in one query
+    const allUserData = await User.findAll({
+      where: {playerId: playerId},
+      include: [
+        {
+          model: OAuthProvider,
+          as: 'providers',
+          where: {provider: 'discord'},
+          attributes: ['profile'],
+          required: false,
+        },
+      ],
+      attributes: ['playerId', 'nickname', 'avatarUrl', 'username'],
+    });
+  
+    // Create lookup maps for faster access
+    const passesMap = new Map<number, Pass[]>();
+    allPasses.forEach((pass: Pass) => {
+      if (!passesMap.has(pass.playerId)) {
+        passesMap.set(pass.playerId, []);
+      }
+      passesMap.get(pass.playerId)?.push(pass);
+    });
+  
+    const userDataMap = new Map(
+      allUserData.map((user: any) => [user.playerId, user]),
+    );
+  
+    const playerStatsService = PlayerStatsService.getInstance();
+  
+    // Process each player with the pre-loaded data
+        const playerData = player.get({plain: true});
+        const passes = passesMap.get(player.id) || [];
+        const userData = userDataMap.get(player.id) as any;
+  
+        // Process Discord data
+        let discordProvider: any;
+        if (userData?.dataValues?.providers?.length > 0) {
+          discordProvider = userData.dataValues.providers[0].dataValues;
+          discordProvider.profile.avatarUrl = discordProvider.profile.avatar
+            ? `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png`
+            : null;
+        }
+  
+        // Get player stats from service
+        const stats = await playerStatsService.getPlayerStats(player.id);
+  
+        const uniquePasses = new Map();
+        passes.forEach(pass => {
+          if (
+            !uniquePasses.has(pass.levelId) ||
+            (pass.scoreV2 || 0) > (uniquePasses.get(pass.levelId).scoreV2 || 0)
+          ) {
+            uniquePasses.set(pass.levelId, pass);
+          }
+        });
+    
+        const isLevelAvailable = (level: Level) => {
+          return level.isExternallyAvailable || level.dlLink || level.workshopLink;
+        }
+
+        const topScores = Array.from(uniquePasses.values())
+          .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate && isLevelAvailable(pass.level))
+          .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
+          .slice(0, 20)
+          .map((pass, index) => ({
+            id: pass.id,
+            impact: (pass.scoreV2 || 0) * Math.pow(0.9, index),
+          }));
+
+        const potentialTopScores = Array.from(uniquePasses.values())
+          .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
+          .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
+          .slice(0, 20)
+          .map((pass, index) => ({
+            id: pass.id,
+            impact: (pass.scoreV2 || 0) * Math.pow(0.9, index),
+          }));
+
+
+  
+        return {
+          id: playerData.id,
+          name: playerData.name,
+          country: playerData.country,
+          isBanned: playerData.isBanned,
+          isSubmissionsPaused: playerData.isSubmissionsPaused,
+          pfp: playerData.pfp,
+          avatarUrl: userData?.avatarUrl,
+          discordUsername: userData?.username,
+          discordAvatar: discordProvider?.profile.avatarUrl,
+          discordAvatarId: discordProvider?.profile.avatar,
+          discordId: discordProvider?.profile.id,
+          rankedScore: stats?.rankedScore || 0,
+          generalScore: stats?.generalScore || 0,
+          ppScore: stats?.ppScore || 0,
+          wfScore: stats?.wfScore || 0,
+          score12K: stats?.score12K || 0,
+          averageXacc: stats?.averageXacc || 0,
+          universalPassCount: stats?.universalPassCount || 0,
+          worldsFirstCount: stats?.worldsFirstCount || 0,
+          topDiff: stats?.topDiff,
+          top12kDiff: stats?.top12kDiff,
+          totalPasses: passes.length,
+          createdAt: playerData.createdAt,
+          updatedAt: playerData.updatedAt,
+          passes,
+          topScores,
+          potentialTopScores,
+          uniquePasses,
+    } as EnrichedPlayer
+    };
+  }

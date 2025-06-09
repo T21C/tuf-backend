@@ -313,6 +313,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         isDeleted,
         isHidden,
         isAnnounced,
+        isExternallyAvailable: req.body.isExternallyAvailable ?? level.isExternallyAvailable,
         updatedAt: new Date(),
       };
   

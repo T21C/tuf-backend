@@ -3,7 +3,6 @@ import Player from '../../models/players/Player.js';
 import Pass from '../../models/passes/Pass.js';
 import Level from '../../models/levels/Level.js';
 import Judgement from '../../models/passes/Judgement.js';
-import {enrichPlayerData} from '../../utils/PlayerEnricher.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket.js';
@@ -144,20 +143,16 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
 
     // Wait for both enriched data and stats in parallel
     const [enrichedPlayer, playerStats] = await Promise.all([
-      enrichPlayerData(playerData),
+      playerStatsService.getEnrichedPlayer(parseInt(id)),
       playerStatsService.getPlayerStats(parseInt(id)),
     ]);
 
     // Filter out sensitive information from hidden levels and ensure no circular references
-    if (enrichedPlayer.passes) {
-      enrichedPlayer.passes = enrichedPlayer.passes.map(pass => {
+    if (enrichedPlayer?.passes) {
+      enrichedPlayer.passes = enrichedPlayer.passes.map((pass: any) => {
         // Handle both Sequelize model instances and plain objects
-        const plainPass = 'get' in pass && typeof pass.get === 'function' 
-          ? pass.get({ plain: true }) 
-          : pass;
-
-        if (plainPass.level && plainPass.level.isHidden) {
-          const { level, ...passWithoutLevel } = plainPass;
+        if (pass.level && pass.level.isHidden) {
+          const { level, ...passWithoutLevel } = pass;
           return {
             level: {
               isHidden: true
@@ -165,34 +160,18 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
             ...passWithoutLevel
           };
         }
-        return plainPass;
+        return pass.get({plain: true});
       });
     }
 
     // Calculate impact values for top 20 scores
-    const uniquePasses = new Map();
-    (enrichedPlayer.passes || []).forEach(pass => {
-      if (
-        !uniquePasses.has(pass.levelId) ||
-        (pass.scoreV2 || 0) > (uniquePasses.get(pass.levelId).scoreV2 || 0)
-      ) {
-        uniquePasses.set(pass.levelId, pass);
-      }
-    });
 
-    const topScores = Array.from(uniquePasses.values())
-      .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
-      .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
-      .slice(0, 20)
-      .map((pass, index) => ({
-        id: pass.id,
-        impact: (pass.scoreV2 || 0) * Math.pow(0.9, index),
-      }));
 
     return res.json({
       ...enrichedPlayer,
       stats: playerStats,
-      topScores,
+      topScores: enrichedPlayer?.topScores,
+      potentialTopScores: enrichedPlayer?.potentialTopScores,
     });
   } catch (error) {
     logger.error('Error fetching player:', error);
@@ -242,7 +221,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
 
     const enrichedPlayers = await Promise.all(
       players.map(async player => ({
-        ...(await enrichPlayerData(player)),
+        ...(await playerStatsService.getEnrichedPlayer(player.id)),
         passes: undefined,
       })),
     );
@@ -446,7 +425,7 @@ router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) =>
       const io = getIO();
       io.emit('leaderboardUpdated');
 
-      const enrichedPlayer = await enrichPlayerData(player);
+      const enrichedPlayer = await playerStatsService.getEnrichedPlayer(player.id);
       return res.status(201).json(enrichedPlayer);
     } catch (error) {
       logger.error('Error creating player:', error);

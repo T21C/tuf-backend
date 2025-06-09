@@ -1205,6 +1205,88 @@ class ElasticsearchService {
         must.push({ range: { clears: { gt: 0 } } });
       }
 
+      if (filters.availableDlFilter === 'only') {
+        must.push({
+          bool: {
+            should: [
+              { term: { isExternallyAvailable: true } },
+              {
+                bool: {
+                  must: [
+                    { exists: { field: 'dlLink' } },
+                    { 
+                      bool: {
+                        must_not: [
+                          { term: { 'dlLink.keyword': '' } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                bool: {
+                  must: [
+                    { exists: { field: 'workshopLink' } },
+                    { 
+                      bool: {
+                        must_not: [
+                          { term: { 'workshopLink.keyword': '' } }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        });
+      } else if (filters.availableDlFilter === 'hide') {
+        must.push({
+          bool: {
+            must_not: [
+              {
+                bool: {
+                  should: [
+                    { term: { isExternallyAvailable: true } },
+                    {
+                      bool: {
+                        must: [
+                          { exists: { field: 'dlLink' } },
+                          { 
+                            bool: {
+                              must_not: [
+                                { term: { 'dlLink.keyword': '' } }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      bool: {
+                        must: [
+                          { exists: { field: 'workshopLink' } },
+                          { 
+                            bool: {
+                              must_not: [
+                                { term: { 'workshopLink.keyword': '' } }
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  minimum_should_match: 1
+                }
+              }
+            ]
+          }
+        });
+      }
+
       // Handle hideVerified filter
       if (filters.hideVerified === 'true') {
         must.push({

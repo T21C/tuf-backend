@@ -56,6 +56,7 @@ export interface ILevel extends IBaseModel {
   updatedAt: Date;
   isHidden: boolean;
   isVerified: boolean;
+  isExternallyAvailable: boolean;
   teamId?: number | null;
   passes?: IPass[];
   aliases?: LevelAlias[] | null;
