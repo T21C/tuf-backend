@@ -5,7 +5,8 @@ import { CDN_CONFIG } from '../config.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { logger } from '../../services/LoggerService.js';
 import { storageManager } from './storageManager.js';
-import { LevelService } from './levelService.js';
+import LevelDict from 'adofai-lib';
+
 
 interface ZipEntry {
     name: string;
@@ -167,8 +168,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                     await extractFile(zipFilePath, entry, tempPath);
 
                     try {
-                        const levelData = await LevelService.readLevelFile(tempPath);
-                        const analysis = LevelService.analyzeLevelData(levelData);
+                        const levelDict = new LevelDict(tempPath);
                         
                         // Move file to permanent storage with original filename
                         const levelFilename = path.basename(entry.relativePath);
@@ -180,13 +180,13 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                             name: levelFilename,
                             path: permanentPath, // Store absolute path
                             size: entry.size,
-                            hasYouTubeStream: analysis.hasYouTubeStream,
-                            songFilename: levelData.settings?.songFilename,
-                            artist: levelData.settings?.artist,
-                            song: levelData.settings?.song,
-                            author: levelData.settings?.author,
-                            difficulty: levelData.settings?.difficulty,
-                            bpm: levelData.settings?.bpm
+                            hasYouTubeStream: levelDict.getSetting("requiredMods")?.includes('YouTubeStream'),
+                            songFilename: levelDict.getSetting("songFilename"),
+                            artist: levelDict.getSetting("artist"),
+                            song: levelDict.getSetting("song"),
+                            author: levelDict.getSetting("author"),
+                            difficulty: levelDict.getSetting("difficulty"),
+                            bpm: levelDict.getSetting("bpm")
                         };
 
                         levelFiles[entry.relativePath] = levelFile;
@@ -315,7 +315,7 @@ interface RepackMetadata {
         path: string;
         size: number;
     };
-    songFile: {
+    songFile?: {
         name: string;
         path: string;
         size: number;
@@ -340,21 +340,27 @@ export async function repackZipFile(metadata: RepackMetadata): Promise<string> {
 
             const zip = new AdmZip();
             
-            // Add level and song files to zip
-            logger.info('Adding files to zip:', {
+            // Add level file to zip
+            logger.info('Adding level file to zip:', {
                 levelFile: {
                     name: metadata.levelFile.name,
                     path: metadata.levelFile.path
-                },
-                songFile: {
-                    name: metadata.songFile.name,
-                    path: metadata.songFile.path
                 }
             });
 
-            // Use absolute paths from the metadata
+            // Use absolute path from the metadata
             zip.addLocalFile(metadata.levelFile.path, '', metadata.levelFile.name);
-            zip.addLocalFile(metadata.songFile.path, '', metadata.songFile.name);
+
+            // Add song file if present
+            if (metadata.songFile) {
+                logger.info('Adding song file to zip:', {
+                    songFile: {
+                        name: metadata.songFile.name,
+                        path: metadata.songFile.path
+                    }
+                });
+                zip.addLocalFile(metadata.songFile.path, '', metadata.songFile.name);
+            }
 
             logger.info('Writing zip file to disk:', { tempZipPath });
             zip.writeZip(tempZipPath);

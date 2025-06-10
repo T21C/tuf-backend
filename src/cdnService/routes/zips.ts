@@ -5,8 +5,8 @@ import { CDN_CONFIG } from "../config.js";
 import { processZipFile } from "../services/zipProcessor.js";
 import { Request, Response, Router } from 'express';
 import CdnFile from "../../models/cdn/CdnFile.js";
-import { LevelService } from "../services/levelService.js";
 import crypto from 'crypto';
+import LevelDict from "adofai-lib";
 
 const router = Router();
 
@@ -50,19 +50,19 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     ? file.path.replace(/\\/g, '/')
                     : path.resolve(file.path).replace(/\\/g, '/');
 
-                const levelData = await LevelService.readLevelFile(normalizedPath);
-                const analysis = LevelService.analyzeLevelData(levelData);
-                
+                const levelDict = new LevelDict(normalizedPath);
+                logger.debug('levelDict', levelDict);
+
                 return {
                     name: file.name,
                     size: file.size,
-                    hasYouTubeStream: analysis.hasYouTubeStream,
-                    songFilename: levelData.settings?.songFilename,
-                    artist: levelData.settings?.artist,
-                    song: levelData.settings?.song,
-                    author: levelData.settings?.author,
-                    difficulty: levelData.settings?.difficulty,
-                    bpm: levelData.settings?.bpm
+                    hasYouTubeStream: levelDict.getSetting("requiredMods")?.includes('YouTubeStream'),
+                    songFilename: levelDict.getSetting("songFilename"),
+                    artist: levelDict.getSetting("artist"),
+                    song: levelDict.getSetting("song"),
+                    author: levelDict.getSetting("author"),
+                    difficulty: levelDict.getSetting("difficulty"),
+                    bpm: levelDict.getSetting("bpm")
                 };
             } catch (error) {
                 logger.error('Failed to analyze level file:', {

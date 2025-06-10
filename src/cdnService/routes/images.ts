@@ -45,7 +45,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         // Log access
         await FileAccessLog.create({
             fileId: file.id,
-            ipAddress: req.ip,
+            ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
             userAgent: req.get('user-agent') || null
         });
 

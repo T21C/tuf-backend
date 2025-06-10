@@ -142,7 +142,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         }
         await FileAccessLog.create({
             fileId: fileId,
-            ipAddress: req.ip,
+            ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
             userAgent: req.get('user-agent') || null
         });
 

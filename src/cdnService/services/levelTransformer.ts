@@ -1,4 +1,5 @@
 import { logger } from '../../services/LoggerService.js';
+import LevelDict, { LevelJSON, Action } from 'adofai-lib';
 
 /**
  * List of core gameplay events that MUST NEVER be removed from a level file.
@@ -41,11 +42,6 @@ export const ALWAYS_REMOVE_EVENTS: ReadonlySet<RegExp> = new Set([
 /* -----------------------------------------------------------
  * TYPES
  * ---------------------------------------------------------*/
-export interface LevelJSON {
-    actions?: Array<Record<string, any>>;
-    decorations?: Array<Record<string, any>>;
-    [key: string]: any;
-}
 
 export interface TransformOptions {
     /**
@@ -107,7 +103,7 @@ function matchesPatterns(type: string, patterns: ReadonlySet<RegExp>): boolean {
 /* -----------------------------------------------------------
  * CORE TRANSFORMER
  * ---------------------------------------------------------*/
-export function transformLevel(level: LevelJSON, options: TransformOptions = {}): LevelJSON {
+export function transformLevel(level: LevelDict, options: TransformOptions = {}): LevelDict {
     const {
         keepEventTypes,
         dropEventTypes,
@@ -120,69 +116,71 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
     } = options;
 
     // Create a copy so we never mutate caller data
-    const cloned: LevelJSON = JSON.parse(JSON.stringify(level));
+    const cloned = level.copy();
 
     /* --------------------
      *  ACTIONS / EVENTS
      * ------------------*/
-    if (Array.isArray(cloned.actions)) {
-        cloned.actions = cloned.actions.filter((act) => {
-            const type: string | undefined = act?.eventType;
-            if (!type) return true; // guard – malformed but we keep it
+    // Get all actions and filter them
+    const filteredActions = level.getActions().filter((act: Action) => {
+        const type: string | undefined = act?.eventType;
+        if (!type) return true; // guard – malformed but we keep it
 
-            // Always keep protected events
-            if (PROTECTED_EVENT_TYPES.has(type) || extraProtectedEventTypes.has(type)) {
-                return true;
-            }
-
-            // Remove background flash events if constantBackgroundColor is set
-            if (constantBackgroundColor && type === 'Flash' && act.plane === 'Background') {
-                return false;
-            }
-
-            // Remove foreground flash events if removeForegroundFlash is true
-            if (removeForegroundFlash && type === 'Flash' && act.plane === 'Foreground') {
-                return false;
-            }
-
-            // Remove filter events if their filter matches any in dropFilters
-            if (dropFilters && (type === 'SetFilter' || type === 'SetFilterAdvanced') && act.filter) {
-                if (dropFilters.has(act.filter)) {
-                    return false;
-                }
-            }
-
-            // Check against all patterns (built-in and additional)
-            if (matchesPatterns(type, ALWAYS_REMOVE_EVENTS) || matchesPatterns(type, additionalPatterns)) {
-                return false;
-            }
-
-            // If keepEventTypes specified – discard everything not in the set
-            if (keepEventTypes) {
-                return keepEventTypes.has(type);
-            }
-
-            // Else if dropEventTypes specified – discard those in the set
-            if (dropEventTypes) {
-                return !dropEventTypes.has(type);
-            }
-
-            // Otherwise keep everything
+        // Always keep protected events
+        if (PROTECTED_EVENT_TYPES.has(type) || extraProtectedEventTypes.has(type)) {
             return true;
-        }).map((act) => {
-            // -------- zoom multiplier --------
-            if (baseCameraZoom !== 1 && act?.eventType === 'MoveCamera') {
-                if (isNumber(act.zoom)) {
-                    act.zoom = act.zoom * baseCameraZoom;
-                }
-            }
-            return act;
-        });
-    }
+        }
 
-    if (Object.keys(cloned).includes('settings')) {
-        // Handle settings as a single object instead of an array
-        const settings = cloned.settings;
+        // Remove background flash events if constantBackgroundColor is set
+        if (constantBackgroundColor && type === 'Flash' && act.plane === 'Background') {
+            return false;
+        }
+
+        // Remove foreground flash events if removeForegroundFlash is true
+        if (removeForegroundFlash && type === 'Flash' && act.plane === 'Foreground') {
+            return false;
+        }
+
+        // Remove filter events if their filter matches any in dropFilters
+        if (dropFilters && (type === 'SetFilter' || type === 'SetFilterAdvanced') && act.filter) {
+            if (dropFilters.has(act.filter)) {
+                return false;
+            }
+        }
+
+        // Check against all patterns (built-in and additional)
+        if (matchesPatterns(type, ALWAYS_REMOVE_EVENTS) || matchesPatterns(type, additionalPatterns)) {
+            return false;
+        }
+
+        // If keepEventTypes specified – discard everything not in the set
+        if (keepEventTypes) {
+            return keepEventTypes.has(type);
+        }
+
+        // Else if dropEventTypes specified – discard those in the set
+        if (dropEventTypes) {
+            return !dropEventTypes.has(type);
+        }
+
+        // Otherwise keep everything
+        return true;
+    }).map((act: Action) => {
+        // -------- zoom multiplier --------
+        if (baseCameraZoom !== 1 && act?.eventType === 'MoveCamera') {
+            if (isNumber(act.zoom)) {
+                act.zoom = act.zoom * baseCameraZoom;
+            }
+        }
+        return act;
+    });
+
+    // Set the filtered actions back to the level
+    cloned.setActions(filteredActions);
+
+    // Handle settings
+    const settings = cloned.toJSON().settings;
+    if (settings) {
         if (constantBackgroundColor) {
             // Extract opacity from the hex color (last 2 digits)
             const opacity = parseInt(constantBackgroundColor.slice(-2), 16) / 255;
@@ -191,18 +189,30 @@ export function transformLevel(level: LevelJSON, options: TransformOptions = {})
             settings.bgImage = "";
             settings.showDefaultBGIfNoImage = "Disabled";
         }
-        if (baseCameraZoom !== 1) {
+        if (baseCameraZoom !== 1 && typeof settings.zoom === 'number') {
             settings.zoom *= baseCameraZoom;
         }
     }
 
-    // Remove decorations
-    cloned.decorations = []
+    // Remove all decorations
+    cloned.setDecorations([]);
 
+    // Add constant background color flash if specified
     if (constantBackgroundColor) {
-        cloned.actions?.push(
-            {"floor":0,"eventType":"Flash","duration":0,"plane":"Background","startColor":constantBackgroundColor,"startOpacity":100,"endColor":constantBackgroundColor,"endOpacity":100,"angleOffset":-99999,"ease":"Linear","eventTag":""}
-        )
+        const flashAction: Action = {
+            floor: 0,
+            eventType: "Flash",
+            duration: 0,
+            plane: "Background",
+            startColor: constantBackgroundColor,
+            startOpacity: 100,
+            endColor: constantBackgroundColor,
+            endOpacity: 100,
+            angleOffset: -99999,
+            ease: "Linear",
+            eventTag: ""
+        };
+        cloned.insertAction(0, flashAction);
     }
 
     /*

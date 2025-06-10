@@ -7,31 +7,20 @@ import fs from "fs";
 import path from "path";
 import { PROTECTED_EVENT_TYPES, transformLevel } from "../services/levelTransformer.js";
 import { repackZipFile } from "../services/zipProcessor.js";
-import { LevelService } from "../services/levelService.js";
-import { ParsedQs } from "qs";
+import LevelDict, { LevelJSON, Action } from "adofai-lib";
 
-interface LevelAction {
-    eventType: string;
-    filter?: string;
-    [key: string]: any;
-}
-
-interface LevelData {
-    actions?: LevelAction[];
-    [key: string]: any;
-}
 
 const router = Router();
 
 // Function to extract unique event types and filters from a level file
-const extractLevelTypes = (levelData: LevelData) => {
+const extractLevelTypes = (levelData: LevelDict) => {
     const eventTypes = new Set<string>();
     const filterTypes = new Set<string>();
     const advancedFilterTypes = new Set<string>();
 
-    if (levelData.actions) {
-        levelData.actions.forEach((action: LevelAction) => {
-            if (PROTECTED_EVENT_TYPES.has(action.eventType)) {
+    if (levelData.getActions().length > 0) {
+        levelData.getActions().forEach((action: Action) => {
+            if (PROTECTED_EVENT_TYPES.has(action.eventType || '')) {
                 return;
             }
 
@@ -177,10 +166,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
         // Read the level file
         const levelPath = metadata.targetLevel;
-        const parsedLevel = await LevelService.readLevelFile(levelPath);
-
-        // Extract available types from the level
-        const availableTypes = extractLevelTypes(parsedLevel);
+        const parsedLevel = await new LevelDict(levelPath);
 
         // Transform the level
         const transformedLevel = transformLevel(parsedLevel, options);
@@ -205,8 +191,9 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             await fs.promises.writeFile(tempLevelPath, JSON.stringify(transformedLevel, null, 2));
 
             // Find the song file referenced in the level
-            const songFilename = transformedLevel.settings?.songFilename;
-            if (!songFilename || !metadata.songFiles[songFilename]) {
+            const songFilename = transformedLevel.getSetting("songFilename");
+            const requiresYSMod = transformedLevel.getSetting("requiredMods")?.includes('YouTubeStream');
+            if (!requiresYSMod && (!songFilename || !metadata.songFiles[songFilename])) {
                 await fs.promises.unlink(tempLevelPath);
                 return res.status(400).json({ error: 'Song file not found in level' });
             }
@@ -218,12 +205,12 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     path: tempLevelPath,
                     size: (await fs.promises.stat(tempLevelPath)).size
                 },
-                songFile: {
+                songFile: !requiresYSMod && songFilename && metadata.songFiles[songFilename] ? {
                     name: songFilename,
                     path: metadata.songFiles[songFilename].path,
                     size: metadata.songFiles[songFilename].size,
                     type: metadata.songFiles[songFilename].type
-                }
+                } : undefined
             };
 
             // Repack the zip
@@ -322,7 +309,7 @@ router.get('/transform-options', async (req: Request, res: Response) => {
         }
 
         // Read the level file
-        const parsedLevel = await LevelService.readLevelFile(metadata.targetLevel);
+        const parsedLevel = await new LevelDict(metadata.targetLevel);
         
         // Extract available types from the level
         const availableTypes = extractLevelTypes(parsedLevel);
