@@ -619,7 +619,12 @@ router.post(
       return res.status(400).json({error: 'Invalid form type'});
     } catch (error) {
       // Rollback transaction on error
-      await transaction.rollback();
+      try {
+        await transaction.rollback();
+      } catch (rollbackError) {
+        // Ignore rollback errors - transaction might already be rolled back
+        logger.warn('Transaction rollback failed:', rollbackError);
+      }
       logger.error('Submission error:', error);
       return res.status(500).json({
         error: 'Failed to process submission',
