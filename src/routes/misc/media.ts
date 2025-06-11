@@ -761,8 +761,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
                 include: [
                   {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
                 ],
-              },
-              {model: Pass, as: 'passes', attributes: ['id']},
+              }
             ],
           });
 
@@ -1001,7 +1000,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
                 <div class="footer">
                   <div class="footer-left">
                     <div class="pp-value">${level.baseScore || diff.baseScore || 0}PP</div>
-                    <div class="pass-count">${level.passes?.length || 0} pass${(level.passes?.length || 0) === 1 ? '' : 'es'}</div>
+                    <div class="pass-count">${level.clears || 0} pass${(level.clears || 0) === 1 ? '' : 'es'}</div>
                   </div>
                   <div class="footer-right">
                     <div class="creator-name">${firstRow}</div>

@@ -9,6 +9,24 @@ import { PROTECTED_EVENT_TYPES, transformLevel } from "../services/levelTransfor
 import { repackZipFile } from "../services/zipProcessor.js";
 import LevelDict, { LevelJSON, Action } from "adofai-lib";
 
+// Add helper function for sanitizing filenames
+const sanitizeFilename = (filename: string): string => {
+  // Remove or replace invalid characters
+  return filename
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // Replace invalid characters with underscore
+    .replace(/\s+/g, '_') // Replace spaces with underscore
+    .replace(/^\.+/, '') // Remove leading dots
+    .replace(/\.+$/, '') // Remove trailing dots
+    .substring(0, 255); // Limit length
+};
+
+// Add helper function for encoding Content-Disposition
+const encodeContentDisposition = (filename: string): string => {
+  const sanitized = sanitizeFilename(filename);
+  // Encode the filename for Content-Disposition
+  const encoded = encodeURIComponent(sanitized);
+  return `attachment; filename*=UTF-8''${encoded}`;
+};
 
 const router = Router();
 
@@ -216,9 +234,9 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             // Repack the zip
             const zipPath = await repackZipFile(tempMetadata);
             
-            // Set headers for zip download
+            // Set headers for zip download with encoded filename
             res.setHeader('Content-Type', 'application/zip');
-            res.setHeader('Content-Disposition', `attachment; filename="transformed_${path.basename(levelPath)}.zip"`);
+            res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${path.basename(levelPath)}.zip`));
             
             // Stream the zip file
             const fileStream = fs.createReadStream(zipPath);
@@ -239,9 +257,9 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 }
             });
         } else if (format === 'adofai') {
-            // Return JSON response
+            // Return JSON response with encoded filename
             res.setHeader('Content-Type', 'application/json');
-            res.setHeader('Content-Disposition', `attachment; filename="transformed_${path.basename(levelPath)}"`);
+            res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${path.basename(levelPath)}`));
             res.setHeader('Cache-Control', 'no-store');
             res.json(transformedLevel);
         }
