@@ -75,7 +75,6 @@ const cleanVideoUrl = (url: string) => {
     // Bilibili patterns
     /https?:\/\/(?:www\.|m\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
     /https?:\/\/(?:www\.|m\.)?b23\.tv\/(BV[a-zA-Z0-9]+)/,
-    /https?:\/\/(?:www\.|m\.)?b23\.tv\/([a-zA-Z0-9]+)/,
     /https?:\/\/(?:www\.|m\.)?bilibili\.com\/.*?(BV[a-zA-Z0-9]+)/,
   ];
 
