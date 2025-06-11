@@ -15,6 +15,7 @@ import {calcAcc} from '../../utils/CalcAcc.js';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '../../models/submissions/LevelSubmissionTeamRequest.js';
 import sequelize from "../../config/db.js";
+import { Transaction } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import Pass from '../../models/passes/Pass.js';
 import Judgement from '../../models/passes/Judgement.js';
@@ -74,6 +75,7 @@ const cleanVideoUrl = (url: string) => {
     // Bilibili patterns
     /https?:\/\/(?:www\.|m\.)?bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/,
     /https?:\/\/(?:www\.|m\.)?b23\.tv\/(BV[a-zA-Z0-9]+)/,
+    /https?:\/\/(?:www\.|m\.)?b23\.tv\/([a-zA-Z0-9]+)/,
     /https?:\/\/(?:www\.|m\.)?bilibili\.com\/.*?(BV[a-zA-Z0-9]+)/,
   ];
 
@@ -118,25 +120,29 @@ router.post(
   upload.single('levelZip'),
   express.json(),
   async (req: Request, res: Response) => {
-    // Start a transaction
-    const transaction = await sequelize.transaction();
-
+    let transaction: Transaction | undefined;
     try {
+      // Start a transaction
+      transaction = await sequelize.transaction();
+
       if (req.user?.player?.isBanned) {
         // Clean up any uploaded file
         await cleanUpFile(req);
+        await transaction.rollback();
         return res.status(403).json({error: 'You are banned'});
       }
 
       if (req.user?.player?.isSubmissionsPaused) {
         // Clean up any uploaded file
         await cleanUpFile(req);
+        await transaction.rollback();
         return res.status(403).json({error: 'Your submissions are paused'});
       }
 
       if (!req.user?.isEmailVerified) {
         // Clean up any uploaded file
         await cleanUpFile(req);
+        await transaction.rollback();
         return res.status(403).json({error: 'Your email is not verified'});
       }
 
@@ -618,13 +624,19 @@ router.post(
       await transaction.rollback();
       return res.status(400).json({error: 'Invalid form type'});
     } catch (error) {
-      // Rollback transaction on error
-      try {
-        await transaction.rollback();
-      } catch (rollbackError) {
-        // Ignore rollback errors - transaction might already be rolled back
-        logger.warn('Transaction rollback failed:', rollbackError);
+      // Only attempt rollback if transaction exists
+      if (transaction) {
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          // If rollback fails, it likely means the transaction was already rolled back
+          logger.warn('Transaction rollback failed:', rollbackError);
+        }
       }
+
+      // Clean up any uploaded file
+      await cleanUpFile(req);
+
       logger.error('Submission error:', error);
       return res.status(500).json({
         error: 'Failed to process submission',
