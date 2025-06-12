@@ -1114,7 +1114,6 @@ export class PlayerStatsService {
   
         // Get player stats from service
         const stats = await playerStatsService.getPlayerStats(player.id).then(stats => stats?.[0]);
-        console.log(stats);
         const uniquePasses = new Map();
         passes.forEach(pass => {
           if (
