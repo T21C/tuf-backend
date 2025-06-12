@@ -24,6 +24,7 @@ import { CdnError } from '../../services/CdnService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
 import multer from 'multer';
 import fs from 'fs';
+import { User } from '../../models/index.js';
 
 const router: Router = express.Router();
 
@@ -278,6 +279,11 @@ router.post(
             {
               model: LevelSubmissionTeamRequest,
               as: 'teamRequestData'
+            },
+            {
+              model: User,
+              as: 'levelSubmitter',
+              attributes: ['id', 'username', 'playerId']
             }
           ],
           transaction
@@ -543,6 +549,7 @@ router.post(
             submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
             status: 'pending',
             assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
+            userId: req.user?.id,
           }, { transaction });
 
           await PassSubmissionJudgements.create({

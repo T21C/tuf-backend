@@ -412,4 +412,10 @@ export function initializeAssociations() {
     foreignKey: 'difficultyId',
     as: 'difficulty',
   });
+
+  LevelSubmission.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'levelSubmitter'
+  });
+
 }

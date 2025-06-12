@@ -65,7 +65,7 @@ interface CreatorRequest {
 }
 
 // Get all level submissions
-router.get('/levels', async (req: Request, res: Response) => {
+router.get('/levels', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const levelSubmissions = await LevelSubmission.findAll();
       return res.json(levelSubmissions);
@@ -77,7 +77,7 @@ router.get('/levels', async (req: Request, res: Response) => {
 );
 
 // Get pending level submissions
-router.get('/levels/pending', async (req: Request, res: Response) => {
+router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const pendingLevelSubmissions = await LevelSubmission.findAll({
       where: { status: 'pending' },
@@ -121,6 +121,12 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
               ]
             }
           ]
+        },
+        {
+          model: User,
+          as: 'levelSubmitter',
+          required: false,
+          attributes: ['id', 'username', 'playerId']
         }
       ]
     });
@@ -165,7 +171,7 @@ router.get('/levels/pending', async (req: Request, res: Response) => {
 });
 
 // Get all pass submissions
-router.get('/passes', async (req: Request, res: Response) => {
+router.get('/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const passSubmissions = await PassSubmission.findAll({
         include: [
@@ -215,6 +221,12 @@ router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Respo
               },
             ],
           },
+          {
+            model: User,
+            as: 'passSubmitter',
+            required: false,
+            attributes: ['id', 'username', 'playerId']
+          }
         ],
         order: [['createdAt', 'DESC']],
       });
@@ -725,7 +737,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Get player's new stats
             const playerStats = await playerStatsService.getPlayerStats(
               submission.assignedPlayerId,
-            );
+            ).then(stats => stats?.[0]);
 
             sseManager.broadcast({
               type: 'submissionUpdate',
@@ -1055,7 +1067,9 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
               await statsTransaction.commit();
 
               // Get updated player stats
-              const playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId);
+              const playerStats = 
+              await playerStatsService.getPlayerStats(submission.assignedPlayerId)
+              .then(stats => stats?.[0]);
 
               // Broadcast updates
               sseManager.broadcast({

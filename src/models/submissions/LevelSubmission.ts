@@ -31,22 +31,7 @@ class LevelSubmission extends BaseModel {
   // Virtual fields from associations
   declare creatorRequests?: LevelSubmissionCreatorRequest[];
   declare teamRequestData?: LevelSubmissionTeamRequest;
-  declare user?: User;
-
-  static associate(models: any) {
-    LevelSubmission.hasMany(models.LevelSubmissionCreatorRequest, {
-      foreignKey: 'submissionId',
-      as: 'creatorRequests'
-    });
-    LevelSubmission.hasOne(models.LevelSubmissionTeamRequest, {
-      foreignKey: 'submissionId',
-      as: 'teamRequestData'
-    });
-    LevelSubmission.belongsTo(models.User, {
-      foreignKey: 'userId',
-      as: 'user'
-    });
-  }
+  declare levelSubmitter?: User;
 }
 
 LevelSubmission.init(

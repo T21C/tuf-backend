@@ -4,6 +4,7 @@ import BaseModel from '../BaseModel.js';
 import Player from '../players/Player.js';
 import Level from '../levels/Level.js';
 import { calcAcc } from '../../utils/CalcAcc.js';
+import User from '../auth/User.js';
 class PassSubmission extends BaseModel {
   declare passer: string;
   declare passerId: number | null;
@@ -25,13 +26,14 @@ class PassSubmission extends BaseModel {
   declare submitterDiscordUsername: string | null;
   declare submitterDiscordId: string | null;
   declare submitterDiscordPfp: string | null;
-
+  declare userId: string | null; 
   // Virtual fields from associations
   declare assignedPlayer?: Player;
   declare passerPlayer?: Player;
   declare level?: Level;
   declare judgements?: PassSubmissionJudgements;
   declare flags?: PassSubmissionFlags;
+  declare passSubmitter?: User;
 }
 
 class PassSubmissionJudgements extends BaseModel {
@@ -154,6 +156,14 @@ PassSubmission.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    userId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      references: {
+        model: 'users',
+        key: 'id',
+      },
+    },
   },
   {
     sequelize,
@@ -248,5 +258,10 @@ PassSubmissionFlags.init(
     tableName: 'pass_submission_flags',
   },
 );
+
+PassSubmission.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'passSubmitter',
+});
 
 export {PassSubmission, PassSubmissionJudgements, PassSubmissionFlags};

@@ -24,6 +24,7 @@ type EnrichedPlayer = IPlayer & {
   topScores: {id: number, impact: number}[];
   potentialTopScores: {id: number, impact: number}[];
   uniquePasses: Map<number, Pass>;
+  stats: PlayerStats | null;
 }
 
 export class PlayerStatsService {
@@ -687,8 +688,9 @@ export class PlayerStatsService {
     }, this.RELOAD_INTERVAL);
   }
 
-  public async getPlayerStats(playerId: number): Promise<PlayerStats | null> {
-    const playerStats = await PlayerStats.findOne({
+  public async getPlayerStats(playerIds: number[] | number): Promise<PlayerStats[]> {
+    playerIds = Array.isArray(playerIds) ? playerIds : [playerIds];
+    const playerStats = await PlayerStats.findAll({
       attributes: {
         include: [
           [
@@ -704,7 +706,7 @@ export class PlayerStatsService {
           ],
         ],
       },
-      where: {id: playerId},
+      where: {id: playerIds},
       include: [
         {
           model: Player,
@@ -715,7 +717,7 @@ export class PlayerStatsService {
             {
               model: User,
               as: 'user',
-              attributes: ['avatarUrl'],
+              attributes: ['avatarUrl', 'username', 'nickname'],
               required: false,
             },
           ],
@@ -731,18 +733,18 @@ export class PlayerStatsService {
       ],
     });
 
-    if (!playerStats) return null;
+    if (!playerStats || playerStats.length === 0) return [];
 
-    const plainStats = playerStats.get({plain: true});
-    return {
-      ...plainStats,
-      id: plainStats.player.id,
-      rank: plainStats.rankedScoreRank,
+    const plainStats = playerStats.map(stat => stat.get({plain: true}));
+    return plainStats.map(stat => ({
+      ...stat,
+      id: stat.player.id,
+      rank: stat.rankedScoreRank,
       player: {
-        ...plainStats.player,
-        pfp: plainStats.player.user?.avatarUrl || plainStats.player.pfp || null,
+        ...stat.player,
+        pfp: stat.player.user?.avatarUrl || stat.player.pfp || null,
       },
-    };
+    }));
   }
 
   public async getLeaderboard(
@@ -790,11 +792,18 @@ export class PlayerStatsService {
       const escapedQuery = nameQuery ? escapeForMySQL(nameQuery) : '';
       // Add name search if provided
       if (nameQuery && !nameQuery.startsWith('#')) {
-        whereClause['$player.name$'] = sequelize.where(
-          sequelize.fn('LOWER', sequelize.col('player.name')),
-          'LIKE',
-          `%${escapedQuery.toLowerCase()}%`
-        );
+        whereClause[Op.or] = [
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('player.name')),
+            'LIKE',
+            `%${escapedQuery.toLowerCase()}%`
+          ),
+          sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('player.user.username')),
+            'LIKE',
+            `%${escapedQuery.toLowerCase()}%`
+          )
+        ];
       }
 
       // Map frontend sort fields to database fields and their corresponding rank fields
@@ -995,7 +1004,7 @@ export class PlayerStatsService {
     const impact = (currentStats?.rankedScore || 0) - (previousStats?.rankedScore || 0);
 
     // Get player stats for rank
-    const playerStats = await this.getPlayerStats(pass.player?.id || 0);
+    const playerStats = await this.getPlayerStats(pass.player?.id || 0).then(stats => stats?.[0]);
 
     const response = {
       ...pass.toJSON(),
@@ -1104,8 +1113,8 @@ export class PlayerStatsService {
         }
   
         // Get player stats from service
-        const stats = await playerStatsService.getPlayerStats(player.id);
-  
+        const stats = await playerStatsService.getPlayerStats(player.id).then(stats => stats?.[0]);
+        console.log(stats);
         const uniquePasses = new Map();
         passes.forEach(pass => {
           if (
@@ -1169,6 +1178,7 @@ export class PlayerStatsService {
           topScores,
           potentialTopScores,
           uniquePasses,
+          stats
     } as EnrichedPlayer
     };
   }

@@ -144,7 +144,7 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
     // Wait for both enriched data and stats in parallel
     const [enrichedPlayer, playerStats] = await Promise.all([
       playerStatsService.getEnrichedPlayer(parseInt(id)),
-      playerStatsService.getPlayerStats(parseInt(id)),
+      playerStatsService.getPlayerStats(parseInt(id)).then(stats => stats?.[0]),
     ]);
 
     // Filter out sensitive information from hidden levels and ensure no circular references
@@ -203,40 +203,30 @@ router.get('/search/:name', async (req: Request, res: Response) => {
           [Op.like]: `%${escapedName}%`,
         },
       },
+    });
+
+    const users = await User.findAll({
+      where: {
+        username: {
+          [Op.like]: `%${escapedName}%`,
+        }
+      },
       include: [
         {
-          model: Pass,
-          as: 'passes',
-          required: false,
-          where: {
-            isDeleted: false
-          },
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              where: {
-                isDeleted: false,
-                isHidden: false
-              },
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
+          model: Player,
+          as: 'player',
+          required: true,
         },
       ],
     });
 
-    const enrichedPlayers = await Promise.all(
-      players.map(async player => ({
-        ...(await playerStatsService.getEnrichedPlayer(player.id)),
-        passes: undefined,
-      })),
-    );
 
-    return res.json(enrichedPlayers);
+
+    const allPlayers = new Set([...players, ...users.map(user => user.player)]);
+
+    const stats = await playerStatsService.getPlayerStats(Array.from(allPlayers).map(player => player?.id || 0));
+
+    return res.json(stats);
   } catch (error) {
     logger.error('Error searching players:', error);
     return res.status(500).json({

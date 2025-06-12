@@ -25,6 +25,7 @@ import {calcAcc, IJudgements} from '../../utils/CalcAcc.js';
 import {Auth} from '../../middleware/auth.js';
 import { logger } from '../../services/LoggerService.js';
 import { clientUrlEnv } from '../../config/app.config.js';
+import { User } from '../../models/index.js';
 
 const router: Router = express.Router();
 
@@ -188,6 +189,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     : null;
   const submitterDiscordPfp = level?.submitterDiscordPfp || null;
   const submitterDiscordId = level?.submitterDiscordId || null;
+  const submitter = level?.levelSubmitter || null;
 
   // Process creators by role
   const charters = level.creatorRequests
@@ -205,7 +207,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     .setColor('#000000')
     .setAuthor('New level submission', submitterDiscordPfp || placeHolder, '')
     .setTitle(`${song || 'Unknown Song'} — ${artist || 'Unknown Artist'}`)
-    .addField('', `${submitterDiscordId ? `<@${submitterDiscordId}>` : `${level.user?.username || 'Unknown user'}`}`, false)
+    .addField('', `${submitterDiscordId ? `<@${submitterDiscordId}>` : `@${submitter?.nickname}`} #${submitter?.playerId}`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
     .addField('', '', false);
 
@@ -245,6 +247,7 @@ export async function passSubmissionHook(
   const pass = passSubmission.dataValues;
   const level = pass.level;
 
+  const submitter: User | null = pass.passSubmitter || null;
   const accuracy = calcAcc(sanitizedJudgements);
 
   const videoInfo = pass?.videoLink
@@ -269,22 +272,22 @@ export async function passSubmissionHook(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)} — ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} — ${trim(level?.artist || 'Unknown Artist', 30)}`,
       level?.difficulty?.icon || '',
       levelLink,
     )
     .setTitle(
-      `New clear submission ${trim(pass.submitterDiscordUsername || pass.passer || 'Unknown Player', 25)}`,
+      `New clear submission ${trim(pass.submitterDiscordUsername || submitter?.nickname || 'Unknown Player', 25)}`,
     )
     .setColor('#000000')
     .setThumbnail(
-      pass.submitterDiscordPfp ? pass.submitterDiscordPfp : placeHolder,
+      submitter?.avatarUrl || '',
     )
     .addField('', '', false)
     .addField('Player', `**${pass.passer || 'Unknown Player'}**`, true)
     .addField(
       'Submitter',
-      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || pass.passer || 'Unknown Player'}**`,
+      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || submitter?.username || 'Unknown Player'}**`,
       true,
     )
     .addField('', '', false)

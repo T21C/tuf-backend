@@ -21,13 +21,6 @@ class UsernameChange extends Model<UsernameChangeAttributes> implements Username
 
   // Virtual fields
   declare user?: User;
-
-  static associate(models: any) {
-    UsernameChange.belongsTo(models.User, {
-      foreignKey: 'userId',
-      as: 'user'
-    });
-  }
 }
 
 UsernameChange.init(
@@ -70,5 +63,10 @@ UsernameChange.init(
     ],
   },
 );
+
+UsernameChange.belongsTo(User, {
+  foreignKey: 'userId',
+  as: 'user'
+});
 
 export default UsernameChange; 

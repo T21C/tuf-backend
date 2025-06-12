@@ -156,6 +156,13 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           transaction
         }
       );
+      await Player.update(
+        { name: req.body.nickname },
+        {
+          where: {id: user.playerId},
+          transaction
+        }
+      );
     }
 
     // Fetch updated user data with providers

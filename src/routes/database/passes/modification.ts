@@ -415,7 +415,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         // Update player stats
         if (playerId) {
           await playerStatsService.updatePlayerStats([playerId]);
-          const playerStats = await playerStatsService.getPlayerStats(playerId);
+          const playerStats = await playerStatsService.getPlayerStats(playerId).then(stats => stats?.[0]);
   
 
           const updateData = {
