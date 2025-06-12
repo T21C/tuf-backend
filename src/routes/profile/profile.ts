@@ -42,9 +42,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
       attributes: ['provider', 'providerId', 'profile'],
     });
 
-    const player = await Player.findByPk(user.playerId, {
-      attributes: ['pfp'],
-    });
+    const player = await Player.findByPk(user.playerId);
 
     return res.json({
       user: {
@@ -59,7 +57,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
         isEmailVerified: user.isEmailVerified,
         playerId: user.playerId,
         password: user.password ? true : null,
-        pfp: player?.pfp,
+        player,
         lastUsernameChange: user.lastUsernameChange,
         previousUsername: user.previousUsername,
         providers: providers.map((p: OAuthProvider) => ({
@@ -157,7 +155,10 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         }
       );
       await Player.update(
-        { name: req.body.nickname },
+        { 
+          name: req.body.nickname,
+          country: req.body.country
+        },
         {
           where: {id: user.playerId},
           transaction
