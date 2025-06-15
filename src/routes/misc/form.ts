@@ -25,6 +25,7 @@ import { CDN_CONFIG } from '../../cdnService/config.js';
 import multer from 'multer';
 import fs from 'fs';
 import { User } from '../../models/index.js';
+import Player from '../../models/players/Player.js';
 
 const router: Router = express.Router();
 
@@ -587,6 +588,17 @@ router.post(
                   },
                 ],
               },
+              {
+                model: User,
+                as: 'passSubmitter',
+                attributes: ['id', 'username', 'playerId', 'avatarUrl'],
+                include: [
+                  {
+                    model: Player,
+                    as: 'player'
+                  }
+                ]
+              }
             ],
             transaction
           });

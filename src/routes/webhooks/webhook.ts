@@ -189,8 +189,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     : null;
   const submitterDiscordPfp = level?.submitterDiscordPfp || null;
   const submitterDiscordId = level?.submitterDiscordId || null;
-  const submitter = level?.levelSubmitter || null;
-
+  const submitter: User | null = level?.levelSubmitter || null;
   // Process creators by role
   const charters = level.creatorRequests
     ?.filter(req => req.role === 'charter')
@@ -277,7 +276,7 @@ export async function passSubmissionHook(
       levelLink,
     )
     .setTitle(
-      `New clear submission ${trim(pass.submitterDiscordUsername || submitter?.nickname || 'Unknown Player', 25)}`,
+      `New clear submission from ${submitter?.player?.name || 'Unknown Player'}`,
     )
     .setColor('#000000')
     .setThumbnail(

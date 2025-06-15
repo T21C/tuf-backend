@@ -305,8 +305,10 @@ export async function createClearEmbed(
     .setTitle(`Clear by ${trim(pass.player?.name || 'Unknown Player', 25)}`)
     .setColor(level?.difficulty?.color || '#000000')
     .setThumbnail(
-      pass.player?.pfp && pass.player?.pfp !== 'none'
-        ? pass.player?.pfp
+      pass.player?.user?.avatarUrl
+        ? pass.player?.user?.avatarUrl
+          : pass.player?.pfp && pass.player?.pfp !== 'none'
+          ? pass.player?.pfp
           : placeHolder,
     )
     .addField('', '', false)
