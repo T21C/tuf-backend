@@ -286,7 +286,7 @@ export async function passSubmissionHook(
     .addField('Player', `**${pass.passer || 'Unknown Player'}**`, true)
     .addField(
       'Submitter',
-      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || submitter?.username || 'Unknown Player'}**`,
+      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || submitter?.username || 'Unknown Player'}** #${submitter?.playerId}`,
       true,
     )
     .addField('', '', false)
