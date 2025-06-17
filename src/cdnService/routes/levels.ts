@@ -269,7 +269,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             res.json(transformedLevel);
         }
     } catch (error) {
-        logger.error('Level transformation error:', error);
+        logger.error('Level transformation error for ' + req.query.fileId + ':', error);
         res.status(500).json({ error: 'Level transformation failed' });
     }
     return;
@@ -334,7 +334,7 @@ router.get('/transform-options', async (req: Request, res: Response) => {
 
         res.json(availableTypes);
     } catch (error) {
-        logger.error('Error getting transform options:', error);
+        logger.error('Error getting transform options for ' + req.query.fileId + ':', error);
         res.status(500).json({ error: 'Failed to get transform options' });
     }
     return
