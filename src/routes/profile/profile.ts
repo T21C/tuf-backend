@@ -84,6 +84,17 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       return res.status(401).json({error: 'User not authenticated'});
     }
 
+    if (req.body.nickname) {
+      const player = await Player.findOne({
+        where: {
+          name: req.body.nickname
+        }
+      });
+      if (player) {
+        return res.status(400).json({error: 'Nickname already taken'});
+      }
+    }
+
     // Check if username is being changed
     if (username && username !== user.username) {
       // Check if username is taken
