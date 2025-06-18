@@ -56,8 +56,14 @@ class AuthController {
   })
   public async register(req: Request, res: Response): Promise<Response> {
     try {
-      const {email, password, username} = req.body;
+      const {email, password, username, captchaToken} = req.body;
 
+      if (captchaToken) {
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'registration');
+        if (!isValidCaptcha) {
+          return res.status(400).json({message: 'Invalid captcha'});
+        }
+      }
 
       // Validate input
       if (!email || !password || !username) {
