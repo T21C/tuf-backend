@@ -145,26 +145,30 @@ export const levelMapping = {
       previousBaseScore: { type: 'long' as const },
       videoLink: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { type: 'keyword' as const }
         }
       },
       dlLink: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { type: 'keyword' as const }
         }
       },
       legacyDllink: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { type: 'keyword' as const }
         }
       },
       workshopLink: { 
         type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { type: 'keyword' as const, ignore_above: 256 }
+          keyword: { type: 'keyword' as const }
         }
       },
       publicComments: { 

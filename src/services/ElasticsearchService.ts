@@ -6,7 +6,7 @@ import client, {
 } from '../config/elasticsearch.js';
 import { logger } from './LoggerService.js';
 import { ILevel, IPass } from '../interfaces/models/index.js';
-import { Op, Transaction } from 'sequelize';
+import { Op } from 'sequelize';
 import Level from '../models/levels/Level.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import LevelAlias from '../models/levels/LevelAlias.js';
@@ -286,6 +286,9 @@ class ElasticsearchService {
       creator: convertToPUA(level.creator),
       charter: convertToPUA(level.charter),
       team: convertToPUA(level.team),
+      videoLink: level.videoLink ? convertToPUA(level.videoLink) : null,
+      dlLink: level.dlLink ? convertToPUA(level.dlLink) : null,
+      legacyDllink: level.legacyDllink ? convertToPUA(level.legacyDllink) : null,
       // Process nested fields
       aliases: level.aliases?.map(alias => ({
         ...alias.get({ plain: true }),
@@ -312,6 +315,7 @@ class ElasticsearchService {
         }))
       } : null
     };
+    logger.debug(`Processed level ${id} videoLink: ${processedLevel.videoLink}`);
     return processedLevel as ILevel;
   }
 
@@ -447,6 +451,9 @@ class ElasticsearchService {
             song: convertToPUA(level.song),
             artist: convertToPUA(level.artist),
             creator: convertToPUA(level.creator),
+            videoLink: convertToPUA(level.videoLink),
+            dlLink: convertToPUA(level.dlLink),
+            legacyDllink: level.legacyDllink ? convertToPUA(level.legacyDllink) : null,
             charter: convertToPUA(level.charter),
             team: convertToPUA(level.team),
             // Process nested fields
@@ -748,31 +755,41 @@ class ElasticsearchService {
     const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
 
     // Check for exact match with equals sign
-    const exactMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink)=(.+)$/i);
+    const exactMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink|videolink)=(.+)$/i);
     if (exactMatch) {
+      const field = exactMatch[1].toLowerCase();
+      const value = exactMatch[2].trim();
+      const puaValue = convertToPUA(value);
+      logger.debug(`Exact match search - Field: ${field}, Original value: ${value}, PUA value: ${puaValue}`);
       return {
-        field: exactMatch[1].toLowerCase(),
-        value: exactMatch[2].trim(),
+        field,
+        value: puaValue,
         exact: true,
         isNot
       };
     }
 
     // Check for partial match with colon
-    const partialMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink):(.+)$/i);
+    const partialMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink|videolink):(.+)$/i);
     if (partialMatch) {
+      const field = partialMatch[1].toLowerCase();
+      const value = partialMatch[2].trim();
+      const puaValue = convertToPUA(value);
+      logger.debug(`Partial match search - Field: ${field}, Original value: ${value}, PUA value: ${puaValue}`);
       return {
-        field: partialMatch[1].toLowerCase(),
-        value: partialMatch[2].trim(),
+        field,
+        value: puaValue,
         exact: false,
         isNot
       };
     }
 
     // Handle general search term with NOT operator
+    const puaValue = convertToPUA(searchTerm.trim());
+    logger.debug(`General search - Original value: ${searchTerm.trim()}, PUA value: ${puaValue}`);
     return {
       field: 'any',
-      value: searchTerm.trim(),
+      value: puaValue,
       exact: false,
       isNot
     };
@@ -815,7 +832,9 @@ class ElasticsearchService {
 
   private buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases: boolean = false): any {
     const { field, value, exact, isNot } = fieldSearch;
+    // Note: value is already converted to PUA in parseFieldSearch
     const searchValue = prepareSearchTerm(value);
+    logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
 
     // For field-specific searches
     if (field !== 'any') {
@@ -892,6 +911,27 @@ class ElasticsearchService {
                 value: searchValue,
                 case_insensitive: true
               }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle video link search
+        if (field === 'videolink') {
+          const wildcardValue = `*${searchValue}*`;
+          const query = {
+            bool: {
+              should: [
+                {
+                  wildcard: {
+                    'videoLink': {
+                      value: wildcardValue,
+                      case_insensitive: true
+                    }
+                  }
+                }
+              ],
+              minimum_should_match: 1
             }
           };
           return isNot ? { bool: { must_not: [query] } } : query;
@@ -1052,6 +1092,19 @@ class ElasticsearchService {
         return isNot ? { bool: { must_not: [query] } } : query;
       }
 
+      // Handle video link partial match
+      if (field === 'videolink') {
+        const query = {
+          wildcard: {
+            'videoLink': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
       // Handle other partial matches
       const searchCondition = {
         wildcard: {
@@ -1117,7 +1170,6 @@ class ElasticsearchService {
           { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { creator: { value: wildcardValue, case_insensitive: true } } },
-          { wildcard: { dlLink: { value: wildcardValue, case_insensitive: true } } },
           ...(excludeAliases ? [] : [{
             nested: {
               path: 'aliases',
@@ -1177,7 +1229,6 @@ class ElasticsearchService {
       // Handle text search with new parsing
       if (query) {
         const searchGroups = this.parseSearchQuery(query.trim());
-
         if (searchGroups.length > 0) {
           const orConditions = searchGroups.map(group => {
             const andConditions = group.terms.map(term => this.buildFieldSearchQuery(term, filters.excludeAliases === 'true'));
@@ -1615,6 +1666,9 @@ class ElasticsearchService {
       creator: convertFromPUA(source.creator as string),
       charter: convertFromPUA(source.charter as string),
       team: convertFromPUA(source.team as string),
+      videoLink: convertFromPUA(source.videoLink as string),
+      dlLink: convertFromPUA(source.dlLink as string),
+      legacyDllink: convertFromPUA(source.legacyDllink as string),
       aliases: source.aliases?.map((alias: Record<string, any>) => ({
         ...alias,
         originalValue: convertFromPUA(alias.originalValue as string),

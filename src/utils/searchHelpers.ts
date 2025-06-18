@@ -31,6 +31,13 @@ const SPECIAL_CHAR_MAP = {
   '~': '\uE00F', // Tilde
   ':': '\uE010', // Colon
   ' ': '\uE011', // Space
+  '`': '\uE012', // Backtick
+  '=': '\uE013', // Equals sign
+  '<': '\uE014', // Less than
+  '>': '\uE015', // Greater than
+  '?': '\uE016', // Question mark
+  '/': '\uE017', // Slash
+  '\\': '\uE018', // Backslash
 } as const;
 
 // Reverse mapping for converting back
