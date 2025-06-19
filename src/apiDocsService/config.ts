@@ -5,15 +5,19 @@ if (!process.env.API_DOCS_PORT) {
     throw new Error('API_DOCS_PORT must be set');
 }
 
+if (!process.env.API_DOCS_URL) {
+    throw new Error('API_DOCS_URL must be set');
+}
+
 export const API_DOCS_CONFIG = {
     port: process.env.API_DOCS_PORT,
     title: 'TUF API Documentation',
     version: '2.0.0',
     description: 'API documentation for The Universal Forums (TUF)',
-    baseUrl: process.env.API_DOCS_URL || 'http://localhost:3001',
+    baseUrl: process.env.API_DOCS_URL,
     contact: {
         name: 'TUF Development Team',
-        email: 'support@tuforums.com'
+        email: 'https://discord.com/invite/adofai'
     },
     license: {
         name: 'MIT',

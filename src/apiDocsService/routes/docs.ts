@@ -595,7 +595,7 @@ router.get('/', (req: Request, res: Response) => {
         // Fetch API statistics
         async function fetchApiStats() {
           try {
-            const response = await fetch('/api/stats');
+            const response = await fetch(${API_DOCS_CONFIG.baseUrl}/api/stats');
             const data = await response.json();
             return data;
           } catch (error) {
@@ -607,7 +607,7 @@ router.get('/', (req: Request, res: Response) => {
         // Fetch endpoints data from the API
         async function fetchEndpoints() {
           try {
-            const response = await fetch('/api/endpoints');
+            const response = await fetch(${API_DOCS_CONFIG.baseUrl}/api/endpoints');
             const data = await response.json();
             return data;
           } catch (error) {
