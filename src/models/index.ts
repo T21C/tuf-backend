@@ -27,6 +27,7 @@ import AnnouncementDirective from './announcements/AnnouncementDirective.js';
 import DirectiveAction from './announcements/DirectiveAction.js';
 import RateLimit from './auth/RateLimit.js';
 import LevelSearchView from './levels/LevelSearchView.js';
+import AuditLog from './admin/AuditLog.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -56,6 +57,7 @@ export const db = {
     DirectiveAction,
     RateLimit,
     LevelSearchView,
+    AuditLog,
   },
 };
 
@@ -75,4 +77,4 @@ OAuthProvider.belongsTo(User, {
 export default db;
 
 // Also export User and OAuthProvider directly for convenience
-export {User, OAuthProvider, RateLimit};
+export {User, OAuthProvider, RateLimit, AuditLog};

@@ -5,6 +5,7 @@ import type {UserAttributes} from '../models/auth/User.js';
 import axios from 'axios';
 import Player from '../models/players/Player.js';
 import { logger } from '../services/LoggerService.js';
+import { AuditLogService } from '../services/AuditLogService.js';
 
 // Extend Express Request type to include user
 declare global {
@@ -204,6 +205,39 @@ export const Auth = {
         }
 
         req.user = user;
+
+        // --- Audit log integration ---
+        // Only log modification methods
+        const MODIFICATION_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'];
+        if (MODIFICATION_METHODS.includes(req.method)) {
+          const oldJson = res.json;
+          const oldSend = res.send;
+          let responseBody: any;
+
+          res.json = function (body: any) {
+            responseBody = body;
+            return oldJson.call(this, body);
+          };
+          res.send = function (body: any) {
+            responseBody = JSON.parse(body);
+            return oldSend.call(this, body);
+          };
+
+          res.on('finish', async () => {
+            // Only log successful (2xx/3xx) responses
+            if (res.statusCode < 200 || res.statusCode >= 400) return;
+            await AuditLogService.log({
+              userId: req.user?.id ?? null,
+              action: req.route?.path || req.originalUrl,
+              route: req.originalUrl,
+              method: req.method,
+              payload: req.body,
+              result: responseBody,
+            });
+          });
+        }
+        // --- End audit log integration ---
+
         next();
       } catch (error) {
         logger.error('Auth middleware error:', error);

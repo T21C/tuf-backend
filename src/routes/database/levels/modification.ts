@@ -330,12 +330,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
             as: 'difficulty',
             required: false,
           },
-          {
-            model: Pass,
-            as: 'passes',
-            required: false,
-            attributes: ['id'],
-          },
         ],
         transaction,
       });

@@ -5,6 +5,7 @@ import backupRoutes from './backup.js';
 import usersRoutes from './users.js';
 import statisticsRoutes from './statistics.js';
 import { Auth } from '../../middleware/auth.js';
+import auditLogRoutes from './auditLog.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -15,6 +16,7 @@ router.use('/submissions', submissionRoutes);
 router.use('/backup', backupRoutes);
 router.use('/users', usersRoutes);
 router.use('/statistics', statisticsRoutes);
+router.use('/audit-log', auditLogRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send();
