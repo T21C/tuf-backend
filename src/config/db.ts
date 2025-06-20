@@ -14,16 +14,20 @@ const sequelize = new Sequelize({
       : process.env.DB_DATABASE,
   logging: false,
   pool: {
-    max: 25,
-    min: 0,
-    acquire: 60000,
-    idle: 20000,
+    max: 50,
+    min: 5,
+    acquire: 30000,
+    idle: 10000,
   },
   dialectOptions: {
-    connectTimeout: 60000,
+    connectTimeout: 30000,
+    acquireTimeout: 30000,
+    timeout: 30000,
   },
   retry: {
     max: 3,
+    backoffBase: 1000,
+    backoffExponent: 1.5,
   },
 });
 
