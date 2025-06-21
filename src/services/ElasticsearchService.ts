@@ -1817,8 +1817,12 @@ class ElasticsearchService {
       // Handle filters
       if (filters.deletedFilter === 'hide') {
         must.push({ term: { isDeleted: false } });
+        must.push({ term: { 'level.isHidden': false } });
+        must.push({ term: { 'level.isDeleted': false } });
       } else if (filters.deletedFilter === 'only') {
         must.push({ term: { isDeleted: true } });
+        must.push({ term: { 'level.isHidden': true } });
+        must.push({ term: { 'level.isDeleted': true } });
       }
 
       // Handle key flag filter
