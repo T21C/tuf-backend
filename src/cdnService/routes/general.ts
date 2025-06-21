@@ -6,6 +6,7 @@ import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
 import { storageManager } from "../services/storageManager.js";
+import { Op } from "sequelize";
 const router = Router();
 
 // Helper function to safely set headers with proper encoding
@@ -23,6 +24,30 @@ function setSafeHeader(res: Response, name: string, value: string | number | obj
     } catch (error) {
         logger.error('Error setting header:', {
             header: name,
+            error: error instanceof Error ? error.message : String(error)
+        });
+    }
+}
+
+// Helper function to clean up old file access logs
+async function cleanupOldAccessLogs(): Promise<void> {
+    try {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        
+        const deletedCount = await FileAccessLog.destroy({
+            where: {
+                createdAt: {
+                    [Op.lt]: oneWeekAgo
+                }
+            }
+        });
+        
+        if (deletedCount > 0) {
+            logger.info(`Cleaned up ${deletedCount} old file access logs older than 1 week`);
+        }
+    } catch (error) {
+        logger.error('Error cleaning up old file access logs:', {
             error: error instanceof Error ? error.message : String(error)
         });
     }
@@ -102,6 +127,8 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             pathConfirmed: metadata.pathConfirmed
         });
 
+        // Clean up old access logs before incrementing access count
+        await cleanupOldAccessLogs();
         
         file.increment('accessCount');
         // Stream the file
@@ -140,6 +167,10 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         if (file.type === 'PROFILE') {
             filePath = path.join(file.filePath, 'original.png');
         }
+        
+        // Clean up old access logs before creating new ones
+        await cleanupOldAccessLogs();
+        
         await FileAccessLog.create({
             fileId: fileId,
             ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
