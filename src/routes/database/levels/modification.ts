@@ -344,33 +344,37 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   
       // Handle async operations
       (async () => {
+        let recalcTransaction: Transaction | null = null;
         try {
-          const recalcTransaction = await sequelize.transaction({
+          recalcTransaction = await sequelize.transaction({
             isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
           });
   
-          try {
-            if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
-              const affectedPlayerIds = await handleScoreRecalculations(levelId, updateData, recalcTransaction);
-              playerStatsService.updatePlayerStats(Array.from(new Set(affectedPlayerIds)));
-            }
-  
-            await recalcTransaction.commit();
-  
-            sseManager.broadcast({type: 'ratingUpdate'});
-            sseManager.broadcast({type: 'levelUpdate'});
-            sseManager.broadcast({
-              type: 'passUpdate',
-              data: {
-                levelId,
-                action: 'levelUpdate',
-              },
-            });
-          } catch (error) {
-            await recalcTransaction.rollback();
-            throw error;
+          if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+            const affectedPlayerIds = await handleScoreRecalculations(levelId, updateData, recalcTransaction);
+            playerStatsService.updatePlayerStats(Array.from(new Set(affectedPlayerIds)));
           }
+  
+          await recalcTransaction.commit();
+  
+          sseManager.broadcast({type: 'ratingUpdate'});
+          sseManager.broadcast({type: 'levelUpdate'});
+          sseManager.broadcast({
+            type: 'passUpdate',
+            data: {
+              levelId,
+              action: 'levelUpdate',
+            },
+          });
         } catch (error) {
+          if (recalcTransaction) {
+            try {
+              await recalcTransaction.rollback();
+            } catch (rollbackError) {
+              // Ignore rollback errors - transaction might already be rolled back
+              logger.warn('Transaction rollback failed:', rollbackError);
+            }
+          }
           logger.error('Error in async operations after level update:', error);
         }
       })()
