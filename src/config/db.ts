@@ -18,6 +18,9 @@ const sequelize = new Sequelize({
     min: 5,
     acquire: 30000,
     idle: 10000,
+    validate: (connection: any) => {
+      return connection.query('SELECT 1');
+    }
   },
   dialectOptions: {
     connectTimeout: 30000

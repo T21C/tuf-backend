@@ -27,16 +27,12 @@ import { clientUrlEnv, port, ownUrl, corsOptions } from './config/app.config.js'
 process.on('uncaughtException', (error) => {
   logger.error('UNCAUGHT EXCEPTION! Shutting down...');
   logger.error(error.message);
-  // Log to file or external service
-  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('UNHANDLED REJECTION! Shutting down...');
   logger.error('Reason:', reason);
-  logger.error('Promise:', promise);
-  // Log to file or external service
-  process.exit(1);
+  logger.error('Promise:', JSON.stringify(promise));
 });
 
 // Add a handler for SIGTERM and SIGINT
