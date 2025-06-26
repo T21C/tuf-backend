@@ -3,7 +3,7 @@ import { EndpointDefinition } from '../../services/DocumentationService.js';
 export const utilsEndpoints: EndpointDefinition[] = [
   {
     method: 'POST',
-    path: '/utils/verify-translations',
+    path: '/v2/utils/verify-translations',
     category: 'UTILS',
     description: 'Upload a ZIP file containing translations to verify against the English base translations',
     parameters: {
@@ -20,7 +20,7 @@ export const utilsEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'GET',
-    path: '/utils/download-translations',
+    path: '/v2/utils/download-translations',
     category: 'UTILS',
     description: 'Download English translations as a ZIP file',
     parameters: {},
@@ -32,7 +32,7 @@ export const utilsEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'GET',
-    path: '/utils/languages',
+    path: '/v2/utils/languages',
     category: 'UTILS',
     description: 'Get list of available languages with implementation status',
     parameters: {},
@@ -44,7 +44,7 @@ export const utilsEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'GET',
-    path: '/utils/download-translations/:lang',
+    path: '/v2/utils/download-translations/:lang',
     category: 'UTILS',
     description: 'Download translations for a specific language',
     parameters: {
@@ -61,7 +61,7 @@ export const utilsEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'GET',
-    path: '/utils',
+    path: '/v2/utils',
     category: 'UTILS',
     description: 'Serve the utility navigation page with translation tools',
     parameters: {},
