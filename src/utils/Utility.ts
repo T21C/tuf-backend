@@ -63,3 +63,21 @@ export const sanitizeTextInput = (input: string | null | undefined): string => {
   if (input === null || input === undefined) return '';
   return input.trim();
 };
+
+/**
+ * Safely rolls back a transaction, handling cases where it has already been rolled back
+ * @param transaction - The transaction to rollback
+ * @param logger - Logger instance for error logging
+ */
+export const safeTransactionRollback = async (transaction: any, logger?: any) => {
+  try {
+    if (transaction && transaction.finished !== 'rollback') {
+      await transaction.rollback();
+    }
+  } catch (error) {
+    if (logger) {
+      logger.warn('Transaction rollback failed (likely already rolled back):', error);
+    }
+    // Don't throw the error - this is expected behavior when transaction is already rolled back
+  }
+};

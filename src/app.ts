@@ -30,9 +30,18 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('UNHANDLED REJECTION! Shutting down...');
+  logger.error('UNHANDLED REJECTION! Logging error but continuing...');
   logger.error('Reason:', reason);
-  logger.error('Promise:', JSON.stringify(promise));
+  
+  // Check if it's a transaction rollback error and handle it gracefully
+  if (reason instanceof Error && reason.message.includes('Transaction cannot be rolled back')) {
+    logger.warn('Transaction rollback error detected - this is likely a duplicate rollback call');
+    return; // Don't treat this as a critical error
+  }
+  
+  // For other unhandled rejections, log but don't shut down
+  logger.error('Promise:', promise);
+  logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
 });
 
 // Add a handler for SIGTERM and SIGINT

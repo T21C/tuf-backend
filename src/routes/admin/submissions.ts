@@ -31,6 +31,8 @@ import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
 import cdnService from '../../services/CdnService.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
+
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -262,7 +264,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
 
         if (!submissionObj) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction, logger);
           return res.status(404).json({error: 'Submission not found'});
         }
 
@@ -272,7 +274,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         );
 
         if (hasUnhandledCreators) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'All creators must be either assigned to existing creators or marked as new creators'
           });
@@ -280,7 +282,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Check if team request is properly handled
         if (submissionObj.teamRequestData && !submissionObj.teamRequestData.teamId && !submissionObj.teamRequestData.isNewRequest) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'Team must be either assigned to an existing team or marked as a new team'
           });
@@ -330,7 +332,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Use existing team
             team = await Team.findByPk(submission.teamRequestData.teamId, { transaction });
             if (!team) {
-              await transaction.rollback();
+              await safeTransactionRollback(transaction, logger);
               return res.status(404).json({ error: 'Referenced team not found' });
             }
             teamId = team.id;
@@ -492,7 +494,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           message: 'Submission approved, level and rating created successfully',
         });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error processing level submission:', error);
       return res
         .status(500)
@@ -511,7 +513,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       // Get the submission to check if it has a level zip
       const submission = await LevelSubmission.findByPk(id);
       if (!submission) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
 
@@ -546,7 +548,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
 
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error processing level submission:', error);
       return res
         .status(500)
@@ -587,18 +589,18 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       });
 
       if (!submission) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
 
       // Validate level and difficulty data
       if (!submission.level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Level data not found'});
       }
 
       if (!submission.level.difficulty) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Difficulty data not found'});
       }
 
@@ -821,7 +823,7 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
 
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error declining pass submission:', error);
       return res.status(500).json({error: 'Failed to decline pass submission'});
     }
@@ -861,7 +863,7 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
       });
 
       if (!submission) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
 
@@ -913,7 +915,7 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
         submission,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error assigning player:', error);
       return res.status(500).json({error: 'Failed to assign player'});
     }
@@ -1094,7 +1096,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         results.push({ id: submission.id, success: true });
       } catch (error) {
         // Rollback the transaction for this submission
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         logger.error(`Error auto-approving submission ${submission.id}:`, error);
         results.push({ 
           id: submission.id, 
@@ -1263,7 +1265,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
     return res.json(submissionData);
 
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction, logger);
     logger.error('Error updating submission profiles:', error);
     return res.status(500).json({ error: 'Failed to update submission profiles' });
   }
@@ -1278,7 +1280,7 @@ router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request,
       const { creatorId, role, creditRequestId } = req.body;
 
       if (!creatorId || !role || !creditRequestId) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(400).json({ error: 'Creator ID, role, and credit request ID are required' });
       }
 
@@ -1295,14 +1297,14 @@ router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request,
       });
 
       if (!submission) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({ error: 'Submission not found' });
       }
 
       // Verify creator exists and get their name
       const creator = await Creator.findByPk(creatorId, { transaction });
       if (!creator) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({ error: 'Creator not found' });
       }
 
@@ -1317,7 +1319,7 @@ router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request,
       });
 
       if (!creatorRequest) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({ error: 'Credit request not found' });
       }
 
@@ -1335,7 +1337,7 @@ router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request,
         creatorRequest
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error assigning creator:', error);
       return res.status(500).json({ error: 'Failed to assign creator' });
     }
@@ -1351,7 +1353,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
     const { name, aliases, role, creditRequestId } = req.body;
 
     if (!name || !role || !creditRequestId) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       return res.status(400).json({ error: 'Name, role, and credit request ID are required' });
     }
 
@@ -1372,7 +1374,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
     });
 
     if (!submission) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       return res.status(404).json({ error: 'Submission not found' });
     }
 
@@ -1508,7 +1510,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
     return res.json(submissionData);
 
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction, logger);
     logger.error('Error creating and assigning creator:', error);
     return res.status(500).json({ error: 'Failed to create and assign creator' });
   }
@@ -1523,7 +1525,7 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
     const { role } = req.body;
 
     if (!role) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       return res.status(400).json({ error: 'Role is required' });
     }
 
@@ -1540,7 +1542,7 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
     });
 
     if (!submission) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction, logger);
       return res.status(404).json({ error: 'Submission not found' });
     }
 
@@ -1620,7 +1622,7 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
 
     return res.json(updatedSubmission);
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction, logger);
     logger.error('Error adding creator request:', error);
     return res.status(500).json({ error: 'Failed to add creator request' });
   }
