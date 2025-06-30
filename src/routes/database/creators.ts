@@ -195,7 +195,6 @@ router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) =>
       ],
     });
 
-    console.log(team);
     if (!team) {
       return res.status(404).json({ error: 'Team not found' });
     }
@@ -1505,7 +1504,6 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     });
 
     // Format response to match ProfileSelector expectations
-    console.log(teams);
     return res.json(teams.map(team => ({
       id: team.id,
       name: team.name,

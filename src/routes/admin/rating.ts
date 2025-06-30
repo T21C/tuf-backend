@@ -515,8 +515,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       transaction,
       true,
     );
-    console.log("averageDifficulty", averageDifficulty);
-    console.log("communityDifficulty", communityDifficulty);
     // Find the rating record
     const ratingRecord = await Rating.findByPk(id, {
       include: [
