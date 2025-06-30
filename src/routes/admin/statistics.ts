@@ -6,6 +6,7 @@ import {PassSubmission} from '../../models/submissions/PassSubmission.js';
 import Level from '../../models/levels/Level.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
 import { logger } from '../../services/LoggerService.js';
+import { filterRatingsByUserTopDiff } from '../../utils/RatingUtils.js';
 
 const router: Router = Router();
 
@@ -15,14 +16,9 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     if (!user) {
       return res.status(401).json({error: 'User not authenticated'});
     }
-
-    const currentRatingsCount = await RatingDetail.count({
-      where: {
-        userId: user.id
-      },
-    });
+    
     // Get unrated ratings count using a proper subquery
-    const unratedRatings = await Rating.findAll({
+    const allRatings = await Rating.findAll({
       where: {
         confirmedAt: null
       },
@@ -42,14 +38,32 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
         }
       ],
       order: [['levelId', 'ASC']],
-    }).then((ratings: Rating[]) => {
-      return ratings.filter(
-        (rating: Rating) => 
-          !/^vote/i.test(rating.level?.rerateNum || '')
-        &&
-          (rating.details?.length || 0) < 4
-      )
     });
+
+    const unratedRatings = allRatings.filter(
+      (rating: Rating) => 
+        !/^vote/i.test(rating.level?.rerateNum || '')
+      &&
+        (rating.details?.length || 0) < 4
+    );
+
+    const currentRatingsCount = await RatingDetail.count({
+      where: {
+        userId: user.id
+      },
+      include: [
+        {
+          model: Rating,
+          as: 'parentRating',
+          where: {
+            confirmedAt: null
+          }
+        }
+      ]
+    });
+
+    // Apply the same filtering logic as the frontend
+    const filteredUnrated = await filterRatingsByUserTopDiff(unratedRatings, user);
     // Get pending level submissions count
     const pendingLevelSubmissions = await LevelSubmission.count({
       where: {
@@ -68,7 +82,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     const totalPendingSubmissions =
       pendingLevelSubmissions + pendingPassSubmissions;
     return res.json({
-      unratedRatings: unratedRatings.length - currentRatingsCount,
+      unratedRatings: filteredUnrated.length - currentRatingsCount,
       pendingLevelSubmissions,
       pendingPassSubmissions,
       totalPendingSubmissions,

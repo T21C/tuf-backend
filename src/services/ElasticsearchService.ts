@@ -309,7 +309,7 @@ class ElasticsearchService {
       teamObject: level.teamObject ? {
         ...level.teamObject.get({ plain: true }),
         name: convertToPUA(level.teamObject.name),
-        aliases: level.teamObject.aliases?.map(alias => ({
+        aliases: level.teamObject.teamAliases?.map(alias => ({
           ...alias.get({ plain: true }),
           name: convertToPUA(alias.name)
         }))
@@ -476,7 +476,7 @@ class ElasticsearchService {
             teamObject: level.teamObject ? {
               ...level.teamObject.get({ plain: true }),
               name: convertToPUA(level.teamObject.name),
-              aliases: level.teamObject.aliases?.map(alias => ({
+              aliases: level.teamObject.teamAliases?.map(alias => ({
                 ...alias.get({ plain: true }),
                 name: convertToPUA(alias.name)
               }))

@@ -4,6 +4,7 @@ import {ICreator} from '../../interfaces/models/index.js';
 import User from '../auth/User.js';
 import LevelCredit from '../levels/LevelCredit.js';
 import {CreatorAlias} from './CreatorAlias.js';
+import Team from './Team.js';
 
 class Creator extends Model implements ICreator {
   declare id: number;
@@ -16,6 +17,8 @@ class Creator extends Model implements ICreator {
   declare user: User;
   declare credits?: LevelCredit[];
   declare creatorAliases: CreatorAlias[];
+  declare creatorTeams: Team[];
+  declare teamMemberships: any[];
 }
 
 Creator.init(

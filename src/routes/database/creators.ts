@@ -149,11 +149,6 @@ router.get('/byId/:creatorId([0-9]+)', async (req: Request, res: Response) => {
     const creator = await Creator.findByPk(creatorId, {
       include: [
         {
-          model: Level,
-          as: 'createdLevels',
-          attributes: ['id', 'isVerified'],
-        },
-        {
           model: LevelCredit,
           as: 'credits',
           attributes: ['id', 'role', 'levelId'],
@@ -185,22 +180,40 @@ router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) =>
       include: [
         {
           model: Creator,
-          as: 'members',
-          through: { attributes: [] }
+          as: 'teamCreators',
+          through: {attributes: []},
         },
         {
           model: Level,
           as: 'levels',
-          attributes: ['id', 'isVerified']
+        },
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+          attributes: ['id', 'name'],
         }
       ],
     });
 
+    console.log(team);
     if (!team) {
       return res.status(404).json({ error: 'Team not found' });
     }
 
-    return res.json(team);
+    // Format response to match frontend expectations
+    const formattedTeam = {
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      members: team.teamCreators?.map(member => ({
+        id: member.id,
+        name: member.name
+      })) || [],
+      aliases: team.teamAliases?.map(alias => alias.name) || [],
+      levels: team.levels || []
+    };
+
+    return res.json(formattedTeam);
   } catch (error) {
     logger.error('Error fetching team:', error);
     return res.status(500).json({ error: 'Failed to fetch team details' });
@@ -855,7 +868,7 @@ router.get('/teams', async (req: Request, res: Response) => {
       include: [
         {
           model: Creator,
-          as: 'members',
+          as: 'teamCreators',
           through: {attributes: []},
         },
         {
@@ -867,7 +880,19 @@ router.get('/teams', async (req: Request, res: Response) => {
       order: [['name', 'ASC']],
     });
 
-    return res.json(teams);
+    // Format response to match frontend expectations
+    const formattedTeams = teams.map(team => ({
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      members: team.teamCreators?.map(member => ({
+        id: member.id,
+        name: member.name
+      })) || [],
+      aliases: team.teamAliases?.map(alias => alias.name) || []
+    }));
+
+    return res.json(formattedTeams);
   } catch (error) {
     logger.error('Error fetching teams:', error);
     return res.status(500).json({error: 'Failed to fetch teams'});
@@ -988,15 +1013,33 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
       // Fetch the updated team with members to return
       let updatedTeam = null;
       if (team?.id) {
-        updatedTeam = await Team.findByPk(team.id, {
+        const teamWithMembers = await Team.findByPk(team.id, {
           include: [
             {
               model: Creator,
-              as: 'members',
+              as: 'teamCreators',
               through: { attributes: [] }
             },
+            {
+              model: TeamAlias,
+              as: 'teamAliases',
+              attributes: ['id', 'name'],
+            }
           ]
         });
+
+        if (teamWithMembers) {
+          updatedTeam = {
+            id: teamWithMembers.id,
+            name: teamWithMembers.name,
+            description: teamWithMembers.description,
+            members: teamWithMembers.teamCreators?.map(member => ({
+              id: member.id,
+              name: member.name
+            })) || [],
+            aliases: teamWithMembers.teamAliases?.map(alias => alias.name) || []
+          };
+        }
       }
 
       if (!updatedTeam) {
@@ -1124,9 +1167,14 @@ router.get('/team/:teamId([0-9]+)', async (req: Request, res: Response) => {
       include: [
         {
           model: Creator,
-          as: 'members',
+          as: 'teamCreators',
           through: {attributes: []},
         },
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+          attributes: ['id', 'name'],
+        }
       ],
     });
 
@@ -1134,7 +1182,19 @@ router.get('/team/:teamId([0-9]+)', async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Team not found'});
     }
 
-    return res.json(team);
+    // Format response to match frontend expectations
+    const formattedTeam = {
+      id: team.id,
+      name: team.name,
+      description: team.description,
+      members: team.teamCreators?.map(member => ({
+        id: member.id,
+        name: member.name
+      })) || [],
+      aliases: team.teamAliases?.map(alias => alias.name) || []
+    };
+
+    return res.json(formattedTeam);
   } catch (error) {
     logger.error('Error fetching team:', error);
     return res.status(500).json({error: 'Failed to fetch team'});
@@ -1350,9 +1410,15 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     const teamWithMembers = await Team.findByPk(team.id, {
       include: [
         {
-          model: Creator,
-          as: 'members',
-          through: { attributes: [] }
+          model: TeamMember,
+          as: 'teamMembers',
+          include: [
+            {
+              model: Creator,
+              as: 'creator',
+              attributes: ['id', 'name'],
+            }
+          ]
         },
         {
           model: TeamAlias,
@@ -1371,7 +1437,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
       name: teamWithMembers.name,
       description: teamWithMembers.description,
       type: 'team',
-      members: teamWithMembers.members?.map(member => ({
+      members: teamWithMembers.teamCreators?.map(member => ({
         id: member.id,
         name: member.name
       })),
@@ -1419,9 +1485,15 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
       },
       include: [
         {
-          model: Creator,
-          as: 'members',
-          through: { attributes: [] }
+          model: TeamMember,
+          as: 'teamMembers',
+          include: [
+            {
+              model: Creator,
+              as: 'creator',
+              attributes: ['id', 'name'],
+            }
+          ]
         },
         {
           model: TeamAlias,
@@ -1433,14 +1505,15 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     });
 
     // Format response to match ProfileSelector expectations
+    console.log(teams);
     return res.json(teams.map(team => ({
       id: team.id,
       name: team.name,
       type: 'team',
-      members: team.members?.map(member => ({
+      members: team.teamCreators?.map(member => ({
         id: member.id,
         name: member.name
-      })),
+      })) || [],
       aliases: team.teamAliases?.map(alias => alias.name) || []
     })));
 

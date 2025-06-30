@@ -6,6 +6,7 @@ import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import LevelAlias from '../../models/levels/LevelAlias.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import Team from '../../models/credits/Team.js';
+import TeamMember from '../../models/credits/TeamMember.js';
 
 // Base interface for common fields
 export interface IBaseModel {
@@ -23,6 +24,8 @@ export interface IBaseModelAttributes {
 export interface ICreator extends IBaseModel {
   name: string;
   creatorAliases: CreatorAlias[];
+  creatorTeams?: ITeam[];
+  teamMemberships?: any[];
 }
 
 // Level interface
@@ -221,9 +224,10 @@ export interface IPassSubmission extends IBaseModel {
 
 export interface ITeam extends IBaseModel {
   name: string;
-  members: ICreator[];
+  teamCreators: ICreator[];
+  teamMembers?: TeamMember[];
   description?: string | null;
-  aliases?: TeamAlias[] | null;
+  teamAliases?: TeamAlias[] | null;
 }
 
 export interface IAnnouncementChannel {

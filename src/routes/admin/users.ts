@@ -26,12 +26,6 @@ router.get('/raters', async (req: Request, res: Response) => {
       },
       include: [
         {
-          model: OAuthProvider,
-          as: 'providers',
-          where: {provider: 'discord'},
-          required: true,
-        },
-        {
           model: Player,
           as: 'player',
           required: false,
@@ -41,14 +35,6 @@ router.get('/raters', async (req: Request, res: Response) => {
 
     return res.json(
       raters.map(user => {
-        const discordProvider = user.providers![0];
-        const discordProfile =
-          (discordProvider.profile as {
-            username?: string;
-            avatar?: string;
-            id?: string;
-          }) || {};
-
         return {
           id: user.id,
           username: user.username,
@@ -58,8 +44,6 @@ router.get('/raters', async (req: Request, res: Response) => {
           isSuperAdmin: user.isSuperAdmin,
           playerId: user.playerId,
           player: user.player,
-          discordId: discordProvider.providerId,
-          discordUsername: discordProfile.username
         };
       }),
     );
@@ -78,12 +62,6 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
       },
       include: [
         {
-          model: OAuthProvider,
-          as: 'providers',
-          where: {provider: 'discord'},
-          required: true,
-        },
-        {
           model: Player,
           as: 'player',
           required: false,
@@ -93,13 +71,6 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     return res.json(
       users.map(user => {
-        const discordProvider = user.providers![0];
-        const discordProfile =
-          (discordProvider.profile as {
-            username?: string;
-            avatar?: string;
-          }) || {};
-
         return {
           id: user.id,
           username: user.username,
@@ -108,9 +79,7 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
           isRater: user.isRater,
           isSuperAdmin: user.isSuperAdmin,
           playerId: user.playerId,
-          player: user.player,
-          discordId: discordProvider.providerId,
-          discordUsername: discordProfile.username,
+          player: user.player
         };
       }),
     );
@@ -126,49 +95,37 @@ router.post(
   [Auth.superAdmin(), requiresPassword],
   async (req: Request, res: Response) => {
     try {
-      const {discordId, role} = req.body;
+      const {username, role} = req.body;
 
-      if (!discordId || !['rater', 'superadmin'].includes(role)) {
+      if (!username) {
         return res.status(400).json({
-          error: 'Discord ID and valid role (rater/superadmin) are required',
+          error: 'Username and a valid role (rater/superadmin) are required',
+        });
+      }
+      if (!['rater', 'superadmin'].includes(role)) {
+        return res.status(400).json({
+          error: 'Valid role (rater/superadmin) is required',
         });
       }
 
-      // Find user through OAuth provider
-      const provider = await OAuthProvider.findOne({
-        where: {
-          provider: 'discord',
-          providerId: discordId,
-        },
-        include: [
-          {
-            model: User,
-            as: 'oauthUser',
-            required: true,
-          },
-        ],
-      });
-
-      if (!provider?.oauthUser) {
+      const userToUpdate = await User.findOne({ where: { username } });
+      if (!userToUpdate) {
         return res.status(404).json({error: 'User not found'});
       }
 
-      // Update user's role
-      await provider.oauthUser.update({
-        isRater: role === 'rater' ? true : provider.oauthUser.isRater,
-        isSuperAdmin:
-          role === 'superadmin' ? true : provider.oauthUser.isSuperAdmin,
+      await userToUpdate.update({
+        isRater: role === 'rater' ? true : userToUpdate.isRater,
+        isSuperAdmin: role === 'superadmin' ? true : userToUpdate.isSuperAdmin,
       });
 
       return res.json({
         message: 'Role granted successfully',
         user: {
-          id: provider.oauthUser.id,
-          username: provider.oauthUser.username,
-          discordId,
-          isRater: provider.oauthUser.isRater,
-          isSuperAdmin: provider.oauthUser.isSuperAdmin,
-          playerId: provider.oauthUser.playerId,
+          id: userToUpdate.id,
+          username: userToUpdate.username,
+          isRater: userToUpdate.isRater,
+          isSuperAdmin: userToUpdate.isSuperAdmin,
+          playerId: userToUpdate.playerId,
         },
       });
     } catch (error: any) {
@@ -189,37 +146,33 @@ router.post(
   [Auth.superAdmin(), requiresPassword],
   async (req: Request, res: Response) => {
     try {
-      const {discordId, role} = req.body;
+      const {userId, username, role} = req.body;
 
-      if (!discordId || !['rater', 'superadmin'].includes(role)) {
+      if (!userId && !username) {
         return res.status(400).json({
-          error: 'Discord ID and valid role (rater/superadmin) are required',
+          error: 'User ID or username and a valid role (rater/superadmin) are required',
+        });
+      }
+      if (!['rater', 'superadmin'].includes(role)) {
+        return res.status(400).json({
+          error: 'Valid role (rater/superadmin) is required',
         });
       }
 
-      // Find user through OAuth provider
-      const provider = await OAuthProvider.findOne({
-        where: {
-          provider: 'discord',
-          providerId: discordId,
-        },
-        include: [
-          {
-            model: User,
-            as: 'oauthUser',
-            required: true,
-          },
-        ],
-      });
-
-      if (!provider?.oauthUser) {
+      let userToUpdate = null;
+      if (userId) {
+        userToUpdate = await User.findByPk(userId);
+      } else if (username) {
+        userToUpdate = await User.findOne({ where: { username } });
+      }
+      if (!userToUpdate) {
         return res.status(404).json({error: 'User not found'});
       }
 
       // Prevent revoking last super admin
       if (role === 'superadmin') {
         const superAdminCount = await User.count({where: {isSuperAdmin: true}});
-        if (superAdminCount <= 1 && provider.oauthUser.isSuperAdmin) {
+        if (superAdminCount <= 1 && userToUpdate.isSuperAdmin) {
           return res
             .status(400)
             .json({error: 'Cannot remove last super admin'});
@@ -227,24 +180,22 @@ router.post(
       }
 
       // Update user's roles and increment permission version
-      await provider.oauthUser.update({
-        isRater: role === 'rater' ? false : provider.oauthUser.isRater,
-        isSuperAdmin:
-          role === 'superadmin' ? false : provider.oauthUser.isSuperAdmin,
-        permissionVersion: provider.oauthUser.permissionVersion + 1,
+      await userToUpdate.update({
+        isRater: role === 'rater' ? false : userToUpdate.isRater,
+        isSuperAdmin: role === 'superadmin' ? false : userToUpdate.isSuperAdmin,
+        permissionVersion: userToUpdate.permissionVersion + 1,
       });
 
       // Generate new token with updated permissions
-      const newToken = tokenUtils.generateJWT(provider.oauthUser);
+      const newToken = tokenUtils.generateJWT(userToUpdate);
 
       return res.json({
         message: 'Role revoked successfully',
         user: {
-          id: provider.oauthUser.id,
-          username: provider.oauthUser.username,
-          discordId,
-          isRater: provider.oauthUser.isRater,
-          isSuperAdmin: provider.oauthUser.isSuperAdmin,
+          id: userToUpdate.id,
+          username: userToUpdate.username,
+          isRater: userToUpdate.isRater,
+          isSuperAdmin: userToUpdate.isSuperAdmin,
         },
         token: newToken,
       });

@@ -1,5 +1,7 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import sequelize from '../../config/db.js';
+import Creator from './Creator.js';
+import Team from './Team.js';
 
 interface TeamMemberAttributes {
   id: number;
@@ -23,6 +25,8 @@ class TeamMember
   declare creatorId: number;
   declare createdAt: Date;
   declare updatedAt: Date;
+  declare team: Team;
+  declare creator: Creator;
 }
 
 TeamMember.init(

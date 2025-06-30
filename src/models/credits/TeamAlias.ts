@@ -1,5 +1,5 @@
 import {Model, DataTypes} from 'sequelize';
-import {db} from '../index.js';
+import sequelize from '../../config/db.js';
 import Team from './Team.js';
 
 export class TeamAlias extends Model {
@@ -8,6 +8,9 @@ export class TeamAlias extends Model {
   public name!: string;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
+  
+  // Associations
+  public team!: Team;
 }
 
 TeamAlias.init(
@@ -31,19 +34,8 @@ TeamAlias.init(
     },
   },
   {
-    sequelize: db.sequelize,
+    sequelize: sequelize,
     tableName: 'team_aliases',
     timestamps: true,
   }
-);
-
-// Set up associations
-TeamAlias.belongsTo(Team, {
-  foreignKey: 'teamId',
-  as: 'team',
-});
-
-Team.hasMany(TeamAlias, {
-  foreignKey: 'teamId',
-  as: 'teamAliases',
-}); 
+); 

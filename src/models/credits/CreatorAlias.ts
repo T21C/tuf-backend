@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
-import {db} from '../index.js';
 import Creator from './Creator.js';
+import sequelize from '../../config/db.js';
 
 export class CreatorAlias extends Model {
   declare id: number;
@@ -8,6 +8,9 @@ export class CreatorAlias extends Model {
   declare name: string;
   declare createdAt: Date;
   declare updatedAt: Date;
+  
+  // Associations
+  declare creator: Creator;
 }
 
 CreatorAlias.init(
@@ -31,19 +34,8 @@ CreatorAlias.init(
     },
   },
   {
-    sequelize: db.sequelize,
+    sequelize: sequelize,
     tableName: 'creator_aliases',
     timestamps: true,
   }
 );
-
-// Set up associations
-CreatorAlias.belongsTo(Creator, {
-  foreignKey: 'creatorId',
-  as: 'creator',
-});
-
-Creator.hasMany(CreatorAlias, {
-  foreignKey: 'creatorId',
-  as: 'creatorAliases',
-});

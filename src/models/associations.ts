@@ -14,9 +14,11 @@ import Reference from './levels/References.js';
 import User from './auth/User.js';
 import OAuthProvider from './auth/OAuthProvider.js';
 import Creator from './credits/Creator.js';
+import { CreatorAlias } from './credits/CreatorAlias.js';
 import LevelCredit from './levels/LevelCredit.js';
 import Team from './credits/Team.js'; 
 import TeamMember from './credits/TeamMember.js';
+import { TeamAlias } from './credits/TeamAlias.js';
 import LevelAlias from './levels/LevelAlias.js';
 import PlayerStats from './players/PlayerStats.js';
 import LevelSubmissionCreatorRequest from './submissions/LevelSubmissionCreatorRequest.js';
@@ -139,6 +141,49 @@ export function initializeAssociations() {
   Team.hasMany(Level, {
     foreignKey: 'teamId',
     as: 'levels',
+  });
+
+  // Team <-> TeamMember associations
+  Team.hasMany(TeamMember, {
+    foreignKey: 'teamId',
+    as: 'teamMembers',
+  });
+
+  TeamMember.belongsTo(Team, {
+    foreignKey: 'teamId',
+    as: 'team',
+  });
+
+  Creator.hasMany(TeamMember, {
+    foreignKey: 'creatorId',
+    as: 'teamMemberships',
+  });
+
+  TeamMember.belongsTo(Creator, {
+    foreignKey: 'creatorId',
+    as: 'creator',
+  });
+
+  // Team <-> TeamAlias associations
+  Team.hasMany(TeamAlias, {
+    foreignKey: 'teamId',
+    as: 'teamAliases',
+  });
+
+  TeamAlias.belongsTo(Team, {
+    foreignKey: 'teamId',
+    as: 'team',
+  });
+
+  // Creator <-> CreatorAlias associations
+  Creator.hasMany(CreatorAlias, {
+    foreignKey: 'creatorId',
+    as: 'creatorAliases',
+  });
+
+  CreatorAlias.belongsTo(Creator, {
+    foreignKey: 'creatorId',
+    as: 'creator',
   });
 
   // Level <-> LevelAlias associations
@@ -354,14 +399,14 @@ export function initializeAssociations() {
     through: TeamMember,
     foreignKey: 'teamId',
     otherKey: 'creatorId',
-    as: 'members',
+    as: 'teamCreators',
   });
 
   Creator.belongsToMany(Team, {
     through: TeamMember,
     foreignKey: 'creatorId',
     otherKey: 'teamId',
-    as: 'teams',
+    as: 'creatorTeams',
   });
 
   // LevelSubmission <-> LevelSubmissionCreatorRequest associations

@@ -2,6 +2,8 @@ import {DataTypes, Model} from 'sequelize';
 import sequelize from '../../config/db.js';
 import {ICreator, ITeam} from '../../interfaces/models/index.js';
 import { TeamAlias } from './TeamAlias.js';
+import Creator from './Creator.js';
+import TeamMember from './TeamMember.js';
 
 class Team extends Model implements ITeam {
   declare id: number;
@@ -9,9 +11,10 @@ class Team extends Model implements ITeam {
   declare description?: string;
   declare createdAt: Date;
   declare updatedAt: Date;
-  declare members: ICreator[];
-  declare aliases: TeamAlias[];
+  declare teamCreators: Creator[];
   declare teamAliases: TeamAlias[];
+  declare teamMembers: TeamMember[];
+  declare levels: any[];
 }
 
 Team.init(

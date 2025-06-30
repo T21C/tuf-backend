@@ -32,6 +32,7 @@ import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
 import cdnService from '../../services/CdnService.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import {TeamAlias} from '../../models/credits/TeamAlias.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -115,9 +116,8 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
                   required: false
                 },
                 {
-                  model: Creator,
-                  as: 'members',
-                  through: { attributes: [] },
+                  model: TeamAlias,
+                  as: 'teamAliases',
                   required: false
                 }
               ]
@@ -1151,6 +1151,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
         await LevelSubmissionCreatorRequest.update({
           creatorId: request.creatorId,
           creatorName: request.creatorName,
+          role: request.role,
           isNewRequest: false
         }, {
           where: {
@@ -1213,7 +1214,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
             include: [
               {
                 model: Creator,
-                as: 'members',
+                as: 'teamCreators',
                 through: { attributes: [] },
                 required: false
               },
@@ -1385,6 +1386,19 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
         transaction
       });
 
+      // Create team aliases if provided
+      if (aliases && Array.isArray(aliases) && aliases.length > 0) {
+        const aliasRecords = aliases.map((alias: string) => ({
+          teamId: team.id,
+          name: alias.trim(),
+        }));
+        
+        await TeamAlias.bulkCreate(aliasRecords, { 
+          transaction,
+          ignoreDuplicates: true 
+        });
+      }
+
       // Update team request
       await LevelSubmissionTeamRequest.update({
         teamId: team.id,
@@ -1458,7 +1472,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
             include: [
               {
                 model: Creator,
-                as: 'members',
+                as: 'teamCreators',
                 through: { attributes: [] },
                 required: false
               },
@@ -1604,7 +1618,7 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
             include: [
               {
                 model: Creator,
-                as: 'members',
+                as: 'teamCreators',
                 through: { attributes: [] },
                 required: false
               },

@@ -11,81 +11,12 @@ import Team from '../../models/credits/Team.js';
 import Creator from '../../models/credits/Creator.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import { logger } from '../../services/LoggerService.js';
+import { 
+  getDifficulties, 
+  parseRatingRange, 
+  calculateRequestedDifficulty 
+} from '../../utils/RatingUtils.js';
 const router: Router = Router();
-
-// Cache for difficulties to avoid repeated DB queries
-let difficultyCache: {
-  special: Set<string>;
-  map: Map<string, any>;
-} | null = null;
-
-// Helper function to get difficulties
-async function getDifficulties(transaction: any) {
-  if (!difficultyCache) {
-    const difficulties = await Difficulty.findAll({
-      transaction,
-      order: [['sortOrder', 'ASC']],
-    });
-
-    difficultyCache = {
-      special: new Set(
-        difficulties.filter(d => d.type === 'SPECIAL').map(d => d.name),
-      ),
-      map: new Map(difficulties.map(d => [d.name, d])),
-    };
-  }
-  return difficultyCache;
-}
-
-// Helper function to parse complex rating string
-async function parseRatingRange(
-  rating: string,
-  specialDifficulties: Set<string>,
-): Promise<string[]> {
-  // First check if the entire rating is a special difficulty
-  if (specialDifficulties.has(rating.trim())) {
-    return [rating.trim()];
-  }
-
-  // Find the first separator, but be careful with negative numbers
-  // Look for separator only if it's not part of a negative number
-  const match = rating.match(/([^-~\s]+|^-\d+)([-~\s])(.+)/);
-  logger.debug(`[RatingService] rating range match: ${match} for ${rating}`);
-  if (!match) {
-    return [rating.trim()];
-  }
-
-  /* eslint-disable @typescript-eslint/no-unused-vars */
-  const [_, firstPart, separator, lastPart] = match;
-
-  // Check if second part is a special rating before any processing
-  if (specialDifficulties.has(lastPart)) {
-    return [firstPart, lastPart];
-  }
-
-  // For number-only second parts in ranges like "U11-13", copy the prefix
-  const firstMatch = firstPart.match(/([PGUpgu]*)(-?\d+)/);
-  const lastMatch = lastPart.match(/([PGUpgu]*)(-?\d+)/);
-
-  if (firstMatch && lastMatch) {
-    /* eslint-disable @typescript-eslint/no-unused-vars */
-    const [_, firstPrefix, firstNum] = firstMatch;
-    /* eslint-disable @typescript-eslint/no-unused-vars */
-    const [__, lastPrefix, lastNum] = lastMatch;
-
-    // If second part has no prefix and first part does, copy the prefix
-    // BUT only if it's not a special rating
-    if (!lastPrefix && firstPrefix) {
-      const rawSecondPart = lastNum;
-      if (specialDifficulties.has(rawSecondPart)) {
-        return [firstPart, rawSecondPart];
-      }
-      return [firstPart, `${firstPrefix}${lastNum}`];
-    }
-  }
-
-  return [firstPart, lastPart];
-}
 
 // Helper function to normalize rating string and calculate average for ranges
 async function normalizeRating(
@@ -155,7 +86,6 @@ async function normalizeRating(
       const num = match[2];
       const normalizedName = `${prefix}${num}`;
       const difficulty = difficultyMap.get(normalizedName);
-
       return difficulty ? {
         raw: normalizedName,
         isSpecial: false,
@@ -214,7 +144,7 @@ async function calculateAverageRating(
   transaction: any,
   isCommunity: boolean = false,
 ) {
-  const {map: difficultyMap} = await getDifficulties(transaction);
+  const {nameMap: difficultyMap} = await getDifficulties(transaction);
   const details = detailObject
     .filter(d => d.isCommunityRating === isCommunity)
     .map((d: any) => d.dataValues);
@@ -231,7 +161,6 @@ async function calculateAverageRating(
       detail.rating,
       transaction,
     );
-
     // Process special ratings first
     for (const specialRating of specialRatings) {
       const difficulty = difficultyMap.get(specialRating);
@@ -362,8 +291,26 @@ router.get('/', async (req: Request, res: Response) => {
         },
       ],
       order: [['levelId', 'ASC']],
-    }); 
-    return res.json(ratings);
+    });
+
+    // Calculate requestedDiffId for each rating and add it to the response
+    const ratingsWithRequestedDiff = await Promise.all(
+      ratings.map(async (rating) => {
+        const requestedDiffId = await calculateRequestedDifficulty(
+          rating.level?.rerateNum || null,
+          rating.requesterFR || null,
+        );
+        
+        // Convert to plain object and add the calculated field
+        const ratingData = rating.toJSON();
+        return {
+          ...ratingData,
+          requestedDiffId,
+        };
+      })
+    );
+
+    return res.json(ratingsWithRequestedDiff);
   } catch (error) {
     logger.error('Error fetching ratings:', error);
     return res.status(500).json({error: 'Internal Server Error'});
@@ -501,12 +448,24 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
 
       await transaction.commit();
 
+      // Calculate requestedDiffId and add it to the response
+      const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
+        updatedRating.level?.rerateNum || null,
+        updatedRating.requesterFR || null
+      ) : null;
+
+      const ratingData = updatedRating ? updatedRating.toJSON() : null;
+      const responseData = ratingData ? {
+        ...ratingData,
+        requestedDiffId,
+      } : null;
+
       // Broadcast rating update via SSE
       sseManager.broadcast({type: 'ratingUpdate'});
 
       return res.json({
         message: 'Rating detail deleted successfully',
-        rating: updatedRating,
+        rating: responseData,
       });
     }
 
@@ -556,7 +515,8 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       transaction,
       true,
     );
-
+    console.log("averageDifficulty", averageDifficulty);
+    console.log("communityDifficulty", communityDifficulty);
     // Find the rating record
     const ratingRecord = await Rating.findByPk(id, {
       include: [
@@ -709,12 +669,24 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
 
     await transaction.commit();
 
+    // Calculate requestedDiffId and add it to the response
+    const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
+      updatedRating.level?.rerateNum || null,
+      updatedRating.requesterFR || null
+    ) : null;
+
+    const ratingData = updatedRating ? updatedRating.toJSON() : null;
+    const responseData = ratingData ? {
+      ...ratingData,
+      requestedDiffId,
+    } : null;
+
     // Broadcast rating update via SSE
     sseManager.broadcast({type: 'ratingUpdate'});
 
     return res.json({
       message: 'Rating updated successfully',
-      rating: updatedRating,
+      rating: responseData,
     });
   } catch (error) {
     await transaction.rollback();
@@ -842,12 +814,24 @@ router.delete(
 
       await transaction.commit();
 
+      // Calculate requestedDiffId and add it to the response
+      const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
+        updatedRating.level?.rerateNum || null,
+        updatedRating.requesterFR || null
+      ) : null;
+
+      const ratingData = updatedRating ? updatedRating.toJSON() : null;
+      const responseData = ratingData ? {
+        ...ratingData,
+        requestedDiffId,
+      } : null;
+
       // Broadcast rating update via SSE
       sseManager.broadcast({type: 'ratingUpdate'});
 
       return res.json({
         message: 'Rating detail confirmed successfully',
-        rating: updatedRating,
+        rating: responseData,
       });
     } catch (error: unknown) {
       await transaction.rollback();

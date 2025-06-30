@@ -9,6 +9,8 @@ import { logger } from '../../services/LoggerService.js';
 import multer from 'multer';
 import cdnService from '../../services/CdnService.js';
 import { CdnError } from '../../services/CdnService.js';
+import PlayerStats from '../../models/players/PlayerStats.js';
+import Difficulty from '../../models/levels/Difficulty.js';
 
 const router: Router = Router();
 
@@ -42,7 +44,24 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
       attributes: ['provider', 'providerId', 'profile'],
     });
 
-    const player = await Player.findByPk(user.playerId);
+    const player = await Player.findByPk(user.playerId, {
+      include: [
+        {
+          model: PlayerStats,
+          as: 'stats',
+          include: [
+            {
+              model: Difficulty,
+              as: 'topDiff',
+            },
+            {
+              model: Difficulty,
+              as: 'top12kDiff',
+            },
+          ],
+        },
+      ],
+    });
 
     return res.json({
       user: {

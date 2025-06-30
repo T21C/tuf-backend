@@ -13,7 +13,7 @@
     "build-tsc": "tsc --project tsconfig.json --noEmit false",
     "build-copy-html": "node dist/scripts/copyHtml.js",
     "build": "npm run build-clear && npm run build-tsc && npm run build-copy-html",
-    "dev": "cross-env NODE_ENV=development tsx watch --inspect --max-old-space-size=512 src/app.ts",
+    "dev": "cross-env NODE_ENV=development tsx watch --inspect --max-old-space-size=1024 src/app.ts",
     "dev:serve": "cross-env NODE_ENV=development node dist/app.js",
     "staging": "cross-env NODE_ENV=staging node --max-old-space-size=512 --expose-gc dist/app.js",
     "production": "cross-env NODE_ENV=production node --no-deprecation dist/app.js",
