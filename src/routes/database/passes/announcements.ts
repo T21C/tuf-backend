@@ -39,6 +39,11 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
                 model: Difficulty,
                 as: 'difficulty',
                 required: true,
+                where: {
+                  [Op.not]: {
+                    name: "Unranked" 
+                  }
+                }
               },
             ],
           },
