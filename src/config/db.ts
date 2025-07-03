@@ -25,11 +25,6 @@ const sequelize = new Sequelize({
   },
   dialectOptions: {
     connectTimeout: 60000,
-    acquireTimeout: 60000,
-    timeout: 60000,
-    multipleStatements: false,
-    dateStrings: true,
-    typeCast: true,
   },
   retry: {
     max: 3,
