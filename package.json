@@ -33,7 +33,10 @@
     "health:prod": "cross-env NODE_ENV=production tsx src/healthService/startHealthService.ts",
     "cdn": "cross-env tsx watch src/cdnService/app.ts",
     "migrate-level-zips": "cross-env tsx src/scripts/migrateLevelZips.ts",
-    "api-docs": "cross-env tsx src/apiDocsService/app.ts"
+    "api-docs": "cross-env tsx src/apiDocsService/app.ts",
+    "connection-manager": "cross-env tsx src/scripts/connectionManager.ts",
+    "load-test": "cross-env tsx src/scripts/loadTest.ts",
+    "realistic-load-test": "cross-env tsx src/scripts/realisticLoadTest.ts"
   },
   "keywords": [],
   "author": "",
