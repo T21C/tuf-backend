@@ -36,7 +36,7 @@ const sequelize = new Sequelize({
 });
 
 // Connection monitoring configuration
-const CONNECTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const CONNECTION_CHECK_INTERVAL = 3 * 60 * 1000; // 5 minutes
 const CONNECTION_THRESHOLD = 0.8; // 80% of max connections
 const IDLE_CONNECTION_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close connections idle for this long
 
@@ -44,13 +44,23 @@ let connectionMonitorTimer: NodeJS.Timeout | null = null;
 let isRefreshingPool = false;
 
 export const closeIdleConnections = async (): Promise<void> => {
-  try {
-    if (!isConnectionManagerAvailable()) {
-      logger.warn('Connection manager not available for idle connection cleanup');
-      return;
-    }
+  // Create a separate management connection to avoid pool issues
+  const managementSequelize = new Sequelize({
+    dialect: 'mysql',
+    host: process.env.DB_HOST,
+    username: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database:
+      process.env.NODE_ENV === 'staging'
+        ? process.env.DB_STAGING_DATABASE
+        : process.env.DB_DATABASE,
+    logging: false
+  });
 
-    const [results] = await sequelize.query(`
+  try {
+    await managementSequelize.authenticate();
+    
+    const [results] = await managementSequelize.query(`
       SELECT id, time 
       FROM information_schema.processlist 
       WHERE db = ? 
@@ -71,10 +81,11 @@ export const closeIdleConnections = async (): Promise<void> => {
       
       for (const connection of results as any[]) {
         try {
-          await sequelize.query(`KILL ${connection.id}`);
+          await managementSequelize.query(`KILL ${connection.id}`);
           logger.debug(`Closed idle connection ${connection.id} (idle for ${connection.time}s)`);
         } catch (error) {
-          logger.warn(`Failed to close connection ${connection.id}:`, error);
+          // Connection might already be dead, which is fine
+          logger.debug(`Connection ${connection.id} already closed or error: ${error}`);
         }
       }
       
@@ -84,6 +95,13 @@ export const closeIdleConnections = async (): Promise<void> => {
     }
   } catch (error) {
     logger.error('Error closing idle connections:', error);
+  } finally {
+    // Always close the management connection
+    try {
+      await managementSequelize.close();
+    } catch (closeError) {
+      logger.debug('Error closing management connection:', closeError);
+    }
   }
 };
 
@@ -134,9 +152,30 @@ export const stopConnectionMonitoring = (): void => {
 };
 
 export const killAllConnections = async (): Promise<void> => {
+  // Create a separate management connection to avoid pool issues
+  const managementSequelize = new Sequelize({
+    dialect: 'mysql',
+    host: process.env.DB_HOST,
+    username: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database:
+      process.env.NODE_ENV === 'staging'
+        ? process.env.DB_STAGING_DATABASE
+        : process.env.DB_DATABASE,
+    logging: false,
+    pool: {
+      max: 1,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
+  });
+
   try {
-    await sequelize.query(`
-      SELECT CONCAT('KILL ', id, ';') 
+    await managementSequelize.authenticate();
+    
+    const [results] = await managementSequelize.query(`
+      SELECT CONCAT('KILL ', id, ';') as kill_command
       FROM information_schema.processlist 
       WHERE db = ? 
       AND id != CONNECTION_ID()
@@ -148,9 +187,29 @@ export const killAllConnections = async (): Promise<void> => {
       ]
     });
     
-    logger.info('All existing connections killed');
+    if (results.length > 0) {
+      logger.info(`Found ${results.length} connections to kill`);
+      for (const row of results as any[]) {
+        try {
+          await managementSequelize.query(row.kill_command);
+        } catch (error) {
+          // Connection might already be dead
+          logger.debug(`Connection already closed or error: ${error}`);
+        }
+      }
+      logger.info('All existing connections killed');
+    } else {
+      logger.info('No connections to kill');
+    }
   } catch (error) {
     logger.error('Error killing connections:', error);
+  } finally {
+    // Always close the management connection
+    try {
+      await managementSequelize.close();
+    } catch (closeError) {
+      logger.debug('Error closing management connection:', closeError);
+    }
   }
 };
 
@@ -159,14 +218,29 @@ export const isConnectionManagerAvailable = (): boolean => {
 };
 
 export const getConnectionStats = async (): Promise<any> => {
-  try {
-    // Check if connection manager is available
-    if (!isConnectionManagerAvailable()) {
-      logger.warn('Connection manager not available for stats check');
-      return null;
-    }
+  // Create a separate management connection to avoid pool issues
+  const managementSequelize = new Sequelize({
+    dialect: 'mysql',
+    host: process.env.DB_HOST,
+    username: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database:
+      process.env.NODE_ENV === 'staging'
+        ? process.env.DB_STAGING_DATABASE
+        : process.env.DB_DATABASE,
+    logging: false,
+    pool: {
+      max: 1,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
+    },
+  });
 
-    const [results] = await sequelize.query(`
+  try {
+    await managementSequelize.authenticate();
+
+    const [results] = await managementSequelize.query(`
       SELECT 
         COUNT(*) as total_connections,
         COUNT(CASE WHEN Command = 'Sleep' THEN 1 END) as idle_connections,
@@ -185,6 +259,13 @@ export const getConnectionStats = async (): Promise<any> => {
   } catch (error) {
     logger.error('Error getting connection stats:', error);
     return null;
+  } finally {
+    // Always close the management connection
+    try {
+      await managementSequelize.close();
+    } catch (closeError) {
+      logger.debug('Error closing management connection:', closeError);
+    }
   }
 };
 
