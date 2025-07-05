@@ -112,21 +112,9 @@ export const startConnectionMonitoring = (): void => {
         logger.info(`Connection stats - Total: ${totalConnections}, Active: ${activeConnections}, Idle: ${idleConnections}, Usage: ${(connectionUsage * 100).toFixed(1)}%`);
         
         // Close idle connections first
-        if (idleConnections > 0) {
-          logger.info(`Closing ${idleConnections} idle connections...`);
+        if (connectionUsage > CONNECTION_THRESHOLD) {
+          logger.info(`Closing ${idleConnections} idle connections due to usage above threshold...`);
           await closeIdleConnections();
-        }
-        
-        // Check stats again after closing idle connections
-        const updatedStats = await getConnectionStats();
-        if (updatedStats) {
-          const updatedUsage = updatedStats.total_connections / MAX_CONNECTIONS;
-          
-          // Only refresh pool if usage is still above threshold after closing idle connections
-          if (updatedUsage > CONNECTION_THRESHOLD) {
-            logger.warn(`Connection usage (${(updatedUsage * 100).toFixed(1)}%) still above threshold (${(CONNECTION_THRESHOLD * 100).toFixed(1)}%) after closing idle connections. Refreshing connection pool...`);
-            await refreshConnectionPool();
-          }
         }
       }
     } catch (error) {
@@ -163,31 +151,6 @@ export const killAllConnections = async (): Promise<void> => {
     logger.info('All existing connections killed');
   } catch (error) {
     logger.error('Error killing connections:', error);
-  }
-};
-
-export const refreshConnectionPool = async (): Promise<void> => {
-  if (isRefreshingPool) {
-    logger.warn('Connection pool refresh already in progress');
-    return;
-  }
-
-  isRefreshingPool = true;
-  
-  try {
-    logger.info('Starting connection pool refresh...');
-    
-    // Wait a bit for any pending operations to complete
-    await sequelize.connectionManager.close();
-    
-    await sequelize.connectionManager.initPools();
-    
-    logger.info('Connection pool refreshed successfully');
-  } catch (error) {
-    logger.error('Error refreshing connection pool:', error);
-    throw error;
-  } finally {
-    isRefreshingPool = false;
   }
 };
 
