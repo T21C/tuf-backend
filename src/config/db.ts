@@ -38,8 +38,54 @@ const sequelize = new Sequelize({
 // Connection monitoring configuration
 const CONNECTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const CONNECTION_THRESHOLD = 0.8; // 80% of max connections
+const IDLE_CONNECTION_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close connections idle for this long
 
 let connectionMonitorTimer: NodeJS.Timeout | null = null;
+let isRefreshingPool = false;
+
+export const closeIdleConnections = async (): Promise<void> => {
+  try {
+    if (!isConnectionManagerAvailable()) {
+      logger.warn('Connection manager not available for idle connection cleanup');
+      return;
+    }
+
+    const [results] = await sequelize.query(`
+      SELECT id, time 
+      FROM information_schema.processlist 
+      WHERE db = ? 
+      AND Command = 'Sleep' 
+      AND time > ?
+      AND id != CONNECTION_ID()
+    `, {
+      replacements: [
+        process.env.NODE_ENV === 'staging'
+          ? process.env.DB_STAGING_DATABASE
+          : process.env.DB_DATABASE,
+        Math.floor(IDLE_CONNECTION_TIMEOUT / 1000) // Convert to seconds
+      ]
+    });
+
+    if (results && results.length > 0) {
+      logger.info(`Found ${results.length} idle connections to close`);
+      
+      for (const connection of results as any[]) {
+        try {
+          await sequelize.query(`KILL ${connection.id}`);
+          logger.debug(`Closed idle connection ${connection.id} (idle for ${connection.time}s)`);
+        } catch (error) {
+          logger.warn(`Failed to close connection ${connection.id}:`, error);
+        }
+      }
+      
+      logger.info(`Successfully closed ${results.length} idle connections`);
+    } else {
+      logger.debug('No idle connections found to close');
+    }
+  } catch (error) {
+    logger.error('Error closing idle connections:', error);
+  }
+};
 
 export const startConnectionMonitoring = (): void => {
   if (connectionMonitorTimer) {
@@ -49,19 +95,38 @@ export const startConnectionMonitoring = (): void => {
 
   connectionMonitorTimer = setInterval(async () => {
     try {
+      // Don't refresh if already refreshing
+      if (isRefreshingPool) {
+        logger.debug('Skipping connection monitoring - pool refresh in progress');
+        return;
+      }
+
       const stats = await getConnectionStats();
       
       if (stats) {
         const totalConnections = stats.total_connections;
         const activeConnections = stats.active_connections;
+        const idleConnections = stats.idle_connections;
         const connectionUsage = totalConnections / MAX_CONNECTIONS;
         
-        logger.info(`Connection stats - Total: ${totalConnections}, Active: ${activeConnections}, Usage: ${(connectionUsage * 100).toFixed(1)}%`);
+        logger.info(`Connection stats - Total: ${totalConnections}, Active: ${activeConnections}, Idle: ${idleConnections}, Usage: ${(connectionUsage * 100).toFixed(1)}%`);
         
-        // Refresh pool if usage is above threshold
-        if (connectionUsage > CONNECTION_THRESHOLD) {
-          logger.warn(`Connection usage (${(connectionUsage * 100).toFixed(1)}%) above threshold (${(CONNECTION_THRESHOLD * 100).toFixed(1)}%). Refreshing connection pool...`);
-          await refreshConnectionPool();
+        // Close idle connections first
+        if (idleConnections > 0) {
+          logger.info(`Closing ${idleConnections} idle connections...`);
+          await closeIdleConnections();
+        }
+        
+        // Check stats again after closing idle connections
+        const updatedStats = await getConnectionStats();
+        if (updatedStats) {
+          const updatedUsage = updatedStats.total_connections / MAX_CONNECTIONS;
+          
+          // Only refresh pool if usage is still above threshold after closing idle connections
+          if (updatedUsage > CONNECTION_THRESHOLD) {
+            logger.warn(`Connection usage (${(updatedUsage * 100).toFixed(1)}%) still above threshold (${(CONNECTION_THRESHOLD * 100).toFixed(1)}%) after closing idle connections. Refreshing connection pool...`);
+            await refreshConnectionPool();
+          }
         }
       }
     } catch (error) {
@@ -102,19 +167,42 @@ export const killAllConnections = async (): Promise<void> => {
 };
 
 export const refreshConnectionPool = async (): Promise<void> => {
+  if (isRefreshingPool) {
+    logger.warn('Connection pool refresh already in progress');
+    return;
+  }
+
+  isRefreshingPool = true;
+  
   try {
+    logger.info('Starting connection pool refresh...');
+    
+    // Wait a bit for any pending operations to complete
     await sequelize.connectionManager.close();
     
     await sequelize.connectionManager.initPools();
     
-    logger.info('Connection pool refreshed');
+    logger.info('Connection pool refreshed successfully');
   } catch (error) {
     logger.error('Error refreshing connection pool:', error);
+    throw error;
+  } finally {
+    isRefreshingPool = false;
   }
+};
+
+export const isConnectionManagerAvailable = (): boolean => {
+  return sequelize.connectionManager && !isRefreshingPool;
 };
 
 export const getConnectionStats = async (): Promise<any> => {
   try {
+    // Check if connection manager is available
+    if (!isConnectionManagerAvailable()) {
+      logger.warn('Connection manager not available for stats check');
+      return null;
+    }
+
     const [results] = await sequelize.query(`
       SELECT 
         COUNT(*) as total_connections,
