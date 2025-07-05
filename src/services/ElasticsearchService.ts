@@ -1243,7 +1243,7 @@ class ElasticsearchService {
       }
 
       // Handle filters
-      if (filters.deletedFilter === 'hide') {
+      if (!filters.deletedFilter || filters.deletedFilter === 'hide') {
         must.push({ term: { isDeleted: false } });
         must.push({ term: { isHidden: false } });
       } else if (filters.deletedFilter === 'only') {
@@ -1815,7 +1815,7 @@ class ElasticsearchService {
       }
 
       // Handle filters
-      if (filters.deletedFilter === 'hide') {
+      if (!filters.deletedFilter || filters.deletedFilter === 'hide') {
         must.push({ term: { isDeleted: false } });
         must.push({ term: { 'level.isHidden': false } });
         must.push({ term: { 'level.isDeleted': false } });
