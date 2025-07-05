@@ -23,6 +23,7 @@ import healthRouter from './routes/misc/health.js';
 import { logger } from './services/LoggerService.js';
 import ElasticsearchService from './services/ElasticsearchService.js';
 import { clientUrlEnv, port, ownUrl, corsOptions } from './config/app.config.js';
+import { startConnectionMonitoring } from './config/db.js';
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {
   logger.error('UNCAUGHT EXCEPTION! Shutting down...');
@@ -102,6 +103,7 @@ export async function startServer() {
     if (process.env.INIT_DB === 'true'){
       await db.sequelize.sync({force: true});
     }
+    startConnectionMonitoring();
 
     logger.info('Database connection established.');
 
