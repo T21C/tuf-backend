@@ -4,7 +4,7 @@ import { logger } from '../services/LoggerService.js';
 
 dotenv.config();
 
-const MAX_CONNECTIONS = 20;
+const MAX_CONNECTIONS = 50;
 const sequelize = new Sequelize({
   dialect: 'mysql',
   host: process.env.DB_HOST,
@@ -36,7 +36,7 @@ const sequelize = new Sequelize({
 });
 
 // Connection monitoring configuration
-const CONNECTION_CHECK_INTERVAL = 3 * 60 * 1000; // 5 minutes
+const CONNECTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const CONNECTION_THRESHOLD = 0.8; // 80% of max connections
 const IDLE_CONNECTION_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close connections idle for this long
 
@@ -77,8 +77,6 @@ export const closeIdleConnections = async (): Promise<void> => {
     });
 
     if (results && results.length > 0) {
-      logger.info(`Found ${results.length} idle connections to close`);
-      
       for (const connection of results as any[]) {
         try {
           await managementSequelize.query(`KILL ${connection.id}`);
@@ -88,8 +86,6 @@ export const closeIdleConnections = async (): Promise<void> => {
           logger.debug(`Connection ${connection.id} already closed or error: ${error}`);
         }
       }
-      
-      logger.info(`Successfully closed ${results.length} idle connections`);
     } else {
       logger.debug('No idle connections found to close');
     }
@@ -123,15 +119,10 @@ export const startConnectionMonitoring = (): void => {
       
       if (stats) {
         const totalConnections = stats.total_connections;
-        const activeConnections = stats.active_connections;
-        const idleConnections = stats.idle_connections;
         const connectionUsage = totalConnections / MAX_CONNECTIONS;
-        
-        logger.info(`Connection stats - Total: ${totalConnections}, Active: ${activeConnections}, Idle: ${idleConnections}, Usage: ${(connectionUsage * 100).toFixed(1)}%`);
-        
+
         // Close idle connections first
         if (connectionUsage > CONNECTION_THRESHOLD) {
-          logger.info(`Closing ${idleConnections} idle connections due to usage above threshold...`);
           await closeIdleConnections();
         }
       }
