@@ -2,6 +2,7 @@ import {Model, DataTypes} from 'sequelize';
 import sequelize from '../../config/db.js';
 import Player from '../players/Player.js';
 import OAuthProvider from './OAuthProvider.js';
+import Creator from '../credits/Creator.js';
 
 export interface UserAttributes {
   id: string;
@@ -16,6 +17,7 @@ export interface UserAttributes {
   isRatingBanned: boolean;
   status: 'active' | 'suspended' | 'banned';
   playerId?: number;
+  creatorId?: number | null;
   lastLogin?: Date;
   nickname?: string | null;
   avatarId?: string | null;
@@ -27,6 +29,7 @@ export interface UserAttributes {
   updatedAt: Date;
   providers?: OAuthProvider[];
   player?: Player;
+  creator?: Creator;
 }
 
 class User extends Model<UserAttributes> implements UserAttributes {
@@ -42,6 +45,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare isRatingBanned: boolean;
   declare status: 'active' | 'suspended' | 'banned';
   declare playerId?: number;
+  declare creatorId?: number | null;
   declare lastLogin?: Date;
   declare nickname?: string | null;
   declare avatarId?: string | null;
@@ -54,6 +58,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
 
   // Virtual fields
   declare player?: Player;
+  declare creator?: Creator;
   declare providers?: OAuthProvider[];
 }
 
@@ -112,8 +117,18 @@ User.init(
     playerId: {
       type: DataTypes.INTEGER,
       allowNull: false,
+      unique: true,
       references: {
         model: 'players',
+        key: 'id',
+      },
+    },
+    creatorId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      unique: true,
+      references: {
+        model: 'creators',
         key: 'id',
       },
     },

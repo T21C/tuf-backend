@@ -1015,9 +1015,15 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
         const teamWithMembers = await Team.findByPk(team.id, {
           include: [
             {
-              model: Creator,
-              as: 'teamCreators',
-              through: { attributes: [] }
+              model: TeamMember,
+              as: 'teamMembers',
+              include: [
+                {
+                  model: Creator,
+                  as: 'creator',
+                  attributes: ['id', 'name'],
+                }
+              ]
             },
             {
               model: TeamAlias,
@@ -1258,6 +1264,147 @@ router.delete('/:creatorId([0-9]+)/discord', Auth.superAdmin(), async (req: Requ
     }
   },
 );
+
+// Assign creator to user (supports both UUID and playerId)
+router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { userOrPlayerId, creatorId } = req.params;
+
+    // Determine if userOrPlayerId is a UUID (user ID) or playerId
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrPlayerId);
+    
+    let user;
+    if (isUUID) {
+      // Direct user ID lookup
+      user = await User.findByPk(userOrPlayerId, { transaction });
+    } else {
+      // Player ID lookup - find user by playerId
+      const playerId = parseInt(userOrPlayerId);
+      if (isNaN(playerId)) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Invalid user or player ID format' });
+      }
+      
+      user = await User.findOne({
+        where: { playerId },
+        transaction
+      });
+    }
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const creator = await Creator.findByPk(creatorId, { transaction });
+    if (!creator) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Creator not found' });
+    }
+
+    // Check if the creator is already assigned to another user
+    const existingUserWithCreator = await User.findOne({
+      where: { creatorId: creator.id },
+      transaction
+    });
+
+    if (existingUserWithCreator && existingUserWithCreator.id !== user.id) {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        error: `Creator "${creator.name}" is already assigned to user "${existingUserWithCreator.username}" (ID: ${existingUserWithCreator.id})` 
+      });
+    }
+
+    // Assign creator to user and user to creator
+    await user.update({ creatorId: creator.id }, { transaction });
+    await creator.update({ userId: user.id }, { transaction });
+
+    await transaction.commit();
+    return res.json({
+      message: 'Creator assigned to user successfully',
+      user: await User.findByPk(user.id, {
+        attributes: ['id', 'playerId', 'creatorId'],
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            attributes: ['id', 'name', 'isVerified'],
+          }
+        ]
+      }),
+      creator: await Creator.findByPk(creatorId),
+    });
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error assigning creator to user:', error);
+    return res.status(500).json({ error: 'Failed to assign creator to user' });
+  }
+});
+
+// Remove creator from user (supports both UUID and playerId)
+router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { userOrPlayerId } = req.params;
+
+    // Determine if userOrPlayerId is a UUID (user ID) or playerId
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrPlayerId);
+    
+    let user;
+    if (isUUID) {
+      // Direct user ID lookup
+      user = await User.findByPk(userOrPlayerId, { transaction });
+    } else {
+      // Player ID lookup - find user by playerId
+      const playerId = parseInt(userOrPlayerId);
+      if (isNaN(playerId)) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Invalid user or player ID format' });
+      }
+      
+      user = await User.findOne({
+        where: { playerId },
+        transaction
+      });
+    }
+
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    let creator = null;
+    if (user.creatorId) {
+      creator = await Creator.findByPk(user.creatorId, { transaction });
+    }
+    // Remove creator from user
+    await user.update({ creatorId: null }, { transaction });
+    // If creator is linked to this user, remove userId from creator
+    if (creator && creator.userId === user.id) {
+      await creator.update({ userId: null }, { transaction });
+    }
+    await transaction.commit();
+    return res.json({
+      message: 'Creator removed from user successfully',
+      user: await User.findByPk(user.id, {
+        attributes: ['id', 'playerId', 'creatorId'],
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            attributes: ['id', 'name', 'isVerified'],
+          }
+        ]
+      }),
+      creator: creator ? await Creator.findByPk(creator.id) : null,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error removing creator from user:', error);
+    return res.status(500).json({ error: 'Failed to remove creator from user' });
+  }
+});
 
 // Add search endpoint for creators
 router.get('/search/:name', async (req: Request, res: Response) => {

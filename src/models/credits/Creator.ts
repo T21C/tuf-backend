@@ -12,7 +12,7 @@ class Creator extends Model implements ICreator {
   declare createdAt: Date;
   declare updatedAt: Date;
   declare isVerified: boolean;
-  declare userId: number | null;
+  declare userId: string | null;
 
   declare user: User;
   declare credits?: LevelCredit[];

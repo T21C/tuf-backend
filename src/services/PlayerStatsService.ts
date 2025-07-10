@@ -13,6 +13,7 @@ import { ModifierService } from '../services/ModifierService.js';
 import { logger } from './LoggerService.js';
 import { IPlayer } from '../interfaces/models/index.js';
 import { OAuthProvider } from '../models/index.js';
+import Creator from '../models/credits/Creator.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
@@ -25,6 +26,25 @@ type EnrichedPlayer = IPlayer & {
   potentialTopScores: {id: number, impact: number}[];
   uniquePasses: Map<number, Pass>;
   stats: PlayerStats | null;
+  username?: string;
+  discordUsername?: string;
+  discordAvatar?: string;
+  discordAvatarId?: string;
+  discordId?: string;
+  user?: {
+    id: string;
+    username: string;
+    nickname?: string | null;
+    avatarUrl?: string | null;
+    isSuperAdmin: boolean;
+    isRater: boolean;
+    playerId: number;
+    creator?: {
+      id: number;
+      name: string;
+      isVerified: boolean;
+    } | null;
+  } | null;
 }
 
 export class PlayerStatsService {
@@ -1079,8 +1099,14 @@ export class PlayerStatsService {
           attributes: ['profile'],
           required: false,
         },
+        {
+          model: Creator,
+          as: 'creator',
+          attributes: ['id', 'name', 'isVerified'],
+          required: false,
+        },
       ],
-      attributes: ['playerId', 'nickname', 'avatarUrl', 'username'],
+      attributes: ['id', 'playerId', 'nickname', 'avatarUrl', 'username', 'isSuperAdmin', 'isRater'],
     });
   
     // Create lookup maps for faster access
@@ -1156,10 +1182,25 @@ export class PlayerStatsService {
           isSubmissionsPaused: playerData.isSubmissionsPaused,
           pfp: playerData.pfp,
           avatarUrl: userData?.avatarUrl,
-          discordUsername: userData?.username,
+          username: userData?.username, // Changed from discordUsername to username
+          discordUsername: discordProvider?.profile.username, // This is the actual Discord username
           discordAvatar: discordProvider?.profile.avatarUrl,
           discordAvatarId: discordProvider?.profile.avatar,
           discordId: discordProvider?.profile.id,
+          user: userData ? {
+            id: userData.id,
+            username: userData.username,
+            nickname: userData.nickname,
+            avatarUrl: userData.avatarUrl,
+            isSuperAdmin: userData.isSuperAdmin,
+            isRater: userData.isRater,
+            playerId: userData.playerId,
+            creator: userData.creator ? {
+              id: userData.creator.id,
+              name: userData.creator.name,
+              isVerified: userData.creator.isVerified
+            } : null
+          } : null,
           rankedScore: stats?.rankedScore || 0,
           generalScore: stats?.generalScore || 0,
           ppScore: stats?.ppScore || 0,
@@ -1178,6 +1219,6 @@ export class PlayerStatsService {
           potentialTopScores,
           uniquePasses,
           stats
-    } as EnrichedPlayer
+    } as unknown as EnrichedPlayer
     };
   }

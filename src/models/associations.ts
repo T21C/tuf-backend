@@ -71,8 +71,8 @@ export function initializeAssociations() {
   });
 
   // User <-> Creator associations
-  User.hasOne(Creator, {
-    foreignKey: 'userId',
+  User.belongsTo(Creator, {
+    foreignKey: 'creatorId',
     as: 'creator',
   });
 
