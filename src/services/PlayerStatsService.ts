@@ -892,8 +892,16 @@ export class PlayerStatsService {
               {
                 model: User,
                 as: 'user',
-                attributes: ['avatarUrl', 'username', 'isEmailVerified'],
+                attributes: ['id', 'avatarUrl', 'username', 'isEmailVerified', 'isSuperAdmin', 'isRater'],
                 required: false,
+                include: [
+                  {
+                    model: Creator,
+                    as: 'creator',
+                    attributes: ['id', 'name', 'isVerified'],
+                    required: false,
+                  }
+                ]
               },
             ],
           },
