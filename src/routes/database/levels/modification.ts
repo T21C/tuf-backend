@@ -271,7 +271,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // Handle flag changes
       const { isDeleted, isHidden, isAnnounced } = handleFlagChanges(level, req);
   
-      if (req.body.baseScore && !isNaN(Number(req.body.baseScore))) {
+      if (req.body.baseScore !== undefined && req.body.baseScore !== null && !isNaN(Number(req.body.baseScore))) {
         baseScore = Number(req.body.baseScore);
         logger.debug(`Setting baseScore to ${baseScore} for level ${levelId}`);
       }
