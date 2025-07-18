@@ -19,6 +19,7 @@ import { User } from "../../../models/index.js";
 import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import LevelRerateHistory from "../../../models/levels/LevelRerateHistory.js";
 
 const MAX_LIMIT = 200;
 
@@ -311,6 +312,11 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         where: { levelId: parseInt(req.params.id), playerId: req.user?.playerId },
       })) : false;
 
+      const rerateHistory = await LevelRerateHistory.findAll({
+        where: { levelId: parseInt(req.params.id) },
+        order: [['createdAt', 'DESC']],
+      });
+
       await transaction.commit();
 
 
@@ -328,6 +334,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         level,
         ratings: includeRatings ? ratings : undefined,
         votes: req.user?.isSuperAdmin ? votes : undefined,
+        rerateHistory,
         totalVotes,
         isLiked,
         isCleared,

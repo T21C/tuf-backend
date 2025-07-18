@@ -24,6 +24,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { cleanupUserUploads } from '../../misc/chunkedUpload.js';
+import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -322,6 +323,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         transaction,
       });
   
+      // Fetch the updated level again to get the latest state
       const updatedLevel = await Level.findOne({
         where: {id: levelId},
         include: [
@@ -334,11 +336,39 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         transaction,
       });
 
+      // Insert rerate history if rerate is settled (isAnnounced goes from false to true and diffId/baseScore changes)
+      if (
+        (
+          level.diffId !== (req.body.diffId ?? level.diffId)
+          ||
+          level.baseScore !== (req.body.baseScore ?? level.baseScore)
+        )
+        && level.diffId !== 0 && req.body.diffId !== 0
+      ) {
+        logger.debug(`Inserting rerate history for level ${levelId} - previousDiffId: ${level.diffId}, newDiffId: ${req.body.diffId ?? level.diffId}`);
+        await LevelRerateHistory.create({
+          levelId: level.id,
+          previousDiffId: level.diffId,
+          newDiffId: req.body.diffId ?? level.diffId,
+          previousBaseScore: level.baseScore,
+          newBaseScore: req.body.baseScore ?? level.baseScore,
+          reratedBy: req.user?.id ?? null,
+          createdAt: new Date(),
+        }, { transaction });
+      }
+      const rerateHistory = await LevelRerateHistory.findAll({
+        where: { levelId: levelId },
+        order: [['createdAt', 'DESC']],
+        transaction,
+      });
+      logger.debug(`Rerate history: ${JSON.stringify(rerateHistory)}`);
       await transaction.commit();
-      
+
+
       const response = {
         message: 'Level updated successfully',
         level: updatedLevel,
+        rerateHistory,
       };
       res.json(response);
   
