@@ -36,19 +36,6 @@ class Player
   declare getUser: HasOneGetAssociationMixin<User>;
   declare stats?: PlayerStats;
   declare getStats: HasOneGetAssociationMixin<PlayerStats>;
-
-  // Virtual fields
-  declare rankedScore?: number;
-  declare generalScore?: number;
-  declare ppScore?: number;
-  declare wfScore?: number;
-  declare score12K?: number;
-  declare averageXacc?: number;
-  declare totalPasses?: number;
-  declare universalPassCount?: number;
-  declare worldsFirstCount?: number;
-  declare topDiff?: IDifficulty;
-  declare top12kDiff?: IDifficulty;
 }
 
 Player.init(

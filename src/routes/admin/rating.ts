@@ -324,10 +324,9 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {rating, comment, isCommunityRating = false} = req.body;
-    const userId = req.user?.id;
+    const user = req.user;
 
     // Get user to check permissions
-    const user = await User.findByPk(userId);
     if (!user) {
       await transaction.rollback();
       return res.status(401).json({error: 'User not found'});
@@ -345,13 +344,17 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       return res.status(403).json({error: 'User is not a rater'});
     }
 
+    if (user.player?.stats?.topDiffId == 0) {
+      await transaction.rollback();
+      return res.status(403).json({error: 'You need at least one pass to rate!'});
+    }
     // If rating is empty or null, treat it as a deletion request
     if (!rating || rating.trim() === '') {
       // Delete the rating detail
       await RatingDetail.destroy({
         where: {
           ratingId: id,
-          userId: userId,
+          userId: user.id,
         },
         transaction,
       });
