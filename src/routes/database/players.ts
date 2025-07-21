@@ -21,6 +21,14 @@ import PlayerModifier from '../../models/players/PlayerModifier.js';
 import { ModifierService } from '../../services/ModifierService.js';
 import { ILevel } from '../../interfaces/models/index.js';
 import { logger } from '../../services/LoggerService.js';
+import Creator from '../../models/credits/Creator.js';
+import { PassSubmission } from '../../models/submissions/PassSubmission.js';
+import LevelSubmission from '../../models/submissions/LevelSubmission.js';
+import { AuditLog } from '../../models/index.js';
+import UsernameChange from '../../models/auth/UsernameChange.js';
+import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
+import RatingAccuracyVote from '../../models/levels/RatingAccuracyVote.js';
+import RatingDetail from '../../models/levels/RatingDetail.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -798,17 +806,62 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
 
       // If source player has a user, update OAuth providers and reassign user to target player
       if (sourcePlayer.user) {
-        if (targetPlayer.user) {
-          // If target has a user, move OAuth providers and delete source user
+        const sourceUserId = sourcePlayer.user.id;
+        const targetUserId = targetPlayer.user?.id;
+        // If target has a user, move OAuth providers and delete source user
+        if (targetUserId) {
+          // 1. OAuthProvider
           await OAuthProvider.update(
-            {userId: targetPlayer.user.id},
-            {
-              where: {userId: sourcePlayer.user.id},
-              transaction,
-            },
+            {userId: targetUserId},
+            {where: {userId: sourceUserId}, transaction}
           );
+          // 2. RatingDetail
+          await RatingDetail.update(
+            {userId: targetUserId},
+            {where: {userId: sourceUserId}, transaction}
+          );
+          // 3. RatingAccuracyVote (userId is INTEGER, so skip if not compatible)
+          // Only update if both user IDs are integers
+          if (sourceUserId && targetUserId) {
+            await RatingAccuracyVote.update(
+              {userId: targetUserId},
+              {where: {userId: sourceUserId}, transaction}
+            );
+          }
+          // 4. LevelRerateHistory
+          await LevelRerateHistory.update(
+            {reratedBy: targetUserId},
+            {where: {reratedBy: sourceUserId}, transaction}
+          );
+          // 5. UsernameChange
+          await UsernameChange.update(
+            {userId: targetUserId},
+            {where: {userId: sourceUserId}, transaction}
+          );
+          // 6. AuditLog
+          await AuditLog.update(
+            {userId: targetUserId},
+            {where: {userId: sourceUserId}, transaction}
+          );
+          // 7. Creator (only if target user is not already linked)
+          const sourceCreator = await Creator.findOne({where: {userId: sourceUserId}, transaction});
+          const targetCreator = await Creator.findOne({where: {userId: targetUserId}, transaction});
+          if (sourceCreator && !targetCreator) {
+            await sourceCreator.update({userId: targetUserId}, {transaction});
+          }
+          // 8. LevelSubmission
+          await LevelSubmission.update(
+            {userId: targetUserId},
+            {where: {userId: sourceUserId}, transaction}
+          );
+          // 9. PassSubmission
+          await PassSubmission.update(
+            {userId: targetUserId},
+            {where: {userId: sourceUserId}, transaction}
+          );
+          // Now delete the source user
           await User.destroy({
-            where: {id: sourcePlayer.user.id},
+            where: {id: sourceUserId},
             transaction,
           });
         } else {

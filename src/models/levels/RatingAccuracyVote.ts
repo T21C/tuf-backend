@@ -40,7 +40,7 @@ import Difficulty from './Difficulty.js';
         },
       },
       userId: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.UUID,
         allowNull: false,
         references: {
           model: 'users',
