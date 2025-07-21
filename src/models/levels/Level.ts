@@ -31,7 +31,6 @@ class Level
   declare diffId: number;
   declare baseScore: number | null;
   declare previousBaseScore: number | null;
-  declare isCleared: boolean;
   declare clears: number;
   declare likes: number;
   declare ratingAccuracy: number;
@@ -199,12 +198,6 @@ Level.init(
       references: {
         model: 'teams',
         key: 'id',
-      },
-    },
-    isCleared: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        return this.clears > 0;
       },
     },
     clears: {

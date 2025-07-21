@@ -31,7 +31,7 @@ Difficulty.init(
       unique: true,
     },
     type: {
-      type: DataTypes.ENUM('PGU', 'SPECIAL'),
+      type: DataTypes.ENUM('PGU', 'SPECIAL', 'LEGACY'),
       allowNull: false,
     },
     icon: {

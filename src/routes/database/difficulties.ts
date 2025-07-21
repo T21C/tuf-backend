@@ -23,6 +23,7 @@ import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 import { DirectiveParser } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
 import { logger } from '../../services/LoggerService.js';
+import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -621,20 +622,38 @@ router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, re
       }
 
       // Begin transaction
-      const transaction = await Difficulty.sequelize!.transaction();
+      const transaction = await sequelize.transaction();
 
       try {
         // First, update all levels that use this difficulty to use the fallback
+        const affectedLevels = await Level.findAll({
+          where: { diffId: diffId },
+          transaction,
+        });
         await Level.update(
           {diffId: fallbackDiffId},
           {
             where: {diffId: diffId},
             transaction,
+            individualHooks: true,
           },
         );
 
-        // Then delete the difficulty
-        await difficulty.destroy({transaction});
+        // Add rerate history for all affected levels
+        for (const level of affectedLevels) {
+          await LevelRerateHistory.create({
+            levelId: level.id,
+            previousDiffId: diffId,
+            newDiffId: fallbackDiffId,
+            previousBaseScore: level.baseScore || difficulty.baseScore,
+            newBaseScore: level.baseScore || fallbackDifficulty.baseScore,
+            reratedBy: req.user?.id || null,
+            createdAt: new Date(),
+          }, { transaction });
+        }
+
+        // Instead of deleting, mark the difficulty as LEGACY
+        await difficulty.update({ type: 'LEGACY' as any }, { transaction });
 
         // Commit transaction
         await transaction.commit();
@@ -643,11 +662,12 @@ router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, re
         difficultiesHash = await calculateDifficultiesHash();
 
         return res.json({
-          message: 'Difficulty deleted successfully',
+          message: 'Difficulty marked as LEGACY',
           updatedLevels: await Level.count({where: {diffId: fallbackDiffId}}),
         });
       } catch (error) {
         // Rollback transaction on error
+        logger.error('Error deleting difficulty:', error);
         await transaction.rollback();
         throw error;
       }

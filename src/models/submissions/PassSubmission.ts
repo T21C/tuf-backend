@@ -118,12 +118,6 @@ PassSubmission.init(
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
-    accuracy: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        return this.judgements?.accuracy;
-      },
-    },
     scoreV2: {
       type: DataTypes.FLOAT,
       allowNull: true,

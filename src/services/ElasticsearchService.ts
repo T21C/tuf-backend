@@ -191,15 +191,20 @@ class ElasticsearchService {
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
-            if (options.where?.id) {
-              logger.debug(`Indexing level ${options.where.id} ${typeof options.where.id} after bulk update`);
-              await this.indexLevel(options.where.id);
+            console.log(options.where);
+            const levels = await Level.findAll({ where: options.where });
+            logger.debug(`Indexing ${levels.length} levels after bulk update`);
+            for (const level of levels) {
+              await this.indexLevel(level.id);
             }
-          });
+           });
         } else {
-          if (options.where?.id) {
-            logger.debug(`Indexing level ${options.where.id} ${typeof options.where.id} after bulk update`);
-            await this.indexLevel(options.where.id);
+          if (options.where) {
+            const levels = await Level.findAll({ where: options.where });
+            logger.debug(`Indexing ${levels.length} levels after bulk update`);
+            for (const level of levels) {
+              await this.indexLevel(level.id);
+            }
           }
         }
       } catch (error) {

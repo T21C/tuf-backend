@@ -376,7 +376,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             isDeleted: false,
             diffId: 0,
             baseScore: 0,
-            isCleared: false,
             isVerified: hasSimpleCredits && allExistingCreatorsVerified && 
                        !submission.creatorRequests?.some((r: LevelSubmissionCreatorRequest) => r.isNewRequest) &&
                        (!submission.teamRequestData || !submission.teamRequestData.isNewRequest),
