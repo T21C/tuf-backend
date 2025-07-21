@@ -339,6 +339,16 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
           profile: profile,
         };
 
+        // Remove any duplicate for this provider/providerId/userId
+        await OAuthProvider.destroy({
+          where: {
+            provider: providerData.provider,
+            providerId: providerData.providerId,
+            userId: player.user.id,
+          },
+          transaction,
+        });
+
         if (discordProvider) {
           // Update existing provider
           await discordProvider.update(providerData, {transaction});
@@ -538,6 +548,16 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
           providerId: discordId,
           profile: profile, // Store the complete Discord profile
         };
+
+        // Remove any duplicate for this provider/providerId/userId
+        await OAuthProvider.destroy({
+          where: {
+            provider: providerData.provider,
+            providerId: providerData.providerId,
+            userId: player.user.id,
+          },
+          transaction,
+        });
 
         if (discordProvider) {
           // Update existing provider
@@ -811,10 +831,21 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
         // If target has a user, move OAuth providers and delete source user
         if (targetUserId) {
           // 1. OAuthProvider
-          await OAuthProvider.update(
-            {userId: targetUserId},
-            {where: {userId: sourceUserId}, transaction}
-          );
+          const sourceProviders = await OAuthProvider.findAll({
+            where: { userId: sourceUserId },
+            transaction,
+          });
+          for (const provider of sourceProviders) {
+            await OAuthProvider.destroy({
+              where: {
+                userId: targetUserId,
+                provider: provider.provider,
+                providerId: provider.providerId,
+              },
+              transaction,
+            });
+            await provider.update({ userId: targetUserId }, { transaction });
+          }
           // 2. RatingDetail
           await RatingDetail.update(
             {userId: targetUserId},
