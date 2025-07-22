@@ -22,9 +22,7 @@
     "lint": "gts lint",
     "type-check": "tsc --noEmit",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
-    "prepare": "npm run build",
     "recalculate-scores": "cross-env tsx src/scripts/recalculateScores.ts",
-    "test-email": "cross-env tsx src/scripts/testEmail.ts",
     "migrate": "sequelize-cli db:migrate",
     "migrate:undo": "sequelize-cli db:migrate:undo",
     "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
@@ -32,11 +30,9 @@
     "health": "cross-env tsx src/healthService/startHealthService.ts",
     "health:prod": "cross-env NODE_ENV=production tsx src/healthService/startHealthService.ts",
     "cdn": "cross-env tsx watch src/cdnService/app.ts",
-    "migrate-level-zips": "cross-env tsx src/scripts/migrateLevelZips.ts",
     "api-docs": "cross-env tsx src/apiDocsService/app.ts",
     "connection-manager": "cross-env tsx src/scripts/connectionManager.ts",
-    "load-test": "cross-env tsx src/scripts/loadTest.ts",
-    "realistic-load-test": "cross-env tsx src/scripts/realisticLoadTest.ts"
+    "migrate-difficulties": "cross-env tsx src/scripts/migrateDifficulties.ts"
   },
   "keywords": [],
   "author": "",
