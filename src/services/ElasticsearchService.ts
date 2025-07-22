@@ -21,6 +21,7 @@ import { TeamAlias } from '../models/credits/TeamAlias.js';
 import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/searchHelpers.js';
 import sequelize from '../config/db.js';
 import LevelLikes from '../models/levels/LevelLikes.js';
+import Rating from '../models/levels/Rating.js';
 
 // Add these type definitions at the top of the file, after imports
 type FieldSearch = {
@@ -284,6 +285,14 @@ class ElasticsearchService {
   private async getParsedLevel(id: number): Promise<ILevel | null> {
     const level = await this.getLevelWithRelations(id);
     if (!level) return null;
+    const rating = await Rating.findOne({
+      where: {
+        levelId: id,
+        [Op.not]: {confirmedAt: null}
+      },
+      order: [['confirmedAt', 'DESC']], // Get the most recent confirmed rating
+      attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
+    });
     const processedLevel = {
       ...level.get({ plain: true }),
       song: convertToPUA(level.song),
@@ -311,6 +320,9 @@ class ElasticsearchService {
           }))
         } : null
       })),
+      rating: {
+        ...rating?.get({ plain: true }),
+      },
       teamObject: level.teamObject ? {
         ...level.teamObject.get({ plain: true }),
         name: convertToPUA(level.teamObject.name),
@@ -449,7 +461,28 @@ class ElasticsearchService {
       
       for (let i = 0; i < levels.length; i += BATCH_SIZE) {
         const batch = levels.slice(i, i + BATCH_SIZE);
+        
+        // Fetch the most recent confirmed rating for all levels in this batch
+        const levelIds = batch.map(level => level.id);
+        const ratings = await Rating.findAll({
+          where: {
+            levelId: { [Op.in]: levelIds },
+            [Op.not]: { confirmedAt: null }
+          },
+          order: [['confirmedAt', 'DESC']], // Order by most recent first
+          attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
+        });
+        
+        // Create a map with only the most recent rating per level
+        const ratingMap = new Map();
+        ratings.forEach(rating => {
+          if (!ratingMap.has(rating.levelId)) {
+            ratingMap.set(rating.levelId, rating);
+          }
+        });
+        
         const operations = batch.flatMap(level => {
+          const rating = ratingMap.get(level.id);
 
           const processedLevel = {
             ...level.get({ plain: true }), // Convert to plain object
@@ -478,6 +511,9 @@ class ElasticsearchService {
                 }))
               } : null
             })),
+            rating: rating ? {
+              ...rating.get({ plain: true }),
+            } : null,
             teamObject: level.teamObject ? {
               ...level.teamObject.get({ plain: true }),
               name: convertToPUA(level.teamObject.name),

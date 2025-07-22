@@ -208,6 +208,23 @@ export const levelMapping = {
       likes: { type: 'integer' as const },
       ratingAccuracy: { type: 'float' as const },
       totalRatingAccuracyVotes: { type: 'integer' as const },
+      rating: {
+        properties: {
+          id: { type: 'integer' as const },
+          levelId: { type: 'integer' as const },
+          currentDifficultyId: { type: 'integer' as const },
+          lowDiff: { type: 'boolean' as const },
+          requesterFR: { 
+            type: 'text' as const,
+            fields: {
+              keyword: { type: 'keyword' as const, ignore_above: 256 }
+            }
+          },
+          averageDifficultyId: { type: 'integer' as const },
+          communityDifficultyId: { type: 'integer' as const },
+          confirmedAt: { type: 'date' as const }
+        }
+      },
       difficulty: {
         properties: {
           id: { type: 'integer' as const },
