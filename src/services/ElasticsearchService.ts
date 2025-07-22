@@ -192,7 +192,6 @@ class ElasticsearchService {
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
-            console.log(options.where);
             const levels = await Level.findAll({ where: options.where });
             logger.debug(`Indexing ${levels.length} levels after bulk update`);
             for (const level of levels) {
