@@ -340,7 +340,6 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
         emoji,
         color,
         baseScore,
-        sortOrder,
         legacy,
         legacyIcon,
         legacyEmoji,
@@ -367,6 +366,7 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
       const cachedLegacyIcon = legacyIcon
         ? await cacheIcon(legacyIcon, `legacy_${name}`)
         : null;
+      const lastSortOrder = await Difficulty.max('sortOrder') as number;
 
       const difficulty = await Difficulty.create({
         id,
@@ -376,10 +376,10 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
         emoji,
         color,
         baseScore,
-        sortOrder,
         legacy,
         legacyIcon: cachedLegacyIcon,
         legacyEmoji,
+        sortOrder: lastSortOrder + 1,
         createdAt: new Date(),
         updatedAt: new Date(),
       } as IDifficulty);
