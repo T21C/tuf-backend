@@ -6,48 +6,35 @@ import {getVideoDetails} from '../../utils/videoDetailParser.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import { OAuthProvider } from '../../models/index.js';
 import { clientUrlEnv, ownUrl } from '../../config/app.config.js';
+import Rating from '../../models/levels/Rating.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
 
 export async function getDifficultyEmojis(
   levelInfo: Level | null,
+  rating: Rating | null = null,
   rerate = false,
 ): Promise<string | null> {
   if (!levelInfo) return null;
   if (rerate && !levelInfo.dataValues.previousDiffId) rerate = false;
-  const qList = 'Q2,Q2+,Q3,Q3+,Q4';
-  const qMap = {
-    Q2: ['U9', 'U10'],
-    'Q2+': ['U11', 'U12'],
-    Q3: ['U13', 'U14'],
-    'Q3+': ['U15', 'U16'],
-    Q4: ['U17', 'U20'],
-  };
+
   const difficulties = await Difficulty.findAll().then(data =>
     data.map(difficulty => difficulty.dataValues),
   );
   const level = levelInfo.dataValues;
 
+  const estimatedEmoji =
+  rating?.averageDifficultyId ? difficulties.find(
+    difficulty => difficulty.id === rating?.averageDifficultyId
+  )?.emoji || '' : '';
+
   if (!rerate) {
     const difficulty = difficulties.find(
       difficulty => difficulty.name === level.difficulty?.name,
     );
-    if (qList.includes(level.difficulty?.name || '')) {
-      const q = qMap[`${level.difficulty?.name || ''}` as keyof typeof qMap];
-      const emoji =
-        q
-          .map(
-            emoji =>
-              difficulties.find(difficulty => difficulty.name === emoji)
-                ?.emoji || '',
-          )
-          .join('~') +
-        ` | ${
-          difficulties.find(difficulty => difficulty.name === q[0])
-            ?.legacyEmoji || ''
-        }`;
-      return `${difficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}||`;
+    if (level.difficulty?.name.startsWith('Q')) {
+      return `${difficulty?.emoji || ''} ||${estimatedEmoji}||`;
     }
     return `${difficulty?.emoji || ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
   } else {
@@ -59,40 +46,14 @@ export async function getDifficultyEmojis(
     );
     let diffString = '';
     let previousDiffString = '';
-    if (qList.includes(level.difficulty?.name || '')) {
-      const q = qMap[`${level.difficulty?.name || ''}` as keyof typeof qMap];
-      const emoji =
-        q
-          .map(
-            emoji =>
-              difficulties.find(difficulty => difficulty.name === emoji)
-                ?.emoji || '',
-          )
-          .join('~') +
-        ` | ${
-          difficulties.find(difficulty => difficulty.name === q[0])
-            ?.legacyEmoji || ''
-        }`;
-      diffString = `${difficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}||`;
+    if (level.difficulty?.name.startsWith('Q')) {
+      const emoji = estimatedEmoji || '';
+      diffString = `${difficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}||`;
     } else {
       diffString = `${difficulty?.emoji || ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
     }
-    if (qList.includes(level.previousDifficulty?.name || '')) {
-      const q =
-        qMap[`${level.previousDifficulty?.name || ''}` as keyof typeof qMap];
-      const emoji =
-        q
-          .map(
-            emoji =>
-              difficulties.find(difficulty => difficulty.name === emoji)
-                ?.emoji || '',
-          )
-          .join('~') +
-        ` | ${
-          difficulties.find(difficulty => difficulty.name === q[0])
-            ?.legacyEmoji || ''
-        }`;
-      previousDiffString = `${previousDifficulty?.emoji || ''}||${emoji ? ` ${emoji}` : ''}${previousDifficulty?.legacyEmoji ? ` | ${previousDifficulty?.legacyEmoji}` : ''}||`;
+    if (level.previousDifficulty?.name.startsWith('Q')) {
+      previousDiffString = `${previousDifficulty?.emoji || ''}`;
     } else {
       previousDiffString = `${previousDifficulty?.emoji || ''}${previousDifficulty?.legacyEmoji ? ` | ${previousDifficulty?.legacyEmoji}` : ''}`;
     }
@@ -154,6 +115,12 @@ export async function createRerateEmbed(
   const comment = level?.publicComments
     ? level?.publicComments
     : '(Unspecified)';
+  const rating = await Rating.findOne({
+    where: {
+      levelId: level.id,
+    },
+    order: [['confirmedAt', 'DESC']],
+  });
 
   const embed = new MessageBuilder()
     .setColor(level?.difficulty?.color || '#000000')
@@ -181,7 +148,7 @@ export async function createRerateEmbed(
   } else if (level.previousDiffId) {
     embed.addField(
       'Rerate',
-      `${await getDifficultyEmojis(levelInfo, true)}\n**${level.previousBaseScore || level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
+      `${await getDifficultyEmojis(levelInfo, rating, true)}\n**${level.previousBaseScore || level.previousDifficulty?.baseScore || 0}**pp ➔ **${level.baseScore || level.difficulty?.baseScore || 0}**pp`,
       true,
     );
   }
@@ -225,6 +192,12 @@ export async function createNewLevelEmbed(
   const videoInfo = await getVideoDetails(level.videoLink).then(
     details => details,
   );
+  const rating = await Rating.findOne({
+    where: {
+      levelId: level.id,
+    },
+    order: [['confirmedAt', 'DESC']],
+  });
 
   const embed = new MessageBuilder()
     .setColor(level.difficulty?.color || '#000000')
@@ -236,7 +209,7 @@ export async function createNewLevelEmbed(
     .setTitle(`ID: ${level.id}`)
     .setThumbnail(level.difficulty?.icon || placeHolder)
     .addField('', '', false)
-    .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo)}**`, true)
+    .addField('Difficulty', `**${await getDifficultyEmojis(levelInfo, rating)}**`, true)
     .addField('', '', false);
   if (comment && level.difficulty?.name === 'Censored')
     embed.addField('Reason', `**${formatString(comment)}**`, false);

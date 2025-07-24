@@ -164,17 +164,17 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             dropEvents,
             extraProtectedEvents,
             baseCameraZoom,
-            stripDecorations,
             constantBackgroundColor,
             removeForegroundFlash,
             dropFilters,
             format = 'json' // New parameter: 'json' or 'zip'
         } = req.query;
 
+        logger.debug('query params', req.query);
         // Build transform options
         const options = {
-            keepEventTypes: keepEvents ? new Set(String(keepEvents).split(',')) : undefined,
-            dropEventTypes: dropEvents ? new Set(String(dropEvents).split(',')) : undefined,
+            keepEventTypes: keepEvents !== undefined ? new Set(String(keepEvents).split(',')) : undefined,
+            dropEventTypes: dropEvents !== undefined ? new Set(String(dropEvents).split(',')) : undefined,
             extraProtectedEventTypes: extraProtectedEvents ? new Set(String(extraProtectedEvents).split(',')) : undefined,
             baseCameraZoom: baseCameraZoom ? parseFloat(String(baseCameraZoom)) : undefined,
             constantBackgroundColor: constantBackgroundColor ? String(constantBackgroundColor) : undefined,
