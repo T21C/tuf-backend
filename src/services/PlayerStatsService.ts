@@ -854,7 +854,26 @@ export class PlayerStatsService {
 
       const sortInfo = sortFieldMap[sortBy] || sortFieldMap['rankedScore'];
       const orderField = sortInfo.field;
-      const orderItem: [any, string] = [orderField, order.toUpperCase()];
+
+      // Determine order array based on sortBy
+      let orderArray: any[];
+      if (sortBy === 'topDiff') {
+        orderArray = [
+          // Correct Sequelize order tuple for association
+          [{ model: Difficulty, as: 'topDiff' }, 'sortOrder', order],
+          ['id', 'DESC']
+        ];
+      } else if (sortBy === 'top12kDiff') {
+        orderArray = [
+          [{ model: Difficulty, as: 'top12kDiff' }, 'sortOrder', order],
+          ['id', 'DESC']
+        ];
+      } else {
+        orderArray = [
+          [orderField, order.toUpperCase()],
+          ['id', 'DESC']
+        ];
+      }
 
       // Get total count first
       const total = await PlayerStats.count({
@@ -915,18 +934,12 @@ export class PlayerStatsService {
           },
         ],
         where: whereClause,
-        order: [orderItem, ['id', 'DESC']],
+        order: orderArray,
         offset,
         limit
       });
 
-      if (sortBy === 'topDiff' || sortBy === 'top12kDiff') {
-        players.sort((a, b) => {
-          const diffA = a.topDiff?.sortOrder || 0;
-          const diffB = b.topDiff?.sortOrder || 0;
-          return diffB - diffA;
-        });
-      }
+      // Remove in-memory sort for topDiff/top12kDiff
 
       // Map the results
       const mappedPlayers = players.map(player => {
