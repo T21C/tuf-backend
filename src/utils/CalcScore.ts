@@ -38,7 +38,7 @@ const getScoreV2Mtp = (inputs: IJudgements) => {
   }
 };
 
-const getXaccMtp = (inp: IJudgements) => {
+const getXaccMtp = (inp: IJudgements, baseScore: number) => {
   const xacc = calcAcc(inp);
   const xacc_percentage = xacc * 100;
 
@@ -48,8 +48,12 @@ const getXaccMtp = (inp: IJudgements) => {
   if (xacc_percentage < 100) {
     return -0.027 / (xacc - 1.0054) + 0.513;
   }
-  if (xacc_percentage === 100) {
-    return 10;
+  if (xacc_percentage === 100) { 
+    const a = 2100;
+    const k = 14;
+    const h = -a / (k - 6);
+  
+    return (-a) / (baseScore - h) + k;
   }
   return 1;
 };
@@ -86,7 +90,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
   const base = levelData.baseScore
     ? levelData.baseScore
     : levelData.difficulty?.baseScore || 0;
-  const xaccMtp = getXaccMtp(inputs);
+  const xaccMtp = getXaccMtp(inputs, base);
 
   let speedMtp = 0;
   let score = 0;
