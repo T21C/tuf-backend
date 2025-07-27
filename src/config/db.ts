@@ -273,7 +273,4 @@ export const gracefulShutdown = async (): Promise<void> => {
   }
 };
 
-process.on('SIGINT', gracefulShutdown);
-process.on('SIGTERM', gracefulShutdown);
-
 export default sequelize;
