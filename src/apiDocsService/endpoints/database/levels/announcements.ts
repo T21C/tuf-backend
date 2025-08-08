@@ -28,47 +28,6 @@ const announcementsEndpoints: EndpointDefinition[] = [
       '403': 'Forbidden - requires super admin',
       '500': 'Failed to fetch unannounced rerates'
     }
-  },
-  {
-    method: 'POST',
-    path: '/v2/database/levels/markAnnounced',
-    description: 'Mark multiple levels as announced in a single operation',
-    category: 'LEVELS',
-    requiresAuth: true,
-    requiresAdmin: true,
-    parameters: {
-      body: {
-        levelIds: 'array of integers (required) - Array of level IDs to mark as announced'
-      }
-    },
-    responses: {
-      '200': 'Levels marked as announced successfully',
-      '400': 'levelIds must be an array',
-      '401': 'Unauthorized',
-      '403': 'Forbidden - requires super admin',
-      '500': 'Failed to mark levels as announced'
-    }
-  },
-  {
-    method: 'POST',
-    path: '/v2/database/levels/markAnnounced/:id',
-    description: 'Mark a single level as announced',
-    category: 'LEVELS',
-    requiresAuth: true,
-    requiresAdmin: true,
-    parameters: {
-      path: {
-        id: 'integer (required) - Level ID'
-      }
-    },
-    responses: {
-      '200': 'Level marked as announced successfully',
-      '400': 'Invalid level ID',
-      '401': 'Unauthorized',
-      '403': 'Forbidden - requires super admin',
-      '404': 'Level not found',
-      '500': 'Failed to mark level as announced'
-    }
   }
 ];
 

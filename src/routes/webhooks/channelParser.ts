@@ -165,7 +165,6 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
       isActive: true,
       triggerType,
     },
-    order: [['sortOrder', 'ASC']], // Sort by sortOrder ascending
     include: [
       {
         model: DirectiveAction,

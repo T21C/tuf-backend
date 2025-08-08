@@ -432,6 +432,12 @@ router.post(
         await sendSortedMessages(channel);
       }
 
+      // Mark passes as announced after successful webhook sending
+      await Pass.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: passIds } } }
+      );
+
       logWebhookEvent('pass_request_complete', {
         requestId,
         status: 'success'
@@ -527,6 +533,12 @@ router.post(
       for (const channel of sortedChannels) {
         await sendSortedMessages(channel);
       }
+
+      // Mark levels as announced after successful webhook sending
+      await Level.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: levelIds } } }
+      );
 
       logWebhookEvent('level_request_complete', {
         requestId,
@@ -648,6 +660,12 @@ router.post(
       // Send sorted messages
       await sendSortedMessages(rerateChannel);
 
+      // Mark levels as announced after successful webhook sending
+      await Level.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: levelIds } } }
+      );
+
       logWebhookEvent('rerate_request_complete', {
         requestId,
         status: 'success'
@@ -663,6 +681,153 @@ router.post(
       logger.error('Error sending webhook:', error);
       return res.status(500).json({
         error: 'Failed to send webhook',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/silent-remove/passes',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(7);
+    logWebhookEvent('silent_remove_pass_request_received', {
+      requestId,
+      passCount: req.body.passIds?.length || 0
+    });
+
+    try {
+      const {passIds} = req.body;
+
+      if (!Array.isArray(passIds)) {
+        logWebhookEvent('silent_remove_pass_request_error', {
+          requestId,
+          error: 'Invalid input: passIds must be an array'
+        });
+        return res.status(400).json({error: 'passIds must be an array'});
+      }
+
+      // Mark passes as announced without sending webhooks
+      await Pass.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: passIds } } }
+      );
+
+      logWebhookEvent('silent_remove_pass_request_complete', {
+        requestId,
+        status: 'success',
+        removedCount: passIds.length
+      });
+
+      return res.json({success: true, message: 'Passes silently removed from announcement list'});
+    } catch (error) {
+      logWebhookEvent('silent_remove_pass_request_error', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      logger.error('Error silently removing passes:', error);
+      return res.status(500).json({
+        error: 'Failed to silently remove passes',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/silent-remove/levels',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(7);
+    logWebhookEvent('silent_remove_level_request_received', {
+      requestId,
+      levelCount: req.body.levelIds?.length || 0
+    });
+
+    try {
+      const {levelIds} = req.body;
+
+      if (!Array.isArray(levelIds)) {
+        logWebhookEvent('silent_remove_level_request_error', {
+          requestId,
+          error: 'Invalid input: levelIds must be an array'
+        });
+        return res.status(400).json({error: 'levelIds must be an array'});
+      }
+
+      // Mark levels as announced without sending webhooks
+      await Level.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: levelIds } } }
+      );
+
+      logWebhookEvent('silent_remove_level_request_complete', {
+        requestId,
+        status: 'success',
+        removedCount: levelIds.length
+      });
+
+      return res.json({success: true, message: 'Levels silently removed from announcement list'});
+    } catch (error) {
+      logWebhookEvent('silent_remove_level_request_error', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      logger.error('Error silently removing levels:', error);
+      return res.status(500).json({
+        error: 'Failed to silently remove levels',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/silent-remove/rerates',
+  Auth.superAdmin(),
+  async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(7);
+    logWebhookEvent('silent_remove_rerate_request_received', {
+      requestId,
+      levelCount: req.body.levelIds?.length || 0
+    });
+
+    try {
+      const {levelIds} = req.body;
+
+      if (!Array.isArray(levelIds)) {
+        logWebhookEvent('silent_remove_rerate_request_error', {
+          requestId,
+          error: 'Invalid input: levelIds must be an array'
+        });
+        return res.status(400).json({error: 'levelIds must be an array'});
+      }
+
+      // Mark levels as announced without sending webhooks
+      await Level.update(
+        { isAnnounced: true },
+        { where: { id: { [Op.in]: levelIds } } }
+      );
+
+      logWebhookEvent('silent_remove_rerate_request_complete', {
+        requestId,
+        status: 'success',
+        removedCount: levelIds.length
+      });
+
+      return res.json({success: true, message: 'Rerates silently removed from announcement list'});
+    } catch (error) {
+      logWebhookEvent('silent_remove_rerate_request_error', {
+        requestId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      logger.error('Error silently removing rerates:', error);
+      return res.status(500).json({
+        error: 'Failed to silently remove rerates',
         details: error instanceof Error ? error.message : String(error),
       });
     }
