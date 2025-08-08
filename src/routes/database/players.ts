@@ -825,6 +825,33 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
         },
       );
 
+      // Update all pass submissions that reference the source player via passerId
+      await PassSubmission.update(
+        {passerId: targetPlayer.id},
+        {
+          where: {passerId: sourcePlayer.id},
+          transaction,
+        },
+      );
+
+      // Update all pass submissions that reference the source player via assignedPlayerId
+      await PassSubmission.update(
+        {assignedPlayerId: targetPlayer.id},
+        {
+          where: {assignedPlayerId: sourcePlayer.id},
+          transaction,
+        },
+      );
+
+      // Update all player modifiers that reference the source player
+      await PlayerModifier.update(
+        {playerId: targetPlayer.id},
+        {
+          where: {playerId: sourcePlayer.id},
+          transaction,
+        },
+      );
+
       // If source player has a user, update OAuth providers and reassign user to target player
       if (sourcePlayer.user) {
         const sourceUserId = sourcePlayer.user.id;
