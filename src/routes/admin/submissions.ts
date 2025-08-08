@@ -264,7 +264,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
 
         if (!submissionObj) {
-          await safeTransactionRollback(transaction);
+          await safeTransactionRollback(transaction, logger);
           return res.status(404).json({error: 'Submission not found'});
         }
 
@@ -274,7 +274,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         );
 
         if (hasUnhandledCreators) {
-          await safeTransactionRollback(transaction);
+          await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'All creators must be either assigned to existing creators or marked as new creators'
           });
@@ -282,7 +282,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Check if team request is properly handled
         if (submissionObj.teamRequestData && !submissionObj.teamRequestData.teamId && !submissionObj.teamRequestData.isNewRequest) {
-          await safeTransactionRollback(transaction);
+          await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'Team must be either assigned to an existing team or marked as a new team'
           });
@@ -332,7 +332,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Use existing team
             team = await Team.findByPk(submission.teamRequestData.teamId, { transaction });
             if (!team) {
-              await safeTransactionRollback(transaction);
+              await safeTransactionRollback(transaction, logger);
               return res.status(404).json({ error: 'Referenced team not found' });
             }
             teamId = team.id;
@@ -494,7 +494,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           message: 'Submission approved, level and rating created successfully',
         });
     } catch (error) {
-      await safeTransactionRollback(transaction);
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error processing level submission:', error);
       return res
         .status(500)
@@ -513,7 +513,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       // Get the submission to check if it has a level zip
       const submission = await LevelSubmission.findByPk(id);
       if (!submission) {
-        await safeTransactionRollback(transaction);
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
 
@@ -550,7 +550,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
 
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
-      await safeTransactionRollback(transaction);
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error processing level submission:', error);
       return res
         .status(500)
@@ -591,18 +591,18 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       });
 
       if (!submission) {
-        await safeTransactionRollback(transaction);
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
 
       // Validate level and difficulty data
       if (!submission.level) {
-        await safeTransactionRollback(transaction);
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Level data not found'});
       }
 
       if (!submission.level.difficulty) {
-        await safeTransactionRollback(transaction);
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Difficulty data not found'});
       }
 
@@ -741,7 +741,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             ).then(stats => stats?.[0]);
           } catch (error) {
             // If there's an error, rollback the stats transaction
-            await safeTransactionRollback(statsTransaction);
+            await safeTransactionRollback(statsTransaction, logger);
             logger.error('Error updating player stats:', error);
             // Continue with main transaction even if stats update fails
           }
@@ -785,7 +785,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         pass,
       });
     } catch (error) {
-      await safeTransactionRollback(transaction);
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error processing pass submission:', error);
       return res.status(500).json({error: 'Failed to process pass submission'});
     }
@@ -818,7 +818,7 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
 
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
-      await safeTransactionRollback(transaction);
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error declining pass submission:', error);
       return res.status(500).json({error: 'Failed to decline pass submission'});
     }
@@ -858,7 +858,7 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
       });
 
       if (!submission) {
-        await safeTransactionRollback(transaction);
+        await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
 
@@ -910,7 +910,7 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
         submission,
       });
     } catch (error) {
-      await safeTransactionRollback(transaction);
+      await safeTransactionRollback(transaction, logger);
       logger.error('Error assigning player:', error);
       return res.status(500).json({error: 'Failed to assign player'});
     }
@@ -1061,7 +1061,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
               playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId)
                 .then(stats => stats?.[0]);
             } catch (error) {
-              await safeTransactionRollback(statsTransaction);
+              await safeTransactionRollback(statsTransaction, logger);
               logger.error('Error updating player stats:', error);
               // Continue with main transaction even if stats update fails
             }
@@ -1664,7 +1664,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
     });
 
     if (!submission || !submission.creatorRequests) {
-      await safeTransactionRollback(transaction);
+      await safeTransactionRollback(transaction, logger);
       return res.status(404).json({ error: 'Submission not found' });
     }
 
@@ -1691,7 +1691,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
       if (isCharter) {
         const charterCount = submission.creatorRequests.filter(r => r.role === CreditRole.CHARTER).length;
         if (charterCount <= 1) {
-          await safeTransactionRollback(transaction);
+          await safeTransactionRollback(transaction, logger);
           return res.status(400).json({ error: 'Cannot remove the last charter' });
         }
       }
@@ -1725,7 +1725,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
 
     return res.json(updatedSubmission);
   } catch (error) {
-    await safeTransactionRollback(transaction);
+    await safeTransactionRollback(transaction, logger);
     logger.error('Error removing creator request:', error);
     return res.status(500).json({ error: 'Failed to remove creator request' });
   }
