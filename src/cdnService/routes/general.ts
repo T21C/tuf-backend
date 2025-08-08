@@ -7,6 +7,10 @@ import fs from "fs";
 import path from "path";
 import { storageManager } from "../services/storageManager.js";
 import { Op } from "sequelize";
+import sequelize from "../../config/db.js";
+import { Transaction } from "sequelize";
+import { safeTransactionRollback } from "../../utils/Utility.js";
+
 const router = Router();
 
 // Helper function to safely set headers with proper encoding
@@ -252,22 +256,64 @@ router.get('/:fileId/metadata', async (req: Request, res: Response) => {
 
 // Delete file endpoint
 router.delete('/:fileId', async (req: Request, res: Response) => {
+    let transaction: Transaction | undefined;
+    
     try {
         const { fileId } = req.params;
-        const file = await CdnFile.findByPk(fileId);
+        
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        const file = await CdnFile.findByPk(fileId, { transaction });
 
         if (!file) {
+            await safeTransactionRollback(transaction);
             return res.status(404).json({ error: 'File not found' });
         }
 
-        storageManager.cleanupFiles(file.filePath);
+        // Store file path before deletion for cleanup
+        const filePath = file.filePath;
         
-        // Delete the database entry
-        await file.destroy();
+        // Delete the database entry first within transaction
+        await file.destroy({ transaction });
+        
+        // Commit the transaction
+        await transaction.commit();
+        
+        // Clean up files from disk after successful database deletion
+        try {
+            storageManager.cleanupFiles(filePath);
+            logger.info('File deleted successfully:', {
+                fileId,
+                filePath,
+                timestamp: new Date().toISOString()
+            });
+        } catch (cleanupError) {
+            logger.error('Failed to clean up files from disk:', {
+                error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                fileId,
+                filePath,
+                timestamp: new Date().toISOString()
+            });
+            // Don't fail the request if file cleanup fails - database is already updated
+        }
 
         res.json({ success: true });
     } catch (error) {
-        logger.error('File deletion error:', error);
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
+        logger.error('File deletion error:', {
+            error: error instanceof Error ? error.message : String(error),
+            fileId: req.params.fileId,
+            timestamp: new Date().toISOString()
+        });
         res.status(500).json({ error: 'File deletion failed' });
     }
     return;

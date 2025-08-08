@@ -6,6 +6,9 @@ import { validateImage, getValidationOptionsForType, ImageValidationError } from
 import { processImage } from './imageProcessor.js';
 import { storageManager } from './storageManager.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
+import sequelize from "../../config/db.js";
+import { Transaction } from "sequelize";
+import { safeTransactionRollback } from "../../utils/Utility.js";
 
 
 export interface ImageUploadResult {
@@ -41,6 +44,10 @@ export class ImageFactory {
         filePath: string,
         imageType: ImageType
     ): Promise<ImageUploadResult> {
+        let transaction: Transaction | undefined;
+        let createdFileId: string | null = null;
+        let imageDir: string | null = null;
+        
         try {
             // Validate image
             const validationOptions = getValidationOptionsForType(imageType);
@@ -48,7 +55,7 @@ export class ImageFactory {
             
             const fileId = path.parse(filePath).name;
             const imageConfig = IMAGE_TYPES[imageType];
-            const imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
+            imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
             
             // Create directory for this image's versions
             fs.mkdirSync(imageDir, { recursive: true });
@@ -61,13 +68,28 @@ export class ImageFactory {
             // Process variants
             const processedFiles = await processImage(originalPath, imageType, fileId);
             
-            // Create database entry with absolute path
-            await CdnFile.create({
+            // Start transaction for database operations
+            transaction = await sequelize.transaction();
+            
+            // Create database entry with absolute path within transaction
+            const cdnFile = await CdnFile.create({
                 id: fileId,
                 type: imageType,
                 filePath: imageDir, // Store absolute path
                 fileSize: fs.statSync(originalPath).size,
                 isDirectory: true,
+            }, { transaction });
+            
+            createdFileId = fileId;
+            
+            // Commit the transaction
+            await transaction.commit();
+            
+            logger.info('Image uploaded successfully:', {
+                fileId,
+                imageType,
+                imageDir,
+                timestamp: new Date().toISOString()
             });
 
             // Generate URLs
@@ -87,8 +109,38 @@ export class ImageFactory {
                 urls,
             };
         } catch (error) {
-            logger.error('Image processing error:', error);
-            storageManager.cleanupFiles(filePath);
+            // Rollback transaction if it exists
+            if (transaction) {
+                try {
+                    await safeTransactionRollback(transaction);
+                } catch (rollbackError) {
+                    logger.warn('Transaction rollback failed:', rollbackError);
+                }
+            }
+            
+            // Clean up created files if database operation failed
+            if (imageDir && fs.existsSync(imageDir)) {
+                try {
+                    storageManager.cleanupFiles(imageDir);
+                    logger.info('Cleaned up image directory after failed upload:', {
+                        imageDir,
+                        timestamp: new Date().toISOString()
+                    });
+                } catch (cleanupError) {
+                    logger.error('Failed to clean up image directory after failed upload:', {
+                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                        imageDir,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            }
+            
+            logger.error('Image processing error:', {
+                error: error instanceof Error ? error.message : String(error),
+                filePath,
+                imageType,
+                timestamp: new Date().toISOString()
+            });
             
             if (error instanceof ImageValidationError) {
                 throw new ImageProcessingError(

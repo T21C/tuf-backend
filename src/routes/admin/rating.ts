@@ -16,6 +16,7 @@ import {
   parseRatingRange, 
   calculateRequestedDifficulty 
 } from '../../utils/RatingUtils.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 const router: Router = Router();
 
 // Helper function to normalize rating string and calculate average for ranges
@@ -328,24 +329,24 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
 
     // Get user to check permissions
     if (!user) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(401).json({error: 'User not found'});
     }
 
     // Check if user is banned from rating
     if (user.isRatingBanned) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'User is banned from rating'});
     }
 
     // For non-community ratings, require rater permission
     if (!isCommunityRating && !user.isRater) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'User is not a rater'});
     }
 
     if (user.player?.stats?.topDiffId == 0) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'You need at least one pass to rate!'});
     }
     // If rating is empty or null, treat it as a deletion request
@@ -449,7 +450,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
         transaction,
       });
 
-      await transaction.commit();
 
       // Calculate requestedDiffId and add it to the response
       const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
@@ -466,6 +466,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       // Broadcast rating update via SSE
       sseManager.broadcast({type: 'ratingUpdate'});
 
+      await transaction.commit();
       return res.json({
         message: 'Rating detail deleted successfully',
         rating: responseData,
@@ -583,7 +584,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     });
 
     if (!ratingRecord) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Rating not found'});
     }
 
@@ -668,7 +669,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       transaction,
     });
 
-    await transaction.commit();
 
     // Calculate requestedDiffId and add it to the response
     const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
@@ -685,12 +685,14 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     // Broadcast rating update via SSE
     sseManager.broadcast({type: 'ratingUpdate'});
 
+    await transaction.commit();
+
     return res.json({
       message: 'Rating updated successfully',
       rating: responseData,
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error updating rating:', error);
     return res.status(500).json({error: 'Failed to update rating'});
   }
@@ -717,7 +719,7 @@ router.delete(
       const {id, userId} = req.params;
       const currentUser = req.user;
       if (!currentUser) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(401).json({error: 'User not authenticated'});
       }
 
@@ -813,8 +815,6 @@ router.delete(
         transaction,
       });
 
-      await transaction.commit();
-
       // Calculate requestedDiffId and add it to the response
       const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
         updatedRating.level?.rerateNum || null,
@@ -830,12 +830,14 @@ router.delete(
       // Broadcast rating update via SSE
       sseManager.broadcast({type: 'ratingUpdate'});
 
+      await transaction.commit();
+
       return res.json({
         message: 'Rating detail confirmed successfully',
         rating: responseData,
       });
     } catch (error: unknown) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error confirming rating detail:', error);
       return res.status(500).json({error: 'Failed to confirm rating detail'});
     }

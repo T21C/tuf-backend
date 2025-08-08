@@ -17,6 +17,7 @@ import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../../models/credits/TeamAlias.js';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -309,7 +310,7 @@ router.post('/', async (req: Request, res: Response) => {
     const { name, aliases = [] } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Creator name is required' });
     }
 
@@ -344,7 +345,7 @@ router.post('/', async (req: Request, res: Response) => {
     await transaction.commit();
     return res.json(creatorWithAliases);
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error creating creator:', error);
     return res.status(500).json({ error: 'Failed to create creator' });
   }
@@ -360,7 +361,7 @@ router.put('/level/:levelId([0-9]+)', Auth.superAdmin(), async (req: Request, re
       // Validate level exists
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
@@ -389,7 +390,7 @@ router.put('/level/:levelId([0-9]+)', Auth.superAdmin(), async (req: Request, re
       
       return res.json({message: 'Level creators updated successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating level creators:', error);
       return res.status(500).json({error: 'Failed to update level creators'});
     }
@@ -405,7 +406,7 @@ router.post('/level/:levelId([0-9]+)/verify', Auth.superAdmin(), async (req: Req
       // Find the level first
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
@@ -429,7 +430,7 @@ router.post('/level/:levelId([0-9]+)/verify', Auth.superAdmin(), async (req: Req
       
       return res.json({message: 'Level credits verified successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error verifying level credits:', error);
       return res.status(500).json({error: 'Failed to verify level credits'});
     }
@@ -445,7 +446,7 @@ router.post('/level/:levelId([0-9]+)/unverify', Auth.superAdmin(), async (req: R
       // Find the level first
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
@@ -469,7 +470,7 @@ router.post('/level/:levelId([0-9]+)/unverify', Auth.superAdmin(), async (req: R
       
       return res.json({message: 'Level credits unverified successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error unverifying level credits:', error);
       return res.status(500).json({error: 'Failed to unverify level credits'});
     }
@@ -482,7 +483,7 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
     try {
       const {sourceId, targetId} = req.body;
       if (!sourceId || !targetId) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res
           .status(400)
           .json({error: 'Source and target IDs are required'});
@@ -510,7 +511,7 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
         transaction
       });
       if (!sourceCreator || !targetCreator) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Creator not found'});
       }
 
@@ -576,7 +577,7 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       await elasticsearchService.reindexByCreatorId(parseInt(targetId));
       return res.json({success: true});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error merging creators:', error);
       return res.status(500).json({error: 'Failed to merge creators'});
     }
@@ -607,7 +608,7 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
       });
 
       if (!source) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Creator not found'});
       }
 
@@ -710,7 +711,7 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
         newCreators: targetCreators,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error splitting creator:', error);
       return res.status(500).json({error: 'Failed to split creator'});
     }
@@ -829,7 +830,7 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
     elasticsearchService.reindexByCreatorId(parseInt(id));
     return res.json(updatedCreator);
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error updating creator:', error);
     return res.status(500).json({error: 'Failed to update creator'});
   }
@@ -908,7 +909,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
       // Find the level
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
@@ -919,7 +920,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
           // Update existing team
           team = await Team.findByPk(teamId, {transaction});
           if (!team) {
-            await transaction.rollback();
+            await safeTransactionRollback(transaction);
             return res.status(404).json({error: 'Team not found'});
           }
         } else {
@@ -935,7 +936,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
         }
 
         if (!team) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(500).json({error: 'Failed to create/update team'});
         }
 
@@ -1057,7 +1058,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
         team: updatedTeam,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating team:', error);
       return res.status(500).json({error: 'Failed to update team'});
     }
@@ -1072,7 +1073,7 @@ router.delete('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Req
 
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
@@ -1106,7 +1107,7 @@ router.delete('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Req
       elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team association removed successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error removing team:', error);
       return res.status(500).json({error: 'Failed to remove team'});
     }
@@ -1128,7 +1129,7 @@ router.delete('/team/:teamId([0-9]+)', Auth.superAdmin(), async (req: Request, r
 
       const team = await Team.findByPk(teamId, {transaction});
       if (!team) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Team not found'});
       }
 
@@ -1157,7 +1158,7 @@ router.delete('/team/:teamId([0-9]+)', Auth.superAdmin(), async (req: Request, r
       elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team deleted successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error deleting team:', error);
       return res.status(500).json({error: 'Failed to delete team'});
     }
@@ -1215,14 +1216,14 @@ router.put('/:creatorId([0-9]+)/discord/:userId', Auth.superAdmin(), async (req:
       // Find the creator
       const creator = await Creator.findByPk(creatorId, {transaction});
       if (!creator) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Creator not found'});
       }
 
       // Find the user
       const user = await User.findByPk(userId, {transaction});
       if (!user) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'User not found'});
       }
 
@@ -1232,7 +1233,7 @@ router.put('/:creatorId([0-9]+)/discord/:userId', Auth.superAdmin(), async (req:
       await transaction.commit();
       return res.json({message: 'Discord account linked successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error linking Discord account:', error);
       return res.status(500).json({error: 'Failed to link Discord account'});
     }
@@ -1248,7 +1249,7 @@ router.delete('/:creatorId([0-9]+)/discord', Auth.superAdmin(), async (req: Requ
       // Find the creator
       const creator = await Creator.findByPk(creatorId, {transaction});
       if (!creator) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Creator not found'});
       }
 
@@ -1258,7 +1259,7 @@ router.delete('/:creatorId([0-9]+)/discord', Auth.superAdmin(), async (req: Requ
       await transaction.commit();
       return res.json({message: 'Discord account unlinked successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error unlinking Discord account:', error);
       return res.status(500).json({error: 'Failed to unlink Discord account'});
     }
@@ -1282,7 +1283,7 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
       // Player ID lookup - find user by playerId
       const playerId = parseInt(userOrPlayerId);
       if (isNaN(playerId)) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid user or player ID format' });
       }
       
@@ -1293,13 +1294,13 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
     }
 
     if (!user) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'User not found' });
     }
 
     const creator = await Creator.findByPk(creatorId, { transaction });
     if (!creator) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Creator not found' });
     }
 
@@ -1310,7 +1311,7 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
     });
 
     if (existingUserWithCreator && existingUserWithCreator.id !== user.id) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ 
         error: `Creator "${creator.name}" is already assigned to user "${existingUserWithCreator.username}" (ID: ${existingUserWithCreator.id})` 
       });
@@ -1336,7 +1337,7 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
       creator: await Creator.findByPk(creatorId),
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error assigning creator to user:', error);
     return res.status(500).json({ error: 'Failed to assign creator to user' });
   }
@@ -1359,7 +1360,7 @@ router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), as
       // Player ID lookup - find user by playerId
       const playerId = parseInt(userOrPlayerId);
       if (isNaN(playerId)) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid user or player ID format' });
       }
       
@@ -1370,7 +1371,7 @@ router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), as
     }
 
     if (!user) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'User not found' });
     }
 
@@ -1400,7 +1401,7 @@ router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), as
       creator: creator ? await Creator.findByPk(creator.id) : null,
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error removing creator from user:', error);
     return res.status(500).json({ error: 'Failed to remove creator from user' });
   }
@@ -1469,7 +1470,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     const { name, aliases, description } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Team name is required' });
     }
 
@@ -1492,7 +1493,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     });
 
     if (existingTeam) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({
         error: `A team with the name "${name}" already exists (ID: ${existingTeam.id})`
       });
@@ -1522,7 +1523,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
       });
 
       if (existingAliases) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({
           error: `One of the aliases conflicts with an existing team (ID: ${existingAliases.id})`
         });
@@ -1590,7 +1591,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
       aliases: teamWithMembers.teamAliases?.map(alias => alias.name) || []
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error creating team:', error);
     return res.status(500).json({ error: 'Failed to create team' });
   }

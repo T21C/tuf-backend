@@ -71,9 +71,7 @@ export const sanitizeTextInput = (input: string | null | undefined): string => {
  */
 export const safeTransactionRollback = async (transaction: any, logger?: any) => {
   try {
-    if (transaction && transaction.finished !== 'rollback') {
-      await transaction.rollback();
-    }
+    await transaction.rollback();
   } catch (error) {
     if (logger) {
       logger.warn('Transaction rollback failed (likely already rolled back):', error);

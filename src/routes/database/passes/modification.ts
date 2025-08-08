@@ -9,7 +9,7 @@ import { logger } from '../../../services/LoggerService.js';
 import { getIO } from '../../../utils/socket.js';
 import sequelize from '../../../config/db.js';
 import { updateWorldsFirstStatus } from './index.js';
-import { sanitizeTextInput } from '../../../utils/Utility.js';
+import { safeTransactionRollback, sanitizeTextInput } from '../../../utils/Utility.js';
 import { calcAcc, IJudgements } from '../../../utils/CalcAcc.js';
 import { getScoreV2 } from '../../../utils/CalcScore.js';
 import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
@@ -72,7 +72,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
       });
       
       if (!pass) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Pass not found'});
       }
       const oldPass = pass.dataValues;
@@ -94,7 +94,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         });
   
         if (!newLevel) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'New level not found'});
         }
       }
@@ -142,7 +142,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         const levelData = newLevel || pass.level;
   
         if (!levelData || !levelData.difficulty) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res
             .status(500)
             .json({error: 'Level or difficulty data not found'});
@@ -320,7 +320,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
     } catch (error) {
       logger.error(`[Passes PUT] Error updating pass ID: ${req.params.id}:`, error);
       try {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         
       } catch (rollbackError) {
         logger.error(`[Passes PUT] Error rolling back transaction:`, rollbackError);
@@ -365,7 +365,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         });
   
         if (!pass) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Pass not found'});
         }
   
@@ -436,7 +436,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           pass: pass,
         });
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error soft deleting pass:', error);
         return res.status(500).json({error: 'Failed to soft delete pass'});
       }
@@ -472,7 +472,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         });
   
         if (!pass) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Pass not found'});
         }
   
@@ -518,7 +518,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           pass: pass,
         });
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error restoring pass:', error);
         return res.status(500).json({error: 'Failed to restore pass'});
       }

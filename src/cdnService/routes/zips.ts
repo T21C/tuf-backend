@@ -7,6 +7,9 @@ import { Request, Response, Router } from 'express';
 import CdnFile from "../../models/cdn/CdnFile.js";
 import crypto from 'crypto';
 import LevelDict from "adofai-lib";
+import sequelize from "../../config/db.js";
+import { Transaction } from "sequelize";
+import { safeTransactionRollback } from "../../utils/Utility.js";
 
 const router = Router();
 
@@ -193,12 +196,17 @@ router.post('/', (req: Request, res: Response) => {
 router.put('/:fileId/target-level', async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const { targetLevel } = req.body;
+    let transaction: Transaction | undefined;
     
     logger.debug('Setting target level for zip:', { fileId, targetLevel });
     
     try {
-        const levelEntry = await CdnFile.findByPk(fileId);
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        const levelEntry = await CdnFile.findByPk(fileId, { transaction });
         if (!levelEntry || !levelEntry.metadata) {
+            await safeTransactionRollback(transaction);
             logger.error('Level entry not found or invalid:', {
                 fileId,
                 hasEntry: !!levelEntry,
@@ -248,6 +256,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
         });
 
         if (!matchingLevel) {
+            await safeTransactionRollback(transaction);
             logger.error('Target level not found in zip:', {
                 fileId,
                 targetLevel,
@@ -260,14 +269,17 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Target level not found in zip' });
         }
 
-        // Update metadata with the actual file path from the zip
+        // Update metadata with the actual file path from the zip within transaction
         await levelEntry.update({
             metadata: {
                 ...metadata,
                 targetLevel: matchingLevel.path,
                 pathConfirmed: true
             }
-        });
+        }, { transaction });
+        
+        // Commit the transaction
+        await transaction.commit();
 
         logger.debug('Successfully set target level:', {
             fileId,
@@ -282,11 +294,21 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             targetLevel: matchingLevel.path
         });
     } catch (error) {
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
         logger.error('Error setting target level:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
             fileId,
-            targetLevel
+            targetLevel,
+            timestamp: new Date().toISOString()
         });
         res.status(500).json({ error: 'Failed to set target level' });
     }

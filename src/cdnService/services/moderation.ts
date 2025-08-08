@@ -5,6 +5,9 @@ import { CDN_CONFIG } from '../config.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { logger } from '../../services/LoggerService.js';
 import { storageManager } from './storageManager.js';
+import sequelize from "../../config/db.js";
+import { Transaction } from "sequelize";
+import { safeTransactionRollback } from "../../utils/Utility.js";
 
 export interface ImageValidationResult {
     isValid: boolean;
@@ -100,9 +103,15 @@ export async function validateImage(filePath: string, maxSize: number): Promise<
 }
 
 export async function moderateImage(fileId: string, approved: boolean, moderatorId: string, reason?: string) {
+    let transaction: Transaction | undefined;
+    
     try {
-        const file = await CdnFile.findByPk(fileId);
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        const file = await CdnFile.findByPk(fileId, { transaction });
         if (!file) {
+            await safeTransactionRollback(transaction);
             throw new Error('File not found');
         }
 
@@ -117,23 +126,73 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
             // Move the file
             fs.renameSync(pendingPath, approvedPath);
             
-            // Update database record
+            // Update database record within transaction
             await file.update({
                 filePath: approvedPath,
                 status: 'approved',
                 moderatedAt: new Date(),
                 moderatedBy: moderatorId,
                 moderationReason: reason
+            }, { transaction });
+            
+            // Commit the transaction
+            await transaction.commit();
+            
+            logger.info('Image approved successfully:', {
+                fileId,
+                pendingPath,
+                approvedPath,
+                moderatorId,
+                timestamp: new Date().toISOString()
             });
         } else {
-            // Delete the file and its record
-            storageManager.cleanupFiles(file.filePath);
-            await file.destroy();
+            // Store file path before deletion
+            const filePath = file.filePath;
+            
+            // Delete the database record first within transaction
+            await file.destroy({ transaction });
+            
+            // Commit the transaction
+            await transaction.commit();
+            
+            // Clean up files from disk after successful database deletion
+            try {
+                storageManager.cleanupFiles(filePath);
+                logger.info('Image rejected and cleaned up successfully:', {
+                    fileId,
+                    filePath,
+                    moderatorId,
+                    timestamp: new Date().toISOString()
+                });
+            } catch (cleanupError) {
+                logger.error('Failed to clean up rejected image files:', {
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                    fileId,
+                    filePath,
+                    timestamp: new Date().toISOString()
+                });
+                // Don't fail the operation if file cleanup fails - database is already updated
+            }
         }
 
         return true;
     } catch (error) {
-        logger.error('Moderation error:', error);
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
+        logger.error('Moderation error:', {
+            error: error instanceof Error ? error.message : String(error),
+            fileId,
+            approved,
+            moderatorId,
+            timestamp: new Date().toISOString()
+        });
         throw new Error('Failed to moderate image');
     }
 }

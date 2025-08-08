@@ -22,6 +22,7 @@ import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/search
 import sequelize from '../config/db.js';
 import LevelLikes from '../models/levels/LevelLikes.js';
 import Rating from '../models/levels/Rating.js';
+import { safeTransactionRollback } from '../utils/Utility.js';
 
 // Add these type definitions at the top of the file, after imports
 type FieldSearch = {
@@ -394,7 +395,7 @@ class ElasticsearchService {
     await transaction.commit();
     return pass;
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       throw error;
     }
   }

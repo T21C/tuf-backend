@@ -14,6 +14,7 @@ import { logger } from './LoggerService.js';
 import { IPlayer } from '../interfaces/models/index.js';
 import { OAuthProvider } from '../models/index.js';
 import Creator from '../models/credits/Creator.js';
+import { safeTransactionRollback } from '../utils/Utility.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
@@ -436,12 +437,7 @@ export class PlayerStatsService {
           failedBatches++;
           this.updating = false;
           logger.error(`[PlayerStatsService] Batch processing failed:`, error);
-          try {
-            await transaction.rollback();
-            logger.debug(`[PlayerStatsService] Successfully rolled back batch transaction`);
-          } catch (rollbackError) {
-            logger.error(`[PlayerStatsService] Failed to roll back batch transaction:`, rollbackError);
-          }
+          await safeTransactionRollback(transaction);
         }
       }
       
@@ -563,12 +559,7 @@ export class PlayerStatsService {
     } catch (error) {
       this.updating = false;
       logger.error(`[PlayerStatsService] Failed to update player stats:`, error);
-      try {
-        await transaction.rollback();
-        logger.debug(`[PlayerStatsService] Successfully rolled back transaction`);
-      } catch (rollbackError) {
-        logger.error(`[PlayerStatsService] Failed to roll back transaction:`, rollbackError);
-      }
+      await safeTransactionRollback(transaction);
     }
     
     // After all batches are processed, update ranks in a single transaction
@@ -649,12 +640,7 @@ export class PlayerStatsService {
       });
     } catch (error) {
       logger.error('[PlayerStatsService] Failed to update ranks:', error);
-      try {
-        await transaction.rollback();
-        logger.debug(`[PlayerStatsService] Successfully rolled back rank updates`);
-      } catch (rollbackError) {
-        logger.error('[PlayerStatsService] Failed to roll back rank updates:', rollbackError);
-      }
+      await safeTransactionRollback(transaction);
       throw error;
     }
   }

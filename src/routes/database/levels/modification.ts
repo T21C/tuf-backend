@@ -17,7 +17,7 @@ import User from "../../../models/auth/User.js";
 import Player from "../../../models/players/Player.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
-import { sanitizeTextInput } from '../../../utils/Utility.js';
+import { safeTransactionRollback, sanitizeTextInput } from '../../../utils/Utility.js';
 import cdnService from '../../../services/CdnService.js';
 import { CDN_CONFIG } from '../../../cdnService/config.js';
 import multer from 'multer';
@@ -249,12 +249,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       });
   
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
       if (req.body.dlLink && isCdnUrl(level.dlLink) && req.body.dlLink !== level.dlLink) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(403).json({
           error: 'Cannot modify CDN-managed download link directly. Use the upload management endpoints instead.'
         });
@@ -422,7 +422,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       
       return;
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating level:', error);
       return res.status(500).json({error: 'Failed to update level'});
     }
@@ -435,14 +435,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const levelId = parseInt(req.params.id);
       if (isNaN(levelId)) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({error: 'Invalid level ID'});
       }
   
       // Get the level
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
   
@@ -524,7 +524,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         });
       }
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error toggling rating status:', error);
       return res.status(500).json({
         error: 'Failed to toggle rating status',
@@ -620,7 +620,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
         return res.status(204).end();
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error soft deleting level:', error);
         return res.status(500).json({error: 'Failed to soft delete level'});
       }
@@ -639,7 +639,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
         });
   
         if (!level) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Level not found'});
         }
   
@@ -686,7 +686,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           level: level,
         });
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error restoring level:', error);
         return res.status(500).json({error: 'Failed to restore level'});
       }
@@ -707,7 +707,7 @@ router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: 
       });
 
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level not found'});
       }
 
@@ -731,7 +731,7 @@ router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: 
         isHidden: !level.isHidden,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error toggling level hidden status:', error);
       return res.status(500).json({
         error: 'Failed to toggle level hidden status',
@@ -761,13 +761,13 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
       // Check if level exists
       const level = await Level.findByPk(levelId, { transaction });
       if (!level) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({ error: 'Level not found' });
       }
   
       // Check if level is deleted
       if (level.isDeleted) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(403).json({ error: 'Cannot like deleted level' });
       }
   
@@ -778,7 +778,7 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
   
       if (action === 'like') {
         if (existingLike) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'You have already liked this level' });
         }
   
@@ -789,7 +789,7 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
         });
       } else {
         if (!existingLike) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'You have not liked this level' });
         }
   
@@ -812,7 +812,7 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
         likes: likeCount
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error toggling level like:', error);
       return res.status(500).json({ error: 'Failed to toggle level like' });
     }
@@ -847,11 +847,11 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
       transaction,
     });
     if (!level) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Level not found' });
     }
     if (level.difficulty?.type !== "PGU") {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'You cannot vote on a non-PGU level' });
     }
     const isPassed = await Pass.findOne({
@@ -862,7 +862,7 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
     });
 
     if (!isPassed) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'You must pass the level to vote on its rating accuracy' });
     }
 
@@ -925,7 +925,7 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
         totalVotes: votes.length, 
         votes: req.user?.isSuperAdmin ? votes : undefined });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error voting on rating accuracy:', error);
     return res.status(500).json({ error: 'Failed to vote on rating accuracy' });
   }
@@ -940,18 +940,18 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
     const levelId = parseInt(req.params.id);
 
     if (isNaN(levelId)) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Invalid level ID'});
     }
 
     if (!fileId || !fileName || !fileSize) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Missing required file information'});
     }
 
     const level = await Level.findByPk(levelId, { transaction });
     if (!level) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Level not found'});
     }
 
@@ -1006,7 +1006,7 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
       throw error;
     }
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error uploading level file:', error);
     return res.status(500).json({
       error: 'Failed to upload level file',
@@ -1027,19 +1027,19 @@ router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Re
 
     const level = await Level.findByPk(levelId, { transaction }); 
     if (!level) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Level not found'});
     }
 
     const fileId = getFileIdFromCdnUrl(level.dlLink);
     if (!fileId) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'File ID is required'});
     }
 
     const file = await cdnService.setTargetLevel(fileId, selectedLevel);
     if (!file) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'File not found'});
     }
 
@@ -1050,7 +1050,7 @@ router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Re
       message: 'Level file selected successfully'
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error selecting level file:', error);
     return res.status(500).json({
       error: 'Failed to select level file',
@@ -1071,13 +1071,13 @@ router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Respon
     // Get current level
     const level = await Level.findByPk(levelId, { transaction });
     if (!level) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Level not found'});
     }
 
     // Check if level has a CDN-managed file
     if (!level.dlLink || !isCdnUrl(level.dlLink)) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Level does not have a CDN-managed file'});
     }
 
@@ -1102,7 +1102,7 @@ router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Respon
       message: 'Level file deleted successfully'
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error deleting level file:', error);
     return res.status(500).json({
       error: 'Failed to delete level file',

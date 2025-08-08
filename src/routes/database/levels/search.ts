@@ -20,6 +20,7 @@ import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import LevelRerateHistory from "../../../models/levels/LevelRerateHistory.js";
+import { safeTransactionRollback } from "../../../utils/Utility.js";
 
 const MAX_LIMIT = 200;
 
@@ -340,7 +341,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         isCleared,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       throw error;
     }
   } catch (error) {

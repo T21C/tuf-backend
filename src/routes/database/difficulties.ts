@@ -24,6 +24,7 @@ import { DirectiveParser } from '../../utils/directiveParser.js';
 import crypto from 'crypto';
 import { logger } from '../../services/LoggerService.js';
 import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -415,7 +416,7 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
 
       const difficulty = await Difficulty.findByPk(diffId);
       if (!difficulty) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Difficulty not found'});
       }
 
@@ -423,7 +424,7 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
       if (name && name !== difficulty.name) {
         const existingDiffName = await Difficulty.findOne({where: {name}});
         if (existingDiffName) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res
             .status(400)
             .json({error: 'A difficulty with this name already exists'});
@@ -585,7 +586,7 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
 
       return res.json(difficulty);
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating difficulty:', error);
       return res.status(500).json({error: 'Failed to update difficulty'});
     }
@@ -668,7 +669,7 @@ router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, re
       } catch (error) {
         // Rollback transaction on error
         logger.error('Error deleting difficulty:', error);
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         throw error;
       }
     } catch (error) {
@@ -750,38 +751,38 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
     // Validate difficulty exists
     const difficulty = await Difficulty.findByPk(id);
     if (!difficulty) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Difficulty not found' });
     }
 
     // Validate each directive
     for (const directive of directives) {
       if (!directive.name || !directive.actions || !directive.mode || !directive.triggerType) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid directive format' });
       }
 
       // Validate mode
       if (!['STATIC', 'CONDITIONAL'].includes(directive.mode)) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid directive mode' });
       }
 
       // Validate trigger type
       if (!['PASS', 'LEVEL'].includes(directive.triggerType)) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid trigger type' });
       }
 
       // Validate condition for conditional mode
       if (directive.mode === 'CONDITIONAL') {
         if (!directive.condition) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'Condition required for conditional mode' });
         }
 
         if (!['ACCURACY', 'WORLDS_FIRST', 'BASE_SCORE', 'CUSTOM'].includes(directive.condition.type)) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'Invalid condition type' });
         }
 
@@ -790,23 +791,23 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
           case 'ACCURACY':
           case 'BASE_SCORE':
             if (directive.condition.value === undefined || !directive.condition.operator) {
-              await transaction.rollback();
+              await safeTransactionRollback(transaction);
               return res.status(400).json({ error: 'Missing condition parameters' });
             }
             if (!['EQUAL', 'GREATER_THAN', 'LESS_THAN', 'GREATER_THAN_EQUAL', 'LESS_THAN_EQUAL'].includes(directive.condition.operator)) {
-              await transaction.rollback();
+              await safeTransactionRollback(transaction);
               return res.status(400).json({ error: 'Invalid operator' });
             }
             break;
           case 'CUSTOM':
             if (!directive.condition.customFunction) {
-              await transaction.rollback();
+              await safeTransactionRollback(transaction);
               return res.status(400).json({ error: 'Missing custom function' });
             }
             // Validate custom function format
             const validation = validateCustomDirective(directive.condition);
             if (!validation.isValid) {
-              await transaction.rollback();
+              await safeTransactionRollback(transaction);
               return res.status(400).json({ 
                 error: 'Invalid custom directive format',
                 details: validation.error
@@ -819,11 +820,11 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
       // Validate actions
       for (const action of directive.actions) {
         if (!action.channelId || !['NONE', 'ROLE', 'EVERYONE'].includes(action.pingType)) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'Invalid action format' });
         }
         if (action.pingType === 'ROLE' && !action.roleId) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'Role ID required for role pings' });
         }
       }
@@ -897,7 +898,7 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
 
     return res.json(fullDirectives);
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error creating directives:', error);
     return res.status(500).json({ error: 'Failed to create directives' });
   }
@@ -915,7 +916,7 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
     const { sortOrders } = req.body;
     
     if (!Array.isArray(sortOrders)) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Invalid sort orders format' });
     }
 
@@ -955,7 +956,7 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
     
     return res.json({ message: 'Sort orders updated successfully' });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error updating sort orders:', error);
     return res.status(500).json({ 
       error: 'Failed to update sort orders',

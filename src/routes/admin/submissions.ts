@@ -264,7 +264,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
 
         if (!submissionObj) {
-          await safeTransactionRollback(transaction, logger);
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Submission not found'});
         }
 
@@ -274,7 +274,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         );
 
         if (hasUnhandledCreators) {
-          await safeTransactionRollback(transaction, logger);
+          await safeTransactionRollback(transaction);
           return res.status(400).json({
             error: 'All creators must be either assigned to existing creators or marked as new creators'
           });
@@ -282,7 +282,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Check if team request is properly handled
         if (submissionObj.teamRequestData && !submissionObj.teamRequestData.teamId && !submissionObj.teamRequestData.isNewRequest) {
-          await safeTransactionRollback(transaction, logger);
+          await safeTransactionRollback(transaction);
           return res.status(400).json({
             error: 'Team must be either assigned to an existing team or marked as a new team'
           });
@@ -332,7 +332,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Use existing team
             team = await Team.findByPk(submission.teamRequestData.teamId, { transaction });
             if (!team) {
-              await safeTransactionRollback(transaction, logger);
+              await safeTransactionRollback(transaction);
               return res.status(404).json({ error: 'Referenced team not found' });
             }
             teamId = team.id;
@@ -472,10 +472,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           },
         );
 
-        await transaction.commit();
-
-        // Index the level in Elasticsearch after transaction is committed
-        await elasticsearchService.indexLevel(newLevel);
 
         // Broadcast updates
         sseManager.broadcast({type: 'submissionUpdate'});
@@ -489,11 +485,16 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           },
         });
 
+        await transaction.commit();
+
+        // Index the level in Elasticsearch after transaction is committed
+        await elasticsearchService.indexLevel(newLevel);
+
         return res.json({
           message: 'Submission approved, level and rating created successfully',
         });
     } catch (error) {
-      await safeTransactionRollback(transaction, logger);
+      await safeTransactionRollback(transaction);
       logger.error('Error processing level submission:', error);
       return res
         .status(500)
@@ -512,7 +513,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       // Get the submission to check if it has a level zip
       const submission = await LevelSubmission.findByPk(id);
       if (!submission) {
-        await safeTransactionRollback(transaction, logger);
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Submission not found'});
       }
 
@@ -532,7 +533,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
         },
       );
 
-      await transaction.commit();
+
 
       // Broadcast updates
       sseManager.broadcast({type: 'submissionUpdate'});
@@ -545,9 +546,11 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
         },
       });
 
+      await transaction.commit();
+
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
-      await safeTransactionRollback(transaction, logger);
+      await safeTransactionRollback(transaction);
       logger.error('Error processing level submission:', error);
       return res
         .status(500)
@@ -588,18 +591,18 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       });
 
       if (!submission) {
-        await safeTransactionRollback(transaction, logger);
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Submission not found'});
       }
 
       // Validate level and difficulty data
       if (!submission.level) {
-        await safeTransactionRollback(transaction, logger);
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Level data not found'});
       }
 
       if (!submission.level.difficulty) {
-        await safeTransactionRollback(transaction, logger);
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Difficulty data not found'});
       }
 
@@ -717,12 +720,9 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           ],
           transaction,
         });
-      await transaction.commit();
-      // Index the pass in Elasticsearch after transaction is committed
-      await elasticsearchService.indexPass(newPass!);
-      await elasticsearchService.indexLevel(newPass!.level!);
 
-      // Update player stats - these operations don't need to be part of the transaction
+      // Update player stats before committing the main transaction
+      let playerStats = null;
       if (submission.assignedPlayerId) {
         try {
           // Create a new transaction for player stats update
@@ -736,39 +736,28 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             await statsTransaction.commit();
 
             // Get player's new stats
-            const playerStats = await playerStatsService.getPlayerStats(
+            playerStats = await playerStatsService.getPlayerStats(
               submission.assignedPlayerId,
             ).then(stats => stats?.[0]);
-
-            sseManager.broadcast({
-              type: 'submissionUpdate',
-              data: {
-                action: 'create',
-                submissionId: submission.id,
-                submissionType: 'pass',
-              },
-            });
-            // Emit SSE event with pass update data
-            sseManager.broadcast({
-              type: 'passUpdate',
-              data: {
-                playerId: submission.assignedPlayerId,
-                passedLevelId: submission.levelId,
-                newScore: playerStats?.rankedScore || 0,
-                action: 'create',
-              },
-            });
           } catch (error) {
             // If there's an error, rollback the stats transaction
-            await statsTransaction.rollback();
-            throw error;
+            await safeTransactionRollback(statsTransaction);
+            logger.error('Error updating player stats:', error);
+            // Continue with main transaction even if stats update fails
           }
         } catch (error) {
-          logger.error('Error updating player stats:', error);
-          // Don't rollback main transaction here since it's already committed
+          logger.error('Error in stats transaction:', error);
+          // Continue with main transaction even if stats update fails
         }
       }
 
+      await transaction.commit();
+      
+      // Index the pass in Elasticsearch after transaction is committed
+      await elasticsearchService.indexPass(newPass!);
+      await elasticsearchService.indexLevel(newPass!.level!);
+
+      // Broadcast updates after successful commit
       sseManager.broadcast({
         type: 'submissionUpdate',
         data: {
@@ -778,18 +767,25 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         },
       });
 
+      if (submission.assignedPlayerId && playerStats) {
+        // Emit SSE event with pass update data
+        sseManager.broadcast({
+          type: 'passUpdate',
+          data: {
+            playerId: submission.assignedPlayerId,
+            passedLevelId: submission.levelId,
+            newScore: playerStats?.rankedScore || 0,
+            action: 'create',
+          },
+        });
+      }
+
       return res.json({
         message: 'Pass submission approved successfully',
         pass,
       });
     } catch (error) {
-      // Only rollback if the transaction hasn't been committed yet
-      try {
-        await transaction.rollback();
-      } catch (rollbackError) {
-        // Ignore rollback errors - transaction might already be committed
-        logger.error('Error rolling back transaction:', rollbackError);
-      }
+      await safeTransactionRollback(transaction);
       logger.error('Error processing pass submission:', error);
       return res.status(500).json({error: 'Failed to process pass submission'});
     }
@@ -807,8 +803,6 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
         }
       );
 
-      await transaction.commit();
-
       // Broadcast updates
       sseManager.broadcast({type: 'submissionUpdate'});
       sseManager.broadcast({
@@ -820,9 +814,11 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
         },
       });
 
+      await transaction.commit();
+
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
-      await safeTransactionRollback(transaction, logger);
+      await safeTransactionRollback(transaction);
       logger.error('Error declining pass submission:', error);
       return res.status(500).json({error: 'Failed to decline pass submission'});
     }
@@ -862,7 +858,7 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
       });
 
       if (!submission) {
-        await safeTransactionRollback(transaction, logger);
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Submission not found'});
       }
 
@@ -897,8 +893,6 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
         transaction,
       });
 
-      await transaction.commit();
-
       // Broadcast the update
       sseManager.broadcast({
         type: 'submissionUpdate',
@@ -909,12 +903,14 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
         },
       });
 
+      await transaction.commit();
+
       return res.json({
         message: 'Player assigned successfully',
         submission,
       });
     } catch (error) {
-      await safeTransactionRollback(transaction, logger);
+      await safeTransactionRollback(transaction);
       logger.error('Error assigning player:', error);
       return res.status(500).json({error: 'Failed to assign player'});
     }
@@ -1052,14 +1048,8 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           throw new Error(`Failed to fetch created pass #${pass.id}`);
         }
 
-        // Commit the transaction
-        await transaction.commit();
-
-        // Index in Elasticsearch after transaction is committed
-        await elasticsearchService.indexPass(newPass);
-        await elasticsearchService.indexLevel(newPass.level!);
-
-        // Update player stats in a separate transaction
+        // Update player stats before committing the main transaction
+        let playerStats = null;
         if (submission.assignedPlayerId) {
           try {
             const statsTransaction = await sequelize.transaction();
@@ -1068,28 +1058,37 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
               await statsTransaction.commit();
 
               // Get updated player stats
-              const playerStats = 
-              await playerStatsService.getPlayerStats(submission.assignedPlayerId)
-              .then(stats => stats?.[0]);
-
-              // Broadcast updates
-              sseManager.broadcast({
-                type: 'passUpdate',
-                data: {
-                  playerId: submission.assignedPlayerId,
-                  passedLevelId: submission.levelId,
-                  newScore: playerStats?.rankedScore || 0,
-                  action: 'create'
-                }
-              });
+              playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId)
+                .then(stats => stats?.[0]);
             } catch (error) {
-              await statsTransaction.rollback();
-              throw error;
+              await safeTransactionRollback(statsTransaction);
+              logger.error('Error updating player stats:', error);
+              // Continue with main transaction even if stats update fails
             }
           } catch (error) {
-            logger.error('Error updating player stats:', error);
-            // Don't rollback main transaction since it's already committed
+            logger.error('Error in stats transaction:', error);
+            // Continue with main transaction even if stats update fails
           }
+        }
+
+        // Commit the main transaction
+        await transaction.commit();
+
+        // Index in Elasticsearch after transaction is committed
+        await elasticsearchService.indexPass(newPass);
+        await elasticsearchService.indexLevel(newPass.level!);
+
+        // Broadcast updates after successful commit
+        if (submission.assignedPlayerId && playerStats) {
+          sseManager.broadcast({
+            type: 'passUpdate',
+            data: {
+              playerId: submission.assignedPlayerId,
+              passedLevelId: submission.levelId,
+              newScore: playerStats?.rankedScore || 0,
+              action: 'create'
+            }
+          });
         }
 
         results.push({ id: submission.id, success: true });
@@ -1665,7 +1664,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
     });
 
     if (!submission || !submission.creatorRequests) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Submission not found' });
     }
 
@@ -1692,7 +1691,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
       if (isCharter) {
         const charterCount = submission.creatorRequests.filter(r => r.role === CreditRole.CHARTER).length;
         if (charterCount <= 1) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'Cannot remove the last charter' });
         }
       }
@@ -1726,7 +1725,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
 
     return res.json(updatedSubmission);
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error removing creator request:', error);
     return res.status(500).json({ error: 'Failed to remove creator request' });
   }

@@ -26,6 +26,7 @@ import multer from 'multer';
 import fs from 'fs';
 import { User } from '../../models/index.js';
 import Player from '../../models/players/Player.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 const router: Router = express.Router();
 
@@ -45,13 +46,25 @@ const upload = multer({
   }
 });
 
-// Add this helper function after the router declaration
+// Enhanced input validation and sanitization
 const sanitizeTextInput = (input: string | null | undefined): string => {
   if (input === null || input === undefined) return '';
   return input.trim();
 };
 
-// Add safe parsing function
+const validateNumericInput = (input: any, min: number = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
+  const parsed = parseInt(input?.toString() || '0');
+  if (isNaN(parsed)) return min;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+const validateFloatInput = (input: any, min: number = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
+  const parsed = parseFloat(input?.toString() || '0');
+  if (isNaN(parsed)) return min;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+// Enhanced JSON parsing with validation
 const safeParseJSON = (input: string | object | null | undefined): any => {
   if (input === null || input === undefined) return null;
   if (typeof input === 'object') return input;
@@ -60,14 +73,32 @@ const safeParseJSON = (input: string | object | null | undefined): any => {
   } catch (error) {
     logger.error('Failed to parse JSON:', {
       error: error instanceof Error ? error.message : String(error),
-      input,
+      input: typeof input === 'string' ? input.substring(0, 100) : input,
       timestamp: new Date().toISOString()
     });
     return null;
   }
 };
 
+// Validate creator request structure
+const validateCreatorRequest = (request: any): boolean => {
+  return request && 
+         typeof request.creatorName === 'string' && 
+         request.creatorName.trim().length > 0 &&
+         typeof request.role === 'string' &&
+         request.role.trim().length > 0;
+};
+
+// Validate team request structure
+const validateTeamRequest = (request: any): boolean => {
+  return request && 
+         typeof request.teamName === 'string' && 
+         request.teamName.trim().length > 0;
+};
+
 const cleanVideoUrl = (url: string) => {
+  if (!url || typeof url !== 'string') return '';
+  
   // Match various video URL formats
   const patterns = [
     // YouTube patterns
@@ -99,18 +130,51 @@ const cleanVideoUrl = (url: string) => {
   return url;
 };
 
-
+// Enhanced file cleanup with better error handling
 async function cleanUpFile(req: Request) {
   if (req.file?.path) {
     try {
+      // Check if file exists before attempting to delete
+      await fs.promises.access(req.file.path);
       await fs.promises.unlink(req.file.path);
-    } catch (cleanupError) {
-      logger.error('Failed to clean up temporary file:', {
-        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      logger.info('Temporary file cleaned up successfully:', {
         path: req.file.path,
         timestamp: new Date().toISOString()
       });
+    } catch (cleanupError) {
+      // File might not exist or already be deleted
+      if ((cleanupError as any).code === 'ENOENT') {
+        logger.info('Temporary file already deleted:', {
+          path: req.file.path,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        logger.error('Failed to clean up temporary file:', {
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          path: req.file.path,
+          timestamp: new Date().toISOString()
+        });
+      }
     }
+  }
+}
+
+// Enhanced CDN cleanup
+async function cleanUpCdnFile(fileId: string | null) {
+  if (!fileId) return;
+  
+  try {
+    await cdnService.deleteFile(fileId);
+    logger.info('CDN file cleaned up successfully:', {
+      fileId,
+      timestamp: new Date().toISOString()
+    });
+  } catch (cleanupError) {
+    logger.error('Failed to clean up CDN file:', {
+      error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      fileId,
+      timestamp: new Date().toISOString()
+    });
   }
 }
 
@@ -122,38 +186,54 @@ router.post(
   express.json(),
   async (req: Request, res: Response) => {
     let transaction: Transaction | undefined;
+    let uploadedFileId: string | null = null;
+    
     try {
       // Start a transaction
       transaction = await sequelize.transaction();
 
+      // Enhanced user validation
+      if (!req.user) {
+        await safeTransactionRollback(transaction);
+        return res.status(401).json({error: 'User not authenticated'});
+      }
+
       if (req.user?.player?.isBanned) {
-        // Clean up any uploaded file
         await cleanUpFile(req);
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(403).json({error: 'You are banned'});
       }
 
       if (req.user?.player?.isSubmissionsPaused) {
-        // Clean up any uploaded file
         await cleanUpFile(req);
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(403).json({error: 'Your submissions are paused'});
       }
 
       if (!req.user?.isEmailVerified) {
-        // Clean up any uploaded file
         await cleanUpFile(req);
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(403).json({error: 'Your email is not verified'});
       }
 
-
       const formType = req.headers['x-form-type'];
       if (formType === 'level') {
+        // Validate required fields for level submission
+        const requiredFields = ['artist', 'song', 'diff', 'videoLink'];
+        for (const field of requiredFields) {
+          if (!req.body[field] || typeof req.body[field] !== 'string' || req.body[field].trim().length === 0) {
+            await cleanUpFile(req);
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+              error: `Missing or invalid required field: ${field}`,
+            });
+          }
+        }
 
+        // Validate directDL if provided
         if (req.body.directDL && req.body.directDL.startsWith(CDN_CONFIG.baseUrl)) {
           await cleanUpFile(req);
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({
             error: 'Direct download cannot point to local CDN',
             details: {
@@ -174,11 +254,12 @@ router.post(
             userId: req.user?.id,
             videoLink: cleanVideoUrl(req.body.videoLink),
           },
+          transaction
         });
+        
         if (existingSubmissions.length > 0) {
-          // Clean up the temporary file if it exists
           await cleanUpFile(req);
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({
             error: "You've already submitted this level, please wait for approval.",
           });
@@ -188,10 +269,18 @@ router.post(
         let directDL: string | null = null;
         let hasZipUpload = false;
         let levelFiles: any[] = [];
-        let fileId: string | null = null;
 
         if (req.file) {
           try {
+            // Validate file size
+            if (req.file.size > 1000 * 1024 * 1024) { // 1GB
+              await cleanUpFile(req);
+              await safeTransactionRollback(transaction);
+              return res.status(400).json({
+                error: 'File size exceeds maximum allowed size (1GB)',
+              });
+            }
+
             // Read file from disk instead of using buffer
             const fileBuffer = await fs.promises.readFile(req.file.path);
             
@@ -200,19 +289,26 @@ router.post(
               req.file.originalname
             );
 
+            // Store fileId for potential cleanup
+            uploadedFileId = uploadResult.fileId;
+
             // Clean up the temporary file
             await fs.promises.unlink(req.file.path);
 
             // Get the level files from the CDN service
             levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
-            fileId = uploadResult.fileId;
             
             // If only one level file, use it directly
-            directDL = `${CDN_CONFIG.baseUrl}/${fileId}`;
+            directDL = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
             hasZipUpload = true;
           } catch (error) {
             // Clean up the temporary file in case of error
             await cleanUpFile(req);
+            
+            // Clean up CDN file if it was uploaded
+            if (uploadedFileId) {
+              await cleanUpCdnFile(uploadedFileId);
+            }
 
             logger.error('Failed to upload zip file to CDN:', {
               error: error instanceof Error ? {
@@ -223,19 +319,20 @@ router.post(
               size: req.file.size,
               timestamp: new Date().toISOString()
             });
+            
+            await safeTransactionRollback(transaction);
             throw error;
           }
         }
 
-
         const submission = await LevelSubmission.create({
-          artist: req.body.artist,
-          song: req.body.song,
-          diff: req.body.diff,
+          artist: sanitizeTextInput(req.body.artist),
+          song: sanitizeTextInput(req.body.song),
+          diff: sanitizeTextInput(req.body.diff),
           videoLink: cleanVideoUrl(req.body.videoLink),
-          directDL: directDL || req.body.directDL || '',
+          directDL: directDL || sanitizeTextInput(req.body.directDL) || '',
           userId: req.user?.id,
-          wsLink: req.body.wsLink || '',
+          wsLink: sanitizeTextInput(req.body.wsLink) || '',
           submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username || '',
           submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id || '',
           submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png` || '',
@@ -246,25 +343,34 @@ router.post(
         }, { transaction });
 
         const parsedCreatorRequests = safeParseJSON(req.body.creatorRequests);
-        // Create the creator request records within transaction
+        // Create the creator request records within transaction with validation
         if (Array.isArray(parsedCreatorRequests)) {
-          await Promise.all(parsedCreatorRequests.map(async (request: any) => {
+          const validRequests = parsedCreatorRequests.filter(validateCreatorRequest);
+          if (validRequests.length !== parsedCreatorRequests.length) {
+            logger.warn('Some creator requests were invalid and filtered out:', {
+              total: parsedCreatorRequests.length,
+              valid: validRequests.length,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          await Promise.all(validRequests.map(async (request: any) => {
             return LevelSubmissionCreatorRequest.create({
               submissionId: submission.id,
-              creatorName: request.creatorName,
+              creatorName: sanitizeTextInput(request.creatorName),
               creatorId: request.creatorId || null,
-              role: request.role,
+              role: sanitizeTextInput(request.role),
               isNewRequest: request.isNewRequest || false
             }, { transaction });
           }));
         }
 
-        // Create team request record if present within transaction
+        // Create team request record if present within transaction with validation
         const parsedTeamRequest = safeParseJSON(req.body.teamRequest);
-        if (parsedTeamRequest && parsedTeamRequest.teamName) {
+        if (parsedTeamRequest && validateTeamRequest(parsedTeamRequest)) {
           await LevelSubmissionTeamRequest.create({
             submissionId: submission.id,
-            teamName: parsedTeamRequest.teamName,
+            teamName: sanitizeTextInput(parsedTeamRequest.teamName),
             teamId: parsedTeamRequest.teamId || null,
             isNewRequest: parsedTeamRequest.isNewRequest
           }, { transaction });
@@ -313,7 +419,7 @@ router.post(
           sseManager.broadcast({
             type: 'levelSelection',
             data: {
-              fileId,
+              fileId: uploadedFileId,
               levelFiles: levelFiles.map(file => ({
                 name: file.name,
                 size: file.size,
@@ -344,7 +450,7 @@ router.post(
               difficulty: file.difficulty,
               bpm: file.bpm
             })),
-            fileId
+            fileId: uploadedFileId
           });
         }
 
@@ -356,7 +462,7 @@ router.post(
       }
 
       if (formType === 'pass') {
-        // Validate required fields
+        // Validate required fields with enhanced validation
         const requiredFields = [
           'videoLink',
           'levelId',
@@ -367,50 +473,44 @@ router.post(
         ];
 
         for (const field of requiredFields) {
-          if (!req.body[field]) {
-            await transaction.rollback();
+          if (!req.body[field] || (typeof req.body[field] === 'string' && req.body[field].trim().length === 0)) {
+            await cleanUpFile(req);
+            await safeTransactionRollback(transaction);
             return res.status(400).json({
-              error: `Missing required field: ${field}`,
+              error: `Missing or invalid required field: ${field}`,
             });
           }
         }
 
+        // Validate levelId is a valid number
+        const levelId = parseInt(req.body.levelId);
+        if (isNaN(levelId) || levelId <= 0) {
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid level ID',
+          });
+        }
+
+        // Enhanced judgement validation with proper bounds
         const sanitizedJudgements = {
-          earlyDouble: Math.max(
-            0,
-            parseInt(req.body.earlyDouble?.toString().slice(0, 9) || '0'),
-          ),
-          earlySingle: Math.max(
-            0,
-            parseInt(req.body.earlySingle?.toString().slice(0,9) || '0'),
-          ),
-          ePerfect: Math.max(
-            0,
-            parseInt(req.body.ePerfect?.toString().slice(0, 9) || '0'),
-          ),
-          perfect: Math.max(
-            1,
-            parseInt(req.body.perfect?.toString().slice(0, 9) || '0'),
-          ),
-          lPerfect: Math.max(
-            0,
-            parseInt(req.body.lPerfect?.toString().slice(0, 9) || '0'),
-          ),
-          lateSingle: Math.max(
-            0,
-            parseInt(req.body.lateSingle?.toString().slice(0, 9) || '0'),
-          ),
-          lateDouble: Math.max(
-            0,
-            parseInt(req.body.lateDouble?.toString().slice(0, 9) || '0'),
-          ),
+          earlyDouble: validateNumericInput(req.body.earlyDouble, 0, 999999999),
+          earlySingle: validateNumericInput(req.body.earlySingle, 0, 999999999),
+          ePerfect: validateNumericInput(req.body.ePerfect, 0, 999999999),
+          perfect: validateNumericInput(req.body.perfect, 1, 999999999), // Must be at least 1
+          lPerfect: validateNumericInput(req.body.lPerfect, 0, 999999999),
+          lateSingle: validateNumericInput(req.body.lateSingle, 0, 999999999),
+          lateDouble: validateNumericInput(req.body.lateDouble, 0, 999999999),
         };
+
+        // Validate speed if provided
+        const speed = req.body.speed ? validateFloatInput(req.body.speed, 1, 100) : 1;
 
         const discordProvider = req.user?.providers?.find(
           (provider: any) => provider.dataValues.provider === 'discord',
         );
 
-        const level = await Level.findByPk(req.body.levelId, {
+        const level = await Level.findByPk(levelId, {
           include: [
             {
               model: Difficulty,
@@ -421,24 +521,27 @@ router.post(
         });
         
         if (!level) {
-          await transaction.rollback();
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Level not found'});
         }
         if (!level.difficulty) {
-          await transaction.rollback();
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Difficulty not found'});
         }
 
         const existingSubmission = await PassSubmission.findOne({
           where: {
-            levelId: req.body.levelId,
-            speed: req.body.speed ? parseFloat(req.body.speed) : 1,
+            levelId: levelId,
+            speed: speed,
             passer: sanitizeTextInput(req.body.passer),
             passerRequest: req.body.passerRequest === true,
-            title: req.body.title,
+            title: sanitizeTextInput(req.body.title),
             videoLink: cleanVideoUrl(req.body.videoLink),
             rawTime: new Date(req.body.rawTime),
           },
+          transaction
         });
 
         let existingSubmissionJudgements: PassSubmissionJudgements | null = null;
@@ -455,6 +558,7 @@ router.post(
               lateSingle: sanitizedJudgements.lateSingle,
               lateDouble: sanitizedJudgements.lateDouble,
             },
+            transaction
           });
           existingSubmissionFlags = await PassSubmissionFlags.findOne({
             where: {
@@ -463,15 +567,18 @@ router.post(
               isNoHoldTap: req.body.isNoHoldTap === true,
               is16K: req.body.is16K === true,
             },
+            transaction
           });
         }
 
         if (existingSubmissionJudgements && existingSubmissionFlags) {
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
           return res.status(400).json({
             error: 'Identical submission already exists',
             details: {
-              levelId: req.body.levelId,
-              speed: req.body.speed || 1,
+              levelId: levelId,
+              speed: speed,
               videoLink: cleanVideoUrl(req.body.videoLink),
             }
           });
@@ -487,29 +594,32 @@ router.post(
             lateSingle: sanitizedJudgements.lateSingle,
             lateDouble: sanitizedJudgements.lateDouble,
           },
+          transaction
         });
-        //logger.info(`Existing judgement: ${existingJudgement}`);
+        
         const existingPass = existingJudgement ? await Pass.findOne({
           where: {
             id: existingJudgement.id,
-            levelId: req.body.levelId,
-            speed: parseFloat(req.body.speed || "1"),
+            levelId: levelId,
+            speed: speed,
             videoLink: cleanVideoUrl(req.body.videoLink),
             is12K: req.body.is12K === true,
             isNoHoldTap: req.body.isNoHoldTap === true,
             is16K: req.body.is16K === true,
           },
+          transaction
         }) : null;
-        //logger.info(`Existing pass: ${existingPass?.id}`);
+        
         if (existingPass) {
-          await transaction.rollback();
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
           return res.status(400).json({
             error: 'A pass with identical video, judgements, and flags already exists for this level and speed',
             details: {
-              levelId: req.body.levelId,
-              speed: req.body.speed || 1,
+              levelId: levelId,
+              speed: speed,
               videoLink: cleanVideoUrl(req.body.videoLink),
-              title: req.body.title,
+              title: sanitizeTextInput(req.body.title),
             }
           });
         }
@@ -522,7 +632,7 @@ router.post(
 
         const score = getScoreV2(
           {
-            speed: parseFloat(req.body.speed || '1'),
+            speed: speed,
             judgements: sanitizedJudgements,
             isNoHoldTap: req.body.isNoHoldTap === 'true',
           },
@@ -531,131 +641,136 @@ router.post(
 
         const accuracy = calcAcc(sanitizedJudgements);
         
-        try {
-          // Create the pass submission within transaction
-          const submission = await PassSubmission.create({
-            levelId: req.body.levelId,
-            speed: req.body.speed ? parseFloat(req.body.speed) : 1,
-            scoreV2: score,
-            accuracy,
-            passer: sanitizeTextInput(req.body.passer),
-            passerId: req.body.passerId,
-            passerRequest: req.body.passerRequest === true,
-            feelingDifficulty: sanitizeTextInput(req.body.feelingDifficulty),
-            title: req.body.title,
-            videoLink: cleanVideoUrl(req.body.videoLink),
-            rawTime: new Date(req.body.rawTime),
-            submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username,
-            submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id,
-            submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
-            status: 'pending',
-            assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
-            userId: req.user?.id,
-          }, { transaction });
+        // Create the pass submission within transaction
+        const submission = await PassSubmission.create({
+          levelId: levelId,
+          speed: speed,
+          scoreV2: score,
+          accuracy,
+          passer: sanitizeTextInput(req.body.passer),
+          passerId: req.body.passerId,
+          passerRequest: req.body.passerRequest === true,
+          feelingDifficulty: sanitizeTextInput(req.body.feelingDifficulty),
+          title: sanitizeTextInput(req.body.title),
+          videoLink: cleanVideoUrl(req.body.videoLink),
+          rawTime: new Date(req.body.rawTime),
+          submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username,
+          submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id,
+          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
+          status: 'pending',
+          assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
+          userId: req.user?.id,
+        }, { transaction });
 
-          await PassSubmissionJudgements.create({
-            ...sanitizedJudgements,
-            passSubmissionId: submission.id,
-          }, { transaction });
+        await PassSubmissionJudgements.create({
+          ...sanitizedJudgements,
+          passSubmissionId: submission.id,
+        }, { transaction });
 
-          // Create flags with proper validation
-          const flags = {
-            passSubmissionId: submission.id,
-            is12K: req.body.is12K === true,
-            isNoHoldTap: req.body.isNoHoldTap === true,
-            is16K: req.body.is16K === true,
-          };
+        // Create flags with proper validation
+        const flags = {
+          passSubmissionId: submission.id,
+          is12K: req.body.is12K === true,
+          isNoHoldTap: req.body.isNoHoldTap === true,
+          is16K: req.body.is16K === true,
+        };
 
-          await PassSubmissionFlags.create(flags, { transaction });
-          
-          const passObj = await PassSubmission.findByPk(submission.id, {
-            include: [
-              {
-                model: PassSubmissionJudgements,
-                as: 'judgements',
-              },
-              {
-                model: PassSubmissionFlags,
-                as: 'flags',
-              },
-              {
-                model: Level,
-                as: 'level',
-                include: [
-                  {
-                    model: Difficulty,
-                    as: 'difficulty',
-                  },
-                ],
-              },
-              {
-                model: User,
-                as: 'passSubmitter',
-                attributes: ['id', 'username', 'playerId', 'avatarUrl'],
-                include: [
-                  {
-                    model: Player,
-                    as: 'player'
-                  }
-                ]
-              }
-            ],
-            transaction
-          });
-
-          if (!passObj) {
-            throw new Error('Failed to create pass submission');
-          }
-
-          // Commit the transaction
-          await transaction.commit();
-
-          await passSubmissionHook(passObj, sanitizedJudgements);
-
-          // Broadcast submission update
-          sseManager.broadcast({
-            type: 'submissionUpdate',
-            data: {
-              action: 'create',
-              submissionId: submission.id,
-              submissionType: 'pass',
+        await PassSubmissionFlags.create(flags, { transaction });
+        
+        const passObj = await PassSubmission.findByPk(submission.id, {
+          include: [
+            {
+              model: PassSubmissionJudgements,
+              as: 'judgements',
             },
-          });
+            {
+              model: PassSubmissionFlags,
+              as: 'flags',
+            },
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+            {
+              model: User,
+              as: 'passSubmitter',
+              attributes: ['id', 'username', 'playerId', 'avatarUrl'],
+              include: [
+                {
+                  model: Player,
+                  as: 'player'
+                }
+              ]
+            }
+          ],
+          transaction
+        });
 
-          return res.json({
-            success: true,
-            message: 'Pass submission saved successfully',
-            submissionId: submission.id,
-          });
-        } catch (error) {
-          // Only rollback if the transaction hasn't been rolled back already
-          try {
-            await transaction.rollback();
-          } catch (rollbackError) {
-            // Ignore rollback errors - transaction might already be rolled back
-            logger.warn('Transaction rollback failed:', rollbackError);
-          }
-          throw error; // Re-throw to be caught by outer catch
+        if (!passObj) {
+          throw new Error('Failed to create pass submission');
         }
+
+        // Commit the transaction
+        await transaction.commit();
+
+        await passSubmissionHook(passObj, sanitizedJudgements);
+
+        // Broadcast submission update
+        sseManager.broadcast({
+          type: 'submissionUpdate',
+          data: {
+            action: 'create',
+            submissionId: submission.id,
+            submissionType: 'pass',
+          },
+        });
+
+        return res.json({
+          success: true,
+          message: 'Pass submission saved successfully',
+          submissionId: submission.id,
+        });
       }
 
-      await transaction.rollback();
+      await cleanUpFile(req);
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Invalid form type'});
     } catch (error) {
+      // Enhanced error handling with proper cleanup
+      logger.error('Submission error:', {
+        error: error instanceof Error ? {
+          message: error.message,
+          stack: error.stack
+        } : error,
+        formType: req.headers['x-form-type'],
+        userId: req.user?.id,
+        timestamp: new Date().toISOString()
+      });
+
+      // Clean up uploaded CDN file if transaction failed
+      if (uploadedFileId) {
+        await cleanUpCdnFile(uploadedFileId);
+      }
+
+      // Clean up any uploaded file
+      await cleanUpFile(req);
+
       // Only attempt rollback if transaction exists
       if (transaction) {
         try {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
         } catch (rollbackError) {
           // If rollback fails, it likely means the transaction was already rolled back
           logger.warn('Transaction rollback failed:', rollbackError);
         }
       }
 
-      // Clean up any uploaded file
-      await cleanUpFile(req);
-
-      logger.error('Submission error:', error);
       return res.status(500).json({
         error: 'Failed to process submission',
         details: error instanceof Error ? error.message : String(error),
@@ -668,6 +783,7 @@ router.post(
 router.post('/select-level', Auth.verified(), async (req: Request, res: Response) => {
     const { submissionId, selectedLevel } = req.body;
 
+    // Enhanced input validation
     if (!submissionId || !selectedLevel) {
         return res.status(400).json({
             success: false,
@@ -675,11 +791,28 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
         });
     }
 
+    // Validate submissionId is a valid number
+    const parsedSubmissionId = parseInt(submissionId);
+    if (isNaN(parsedSubmissionId) || parsedSubmissionId <= 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid submission ID'
+        });
+    }
+
+    // Validate selectedLevel is a string
+    if (typeof selectedLevel !== 'string' || selectedLevel.trim().length === 0) {
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid selected level'
+        });
+    }
+
     try {
         // Set the target level in CDN
         const submission = await LevelSubmission.findOne({
             where: {
-                id: submissionId,
+                id: parsedSubmissionId,
                 userId: req.user?.id,
                 status: 'pending'
             }
@@ -709,8 +842,7 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
             });
         }
 
-        await cdnService.setTargetLevel(fileId, selectedLevel);
-
+        // Get available level files first to validate the selection
         const levelFiles = await cdnService.getLevelFiles(fileId);
         const selectedFile = levelFiles.find(file => file.name === selectedLevel);
 
@@ -723,13 +855,27 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
             });
             return res.status(400).json({
                 success: false,
-                error: 'Selected level file not found'
+                error: 'Selected level file not found',
+                availableFiles: levelFiles.map(f => f.name)
             });
         }
 
+        // Set the target level in CDN
+        await cdnService.setTargetLevel(fileId, selectedLevel);
 
         return res.json({
-            success: true
+            success: true,
+            selectedFile: {
+                name: selectedFile.name,
+                size: selectedFile.size,
+                hasYouTubeStream: selectedFile.hasYouTubeStream,
+                songFilename: selectedFile.songFilename,
+                artist: selectedFile.artist,
+                song: selectedFile.song,
+                author: selectedFile.author,
+                difficulty: selectedFile.difficulty,
+                bpm: selectedFile.bpm
+            }
         });
     } catch (error) {
         logger.error('Failed to process level selection:', {
@@ -737,8 +883,9 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
                 message: error.message,
                 stack: error.stack
             } : error,
-            submissionId,
+            submissionId: parsedSubmissionId,
             selectedLevel,
+            userId: req.user?.id,
             timestamp: new Date().toISOString()
         });
 

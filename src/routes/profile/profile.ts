@@ -11,6 +11,7 @@ import cdnService from '../../services/CdnService.js';
 import { CdnError } from '../../services/CdnService.js';
 import PlayerStats from '../../models/players/PlayerStats.js';
 import Difficulty from '../../models/levels/Difficulty.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 const router: Router = Router();
 
@@ -123,7 +124,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       });
       
       if (existingUser) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(400).json({error: 'Username already taken'});
       }
 
@@ -140,7 +141,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + (24 * 60 * 60 * 1000));
           
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(429).json({
             error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
             nextAvailableChange,
@@ -205,7 +206,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     });
 
     if (!updatedUser) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'User not found after update'});
     }
 
@@ -229,7 +230,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error updating user profile:', error);
     return res.status(500).json({error: 'Failed to update profile'});
   }

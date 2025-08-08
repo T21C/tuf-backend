@@ -29,6 +29,7 @@ import UsernameChange from '../../models/auth/UsernameChange.js';
 import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
 import RatingAccuracyVote from '../../models/levels/RatingAccuracyVote.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -285,7 +286,7 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
       ]);
 
       if (!player) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
       }
 
@@ -294,7 +295,7 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
         existingUserWithDiscord &&
         (!player.user || existingUserWithDiscord.id !== player.user.id)
       ) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(409).json({
           error: 'Discord account already linked',
           details: 'This Discord account is already linked to another user',
@@ -372,7 +373,7 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
 
       return res.json({message: 'Discord info updated successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating player discord info:', error);
       return res.status(500).json({
         error: 'Failed to update player discord info',
@@ -509,7 +510,7 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
       });
 
       if (!player) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
       }
 
@@ -585,7 +586,7 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
         discordInfo: profile,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating Discord info:', error);
       return res.status(500).json({
         error: 'Failed to update Discord info',
@@ -712,7 +713,7 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
 
       const player = await Player.findByPk(id, {transaction});
       if (!player) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
       }
 
@@ -730,7 +731,7 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
         player,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating player ban status:', error);
       return res
         .status(500)
@@ -748,7 +749,7 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
 
       const player = await Player.findByPk(id, {transaction});
       if (!player) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
       }
 
@@ -762,7 +763,7 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
         player,
       });
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error updating player submission pause status:', error);
       return res
         .status(500)
@@ -811,7 +812,7 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
       });
 
       if (!sourcePlayer || !targetPlayer) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'One or both players not found'});
       }
 
@@ -929,7 +930,7 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
 
       return res.json({message: 'Players merged successfully'});
     } catch (error) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       logger.error('Error merging players:', error);
       return res.status(500).json({
         error: 'Failed to merge players',

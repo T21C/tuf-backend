@@ -5,7 +5,7 @@ import Level from '../../../models/levels/Level.js';
 import { Auth } from '../../../middleware/auth.js';
 import { Op } from 'sequelize';
 import { logger } from '../../../services/LoggerService.js';
-import { sanitizeTextInput } from '../../../utils/Utility.js';
+import { safeTransactionRollback, sanitizeTextInput } from '../../../utils/Utility.js';
 
 const router = Router();
 
@@ -35,7 +35,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
       try {
         const levelId = parseInt(req.params.id);
         if (isNaN(levelId)) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({error: 'Invalid level ID'});
         }
   
@@ -45,14 +45,14 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         const sanitizedAlias = sanitizeTextInput(alias);
   
         if (!field || !sanitizedAlias || !['song', 'artist'].includes(field)) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({error: 'Invalid field or alias'});
         }
   
         // Get the original level to get the original value
         const level = await Level.findByPk(levelId);
         if (!level) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Level not found'});
         }
   
@@ -158,7 +158,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
           propagatedLevels: propagatedLevels.map(l => l.id),
         });
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error adding level alias:', error);
         return res.status(500).json({error: 'Failed to add level alias'});
       }
@@ -173,7 +173,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         const levelId = parseInt(req.params.levelId);
         const aliasId = parseInt(req.params.aliasId);
         if (isNaN(levelId) || isNaN(aliasId)) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({error: 'Invalid ID'});
         }
   
@@ -182,7 +182,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         const sanitizedAlias = sanitizeTextInput(alias);
         
         if (!sanitizedAlias) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({error: 'Alias is required'});
         }
   
@@ -194,7 +194,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         });
   
         if (!levelAlias) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Alias not found'});
         }
   
@@ -206,7 +206,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
           alias: levelAlias,
         });
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error updating level alias:', error);
         return res.status(500).json({error: 'Failed to update level alias'});
       }
@@ -221,7 +221,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         const levelId = parseInt(req.params.levelId);
         const aliasId = parseInt(req.params.aliasId);
         if (isNaN(levelId) || isNaN(aliasId)) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(400).json({error: 'Invalid ID'});
         }
   
@@ -234,7 +234,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         });
   
         if (!deleted) {
-          await transaction.rollback();
+          await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Alias not found'});
         }
   
@@ -244,7 +244,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
           message: 'Alias deleted successfully',
         });
       } catch (error) {
-        await transaction.rollback();
+        await safeTransactionRollback(transaction);
         logger.error('Error deleting level alias:', error);
         return res.status(500).json({error: 'Failed to delete level alias'});
       }

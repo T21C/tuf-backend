@@ -9,6 +9,7 @@ import type { IJudgements } from '../utils/CalcAcc.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import Judgement from '../models/passes/Judgement.js';
 import { logger } from '../services/LoggerService.js';
+import { safeTransactionRollback } from '../utils/Utility.js';
 
 // Configuration
 const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues
@@ -137,7 +138,7 @@ async function recalculateScores() {
     logger.info('\nScore recalculation completed successfully!');
 
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error during score recalculation:', error);
     throw error;
   }
