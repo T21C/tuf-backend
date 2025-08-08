@@ -64,8 +64,40 @@ interface ChannelMessages {
 async function collectAndSortMessages(groups: WebhookGroup[]): Promise<ChannelMessages[]> {
   const channelMessages = new Map<string, ChannelMessages>();
   
+  // Log the original groups for debugging
+  logWebhookEvent('groups_before_sorting', {
+    groupCount: groups.length,
+    groups: groups.map(g => ({
+      webhookUrl: g.webhookUrl,
+      ping: g.ping,
+      itemCount: g.items.length,
+      isEveryonePing: g.ping === '@everyone'
+    }))
+  });
+  
+  // Sort groups to ensure consistent processing order
+  // Non-@everyone groups should be processed first
+  const sortedGroups = groups.sort((a, b) => {
+    const aIsEveryone = a.ping === '@everyone';
+    const bIsEveryone = b.ping === '@everyone';
+    if (aIsEveryone && !bIsEveryone) return 1;
+    if (!aIsEveryone && bIsEveryone) return -1;
+    return 0;
+  });
+  
+  // Log the sorted groups for debugging
+  logWebhookEvent('groups_after_sorting', {
+    groupCount: sortedGroups.length,
+    groups: sortedGroups.map(g => ({
+      webhookUrl: g.webhookUrl,
+      ping: g.ping,
+      itemCount: g.items.length,
+      isEveryonePing: g.ping === '@everyone'
+    }))
+  });
+  
   // Process each group and collect messages
-  for (const group of groups) {
+  for (const group of sortedGroups) {
     if (!channelMessages.has(group.webhookUrl)) {
       channelMessages.set(group.webhookUrl, {
         webhookUrl: group.webhookUrl,
@@ -107,6 +139,20 @@ async function collectAndSortMessages(groups: WebhookGroup[]): Promise<ChannelMe
       return 0;
     });
   }
+  
+  // Log the final channel messages for debugging
+  logWebhookEvent('final_channel_messages', {
+    channelCount: channelMessages.size,
+    channels: Array.from(channelMessages.values()).map(channel => ({
+      webhookUrl: channel.webhookUrl,
+      messageCount: channel.messages.length,
+      messages: channel.messages.map(m => ({
+        content: m.content,
+        embedCount: m.embeds.length,
+        isEveryonePing: m.isEveryonePing
+      }))
+    }))
+  });
   
   return Array.from(channelMessages.values());
 }
@@ -344,7 +390,7 @@ router.post(
 
       // Load all passes with their configs
       const passes = await Pass.findAll({
-        where: {id: {[Op.in]: passIds}},
+        where: {id: {[Op.in]: passIds}, isAnnounced: false},
         include: [
           {
             model: Level,
@@ -434,6 +480,7 @@ router.post(
           id: {
             [Op.in]: levelIds,
           },
+          isAnnounced: false,
         },
         include: [
           {
@@ -529,6 +576,7 @@ router.post(
           id: {
             [Op.in]: levelIds,
           },
+          isAnnounced: false,
         },
         include: [
           {
