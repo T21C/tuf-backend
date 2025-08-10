@@ -129,27 +129,6 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
     if (!playerExists) {
       return res.status(404).json({error: 'Player not found'});
     }
-
-    // Then get player
-    const player = await Player.findByPk(id, {
-      include: [
-        {
-          model: User,
-          as: 'user',
-          attributes: [
-            'id',
-            'username',
-            'nickname',
-            'avatarUrl',
-            'isSuperAdmin',
-            'isRater',
-          ],
-        },
-      ],
-    });
-
-    const playerData = player || playerExists;
-
     // Wait for both enriched data and stats in parallel
     const [enrichedPlayer, playerStats] = await Promise.all([
       playerStatsService.getEnrichedPlayer(parseInt(id)),

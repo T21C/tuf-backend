@@ -1049,6 +1049,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
       }
 
       if (!updatedTeam) {
+        await safeTransactionRollback(transaction);
         return res.status(500).json({ error: 'Failed to fetch created team' });
       }
 

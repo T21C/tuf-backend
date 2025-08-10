@@ -1,4 +1,4 @@
-import express, {Express} from 'express';
+import express, {Express, Request, Response, NextFunction} from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import {createServer} from 'http';
@@ -173,6 +173,38 @@ export async function startServer() {
     });
     app.get('*', (req, res) => {
       return res.status(404).sendFile(path.join(__dirname, 'notFound.html'));
+    });
+
+    // Global error handling middleware - must be last
+    app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+      // Handle URI decoding errors specifically
+      if (err instanceof URIError) {
+        logger.warn('URI decoding error:', {
+          error: err.message,
+          path: req.path,
+          method: req.method,
+          ip: req.ip
+        });
+        
+        return res.status(400).json({
+          error: 'Invalid URL encoding',
+          message: 'The requested URL contains invalid characters'
+        });
+      }
+
+      // Handle other Express errors
+      logger.error('Express error:', {
+        error: err.message,
+        stack: err.stack,
+        path: req.path,
+        method: req.method,
+        ip: req.ip
+      });
+      
+      return res.status(500).json({
+        error: 'Internal server error',
+        message: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
     });
 
     // Start the server

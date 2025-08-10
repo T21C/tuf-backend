@@ -350,7 +350,6 @@ class AuthController {
 
       // Validate input
       if (!emailOrUsername || !password) {
-        logger.warn('Login attempt with missing credentials');
         return res
           .status(400)
           .json({message: 'Email/Username and password are required'});
@@ -372,7 +371,6 @@ class AuthController {
         const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'login');
         if (!isValidCaptcha) {
           recordFailedAttempt(ip);
-          logger.warn(`Invalid captcha for user ${emailOrUsername} from IP ${ip}`);
           return res
             .status(400)
             .json({

@@ -79,10 +79,6 @@ public verifyCaptcha = async (token: string, action: string): Promise<number | n
 
         // Check if the token is valid
         if (!response?.tokenProperties?.valid) {
-            logger.warn('reCAPTCHA token invalid', {
-                reason: response?.tokenProperties?.invalidReason,
-                action
-            });
             return null;
         }
         // Get the risk score

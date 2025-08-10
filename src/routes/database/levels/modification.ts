@@ -744,6 +744,7 @@ router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: 
 router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     if (!req.user) {
+      await safeTransactionRollback(transaction);
       return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
@@ -751,10 +752,12 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
       const { action } = req.body;
   
       if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid level ID' });
       }
   
       if (!action || !['like', 'unlike'].includes(action)) {
+        await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid action. Must be "like" or "unlike"' });
       }
   
@@ -770,32 +773,33 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
         await safeTransactionRollback(transaction);
         return res.status(403).json({ error: 'Cannot like deleted level' });
       }
-  
-      // Check if user already liked the level
-      const existingLike = await LevelLikes.findOne({
-        where: { levelId, userId: req.user?.id },
-      });
-  
       if (action === 'like') {
-        if (existingLike) {
+        // Use findOrCreate to handle race conditions atomically
+        const [like, created] = await LevelLikes.findOrCreate({
+          where: { levelId, userId: req.user?.id },
+          transaction,
+        });
+
+        if (!created) {
           await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'You have already liked this level' });
         }
-  
-        // Add like
-        await LevelLikes.create({
-          levelId,
-          userId: req.user?.id,
-        });
       } else {
+        // Check if user already liked the level
+        const existingLike = await LevelLikes.findOne({
+          where: { levelId, userId: req.user?.id },
+          transaction,
+        });
+
         if (!existingLike) {
           await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'You have not liked this level' });
         }
-  
+
         // Remove like
         await LevelLikes.destroy({
           where: { levelId, userId: req.user?.id },
+          transaction,
         });
       }
   
@@ -826,14 +830,17 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
     const { vote } = req.body;
 
     if (!req.user) {
+      await safeTransactionRollback(transaction);
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     if (vote === undefined || isNaN(vote) || !Number.isInteger(vote)) {
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Invalid vote value' });
     }
 
     if (-5 > vote || vote > 5) {
+      await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Vote must be between -5 and 5' });
     }
 
@@ -859,6 +866,7 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
         levelId: id,
         playerId: req.user?.playerId,
       },
+      transaction,
     });
 
     if (!isPassed) {
@@ -1022,6 +1030,7 @@ router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Re
     const { selectedLevel } = req.body;
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId) || !selectedLevel) {
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Invalid level ID or missing selected level'});
     }
 
@@ -1065,6 +1074,7 @@ router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Respon
   try {
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId)) {
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Invalid level ID'});
     }
 

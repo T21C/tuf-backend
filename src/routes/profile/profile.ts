@@ -104,13 +104,18 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    if (req.body.nickname) {
-      const player = await Player.findOne({
+    if (req.body.nickname && req.body.nickname !== user.nickname) {
+      const existingPlayer = await Player.findOne({
         where: {
           name: req.body.nickname
         }
       });
-      if (player) {
+      const existingUser = await User.findOne({
+        where: {nickname: req.body.nickname},
+        transaction
+      });
+      if (existingPlayer || existingUser) {
+        await safeTransactionRollback(transaction);
         return res.status(400).json({error: 'Nickname already taken'});
       }
     }
@@ -179,7 +184,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     } else {
       // Just update nickname if username isn't changing
       await User.update(
-        { nickname: req.body.nickname },
+        { nickname: req.body.nickname || user.player?.name || user.nickname },
         {
           where: {id: user.id},
           transaction
@@ -187,7 +192,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       );
       await Player.update(
         { 
-          name: req.body.nickname,
+          name: req.body.nickname || user.player?.name || user.nickname,
           country: req.body.country
         },
         {
