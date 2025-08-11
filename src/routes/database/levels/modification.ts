@@ -903,9 +903,10 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
       });
     }
 
-    await transaction.commit();
-
     await level.reload()
+
+    await transaction.commit();
+    
     const votes = await RatingAccuracyVote.findAll({
       where: { 
         levelId: parseInt(id), 
