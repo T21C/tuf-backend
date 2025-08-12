@@ -334,8 +334,10 @@ export const passMapping = {
       player: {
         properties: {
           name: { type: 'text' as const },
+          username: { type: 'text' as const },
           country: { type: 'keyword' as const },
-          isBanned: { type: 'boolean' as const }
+          isBanned: { type: 'boolean' as const },
+          avatarUrl: { type: 'text' as const }
         }
       },
       level: {

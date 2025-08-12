@@ -23,6 +23,7 @@ import sequelize from '../config/db.js';
 import LevelLikes from '../models/levels/LevelLikes.js';
 import Rating from '../models/levels/Rating.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
+import User from '../models/auth/User.js';
 
 // Add these type definitions at the top of the file, after imports
 type FieldSearch = {
@@ -89,6 +90,19 @@ class ElasticsearchService {
       logger.error('Error initializing ElasticsearchService:', error);
       this.isInitialized = false;
       throw error;
+    }
+  }
+
+  public async updatePlayerPasses(playerId: number): Promise<void> {
+    const passes = await Pass.findAll({
+      where: {
+        playerId: playerId,
+        isDeleted: false,
+        isHidden: false,
+      }
+    });
+    for (const pass of passes) {
+      await this.indexPass(pass.id);
     }
   }
 
@@ -344,7 +358,14 @@ class ElasticsearchService {
           {
           model: Player,
           as: 'player',
-          attributes: ['name', 'country', 'isBanned']
+          attributes: ['name', 'country', 'isBanned'],
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['avatarUrl', 'username']
+            }
+          ]
         },
         {
           model: Level,
@@ -565,7 +586,9 @@ class ElasticsearchService {
         videoLink: pass.videoLink ? convertToPUA(pass.videoLink) : null,
         player: pass.player ? {
           ...pass.player.get({ plain: true }),
-          name: convertToPUA(pass.player.name)
+          name: convertToPUA(pass.player.name),
+          username: pass.player.user?.username,
+          avatarUrl: pass.player.user?.avatarUrl || null
         } : null,
         level: pass.level ? {
           ...pass.level.get({ plain: true }),
@@ -607,7 +630,9 @@ class ElasticsearchService {
             videoLink: convertToPUA(pass.videoLink),
             player: pass.player ? {
               ...pass.player.get({ plain: true }),
-              name: convertToPUA(pass.player.name)
+              name: convertToPUA(pass.player.name),
+              username: pass.player.user?.username,
+              avatarUrl: pass.player.user?.avatarUrl || null
             } : null,
             level: pass.level ? {
               ...pass.level.get({ plain: true }),
@@ -701,7 +726,14 @@ class ElasticsearchService {
           {
             model: Player,
             as: 'player',
-            attributes: ['name', 'country', 'isBanned']
+            attributes: ['name', 'country', 'isBanned'],
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['avatarUrl', 'username']
+              }
+            ]
           },
           {
             model: Level,
@@ -786,7 +818,7 @@ class ElasticsearchService {
     }
   }
 
-  private parseFieldSearch(term: string): FieldSearch | null {
+  private parseFieldSearch(term: string, isPassSearch: boolean = false): FieldSearch | null {
     // Trim the term here when parsing
     const trimmedTerm = term.trim();
     if (!trimmedTerm) return null;
@@ -795,8 +827,13 @@ class ElasticsearchService {
     const isNot = trimmedTerm.startsWith('\\!');
     const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
 
+    // Define fields based on search type
+    const levelFields = ['song', 'artist', 'charter', 'team', 'vfxer', 'creator', 'dlLink', 'legacyDllink', 'videolink'];
+    const passFields = ['player', 'video', 'vidtitle', 'level.song', 'level.artist', 'level.dlLink'];
+    const allowedFields = isPassSearch ? passFields : levelFields;
+
     // Check for exact match with equals sign
-    const exactMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink|videolink)=(.+)$/i);
+    const exactMatch = searchTerm.match(new RegExp(`^(${allowedFields.join('|')})=(.+)$`, 'i'));
     if (exactMatch) {
       const field = exactMatch[1].toLowerCase();
       const value = exactMatch[2].trim();
@@ -811,7 +848,7 @@ class ElasticsearchService {
     }
 
     // Check for partial match with colon
-    const partialMatch = searchTerm.match(/^(song|artist|charter|team|vfxer|creator|dlLink|legacyDllink|videolink):(.+)$/i);
+    const partialMatch = searchTerm.match(new RegExp(`^(${allowedFields.join('|')}):(.+)$`, 'i'));
     if (partialMatch) {
       const field = partialMatch[1].toLowerCase();
       const value = partialMatch[2].trim();
@@ -836,7 +873,7 @@ class ElasticsearchService {
     };
   }
 
-  private parseSearchQuery(query: string): SearchGroup[] {
+  private parseSearchQuery(query: string, isPassSearch: boolean = false): SearchGroup[] {
     if (!query) return [];
 
     // Split by | for OR groups and handle trimming here
@@ -849,7 +886,7 @@ class ElasticsearchService {
           .map(term => term.trim())
           .filter(term => term.length > 0)
           .map(term => {
-            const fieldSearch = this.parseFieldSearch(term);
+            const fieldSearch = this.parseFieldSearch(term, isPassSearch);
             if (fieldSearch) {
               return fieldSearch;
             }
@@ -1269,7 +1306,7 @@ class ElasticsearchService {
 
       // Handle text search with new parsing
       if (query) {
-        const searchGroups = this.parseSearchQuery(query.trim());
+        const searchGroups = this.parseSearchQuery(query.trim(), false);
         if (searchGroups.length > 0) {
           const orConditions = searchGroups.map(group => {
             const andConditions = group.terms.map(term => this.buildFieldSearchQuery(term, filters.excludeAliases === 'true'));
@@ -1765,94 +1802,20 @@ class ElasticsearchService {
       const must: any[] = [];
       const should: any[] = [];
 
-      // Handle text search with composite operators
+      // Handle text search with new parsing
       if (query) {
-        // Split by OR operator first
-        const orTerms = query.split('|').map(term => term.trim());
-        
-        orTerms.forEach(term => {
-          // Split each OR term by AND operator
-          const andTerms = term.split(',').map(t => {
-            const trimmedTerm = t.trim();
-            // Check for NOT operator
-            const isNot = trimmedTerm.startsWith('\\!');
-            const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
-            return {
-              term: prepareSearchTerm(searchTerm),
-              isNot
-            };
+        const searchGroups = this.parseSearchQuery(query.trim(), true);
+        if (searchGroups.length > 0) {
+          const orConditions = searchGroups.map(group => {
+            const andConditions = group.terms.map(term => this.buildPassFieldSearchQuery(term));
+
+            return andConditions.length === 1
+              ? andConditions[0]
+              : { bool: { must: andConditions } };
           });
-          
-          const termQueries = andTerms.map(({ term: andTerm, isNot }) => {
-            const query = {
-              bool: {
-                should: [
-                  { 
-                    wildcard: { 
-                      'player.name': { 
-                        value: `*${andTerm}*`,
-                        case_insensitive: true
-                      } 
-                    } 
-                  },
-                  { 
-                    wildcard: { 
-                      'level.song': { 
-                        value: `*${andTerm}*`,
-                        case_insensitive: true
-                      } 
-                    } 
-                  },
-                  { 
-                    wildcard: { 
-                      'level.artist': { 
-                        value: `*${andTerm}*`,
-                        case_insensitive: true
-                      } 
-                    } 
-                  },
-                  { 
-                    wildcard: { 
-                      'videoLink': { 
-                        value: `*${andTerm}*`,
-                        case_insensitive: true
-                      } 
-                    } 
-                  },
-                  { 
-                    wildcard: { 
-                      'vidTitle': { 
-                        value: `*${andTerm}*`,
-                        case_insensitive: true
-                      } 
-                    } 
-                  },
-                  {
-                    wildcard: {
-                      'level.dlLink': {
-                        value: `*${andTerm}*`,
-                        case_insensitive: true
-                      }
-                    }
-                  }
-                ],
-                minimum_should_match: 1
-              }
-            };
-            return isNot ? { bool: { must_not: [query] } } : query;
-          });
-          
-          // If there are multiple AND terms, they all must match
-          if (termQueries.length > 1) {
-            should.push({
-              bool: {
-                must: termQueries
-              }
-            });
-          } else {
-            should.push(termQueries[0]);
-          }
-        });
+
+          should.push(...orConditions);
+        }
       }
 
       // Handle filters
@@ -2193,6 +2156,222 @@ class ElasticsearchService {
       default:
         return [{ scoreV2: 'desc' }, { id: 'desc' }];
     }
+  }
+
+  private buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
+    const { field, value, exact, isNot } = fieldSearch;
+    // Note: value is already converted to PUA in parseFieldSearch
+    const searchValue = prepareSearchTerm(value);
+    logger.debug(`Building pass search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+
+    // For field-specific searches
+    if (field !== 'any') {
+      // For exact matches (using =), use term query with case-insensitive match
+      if (exact) {
+        // Handle player search
+        if (field === 'player') {
+          const query = {
+            bool: {
+              should: [
+                { term: { 'player.name.keyword': { value: searchValue, case_insensitive: true } } },
+                { term: { 'player.username.keyword': { value: searchValue, case_insensitive: true } } }
+              ],
+              minimum_should_match: 1
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle video link search
+        if (field === 'video') {
+          const wildcardValue = `*${searchValue}*`;
+          const query = {
+            wildcard: {
+              'videoLink': {
+                value: wildcardValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle video title search
+        if (field === 'vidtitle') {
+          const query = {
+            term: {
+              'vidTitle.keyword': {
+                value: searchValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle level song search
+        if (field === 'level.song') {
+          const query = {
+            term: {
+              'level.song.keyword': {
+                value: searchValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle level artist search
+        if (field === 'level.artist') {
+          const query = {
+            term: {
+              'level.artist.keyword': {
+                value: searchValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle level download link search
+        if (field === 'level.dlLink') {
+          const wildcardValue = `*${searchValue}*`;
+          const query = {
+            wildcard: {
+              'level.dlLink': {
+                value: wildcardValue,
+                case_insensitive: true
+              }
+            }
+          };
+          return isNot ? { bool: { must_not: [query] } } : query;
+        }
+
+        // Handle other exact matches
+        const searchCondition = {
+          term: {
+            [`${field}.keyword`]: {
+              value: searchValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [searchCondition] } } : searchCondition;
+      }
+
+      // For partial matches (using :), use wildcard query
+      const wildcardValue = `*${searchValue}*`;
+
+      // Handle player search for partial matches
+      if (field === 'player') {
+        const query = {
+          bool: {
+            should: [
+              { wildcard: { 'player.name': { value: wildcardValue, case_insensitive: true } } },
+              { wildcard: { 'player.username': { value: wildcardValue, case_insensitive: true } } }
+            ],
+            minimum_should_match: 1
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle video link partial match
+      if (field === 'video') {
+        const query = {
+          wildcard: {
+            'videoLink': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle video title partial match
+      if (field === 'vidtitle') {
+        const query = {
+          wildcard: {
+            'vidTitle': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle level song partial match
+      if (field === 'level.song') {
+        const query = {
+          wildcard: {
+            'level.song': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle level artist partial match
+      if (field === 'level.artist') {
+        const query = {
+          wildcard: {
+            'level.artist': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle level download link partial match
+      if (field === 'level.dlLink') {
+        const query = {
+          wildcard: {
+            'level.dlLink': {
+              value: wildcardValue,
+              case_insensitive: true
+            }
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle other partial matches
+      const searchCondition = {
+        wildcard: {
+          [field]: {
+            value: wildcardValue,
+            case_insensitive: true
+          }
+        }
+      };
+      return isNot ? { bool: { must_not: [searchCondition] } } : searchCondition;
+    }
+
+    // For general searches (field === 'any'), use wildcard search across all pass fields
+    const wildcardValue = `*${searchValue}*`;
+    const query = {
+      bool: {
+        should: [
+          { wildcard: { 'player.name': { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { 'player.username': { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { 'level.song': { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { 'level.artist': { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { 'videoLink': { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { 'vidTitle': { value: wildcardValue, case_insensitive: true } } },
+          { wildcard: { 'level.dlLink': { value: wildcardValue, case_insensitive: true } } }
+        ],
+        minimum_should_match: 1
+      }
+    };
+    return isNot ? { bool: { must_not: [query] } } : query;
   }
 }
 

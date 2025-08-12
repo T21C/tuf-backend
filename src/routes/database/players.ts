@@ -190,6 +190,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
         name: {
           [Op.like]: `%${escapedName}%`,
         },
+        isBanned: false
       },
     });
 
@@ -197,13 +198,16 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       where: {
         username: {
           [Op.like]: `%${escapedName}%`,
-        }
+        },
       },
       include: [
         {
           model: Player,
           as: 'player',
           required: true,
+          where: {
+            isBanned: false
+          }
         },
       ],
     });

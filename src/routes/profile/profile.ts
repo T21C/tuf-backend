@@ -13,8 +13,10 @@ import { CdnError } from '../../services/CdnService.js';
 import PlayerStats from '../../models/players/PlayerStats.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
 
 const router: Router = Router();
+const elasticsearchService = ElasticsearchService.getInstance();
 
 // Configure multer for memory storage
 const upload = multer({
@@ -234,6 +236,8 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     }
 
     await transaction.commit();
+
+    elasticsearchService.updatePlayerPasses(user.playerId!);
 
     return res.json({
       message: 'Profile updated successfully',
