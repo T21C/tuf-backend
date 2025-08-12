@@ -143,27 +143,8 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       dateFilter.createdAt[Op.lte] = selectedEndDate;
     }
 
-    // Get total count for pagination
-    const totalCount = await RatingDetail.count({
-      where: dateFilter,
-      include: [
-        {
-          model: User,
-          as: 'user',
-          required: true
-        }
-      ],
-      distinct: true,
-      col: 'userId'
-    });
-
-    // Get total ratings count for the entire timespan
-    const totalRatingsCount = await RatingDetail.count({
-      where: dateFilter
-    });
-
-    // Get ratings count per user after the selected date with pagination
-    const ratingsPerUser = await RatingDetail.findAll({
+    // Get all active raters (users who have ratings in the date range)
+    const activeRaters = await RatingDetail.findAll({
       attributes: [
         'userId',
         [sequelize.fn('COUNT', sequelize.col('RatingDetail.id')), 'ratingCount']
@@ -179,9 +160,19 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       ],
       group: ['RatingDetail.userId', 'user.id', 'user.username'],
       order: [[sequelize.fn('COUNT', sequelize.col('RatingDetail.id')), 'DESC']],
-      limit: limitNum,
-      offset: offset,
       raw: false
+    });
+
+    // Get all inactive raters (users who are raters but have no ratings in the date range)
+    const inactiveRaters = await User.findAll({
+      where: {
+        id: {
+          [Op.notIn]: activeRaters.map((result: any) => result.userId)
+        },
+        isRater: true
+      },
+      attributes: ['id', 'username', 'avatarUrl', 'nickname'],
+      order: [['username', 'ASC']] // Sort inactive raters alphabetically
     });
 
     // Calculate days since selected date
@@ -194,13 +185,18 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       daysDiff = Math.ceil((new Date().getTime() - selectedStartDate.getTime()) / (1000 * 60 * 60 * 24));
     }
 
+    // Get total ratings count for the entire timespan
+    const totalRatingsCount = await RatingDetail.count({
+      where: dateFilter
+    });
+
     // Calculate overall average ratings per day for the entire timespan
     const overallAverageRatingsPerDay = daysDiff > 0 
       ? totalRatingsCount / daysDiff 
       : 0;
 
-    // Format the response with average per day calculation
-    const formattedResults = ratingsPerUser.map((result: any) => {
+    // Format active raters
+    const formattedActiveRaters = activeRaters.map((result: any) => {
       const ratingCount = parseInt(result.dataValues.ratingCount);
       const averagePerDay = daysDiff > 0 ? ratingCount / daysDiff : 0;
       
@@ -214,6 +210,25 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       };
     });
 
+    // Format inactive raters
+    const formattedInactiveRaters = inactiveRaters.map((rater: any) => ({
+      userId: rater.id,
+      username: rater.username,
+      avatarUrl: rater.avatarUrl,
+      nickname: rater.nickname,
+      ratingCount: 0,
+      averagePerDay: 0
+    }));
+
+    // Combine both lists: active raters first, then inactive raters
+    const allRaters = [...formattedActiveRaters, ...formattedInactiveRaters];
+    
+    // Calculate total count for pagination
+    const totalCount = allRaters.length;
+    
+    // Apply pagination to the combined list
+    const paginatedRaters = allRaters.slice(offset, offset + limitNum);
+
     return res.json({
       startDate: selectedStartDate.toISOString(),
       endDate: selectedEndDate ? selectedEndDate.toISOString() : null,
@@ -224,7 +239,7 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       totalPages: Math.ceil(totalCount / limitNum),
       hasNextPage: pageNum < Math.ceil(totalCount / limitNum),
       hasPrevPage: pageNum > 1,
-      ratingsPerUser: formattedResults
+      ratingsPerUser: paginatedRaters
     });
 
   } catch (error) {
