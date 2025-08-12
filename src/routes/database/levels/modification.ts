@@ -350,8 +350,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           levelId: level.id,
           previousDiffId: level.diffId,
           newDiffId: req.body.diffId ?? level.diffId,
-          previousBaseScore: level.baseScore,
-          newBaseScore: req.body.baseScore ?? level.baseScore,
+          previousBaseScore: level.baseScore || 0,
+          newBaseScore: req.body.baseScore ?? (level.baseScore || 0),
           reratedBy: req.user?.id ?? null,
           createdAt: new Date(),
         }, { transaction });

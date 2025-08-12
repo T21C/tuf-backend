@@ -3,6 +3,7 @@ import {Auth} from '../../middleware/auth.js';
 import {OAuthProvider, User} from '../../models/index.js';
 import bcrypt from 'bcrypt';
 import sequelize from "../../config/db.js";
+import { Op } from 'sequelize';
 import UsernameChange from '../../models/auth/UsernameChange.js';
 import Player from '../../models/players/Player.js';
 import { logger } from '../../services/LoggerService.js';
@@ -104,10 +105,12 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       return res.status(401).json({error: 'User not authenticated'});
     }
 
+    // Check if nickname is being changed and validate uniqueness
     if (req.body.nickname && req.body.nickname !== user.nickname) {
       const existingPlayer = await Player.findOne({
         where: {
-          name: req.body.nickname
+          name: req.body.nickname,
+          id: { [Op.ne]: user.playerId } // Exclude current player
         }
       });
       const existingUser = await User.findOne({
@@ -119,7 +122,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         return res.status(400).json({error: 'Nickname already taken'});
       }
     }
-
+    const targetPlayerName = req.body.nickname || user.player?.name || user.nickname;
     // Check if username is being changed
     if (username && username !== user.username) {
       // Check if username is taken
@@ -183,8 +186,23 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       );
     } else {
       // Just update nickname if username isn't changing
+      // Check if player name is being changed and validate uniqueness
+      
+      if (targetPlayerName !== user.player?.name) {
+        const existingPlayer = await Player.findOne({
+          where: {
+            name: targetPlayerName,
+            id: { [Op.ne]: user.playerId } // Exclude current player
+          },
+          transaction
+        });
+        if (existingPlayer) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({error: 'Player name already taken'});
+        }
+      }
       await User.update(
-        { nickname: req.body.nickname || user.player?.name || user.nickname },
+        { nickname: targetPlayerName },
         {
           where: {id: user.id},
           transaction
@@ -192,7 +210,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       );
       await Player.update(
         { 
-          name: req.body.nickname || user.player?.name || user.nickname,
+          name: targetPlayerName,
           country: req.body.country
         },
         {
