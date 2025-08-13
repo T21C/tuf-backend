@@ -549,7 +549,7 @@ router.get('/bilibili', async (req: Request, res: Response) => {
       return res.json(data);
     } catch (error) {
       if (attempt >= maxAttempts) {
-        logger.error(`Error fetching data after ${maxAttempts} attempts:`, error);
+        logger.error(`Error fetching data after ${maxAttempts} attempts for link ${apiUrl}:`, error);
         return res.status(500).json({error: 'Internal Server Error'});
       }
       logger.debug(`Bilibili call attempt #${attempt} failed, retrying...`);
@@ -684,7 +684,7 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
 
     return res.sendFile(fullPath);
   } catch (error) {
-    logger.error('Error serving cached image:', error);
+    logger.error(`Error serving cached image:`, error);
     return res.status(500).send('Error serving image');
   }
 });
@@ -787,7 +787,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           try {
             backgroundBuffer = await downloadImageWithRetry(details.image);
           } catch (error: unknown) {
-            logger.error(`Failed to download background image after all retries: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`Failed to download background image after all retries for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`);
             // Create a black background
             backgroundBuffer = Buffer.alloc(width * height * 4, 0);
           }
@@ -824,7 +824,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
               iconBuffer = await downloadImageWithRetry(diff.icon);
             }
           } catch (error: unknown) {
-            logger.error(`Failed to get difficulty icon: ${error instanceof Error ? error.message : String(error)}`);
+            logger.error(`Failed to get difficulty icon for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`);
             // Create a placeholder icon
             iconBuffer = Buffer.alloc(iconSize * iconSize * 4, 100);
           }
