@@ -4,20 +4,21 @@ const loginEndpoints: EndpointDefinition[] = [
   {
     method: 'POST',
     path: '/v2/auth/login',
-    description: 'Authenticate user with email and password',
+    description: 'Authenticate user with email/username and password',
     category: 'AUTH',
     requiresAuth: false,
     parameters: {
       body: {
-        email: 'string (required) - User email address',
+        emailOrUsername: 'string (required) - User email address or username',
         password: 'string (required) - User password',
-        remember: 'boolean (optional) - Remember user session'
+        captchaToken: 'string (optional) - reCAPTCHA token for rate limiting'
       }
     },
     responses: {
       '200': 'Login successful - Returns JWT token and user data',
       '401': 'Invalid credentials',
-      '400': 'Validation error - Invalid email or password format'
+      '400': 'Validation error - Missing fields or captcha required',
+      '429': 'Rate limit exceeded - Too many failed attempts'
     }
   }
 ];

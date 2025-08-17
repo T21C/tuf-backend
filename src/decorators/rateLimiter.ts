@@ -34,7 +34,7 @@ export function RateLimiter(config: RateLimiterConfig) {
         // Check if IP is blocked BEFORE processing the request
         const { blocked, retryAfter } = await isBlocked(ip, config);
         if (blocked) {
-          logger.warn(`Request blocked for IP ${ip} due to rate limiting. Retry after: ${retryAfter}ms`);
+          logger.warn(`Request blocked for IP ${ip} due to ${config.type} rate limiting. Retry after: ${retryAfter}ms`);
           return res.status(429).json({
             message: 'Too many attempts. Please try again later.',
             retryAfter,
@@ -50,10 +50,10 @@ export function RateLimiter(config: RateLimiterConfig) {
         // Increment based on success/failure and configuration
         if (isSuccess && incrementOnSuccess) {
           await increment(ip, config);
-          logger.debug(`Incremented rate limit for successful attempt from IP ${ip}`);
+          logger.debug(`Incremented rate limit for successful ${config.type} attempt from IP ${ip}`);
         } else if (!isSuccess && incrementOnFailure) {
           await increment(ip, config);
-          logger.debug(`Incremented rate limit for failed attempt from IP ${ip}`);
+          logger.debug(`Incremented rate limit for failed ${config.type} attempt from IP ${ip}`);
         }
 
         return result;
@@ -62,9 +62,9 @@ export function RateLimiter(config: RateLimiterConfig) {
         if (incrementOnFailure) {
           try {
             await increment(ip, config);
-            logger.debug(`Incremented rate limit for error from IP ${ip}`);
+            logger.debug(`Incremented rate limit for error ${config.type} from IP ${ip}`);
           } catch (incrementError) {
-            logger.error('Failed to increment rate limit:', incrementError);
+            logger.error(`Failed to increment ${config.type} rate limit:`, incrementError);
           }
         }
 
@@ -105,6 +105,29 @@ async function isBlocked(ip: string, config: RateLimiterConfig) {
   }
 }
 
+// Helper function to clean up expired rate limits
+async function cleanupExpiredRateLimits(ip: string, type: string) {
+  try {
+    const now = new Date();
+    const deletedCount = await RateLimit.destroy({
+      where: {
+        ip,
+        type,
+        windowEnd: {
+          [Op.lte]: now
+        },
+        blocked: false // Only delete non-blocked expired records
+      }
+    });
+    
+    if (deletedCount > 0) {
+      logger.debug(`Cleaned up ${deletedCount} expired rate limit records for IP ${ip}, type ${type}`);
+    }
+  } catch (error) {
+    logger.error('Error cleaning up expired rate limits:', error);
+  }
+}
+
 async function increment(ip: string, config: RateLimiterConfig) {
   try {
     const now = new Date();
@@ -122,6 +145,9 @@ async function increment(ip: string, config: RateLimiterConfig) {
     });
 
     if (!rateLimit) {
+      // Clean up expired rate limits for this IP and type before creating new one
+      await cleanupExpiredRateLimits(ip, config.type);
+      
       rateLimit = await RateLimit.create({
         ip,
         type: config.type,
@@ -218,6 +244,9 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
 
         // If no active record exists, create a new one
         if (!rateLimit) {
+          // Clean up expired rate limits for this IP and type before creating new one
+          await cleanupExpiredRateLimits(ip, type);
+          
           try {
             rateLimit = await RateLimit.create({
               ip,
@@ -318,6 +347,9 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         });
 
         if (!rateLimit) {
+          // Clean up expired rate limits for this IP and type before creating new one
+          await cleanupExpiredRateLimits(ip, type);
+          
           rateLimit = await RateLimit.create({
             ip,
             type,
