@@ -65,13 +65,31 @@ export const sanitizeTextInput = (input: string | null | undefined): string => {
 };
 
 /**
+ * Checks if a transaction is still usable (not finished/rolled back)
+ * @param transaction - The transaction to check
+ * @returns true if transaction is still usable, false otherwise
+ */
+export const isTransactionUsable = (transaction: any): boolean => {
+  if (!transaction) return false;
+  return !transaction.finished;
+};
+
+/**
  * Safely rolls back a transaction, handling cases where it has already been rolled back
  * @param transaction - The transaction to rollback
  * @param logger - Logger instance for error logging
  * @returns true if rollback was successful, false if it was already rolled back
  */
 export const safeTransactionRollback = async (transaction: any, logger?: any): Promise<boolean> => {
-  if (!transaction) return true;
+  if (!transaction) return false;
+  
+  // Check if transaction is already finished
+  if (transaction.finished) {
+    if (logger) {
+      logger.debug('Transaction already finished, skipping rollback');
+    }
+    return false;
+  }
   
   try {
     await transaction.rollback();

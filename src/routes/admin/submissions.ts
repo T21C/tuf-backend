@@ -31,7 +31,7 @@ import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
 import cdnService from '../../services/CdnService.js';
-import { safeTransactionRollback } from '../../utils/Utility.js';
+import { safeTransactionRollback, isTransactionUsable } from '../../utils/Utility.js';
 import {TeamAlias} from '../../models/credits/TeamAlias.js';
 
 const router: Router = Router();
@@ -359,6 +359,11 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
 
         const allExistingCreatorsVerified = existingCreators.every((c: Creator) => c.isVerified);
+
+        // Check if transaction is still usable before creating the level
+        if (!isTransactionUsable(transaction)) {
+          throw new Error('Transaction is no longer usable - likely rolled back due to a previous error');
+        }
 
         const newLevel = await Level.create(
           {
