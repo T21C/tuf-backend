@@ -9,8 +9,8 @@ export interface UserAttributes {
   username: string;
   email?: string;
   password?: string;
-  passwordResetToken?: string;
-  passwordResetExpires?: Date;
+  passwordResetToken?: string | null;
+  passwordResetExpires?: Date | null;
   isEmailVerified: boolean;
   isRater: boolean;
   isSuperAdmin: boolean;
@@ -37,8 +37,8 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare username: string;
   declare email?: string;
   declare password?: string;
-  declare passwordResetToken?: string;
-  declare passwordResetExpires?: Date;
+  declare passwordResetToken?: string | null;
+  declare passwordResetExpires?: Date | null;
   declare isEmailVerified: boolean;
   declare isRater: boolean;
   declare isSuperAdmin: boolean;

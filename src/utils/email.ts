@@ -119,7 +119,7 @@ export const emailService = {
    * Send password reset email
    */
   async sendPasswordResetEmail(to: string, token: string): Promise<boolean> {
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    const resetUrl = `${clientUrlEnv}/forgot-password?token=${token}`;
 
     const subject = 'Reset your password';
     const text = `

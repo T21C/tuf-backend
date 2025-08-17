@@ -439,6 +439,140 @@ class AuthController {
       return res.status(500).json({message: 'Login failed'});
     }
   }
+
+  /**
+   * Request password reset
+   */
+  @RateLimiter({
+    windowMs: 60 * 60 * 1000,     // 1 hour
+    maxAttempts: 3,
+    blockDuration: 30 * 60 * 1000, // 30 minutes block
+    type: 'password-reset',
+    incrementOnFailure: false,
+    incrementOnSuccess: true,
+  })
+  public async requestPasswordReset(req: Request, res: Response): Promise<Response> {
+    try {
+      const {email, captchaToken} = req.body;
+
+      if (!email) {
+        return res.status(400).json({message: 'Email is required'});
+      }
+
+      // Validate email format
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({message: 'Invalid email format'});
+      }
+
+      // Check if captcha is required (after 2 failed attempts)
+      const ip = req.headers['x-forwarded-for'] as string || req.ip || '127.0.0.1';
+      const captchaRequired = isCaptchaRequired(ip);
+      
+      if (captchaRequired) {
+        if (!captchaToken) {
+          return res.status(400).json({
+            error: 'Captcha required',
+            requireCaptcha: true,
+            message: 'Please complete the captcha verification to continue'
+          });
+        }
+
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'password-reset');
+        if (!isValidCaptcha) {
+          return res.status(400).json({
+            error: 'Invalid captcha',
+            requireCaptcha: true,
+            message: 'Captcha verification failed. Please try again.'
+          });
+        }
+      }
+
+      // Find user by email
+      const user = await User.findOne({
+        where: {email},
+      });
+
+      if (!user) {
+        // Don't reveal if user exists or not
+        return res.json({message: 'If an account with that email exists, a password reset link has been sent.'});
+      }
+
+      // Check if user has a password set
+      if (!user.password) {
+        return res.json({message: 'If an account with that email exists, a password reset link has been sent.'});
+      }
+
+      // Generate reset token
+      const resetToken = tokenUtils.generateRandomToken();
+
+      // Update user with reset token (expires in 1 hour)
+      await user.update({
+        passwordResetToken: resetToken,
+        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      });
+
+      // Send password reset email
+      const emailSent = await emailService.sendPasswordResetEmail(email, resetToken);
+      
+      if (!emailSent) {
+        logger.error('Failed to send password reset email to:', email);
+        return res.status(500).json({message: 'Failed to send password reset email'});
+      }
+
+      return res.json({message: 'If an account with that email exists, a password reset link has been sent.'});
+    } catch (error) {
+      logger.error('Password reset request error:', error);
+      return res.status(500).json({message: 'Failed to process password reset request'});
+    }
+  }
+
+  /**
+   * Reset password with token
+   */
+  public async resetPassword(req: Request, res: Response): Promise<Response> {
+    try {
+      const {token, password} = req.body;
+
+      if (!token || !password) {
+        return res.status(400).json({message: 'Token and password are required'});
+      }
+
+      // Validate password length
+      if (password.length < 8) {
+        return res.status(400).json({message: 'Password must be at least 8 characters long'});
+      }
+
+      // Find user with valid token
+      const user = await User.findOne({
+        where: {
+          passwordResetToken: token,
+          passwordResetExpires: {
+            [Op.gt]: new Date(), // Token not expired
+          },
+        },
+      });
+
+      if (!user) {
+        return res.status(400).json({message: 'Invalid or expired reset token'});
+      }
+
+      // Hash new password
+      const hashedPassword = await passwordUtils.hashPassword(password);
+
+      // Update user password and clear reset token
+      await user.update({
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+      });
+
+      return res.json({message: 'Password reset successfully'});
+    } catch (error) {
+      logger.error('Password reset error:', error);
+      return res.status(500).json({message: 'Failed to reset password'});
+    }
+  }
 }
 
 // Export a singleton instance
