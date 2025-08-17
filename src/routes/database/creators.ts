@@ -945,6 +945,12 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
 
         // If members are provided, update team members
         if (members) {
+          // Ensure members is an array of numbers and deduplicate
+          const memberIds = Array.isArray(members) 
+            ? members.filter((id): id is number => typeof id === 'number')
+            : [];
+          const uniqueMembers = [...new Set(memberIds)];
+          
           // Get all levels associated with this team
           const teamLevels = await Level.findAll({
             where: {teamId: team.id},
@@ -967,7 +973,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
 
           // Only remove creators that are not present in any level
           const creatorsToRemove = allTeamCreators.filter(
-            (creatorId: number) => !members.includes(creatorId),
+            (creatorId: number) => !uniqueMembers.includes(creatorId),
           );
 
           // Remove creators that are not in any level
@@ -989,18 +995,30 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
           const existingCreatorIds = existingMembers.map(
             member => member.creatorId,
           );
-          const newCreatorIds = members.filter(
+          const newCreatorIds = uniqueMembers.filter(
             (creatorId: number) => !existingCreatorIds.includes(creatorId),
           );
 
           if (newCreatorIds.length > 0) {
-            await TeamMember.bulkCreate(
-              newCreatorIds.map((creatorId: number) => ({
-                teamId: team?.id,
-                creatorId,
-              })),
-              {transaction},
-            );
+            // Use upsert to handle potential duplicates gracefully
+            for (const creatorId of newCreatorIds) {
+              try {
+                await TeamMember.create(
+                  {
+                    teamId: team?.id,
+                    creatorId,
+                  },
+                  {transaction},
+                );
+              } catch (error: any) {
+                // If it's a duplicate entry error, just continue
+                if (error.name === 'SequelizeUniqueConstraintError') {
+                  logger.debug(`Team member ${creatorId} already exists for team ${team?.id}`);
+                  continue;
+                }
+                throw error; // Re-throw if it's any other type of error
+              }
+            }
           }
         }
       } else {
