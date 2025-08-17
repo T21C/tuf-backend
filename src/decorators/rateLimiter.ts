@@ -34,7 +34,7 @@ export function RateLimiter(config: RateLimiterConfig) {
         // Check if IP is blocked BEFORE processing the request
         const { blocked, retryAfter } = await isBlocked(ip, config);
         if (blocked) {
-          logger.warn(`Request blocked for IP ${ip} due to ${config.type} rate limiting. Retry after: ${retryAfter}ms`);
+          logger.debug(`Request blocked for IP ${ip} due to ${config.type} rate limiting. Retry after: ${retryAfter}ms`);
           return res.status(429).json({
             message: 'Too many attempts. Please try again later.',
             retryAfter,
@@ -168,7 +168,7 @@ async function increment(ip: string, config: RateLimiterConfig) {
         blockedUntil
       });
       
-      logger.warn(`IP ${ip} blocked for exceeding ${config.type} limit`);
+      logger.debug(`IP ${ip} blocked for exceeding ${config.type} limit`);
       return true;
     }
 
@@ -308,8 +308,8 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
             blockedUntil
           });
           
-          logger.warn(`IP ${ip} blocked for exceeding ${type} limit`);
-          logger.warn(`Body: ${JSON.stringify(req.body)}`);
+          logger.debug(`IP ${ip} blocked for exceeding ${type} limit`);
+          logger.debug(`Body: ${JSON.stringify(req.body)}`);
           
           return res.status(429).json({
             message: 'Rate limit exceeded. IP address blocked.',
@@ -370,7 +370,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
             blockedUntil
           });
           
-          logger.warn(`IP ${ip} blocked for exceeding ${type} limit`);
+          logger.debug(`IP ${ip} blocked for exceeding ${type} limit`);
           return true; // IP is now blocked
         }
 

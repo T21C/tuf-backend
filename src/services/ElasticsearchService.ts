@@ -1304,6 +1304,10 @@ class ElasticsearchService {
       const must: any[] = [];
       const should: any[] = [];
 
+      if (query.length > 255) {
+        query = query.substring(0, 255);
+      }
+
       // Handle text search with new parsing
       if (query) {
         const searchGroups = this.parseSearchQuery(query.trim(), false);
@@ -1801,6 +1805,10 @@ class ElasticsearchService {
     try {
       const must: any[] = [];
       const should: any[] = [];
+
+      if (query.length > 255) {
+        query = query.substring(0, 255);
+      }
 
       // Handle text search with new parsing
       if (query) {
