@@ -1304,12 +1304,13 @@ class ElasticsearchService {
       const must: any[] = [];
       const should: any[] = [];
 
-      if (query.length > 255) {
-        query = query.substring(0, 255);
-      }
+
 
       // Handle text search with new parsing
       if (query) {
+        if (query.length > 255) {
+          query = query.substring(0, 255);
+        }
         const searchGroups = this.parseSearchQuery(query.trim(), false);
         if (searchGroups.length > 0) {
           const orConditions = searchGroups.map(group => {
@@ -1806,12 +1807,13 @@ class ElasticsearchService {
       const must: any[] = [];
       const should: any[] = [];
 
-      if (query.length > 255) {
-        query = query.substring(0, 255);
-      }
+
 
       // Handle text search with new parsing
       if (query) {
+        if (query.length > 255) {
+          query = query.substring(0, 255);
+        }
         const searchGroups = this.parseSearchQuery(query.trim(), true);
         if (searchGroups.length > 0) {
           const orConditions = searchGroups.map(group => {

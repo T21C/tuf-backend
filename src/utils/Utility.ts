@@ -65,13 +65,52 @@ export const sanitizeTextInput = (input: string | null | undefined): string => {
 };
 
 /**
+ * Wraps a database operation with transaction state validation
+ * @param transaction - The transaction to check
+ * @param operation - The database operation to perform
+ * @param operationName - Name of the operation for error messages
+ * @returns The result of the operation
+ */
+export const withTransactionCheck = async <T>(
+  transaction: any,
+  operation: () => Promise<T>,
+  operationName: string
+): Promise<T> => {
+  if (!isTransactionUsable(transaction)) {
+    throw new Error(`Transaction is no longer usable before ${operationName}`);
+  }
+  
+  const result = await operation();
+  
+  if (!isTransactionUsable(transaction)) {
+    throw new Error(`Transaction is no longer usable after ${operationName} - likely rolled back due to a database error`);
+  }
+  
+  return result;
+};
+
+/**
  * Checks if a transaction is still usable (not finished/rolled back)
  * @param transaction - The transaction to check
  * @returns true if transaction is still usable, false otherwise
  */
 export const isTransactionUsable = (transaction: any): boolean => {
   if (!transaction) return false;
-  return !transaction.finished;
+  
+  // Check if transaction is finished (committed or rolled back)
+  if (transaction.finished) return false;
+  
+  // Check if transaction has been rolled back
+  if (transaction.rolledBack) return false;
+  
+  // Additional check for transaction state
+  try {
+    // Try to access transaction properties to see if it's still valid
+    return transaction.id && !transaction.ended;
+  } catch (error) {
+    // If we can't access transaction properties, it's likely not usable
+    return false;
+  }
 };
 
 /**
