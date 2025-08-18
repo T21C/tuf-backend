@@ -49,6 +49,28 @@ export const IMAGE_TYPES = {
         },
         formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
         maxSize: 2 * 1024 * 1024 // 2MB
+    },
+    CURATION_ICON: {
+        name: 'curation_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'svg'] as const,
+        maxSize: 1 * 1024 * 1024 // 1MB
+    },
+    LEVEL_THUMBNAIL: {
+        name: 'level_thumbnail',
+        sizes: {
+            original: { width: 1200, height: 800 },
+            large: { width: 600, height: 400 },
+            medium: { width: 300, height: 200 },
+            small: { width: 150, height: 100 },
+            thumbnail: { width: 75, height: 50 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
+        maxSize: 3 * 1024 * 1024 // 3MB
     }
 } as const;
 
@@ -56,6 +78,8 @@ export const MIME_TYPES = {
     'PROFILE': 'image/png',
     'BANNER': 'image/png',
     'THUMBNAIL': 'image/png',
+    'CURATION_ICON': 'image/png',
+    'LEVEL_THUMBNAIL': 'image/png',
     'LEVELZIP': 'application/zip',
     'GENERAL': 'application/octet-stream'
 } as const;

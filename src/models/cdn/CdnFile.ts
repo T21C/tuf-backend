@@ -3,7 +3,7 @@ import sequelize from '../../config/db.js';
 
 class CdnFile extends Model {
     declare id: string;
-    declare type: 'PROFILE' | 'BANNER' | 'THUMBNAIL' | 'LEVELZIP' | 'GENERAL';
+    declare type: 'PROFILE' | 'ICON' | 'BANNER' | 'THUMBNAIL' | 'CURATION_ICON' | 'LEVEL_THUMBNAIL' | 'LEVELZIP' | 'GENERAL';
     declare filePath: string;
     declare metadata: object;
     declare accessCount: number;
@@ -16,7 +16,7 @@ CdnFile.init({
         primaryKey: true
     },
     type: {
-        type: DataTypes.ENUM('PROFILE', 'BANNER', 'THUMBNAIL', 'LEVELZIP', 'GENERAL'),
+        type: DataTypes.ENUM('PROFILE', 'ICON', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL', 'LEVELZIP', 'GENERAL'),
         allowNull: false,
         defaultValue: 'GENERAL'
     },

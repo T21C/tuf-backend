@@ -51,7 +51,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
 
         await file.increment('accessCount');
 
-        res.setHeader('Content-Type', MIME_TYPES[file.type]);
+        res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
         fs.createReadStream(fsPath).pipe(res);
     } catch (error) {

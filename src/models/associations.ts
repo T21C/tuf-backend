@@ -25,6 +25,7 @@ import LevelSubmissionCreatorRequest from './submissions/LevelSubmissionCreatorR
 import LevelSubmissionTeamRequest from './submissions/LevelSubmissionTeamRequest.js';
 import LevelSubmission from './submissions/LevelSubmission.js';
 import AnnouncementDirective from './announcements/AnnouncementDirective.js';
+import { CurationType, Curation, CurationSchedule } from './curations/index.js';
 
 export function initializeAssociations() {
   // User <-> Player associations
@@ -461,6 +462,37 @@ export function initializeAssociations() {
   LevelSubmission.belongsTo(User, {
     foreignKey: 'userId',
     as: 'levelSubmitter'
+  });
+
+  // Curation associations
+  Curation.belongsTo(CurationType, {
+    foreignKey: 'typeId',
+    as: 'type',
+  });
+
+  CurationType.hasMany(Curation, {
+    foreignKey: 'typeId',
+    as: 'curations',
+  });
+
+  Curation.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+  });
+
+  Level.hasMany(Curation, {
+    foreignKey: 'levelId',
+    as: 'curations',
+  });
+
+  CurationSchedule.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+  });
+
+  Level.hasMany(CurationSchedule, {
+    foreignKey: 'levelId',
+    as: 'schedules',
   });
 
 }

@@ -28,6 +28,7 @@ import DirectiveAction from './announcements/DirectiveAction.js';
 import RateLimit from './auth/RateLimit.js';
 import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
+import {CurationType, Curation, CurationSchedule} from './curations/index.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -58,6 +59,9 @@ export const db = {
     RateLimit,
     LevelSearchView,
     AuditLog,
+    CurationType,
+    Curation,
+    CurationSchedule,
   },
 };
 
