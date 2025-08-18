@@ -49,14 +49,11 @@ const getXaccMtp = (inp: IJudgements, baseScore: number) => {
     return -0.027 / (xacc - 1.0054) + 0.513;
   }
   if (xacc_percentage === 100) { 
-    return 10;
-    /* wait for announcement
     const a = 2100;
     const k = 14;
     const h = -a / (k - 6);
   
     return (-a) / (baseScore - h) + k;
-    */
   }
   return 1;
 };
