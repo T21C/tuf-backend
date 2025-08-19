@@ -168,7 +168,8 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             return handleZipRequest(req, res, file);
         }
         
-        if (file.type === 'PROFILE') {
+        // Handle image types - redirect to proper image endpoint or serve original
+        if (['PROFILE', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL'].includes(file.type)) {
             filePath = path.join(file.filePath, 'original.png');
         }
         
@@ -199,7 +200,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         const stats = await fs.promises.stat(filePath);
         
         // Set headers
-        res.setHeader('Content-Type', MIME_TYPES[file.type]);
+        res.setHeader('Content-Type', MIME_TYPES[file.type as keyof typeof MIME_TYPES]);
         res.setHeader('Content-Length', stats.size);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
 
@@ -282,17 +283,40 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
         
         // Clean up files from disk after successful database deletion
         try {
-            storageManager.cleanupFiles(filePath);
-            logger.info('File deleted successfully:', {
-                fileId,
-                filePath,
-                timestamp: new Date().toISOString()
-            });
+            // Use specialized cleanup for image directories
+            if (['PROFILE', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL'].includes(file.type)) {
+                const cleanupSuccess = storageManager.cleanupImageDirectory(filePath, fileId, file.type);
+                if (cleanupSuccess) {
+                    logger.info('Image file deleted successfully:', {
+                        fileId,
+                        filePath,
+                        type: file.type,
+                        timestamp: new Date().toISOString()
+                    });
+                } else {
+                    logger.error('Failed to cleanup image directory, but database entry was removed:', {
+                        fileId,
+                        filePath,
+                        type: file.type,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            } else {
+                // Use general cleanup for other file types
+                storageManager.cleanupFiles(filePath);
+                logger.info('File deleted successfully:', {
+                    fileId,
+                    filePath,
+                    type: file.type,
+                    timestamp: new Date().toISOString()
+                });
+            }
         } catch (cleanupError) {
             logger.error('Failed to clean up files from disk:', {
                 error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
                 fileId,
                 filePath,
+                type: file.type,
                 timestamp: new Date().toISOString()
             });
             // Don't fail the request if file cleanup fails - database is already updated

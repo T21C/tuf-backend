@@ -76,8 +76,6 @@ export class ImageFactory {
                 id: fileId,
                 type: imageType,
                 filePath: imageDir, // Store absolute path
-                fileSize: fs.statSync(originalPath).size,
-                isDirectory: true,
             }, { transaction });
             
             createdFileId = fileId;

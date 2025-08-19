@@ -1,3 +1,5 @@
+import { CDN_CONFIG } from "../cdnService/config.js";
+
 export function validateFeelingRating(value: string) {
   const exprPattern1 = '[PGUpgu][1-9]'; // Handles single letters followed by 1-9
   const exprPattern2 = '[PGUpgu]1[0-9]'; // Handles single letters followed by 10-19
@@ -101,4 +103,18 @@ export const safeTransactionRollback = async (transaction: any, logger?: any): P
     // Don't throw the error - this is expected behavior when transaction is already rolled back
     return false;
   }
+};
+
+// Helper function to check if a URL is from our CDN
+export const isCdnUrl = (url: string): boolean => {
+  return url.startsWith(CDN_CONFIG.baseUrl);
+};
+
+// Helper function to extract file ID from CDN URL
+export const getFileIdFromCdnUrl = (url: string): string | null => {
+  if (!isCdnUrl(url)) return null;
+
+  const regex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/;
+  const match = url.match(regex);
+  return match ? match[1] : null;
 };

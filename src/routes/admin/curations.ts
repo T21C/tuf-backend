@@ -2,6 +2,7 @@ import {Router} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {db} from '../../models/index.js';
 import {Op} from 'sequelize';
+import { getFileIdFromCdnUrl, isCdnUrl } from '../../utils/Utility.js';
 import multer from 'multer';
 import CdnService from '../../services/CdnService.js';
 import Curation from '../../models/curations/Curation.js';
@@ -10,6 +11,7 @@ import Difficulty from '../../models/levels/Difficulty.js';
 import Level from '../../models/levels/Level.js';
 import CurationSchedule from '../../models/curations/CurationSchedule.js';
 import Creator from '../../models/credits/Creator.js';
+import { logger } from '../../services/LoggerService.js';
 
 const router: Router = Router();
 
@@ -29,6 +31,22 @@ const upload = multer({
     }
 });
 
+// Configure multer for thumbnail uploads (higher file size limit)
+const thumbnailUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 3 * 1024 * 1024, // 3MB limit for thumbnails
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPEG, PNG, and WebP files are allowed.'));
+        }
+    }
+});
+
 // Get all curation types
 router.get('/types', Auth.superAdmin(), async (req, res) => {
   try {
@@ -37,7 +55,7 @@ router.get('/types', Auth.superAdmin(), async (req, res) => {
     });
     return res.json(types);
   } catch (error) {
-    console.error('Error fetching curation types:', error);
+    logger.error('Error fetching curation types:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -60,7 +78,7 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
 
     return res.status(201).json(type);
   } catch (error) {
-    console.error('Error creating curation type:', error);
+    logger.error('Error creating curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -85,7 +103,7 @@ router.put('/types/:id', Auth.superAdminPassword(), async (req, res) => {
 
     return res.json(type);
   } catch (error) {
-    console.error('Error updating curation type:', error);
+    logger.error('Error updating curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -103,7 +121,7 @@ router.delete('/types/:id', Auth.superAdminPassword(), async (req, res) => {
     await type.destroy();
     return res.status(204).send();
   } catch (error) {
-    console.error('Error deleting curation type:', error);
+    logger.error('Error deleting curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -137,7 +155,7 @@ router.post('/types/:id/icon', Auth.superAdminPassword(), upload.single('icon'),
       cdnData: cdnResult
     });
   } catch (error) {
-    console.error('Error uploading curation icon:', error);
+    logger.error('Error uploading curation icon:', error);
     return res.status(500).json({error: 'Failed to upload icon'});
   }
 });
@@ -157,7 +175,7 @@ router.delete('/types/:id/icon', Auth.superAdminPassword(), async (req, res) => 
 
     return res.json({success: true, message: 'Icon removed successfully'});
   } catch (error) {
-    console.error('Error deleting curation icon:', error);
+    logger.error('Error deleting curation icon:', error);
     return res.status(500).json({error: 'Failed to delete icon'});
   }
 });
@@ -215,7 +233,7 @@ router.get('/', Auth.superAdmin(), async (req, res) => {
       totalPages: Math.ceil(curations.count / Number(limit)),
     });
   } catch (error) {
-    console.error('Error fetching curations:', error);
+    logger.error('Error fetching curations:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -274,7 +292,7 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
 
     return res.status(201).json({ curation: completeCuration });
   } catch (error) {
-    console.error('Error creating curation:', error);
+    logger.error('Error creating curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -320,7 +338,7 @@ router.put('/:id', Auth.superAdmin(), async (req, res) => {
 
     return res.json({ curation: completeCuration });
   } catch (error) {
-    console.error('Error updating curation:', error);
+    logger.error('Error updating curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -355,7 +373,7 @@ router.get('/:id', async (req, res) => {
 
     return res.json(curation);
   } catch (error) {
-    console.error('Error fetching curation:', error);
+    logger.error('Error fetching curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -376,7 +394,7 @@ router.delete('/:id', Auth.superAdmin(), async (req, res) => {
       message: 'Curation deleted successfully',
     });
   } catch (error) {
-    console.error('Error deleting curation:', error);
+    logger.error('Error deleting curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -416,7 +434,7 @@ router.get('/schedules', Auth.superAdmin(), async (req, res) => {
       totalPages: Math.ceil(schedules.count / Number(limit)),
     });
   } catch (error) {
-    console.error('Error fetching curation schedules:', error);
+    logger.error('Error fetching curation schedules:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -446,7 +464,7 @@ router.post('/schedules', Auth.superAdmin(), async (req, res) => {
 
     return res.status(201).json(schedule);
   } catch (error) {
-    console.error('Error creating curation schedule:', error);
+    logger.error('Error creating curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -469,7 +487,7 @@ router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
 
     return res.json(schedule);
   } catch (error) {
-    console.error('Error updating curation schedule:', error);
+    logger.error('Error updating curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -487,7 +505,7 @@ router.delete('/schedules/:id', Auth.superAdmin(), async (req, res) => {
     await schedule.destroy();
     return res.status(204).send();
   } catch (error) {
-    console.error('Error deleting curation schedule:', error);
+    logger.error('Error deleting curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -506,11 +524,27 @@ router.post('/:id/thumbnail', Auth.superAdmin(), upload.single('thumbnail'), asy
       return res.status(404).json({error: 'Curation not found'});
     }
 
-    // Upload to CDN
+    // Delete existing thumbnail first if it exists
+    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
+      const existingFileId = getFileIdFromCdnUrl(curation.previewLink);
+      
+      if (existingFileId) {
+        try {
+          logger.info(`Deleting existing thumbnail ${existingFileId} before uploading new one`);
+          await CdnService.deleteFile(existingFileId);
+          logger.info(`Successfully deleted existing thumbnail ${existingFileId}`);
+        } catch (deleteError) {
+          logger.error('Error deleting existing thumbnail:', deleteError);
+          // Continue with upload even if deletion fails
+        }
+      }
+    }
+
+    // Upload new thumbnail to CDN
     const filename = `level_thumbnail_${id}_${Date.now()}.${req.file.originalname.split('.').pop()}`;
     const cdnResult = await CdnService.uploadLevelThumbnail(req.file.buffer, filename);
 
-    // Update curation with thumbnail URL
+    // Update curation with new thumbnail URL
     await curation.update({
       previewLink: cdnResult.urls.original || cdnResult.urls.medium
     });
@@ -521,7 +555,7 @@ router.post('/:id/thumbnail', Auth.superAdmin(), upload.single('thumbnail'), asy
       cdnData: cdnResult
     });
   } catch (error) {
-    console.error('Error uploading level thumbnail:', error);
+    logger.error('Error uploading level thumbnail:', error);
     return res.status(500).json({error: 'Failed to upload thumbnail'});
   }
 });
@@ -536,12 +570,32 @@ router.delete('/:id/thumbnail', Auth.superAdmin(), async (req, res) => {
       return res.status(404).json({error: 'Curation not found'});
     }
 
+    // Check if there's a thumbnail to delete
+    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
+      // Extract file ID from CDN URL
+      console.log(curation)
+      const fileId = getFileIdFromCdnUrl(curation.previewLink);
+      console.log(fileId)
+      
+      if (fileId) {
+        try {
+          // Delete file from CDN
+          logger.info(`Deleting thumbnail file ${fileId} from CDN`);
+          await CdnService.deleteFile(fileId);
+          logger.info(`Successfully deleted thumbnail file ${fileId} from CDN`);
+        } catch (cdnError) {
+          logger.error('Error deleting file from CDN:', cdnError);
+          // Continue with database update even if CDN deletion fails
+        }
+      }
+    }
+
     // Clear the preview link
     await curation.update({previewLink: null});
 
     return res.json({success: true, message: 'Thumbnail removed successfully'});
   } catch (error) {
-    console.error('Error deleting level thumbnail:', error);
+    logger.error('Error deleting level thumbnail:', error);
     return res.status(500).json({error: 'Failed to delete thumbnail'});
   }
 });

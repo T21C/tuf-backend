@@ -275,38 +275,167 @@ export class StorageManager {
     }
 
     // Utility function to safely delete files and directories
+    // Specialized method for cleaning up image directories
+    public cleanupImageDirectory(imageDir: string, fileId: string, imageType: string): boolean {
+        try {
+            if (!imageDir) {
+                logger.error('No image directory provided for cleanup');
+                return false;
+            }
+
+            const normalizedPath = imageDir.replace(/\\/g, '/');
+            const absolutePath = path.resolve(normalizedPath);
+            const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
+
+            // Validate path is within storage directories
+            const isWithinStorage = this.drives.some(drive => {
+                const normalizedStoragePath = path.resolve(drive.storagePath).replace(/\\/g, '/');
+                return normalizedAbsolutePath.startsWith(normalizedStoragePath);
+            }) || normalizedAbsolutePath.startsWith("/mnt/misc_volume_01");
+
+            if (!isWithinStorage) {
+                logger.error('Image directory is outside of storage paths:', {
+                    imageDir: normalizedAbsolutePath,
+                    fileId,
+                    imageType,
+                    storagePaths: this.drives.map(d => d.storagePath)
+                });
+                return false;
+            }
+
+            // Verify this looks like an image directory
+            if (!normalizedAbsolutePath.includes('/images/')) {
+                logger.error('Path does not appear to be an image directory:', {
+                    imageDir: normalizedAbsolutePath,
+                    fileId,
+                    imageType
+                });
+                return false;
+            }
+
+            if (fs.existsSync(normalizedAbsolutePath)) {
+                const stats = fs.statSync(normalizedAbsolutePath);
+                if (!stats.isDirectory()) {
+                    logger.error('Image path is not a directory:', {
+                        imageDir: normalizedAbsolutePath,
+                        fileId,
+                        imageType
+                    });
+                    return false;
+                }
+
+                // Log directory contents before deletion
+                try {
+                    const contents = fs.readdirSync(normalizedAbsolutePath);
+                    logger.info('Deleting image directory:', {
+                        directory: normalizedAbsolutePath,
+                        fileId,
+                        imageType,
+                        fileCount: contents.length,
+                        files: contents
+                    });
+                } catch (readdirError) {
+                    logger.warn('Could not read directory contents before deletion:', readdirError);
+                }
+
+                // Delete the directory and all its contents
+                fs.rmSync(normalizedAbsolutePath, { recursive: true, force: true });
+                
+                // Verify deletion was successful
+                if (!fs.existsSync(normalizedAbsolutePath)) {
+                    logger.info('Successfully deleted image directory:', {
+                        directory: normalizedAbsolutePath,
+                        fileId,
+                        imageType
+                    });
+                    return true;
+                } else {
+                    logger.error('Directory still exists after deletion attempt:', {
+                        directory: normalizedAbsolutePath,
+                        fileId,
+                        imageType
+                    });
+                    return false;
+                }
+            } else {
+                logger.warn('Image directory does not exist:', {
+                    directory: normalizedAbsolutePath,
+                    fileId,
+                    imageType
+                });
+                return true; // Consider non-existent as successfully cleaned
+            }
+        } catch (error) {
+            logger.error('Failed to cleanup image directory:', {
+                error: error instanceof Error ? error.message : String(error),
+                imageDir,
+                fileId,
+                imageType
+            });
+            return false;
+        }
+    }
+
     public cleanupFiles(...paths: (string | undefined | null)[]): void {
         for (const rawPath of paths) {
             if (!rawPath) continue;
-            const path = rawPath.replace(/\\/g, '/');
+            const normalizedPath = rawPath.replace(/\\/g, '/');
 
             try {
                 // Validate path is not empty or root
-                if (!path || path === '/' || path === '') {
-                    logger.error('Invalid path provided for cleanup');
-                    return;
+                if (!normalizedPath || normalizedPath === '/' || normalizedPath === '') {
+                    logger.error('Invalid path provided for cleanup:', normalizedPath);
+                    continue;
                 }
+
+                // Resolve to absolute path for consistent comparison
+                const absolutePath = path.resolve(normalizedPath);
+                const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
 
                 // Check if path is within any of our storage paths
-                const isWithinStorage = this.drives.some(drive => 
-                    path.startsWith(drive.storagePath) || path.startsWith("/mnt/misc_volume_01")
-                );
+                const isWithinStorage = this.drives.some(drive => {
+                    const normalizedStoragePath = path.resolve(drive.storagePath).replace(/\\/g, '/');
+                    return normalizedAbsolutePath.startsWith(normalizedStoragePath);
+                }) || normalizedAbsolutePath.startsWith("/mnt/misc_volume_01");
 
                 if (!isWithinStorage) {
-                    logger.error('Attempted to delete file outside of storage directories', path);
-                    return;
+                    logger.error('Attempted to delete file outside of storage directories:', {
+                        path: normalizedAbsolutePath,
+                        storagePaths: this.drives.map(d => d.storagePath)
+                    });
+                    continue;
                 }
 
-                if (fs.existsSync(path)) {
-                    const stats = fs.statSync(path);
+                logger.info(`Deleting file/directory: ${normalizedAbsolutePath}`);
+                if (fs.existsSync(normalizedAbsolutePath)) {
+                    const stats = fs.statSync(normalizedAbsolutePath);
                     if (stats.isDirectory()) {
-                        fs.rmSync(path, { recursive: true, force: true });
+                        // For image directories, log what we're deleting
+                        if (normalizedAbsolutePath.includes('/images/')) {
+                            try {
+                                const contents = fs.readdirSync(normalizedAbsolutePath);
+                                logger.info(`Deleting image directory with ${contents.length} files:`, {
+                                    directory: normalizedAbsolutePath,
+                                    files: contents
+                                });
+                            } catch (readdirError) {
+                                logger.warn('Could not read directory contents before deletion:', readdirError);
+                            }
+                        }
+                        fs.rmSync(normalizedAbsolutePath, { recursive: true, force: true });
+                        logger.info(`Successfully deleted directory: ${normalizedAbsolutePath}`);
                     } else {
-                        fs.unlinkSync(path);
+                        fs.unlinkSync(normalizedAbsolutePath);
+                        logger.info(`Successfully deleted file: ${normalizedAbsolutePath}`);
                     }
+                } else {
+                    logger.warn(`File/directory does not exist: ${normalizedAbsolutePath}`);
                 }
             } catch (error) {
-                logger.error(`Failed to cleanup path ${path}:`, error);
+                logger.error(`Failed to cleanup path ${normalizedPath}:`, {
+                    error: error instanceof Error ? error.message : String(error),
+                    path: normalizedPath
+                });
             }
         }
     }

@@ -17,7 +17,7 @@ import User from "../../../models/auth/User.js";
 import Player from "../../../models/players/Player.js";
 import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
-import { safeTransactionRollback, sanitizeTextInput } from '../../../utils/Utility.js';
+import { isCdnUrl, getFileIdFromCdnUrl, safeTransactionRollback, sanitizeTextInput } from '../../../utils/Utility.js';
 import cdnService from '../../../services/CdnService.js';
 import { CDN_CONFIG } from '../../../cdnService/config.js';
 import multer from 'multer';
@@ -40,24 +40,6 @@ const storage = multer.diskStorage({
     cb(null, file.originalname);
   }
 });
-const upload = multer({ 
-  storage,
-  limits: {
-    fileSize: 1000 * 1024 * 1024 // 1GB limit
-  }
-});
-
-// Helper function to check if a URL is from our CDN
-const isCdnUrl = (url: string): boolean => {
-  return url.startsWith(CDN_CONFIG.baseUrl);
-};
-
-// Helper function to extract file ID from CDN URL
-const getFileIdFromCdnUrl = (url: string): string | null => {
-  if (!isCdnUrl(url)) return null;
-  const parts = url.split('/');
-  return parts[parts.length - 1];
-};
 
 // Helper functions for level updates
 const handleRatingChanges = async (level: Level, req: Request, transaction: Transaction) => {

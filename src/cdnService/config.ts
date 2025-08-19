@@ -25,7 +25,7 @@ export const IMAGE_TYPES = {
             small: { width: 128, height: 128 },
             thumbnail: { width: 64, height: 64 }
         },
-        formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 5 * 1024 * 1024 // 5MB
     },
     BANNER: {
@@ -36,7 +36,7 @@ export const IMAGE_TYPES = {
             medium: { width: 854, height: 480 },
             small: { width: 640, height: 360 }
         },
-        formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 10 * 1024 * 1024 // 10MB
     },
     THUMBNAIL: {
@@ -47,7 +47,7 @@ export const IMAGE_TYPES = {
             medium: { width: 200, height: 150 },
             small: { width: 100, height: 75 }
         },
-        formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 2 * 1024 * 1024 // 2MB
     },
     CURATION_ICON: {
@@ -57,7 +57,7 @@ export const IMAGE_TYPES = {
             medium: { width: 128, height: 128 },
             small: { width: 64, height: 64 }
         },
-        formats: ['jpg', 'jpeg', 'png', 'webp', 'svg'] as const,
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 1 * 1024 * 1024 // 1MB
     },
     LEVEL_THUMBNAIL: {
@@ -69,7 +69,7 @@ export const IMAGE_TYPES = {
             small: { width: 150, height: 100 },
             thumbnail: { width: 75, height: 50 }
         },
-        formats: ['jpg', 'jpeg', 'png', 'webp'] as const,
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 3 * 1024 * 1024 // 3MB
     }
 } as const;
