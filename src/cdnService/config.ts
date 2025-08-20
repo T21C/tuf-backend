@@ -70,7 +70,7 @@ export const IMAGE_TYPES = {
             thumbnail: { width: 75, height: 50 }
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
-        maxSize: 3 * 1024 * 1024 // 3MB
+        maxSize: 10 * 1024 * 1024 // 10MB
     }
 } as const;
 

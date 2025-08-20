@@ -1,10 +1,13 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../../config/db.js';
+import Curation from './Curation.js';
 
 export interface ICurationSchedule {
   id: number;
-  levelId: number;
-  targetDate: Date;
+  curationId: number;
+  weekStart: Date;
+  listType: 'primary' | 'secondary';
+  position: number;
   isActive: boolean;
   scheduledBy: string;
   createdAt: Date;
@@ -22,12 +25,16 @@ class CurationSchedule
   implements ICurationSchedule
 {
   declare id: number;
-  declare levelId: number;
-  declare targetDate: Date;
+  declare curationId: number;
+  declare weekStart: Date;
+  declare listType: 'primary' | 'secondary';
+  declare position: number;
   declare isActive: boolean;
   declare scheduledBy: string;
   declare createdAt: Date;
   declare updatedAt: Date;
+
+  declare scheduledCuration: Curation;
 }
 
 CurationSchedule.init(
@@ -37,19 +44,29 @@ CurationSchedule.init(
       primaryKey: true,
       autoIncrement: true,
     },
-    levelId: {
+    curationId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'levels',
+        model: 'curations',
         key: 'id',
       },
       onDelete: 'CASCADE',
     },
-    targetDate: {
+    weekStart: {
       type: DataTypes.DATE,
       allowNull: false,
-      comment: 'Target date for when this curation should be featured',
+      comment: 'Monday date for the week this curation is scheduled',
+    },
+    listType: {
+      type: DataTypes.ENUM('primary', 'secondary'),
+      allowNull: false,
+      comment: 'Whether this is in the primary or secondary hall of fame list',
+    },
+    position: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      comment: 'Position within the list (0-9)',
     },
     isActive: {
       type: DataTypes.BOOLEAN,
@@ -78,16 +95,27 @@ CurationSchedule.init(
     timestamps: true,
     indexes: [
       {
-        fields: ['levelId'],
+        fields: ['curationId'],
       },
       {
-        fields: ['targetDate'],
+        fields: ['weekStart'],
+      },
+      {
+        fields: ['listType'],
+      },
+      {
+        fields: ['position'],
       },
       {
         fields: ['isActive'],
       },
       {
         fields: ['scheduledBy'],
+      },
+      {
+        unique: true,
+        fields: ['weekStart', 'listType', 'position'],
+        name: 'unique_week_list_position',
       },
     ],
   }

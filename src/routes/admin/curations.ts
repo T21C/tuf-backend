@@ -19,7 +19,7 @@ const router: Router = Router();
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 1 * 1024 * 1024, // 1MB limit for icons
+        fileSize: 10 * 1024 * 1024,
     },
     fileFilter: (req, file, cb) => {
         const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml'];
@@ -27,22 +27,6 @@ const upload = multer({
             cb(null, true);
         } else {
             cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and SVG files are allowed.'));
-        }
-    }
-});
-
-// Configure multer for thumbnail uploads (higher file size limit)
-const thumbnailUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 3 * 1024 * 1024, // 3MB limit for thumbnails
-    },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Invalid file type. Only JPEG, PNG, and WebP files are allowed.'));
         }
     }
 });
@@ -183,12 +167,18 @@ router.delete('/types/:id/icon', Auth.superAdminPassword(), async (req, res) => 
 // Get all curations with pagination and filters
 router.get('/', Auth.superAdmin(), async (req, res) => {
   try {
-    const {page = 1, limit = 20, typeId, levelId, search} = req.query;
+    const {page = 1, limit = 20, typeId, levelId, search, excludeIds} = req.query;
     const offset = (Number(page) - 1) * Number(limit);
 
     const where: any = {};
     if (typeId) where.typeId = typeId;
     if (levelId) where.levelId = levelId;
+    
+    // Add excludeIds filter if provided
+    if (excludeIds) {
+      const excludeArray = Array.isArray(excludeIds) ? excludeIds : [excludeIds];
+      where.id = { [Op.notIn]: excludeArray };
+    }
 
     const include = [
       {
@@ -298,7 +288,7 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
 });
 
 // Update curation
-router.put('/:id', Auth.superAdmin(), async (req, res) => {
+router.put('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
   try {
     const {id} = req.params;
     const {description, previewLink, customCSS, customColor, typeId} = req.body;
@@ -344,7 +334,7 @@ router.put('/:id', Auth.superAdmin(), async (req, res) => {
 });
 
 // Get single curation
-router.get('/:id', async (req, res) => {
+router.get('/:id([0-9]+)', async (req, res) => {
   try {
     const {id} = req.params;
 
@@ -379,7 +369,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Delete curation
-router.delete('/:id', Auth.superAdmin(), async (req, res) => {
+router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
   try {
     const {id} = req.params;
 
@@ -400,38 +390,52 @@ router.delete('/:id', Auth.superAdmin(), async (req, res) => {
 });
 
 // Get curation schedules
-router.get('/schedules', Auth.superAdmin(), async (req, res) => {
+router.get('/schedules', Auth.user(), async (req, res) => {
   try {
-    const {page = 1, limit = 20, isActive} = req.query;
-    const offset = (Number(page) - 1) * Number(limit);
+    const { weekStart } = req.query;
+    
+    const where: any = { isActive: true };
+    if (weekStart) {
+      // Convert any date to the start of the week (Monday)
+      const inputDate = new Date(weekStart as string);
+      const dayOfWeek = inputDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
+      
+      const startOfWeek = new Date(inputDate);
+      startOfWeek.setDate(inputDate.getDate() - daysToSubtract);
+      
+      where.weekStart = startOfWeek;
+    }
 
-    const where: any = {};
-    if (isActive !== undefined) where.isActive = isActive === 'true';
-
-    const schedules = await CurationSchedule.findAndCountAll({
+    const schedules = await CurationSchedule.findAll({
       where,
       include: [
         {
-          model: Level,
-          as: 'level',
+          model: Curation,
+          as: 'scheduledCuration',
           include: [
             {
-              model: Difficulty,
-              as: 'difficulty',
+              model: CurationType,
+              as: 'type',
+            },
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
             },
           ],
         },
       ],
-      limit: Number(limit),
-      offset,
-      order: [['targetDate', 'ASC']],
+      order: [['listType', 'ASC'], ['position', 'ASC']],
     });
 
     return res.json({
-      schedules: schedules.rows,
-      total: schedules.count,
-      page: Number(page),
-      totalPages: Math.ceil(schedules.count / Number(limit)),
+      schedules: schedules,
     });
   } catch (error) {
     logger.error('Error fetching curation schedules:', error);
@@ -440,29 +444,67 @@ router.get('/schedules', Auth.superAdmin(), async (req, res) => {
 });
 
 // Create curation schedule
-router.post('/schedules', Auth.superAdmin(), async (req, res) => {
+router.post('/schedules', Auth.user(), async (req, res) => {
   try {
-    const {levelId, targetDate} = req.body;
+    const { curationId, weekStart, listType, position } = req.body;
     const scheduledBy = req.user?.id || 'unknown';
 
-    if (!levelId || !targetDate) {
-      return res.status(400).json({error: 'Level ID and Target Date are required'});
+    if (!curationId || !weekStart || !listType || position === undefined) {
+      return res.status(400).json({error: 'Curation ID, Week Start, List Type, and Position are required'});
     }
 
-    // Check if level exists
-    const level = await Level.findByPk(levelId);
-    if (!level) {
-      return res.status(404).json({error: 'Level not found'});
+    // Check if curation exists
+    const curation = await Curation.findByPk(curationId);
+    if (!curation) {
+      return res.status(404).json({error: 'Curation not found'});
+    }
+
+    // Validate listType
+    if (!['primary', 'secondary'].includes(listType)) {
+      return res.status(400).json({error: 'List type must be either "primary" or "secondary"'});
+    }
+
+    // Validate position (0-9)
+    if (position < 0 || position > 9) {
+      return res.status(400).json({error: 'Position must be between 0 and 9'});
     }
 
     const schedule = await CurationSchedule.create({
-      levelId,
-      targetDate: new Date(targetDate),
+      curationId,
+      weekStart: new Date(weekStart),
+      listType,
+      position,
       scheduledBy,
       isActive: true,
     });
 
-    return res.status(201).json(schedule);
+    // Fetch the complete schedule with related data
+    const completeSchedule = await CurationSchedule.findByPk(schedule.id, {
+      include: [
+        {
+          model: Curation,
+          as: 'scheduledCuration',
+          include: [
+            {
+              model: CurationType,
+              as: 'type',
+            },
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                {
+                  model: Difficulty,
+                  as: 'difficulty',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    return res.status(201).json(completeSchedule);
   } catch (error) {
     logger.error('Error creating curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -470,18 +512,23 @@ router.post('/schedules', Auth.superAdmin(), async (req, res) => {
 });
 
 // Update curation schedule
-router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
+router.put('/schedules/:id', Auth.user(), async (req, res) => {
   try {
-    const {id} = req.params;
-    const {targetDate, isActive} = req.body;
+    const { id } = req.params;
+    const { position, isActive } = req.body;
 
     const schedule = await CurationSchedule.findByPk(id);
     if (!schedule) {
       return res.status(404).json({error: 'Curation schedule not found'});
     }
 
+    // Validate position if provided
+    if (position !== undefined && (position < 0 || position > 9)) {
+      return res.status(400).json({error: 'Position must be between 0 and 9'});
+    }
+
     await schedule.update({
-      targetDate: targetDate ? new Date(targetDate) : schedule.targetDate,
+      position: position !== undefined ? position : schedule.position,
       isActive: isActive !== undefined ? isActive : schedule.isActive,
     });
 
@@ -493,9 +540,9 @@ router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
 });
 
 // Delete curation schedule
-router.delete('/schedules/:id', Auth.superAdmin(), async (req, res) => {
+router.delete('/schedules/:id', Auth.user(), async (req, res) => {
   try {
-    const {id} = req.params;
+    const { id } = req.params;
 
     const schedule = await CurationSchedule.findByPk(id);
     if (!schedule) {
@@ -511,7 +558,7 @@ router.delete('/schedules/:id', Auth.superAdmin(), async (req, res) => {
 });
 
 // Upload level thumbnail
-router.post('/:id/thumbnail', Auth.superAdmin(), upload.single('thumbnail'), async (req, res) => {
+router.post('/:id([0-9]+)/thumbnail', Auth.superAdmin(), upload.single('thumbnail'), async (req, res) => {
   try {
     const {id} = req.params;
     
@@ -561,7 +608,7 @@ router.post('/:id/thumbnail', Auth.superAdmin(), upload.single('thumbnail'), asy
 });
 
 // Delete level thumbnail
-router.delete('/:id/thumbnail', Auth.superAdmin(), async (req, res) => {
+router.delete('/:id([0-9]+)/thumbnail', Auth.superAdmin(), async (req, res) => {
   try {
     const {id} = req.params;
 

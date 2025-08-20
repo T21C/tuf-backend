@@ -237,6 +237,21 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
     const typeConfig = IMAGE_TYPES[imageType];
     const sizes = typeConfig.sizes.original;
 
+    // Very loose validation for level thumbnails
+    if (imageType === 'LEVEL_THUMBNAIL') {
+        return {
+            minWidth: 50,  // Very small minimum width
+            maxWidth: 4096, // Large maximum width
+            minHeight: 50,  // Very small minimum height
+            maxHeight: 4096, // Large maximum height
+            maxSize: typeConfig.maxSize,
+            allowedFormats: [...typeConfig.formats],
+            requireSquare: false, // Allow any aspect ratio
+            maxAspectRatio: 5, // Allow very wide images
+            minAspectRatio: 0.2 // Allow very tall images
+        };
+    }
+
     // More lenient validation for profile images
     if (imageType === 'PROFILE') {
         return {
