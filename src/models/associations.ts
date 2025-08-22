@@ -480,9 +480,9 @@ export function initializeAssociations() {
     as: 'level',
   });
 
-  Level.hasMany(Curation, {
+  Level.hasOne(Curation, {
     foreignKey: 'levelId',
-    as: 'curations',
+    as: 'curation',
   });
 
   CurationSchedule.belongsTo(Curation, {

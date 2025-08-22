@@ -10,6 +10,7 @@ import {
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
 import Team from '../credits/Team.js';
+import Curation from '../curations/Curation.js';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -63,6 +64,7 @@ class Level
   declare levelCreators?: ICreator[];
   declare levelCredits?: LevelCredit[];   
   declare aliases?: LevelAlias[] | null;
+  declare curation?: Curation | null;
 }
 
 Level.init(

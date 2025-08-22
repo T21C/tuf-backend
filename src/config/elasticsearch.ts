@@ -305,6 +305,33 @@ export const levelMapping = {
             }
           }
         }
+      },
+      curation: {
+        type: 'nested' as const,
+        properties: {
+            id: { type: 'integer' as const },
+            levelId: { type: 'integer' as const },
+            typeId: { type: 'integer' as const },
+            shortDescription: { type: 'text' as const },
+            description: { type: 'text' as const },
+            previewLink: { type: 'text' as const },
+            customCSS: { type: 'text' as const },
+            customColor: { type: 'text' as const },
+            assignedBy: { type: 'text' as const },
+            createdAt: { type: 'date' as const },
+            updatedAt: { type: 'date' as const },
+            type: {
+              type: 'nested' as const,
+              properties: {
+                id: { type: 'integer' as const },
+                name: { type: 'text' as const },
+                icon: { type: 'text' as const },
+                color: { type: 'text' as const },
+                createdAt: { type: 'date' as const },
+                updatedAt: { type: 'date' as const }
+              }
+            }
+        }
       }
     }
   }

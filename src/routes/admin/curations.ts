@@ -165,7 +165,7 @@ router.delete('/types/:id/icon', Auth.superAdminPassword(), async (req, res) => 
 });
 
 // Get all curations with pagination and filters
-router.get('/', Auth.superAdmin(), async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const {page = 1, limit = 20, typeId, levelId, search, excludeIds} = req.query;
     const offset = (Number(page) - 1) * Number(limit);
@@ -231,7 +231,7 @@ router.get('/', Auth.superAdmin(), async (req, res) => {
 // Create curation
 router.post('/', Auth.superAdmin(), async (req, res) => {
   try {
-    const {levelId, typeId, description, previewLink, customCSS, customColor} = req.body;
+    const {levelId, typeId, shortDescription, description, previewLink, customCSS, customColor} = req.body;
     const assignedBy = req.user?.id || 'unknown';
 
     if (!levelId || !typeId) {
@@ -253,6 +253,7 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
     const curation = await Curation.create({
       levelId,
       typeId,
+      shortDescription,
       description,
       previewLink,
       customCSS,
@@ -291,7 +292,7 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
 router.put('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
   try {
     const {id} = req.params;
-    const {description, previewLink, customCSS, customColor, typeId} = req.body;
+    const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
 
     const curation = await Curation.findByPk(id);
     if (!curation) {
@@ -299,6 +300,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
     }
 
     await curation.update({
+      shortDescription,
       description,
       previewLink,
       customCSS,
@@ -321,6 +323,10 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
               model: Difficulty,
               as: 'difficulty',
             },
+            {
+              model: Creator,
+              as: 'levelCreators',
+            }
           ],
         },
       ],
@@ -390,7 +396,7 @@ router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
 });
 
 // Get curation schedules
-router.get('/schedules', Auth.user(), async (req, res) => {
+router.get('/schedules', async (req, res) => {
   try {
     const { weekStart } = req.query;
     
@@ -426,6 +432,10 @@ router.get('/schedules', Auth.user(), async (req, res) => {
                   model: Difficulty,
                   as: 'difficulty',
                 },
+                {
+                  model: Creator,
+                  as: 'levelCreators',
+                }
               ],
             },
           ],
@@ -444,7 +454,7 @@ router.get('/schedules', Auth.user(), async (req, res) => {
 });
 
 // Create curation schedule
-router.post('/schedules', Auth.user(), async (req, res) => {
+router.post('/schedules', Auth.superAdmin(), async (req, res) => {
   try {
     const { curationId, weekStart, listType, position } = req.body;
     const scheduledBy = req.user?.id || 'unknown';
@@ -497,6 +507,11 @@ router.post('/schedules', Auth.user(), async (req, res) => {
                   model: Difficulty,
                   as: 'difficulty',
                 },
+                {
+                  model: Creator,
+                  as: 'levelCreators',
+                }
+            
               ],
             },
           ],
@@ -512,7 +527,7 @@ router.post('/schedules', Auth.user(), async (req, res) => {
 });
 
 // Update curation schedule
-router.put('/schedules/:id', Auth.user(), async (req, res) => {
+router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
   try {
     const { id } = req.params;
     const { position, isActive } = req.body;
@@ -540,7 +555,7 @@ router.put('/schedules/:id', Auth.user(), async (req, res) => {
 });
 
 // Delete curation schedule
-router.delete('/schedules/:id', Auth.user(), async (req, res) => {
+router.delete('/schedules/:id', Auth.superAdmin(), async (req, res) => {
   try {
     const { id } = req.params;
 

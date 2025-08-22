@@ -24,6 +24,8 @@ import LevelLikes from '../models/levels/LevelLikes.js';
 import Rating from '../models/levels/Rating.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
 import User from '../models/auth/User.js';
+import Curation from '../models/curations/Curation.js';
+import CurationType from '../models/curations/CurationType.js';
 
 // Add these type definitions at the top of the file, after imports
 type FieldSearch = {
@@ -70,6 +72,7 @@ class ElasticsearchService {
       
       if (needsReindex) {
         logger.info('Starting data reindexing...');
+        const start = Date.now();
         await Promise.all([
           this.reindexLevels().catch(error => {
             logger.error('Failed to reindex levels:', error);
@@ -80,7 +83,8 @@ class ElasticsearchService {
             throw error;
           }),
         ]);
-        logger.info('Data reindexing completed successfully');
+        const end = Date.now();
+        logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
         updateMappingHash();
       }
 
@@ -266,6 +270,16 @@ class ElasticsearchService {
                 as: 'teamAliases'
               }
             ]
+          },
+          {
+            model: Curation,
+            as: 'curation',
+            include: [
+              {
+                model: CurationType,
+                as: 'type'
+              }
+            ]
           }
         ],
       });
@@ -344,6 +358,9 @@ class ElasticsearchService {
           ...alias.get({ plain: true }),
           name: convertToPUA(alias.name)
         }))
+      } : null,
+      curation: level.curation ? {
+        ...level.curation.get({ plain: true }),
       } : null
     };
     logger.debug(`Processed level ${id} videoLink: ${processedLevel.videoLink}`);
@@ -542,6 +559,9 @@ class ElasticsearchService {
                 ...alias.get({ plain: true }),
                 name: convertToPUA(alias.name)
               }))
+            } : null,
+            curation: level.curation ? {
+              ...level.curation.get({ plain: true })
             } : null
           };
           return [
@@ -705,6 +725,16 @@ class ElasticsearchService {
               {
                 model: TeamAlias,
                 as: 'teamAliases'
+              }
+            ]
+          },
+          {
+            model: Curation,
+            as: 'curation',
+            include: [
+              {
+                model: CurationType,
+                as: 'type'
               }
             ]
           }

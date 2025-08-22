@@ -6,6 +6,7 @@ export interface ICuration {
   id: number;
   levelId: number;
   typeId: number;
+  shortDescription: string | null;
   description: string | null;
   previewLink: string | null;
   customCSS: string | null;
@@ -28,6 +29,7 @@ class Curation
   declare id: number;
   declare levelId: number;
   declare typeId: number;
+  declare shortDescription: string | null;
   declare description: string | null;
   declare previewLink: string | null;
   declare customCSS: string | null;
@@ -63,6 +65,11 @@ Curation.init(
         key: 'id',
       },
       onDelete: 'CASCADE',
+    },
+    shortDescription: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: "",
     },
     description: {
       type: DataTypes.TEXT,
