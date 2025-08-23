@@ -211,19 +211,16 @@ class ElasticsearchService {
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
-            const levels = await Level.findAll({ where: options.where });
-            logger.debug(`Indexing ${levels.length} levels after bulk update`);
-            for (const level of levels) {
-              await this.indexLevel(level.id);
-            }
+            const levelIds = await Level.findAll({ where: options.where, attributes: ['id'] });
+            logger.debug(`Indexing ${levelIds.length} levels after bulk update`);
+            await this.reindexLevels(levelIds.map(level => level.id));
+            
            });
         } else {
           if (options.where) {
-            const levels = await Level.findAll({ where: options.where });
-            logger.debug(`Indexing ${levels.length} levels after bulk update`);
-            for (const level of levels) {
-              await this.indexLevel(level.id);
-            }
+            const levelIds = await Level.findAll({ where: options.where, attributes: ['id'] });
+            logger.debug(`Indexing ${levelIds.length} levels after bulk update`);
+            await this.reindexLevels(levelIds.map(level => level.id));
           }
         }
       } catch (error) {
