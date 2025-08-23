@@ -1,7 +1,7 @@
 import {Router} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {db} from '../../models/index.js';
-import {Op} from 'sequelize';
+import {Op, Transaction} from 'sequelize';
 import { getFileIdFromCdnUrl, isCdnUrl } from '../../utils/Utility.js';
 import multer from 'multer';
 import CdnService from '../../services/CdnService.js';
@@ -12,8 +12,63 @@ import Level from '../../models/levels/Level.js';
 import CurationSchedule from '../../models/curations/CurationSchedule.js';
 import Creator from '../../models/credits/Creator.js';
 import { logger } from '../../services/LoggerService.js';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
+import sequelize from '../../config/db.js';
 
 const router: Router = Router();
+
+const elasticsearchService = ElasticsearchService.getInstance();
+
+const reindexCuratedLevels = async () => {
+  const curations = await Curation.findAll({
+    include: [
+      {
+        model: Level,
+        as: 'level',
+      },
+    ],
+  });
+  const levelIds = curations.map(curation => curation.levelId);
+  await elasticsearchService.reindexLevels(levelIds);
+};
+
+// Helper function to clean up CDN files for curations
+const cleanupCurationCdnFiles = async (curations: Curation[]) => {
+  for (const curation of curations) {
+    // Clean up curation thumbnail if it exists
+    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
+      const fileId = getFileIdFromCdnUrl(curation.previewLink);
+      if (fileId) {
+        try {
+          logger.info(`Deleting curation thumbnail ${fileId} from CDN`);
+          await CdnService.deleteFile(fileId);
+          logger.info(`Successfully deleted curation thumbnail ${fileId} from CDN`);
+        } catch (error) {
+          logger.error(`Error deleting curation thumbnail ${fileId} from CDN:`, error);
+          // Continue with cleanup even if CDN deletion fails
+        }
+      }
+    }
+  }
+};
+
+// Helper function to clean up CDN files for curation types
+const cleanupCurationTypeCdnFiles = async (type: CurationType) => {
+  // Clean up curation type icon if it exists
+  if (type.icon && isCdnUrl(type.icon)) {
+    const fileId = getFileIdFromCdnUrl(type.icon);
+    if (fileId) {
+      try {
+        logger.info(`Deleting curation type icon ${fileId} from CDN`);
+        await CdnService.deleteFile(fileId);
+        logger.info(`Successfully deleted curation type icon ${fileId} from CDN`);
+      } catch (error) {
+        logger.error(`Error deleting curation type icon ${fileId} from CDN:`, error);
+        // Continue with cleanup even if CDN deletion fails
+      }
+    }
+  }
+};
 
 // Configure multer for file uploads
 const upload = multer({
@@ -60,6 +115,8 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
       abilities: abilities || 0,
     });
 
+    await reindexCuratedLevels();
+
     return res.status(201).json(type);
   } catch (error) {
     logger.error('Error creating curation type:', error);
@@ -85,6 +142,8 @@ router.put('/types/:id', Auth.superAdminPassword(), async (req, res) => {
       abilities,
     });
 
+    await reindexCuratedLevels();
+
     return res.json(type);
   } catch (error) {
     logger.error('Error updating curation type:', error);
@@ -94,17 +153,45 @@ router.put('/types/:id', Auth.superAdminPassword(), async (req, res) => {
 
 // Delete curation type
 router.delete('/types/:id', Auth.superAdminPassword(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const {id} = req.params;
 
-    const type = await CurationType.findByPk(id);
+    const type = await CurationType.findByPk(id, { transaction });
     if (!type) {
+      await transaction.rollback();
       return res.status(404).json({error: 'Curation type not found'});
     }
 
-    await type.destroy();
+    // Find all curations of this type to clean up their CDN files
+    const curations = await Curation.findAll({
+      where: { typeId: id },
+      transaction
+    });
+
+    const affectedLevelIds = curations.map(curation => curation.levelId);
+
+    logger.info(`Found ${curations.length} curations to clean up for curation type ${id}`);
+
+    // Clean up CDN files for all curations of this type
+    await cleanupCurationCdnFiles(curations);
+
+    // Clean up CDN files for the curation type itself
+    await cleanupCurationTypeCdnFiles(type);
+
+    // Delete the curation type (this will cascade delete all related curations and schedules)
+    await type.destroy({ transaction });
+
+    await transaction.commit();
+    
+    // Reindex affected levels after successful deletion
+    await elasticsearchService.reindexLevels(affectedLevelIds);
+    
+    logger.info(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
     return res.status(204).send();
   } catch (error) {
+    await transaction.rollback();
     logger.error('Error deleting curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
@@ -146,19 +233,28 @@ router.post('/types/:id/icon', Auth.superAdminPassword(), upload.single('icon'),
 
 // Delete curation icon
 router.delete('/types/:id/icon', Auth.superAdminPassword(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const {id} = req.params;
 
-    const type = await CurationType.findByPk(id);
+    const type = await CurationType.findByPk(id, { transaction });
     if (!type) {
+      await transaction.rollback();
       return res.status(404).json({error: 'Curation type not found'});
     }
 
+    // Clean up CDN files for the curation type
+    await cleanupCurationTypeCdnFiles(type);
+
     // Clear the icon field
-    await type.update({icon: null});
+    await type.update({icon: null}, { transaction });
+
+    await transaction.commit();
 
     return res.json({success: true, message: 'Icon removed successfully'});
   } catch (error) {
+    await transaction.rollback();
     logger.error('Error deleting curation icon:', error);
     return res.status(500).json({error: 'Failed to delete icon'});
   }
@@ -376,20 +472,38 @@ router.get('/:id([0-9]+)', async (req, res) => {
 
 // Delete curation
 router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const {id} = req.params;
 
-    const curation = await Curation.findByPk(id);
+    const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
+      await transaction.rollback();
       return res.status(404).json({error: 'Curation not found'});
     }
 
-    await curation.destroy();
+    // Clean up CDN files for this curation
+    await cleanupCurationCdnFiles([curation]);
+
+    // Store levelId for reindexing
+    const levelId = curation.levelId;
+
+    // Delete the curation (this will cascade delete related schedules)
+    await curation.destroy({ transaction });
+
+    await transaction.commit();
+    
+    // Reindex the affected level
+    await elasticsearchService.reindexLevels([levelId]);
+    
+    logger.info(`Successfully deleted curation ${id} and cleaned up related resources`);
     return res.status(200).json({
       success: true,
       message: 'Curation deleted successfully',
     });
   } catch (error) {
+    await transaction.rollback();
     logger.error('Error deleting curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
@@ -624,39 +738,28 @@ router.post('/:id([0-9]+)/thumbnail', Auth.superAdmin(), upload.single('thumbnai
 
 // Delete level thumbnail
 router.delete('/:id([0-9]+)/thumbnail', Auth.superAdmin(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const {id} = req.params;
 
-    const curation = await Curation.findByPk(id);
+    const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
+      await transaction.rollback();
       return res.status(404).json({error: 'Curation not found'});
     }
 
-    // Check if there's a thumbnail to delete
-    if (curation.previewLink && isCdnUrl(curation.previewLink)) {
-      // Extract file ID from CDN URL
-      console.log(curation)
-      const fileId = getFileIdFromCdnUrl(curation.previewLink);
-      console.log(fileId)
-      
-      if (fileId) {
-        try {
-          // Delete file from CDN
-          logger.info(`Deleting thumbnail file ${fileId} from CDN`);
-          await CdnService.deleteFile(fileId);
-          logger.info(`Successfully deleted thumbnail file ${fileId} from CDN`);
-        } catch (cdnError) {
-          logger.error('Error deleting file from CDN:', cdnError);
-          // Continue with database update even if CDN deletion fails
-        }
-      }
-    }
+    // Clean up CDN files for this curation
+    await cleanupCurationCdnFiles([curation]);
 
     // Clear the preview link
-    await curation.update({previewLink: null});
+    await curation.update({previewLink: null}, { transaction });
+
+    await transaction.commit();
 
     return res.json({success: true, message: 'Thumbnail removed successfully'});
   } catch (error) {
+    await transaction.rollback();
     logger.error('Error deleting level thumbnail:', error);
     return res.status(500).json({error: 'Failed to delete thumbnail'});
   }
