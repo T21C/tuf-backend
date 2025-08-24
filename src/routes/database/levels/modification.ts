@@ -172,7 +172,7 @@ const handleScoreRecalculations = async (levelId: number, updateData: any, trans
         );
 
         if (!currentDifficulty) {
-          logger.error(`No difficulty found for pass ${pass.id}`);
+          logger.error(`No difficulty found for pass ${pass.id} with diffId ${updateData.diffId || pass.level?.diffId}`);
           return;
         }
 

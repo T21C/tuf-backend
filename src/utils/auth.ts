@@ -5,7 +5,7 @@ import {User} from '../models/index.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
-const JWT_EXPIRES_IN = '24h';
+const JWT_EXPIRES_IN = '48h';
 
 /**
  * Password utilities

@@ -77,10 +77,10 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
       return;
     }
 
-    // Check if token is about to expire (within 5 minutes)
+    // Check if token is about to expire
     const tokenExp = decoded.exp ? decoded.exp * 1000 : 0;
-    const fiveMinutes = 5 * 60 * 1000;
-    const shouldRefresh = tokenExp - Date.now() < fiveMinutes;
+    const beforeExpiry = 60 * 60 * 1000;
+    const shouldRefresh = tokenExp - Date.now() < beforeExpiry;
 
     // Check if permissions are up to date
     const permissionsValid = await tokenUtils.verifyTokenPermissions(decoded);
