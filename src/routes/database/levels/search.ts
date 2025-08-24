@@ -21,6 +21,8 @@ import { logger } from "../../../services/LoggerService.js";
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import LevelRerateHistory from "../../../models/levels/LevelRerateHistory.js";
 import { safeTransactionRollback } from "../../../utils/Utility.js";
+import Curation from "../../../models/curations/Curation.js";
+import CurationType from "../../../models/curations/CurationType.js";
 
 const MAX_LIMIT = 200;
 
@@ -256,6 +258,17 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
             model: Team,
             as: 'teamObject',
             required: false,
+          },
+          {
+            model: Curation,
+            as: 'curation',
+            required: false,
+            include: [
+              {
+                model: CurationType,
+                as: 'type',
+              },
+            ],
           },
         ],
         transaction,
