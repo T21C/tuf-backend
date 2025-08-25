@@ -87,7 +87,7 @@ const upload = multer({
 });
 
 // Get all curation types
-router.get('/types', Auth.superAdmin(), async (req, res) => {
+router.get('/types', async (req, res) => {
   try {
     const types = await CurationType.findAll({
       order: [['sortOrder', 'ASC'], ['name', 'ASC']],

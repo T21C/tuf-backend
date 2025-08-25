@@ -14,6 +14,8 @@ import PlayerStats from '../../models/players/PlayerStats.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
+import { hasFlag } from '../../utils/permissionUtils.js';
+import { permissionFlags } from '../../config/app.config.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -74,10 +76,11 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
         nickname: user.nickname || user.username,
         email: user.email,
         avatarUrl: user.avatarUrl,
-        isRater: user.isRater,
-        isSuperAdmin: user.isSuperAdmin,
-        isRatingBanned: user.isRatingBanned,
-        isEmailVerified: user.isEmailVerified,
+        isRater: hasFlag(user, permissionFlags.RATER),
+        isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+        isRatingBanned: hasFlag(user, permissionFlags.RATING_BANNED),
+        isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+        permissionFlags: user.permissionFlags,
         playerId: user.playerId,
         password: user.password ? true : null,
         player,
@@ -247,9 +250,11 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         username: updatedUser.username,
         email: updatedUser.email,
         avatarUrl: updatedUser.avatarUrl,
-        isRater: updatedUser.isRater,
-        isSuperAdmin: updatedUser.isSuperAdmin,
-        isRatingBanned: updatedUser.isRatingBanned,
+        isRater: hasFlag(updatedUser, permissionFlags.RATER),
+        isSuperAdmin: hasFlag(updatedUser, permissionFlags.SUPER_ADMIN),
+        isRatingBanned: hasFlag(updatedUser, permissionFlags.RATING_BANNED),
+        isEmailVerified: hasFlag(updatedUser, permissionFlags.EMAIL_VERIFIED),
+        permissionFlags: updatedUser.permissionFlags,
         playerId: updatedUser.playerId,
         lastUsernameChange: updatedUser.lastUsernameChange,
         previousUsername: updatedUser.previousUsername,

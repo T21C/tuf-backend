@@ -6,6 +6,8 @@ import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import {Op} from 'sequelize';
 import {tokenUtils} from '../../utils/auth.js';
 import { logger } from '../../services/LoggerService.js';
+import { hasFlag, wherehasFlag } from '../../utils/permissionUtils.js';
+import { permissionFlags } from '../../config/app.config.js';
 
 const router: Router = Router();
 
@@ -22,7 +24,10 @@ router.get('/raters', async (req: Request, res: Response) => {
   try {
     const raters = await User.findAll({
       where: {
-        [Op.or]: [{isRater: true}, {isSuperAdmin: true}],
+        [Op.or]: [
+          {permissionFlags: wherehasFlag(permissionFlags.RATER)},
+          {permissionFlags: wherehasFlag(permissionFlags.SUPER_ADMIN)},
+        ],
       },
       include: [
         {
@@ -40,8 +45,8 @@ router.get('/raters', async (req: Request, res: Response) => {
           username: user.username,
           nickname: user.nickname,
           avatarUrl: user.avatarUrl,
-          isRater: user.isRater,
-          isSuperAdmin: user.isSuperAdmin,
+          isRater: hasFlag(user, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
           playerId: user.playerId,
           player: user.player,
         };
@@ -58,7 +63,10 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const users = await User.findAll({
       where: {
-        [Op.or]: [{isRater: true}, {isSuperAdmin: true}],
+        [Op.or]: [
+          {permissionFlags: wherehasFlag(permissionFlags.RATER)},
+          {permissionFlags: wherehasFlag(permissionFlags.SUPER_ADMIN)},
+        ],
       },
       include: [
         {
@@ -76,8 +84,8 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
           username: user.username,
           nickname: user.nickname,
           avatarUrl: user.avatarUrl,
-          isRater: user.isRater,
-          isSuperAdmin: user.isSuperAdmin,
+          isRater: hasFlag(user, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
           playerId: user.playerId,
           player: user.player
         };
@@ -114,8 +122,8 @@ router.post(
       }
 
       await userToUpdate.update({
-        isRater: role === 'rater' ? true : userToUpdate.isRater,
-        isSuperAdmin: role === 'superadmin' ? true : userToUpdate.isSuperAdmin,
+        isRater: role === 'rater' ? true : hasFlag(userToUpdate, permissionFlags.RATER),
+        isSuperAdmin: role === 'superadmin' ? true : hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
       });
 
       return res.json({
@@ -123,8 +131,8 @@ router.post(
         user: {
           id: userToUpdate.id,
           username: userToUpdate.username,
-          isRater: userToUpdate.isRater,
-          isSuperAdmin: userToUpdate.isSuperAdmin,
+          isRater: hasFlag(userToUpdate, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
           playerId: userToUpdate.playerId,
         },
       });
@@ -171,8 +179,8 @@ router.post(
 
       // Prevent revoking last super admin
       if (role === 'superadmin') {
-        const superAdminCount = await User.count({where: {isSuperAdmin: true}});
-        if (superAdminCount <= 1 && userToUpdate.isSuperAdmin) {
+        const superAdminCount = await User.count({where: {permissionFlags: wherehasFlag(permissionFlags.SUPER_ADMIN)}});
+        if (superAdminCount <= 1 && hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN)) {
           return res
             .status(400)
             .json({error: 'Cannot remove last super admin'});
@@ -181,8 +189,8 @@ router.post(
 
       // Update user's roles and increment permission version
       await userToUpdate.update({
-        isRater: role === 'rater' ? false : userToUpdate.isRater,
-        isSuperAdmin: role === 'superadmin' ? false : userToUpdate.isSuperAdmin,
+        isRater: role === 'rater' ? false : hasFlag(userToUpdate, permissionFlags.RATER),
+        isSuperAdmin: role === 'superadmin' ? false : hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
         permissionVersion: userToUpdate.permissionVersion + 1,
       });
 
@@ -194,8 +202,8 @@ router.post(
         user: {
           id: userToUpdate.id,
           username: userToUpdate.username,
-          isRater: userToUpdate.isRater,
-          isSuperAdmin: userToUpdate.isSuperAdmin,
+          isRater: hasFlag(userToUpdate, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
         },
         token: newToken,
       });
@@ -301,7 +309,7 @@ router.patch(
         user: {
           id: player.user.id,
           username: player.user.username,
-          isRatingBanned: player.user.isRatingBanned,
+          isRatingBanned: hasFlag(player.user, permissionFlags.RATING_BANNED),
         },
       });
     } catch (error: any) {
@@ -341,8 +349,8 @@ router.get('/check/:discordId', async (req: Request, res: Response) => {
     }
 
     return res.json({
-      isRater: provider.oauthUser.isRater,
-      isSuperAdmin: provider.oauthUser.isSuperAdmin,
+      isRater: hasFlag(provider.oauthUser, permissionFlags.RATER),
+      isSuperAdmin: hasFlag(provider.oauthUser, permissionFlags.SUPER_ADMIN),
     });
   } catch (error: any) {
     logger.error('Failed to check roles:', error);

@@ -10,6 +10,8 @@ import sequelize from '../../config/db.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import { filterRatingsByUserTopDiff } from '../../utils/RatingUtils.js';
+import { permissionFlags } from '../../config/app.config.js';
+import { hasFlag, wherehasFlag} from '../../utils/permissionUtils.js';
 
 const router: Router = Router();
 
@@ -66,7 +68,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     });
     let filteredUnrated = unratedRatings;
     // Apply the same filtering logic as the frontend
-    if (!user.isSuperAdmin) {
+    if (!hasFlag(user, permissionFlags.SUPER_ADMIN)) {
       filteredUnrated = await filterRatingsByUserTopDiff(unratedRatings, user);
     }
     // Get pending level submissions count
@@ -169,7 +171,7 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
         id: {
           [Op.notIn]: activeRaters.map((result: any) => result.userId)
         },
-        isRater: true
+        permissionFlags: wherehasFlag(permissionFlags.RATER)
       },
       attributes: ['id', 'username', 'avatarUrl', 'nickname'],
       order: [['username', 'ASC']] // Sort inactive raters alphabetically

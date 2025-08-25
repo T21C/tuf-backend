@@ -29,7 +29,8 @@
     "cdn:prod": "cross-env NODE_ENV=production tsx src/cdnService/app.ts",
     "api-docs": "cross-env tsx src/apiDocsService/app.ts",
     "connection-manager": "cross-env tsx src/scripts/connectionManager.ts",
-    "migrate-difficulties": "cross-env tsx src/scripts/migrateDifficulties.ts"
+    "migrate-difficulties": "cross-env tsx src/scripts/migrateDifficulties.ts",
+    "migrate-permissions": "cross-env tsx src/scripts/migratePermissions.ts"
   },
   "keywords": [],
   "author": "",

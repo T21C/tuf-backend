@@ -10,6 +10,8 @@ import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import { logger } from '../services/LoggerService.js';
 import CaptchaService from '../services/CaptchaService.js';
 import { RateLimiter } from '../decorators/rateLimiter.js';
+import { permissionFlags } from '../config/app.config.js';
+import { hasFlag, setUserPermissionAndSave } from '../utils/permissionUtils.js';
 
 // Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();
@@ -185,16 +187,17 @@ class AuthController {
         password: hashedPassword,
         passwordResetToken: verificationToken,
         passwordResetExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-        isEmailVerified: false,
-        isRater: false,
-        isSuperAdmin: false,
-        isRatingBanned: false,
+        isEmailVerified: false, // Keep for backward compatibility
+        isRater: false, // Keep for backward compatibility
+        isSuperAdmin: false, // Keep for backward compatibility
+        isRatingBanned: false, // Keep for backward compatibility
         status: 'active',
         lastLogin: now,
         updatedAt: now,
         createdAt: now,
         permissionVersion: 1,
         playerId: player.id, // Associate with the created player
+        permissionFlags: 0n, // Start with no permissions
       };
 
       const user = await User.create(userData);
@@ -212,9 +215,10 @@ class AuthController {
           id: user.id,
           username: user.username,
           email: user.email,
-          isRater: user.isRater,
-          isSuperAdmin: user.isSuperAdmin,
-          isEmailVerified: user.isEmailVerified,
+          isRater: hasFlag(user, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+          isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+          permissionFlags: user.permissionFlags,
         },
         usernameModified: finalUsername !== username,
       });
@@ -252,17 +256,16 @@ class AuthController {
       }
 
       // Check if already verified
-      if (user.isEmailVerified) {
+      if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
         return res.status(200).json({message: 'Email already verified'});
       }
 
-      // Update user
+      // Update user with new permission flags
+      await setUserPermissionAndSave(user, permissionFlags.EMAIL_VERIFIED, true);
       await user.update({
-        isEmailVerified: true,
         passwordResetToken: '', // Clear the token
         passwordResetExpires: new Date(), // Set to current time to expire it
       });
-      await user.increment('permissionVersion', {by: 1});
       // Force update ranks
       await PlayerStatsService.getInstance().updateRanks();
 
@@ -299,7 +302,7 @@ class AuthController {
         return res.status(404).json({message: 'User not found'});
       }
 
-      if (user.isEmailVerified) {
+      if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
         return res.status(400).json({message: 'Email already verified'});
       }
 
@@ -430,8 +433,10 @@ class AuthController {
           id: user.id,
           username: user.username,
           email: user.email,
-          isRater: user.isRater,
-          isSuperAdmin: user.isSuperAdmin,
+          isRater: hasFlag(user, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+          isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+          permissionFlags: user.permissionFlags,
         },
       });
     } catch (error) {

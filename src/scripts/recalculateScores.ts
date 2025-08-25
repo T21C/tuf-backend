@@ -8,8 +8,11 @@ import { getScoreV2 } from '../utils/CalcScore.js';
 import type { IJudgements } from '../utils/CalcAcc.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import Judgement from '../models/passes/Judgement.js';
+import User from '../models/auth/User.js';
 import { logger } from '../services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
+import { wherePermission } from '../utils/permissionUtils.js';
+import { permissionFlags } from '../config/app.config.js';
 
 // Configuration
 const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues
@@ -60,8 +63,19 @@ async function recalculateScores() {
         }, {
           model: Player,
           as: 'player',
-          where: { isBanned: false },
-          required: true
+          required: true,
+          include: [
+            {
+              model: User,
+              as: 'user',
+              required: false,
+              where: {
+                [Op.and]: [
+                  wherePermission(permissionFlags.BANNED, false)
+                ]
+              }
+            }
+          ]
         },
         {
           model: Judgement,

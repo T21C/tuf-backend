@@ -123,6 +123,7 @@ class OAuthService {
           playerId,
           createdAt: now,
           updatedAt: now,
+          permissionFlags: 0n,
         });
 
         // Create OAuth provider link

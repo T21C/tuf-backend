@@ -23,6 +23,8 @@ import LevelRerateHistory from "../../../models/levels/LevelRerateHistory.js";
 import { safeTransactionRollback } from "../../../utils/Utility.js";
 import Curation from "../../../models/curations/Curation.js";
 import CurationType from "../../../models/curations/CurationType.js";
+import { hasFlag } from "../../../utils/permissionUtils.js";
+import { permissionFlags } from "../../../config/app.config.js";
 
 const MAX_LIMIT = 200;
 
@@ -159,7 +161,7 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
   }
 
   // If level is deleted and user is not super admin, return 404
-  if (level.isDeleted && !req.user?.isSuperAdmin) {
+  if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
     return res.status(404).json({ error: 'Level not found' });
   }
 
@@ -189,7 +191,7 @@ router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, r
     }
 
     // If level is deleted and user is not super admin, return 403
-    if (level.isDeleted && !req.user?.isSuperAdmin) {
+    if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
       return res.status(404).end();
     }
 
@@ -341,7 +343,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       }
 
       // If level is deleted and user is not super admin, return 404
-      if (level.isDeleted && !req.user?.isSuperAdmin) {
+      if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
         return res.status(404).json({ error: 'Level not found' });
       }
       
@@ -349,7 +351,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       return res.json({
         level,
         ratings: includeRatings ? ratings : undefined,
-        votes: req.user?.isSuperAdmin ? votes : undefined,
+        votes: req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN) ? votes : undefined,
         rerateHistory,
         totalVotes,
         isLiked,

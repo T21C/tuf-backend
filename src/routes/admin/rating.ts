@@ -17,6 +17,8 @@ import {
   calculateRequestedDifficulty 
 } from '../../utils/RatingUtils.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import { hasFlag } from '../../utils/permissionUtils.js';
+import { permissionFlags } from '../../config/app.config.js';
 const router: Router = Router();
 
 // Helper function to normalize rating string and calculate average for ranges
@@ -334,13 +336,13 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     }
 
     // Check if user is banned from rating
-    if (user.isRatingBanned) {
+    if (hasFlag(user, permissionFlags.RATING_BANNED)) {
       await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'User is banned from rating'});
     }
 
     // For non-community ratings, require rater permission
-    if (!isCommunityRating && !user.isRater) {
+    if (!isCommunityRating && !hasFlag(user, permissionFlags.RATER)) {
       await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'User is not a rater'});
     }

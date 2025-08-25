@@ -15,6 +15,9 @@ import { getScoreV2 } from '../../../utils/CalcScore.js';
 import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
 import { sseManager } from '../../../utils/sse.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import { wherePermission } from '../../../utils/permissionUtils.js';
+import { permissionFlags } from '../../../config/app.config.js';
+import { Op } from 'sequelize';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -217,10 +220,21 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           },
           include: [
             {
-              model: Player,
-              as: 'player',
-              where: {isBanned: false},
-              required: true,
+                          model: Player,
+            as: 'player',
+            required: true,
+            include: [
+              {
+                model: User,
+                as: 'user',
+                required: false,
+                where: {
+                  [Op.and]: [
+                    wherePermission(permissionFlags.BANNED, false)
+                  ]
+                }
+              }
+            ]
             },
           ],
           order: [['vidUploadTime', 'ASC']],

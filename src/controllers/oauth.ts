@@ -9,7 +9,8 @@ import {
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
 import { logger } from '../services/LoggerService.js';
-import { clientUrlEnv, ownUrl } from '../config/app.config.js';
+import { clientUrlEnv, ownUrl, permissionFlags } from '../config/app.config.js';
+import { hasFlag } from '../utils/permissionUtils.js';
 
 
 interface ProfileResponse {
@@ -21,6 +22,8 @@ interface ProfileResponse {
     avatarUrl: string | null;
     isRater: boolean;
     isSuperAdmin: boolean;
+    isEmailVerified: boolean;
+    permissionFlags: bigint;
   };
   providers: {
     provider: string;
@@ -196,8 +199,10 @@ export const OAuthController = {
             nickname: user.nickname,
             email: user.email,
             avatarUrl: user.avatarUrl,
-            isRater: user.isRater,
-            isSuperAdmin: user.isSuperAdmin,
+            isRater: hasFlag(user, permissionFlags.RATER),
+            isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+            isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+            permissionFlags: user.permissionFlags,
           },
           isNew,
           token,
@@ -230,8 +235,10 @@ export const OAuthController = {
           nickname: req.user!.nickname || null,
           email: req.user!.email,
           avatarUrl,
-          isRater: req.user!.isRater,
-          isSuperAdmin: req.user!.isSuperAdmin,
+          isRater: hasFlag(req.user!, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(req.user!, permissionFlags.SUPER_ADMIN),
+          isEmailVerified: hasFlag(req.user!, permissionFlags.EMAIL_VERIFIED),
+          permissionFlags: req.user!.permissionFlags,
         },
         providers: providers.map((p: OAuthProvider) => ({
           provider: p.provider,

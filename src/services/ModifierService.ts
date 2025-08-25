@@ -14,6 +14,8 @@ import { calcAcc } from '../utils/CalcAcc.js';
 import { getScoreV2 } from '../utils/CalcScore.js';
 import { env } from 'process';
 import { logger } from './LoggerService.js';
+import { permissionFlags } from '../config/app.config.js';
+import { hasFlag } from '../utils/permissionUtils.js';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === "true";
 
@@ -322,7 +324,7 @@ export class ModifierService {
         playerId: playerId
       }
     });
-    if (enable && user?.isSuperAdmin) {
+    if (enable && hasFlag(user, permissionFlags.SUPER_ADMIN)) {
       sourceModifier.destroy();
       logger.info(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
       return;

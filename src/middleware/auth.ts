@@ -8,6 +8,8 @@ import { logger } from '../services/LoggerService.js';
 import { AuditLogService } from '../services/AuditLogService.js';
 import PlayerStats from '../models/players/PlayerStats.js';
 import Difficulty from '../models/levels/Difficulty.js';
+import { permissionFlags } from '../config/app.config.js';
+import { hasFlag } from '../utils/permissionUtils.js';
 
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {
@@ -243,8 +245,8 @@ export const Auth = {
   rater: (): MiddlewareFunction => 
     chainMiddleware(
       baseAuth,
-      requirePermission(
-        (user) => user.isRater,
+      requirePermission(  
+        (user) => hasFlag(user, permissionFlags.RATER),
         'Rater access required'
       )
     ),
@@ -256,7 +258,7 @@ export const Auth = {
     chainMiddleware(
       baseAuth,
       requirePermission(
-        (user) => user.isSuperAdmin,
+        (user) => hasFlag(user, permissionFlags.SUPER_ADMIN),
         'Super admin access required'
       ),
       auditLogMiddleware
@@ -299,7 +301,7 @@ export const Auth = {
     chainMiddleware(
       baseAuth,
       requirePermission(
-        (user) => user.isEmailVerified,
+        (user) => hasFlag(user, permissionFlags.EMAIL_VERIFIED),
         'Email verification required'
       )
     ),

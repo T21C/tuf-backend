@@ -15,6 +15,8 @@ import { IPlayer } from '../interfaces/models/index.js';
 import { OAuthProvider } from '../models/index.js';
 import Creator from '../models/credits/Creator.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
+import { hasFlag, wherePermission, whereAnyPermission } from '../utils/permissionUtils.js';
+import { permissionFlags } from '../config/app.config.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
@@ -39,6 +41,7 @@ type EnrichedPlayer = IPlayer & {
     avatarUrl?: string | null;
     isSuperAdmin: boolean;
     isRater: boolean;
+    permissionFlags: bigint;
     playerId: number;
     creator?: {
       id: number;
@@ -593,12 +596,13 @@ export class PlayerStatsService {
       await sequelize.query(
         `UPDATE player_stats ps 
          INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN users u ON p.id = u.playerId
          SET ps.rankedScoreRank = -1,
              ps.generalScoreRank = -1,
              ps.ppScoreRank = -1,
              ps.wfScoreRank = -1,
              ps.score12KRank = -1
-         WHERE p.isBanned = true`,
+         WHERE (u.permissionFlags & ${permissionFlags.BANNED}) = ${permissionFlags.BANNED}`,
         { transaction }
       );
 
@@ -615,7 +619,8 @@ export class PlayerStatsService {
              SELECT ps2.id
              FROM player_stats ps2
              INNER JOIN players p2 ON ps2.id = p2.id
-             WHERE p2.isBanned = false
+             INNER JOIN users u2 ON p2.id = u2.playerId
+             WHERE (u2.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}
              ORDER BY ps2.rankedScore DESC, ps2.id ASC
            ) ordered
          ) ranked ON ps.id = ranked.id
@@ -774,18 +779,23 @@ export class PlayerStatsService {
       // Modified to handle unverified users as banned
       if (showBanned === 'hide') {
         whereClause[Op.and] = [
-          { '$player.isBanned$': false },
           { [Op.or]: [
             { '$player->user.id$': null },
-            { '$player->user.isEmailVerified$': true }
+            // Use permissionFlags to check for BANNED (inverted) and EMAIL_VERIFIED
+            { [Op.and]: [
+              wherePermission(permissionFlags.BANNED, false),
+              wherePermission(permissionFlags.EMAIL_VERIFIED, true)
+            ] }
           ] }
         ];
       } else if (showBanned === 'only') {
         whereClause[Op.or] = [
-          { '$player.isBanned$': true },
+          // Use permissionFlags to check for BANNED
+          wherePermission(permissionFlags.BANNED, true),
           { [Op.and]: [
             { '$player->user.id$': { [Op.not]: null } },
-            { '$player->user.isEmailVerified$': false }
+            // Use permissionFlags to check for EMAIL_VERIFIED (inverted)
+            wherePermission(permissionFlags.EMAIL_VERIFIED, false)
           ] }
         ];
       }
@@ -897,7 +907,7 @@ export class PlayerStatsService {
               {
                 model: User,
                 as: 'user',
-                attributes: ['id', 'avatarUrl', 'username', 'isEmailVerified', 'isSuperAdmin', 'isRater'],
+                attributes: ['id', 'avatarUrl', 'username', 'permissionFlags'],
                 required: false,
                 include: [
                   {
@@ -937,7 +947,7 @@ export class PlayerStatsService {
           player: {
             ...plainPlayer.player,
             pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null,
-            isEmailVerified: plainPlayer.player.user?.isEmailVerified ?? true,
+            isEmailVerified: hasFlag(plainPlayer.player.user, permissionFlags.EMAIL_VERIFIED),
           }
         };
       });
@@ -972,7 +982,7 @@ export class PlayerStatsService {
         {
           model: Level,
           as: 'level',
-          where: !user?.isSuperAdmin ? {
+          where: !user || !hasFlag(user, permissionFlags.SUPER_ADMIN)  ? {
             isDeleted: false
           } : {},
           include: [
@@ -1113,7 +1123,7 @@ export class PlayerStatsService {
           required: false,
         },
       ],
-      attributes: ['id', 'playerId', 'nickname', 'avatarUrl', 'username', 'isSuperAdmin', 'isRater'],
+      attributes: ['id', 'playerId', 'nickname', 'avatarUrl', 'username', 'permissionFlags'],
     });
   
     // Create lookup maps for faster access
@@ -1185,7 +1195,7 @@ export class PlayerStatsService {
           id: playerData.id,
           name: playerData.name,
           country: playerData.country,
-          isBanned: playerData.isBanned,
+          isBanned: playerData.isBanned || hasFlag(userData, permissionFlags.BANNED),
           isSubmissionsPaused: playerData.isSubmissionsPaused,
           pfp: playerData.pfp,
           avatarUrl: userData?.avatarUrl,
@@ -1199,9 +1209,10 @@ export class PlayerStatsService {
             username: userData.username,
             nickname: userData.nickname,
             avatarUrl: userData.avatarUrl,
-            isSuperAdmin: userData.isSuperAdmin,
-            isRater: userData.isRater,
+            isSuperAdmin: hasFlag(userData, permissionFlags.SUPER_ADMIN),
+            isRater: hasFlag(userData, permissionFlags.RATER),
             playerId: userData.playerId,
+            permissionFlags: userData.permissionFlags,
             creator: userData.creator ? {
               id: userData.creator.id,
               name: userData.creator.name,

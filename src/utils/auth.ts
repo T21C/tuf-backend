@@ -2,6 +2,8 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import {User} from '../models/index.js';
+import { hasFlag } from './permissionUtils.js';
+import { permissionFlags } from '../config/app.config.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
@@ -38,8 +40,9 @@ export const tokenUtils = {
       id: user.id,
       email: user.email,
       username: user.username,
-      isRater: user.isRater,
-      isSuperAdmin: user.isSuperAdmin,
+      isRater: hasFlag(user, permissionFlags.RATER),
+      isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+      permissionFlags: user.permissionFlags,
       playerId: user.playerId,
       permissionVersion: user.permissionVersion,
     };

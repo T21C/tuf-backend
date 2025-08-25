@@ -3,7 +3,8 @@ import {sseManager} from '../../utils/sse.js';
 import {Auth} from '../../middleware/auth.js';
 import {Request, Response} from 'express';
 import User from '../../models/auth/User.js';
-import { clientUrlEnv } from '../../config/app.config.js';
+import { clientUrlEnv, permissionFlags } from '../../config/app.config.js';
+import { hasAnyFlag } from '../../utils/permissionUtils.js';
 
 const router: Router = Router();
 
@@ -75,7 +76,7 @@ router.get('/', async (req: SSERequest, res: Response) => {
   const userId = req.query.userId || req.user?.id;
   const source = req.query.source || 'unknown';
   const user = await User.findByPk(userId);
-  const isManager = user?.isRater || user?.isSuperAdmin || false;
+  const isManager = hasAnyFlag(user, [permissionFlags.RATER, permissionFlags.SUPER_ADMIN]);
 
   // Add client to SSE manager
   const clientId = sseManager.addClient(res, {

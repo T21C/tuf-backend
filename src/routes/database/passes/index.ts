@@ -1,9 +1,13 @@
 import Pass from '../../../models/passes/Pass.js';
 import Level from '../../../models/levels/Level.js';
 import Player from '../../../models/players/Player.js';
+import User from '../../../models/auth/User.js';
 import {Router} from 'express';
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import { wherePermission } from '../../../utils/permissionUtils.js';
+import { permissionFlags } from '../../../config/app.config.js';
+import { Op } from 'sequelize';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -22,8 +26,19 @@ export async function updateWorldsFirstStatus(
       {
         model: Player,
         as: 'player',
-        where: {isBanned: false},
         required: true,
+        include: [
+          {
+            model: User,
+            as: 'user',
+            required: false,
+            where: {
+              [Op.and]: [
+                wherePermission(permissionFlags.BANNED, false)
+              ]
+            }
+          }
+        ]
       },
       {
         model: Level,

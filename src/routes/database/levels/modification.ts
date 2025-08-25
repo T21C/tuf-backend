@@ -25,6 +25,8 @@ import fs from 'fs';
 import path from 'path';
 import { cleanupUserUploads } from '../../misc/chunkedUpload.js';
 import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
+import { permissionFlags } from '../../../config/app.config.js';
+import { hasFlag } from '../../../utils/permissionUtils.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -914,7 +916,7 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
         message: 'Rating accuracy vote submitted successfully',
         level, 
         totalVotes: votes.length, 
-        votes: req.user?.isSuperAdmin ? votes : undefined });
+        votes: req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN) ? votes : undefined });
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error voting on rating accuracy:', error);

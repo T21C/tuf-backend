@@ -22,6 +22,7 @@ export interface UserAttributes {
   nickname?: string | null;
   avatarId?: string | null;
   avatarUrl?: string | null;
+  permissionFlags: bigint;
   permissionVersion: number;
   lastUsernameChange?: Date | null;
   previousUsername?: string | null;
@@ -50,6 +51,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare nickname?: string | null;
   declare avatarId?: string | null;
   declare avatarUrl?: string | null;
+  declare permissionFlags: bigint;
   declare permissionVersion: number;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
@@ -140,6 +142,11 @@ User.init(
       type: DataTypes.STRING,
       allowNull: true,
       defaultValue: null,
+    },
+    permissionFlags: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      defaultValue: 0,
     },
     avatarId: {
       type: DataTypes.STRING,

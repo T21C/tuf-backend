@@ -1,6 +1,7 @@
 
 import { Router, Request, Response } from 'express';
 import { Auth } from '../../../middleware/auth.js';
+import { Op } from 'sequelize';
 import Pass from '../../../models/passes/Pass.js';
 import Player from '../../../models/players/Player.js';
 import Level from '../../../models/levels/Level.js';
@@ -11,6 +12,8 @@ import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
 import { User } from '../../../models/index.js';
 import { searchPasses } from './index.js';
 import { ensureString } from '../../../utils/Utility.js';
+import { hasFlag, wherePermission } from '../../../utils/permissionUtils.js';
+import { permissionFlags } from '../../../config/app.config.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
@@ -26,7 +29,7 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
 
 
       const pass = await Pass.findOne({
-        where: user?.isSuperAdmin ? {
+        where: user && hasFlag(user, permissionFlags.SUPER_ADMIN) ? {
           id: passId,
         } : {
           id: passId,
@@ -36,9 +39,20 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
           {
             model: Player,
             as: 'player',
-            attributes: ['name', 'country', 'isBanned'],
-            where: {isBanned: false},
+            attributes: ['name', 'country'],
             required: true,
+            include: [
+              {
+                model: User,
+                as: 'user',
+                required: false,
+                where: {
+                  [Op.and]: [
+                    wherePermission(permissionFlags.BANNED, false)
+                  ]
+                }
+              }
+            ]
           },
           {
             model: Level,
@@ -101,14 +115,17 @@ router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Reque
     try {
       const {levelId} = req.params;
       const level = await Level.findByPk(levelId);
-      if (!level || (level.isDeleted || level.isHidden) && !req.user?.isSuperAdmin) {
+      if (!level || (level.isDeleted || level.isHidden) && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
         return res.status(404).json({error: 'Level not found'});
       }
       const passes = await Pass.findAll({
         where: {
           levelId: parseInt(levelId),
           isDeleted: false,
-          '$player.isBanned$': false,
+          [Op.and]: [
+            { '$player->user.id$': null },
+            wherePermission(permissionFlags.BANNED, false)
+          ]
         },
         include: [
           {

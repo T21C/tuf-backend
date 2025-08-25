@@ -27,6 +27,8 @@ import fs from 'fs';
 import { User } from '../../models/index.js';
 import Player from '../../models/players/Player.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import { hasFlag } from '../../utils/permissionUtils.js';
+import { permissionFlags } from '../../config/app.config.js';
 
 const router: Router = express.Router();
 
@@ -198,19 +200,19 @@ router.post(
         return res.status(401).json({error: 'User not authenticated'});
       }
 
-      if (req.user?.player?.isBanned) {
+      if (hasFlag(req.user, permissionFlags.BANNED)) {
         await cleanUpFile(req);
         await safeTransactionRollback(transaction);
         return res.status(403).json({error: 'You are banned'});
       }
 
-      if (req.user?.player?.isSubmissionsPaused) {
+      if (hasFlag(req.user, permissionFlags.SUBMISSIONS_PAUSED)) {
         await cleanUpFile(req);
         await safeTransactionRollback(transaction);
         return res.status(403).json({error: 'Your submissions are paused'});
       }
 
-      if (!req.user?.isEmailVerified) {
+      if (!hasFlag(req.user, permissionFlags.EMAIL_VERIFIED)) {
         await cleanUpFile(req);
         await safeTransactionRollback(transaction);
         return res.status(403).json({error: 'Your email is not verified'});

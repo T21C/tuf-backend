@@ -7,6 +7,9 @@ import Level from '../../../models/levels/Level.js';
 import Judgement from '../../../models/passes/Judgement.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
 import { logger } from '../../../services/LoggerService.js';
+import User from '../../../models/auth/User.js';
+import { permissionFlags } from '../../../config/app.config.js';
+import { wherePermission } from '../../../utils/permissionUtils.js';
 
 const router = Router();
 
@@ -23,8 +26,15 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
             model: Player,
             as: 'player',
             attributes: ['name', 'country', 'isBanned'],
-            where: {isBanned: false},
             required: true,
+            include: [
+              {
+                model: User,
+                as: 'user',
+                required: true,
+                where: wherePermission(permissionFlags.BANNED, false)
+              }
+            ]
           },
           {
             model: Level,

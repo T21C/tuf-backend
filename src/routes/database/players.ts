@@ -30,6 +30,8 @@ import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
 import RatingAccuracyVote from '../../models/levels/RatingAccuracyVote.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import { permissionFlags } from '../../config/app.config.js';
+import { setUserPermissionAndSave, wherePermission } from '../../utils/permissionUtils.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -121,6 +123,7 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
             'avatarUrl',
             'isSuperAdmin',
             'isRater',
+            'permissionFlags',
           ],
         },
       ],
@@ -189,9 +192,20 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       where: {
         name: {
           [Op.like]: `%${escapedName}%`,
-        },
-        isBanned: false
+        }
       },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          required: false,
+          where: {
+            [Op.and]: [
+              wherePermission(permissionFlags.BANNED, false)
+            ]
+          }
+        },
+      ],
     });
 
     const users = await User.findAll({
@@ -199,15 +213,15 @@ router.get('/search/:name', async (req: Request, res: Response) => {
         username: {
           [Op.like]: `%${escapedName}%`,
         },
+        [Op.and]: [
+          wherePermission(permissionFlags.BANNED, false)
+        ]
       },
       include: [
         {
           model: Player,
           as: 'player',
-          required: true,
-          where: {
-            isBanned: false
-          }
+          required: true
         },
       ],
     });
@@ -418,8 +432,8 @@ router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) =>
       const player = await Player.create({
         name,
         country: 'XX', // Default country code
-        isBanned: false,
-        isSubmissionsPaused: false,
+        isBanned: false, // Keep for backward compatibility
+        isSubmissionsPaused: false, // Keep for backward compatibility
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -694,14 +708,16 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
       const {id} = req.params;
       const {isBanned} = req.body;
 
-      const player = await Player.findByPk(id, {transaction});
+      const player = await Player.findByPk(id, {transaction, include: [{model: User, as: 'user'}]});
       if (!player) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
       }
 
       await player.update({isBanned}, {transaction});
-
+      if (player.user) {
+        await setUserPermissionAndSave(player.user, permissionFlags.BANNED, isBanned, transaction);
+      }
       // Update world's first status for all affected levels
       await updateAffectedLevelsWorldsFirst(player.id, transaction);
 
@@ -730,13 +746,19 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
       const {id} = req.params;
       const {isSubmissionsPaused} = req.body;
 
-      const player = await Player.findByPk(id, {transaction});
+      const player = await Player.findByPk(id, {transaction, include: [{model: User, as: 'user'}]});
       if (!player) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});
       }
 
       await player.update({isSubmissionsPaused}, {transaction});
+      
+      // Update user permission flags if player has a user
+      if (player.user) {
+        await setUserPermissionAndSave(player.user, permissionFlags.SUBMISSIONS_PAUSED, isSubmissionsPaused, transaction);
+      }
+      
       await transaction.commit();
 
       sseManager.broadcast({type: 'playerUpdate'});
@@ -977,8 +999,8 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
     const player = await Player.create({
       name,
       country,
-      isBanned: false,
-      isSubmissionsPaused: false,
+      isBanned: false, // Keep for backward compatibility
+      isSubmissionsPaused: false, // Keep for backward compatibility
       createdAt: new Date(),
       updatedAt: new Date()
     });

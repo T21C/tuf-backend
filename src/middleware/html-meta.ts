@@ -8,6 +8,10 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../config/app.config.js';
+import { hasFlag } from '../utils/permissionUtils.js';
+import { User } from '../models/index.js';
+import { permissionFlags } from '../config/app.config.js';
+
 // Add type for manifest entries
 type ManifestEntry = {
   file: string;
@@ -237,10 +241,10 @@ export const htmlMetaMiddleware = async (
     }
     else if (req.path.startsWith('/player/')) {
       const player = await Player.findByPk(id, {
-        include: [{model: Level, as: 'levels'}],
+        include: [{model: Level, as: 'levels'}, {model: User, as: 'user'}],
       });
 
-      if (player && !player.isBanned) {
+      if (player && !hasFlag(player.user, permissionFlags.BANNED)) {
         metaTags = `
           <meta name="description" content="View player details" />
           <meta property="og:site_name" content="The Universal Forum" />
