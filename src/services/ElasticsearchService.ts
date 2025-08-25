@@ -849,6 +849,24 @@ class ElasticsearchService {
     }
   }
 
+  private async resolveCurationTypes(curationTypeNames?: string[]): Promise<number[]> {
+    try {
+      if (!curationTypeNames?.length) return [];
+
+      const curationTypes = await CurationType.findAll({
+        where: {
+          name: { [Op.in]: curationTypeNames },
+        },
+        attributes: ['id'],
+      });
+
+      return curationTypes.map(t => t.id);
+    } catch (error) {
+      logger.error('Error resolving curation types:', error);
+      return [];
+    }
+  }
+
   private parseFieldSearch(term: string, isPassSearch: boolean = false): FieldSearch | null {
     // Trim the term here when parsing
     const trimmedTerm = term.trim();
@@ -1455,6 +1473,27 @@ class ElasticsearchService {
         must.push({ term: { isCurated: true } });
       } else if (filters.curatedTypesFilter === 'hide') {
         must.push({ term: { isCurated: false } });
+      } else if (filters.curatedTypesFilter && filters.curatedTypesFilter !== 'show') {
+        // Handle specific curation type names (comma-separated)
+        const curationTypeNames = filters.curatedTypesFilter.split(',').map((name: string) => name.trim());
+        if (curationTypeNames.length > 0) {
+          const curationTypeIds = await this.resolveCurationTypes(curationTypeNames);
+          if (curationTypeIds.length > 0) {
+            must.push({
+              nested: {
+                path: 'curation',
+                query: {
+                  bool: {
+                    should: curationTypeIds.map(typeId => ({
+                      term: { 'curation.typeId': typeId }
+                    })),
+                    minimum_should_match: 1
+                  }
+                }
+              }
+            });
+          }
+        }
       }
 
       // Handle hideVerified filter
