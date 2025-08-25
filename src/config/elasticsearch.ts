@@ -202,6 +202,7 @@ export const levelMapping = {
       isHidden: { type: 'boolean' as const },
       isVerified: { type: 'boolean' as const },
       isExternallyAvailable: { type: 'boolean' as const },
+      isCurated: { type: 'boolean' as const },
       createdAt: { type: 'date' as const },
       updatedAt: { type: 'date' as const },
       clears: { type: 'integer' as const },

@@ -17,6 +17,7 @@ const searchEndpoints: EndpointDefinition[] = [
         deletedFilter: 'string (optional) - Filter for deleted levels',
         clearedFilter: 'string (optional) - Filter for cleared levels',
         availableDlFilter: 'string (optional) - Filter for available download levels',
+        curatedTypesFilter: 'string (optional) - Filter for curated levels',
         onlyMyLikes: 'boolean (optional) - Only return levels liked by current user'
       }
     },

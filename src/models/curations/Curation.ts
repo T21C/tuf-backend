@@ -1,6 +1,7 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import sequelize from '../../config/db.js';
 import CurationSchedule from './CurationSchedule.js';
+import CurationType from './CurationType.js';
 
 export interface ICuration {
   id: number;
@@ -39,6 +40,7 @@ class Curation
   declare updatedAt: Date;
 
   declare curationSchedules: CurationSchedule[];
+  declare type?: CurationType;
 }
 
 Curation.init(

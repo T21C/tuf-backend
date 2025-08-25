@@ -90,7 +90,7 @@ const upload = multer({
 router.get('/types', Auth.superAdmin(), async (req, res) => {
   try {
     const types = await CurationType.findAll({
-      order: [['name', 'ASC']],
+      order: [['sortOrder', 'ASC'], ['name', 'ASC']],
     });
     return res.json(types);
   } catch (error) {
@@ -108,11 +108,25 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
       return res.status(400).json({error: 'Name is required'});
     }
 
+    // Check for duplicate name (case-insensitive)
+    const existingType = await CurationType.findOne({
+      where: sequelize.where(
+        sequelize.fn('LOWER', sequelize.col('name')), 
+        '=', 
+        name.trim().toLowerCase()
+      )
+    });
+
+    if (existingType) {
+      return res.status(409).json({error: 'A curation type with this name already exists'});
+    }
+
     const type = await CurationType.create({
-      name,
+      name: name.trim(),
       icon,
       color: color || '#ffffff',
       abilities: abilities || 0,
+      sortOrder: 0,
     });
 
     await reindexCuratedLevels();
@@ -125,7 +139,7 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update curation type
-router.put('/types/:id', Auth.superAdminPassword(), async (req, res) => {
+router.put('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   try {
     const {id} = req.params;
     const {name, icon, color, abilities} = req.body;
@@ -135,8 +149,32 @@ router.put('/types/:id', Auth.superAdminPassword(), async (req, res) => {
       return res.status(404).json({error: 'Curation type not found'});
     }
 
+    // Check for duplicate name (case-insensitive) if name is being updated
+    if (name && name !== type.name) {
+      const existingType = await CurationType.findOne({
+        where: {
+          [Op.and]: [
+            sequelize.where(
+              sequelize.fn('LOWER', sequelize.col('name')), 
+              '=', 
+              name.trim().toLowerCase()
+            ),
+            {
+              id: {
+                [Op.ne]: id // Exclude current type from check
+              }
+            }
+          ]
+        }
+      });
+
+      if (existingType) {
+        return res.status(409).json({error: 'A curation type with this name already exists'});
+      }
+    }
+
     await type.update({
-      name,
+      name: name ? name.trim() : type.name,
       icon,
       color,
       abilities,
@@ -152,7 +190,7 @@ router.put('/types/:id', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Delete curation type
-router.delete('/types/:id', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -198,7 +236,7 @@ router.delete('/types/:id', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Upload curation icon
-router.post('/types/:id/icon', Auth.superAdminPassword(), upload.single('icon'), async (req, res) => {
+router.post('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), upload.single('icon'), async (req, res) => {
   try {
     const {id} = req.params;
     
@@ -232,7 +270,7 @@ router.post('/types/:id/icon', Auth.superAdminPassword(), upload.single('icon'),
 });
 
 // Delete curation icon
-router.delete('/types/:id/icon', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -257,6 +295,40 @@ router.delete('/types/:id/icon', Auth.superAdminPassword(), async (req, res) => 
     await transaction.rollback();
     logger.error('Error deleting curation icon:', error);
     return res.status(500).json({error: 'Failed to delete icon'});
+  }
+});
+
+// Update curation type sort orders
+router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { sortOrders } = req.body;
+    
+    if (!sortOrders || !Array.isArray(sortOrders)) {
+      await transaction.rollback();
+      return res.status(400).json({error: 'Sort orders array is required'});
+    }
+
+    // Update each curation type's sort order
+    for (const { id, sortOrder } of sortOrders) {
+      const type = await CurationType.findByPk(id, { transaction });
+      if (type) {
+        await type.update({ sortOrder }, { transaction });
+      }
+    }
+
+    await transaction.commit();
+    
+    // Reindex curated levels after sort order changes
+    await reindexCuratedLevels();
+    
+    logger.info(`Successfully updated sort orders for ${sortOrders.length} curation types`);
+    return res.json({success: true, message: 'Sort orders updated successfully'});
+  } catch (error) {
+    await transaction.rollback();
+    logger.error('Error updating curation type sort orders:', error);
+    return res.status(500).json({error: 'Internal server error'});
   }
 });
 
@@ -346,6 +418,15 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
       return res.status(404).json({error: 'Curation type not found'});
     }
 
+    // Check for existing curation for this level
+    const existingCuration = await Curation.findOne({
+      where: { levelId }
+    });
+
+    if (existingCuration) {
+      return res.status(409).json({error: 'This level is already curated'});
+    }
+
     const curation = await Curation.create({
       levelId,
       typeId,
@@ -354,7 +435,7 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
       previewLink,
       customCSS,
       customColor,
-      assignedBy,
+      assignedBy
     });
 
     // Fetch the complete curation with related data
@@ -593,9 +674,38 @@ router.post('/schedules', Auth.superAdmin(), async (req, res) => {
       return res.status(400).json({error: 'Position must be between 0 and 9'});
     }
 
+    // Check for existing schedule for this curation in the same week and list type
+    const weekStartDate = new Date(weekStart);
+    const existingSchedule = await CurationSchedule.findOne({
+      where: {
+        curationId,
+        weekStart: weekStartDate,
+        listType,
+        isActive: true
+      }
+    });
+
+    if (existingSchedule) {
+      return res.status(409).json({error: 'This curation is already scheduled for this week and list type'});
+    }
+
+    // Check for position conflict in the same week and list type
+    const positionConflict = await CurationSchedule.findOne({
+      where: {
+        weekStart: weekStartDate,
+        listType,
+        position,
+        isActive: true
+      }
+    });
+
+    if (positionConflict) {
+      return res.status(409).json({error: 'Position is already occupied for this week and list type'});
+    }
+
     const schedule = await CurationSchedule.create({
       curationId,
-      weekStart: new Date(weekStart),
+      weekStart: weekStartDate,
       listType,
       position,
       scheduledBy,
@@ -654,6 +764,25 @@ router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
     // Validate position if provided
     if (position !== undefined && (position < 0 || position > 9)) {
       return res.status(400).json({error: 'Position must be between 0 and 9'});
+    }
+
+    // Check for position conflict if position is being updated
+    if (position !== undefined && position !== schedule.position) {
+      const positionConflict = await CurationSchedule.findOne({
+        where: {
+          weekStart: schedule.weekStart,
+          listType: schedule.listType,
+          position,
+          isActive: true,
+          id: {
+            [Op.ne]: id // Exclude current schedule from check
+          }
+        }
+      });
+
+      if (positionConflict) {
+        return res.status(409).json({error: 'Position is already occupied for this week and list type'});
+      }
     }
 
     await schedule.update({

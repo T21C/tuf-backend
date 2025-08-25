@@ -558,8 +558,12 @@ class ElasticsearchService {
               }))
             } : null,
             curation: level.curation ? {
-              ...level.curation.get({ plain: true })
-            } : null
+              ...level.curation.get({ plain: true }),
+              type: level.curation.type ? {
+                ...level.curation.type.get({ plain: true })
+              } : null
+            } : null,
+            isCurated: !!level.curation,
           };
           return [
             { index: { _index: levelIndexName, _id: level.id.toString() } },
@@ -1444,6 +1448,13 @@ class ElasticsearchService {
             ]
           }
         });
+      }
+
+      // Handle curated types filter
+      if (filters.curatedTypesFilter === 'only') {
+        must.push({ term: { isCurated: true } });
+      } else if (filters.curatedTypesFilter === 'hide') {
+        must.push({ term: { isCurated: false } });
       }
 
       // Handle hideVerified filter

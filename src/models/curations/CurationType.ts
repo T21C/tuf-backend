@@ -7,6 +7,7 @@ export interface ICurationType {
   icon: string | null;
   color: string;
   abilities: number;
+  sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,6 +27,7 @@ class CurationType
   declare icon: string | null;
   declare color: string;
   declare abilities: number;
+  declare sortOrder: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -69,6 +71,11 @@ CurationType.init(
       allowNull: false,
       defaultValue: 0,
       comment: 'Bitwise permissions encoding for abilities',
+    },
+    sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     createdAt: {
       type: DataTypes.DATE,

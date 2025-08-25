@@ -41,6 +41,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       deletedFilter,
       clearedFilter,
       availableDlFilter,
+      curatedTypesFilter,
       onlyMyLikes,
     } = req.query;
 
@@ -82,6 +83,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         deletedFilter: deletedFilter as string,
         clearedFilter: clearedFilter as string,
         availableDlFilter: availableDlFilter as string,
+        curatedTypesFilter: curatedTypesFilter as string,
         userId: req.user?.id,
         offset: normalizedOffset,
         limit: normalizedLimit,
