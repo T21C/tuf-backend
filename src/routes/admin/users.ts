@@ -6,14 +6,21 @@ import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import {Op} from 'sequelize';
 import {tokenUtils} from '../../utils/auth.js';
 import { logger } from '../../services/LoggerService.js';
-import { hasFlag, wherehasFlag } from '../../utils/permissionUtils.js';
+import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '../../utils/permissionUtils.js';
 import { permissionFlags } from '../../config/app.config.js';
 
 const router: Router = Router();
 
 // Helper function to check if operation requires password
-const requiresPassword = (req: Request, res: Response, next: NextFunction) => {
-  const {role} = req.body;
+const requireGrantRole = (req: Request, res: Response, next: NextFunction) => {
+  const {role} = req.body as {role: string};
+
+  if (role === 'curator') {
+    return Auth.headCurator()(req, res, next);
+  }
+  if (role === 'headcurator' || role === 'rater') {
+    return Auth.superAdmin()(req, res, next);
+  }
   if (role === 'superadmin') {
     return Auth.superAdminPassword()(req, res, next);
   }
@@ -47,6 +54,7 @@ router.get('/raters', async (req: Request, res: Response) => {
           avatarUrl: user.avatarUrl,
           isRater: hasFlag(user, permissionFlags.RATER),
           isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+          permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
           playerId: user.playerId,
           player: user.player,
         };
@@ -77,42 +85,83 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
       ],
     });
 
-    return res.json(
-      users.map(user => {
-        return {
-          id: user.id,
-          username: user.username,
-          nickname: user.nickname,
-          avatarUrl: user.avatarUrl,
-          isRater: hasFlag(user, permissionFlags.RATER),
-          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-          playerId: user.playerId,
-          player: user.player
-        };
-      }),
-    );
+          return res.json(
+        users.map(user => {
+          return {
+            id: user.id,
+            username: user.username,
+            nickname: user.nickname,
+            avatarUrl: user.avatarUrl,
+            isRater: hasFlag(user, permissionFlags.RATER),
+            isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+            permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
+            playerId: user.playerId,
+            player: user.player
+          };
+        }),
+      );
   } catch (error) {
     logger.error('Failed to fetch users:', error);
     return res.status(500).json({error: 'Failed to fetch users'});
   }
 });
 
-// Grant rater role to user
+// Get all curators
+router.get('/curators', async (req: Request, res: Response) => {
+  try {
+    const curators = await User.findAll({
+      where: {
+        [Op.or]: [
+          {permissionFlags: wherehasFlag(permissionFlags.CURATOR)},
+          {permissionFlags: wherehasFlag(permissionFlags.HEAD_CURATOR)},
+        ],
+      },
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          required: false,
+        },
+      ],
+    });
+
+    return res.json(
+      curators.map(user => {
+        return {
+          id: user.id,
+          username: user.username,
+          nickname: user.nickname,
+          avatarUrl: user.avatarUrl,
+          isCurator: hasFlag(user, permissionFlags.CURATOR),
+          isHeadCurator: hasFlag(user, permissionFlags.HEAD_CURATOR),
+          permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
+          playerId: user.playerId,
+          player: user.player
+        };
+      }),
+    );
+  } catch (error) {
+    logger.error('Failed to fetch curators:', error);
+    return res.status(500).json({error: 'Failed to fetch curators'});
+  }
+});
+
+// Grant role to user
 router.post(
   '/grant-role',
-  [Auth.superAdmin(), requiresPassword],
+  [Auth.headCurator(), requireGrantRole],
   async (req: Request, res: Response) => {
     try {
       const {username, role} = req.body;
 
       if (!username) {
         return res.status(400).json({
-          error: 'Username and a valid role (rater/superadmin) are required',
+          error: 'Username and a valid role (rater/superadmin/curator/headcurator) are required',
         });
       }
-      if (!['rater', 'superadmin'].includes(role)) {
+      if (!['rater', 'superadmin', 'curator', 'headcurator'].includes(role)) {
         return res.status(400).json({
-          error: 'Valid role (rater/superadmin) is required',
+          error: 'Valid role (rater/superadmin/curator/headcurator) is required',
         });
       }
 
@@ -121,10 +170,29 @@ router.post(
         return res.status(404).json({error: 'User not found'});
       }
 
-      await userToUpdate.update({
-        isRater: role === 'rater' ? true : hasFlag(userToUpdate, permissionFlags.RATER),
-        isSuperAdmin: role === 'superadmin' ? true : hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
-      });
+      // Map role names to permission flags
+      const roleToFlag: Record<string, bigint> = {
+        'rater': permissionFlags.RATER,
+        'superadmin': permissionFlags.SUPER_ADMIN,
+        'curator': permissionFlags.CURATOR,
+        'headcurator': permissionFlags.HEAD_CURATOR
+      };
+
+      const targetFlag = roleToFlag[role];
+      
+      // For ascending roles, we need to handle the hierarchy
+      if (role === 'headcurator') {
+        // Grant both curator and head curator
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.CURATOR, true);
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.HEAD_CURATOR, true);
+      } else if (role === 'superadmin') {
+        // Grant both rater and super admin
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.RATER, true);
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.SUPER_ADMIN, true);
+      } else {
+        // Grant the specific role
+        await setUserPermissionAndSave(userToUpdate, targetFlag, true);
+      }
 
       return res.json({
         message: 'Role granted successfully',
@@ -133,6 +201,9 @@ router.post(
           username: userToUpdate.username,
           isRater: hasFlag(userToUpdate, permissionFlags.RATER),
           isSuperAdmin: hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
+          isCurator: hasFlag(userToUpdate, permissionFlags.CURATOR),
+          isHeadCurator: hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR),
+          permissionFlags: userToUpdate.permissionFlags.toString(), // Convert BigInt to string
           playerId: userToUpdate.playerId,
         },
       });
@@ -151,19 +222,19 @@ router.post(
 // Revoke role from user
 router.post(
   '/revoke-role',
-  [Auth.superAdmin(), requiresPassword],
+  [Auth.superAdmin(), requireGrantRole],
   async (req: Request, res: Response) => {
     try {
       const {userId, username, role} = req.body;
 
       if (!userId && !username) {
         return res.status(400).json({
-          error: 'User ID or username and a valid role (rater/superadmin) are required',
+          error: 'User ID or username and a valid role (rater/superadmin/curator/headcurator) are required',
         });
       }
-      if (!['rater', 'superadmin'].includes(role)) {
+      if (!['rater', 'superadmin', 'curator', 'headcurator'].includes(role)) {
         return res.status(400).json({
-          error: 'Valid role (rater/superadmin) is required',
+          error: 'Valid role (rater/superadmin/curator/headcurator) is required',
         });
       }
 
@@ -187,12 +258,33 @@ router.post(
         }
       }
 
-      // Update user's roles and increment permission version
-      await userToUpdate.update({
-        isRater: role === 'rater' ? false : hasFlag(userToUpdate, permissionFlags.RATER),
-        isSuperAdmin: role === 'superadmin' ? false : hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
-        permissionVersion: userToUpdate.permissionVersion + 1,
-      });
+      // Map role names to permission flags
+      const roleToFlag: Record<string, bigint> = {
+        'rater': permissionFlags.RATER,
+        'superadmin': permissionFlags.SUPER_ADMIN,
+        'curator': permissionFlags.CURATOR,
+        'headcurator': permissionFlags.HEAD_CURATOR
+      };
+      
+      // For ascending roles, we need to handle the hierarchy
+      if (role === 'headcurator') {
+        // Remove head curator but keep curator
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.HEAD_CURATOR, false);
+      } else if (role === 'superadmin') {
+        // Remove super admin but keep rater
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.SUPER_ADMIN, false);
+      } else {
+        // Remove the specific role and any higher roles in the hierarchy
+      if (role === 'rater') {
+          // Remove both rater and super admin
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.RATER, false);
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.SUPER_ADMIN, false);
+      } else if (role === 'curator') {
+        // Remove both curator and head curator
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.CURATOR, false);
+        await setUserPermissionAndSave(userToUpdate, permissionFlags.HEAD_CURATOR, false);
+      }
+      }
 
       // Generate new token with updated permissions
       const newToken = tokenUtils.generateJWT(userToUpdate);
@@ -204,6 +296,9 @@ router.post(
           username: userToUpdate.username,
           isRater: hasFlag(userToUpdate, permissionFlags.RATER),
           isSuperAdmin: hasFlag(userToUpdate, permissionFlags.SUPER_ADMIN),
+          isCurator: hasFlag(userToUpdate, permissionFlags.CURATOR),
+          isHeadCurator: hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR),
+          permissionFlags: userToUpdate.permissionFlags.toString(), // Convert BigInt to string
         },
         token: newToken,
       });
@@ -351,6 +446,7 @@ router.get('/check/:discordId', async (req: Request, res: Response) => {
     return res.json({
       isRater: hasFlag(provider.oauthUser, permissionFlags.RATER),
       isSuperAdmin: hasFlag(provider.oauthUser, permissionFlags.SUPER_ADMIN),
+      permissionFlags: provider.oauthUser.permissionFlags.toString(), // Convert BigInt to string
     });
   } catch (error: any) {
     logger.error('Failed to check roles:', error);
@@ -394,6 +490,7 @@ router.get(
         id: provider.oauthUser.id,
         username: provider.oauthUser.username,
         avatarUrl: provider.oauthUser.avatarUrl,
+        permissionFlags: provider.oauthUser.permissionFlags.toString(), // Convert BigInt to string
       });
     } catch (error: any) {
       logger.error('Error fetching user by Discord ID:', error);

@@ -1,4 +1,4 @@
-import {Router} from 'express';
+import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {db} from '../../models/index.js';
 import {Op, Transaction} from 'sequelize';
@@ -14,10 +14,44 @@ import Creator from '../../models/credits/Creator.js';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import sequelize from '../../config/db.js';
+import { hasAnyFlag, hasFlag } from '../../utils/permissionUtils.js';
+import { permissionFlags } from '../../config/app.config.js';
 
 const router: Router = Router();
 
 const elasticsearchService = ElasticsearchService.getInstance();
+
+// Middleware to verify curation management permissions
+const requireCurationPermission = (req: Request, res: Response, next: NextFunction) => {
+  const { id } = req.params;
+
+  // Super admins can manage all curations
+  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+    return next();
+  }
+  
+  // Regular curators need to check if curation type is "T1"
+  if (hasFlag(req.user, permissionFlags.CURATOR)) {
+    return Curation.findByPk(id, {
+      include: [{ model: CurationType, as: 'type' }],
+    }).then((curation) => {
+      if (!curation) {
+        return res.status(404).json({error: 'Curation not found'});
+      }
+      
+      if (curation.type?.name === 'T1') {
+        return next();
+      }
+      
+      return res.status(403).json({error: 'You do not have permission to manage this curation'});
+    }).catch((error) => {
+      logger.error('Error checking curation permission:', error);
+      return res.status(500).json({error: 'Internal server error'});
+    });
+  }
+  
+  return res.status(403).json({error: 'You do not have permission to manage curations'});
+};
 
 const reindexCuratedLevels = async () => {
   const curations = await Curation.findAll({
@@ -348,42 +382,140 @@ router.get('/', async (req, res) => {
       where.id = { [Op.notIn]: excludeArray };
     }
 
-    const include = [
-      {
-        model: CurationType,
-        as: 'type',
-      },
-      {
-        model: Level,
-        as: 'level',
-        where: search ? {
+    // Handle search differently to avoid count inconsistencies
+    let curations;
+    
+    if (search) {
+      const searchStr = Array.isArray(search) ? String(search[0]) : String(search);
+      
+      // Check if search starts with # for direct level ID lookup
+      if (searchStr && searchStr.startsWith('#') && searchStr.length > 1) {
+        const levelId = searchStr.substring(1); // Remove the # and get the level ID
+        
+        // Validate that the level ID is a number
+        if (!/^\d+$/.test(levelId)) {
+          return res.status(400).json({error: 'Invalid level ID format after hashtag'});
+        }
+        
+        // Direct lookup by level ID
+        where.levelId = parseInt(levelId);
+        
+        const include = [
+          {
+            model: CurationType,
+            as: 'type',
+          },
+          {
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+              {
+                model: Creator,
+                as: 'levelCreators',
+              },
+            ],
+          },
+        ];
+
+        curations = await Curation.findAndCountAll({
+          where,
+          include,
+          limit: Number(limit),
+          offset,
+          order: [['createdAt', 'DESC']],
+          distinct: true,
+        });
+        
+        logger.info(`Direct level ID lookup for level ${levelId}: found ${curations.count} curations`);
+      } else {
+        // Regular text search
+        const searchWhere = {
           [Op.or]: [
             {song: {[Op.like]: `%${search}%`}},
             {artist: {[Op.like]: `%${search}%`}},
             {creator: {[Op.like]: `%${search}%`}},
           ],
-        } : undefined,
-        include: [
+        };
+        
+        // First get the level IDs that match the search
+        const matchingLevels = await Level.findAll({
+          where: searchWhere,
+          attributes: ['id'],
+        });
+        
+        const matchingLevelIds = matchingLevels.map(level => level.id);
+        
+        // Update the where clause to filter by matching level IDs
+        where.levelId = { [Op.in]: matchingLevelIds };
+        
+        const include = [
           {
-            model: Difficulty,
-            as: 'difficulty',
+            model: CurationType,
+            as: 'type',
           },
           {
-            model: Creator,
-            as: 'levelCreators',
+            model: Level,
+            as: 'level',
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+              },
+              {
+                model: Creator,
+                as: 'levelCreators',
+              },
+            ],
           },
-        ],
-      },
-    ];
+        ];
 
-    const curations = await Curation.findAndCountAll({
-      where,
-      include,
-      limit: Number(limit),
-      offset,
-      order: [['createdAt', 'DESC']],
-    });
+        curations = await Curation.findAndCountAll({
+          where,
+          include,
+          limit: Number(limit),
+          offset,
+          order: [['createdAt', 'DESC']],
+          distinct: true, // Add distinct to avoid duplicate counting from joins
+        });
+      }
+    } else {
+      // No search - use original approach
+      const include = [
+        {
+          model: CurationType,
+          as: 'type',
+        },
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+            },
+            {
+              model: Creator,
+              as: 'levelCreators',
+            },
+          ],
+        },
+      ];
 
+      curations = await Curation.findAndCountAll({
+        where,
+        include,
+        limit: Number(limit),
+        offset,
+        order: [['createdAt', 'DESC']],
+        distinct: true, // Add distinct to avoid duplicate counting from joins
+      });
+    }
+
+    logger.info(`Found ${curations.count} curations on page ${page}`);
     return res.json({
       curations: curations.rows,
       total: curations.count,
@@ -397,25 +529,19 @@ router.get('/', async (req, res) => {
 });
 
 // Create curation
-router.post('/', Auth.superAdmin(), async (req, res) => {
+router.post('/', Auth.curator(), async (req, res) => {
   try {
-    const {levelId, typeId, shortDescription, description, previewLink, customCSS, customColor} = req.body;
+    const {levelId} = req.body;
     const assignedBy = req.user?.id || 'unknown';
 
-    if (!levelId || !typeId) {
-      return res.status(400).json({error: 'Level ID and Type ID are required'});
+    if (!levelId) {
+      return res.status(400).json({error: 'Level ID is required'});
     }
 
     // Check if level exists
     const level = await Level.findByPk(levelId);
     if (!level) {
       return res.status(404).json({error: 'Level not found'});
-    }
-
-    // Check if type exists
-    const type = await CurationType.findByPk(typeId);
-    if (!type) {
-      return res.status(404).json({error: 'Curation type not found'});
     }
 
     // Check for existing curation for this level
@@ -427,14 +553,14 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
       return res.status(409).json({error: 'This level is already curated'});
     }
 
+    const lowestType = await CurationType.findOne({ order: [['sortOrder', 'ASC']] });
+    if (!lowestType) {
+      return res.status(500).json({error: 'No curation types found'});
+    }
+
     const curation = await Curation.create({
       levelId,
-      typeId,
-      shortDescription,
-      description,
-      previewLink,
-      customCSS,
-      customColor,
+      typeId: lowestType.id,
       assignedBy
     });
 
@@ -458,6 +584,8 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
       ],
     });
 
+
+
     return res.status(201).json({ curation: completeCuration });
   } catch (error) {
     logger.error('Error creating curation:', error);
@@ -466,7 +594,7 @@ router.post('/', Auth.superAdmin(), async (req, res) => {
 });
 
 // Update curation
-router.put('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
+router.put('/:id([0-9]+)', [Auth.curator(), requireCurationPermission], async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
@@ -508,6 +636,8 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
         },
       ],
     });
+
+
 
     return res.json({ curation: completeCuration });
   } catch (error) {
@@ -552,7 +682,7 @@ router.get('/:id([0-9]+)', async (req, res) => {
 });
 
 // Delete curation
-router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
+router.delete('/:id([0-9]+)', [Auth.curator(), requireCurationPermission], async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -573,10 +703,7 @@ router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req, res) => {
     // Delete the curation (this will cascade delete related schedules)
     await curation.destroy({ transaction });
 
-    await transaction.commit();
-    
-    // Reindex the affected level
-    await elasticsearchService.reindexLevels([levelId]);
+        await transaction.commit();
     
     logger.info(`Successfully deleted curation ${id} and cleaned up related resources`);
     return res.status(200).json({
@@ -649,7 +776,7 @@ router.get('/schedules', async (req, res) => {
 });
 
 // Create curation schedule
-router.post('/schedules', Auth.superAdmin(), async (req, res) => {
+router.post('/schedules', Auth.headCurator(), async (req, res) => {
   try {
     const { curationId, weekStart, listType, position } = req.body;
     const scheduledBy = req.user?.id || 'unknown';
@@ -751,7 +878,7 @@ router.post('/schedules', Auth.superAdmin(), async (req, res) => {
 });
 
 // Update curation schedule
-router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
+router.put('/schedules/:id', Auth.headCurator(), async (req, res) => {
   try {
     const { id } = req.params;
     const { position, isActive } = req.body;
@@ -798,7 +925,7 @@ router.put('/schedules/:id', Auth.superAdmin(), async (req, res) => {
 });
 
 // Delete curation schedule
-router.delete('/schedules/:id', Auth.superAdmin(), async (req, res) => {
+router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -816,7 +943,7 @@ router.delete('/schedules/:id', Auth.superAdmin(), async (req, res) => {
 });
 
 // Upload level thumbnail
-router.post('/:id([0-9]+)/thumbnail', Auth.superAdmin(), upload.single('thumbnail'), async (req, res) => {
+router.post('/:id([0-9]+)/thumbnail', [Auth.curator(), requireCurationPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     
@@ -854,6 +981,8 @@ router.post('/:id([0-9]+)/thumbnail', Auth.superAdmin(), upload.single('thumbnai
       previewLink: cdnResult.urls.original || cdnResult.urls.medium
     });
 
+
+
     return res.json({
       success: true,
       previewLink: curation.previewLink,
@@ -866,7 +995,7 @@ router.post('/:id([0-9]+)/thumbnail', Auth.superAdmin(), upload.single('thumbnai
 });
 
 // Delete level thumbnail
-router.delete('/:id([0-9]+)/thumbnail', Auth.superAdmin(), async (req, res) => {
+router.delete('/:id([0-9]+)/thumbnail', [Auth.curator(), requireCurationPermission], async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {

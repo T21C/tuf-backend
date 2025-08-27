@@ -227,6 +227,64 @@ class ElasticsearchService {
         logger.error(`Error in level afterBulkUpdate hook:`, error);
       }
     });
+
+    // Add hooks for Curation model
+    Curation.removeHook('beforeSave', 'elasticsearchCurationUpdate');
+    Curation.removeHook('afterBulkUpdate', 'elasticsearchCurationBulkUpdate');
+
+    Curation.addHook('beforeSave', 'elasticsearchCurationUpdate', async (curation: Curation, options: any) => {
+      logger.debug(`Curation saved hook triggered for curation ${curation.id} (level ${curation.levelId})`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            logger.debug(`Indexing level ${curation.levelId} after curation transaction commit`);
+            await this.indexLevel(curation.levelId);
+          });
+        } else {
+          logger.debug(`Indexing level ${curation.levelId} outside of curation transaction`);
+          await this.indexLevel(curation.levelId);
+        }
+      } catch (error) {
+        logger.error(`Error in curation afterSave hook for level ${curation.levelId}:`, error);
+      }
+      return;
+    });
+
+    // Add afterBulkUpdate hook for Curation model
+    Curation.addHook('afterBulkUpdate', 'elasticsearchCurationBulkUpdate', async (options: any) => {
+      logger.debug(`Curation bulk update hook triggered`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            // If we have a specific curation ID, update that curation's level
+            if (options.where?.id) {
+              const curation = await Curation.findByPk(options.where.id);
+              if (curation) {
+                logger.debug(`Indexing level ${curation.levelId} after curation bulk update`);
+                await this.indexLevel(curation.levelId);
+              }
+            }
+            // If we have a levelId directly, update that level
+            if (options.where?.levelId) {
+              logger.debug(`Indexing level ${options.where.levelId} after curation bulk update`);
+              await this.indexLevel(options.where.levelId);
+            }
+          });
+        } else {
+          if (options.where?.id) {
+            const curation = await Curation.findByPk(options.where.id);
+            if (curation) {
+              await this.indexLevel(curation.levelId);
+            }
+          }
+          if (options.where?.levelId) {
+            await this.indexLevel(options.where.levelId);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in curation afterBulkUpdate hook:`, error);
+      }
+    });
   }
 
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {

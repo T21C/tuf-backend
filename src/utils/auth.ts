@@ -42,7 +42,7 @@ export const tokenUtils = {
       username: user.username,
       isRater: hasFlag(user, permissionFlags.RATER),
       isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
-      permissionFlags: user.permissionFlags,
+      permissionFlags: user.permissionFlags.toString(), // Convert BigInt to string
       playerId: user.playerId,
       permissionVersion: user.permissionVersion,
     };

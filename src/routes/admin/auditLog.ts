@@ -8,7 +8,7 @@ const router = Router();
 
 // GET /admin/audit-logs
 // Query params: userId, action, method, route, startDate, endDate, q (search), page, pageSize, sort, order
-router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get('/', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   try {
     const {
       userId,

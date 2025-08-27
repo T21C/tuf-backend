@@ -9,7 +9,7 @@ import { AuditLogService } from '../services/AuditLogService.js';
 import PlayerStats from '../models/players/PlayerStats.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import { permissionFlags } from '../config/app.config.js';
-import { hasFlag } from '../utils/permissionUtils.js';
+import { hasAnyFlag, hasFlag } from '../utils/permissionUtils.js';
 
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {
@@ -239,6 +239,35 @@ export const Auth = {
    */
   user: (): MiddlewareFunction => baseAuth,
 
+
+  /**
+   * Require head curator privileges
+   */
+  headCurator: (): MiddlewareFunction => 
+    chainMiddleware(
+      baseAuth,
+      requirePermission(
+        (user) => hasAnyFlag(user, [permissionFlags.HEAD_CURATOR, permissionFlags.SUPER_ADMIN]),
+        'Head curator access required'
+      ),
+      auditLogMiddleware
+    ),
+
+
+  /**
+   * Require curator privileges
+   */
+  curator: (): MiddlewareFunction => 
+    chainMiddleware(
+      baseAuth,
+      requirePermission(
+        (user) => hasAnyFlag(user, [
+          permissionFlags.CURATOR, 
+          permissionFlags.SUPER_ADMIN
+        ]),
+        'Curator access required'
+      )
+    ),
   /**
    * Require rater privileges
    */
@@ -246,7 +275,10 @@ export const Auth = {
     chainMiddleware(
       baseAuth,
       requirePermission(  
-        (user) => hasFlag(user, permissionFlags.RATER),
+        (user) => hasAnyFlag(user, [
+          permissionFlags.RATER,
+          permissionFlags.SUPER_ADMIN
+        ]),
         'Rater access required'
       )
     ),
