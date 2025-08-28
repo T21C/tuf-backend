@@ -25,7 +25,7 @@ import fs from 'fs';
 import path from 'path';
 import { cleanupUserUploads } from '../../misc/chunkedUpload.js';
 import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
-import { permissionFlags } from '../../../config/app.config.js';
+import { permissionFlags } from '../../../config/constants.js';
 import { hasFlag } from '../../../utils/permissionUtils.js';
 
 const playerStatsService = PlayerStatsService.getInstance();

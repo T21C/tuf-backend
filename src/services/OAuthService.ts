@@ -1,7 +1,6 @@
 import {User, OAuthProvider} from '../models/index.js';
 import {v4 as uuidv4} from 'uuid';
 import {UserAttributes} from '../models/auth/User.js';
-import {raterList, SUPER_ADMINS} from '../config/constants.js';
 import Player from '../models/players/Player.js';
 import { logger } from './LoggerService.js';
 
@@ -67,12 +66,6 @@ class OAuthService {
     // Create new user if none exists
     if (!user) {
       const now = new Date();
-      const isRater =
-        profile.provider === 'discord' &&
-        (raterList.includes(profile.id) ||
-          SUPER_ADMINS.includes(profile.username));
-      const isSuperAdmin =
-        profile.provider === 'discord' && SUPER_ADMINS.includes(profile.username);
 
       try {
         // Check if there's a player mapping for this Discord ID
@@ -115,8 +108,8 @@ class OAuthService {
           avatarId: profile.avatarId,
           avatarUrl: profile.avatarUrl,
           isEmailVerified: !!profile.email,
-          isRater,
-          isSuperAdmin,
+          isRater: false,
+          isSuperAdmin: false,
           isRatingBanned: false,
           status: 'active',
           permissionVersion: 1,
@@ -182,26 +175,6 @@ class OAuthService {
       throw new Error(
         'This user already has a different account linked for this provider',
       );
-    }
-
-    // Update permissions if linking Discord account
-    if (profile.provider === 'discord') {
-      const isRater =
-        raterList.includes(profile.id) ||
-        SUPER_ADMINS.includes(profile.username);
-      const isSuperAdmin = SUPER_ADMINS.includes(profile.username);
-      if (isRater || isSuperAdmin) {
-
-        await User.update(
-          {
-            isRater,
-            isSuperAdmin,
-          },
-          {
-            where: {id: userId},
-          },
-        );
-      }
     }
 
     try {

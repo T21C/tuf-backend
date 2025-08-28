@@ -28,7 +28,7 @@ import { User } from '../../models/index.js';
 import Player from '../../models/players/Player.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { hasFlag } from '../../utils/permissionUtils.js';
-import { permissionFlags } from '../../config/app.config.js';
+import { permissionFlags } from '../../config/constants.js';
 
 const router: Router = express.Router();
 

@@ -13,7 +13,7 @@ import { User } from '../../../models/index.js';
 import { searchPasses } from './index.js';
 import { ensureString } from '../../../utils/Utility.js';
 import { hasFlag, wherePermission } from '../../../utils/permissionUtils.js';
-import { permissionFlags } from '../../../config/app.config.js';
+import { permissionFlags } from '../../../config/constants.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();

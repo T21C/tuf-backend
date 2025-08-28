@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import {User} from '../models/index.js';
 import { hasFlag } from './permissionUtils.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env

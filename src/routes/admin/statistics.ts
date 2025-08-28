@@ -10,7 +10,7 @@ import sequelize from '../../config/db.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import { filterRatingsByUserTopDiff } from '../../utils/RatingUtils.js';
-import { permissionFlags } from '../../config/app.config.js';
+import { permissionFlags } from '../../config/constants.js';
 import { hasFlag, wherehasFlag} from '../../utils/permissionUtils.js';
 
 const router: Router = Router();

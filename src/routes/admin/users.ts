@@ -7,7 +7,7 @@ import {Op} from 'sequelize';
 import {tokenUtils} from '../../utils/auth.js';
 import { logger } from '../../services/LoggerService.js';
 import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '../../utils/permissionUtils.js';
-import { permissionFlags } from '../../config/app.config.js';
+import { permissionFlags } from '../../config/constants.js';
 
 const router: Router = Router();
 

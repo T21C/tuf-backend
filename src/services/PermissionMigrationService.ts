@@ -2,7 +2,7 @@ import { Op, Transaction } from 'sequelize';
 import sequelize from '../config/db.js';
 import User from '../models/auth/User.js';
 import Player from '../models/players/Player.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 import { logger } from './LoggerService.js';
 
 // Add BigInt serialization support

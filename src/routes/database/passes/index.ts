@@ -6,7 +6,7 @@ import {Router} from 'express';
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import { wherePermission } from '../../../utils/permissionUtils.js';
-import { permissionFlags } from '../../../config/app.config.js';
+import { permissionFlags } from '../../../config/constants.js';
 import { Op } from 'sequelize';
 
 const elasticsearchService = ElasticsearchService.getInstance();

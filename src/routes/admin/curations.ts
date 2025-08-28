@@ -15,7 +15,8 @@ import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import sequelize from '../../config/db.js';
 import { hasAnyFlag, hasFlag } from '../../utils/permissionUtils.js';
-import { permissionFlags } from '../../config/app.config.js';
+import { permissionFlags, curationTypeAbilities } from '../../config/constants.js';
+import { canAssignCurationType, hasAbility } from '../../utils/curationTypeUtils.js';
 
 const router: Router = Router();
 
@@ -30,8 +31,8 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
     return next();
   }
   
-  // Regular curators need to check if curation type is "T1"
-  if (hasFlag(req.user, permissionFlags.CURATOR)) {
+  // Regular curators and raters need to check if they can assign the curation type
+  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
     return Curation.findByPk(id, {
       include: [{ model: CurationType, as: 'type' }],
     }).then((curation) => {
@@ -39,7 +40,8 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
         return res.status(404).json({error: 'Curation not found'});
       }
       
-      if (curation.type?.name === 'T1') {
+      // Check if user can assign this curation type based on abilities
+      if (curation.type && canAssignCurationType(BigInt(req.user?.permissionFlags || 0), BigInt(curation.type.abilities))) {
         return next();
       }
       
@@ -51,6 +53,32 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
   }
   
   return res.status(403).json({error: 'You do not have permission to manage curations'});
+};
+
+// Middleware to verify curation creation permissions (for POST requests)
+const requireCurationCreationPermission = (req: Request, res: Response, next: NextFunction) => {
+  // Super admins and head curators can create all curations
+  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+    return next();
+  }
+  
+  // Regular curators and raters can create curations
+  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
+    return next();
+  }
+  
+  return res.status(403).json({error: 'You do not have permission to create curations'});
+};
+
+// Combined authentication and permission middleware for curator OR rater
+const requireCuratorOrRater = (req: Request, res: Response, next: NextFunction) => {
+  // First run base authentication
+  return Auth.user()(req, res, (err) => {
+    if (err) return next(err);
+    
+    // Then check permissions
+    return requireCurationCreationPermission(req, res, next);
+  });
 };
 
 const reindexCuratedLevels = async () => {
@@ -126,7 +154,14 @@ router.get('/types', async (req, res) => {
     const types = await CurationType.findAll({
       order: [['sortOrder', 'ASC'], ['name', 'ASC']],
     });
-    return res.json(types);
+    
+    // Convert BigInt abilities to string for JSON serialization
+    const serializedTypes = types.map(type => ({
+      ...type.toJSON(),
+      abilities: type.abilities.toString()
+    }));
+    
+    return res.json(serializedTypes);
   } catch (error) {
     logger.error('Error fetching curation types:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -159,13 +194,19 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
       name: name.trim(),
       icon,
       color: color || '#ffffff',
-      abilities: abilities || 0,
+      abilities: abilities ? BigInt(abilities) : 0n,
       sortOrder: 0,
     });
 
     await reindexCuratedLevels();
 
-    return res.status(201).json(type);
+    // Convert BigInt abilities to string for JSON serialization
+    const serializedType = {
+      ...type.toJSON(),
+      abilities: type.abilities.toString()
+    };
+
+    return res.status(201).json(serializedType);
   } catch (error) {
     logger.error('Error creating curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -211,12 +252,18 @@ router.put('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => 
       name: name ? name.trim() : type.name,
       icon,
       color,
-      abilities,
+      abilities: abilities ? BigInt(abilities) : type.abilities,
     });
 
     await reindexCuratedLevels();
 
-    return res.json(type);
+    // Convert BigInt abilities to string for JSON serialization
+    const serializedType = {
+      ...type.toJSON(),
+      abilities: type.abilities.toString()
+    };
+
+    return res.json(serializedType);
   } catch (error) {
     logger.error('Error updating curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -515,9 +562,18 @@ router.get('/', async (req, res) => {
       });
     }
 
+    // Serialize BigInt abilities to string for all curations
+    const serializedCurations = curations.rows.map(curation => ({
+      ...curation.toJSON(),
+      type: curation.type ? {
+        ...curation.type.toJSON(),
+        abilities: curation.type.abilities.toString()
+      } : null
+    }));
+
     logger.info(`Found ${curations.count} curations on page ${page}`);
     return res.json({
-      curations: curations.rows,
+      curations: serializedCurations,
       total: curations.count,
       page: Number(page),
       totalPages: Math.ceil(curations.count / Number(limit)),
@@ -529,7 +585,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create curation
-router.post('/', Auth.curator(), async (req, res) => {
+router.post('/', requireCuratorOrRater, async (req: Request, res: Response) => {
   try {
     const {levelId} = req.body;
     const assignedBy = req.user?.id || 'unknown';
@@ -553,14 +609,28 @@ router.post('/', Auth.curator(), async (req, res) => {
       return res.status(409).json({error: 'This level is already curated'});
     }
 
-    const lowestType = await CurationType.findOne({ order: [['sortOrder', 'ASC']] });
-    if (!lowestType) {
+    // Get all curation types ordered by sort order (highest first)
+    const allCurationTypes = await CurationType.findAll({
+      order: [['sortOrder', 'DESC']]
+    });
+
+    if (allCurationTypes.length === 0) {
       return res.status(500).json({error: 'No curation types found'});
+    }
+
+    // Find the first assignable curation type for this user
+    const userFlags = BigInt(req.user?.permissionFlags || 0);
+    const assignableType = allCurationTypes.find(type => 
+      canAssignCurationType(userFlags, BigInt(type.abilities))
+    );
+
+    if (!assignableType) {
+      return res.status(403).json({error: 'You do not have permission to assign any curation types'});
     }
 
     const curation = await Curation.create({
       levelId,
-      typeId: lowestType.id,
+      typeId: assignableType.id,
       assignedBy
     });
 
@@ -584,9 +654,16 @@ router.post('/', Auth.curator(), async (req, res) => {
       ],
     });
 
+    // Serialize BigInt abilities to string
+    const serializedCuration = completeCuration ? {
+      ...completeCuration.toJSON(),
+      type: completeCuration.type ? {
+        ...completeCuration.type.toJSON(),
+        abilities: completeCuration.type.abilities.toString()
+      } : null
+    } : null;
 
-
-    return res.status(201).json({ curation: completeCuration });
+    return res.status(201).json({ curation: serializedCuration });
   } catch (error) {
     logger.error('Error creating curation:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -594,7 +671,7 @@ router.post('/', Auth.curator(), async (req, res) => {
 });
 
 // Update curation
-router.put('/:id([0-9]+)', [Auth.curator(), requireCurationPermission], async (req: Request, res: Response) => {
+router.put('/:id([0-9]+)', requireCurationPermission, async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
@@ -637,9 +714,16 @@ router.put('/:id([0-9]+)', [Auth.curator(), requireCurationPermission], async (r
       ],
     });
 
+    // Serialize BigInt abilities to string
+    const serializedCuration = completeCuration ? {
+      ...completeCuration.toJSON(),
+      type: completeCuration.type ? {
+        ...completeCuration.type.toJSON(),
+        abilities: completeCuration.type.abilities.toString()
+      } : null
+    } : null;
 
-
-    return res.json({ curation: completeCuration });
+    return res.json({ curation: serializedCuration });
   } catch (error) {
     logger.error('Error updating curation:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -674,7 +758,16 @@ router.get('/:id([0-9]+)', async (req, res) => {
       return res.status(404).json({error: 'Curation not found'});
     }
 
-    return res.json(curation);
+    // Serialize BigInt abilities to string
+    const serializedCuration = {
+      ...curation.toJSON(),
+      type: curation.type ? {
+        ...curation.type.toJSON(),
+        abilities: curation.type.abilities.toString()
+      } : null
+    };
+
+    return res.json(serializedCuration);
   } catch (error) {
     logger.error('Error fetching curation:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -682,7 +775,7 @@ router.get('/:id([0-9]+)', async (req, res) => {
 });
 
 // Delete curation
-router.delete('/:id([0-9]+)', [Auth.curator(), requireCurationPermission], async (req: Request, res: Response) => {
+router.delete('/:id([0-9]+)', requireCurationPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -766,8 +859,20 @@ router.get('/schedules', async (req, res) => {
       order: [['listType', 'ASC'], ['position', 'ASC']],
     });
 
+    // Serialize BigInt abilities to string for all schedules
+    const serializedSchedules = schedules.map(schedule => ({
+      ...schedule.toJSON(),
+      scheduledCuration: schedule.scheduledCuration ? {
+        ...schedule.scheduledCuration.toJSON(),
+        type: schedule.scheduledCuration.type ? {
+          ...schedule.scheduledCuration.type.toJSON(),
+          abilities: schedule.scheduledCuration.type.abilities.toString()
+        } : null
+      } : null
+    }));
+
     return res.json({
-      schedules: schedules,
+      schedules: serializedSchedules,
     });
   } catch (error) {
     logger.error('Error fetching curation schedules:', error);
@@ -870,7 +975,19 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
       ],
     });
 
-    return res.status(201).json(completeSchedule);
+    // Serialize BigInt abilities to string
+    const serializedSchedule = completeSchedule ? {
+      ...completeSchedule.toJSON(),
+      scheduledCuration: completeSchedule.scheduledCuration ? {
+        ...completeSchedule.scheduledCuration.toJSON(),
+        type: completeSchedule.scheduledCuration.type ? {
+          ...completeSchedule.scheduledCuration.type.toJSON(),
+          abilities: completeSchedule.scheduledCuration.type.abilities.toString()
+        } : null
+      } : null
+    } : null;
+
+    return res.status(201).json(serializedSchedule);
   } catch (error) {
     logger.error('Error creating curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -943,7 +1060,7 @@ router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
 });
 
 // Upload level thumbnail
-router.post('/:id([0-9]+)/thumbnail', [Auth.curator(), requireCurationPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
+router.post('/:id([0-9]+)/thumbnail', [requireCurationPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     
@@ -995,7 +1112,7 @@ router.post('/:id([0-9]+)/thumbnail', [Auth.curator(), requireCurationPermission
 });
 
 // Delete level thumbnail
-router.delete('/:id([0-9]+)/thumbnail', [Auth.curator(), requireCurationPermission], async (req: Request, res: Response) => {
+router.delete('/:id([0-9]+)/thumbnail', requireCurationPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {

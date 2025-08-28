@@ -1,63 +1,30 @@
-export const PATHS = {
-  playerlistJson: 'cache/playerlist.json',
-  clearlistJson: 'cache/clearlist.json',
-  pfpListJson: 'cache/pfpList.json',
-  rankListJson: 'cache/rankList.json',
-  playerFolder: 'cache/players',
-  ratingListJson: 'cache/ratingList.json',
-  levelsJson: './cache/levels.json',
-  playersJson: './cache/players.json',
-  passesJson: './cache/passes.json',
+export const permissionFlags = {
+  SUPER_ADMIN: 1n << 62n,        
+  RATER: 1n << 61n,              
+  BANNED: 1n << 60n,             
+  SUBMISSIONS_PAUSED: 1n << 59n, 
+  RATING_BANNED: 1n << 58n,      
+  HEAD_CURATOR: 1n << 32n,       
+  CURATOR: 1n << 31n,            
+  EMAIL_VERIFIED: 1n << 0n,      
 };
 
-export const SUPER_ADMINS = ['teo_72', 'v0w4n', 'sjk04', 'dehznik', 'willtrm'];
+export const curationTypeAbilities = {
+  // Basic abilities
+  CUSTOM_CSS: 1n << 0n,
+  CURATOR_ASSIGNABLE: 1n << 6n,          // Can only be assigned by curator leads/admins
+  RATER_ASSIGNABLE: 1n << 7n,            // Can only be assigned by raters
+  
+  SHOW_ASSIGNER: 1n << 10n,            // Show who assigned on hover
+  FORCE_DESCRIPTION: 1n << 11n,        // Require description when assigned
+  FRONT_PAGE_ELIGIBLE: 1n << 13n,      // Can appear on front page
+  CUSTOM_COLOR_THEME: 1n << 14n,       // Allows custom color theming
 
-export const raterList = [
-  '141348892204597248',
-  '680550323689095247',
-  '969961576977301514',
-  '679421099586486283',
-  '626809454444150815',
-  '191936176792272897',
-  '879244987919904838',
-  '394170411660607511',
-  '803785016709873684',
-  '717714012854550568',
-  '811048890722680896',
-  '497812512432193548',
-  '790228862214209556',
-  '1191375993177391105',
-  '418747675555397644',
-  '1140206412220346412',
-  '364071022095368192',
-  '509250290042798081',
-  '195553948743106561',
-  '706395328907313232',
-  '914712765355143179',
-  '589178811900493824',
-  '664156261536890900',
-  '998543567767212103',
-  '987818351344648233',
-  '613987506144411658',
-  '930095751382585374',
-  '509420467287752705',
-  '860721976025153556',
-  '685476174721187851',
-  '447641030582599680',
-  '1062390213239918662',
-  '722398660175986799',
-  '952161630941237298',
-  '517921690307526656',
-  '503447721839951884',
-  '504996186487259157',
-  '899574858516672552',
-];
+  LEVEL_LIST_BASIC_GLOW: 1n << 15n,
+  LEVEL_LIST_LEGENDARY_GLOW: 1n << 16n,
+} as const;
 
-export const emailBanList = [
-  'bannedUser@example.com',
-  'anotherBannedUser@example.com',
-];
-export const idBanList = ['15982378912598', '78912538976123'];
+
 export const validSortOptions = [
   'rankedScore',
   'generalScore',

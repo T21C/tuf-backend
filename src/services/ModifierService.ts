@@ -14,7 +14,7 @@ import { calcAcc } from '../utils/CalcAcc.js';
 import { getScoreV2 } from '../utils/CalcScore.js';
 import { env } from 'process';
 import { logger } from './LoggerService.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 import { hasFlag } from '../utils/permissionUtils.js';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === "true";

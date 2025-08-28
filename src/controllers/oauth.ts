@@ -9,8 +9,9 @@ import {
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
 import { logger } from '../services/LoggerService.js';
-import { clientUrlEnv, ownUrl, permissionFlags } from '../config/app.config.js';
+import { clientUrlEnv, ownUrl } from '../config/app.config.js';
 import { hasFlag } from '../utils/permissionUtils.js';
+import { permissionFlags } from '../config/constants.js';
 
 
 interface ProfileResponse {

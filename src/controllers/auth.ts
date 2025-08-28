@@ -10,7 +10,7 @@ import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import { logger } from '../services/LoggerService.js';
 import CaptchaService from '../services/CaptchaService.js';
 import { RateLimiter } from '../decorators/rateLimiter.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 import { hasFlag, setUserPermissionAndSave } from '../utils/permissionUtils.js';
 
 // Create a singleton instance of CaptchaService

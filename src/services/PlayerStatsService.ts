@@ -15,8 +15,8 @@ import { IPlayer } from '../interfaces/models/index.js';
 import { OAuthProvider } from '../models/index.js';
 import Creator from '../models/credits/Creator.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
-import { hasFlag, wherePermission, whereAnyPermission } from '../utils/permissionUtils.js';
-import { permissionFlags } from '../config/app.config.js';
+import { hasFlag, wherePermission } from '../utils/permissionUtils.js';
+import { permissionFlags } from '../config/constants.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';

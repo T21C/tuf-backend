@@ -30,7 +30,7 @@ import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
 import RatingAccuracyVote from '../../models/levels/RatingAccuracyVote.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
-import { permissionFlags } from '../../config/app.config.js';
+import { permissionFlags } from '../../config/constants.js';
 import { setUserPermissionAndSave, wherePermission } from '../../utils/permissionUtils.js';
 
 const router: Router = Router();

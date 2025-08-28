@@ -16,8 +16,9 @@ import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
 import { sseManager } from '../../../utils/sse.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import { wherePermission } from '../../../utils/permissionUtils.js';
-import { permissionFlags } from '../../../config/app.config.js';
 import { Op } from 'sequelize';
+import { permissionFlags } from '../../../config/constants.js';
+import { User } from '../../../models/index.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();

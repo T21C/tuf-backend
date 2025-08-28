@@ -12,7 +12,7 @@ import User from '../models/auth/User.js';
 import { logger } from '../services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
 import { wherePermission } from '../utils/permissionUtils.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 
 // Configuration
 const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues

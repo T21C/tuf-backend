@@ -150,7 +150,7 @@ program
              // Import necessary models
        const { User } = await import('../models/index.js');
        const Player = (await import('../models/players/Player.js')).default;
-       const { permissionFlags } = await import('../config/app.config.js');
+       const { permissionFlags } = await import('../config/constants.js');
       
              const users = await User.findAll();
        

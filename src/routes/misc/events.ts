@@ -3,7 +3,8 @@ import {sseManager} from '../../utils/sse.js';
 import {Auth} from '../../middleware/auth.js';
 import {Request, Response} from 'express';
 import User from '../../models/auth/User.js';
-import { clientUrlEnv, permissionFlags } from '../../config/app.config.js';
+import { clientUrlEnv } from '../../config/app.config.js';
+import { permissionFlags } from '../../config/constants.js';
 import { hasAnyFlag } from '../../utils/permissionUtils.js';
 
 const router: Router = Router();

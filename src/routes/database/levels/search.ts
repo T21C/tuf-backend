@@ -24,7 +24,7 @@ import { safeTransactionRollback } from "../../../utils/Utility.js";
 import Curation from "../../../models/curations/Curation.js";
 import CurationType from "../../../models/curations/CurationType.js";
 import { hasFlag } from "../../../utils/permissionUtils.js";
-import { permissionFlags } from "../../../config/app.config.js";
+import { permissionFlags } from "../../../config/constants.js";
 
 const MAX_LIMIT = 200;
 

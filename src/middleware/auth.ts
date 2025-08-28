@@ -8,7 +8,7 @@ import { logger } from '../services/LoggerService.js';
 import { AuditLogService } from '../services/AuditLogService.js';
 import PlayerStats from '../models/players/PlayerStats.js';
 import Difficulty from '../models/levels/Difficulty.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 import { hasAnyFlag, hasFlag } from '../utils/permissionUtils.js';
 
 const getUser = async (id: string): Promise<User | null> => {
@@ -266,7 +266,8 @@ export const Auth = {
           permissionFlags.SUPER_ADMIN
         ]),
         'Curator access required'
-      )
+      ),
+      auditLogMiddleware
     ),
   /**
    * Require rater privileges
@@ -280,7 +281,8 @@ export const Auth = {
           permissionFlags.SUPER_ADMIN
         ]),
         'Rater access required'
-      )
+      ),
+      auditLogMiddleware
     ),
 
   /**

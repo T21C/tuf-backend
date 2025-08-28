@@ -18,7 +18,7 @@ import {
 } from '../../utils/RatingUtils.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { hasFlag } from '../../utils/permissionUtils.js';
-import { permissionFlags } from '../../config/app.config.js';
+import { permissionFlags } from '../../config/constants.js';
 const router: Router = Router();
 
 // Helper function to normalize rating string and calculate average for ranges

@@ -6,7 +6,7 @@ export interface ICurationType {
   name: string;
   icon: string | null;
   color: string;
-  abilities: number;
+  abilities: bigint;
   sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
@@ -26,21 +26,21 @@ class CurationType
   declare name: string;
   declare icon: string | null;
   declare color: string;
-  declare abilities: number;
+  declare abilities: bigint;
   declare sortOrder: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 
   // Helper methods for bitwise abilities
-  hasAbility(ability: number): boolean {
+  hasAbility(ability: bigint): boolean {
     return (this.abilities & ability) === ability;
   }
 
-  addAbility(ability: number): void {
+  addAbility(ability: bigint): void {
     this.abilities |= ability;
   }
 
-  removeAbility(ability: number): void {
+  removeAbility(ability: bigint): void {
     this.abilities &= ~ability;
   }
 }
@@ -67,10 +67,10 @@ CurationType.init(
       defaultValue: '#ffffff',
     },
     abilities: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.BIGINT,
       allowNull: false,
       defaultValue: 0,
-      comment: 'Bitwise permissions encoding for abilities',
+      comment: 'Bit-based abilities for curation types',
     },
     sortOrder: {
       type: DataTypes.INTEGER,

@@ -10,7 +10,7 @@ import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../config/app.config.js';
 import { hasFlag } from '../utils/permissionUtils.js';
 import { User } from '../models/index.js';
-import { permissionFlags } from '../config/app.config.js';
+import { permissionFlags } from '../config/constants.js';
 
 // Add type for manifest entries
 type ManifestEntry = {
