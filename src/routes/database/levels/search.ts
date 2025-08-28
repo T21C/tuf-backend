@@ -272,6 +272,11 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
                 model: CurationType,
                 as: 'type',
               },
+              {
+                model: User,
+                as: 'assignedByUser',
+                attributes: ['nickname','username', 'avatarUrl'],
+              },
             ],
           },
         ],

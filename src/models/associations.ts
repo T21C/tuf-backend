@@ -495,4 +495,9 @@ export function initializeAssociations() {
     as: 'curationSchedules',
   });
 
+  Curation.belongsTo(User, {
+    foreignKey: 'assignedBy',
+    as: 'assignedByUser',
+  });
+
 }

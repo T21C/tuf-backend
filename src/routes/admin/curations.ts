@@ -55,6 +55,13 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
   return res.status(403).json({error: 'You do not have permission to manage curations'});
 };
 
+const requireCurationManagementPermission = (req: Request, res: Response, next: NextFunction) => {
+  return Auth.user()(req, res, (err) => {
+    if (err) return next(err);
+    return requireCurationPermission(req, res, next);
+  });
+};
+
 // Middleware to verify curation creation permissions (for POST requests)
 const requireCurationCreationPermission = (req: Request, res: Response, next: NextFunction) => {
   // Super admins and head curators can create all curations
@@ -585,7 +592,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create curation
-router.post('/', requireCuratorOrRater, async (req: Request, res: Response) => {
+  router.post('/', requireCurationManagementPermission, async (req: Request, res: Response) => {
   try {
     const {levelId} = req.body;
     const assignedBy = req.user?.id || 'unknown';
@@ -671,7 +678,7 @@ router.post('/', requireCuratorOrRater, async (req: Request, res: Response) => {
 });
 
 // Update curation
-router.put('/:id([0-9]+)', requireCurationPermission, async (req: Request, res: Response) => {
+router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
@@ -775,7 +782,7 @@ router.get('/:id([0-9]+)', async (req, res) => {
 });
 
 // Delete curation
-router.delete('/:id([0-9]+)', requireCurationPermission, async (req: Request, res: Response) => {
+router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -1060,7 +1067,7 @@ router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
 });
 
 // Upload level thumbnail
-router.post('/:id([0-9]+)/thumbnail', [requireCurationPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
+router.post('/:id([0-9]+)/thumbnail', [requireCurationManagementPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     
@@ -1112,7 +1119,7 @@ router.post('/:id([0-9]+)/thumbnail', [requireCurationPermission, upload.single(
 });
 
 // Delete level thumbnail
-router.delete('/:id([0-9]+)/thumbnail', requireCurationPermission, async (req: Request, res: Response) => {
+router.delete('/:id([0-9]+)/thumbnail', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
