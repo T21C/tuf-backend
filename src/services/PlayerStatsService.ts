@@ -592,7 +592,7 @@ export class PlayerStatsService {
     
     const transaction = await sequelize.transaction();
     try {
-      // First, set all ranks to -1 for banned players
+      // First, set ranks to -1 for banned players
       await sequelize.query(
         `UPDATE player_stats ps 
          INNER JOIN players p ON ps.id = p.id 
@@ -606,10 +606,25 @@ export class PlayerStatsService {
         { transaction }
       );
 
+      // Set ranks to 0 for unverified players (not banned but not email verified)
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN users u ON p.id = u.playerId
+         SET ps.rankedScoreRank = 0,
+             ps.generalScoreRank = 0,
+             ps.ppScoreRank = 0,
+             ps.wfScoreRank = 0,
+             ps.score12KRank = 0
+         WHERE (u.permissionFlags & ${permissionFlags.EMAIL_VERIFIED}) != ${permissionFlags.EMAIL_VERIFIED}
+         AND (u.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}`,
+        { transaction }
+      );
+
       // Initialize rank counter
       await sequelize.query('SET @rank = 0', { transaction });
 
-      // Update ranks for active players using MySQL variables
+      // Update ranks for verified, non-banned players using MySQL variables
       await sequelize.query(
         `UPDATE player_stats ps 
          INNER JOIN players p ON ps.id = p.id 
@@ -620,7 +635,8 @@ export class PlayerStatsService {
              FROM player_stats ps2
              INNER JOIN players p2 ON ps2.id = p2.id
              INNER JOIN users u2 ON p2.id = u2.playerId
-             WHERE (u2.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}
+             WHERE (u2.permissionFlags & ${permissionFlags.EMAIL_VERIFIED}) = ${permissionFlags.EMAIL_VERIFIED}
+             AND (u2.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}
              ORDER BY ps2.rankedScore DESC, ps2.id ASC
            ) ordered
          ) ranked ON ps.id = ranked.id
@@ -778,26 +794,15 @@ export class PlayerStatsService {
       
       // Modified to handle unverified users as banned
       if (showBanned === 'hide') {
-        whereClause[Op.and] = [
-          { [Op.or]: [
-            { '$player->user.id$': null },
-            // Use permissionFlags to check for BANNED (inverted) and EMAIL_VERIFIED
-            { [Op.and]: [
-              wherePermission(permissionFlags.BANNED, false),
-              wherePermission(permissionFlags.EMAIL_VERIFIED, true)
-            ] }
-          ] }
-        ];
+        whereClause['rankedScoreRank'] = { [Op.and]: [
+          { [Op.not]: 0 },
+          { [Op.not]: -1 }
+        ] };
       } else if (showBanned === 'only') {
-        whereClause[Op.or] = [
-          // Use permissionFlags to check for BANNED
-          wherePermission(permissionFlags.BANNED, true),
-          { [Op.and]: [
-            { '$player->user.id$': { [Op.not]: null } },
-            // Use permissionFlags to check for EMAIL_VERIFIED (inverted)
-            wherePermission(permissionFlags.EMAIL_VERIFIED, false)
-          ] }
-        ];
+        whereClause['rankedScoreRank'] = { [Op.and]: [
+          -1,
+          { [Op.not]: 0 }
+        ] };
       }
 
       // Add player ID filter if provided
