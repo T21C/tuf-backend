@@ -79,20 +79,26 @@ export const removeAbility = (curationType: CurationTypeInput, ability: bigint):
  * @param curationAbilities - Curation type's abilities
  */
 export const canAssignCurationType = (userFlags: bigint, curationAbilities: bigint): boolean => {
-  // Super admins can assign all curation types
+  // Super admins and head curators can assign all curation types
   if ((userFlags & permissionFlags.SUPER_ADMIN) !== 0n 
   || (userFlags & permissionFlags.HEAD_CURATOR) !== 0n) {
     return true;
   }
 
-  // Check for CURATOR_ASSIGNABLE ability
-  if (hasAbility(curationAbilities, curationTypeAbilities.CURATOR_ASSIGNABLE)) {
-    return (userFlags & permissionFlags.CURATOR) !== 0n;
+  // Check assignment abilities using OR logic - if either condition matches, allow assignment
+  const hasCuratorAssignable = hasAbility(curationAbilities, curationTypeAbilities.CURATOR_ASSIGNABLE);
+  const hasRaterAssignable = hasAbility(curationAbilities, curationTypeAbilities.RATER_ASSIGNABLE);
+  const isCurator = (userFlags & permissionFlags.CURATOR) !== 0n;
+  const isRater = (userFlags & permissionFlags.RATER) !== 0n;
+
+  // Allow if user has curator permission and curation is curator-assignable
+  if (hasCuratorAssignable && isCurator) {
+    return true;
   }
 
-  // Check for RATER_ASSIGNABLE ability
-  if (hasAbility(curationAbilities, curationTypeAbilities.RATER_ASSIGNABLE)) {
-    return (userFlags & permissionFlags.RATER) !== 0n;
+  // Allow if user has rater permission and curation is rater-assignable
+  if (hasRaterAssignable && isRater) {
+    return true;
   }
   
   // If no specific assignment flag, only super admins can assign

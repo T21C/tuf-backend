@@ -288,7 +288,7 @@ class ElasticsearchService {
   }
 
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
-    logger.debug(`Getting level with relations for level ${levelId} ${typeof levelId}`);
+    logger.debug(`Getting level with relations for level ${levelId}`);
     try {
       const level = await Level.findByPk(levelId, {
         include: [
@@ -338,9 +338,7 @@ class ElasticsearchService {
           }
         ],
       });
-      logger.debug(`Level ${level}`);
       if (!level) return null;
-      logger.debug(`Level ${level.id} isDeleted: ${level.isDeleted}`);
       const clears = await Pass.count({
         where: {
           levelId: levelId,
@@ -357,6 +355,7 @@ class ElasticsearchService {
           }
         ]
       });
+      logger.debug(`Level ${level.id} curationtype: ${level.curation?.type?.name}`);
       level.clears = clears;
       logger.debug(`Level ${level.id} has ${clears} clears`);
       return level;

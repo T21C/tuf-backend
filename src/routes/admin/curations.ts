@@ -2,7 +2,7 @@ import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {db} from '../../models/index.js';
 import {Op, Transaction} from 'sequelize';
-import { getFileIdFromCdnUrl, isCdnUrl } from '../../utils/Utility.js';
+import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '../../utils/Utility.js';
 import multer from 'multer';
 import CdnService from '../../services/CdnService.js';
 import Curation from '../../models/curations/Curation.js';
@@ -286,7 +286,7 @@ router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
 
     const type = await CurationType.findByPk(id, { transaction });
     if (!type) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Curation type not found'});
     }
 
@@ -317,7 +317,7 @@ router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
     logger.info(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
     return res.status(204).send();
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error deleting curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
@@ -366,7 +366,7 @@ router.delete('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), async (req, 
 
     const type = await CurationType.findByPk(id, { transaction });
     if (!type) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Curation type not found'});
     }
 
@@ -380,7 +380,7 @@ router.delete('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), async (req, 
 
     return res.json({success: true, message: 'Icon removed successfully'});
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error deleting curation icon:', error);
     return res.status(500).json({error: 'Failed to delete icon'});
   }
@@ -394,7 +394,7 @@ router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => 
     const { sortOrders } = req.body;
     
     if (!sortOrders || !Array.isArray(sortOrders)) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Sort orders array is required'});
     }
 
@@ -414,7 +414,7 @@ router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => 
     logger.info(`Successfully updated sort orders for ${sortOrders.length} curation types`);
     return res.json({success: true, message: 'Sort orders updated successfully'});
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error updating curation type sort orders:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
@@ -616,23 +616,39 @@ router.get('/', async (req, res) => {
       return res.status(409).json({error: 'This level is already curated'});
     }
 
-    // Get all curation types ordered by sort order (highest first)
-    const allCurationTypes = await CurationType.findAll({
-      order: [['sortOrder', 'DESC']]
+    // First look for a curation type named "T1"
+    let assignableType = await CurationType.findOne({
+      where: {
+        name: 'T1'
+      }
     });
 
-    if (allCurationTypes.length === 0) {
-      return res.status(500).json({error: 'No curation types found'});
+    // Check if the found T1 type is assignable by this user
+    const userFlags = BigInt(req.user?.permissionFlags || 0);
+    if (assignableType && !canAssignCurationType(userFlags, BigInt(assignableType.abilities))) {
+      // T1 exists but user can't assign it, set to null to continue with normal selection
+      assignableType = null;
     }
 
-    // Find the first assignable curation type for this user
-    const userFlags = BigInt(req.user?.permissionFlags || 0);
-    const assignableType = allCurationTypes.find(type => 
-      canAssignCurationType(userFlags, BigInt(type.abilities))
-    );
-
+    // If no T1 found or T1 not assignable, proceed with normal selection
     if (!assignableType) {
-      return res.status(403).json({error: 'You do not have permission to assign any curation types'});
+      // Get all curation types ordered by sort order (highest first)
+      const allCurationTypes = await CurationType.findAll({
+        order: [['sortOrder', 'DESC']]
+      });
+
+      if (allCurationTypes.length === 0) {
+        return res.status(500).json({error: 'No curation types found'});
+      }
+
+      // Find the first assignable curation type for this user
+      assignableType = allCurationTypes.find(type => 
+        canAssignCurationType(userFlags, BigInt(type.abilities))
+      ) || null;
+
+      if (!assignableType) {
+        return res.status(403).json({error: 'You do not have permission to assign any curation types'});
+      }
     }
 
     const curation = await Curation.create({
@@ -679,11 +695,12 @@ router.get('/', async (req, res) => {
 
 // Update curation
 router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
     const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
-
-    const curation = await Curation.findByPk(id);
+    
+    const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
       return res.status(404).json({error: 'Curation not found'});
     }
@@ -695,10 +712,10 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
       customCSS,
       customColor,
       typeId: typeId || curation.typeId,
-    });
-
+    }, { transaction });
     // Fetch the complete curation with related data
     const completeCuration = await Curation.findByPk(id, {
+      transaction,
       include: [
         {
           model: CurationType,
@@ -721,6 +738,7 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
       ],
     });
 
+    await transaction.commit();
     // Serialize BigInt abilities to string
     const serializedCuration = completeCuration ? {
       ...completeCuration.toJSON(),
@@ -730,9 +748,11 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
       } : null
     } : null;
 
+
     return res.json({ curation: serializedCuration });
   } catch (error) {
     logger.error('Error updating curation:', error);
+    await safeTransactionRollback(transaction);
     return res.status(500).json({error: 'Internal server error'});
   }
 });
@@ -790,7 +810,7 @@ router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: R
 
     const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Curation not found'});
     }
 
@@ -803,15 +823,15 @@ router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: R
     // Delete the curation (this will cascade delete related schedules)
     await curation.destroy({ transaction });
 
-        await transaction.commit();
-    
+    await transaction.commit();
+
     logger.info(`Successfully deleted curation ${id} and cleaned up related resources`);
     return res.status(200).json({
       success: true,
       message: 'Curation deleted successfully',
     });
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error deleting curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
@@ -1127,7 +1147,7 @@ router.delete('/:id([0-9]+)/thumbnail', requireCurationManagementPermission, asy
 
     const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
-      await transaction.rollback();
+      await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Curation not found'});
     }
 
@@ -1141,7 +1161,7 @@ router.delete('/:id([0-9]+)/thumbnail', requireCurationManagementPermission, asy
 
     return res.json({success: true, message: 'Thumbnail removed successfully'});
   } catch (error) {
-    await transaction.rollback();
+    await safeTransactionRollback(transaction);
     logger.error('Error deleting level thumbnail:', error);
     return res.status(500).json({error: 'Failed to delete thumbnail'});
   }
