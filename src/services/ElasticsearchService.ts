@@ -1413,6 +1413,8 @@ class ElasticsearchService {
       const must: any[] = [];
       const should: any[] = [];
 
+
+
       // Handle text search with new parsing
       if (query) {
         if (query.length > 255) {
@@ -1941,6 +1943,8 @@ class ElasticsearchService {
     try {
       const must: any[] = [];
       const should: any[] = [];
+
+
 
       // Handle text search with new parsing
       if (query) {
