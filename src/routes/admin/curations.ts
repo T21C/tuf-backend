@@ -592,7 +592,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create curation
-  router.post('/', requireCurationManagementPermission, async (req: Request, res: Response) => {
+  router.post('/', requireCuratorOrRater, async (req: Request, res: Response) => {
   try {
     const {levelId} = req.body;
     const assignedBy = req.user?.id || 'unknown';
