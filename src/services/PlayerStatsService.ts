@@ -606,21 +606,6 @@ export class PlayerStatsService {
         { transaction }
       );
 
-      // Set ranks to 0 for unverified players (not banned but not email verified)
-      await sequelize.query(
-        `UPDATE player_stats ps 
-         INNER JOIN players p ON ps.id = p.id 
-         INNER JOIN users u ON p.id = u.playerId
-         SET ps.rankedScoreRank = 0,
-             ps.generalScoreRank = 0,
-             ps.ppScoreRank = 0,
-             ps.wfScoreRank = 0,
-             ps.score12KRank = 0
-         WHERE (u.permissionFlags & ${permissionFlags.EMAIL_VERIFIED}) != ${permissionFlags.EMAIL_VERIFIED}
-         AND (u.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}`,
-        { transaction }
-      );
-
       // Initialize rank counter
       await sequelize.query('SET @rank = 0', { transaction });
 
@@ -635,8 +620,7 @@ export class PlayerStatsService {
              FROM player_stats ps2
              INNER JOIN players p2 ON ps2.id = p2.id
              INNER JOIN users u2 ON p2.id = u2.playerId
-             WHERE (u2.permissionFlags & ${permissionFlags.EMAIL_VERIFIED}) = ${permissionFlags.EMAIL_VERIFIED}
-             AND (u2.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}
+             WHERE (u2.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}
              ORDER BY ps2.rankedScore DESC, ps2.id ASC
            ) ordered
          ) ranked ON ps.id = ranked.id
