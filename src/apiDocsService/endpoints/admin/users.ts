@@ -7,7 +7,7 @@ const usersEndpoints: EndpointDefinition[] = [
     description: 'Get all users with roles (raters and admins)',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     responses: {
       '200': 'List of users with roles',
       '500': 'Failed to fetch users'
@@ -41,7 +41,7 @@ const usersEndpoints: EndpointDefinition[] = [
     description: 'Grant role to user',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       body: {
         discordId: 'string (required) - Discord ID of user',
@@ -61,7 +61,7 @@ const usersEndpoints: EndpointDefinition[] = [
     description: 'Revoke role from user',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       body: {
         discordId: 'string (required) - Discord ID of user',
@@ -81,7 +81,7 @@ const usersEndpoints: EndpointDefinition[] = [
     description: 'Update user Discord info',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       body: {
         discordId: 'string (required) - Discord ID',
@@ -101,7 +101,7 @@ const usersEndpoints: EndpointDefinition[] = [
     description: 'Toggle rating ban for user',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       path: {
         playerId: 'number (required) - Player ID'

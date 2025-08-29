@@ -7,7 +7,7 @@ const submissionsEndpoints: EndpointDefinition[] = [
     description: 'Get all level submissions',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     responses: {
       '200': 'List of level submissions',
       '500': 'Failed to fetch level submissions'
@@ -19,7 +19,7 @@ const submissionsEndpoints: EndpointDefinition[] = [
     description: 'Get pending level submissions',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     responses: {
       '200': 'List of pending level submissions',
       '500': 'Failed to fetch pending level submissions'
@@ -31,7 +31,7 @@ const submissionsEndpoints: EndpointDefinition[] = [
     description: 'Get all pass submissions',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     responses: {
       '200': 'List of pass submissions',
       '500': 'Failed to fetch pass submissions'

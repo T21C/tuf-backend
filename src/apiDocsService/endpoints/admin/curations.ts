@@ -121,7 +121,7 @@ const curationsEndpoints: EndpointDefinition[] = [
     description: 'Create curation type',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       body: {
         name: 'string (required) - Type name',
@@ -143,7 +143,7 @@ const curationsEndpoints: EndpointDefinition[] = [
     description: 'Update curation type',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       path: {
         id: 'number (required) - Curation type ID'
@@ -168,7 +168,7 @@ const curationsEndpoints: EndpointDefinition[] = [
     description: 'Delete curation type',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       path: {
         id: 'number (required) - Curation type ID'
@@ -186,7 +186,7 @@ const curationsEndpoints: EndpointDefinition[] = [
     description: 'Upload curation type icon',
     category: 'MEDIA',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       path: {
         id: 'number (required) - Curation type ID'
@@ -208,7 +208,7 @@ const curationsEndpoints: EndpointDefinition[] = [
     description: 'Delete curation type icon',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       path: {
         id: 'number (required) - Curation type ID'
@@ -226,7 +226,7 @@ const curationsEndpoints: EndpointDefinition[] = [
     description: 'Update curation type sort orders',
     category: 'ADMIN',
     requiresAuth: true,
-    requiresSuperAdmin: true,
+    requiresAdmin: true,
     parameters: {
       body: {
         sortOrders: 'array (required) - Array of {id, sortOrder} objects'
