@@ -24,7 +24,7 @@ interface ProfileResponse {
     isRater: boolean;
     isSuperAdmin: boolean;
     isEmailVerified: boolean;
-    permissionFlags: bigint;
+    permissionFlags: string;
   };
   providers: {
     provider: string;
@@ -203,7 +203,7 @@ export const OAuthController = {
             isRater: hasFlag(user, permissionFlags.RATER),
             isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
             isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-            permissionFlags: user.permissionFlags,
+            permissionFlags: user.permissionFlags.toString(),
           },
           isNew,
           token,
@@ -239,7 +239,7 @@ export const OAuthController = {
           isRater: hasFlag(req.user!, permissionFlags.RATER),
           isSuperAdmin: hasFlag(req.user!, permissionFlags.SUPER_ADMIN),
           isEmailVerified: hasFlag(req.user!, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: req.user!.permissionFlags,
+          permissionFlags: req.user!.permissionFlags.toString(),
         },
         providers: providers.map((p: OAuthProvider) => ({
           provider: p.provider,

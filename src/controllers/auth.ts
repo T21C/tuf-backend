@@ -218,7 +218,7 @@ class AuthController {
           isRater: hasFlag(user, permissionFlags.RATER),
           isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
           isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: user.permissionFlags,
+          permissionFlags: user.permissionFlags.toString(),
         },
         usernameModified: finalUsername !== username,
       });
@@ -436,7 +436,7 @@ class AuthController {
           isRater: hasFlag(user, permissionFlags.RATER),
           isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
           isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
-          permissionFlags: user.permissionFlags,
+          permissionFlags: user.permissionFlags.toString(),
         },
       });
     } catch (error) {
