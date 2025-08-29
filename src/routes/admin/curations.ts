@@ -578,7 +578,6 @@ router.get('/', async (req, res) => {
       } : null
     }));
 
-    logger.info(`Found ${curations.count} curations on page ${page}`);
     return res.json({
       curations: serializedCurations,
       total: curations.count,
