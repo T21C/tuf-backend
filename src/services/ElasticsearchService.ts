@@ -416,7 +416,9 @@ class ElasticsearchService {
       } : null,
       curation: level.curation ? {
         ...level.curation.get({ plain: true }),
-      } : null
+      } : null,
+      isCurated: !!level.curation,
+
     };
     logger.debug(`Processed level ${id} videoLink: ${processedLevel.videoLink}`);
     return processedLevel as ILevel;
