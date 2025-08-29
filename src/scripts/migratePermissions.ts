@@ -154,13 +154,13 @@ program
       
              const users = await User.findAll();
        
-       // Get all players for the users
-       const playerIds = users.map(user => user.playerId).filter(id => id !== undefined);
-       const players = await Player.findAll({
-         where: {
-           id: playerIds
-         }
-       });
+             // Get all players for the users
+      const playerIds = users.map(user => user.playerId).filter((id): id is number => id !== undefined);
+      const players = await Player.findAll({
+        where: {
+          id: playerIds
+        }
+      });
 
        // Create a map of playerId to player for easy lookup
        const playerMap = new Map(players.map((player: any) => [player.id, player]));

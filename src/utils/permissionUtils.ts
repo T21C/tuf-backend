@@ -4,6 +4,7 @@ import { User } from '../models/index.js';
 import { UserAttributes } from '../models/auth/User.js';
 import { Transaction } from 'sequelize';
 import { permissionFlags } from '../config/constants.js';
+import { Literal } from 'sequelize/lib/utils';
 
 
 export type PermissionInput = bigint | number | User | UserAttributes | null | undefined;
@@ -86,7 +87,7 @@ export const removePermission = (user: PermissionInput, permission: bigint): big
 /**
  * Create a Sequelize where clause for checking if a user has a specific permission
  */
-export const wherehasFlag = (permission: bigint) => {
+export const wherehasFlag = (permission: bigint): Literal => {
   return sequelize.literal(`(permissionFlags & ${permission}) = ${permission}`);
 };
 
@@ -124,7 +125,7 @@ export const whereHasAllPermissions = (permissions: bigint[]): any => {
  * @param hasPermission - Whether to check for having (true) or not having (false) the permission
  * @returns Sequelize literal for the where clause
  */
-export const wherePermission = (permission: bigint, hasPermission: boolean = true) => {
+export const wherePermission = (permission: bigint, hasPermission: boolean = true): Literal => {
   const operator = hasPermission ? '=' : '!=';
   return sequelize.literal(`(permissionFlags & ${permission}) ${operator} ${permission}`);
 };
@@ -135,7 +136,7 @@ export const wherePermission = (permission: bigint, hasPermission: boolean = tru
  * @param hasPermission - Whether to check for having (true) or not having (false) the permissions
  * @returns Sequelize literal for the where clause
  */
-export const whereAnyPermission = (permissions: bigint[], hasPermission: boolean = true) => {
+export const whereAnyPermission = (permissions: bigint[], hasPermission: boolean = true): Literal => {
   const operator = hasPermission ? '=' : '!=';
   const conditions = permissions.map(permission => 
     `(permissionFlags & ${permission}) ${operator} ${permission}`
@@ -149,7 +150,7 @@ export const whereAnyPermission = (permissions: bigint[], hasPermission: boolean
  * @param hasPermission - Whether to check for having (true) or not having (false) the permissions
  * @returns Sequelize literal for the where clause
  */
-export const whereAllPermissions = (permissions: bigint[], hasPermission: boolean = true) => {
+export const whereAllPermissions = (permissions: bigint[], hasPermission: boolean = true): Literal => {
   const operator = hasPermission ? '=' : '!=';
   const conditions = permissions.map(permission => 
     `(permissionFlags & ${permission}) ${operator} ${permission}`
@@ -162,7 +163,7 @@ export const whereAllPermissions = (permissions: bigint[], hasPermission: boolea
  * @param permissions - Array of permission flags that should be set
  * @returns Sequelize literal for the where clause
  */
-export const whereExactPermissions = (permissions: bigint[]) => {
+export const whereExactPermissions = (permissions: bigint[]): Literal => {
   const requiredFlags = permissions.reduce((acc, permission) => acc | permission, 0n);
   return sequelize.literal(`permissionFlags = ${requiredFlags}`);
 };
@@ -173,7 +174,7 @@ export const whereExactPermissions = (permissions: bigint[]) => {
  * @param maxPermissions - Maximum permissions that can be present (optional)
  * @returns Sequelize literal for the where clause
  */
-export const wherePermissionRange = (minPermissions: bigint[], maxPermissions?: bigint[]) => {
+export const wherePermissionRange = (minPermissions: bigint[], maxPermissions?: bigint[]): Literal => {
   const minFlags = minPermissions.reduce((acc, permission) => acc | permission, 0n);
   let condition = `(permissionFlags & ${minFlags}) = ${minFlags}`;
   

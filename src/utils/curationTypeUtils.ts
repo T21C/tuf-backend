@@ -4,6 +4,7 @@ import { curationTypeAbilities } from '../config/constants.js';
 import { permissionFlags } from '../config/constants.js';
 import { Transaction } from 'sequelize';
 import CurationType from '../models/curations/CurationType.js';
+import { Literal } from 'sequelize/lib/utils';
 
 export type CurationTypeInput = bigint | number | CurationType | null | undefined;
 
@@ -127,7 +128,7 @@ export const getHoverInfo = (curation: any): string => {
 /**
  * Create a Sequelize where clause for checking if a curation type has a specific ability
  */
-export const whereHasAbility = (ability: bigint) => {
+export const whereHasAbility = (ability: bigint): Literal => {
   return sequelize.literal(`(abilities & ${ability}) = ${ability}`);
 };
 

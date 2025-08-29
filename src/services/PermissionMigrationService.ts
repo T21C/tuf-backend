@@ -176,14 +176,14 @@ export class PermissionMigrationService {
          transaction
        });
 
-       // Get all players for the users
-       const playerIds = users.map(user => user.playerId).filter(id => id !== undefined);
-       const players = await Player.findAll({
-         where: {
-           id: playerIds
-         },
-         transaction
-       });
+             // Get all players for the users
+      const playerIds = users.map(user => user.playerId).filter((id): id is number => id !== undefined);
+      const players = await Player.findAll({
+        where: {
+          id: playerIds
+        },
+        transaction
+      });
 
        // Create a map of playerId to player for easy lookup
        const playerMap = new Map(players.map(player => [player.id, player]));
@@ -296,7 +296,7 @@ export class PermissionMigrationService {
       const users = await User.findAll();
 
       // Get all players for the users
-      const playerIds = users.map(user => user.playerId).filter(id => id !== undefined);
+      const playerIds = users.map(user => user.playerId).filter((id): id is number => id !== undefined);
       const players = await Player.findAll({
         where: {
           id: playerIds
