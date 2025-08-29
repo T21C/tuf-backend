@@ -1079,7 +1079,7 @@ router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
     }
 
     await schedule.destroy();
-    return res.status(204).send();
+    return res.status(204).json({success: true, message: 'Curation schedule deleted successfully'});
   } catch (error) {
     logger.error('Error deleting curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
