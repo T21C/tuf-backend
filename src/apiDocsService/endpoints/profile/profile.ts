@@ -3,7 +3,7 @@ import { EndpointDefinition } from '../../services/DocumentationService.js';
 const profileEndpoints: EndpointDefinition[] = [
   {
     method: 'GET',
-    path: '/v2/profile/me',
+    path: '/v2/auth/profile/me',
     description: 'Get current user profile information',
     category: 'PLAYERS',
     requiresAuth: true,
@@ -14,7 +14,7 @@ const profileEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'PUT',
-    path: '/v2/profile/me',
+    path: '/v2/auth/profile/me',
     description: 'Update current user profile information',
     category: 'PLAYERS',
     requiresAuth: true,
@@ -35,7 +35,7 @@ const profileEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'PUT',
-    path: '/v2/profile/password',
+    path: '/v2/auth/profile/password',
     description: 'Update user password',
     category: 'PLAYERS',
     requiresAuth: true,
@@ -54,7 +54,7 @@ const profileEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'POST',
-    path: '/v2/profile/avatar',
+    path: '/v2/auth/profile/avatar',
     description: 'Upload user avatar image',
     category: 'MEDIA',
     requiresAuth: true,
@@ -72,7 +72,7 @@ const profileEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'DELETE',
-    path: '/v2/profile/avatar',
+    path: '/v2/auth/profile/avatar',
     description: 'Remove user avatar',
     category: 'MEDIA',
     requiresAuth: true,

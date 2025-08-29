@@ -17,12 +17,12 @@ const searchEndpoints: EndpointDefinition[] = [
         deletedFilter: 'string (optional) - Filter for deleted levels',
         clearedFilter: 'string (optional) - Filter for cleared levels',
         availableDlFilter: 'string (optional) - Filter for available download levels',
-        curatedTypesFilter: 'string (optional) - Filter for curated levels',
+        curatedTypesFilter: 'string (optional) - Filter for curated levels: "only" (curated only), "hide" (non-curated only), "show" (all levels), or comma-separated curation type names',
         onlyMyLikes: 'boolean (optional) - Only return levels liked by current user'
       }
     },
     responses: {
-      '200': 'Search results with pagination information',
+      '200': 'Search results with pagination information including level data, difficulty, curation info, and user statistics',
       '500': 'Internal server error'
     }
   },
@@ -74,7 +74,7 @@ const searchEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Level found with detailed information',
+      '200': 'Level found with detailed information including passes, ratings, curation data, and user-specific data',
       '400': 'Invalid level ID',
       '404': 'Level not found',
       '500': 'Failed to fetch level'

@@ -20,6 +20,25 @@ const loginEndpoints: EndpointDefinition[] = [
       '400': 'Validation error - Missing fields or captcha required',
       '429': 'Rate limit exceeded - Too many failed attempts'
     }
+  },
+  {
+    method: 'GET',
+    path: '/v2/auth/login/:provider',
+    description: 'Initiate OAuth login with provider',
+    category: 'AUTH',
+    requiresAuth: false,
+    parameters: {
+      path: {
+        provider: 'string (required) - OAuth provider (discord, etc.)'
+      },
+      query: {
+        redirect: 'string (optional) - Redirect URL after authentication'
+      }
+    },
+    responses: {
+      '302': 'Redirects to provider OAuth authorization page',
+      '400': 'Invalid provider or redirect URL'
+    }
   }
 ];
 

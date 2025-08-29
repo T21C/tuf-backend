@@ -71,6 +71,11 @@ export const API_CATEGORIES = {
         name: 'Utilities',
         description: 'Utility and helper endpoints',
         color: '#ae3ec9'
+    },
+    ADMIN: {
+        name: 'Admin',
+        description: 'Admin endpoints',
+        color: '#ff0000'
     }
 } as const;
 
