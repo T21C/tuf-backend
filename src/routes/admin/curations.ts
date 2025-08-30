@@ -909,11 +909,11 @@ router.get('/schedules', async (req, res) => {
 // Create curation schedule
 router.post('/schedules', Auth.headCurator(), async (req, res) => {
   try {
-    const { curationId, weekStart, listType, position } = req.body;
+    const { curationId, weekStart, listType } = req.body;
     const scheduledBy = req.user?.id || 'unknown';
 
-    if (!curationId || !weekStart || !listType || position === undefined) {
-      return res.status(400).json({error: 'Curation ID, Week Start, List Type, and Position are required'});
+    if (!curationId || !weekStart || !listType) {
+      return res.status(400).json({error: 'Curation ID, Week Start, and List Type are required'});
     }
 
     // Check if curation exists
@@ -925,11 +925,6 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
     // Validate listType
     if (!['primary', 'secondary'].includes(listType)) {
       return res.status(400).json({error: 'List type must be either "primary" or "secondary"'});
-    }
-
-    // Validate position (0-9)
-    if (position < 0 || position > 9) {
-      return res.status(400).json({error: 'Position must be between 0 and 9'});
     }
 
     // Check for existing schedule for this curation in the same week and list type
@@ -947,25 +942,28 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
       return res.status(409).json({error: 'This curation is already scheduled for this week and list type'});
     }
 
-    // Check for position conflict in the same week and list type
-    const positionConflict = await CurationSchedule.findOne({
+    // Find the highest position in the current week and list type, then add to the end
+    const maxPositionSchedule = await CurationSchedule.findOne({
       where: {
         weekStart: weekStartDate,
         listType,
-        position,
         isActive: true
-      }
+      },
+      order: [['position', 'DESC']]
     });
 
-    if (positionConflict) {
-      return res.status(409).json({error: 'Position is already occupied for this week and list type'});
+    const nextPosition = maxPositionSchedule ? maxPositionSchedule.position + 1 : 0;
+
+    // Validate that we don't exceed the maximum allowed positions (20)
+    if (nextPosition >= 20) {
+      return res.status(400).json({error: 'Maximum number of curations (20) reached for this week and list type'});
     }
 
     const schedule = await CurationSchedule.create({
       curationId,
       weekStart: weekStartDate,
       listType,
-      position,
+      position: nextPosition,
       scheduledBy,
       isActive: true,
     });
@@ -1024,39 +1022,14 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
 router.put('/schedules/:id', Auth.headCurator(), async (req, res) => {
   try {
     const { id } = req.params;
-    const { position, isActive } = req.body;
+    const { isActive } = req.body;
 
     const schedule = await CurationSchedule.findByPk(id);
     if (!schedule) {
       return res.status(404).json({error: 'Curation schedule not found'});
     }
 
-    // Validate position if provided
-    if (position !== undefined && (position < 0 || position > 9)) {
-      return res.status(400).json({error: 'Position must be between 0 and 9'});
-    }
-
-    // Check for position conflict if position is being updated
-    if (position !== undefined && position !== schedule.position) {
-      const positionConflict = await CurationSchedule.findOne({
-        where: {
-          weekStart: schedule.weekStart,
-          listType: schedule.listType,
-          position,
-          isActive: true,
-          id: {
-            [Op.ne]: id // Exclude current schedule from check
-          }
-        }
-      });
-
-      if (positionConflict) {
-        return res.status(409).json({error: 'Position is already occupied for this week and list type'});
-      }
-    }
-
     await schedule.update({
-      position: position !== undefined ? position : schedule.position,
       isActive: isActive !== undefined ? isActive : schedule.isActive,
     });
 
