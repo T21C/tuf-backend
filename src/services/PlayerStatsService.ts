@@ -592,19 +592,6 @@ export class PlayerStatsService {
     
     const transaction = await sequelize.transaction();
     try {
-      // First, set ranks to -1 for banned players
-      await sequelize.query(
-        `UPDATE player_stats ps 
-         INNER JOIN players p ON ps.id = p.id 
-         INNER JOIN users u ON p.id = u.playerId
-         SET ps.rankedScoreRank = -1,
-             ps.generalScoreRank = -1,
-             ps.ppScoreRank = -1,
-             ps.wfScoreRank = -1,
-             ps.score12KRank = -1
-         WHERE (u.permissionFlags & ${permissionFlags.BANNED}) = ${permissionFlags.BANNED}`,
-        { transaction }
-      );
 
       // Initialize rank counter
       await sequelize.query('SET @rank = 0', { transaction });
@@ -619,8 +606,6 @@ export class PlayerStatsService {
              SELECT ps2.id
              FROM player_stats ps2
              INNER JOIN players p2 ON ps2.id = p2.id
-             INNER JOIN users u2 ON p2.id = u2.playerId
-             WHERE (u2.permissionFlags & ${permissionFlags.BANNED}) != ${permissionFlags.BANNED}
              ORDER BY ps2.rankedScore DESC, ps2.id ASC
            ) ordered
          ) ranked ON ps.id = ranked.id
@@ -629,6 +614,19 @@ export class PlayerStatsService {
              ps.ppScoreRank = ranked.rank_num,
              ps.wfScoreRank = ranked.rank_num,
              ps.score12KRank = ranked.rank_num`,
+        { transaction }
+      );
+
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN users u ON p.id = u.playerId
+         SET ps.rankedScoreRank = -1,
+             ps.generalScoreRank = -1,
+             ps.ppScoreRank = -1,
+             ps.wfScoreRank = -1,
+             ps.score12KRank = -1
+         WHERE (u.permissionFlags & ${permissionFlags.BANNED}) = ${permissionFlags.BANNED}`,
         { transaction }
       );
 
@@ -935,8 +933,7 @@ export class PlayerStatsService {
           rank: plainPlayer.rankedScoreRank,
           player: {
             ...plainPlayer.player,
-            pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null,
-            isEmailVerified: hasFlag(plainPlayer.player.user, permissionFlags.EMAIL_VERIFIED),
+            pfp: plainPlayer.player.user?.avatarUrl || plainPlayer.player.pfp || null
           }
         };
       });
