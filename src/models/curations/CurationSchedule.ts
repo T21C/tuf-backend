@@ -48,7 +48,7 @@ CurationSchedule.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'scheduledCuration',
+        model: 'curations',
         key: 'id',
       },
       onDelete: 'CASCADE',
