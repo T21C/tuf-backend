@@ -606,6 +606,7 @@ export class PlayerStatsService {
              SELECT ps2.id
              FROM player_stats ps2
              INNER JOIN players p2 ON ps2.id = p2.id
+             WHERE p2.isBanned = false
              ORDER BY ps2.rankedScore DESC, ps2.id ASC
            ) ordered
          ) ranked ON ps.id = ranked.id
@@ -620,13 +621,12 @@ export class PlayerStatsService {
       await sequelize.query(
         `UPDATE player_stats ps 
          INNER JOIN players p ON ps.id = p.id 
-         INNER JOIN users u ON p.id = u.playerId
          SET ps.rankedScoreRank = -1,
              ps.generalScoreRank = -1,
              ps.ppScoreRank = -1,
              ps.wfScoreRank = -1,
              ps.score12KRank = -1
-         WHERE (u.permissionFlags & ${permissionFlags.BANNED}) = ${permissionFlags.BANNED}`,
+         WHERE p.isBanned = true`,
         { transaction }
       );
 
@@ -1198,7 +1198,7 @@ export class PlayerStatsService {
             isSuperAdmin: hasFlag(userData, permissionFlags.SUPER_ADMIN),
             isRater: hasFlag(userData, permissionFlags.RATER),
             playerId: userData.playerId,
-            permissionFlags: userData.permissionFlags,
+            permissionFlags: userData.permissionFlags.toString(),
             creator: userData.creator ? {
               id: userData.creator.id,
               name: userData.creator.name,

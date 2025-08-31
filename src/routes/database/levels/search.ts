@@ -224,12 +224,19 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
               {
                 model: Player,
                 as: 'player',
+                where: {
+                  isBanned: false
+                }
               },
               {
                 model: Judgement,
                 as: 'judgements',
               },
             ],
+            where: {
+              isDeleted: false,
+              isHidden: false
+            }
           },
           {
             model: Difficulty,

@@ -31,7 +31,8 @@ import RatingAccuracyVote from '../../models/levels/RatingAccuracyVote.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { permissionFlags } from '../../config/constants.js';
-import { setUserPermissionAndSave, wherePermission } from '../../utils/permissionUtils.js';
+import { hasFlag, setUserPermissionAndSave, wherePermission } from '../../utils/permissionUtils.js';
+import { serializePlayer, serializeUser } from '../../utils/jsonHelpers.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -727,7 +728,10 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
 
       return res.json({
         message: `Player ${isBanned ? 'banned' : 'unbanned'} successfully`,
-        player,
+        player: {
+          ...serializePlayer(player),
+          isBanned: hasFlag(player.user, permissionFlags.BANNED) || player.isBanned
+        },
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -765,7 +769,7 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
 
       return res.json({
         message: `Player submissions ${isSubmissionsPaused ? 'paused' : 'resumed'} successfully`,
-        player,
+        player: serializePlayer(player),
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
