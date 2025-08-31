@@ -1,10 +1,6 @@
 import {Op} from 'sequelize';
 import Player from '../../models/players/Player.js';
 import Pass from '../../models/passes/Pass.js';
-import Level from '../../models/levels/Level.js';
-import Judgement from '../../models/passes/Judgement.js';
-import Difficulty from '../../models/levels/Difficulty.js';
-import fetch from 'node-fetch';
 import {getIO} from '../../utils/socket.js';
 import {Auth} from '../../middleware/auth.js';
 import sequelize from '../../config/db.js';
@@ -19,7 +15,6 @@ import {fetchDiscordUserInfo} from '../../utils/discord.js';
 import { escapeForMySQL } from '../../utils/searchHelpers.js';
 import PlayerModifier from '../../models/players/PlayerModifier.js';
 import { ModifierService } from '../../services/ModifierService.js';
-import { ILevel } from '../../interfaces/models/index.js';
 import { logger } from '../../services/LoggerService.js';
 import Creator from '../../models/credits/Creator.js';
 import { PassSubmission } from '../../models/submissions/PassSubmission.js';
