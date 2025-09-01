@@ -844,16 +844,26 @@ export class PlayerStatsService {
         orderArray = [
           // Correct Sequelize order tuple for association
           [{ model: Difficulty, as: 'topDiff' }, 'sortOrder', order],
+          ['rankedScore', order],
           ['id', 'DESC']
         ];
       } else if (sortBy === 'top12kDiff') {
         orderArray = [
           [{ model: Difficulty, as: 'top12kDiff' }, 'sortOrder', order],
+          ['rankedScore', order],
           ['id', 'DESC']
         ];
-      } else {
+      }
+      else if (sortBy === 'averageXacc') {
         orderArray = [
-          [orderField, order.toUpperCase()],
+          ['averageXacc', order],
+          ['rankedScore', order],
+          ['id', 'DESC']
+        ];
+      }
+      else {
+        orderArray = [
+          [orderField, order],
           ['id', 'DESC']
         ];
       }
