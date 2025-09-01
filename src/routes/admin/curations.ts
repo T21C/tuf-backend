@@ -837,22 +837,38 @@ router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: R
 });
 
 // Get curation schedules
+// All dates are handled in UTC to avoid timezone issues
 router.get('/schedules', async (req, res) => {
   try {
     const { weekStart } = req.query;
     
     const where: any = { isActive: true };
+    
+    // Always use UTC dates for consistency
+    let targetWeekStart: Date;
+    
     if (weekStart) {
-      // Convert any date to the start of the week (Monday)
+      // If weekStart is provided, use it but ensure it's treated as UTC
       const inputDate = new Date(weekStart as string);
-      const dayOfWeek = inputDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      const dayOfWeek = inputDate.getUTCDay(); // Use UTC day of week
       const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
       
-      const startOfWeek = new Date(inputDate);
-      startOfWeek.setDate(inputDate.getDate() - daysToSubtract);
+      targetWeekStart = new Date(inputDate);
+      targetWeekStart.setUTCDate(inputDate.getUTCDate() - daysToSubtract);
+      // Set to start of day in UTC
+      targetWeekStart.setUTCHours(0, 0, 0, 0);
+    } else {
+      // If no weekStart provided, automatically calculate current week in UTC
+      const now = new Date();
+      const dayOfWeek = now.getUTCDay(); // Use UTC day of week
+      const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
       
-      where.weekStart = startOfWeek;
+      targetWeekStart = new Date(now);
+      targetWeekStart.setUTCDate(now.getUTCDate() - daysToSubtract);
+      // Set to start of day in UTC
+      targetWeekStart.setUTCHours(0, 0, 0, 0);
     }
+    where.weekStart = targetWeekStart;
 
     const schedules = await CurationSchedule.findAll({
       where,
@@ -907,6 +923,7 @@ router.get('/schedules', async (req, res) => {
 });
 
 // Create curation schedule
+// All dates are handled in UTC to avoid timezone issues
 router.post('/schedules', Auth.headCurator(), async (req, res) => {
   try {
     const { curationId, weekStart, listType } = req.body;
@@ -927,8 +944,17 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
       return res.status(400).json({error: 'List type must be either "primary" or "secondary"'});
     }
 
+    // Ensure weekStart is treated as UTC and normalized to start of week
+    const inputDate = new Date(weekStart);
+    const dayOfWeek = inputDate.getUTCDay(); // Use UTC day of week
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
+    
+    const weekStartDate = new Date(inputDate);
+    weekStartDate.setUTCDate(inputDate.getUTCDate() - daysToSubtract);
+    // Set to start of day in UTC
+    weekStartDate.setUTCHours(0, 0, 0, 0);
+    
     // Check for existing schedule for this curation in the same week and list type
-    const weekStartDate = new Date(weekStart);
     const existingSchedule = await CurationSchedule.findOne({
       where: {
         curationId,

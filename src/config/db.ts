@@ -27,6 +27,7 @@ const sequelize = new Sequelize({
   },
   dialectOptions: {
     connectTimeout: 60000,
+    timezone: '+00:00', // Force UTC timezone
   },
   retry: {
     max: 3,
