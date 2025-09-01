@@ -31,7 +31,7 @@ import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
 import cdnService from '../../services/CdnService.js';
-import { safeTransactionRollback, isTransactionUsable } from '../../utils/Utility.js';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 import {TeamAlias} from '../../models/credits/TeamAlias.js';
 
 const router: Router = Router();
@@ -297,11 +297,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           lock: true // Lock the row to prevent race conditions
         });
         
-        // Check if transaction is still usable after the lock operation
-        if (!isTransactionUsable(transaction)) {
-          throw new Error('Transaction is no longer usable - likely rolled back due to a database error during ID generation');
-        }
-        
         // Start from 1 if no levels exist, otherwise increment the last ID
         let nextId = 1;
         if (lastLevel) {
@@ -336,9 +331,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           if (submission.teamRequestData.teamId) {
             // Use existing team
             team = await Team.findByPk(submission.teamRequestData.teamId, { transaction });
-            if (!isTransactionUsable(transaction)) {
-              throw new Error('Transaction is no longer usable - likely rolled back due to a database error during team lookup');
-            }
             if (!team) {
               await safeTransactionRollback(transaction, logger);
               return res.status(404).json({ error: 'Referenced team not found' });
@@ -350,9 +342,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
               where: { name: submission.teamRequestData.teamName.trim() },
               transaction,
             });
-            if (!isTransactionUsable(transaction)) {
-              throw new Error('Transaction is no longer usable - likely rolled back due to a database error during team creation');
-            }
             teamId = team.id;
           }
         }
@@ -369,17 +358,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           transaction
         });
 
-        // Check if transaction is still usable after creator lookup
-        if (!isTransactionUsable(transaction)) {
-          throw new Error('Transaction is no longer usable - likely rolled back due to a database error during creator lookup');
-        }
-
         const allExistingCreatorsVerified = existingCreators.every((c: Creator) => c.isVerified);
-
-        // Check if transaction is still usable before creating the level
-        if (!isTransactionUsable(transaction)) {
-          throw new Error('Transaction is no longer usable - likely rolled back due to a previous error');
-        }
 
         const newLevel = await Level.create(
           {
@@ -415,11 +394,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           {transaction},
         );
 
-        // Check if transaction is still usable after level creation
-        if (!isTransactionUsable(transaction)) {
-          throw new Error('Transaction is no longer usable - likely rolled back due to a database error during level creation');
-        }
-
         const lowRatingRegex = /^[pP]\d|^[1-9]$|^1[0-9]\+?$|^([1-9]|1[0-9]\+?)(~|-)([1-9]|1[0-9]\+?)$/;
         // Create rating since toRate is true
         await Rating.create(
@@ -433,18 +407,8 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           {transaction},
         );
 
-        // Check if transaction is still usable after rating creation
-        if (!isTransactionUsable(transaction)) {
-          throw new Error('Transaction is no longer usable - likely rolled back due to a database error during rating creation');
-        }
-
         // Create level credits for each creator request
         for (const request of submission.creatorRequests || []) {
-          // Check if transaction is still usable before processing each request
-          if (!isTransactionUsable(transaction)) {
-            throw new Error('Transaction is no longer usable - likely rolled back due to a database error during credit processing');
-          }
-
           if (request.creatorId) {
             // For existing creators
             // Check if credit already exists
@@ -530,16 +494,8 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           message: 'Submission approved, level and rating created successfully',
         });
     } catch (error) {
-      // Check if the transaction was already rolled back due to a database error
-      const wasRolledBack = await safeTransactionRollback(transaction, logger);
-      
-      // Log the error with more context
-      if (error instanceof Error && error.message.includes('rollback has been called')) {
-        logger.error('Transaction was automatically rolled back due to database error:', error);
-      } else {
-        logger.error('Error processing level submission:', error);
-      }
-      
+      await safeTransactionRollback(transaction, logger);
+      logger.error('Error processing level submission:', error);
       return res
         .status(500)
         .json({error: 'Failed to process level submission'});
@@ -765,35 +721,29 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           transaction,
         });
 
-      // Update player stats before committing the main transaction
-      let playerStats = null;
-      if (submission.assignedPlayerId) {
-        try {
-          // Create a new transaction for player stats update
-          const statsTransaction = await sequelize.transaction();
+              // Update player stats before committing the main transaction
+        let playerStats = null;
+        if (submission.assignedPlayerId) {
           try {
-            await playerStatsService.updatePlayerStats(
-              [submission.assignedPlayerId],
-            );
-            
-            // Commit the stats transaction
-            await statsTransaction.commit();
+            // Create a new transaction for player stats update
+            const statsTransaction = await sequelize.transaction();
+            try {
+              await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
+              await statsTransaction.commit();
 
-            // Get player's new stats
-            playerStats = await playerStatsService.getPlayerStats(
-              submission.assignedPlayerId,
-            ).then(stats => stats?.[0]);
+              // Get player's new stats
+              playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId)
+                .then(stats => stats?.[0]);
+            } catch (error) {
+              await safeTransactionRollback(statsTransaction, logger);
+              logger.error('Error updating player stats:', error);
+              // Continue with main transaction even if stats update fails
+            }
           } catch (error) {
-            // If there's an error, rollback the stats transaction
-            await safeTransactionRollback(statsTransaction, logger);
-            logger.error('Error updating player stats:', error);
+            logger.error('Error in stats transaction:', error);
             // Continue with main transaction even if stats update fails
           }
-        } catch (error) {
-          logger.error('Error in stats transaction:', error);
-          // Continue with main transaction even if stats update fails
         }
-      }
 
       await transaction.commit();
       
