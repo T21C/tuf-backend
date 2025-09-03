@@ -1969,10 +1969,18 @@ class ElasticsearchService {
         must.push({ term: { isDeleted: false } });
         must.push({ term: { 'level.isHidden': false } });
         must.push({ term: { 'level.isDeleted': false } });
+        must.push({ term: { 'player.isBanned': false } });
       } else if (filters.deletedFilter === 'only') {
-        must.push({ term: { isDeleted: true } });
-        must.push({ term: { 'level.isHidden': true } });
-        must.push({ term: { 'level.isDeleted': true } });
+        must.push({ 
+          bool: { 
+            should: [
+              { term: { isDeleted: true } },
+              { term: { 'level.isHidden': true } },
+              { term: { 'level.isDeleted': true } },
+              { term: { 'player.isBanned': true } }
+            ]
+          }
+        });
       }
 
       // Handle key flag filter
