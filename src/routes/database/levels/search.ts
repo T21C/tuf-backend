@@ -309,6 +309,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
             ],
           },
         ],
+        order: [['confirmedAt', 'DESC']],
         transaction,
       });
       
