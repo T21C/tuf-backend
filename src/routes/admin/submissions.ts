@@ -245,7 +245,7 @@ router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Respo
 // Handle level submission actions (approve/reject)
 router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
-
+    let rollbackReason = "";
     try {
       const {id} = req.params;
         const submissionObj = await LevelSubmission.findOne({
@@ -264,6 +264,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
 
         if (!submissionObj) {
+          rollbackReason = "Submission not found";
           await safeTransactionRollback(transaction, logger);
           return res.status(404).json({error: 'Submission not found'});
         }
@@ -274,6 +275,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         );
 
         if (hasUnhandledCreators) {
+          rollbackReason = "All creators must be either assigned to existing creators or marked as new creators";
           await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'All creators must be either assigned to existing creators or marked as new creators'
@@ -282,6 +284,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Check if team request is properly handled
         if (submissionObj.teamRequestData && !submissionObj.teamRequestData.teamId && !submissionObj.teamRequestData.isNewRequest) {
+          rollbackReason = "Team must be either assigned to an existing team or marked as a new team";
           await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'Team must be either assigned to an existing team or marked as a new team'
@@ -332,6 +335,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Use existing team
             team = await Team.findByPk(submission.teamRequestData.teamId, { transaction });
             if (!team) {
+              rollbackReason = "Referenced team not found";
               await safeTransactionRollback(transaction, logger);
               return res.status(404).json({ error: 'Referenced team not found' });
             }
@@ -495,7 +499,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error processing level submission:', error);
+      logger.error('Error processing level submission:', error, "submissionId", req.params.id, "rollbackReason", rollbackReason);
       return res
         .status(500)
         .json({error: 'Failed to process level submission'});
@@ -506,13 +510,14 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
 router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
-
+    let rollbackReason = "";
     try {
       const {id} = req.params;
 
       // Get the submission to check if it has a level zip
       const submission = await LevelSubmission.findByPk(id);
       if (!submission) {
+        rollbackReason = "Submission not found";
         await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
@@ -551,7 +556,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error processing level submission:', error);
+      logger.error('Error processing level submission:', error, "submissionId", req.params.id, "rollbackReason", rollbackReason);
       return res
         .status(500)
         .json({error: 'Failed to process level submission'});
@@ -724,25 +729,10 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
               // Update player stats before committing the main transaction
         let playerStats = null;
         if (submission.assignedPlayerId) {
-          try {
-            // Create a new transaction for player stats update
-            const statsTransaction = await sequelize.transaction();
-            try {
-              await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
-              await statsTransaction.commit();
+          await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
 
-              // Get player's new stats
-              playerStats = await playerStatsService.getPlayerStats(submission.assignedPlayerId)
-                .then(stats => stats?.[0]);
-            } catch (error) {
-              await safeTransactionRollback(statsTransaction, logger);
-              logger.error('Error updating player stats:', error);
-              // Continue with main transaction even if stats update fails
-            }
-          } catch (error) {
-            logger.error('Error in stats transaction:', error);
-            // Continue with main transaction even if stats update fails
-          }
+          // Get player's new stats
+          playerStats = (await playerStatsService.getPlayerStats(submission.assignedPlayerId))[0];
         }
 
       await transaction.commit();
@@ -780,7 +770,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error processing pass submission:', error);
+      logger.error('Error processing pass submission:', error, "submissionId", req.params.id);
       return res.status(500).json({error: 'Failed to process pass submission'});
     }
   }
@@ -813,7 +803,7 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error declining pass submission:', error);
+      logger.error('Error declining pass submission:', error, "submissionId", req.params.id);
       return res.status(500).json({error: 'Failed to decline pass submission'});
     }
   }
