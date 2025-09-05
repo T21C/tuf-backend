@@ -19,6 +19,119 @@ import path from 'path';
  */
 
 /**
+ * Clean up old CDN folders referenced in metadata after successful migration
+ * Only removes folders that are no longer needed after migration
+ */
+async function cleanupOldCdnFolders(metadata: any, fileId: string): Promise<void> {
+    try {
+        const foldersToCleanup: string[] = [];
+        
+        // Extract old folder paths from metadata
+        if (metadata.originalZip?.path) {
+            const oldZipDir = path.dirname(metadata.originalZip.path);
+            foldersToCleanup.push(oldZipDir);
+        }
+        
+        // Extract old level file paths
+        if (metadata.levelFiles) {
+            Object.values(metadata.levelFiles).forEach((levelFile: any) => {
+                if (levelFile.path) {
+                    const oldLevelDir = path.dirname(levelFile.path);
+                    if (!foldersToCleanup.includes(oldLevelDir)) {
+                        foldersToCleanup.push(oldLevelDir);
+                    }
+                }
+            });
+        }
+        
+        // Extract old song file paths
+        if (metadata.songFiles) {
+            Object.values(metadata.songFiles).forEach((songFile: any) => {
+                if (songFile.path) {
+                    const oldSongDir = path.dirname(songFile.path);
+                    if (!foldersToCleanup.includes(oldSongDir)) {
+                        foldersToCleanup.push(oldSongDir);
+                    }
+                }
+            });
+        }
+        
+        // Clean up each old folder
+        for (const folderPath of foldersToCleanup) {
+            try {
+                if (fs.existsSync(folderPath)) {
+                    // Check if folder is empty or only contains old files
+                    const files = await fs.promises.readdir(folderPath);
+                    if (files.length === 0) {
+                        await fs.promises.rmdir(folderPath);
+                        logger.info('Cleaned up empty old CDN folder:', {
+                            fileId,
+                            folderPath
+                        });
+                    } else {
+                        // Check if all files in the folder are old (not referenced in new metadata)
+                        const newCdnFile = await CdnFile.findByPk(fileId);
+                        if (newCdnFile) {
+                            const newMetadata = newCdnFile.metadata as any;
+                            const newPaths = new Set<string>();
+                            
+                            // Collect all new file paths
+                            if (newMetadata.originalZip?.path) {
+                                newPaths.add(newMetadata.originalZip.path);
+                            }
+                            if (newMetadata.levelFiles) {
+                                Object.values(newMetadata.levelFiles).forEach((file: any) => {
+                                    if (file.path) newPaths.add(file.path);
+                                });
+                            }
+                            if (newMetadata.songFiles) {
+                                Object.values(newMetadata.songFiles).forEach((file: any) => {
+                                    if (file.path) newPaths.add(file.path);
+                                });
+                            }
+                            
+                            // Check if all files in the old folder are not in new paths
+                            const allFilesOld = files.every(file => {
+                                const fullPath = path.join(folderPath, file);
+                                return !newPaths.has(fullPath);
+                            });
+                            
+                            if (allFilesOld) {
+                                await fs.promises.rm(folderPath, { recursive: true, force: true });
+                                logger.info('Cleaned up old CDN folder with obsolete files:', {
+                                    fileId,
+                                    folderPath,
+                                    filesRemoved: files.length
+                                });
+                            } else {
+                                logger.info('Skipped cleanup of old CDN folder (contains files still in use):', {
+                                    fileId,
+                                    folderPath,
+                                    filesInFolder: files.length
+                                });
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                logger.warn('Failed to clean up old CDN folder:', {
+                    fileId,
+                    folderPath,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+        }
+        
+    } catch (error) {
+        logger.error('Error during old CDN folder cleanup:', {
+            fileId,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        // Don't throw - cleanup failure shouldn't fail the migration
+    }
+}
+
+/**
  * Migrate to hybrid storage strategy: zip files in Spaces, transformation files locally
  * This function re-processes existing files to optimize for transformation performance
  */
@@ -192,6 +305,9 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     file.id, // Use existing fileId to maintain consistency
                     originalFilename
                 );
+                
+                // Clean up old CDN folders from metadata paths after successful migration
+                await cleanupOldCdnFolders(metadata, file.id);
                 
                 // Start a new transaction for the next iteration
                 transaction = await sequelize.transaction();
