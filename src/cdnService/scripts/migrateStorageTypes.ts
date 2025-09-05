@@ -92,10 +92,18 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     logger.warn('Original zip file not found, skipping:', {
                         fileId: file.id,
                         filePath: originalZip.path,
-                        expectedStorageType: originalZip.storageType
+                        expectedStorageType: originalZip.storageType,
+                        foundStorageType: fileCheck.storageType
                     });
                     continue;
                 }
+                
+                logger.info('File location confirmed:', {
+                    fileId: file.id,
+                    originalPath: originalZip.path,
+                    storageType: fileCheck.storageType,
+                    exists: fileCheck.exists
+                });
                 
                 // Create temporary directory on primary drive
                 const tempDir = path.join(primaryDrive, 'temp', 'hybrid-migration', file.id);
@@ -116,7 +124,16 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     });
                 } else {
                     // File is already local, copy to temp
-                    const originalPath = path.join(await storageManager.getDrive(), originalZip.path);
+                    // Check if originalZip.path is already absolute or relative
+                    const originalPath = path.isAbsolute(originalZip.path) 
+                        ? originalZip.path 
+                        : path.join(await storageManager.getDrive(), originalZip.path);
+                    
+                    // Check if the file actually exists before trying to copy
+                    if (!fs.existsSync(originalPath)) {
+                        throw new Error(`Local file not found: ${originalPath}`);
+                    }
+                    
                     tempPath = path.join(tempDir, path.basename(originalZip.path));
                     await fs.promises.copyFile(originalPath, tempPath);
                     zipSourcePath = tempPath;
@@ -124,7 +141,9 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     logger.info('Copied local zip to temporary location:', {
                         fileId: file.id,
                         originalPath,
-                        tempPath
+                        tempPath,
+                        isAbsolute: path.isAbsolute(originalZip.path),
+                        fileExists: fs.existsSync(originalPath)
                     });
                 }
                 
