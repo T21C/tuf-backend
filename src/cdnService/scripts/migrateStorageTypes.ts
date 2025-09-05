@@ -176,6 +176,13 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     fileId: file.id
                 });
                 
+                // Commit the transaction before calling processZipFile
+                // to avoid nested transaction issues
+                if (transaction) {
+                    await transaction.commit();
+                    transaction = undefined; // Clear the transaction reference
+                }
+                
                 // Re-process through standard procedure with hybrid strategy
                 // The zipProcessor will use the current hybrid storage configuration
                 // Use the original filename from the zip file itself, not from metadata
@@ -185,6 +192,9 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     file.id, // Use existing fileId to maintain consistency
                     originalFilename
                 );
+                
+                // Start a new transaction for the next iteration
+                transaction = await sequelize.transaction();
                 
                 // Clean up temporary file
                 if (tempPath && fs.existsSync(tempPath)) {
@@ -253,8 +263,10 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
             }
         }
         
-        // Commit transaction
-        await transaction.commit();
+        // Commit transaction if it exists
+        if (transaction) {
+            await transaction.commit();
+        }
         
         // Log detailed results
         const successRate = filesToMigrate.length > 0 ? ((migratedCount / filesToMigrate.length) * 100).toFixed(2) : '0';
