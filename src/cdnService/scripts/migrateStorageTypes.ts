@@ -73,14 +73,29 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
         
         for (const file of filesToMigrate) {
             let tempPath: string | undefined;
+            let originalZip: any;
             
             try {
+                logger.info('Starting migration for file:', {
+                    fileId: file.id,
+                    type: file.type,
+                    currentFilePath: file.filePath
+                });
+                
                 const metadata = file.metadata as any || {};
-                const originalZip = metadata.originalZip;
+                originalZip = metadata.originalZip;
                 
                 if (!originalZip?.path) {
                     throw new Error('No original zip path found in metadata');
                 }
+                
+                logger.info('Found original zip metadata:', {
+                    fileId: file.id,
+                    originalZipPath: originalZip.path,
+                    originalZipName: originalZip.name,
+                    originalZipSize: originalZip.size,
+                    originalZipStorageType: originalZip.storageType
+                });
                 
                 // Check if file exists and get its current location
                 const fileCheck = await hybridStorageManager.fileExistsWithFallback(
@@ -154,6 +169,13 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     fileId: file.id
                 });
                 
+                // Delete the database record so we can recreate it
+                await file.destroy({ transaction });
+                
+                logger.info('Deleted database record:', {
+                    fileId: file.id
+                });
+                
                 // Re-process through standard procedure with hybrid strategy
                 // The zipProcessor will use the current hybrid storage configuration
                 // Use the original filename from the zip file itself, not from metadata
@@ -189,6 +211,17 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                 errorCount++;
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 
+                // Enhanced error logging for validation errors
+                if (error instanceof Error && error.message === 'Validation error') {
+                    logger.error('Database validation error details:', {
+                        fileId: file.id,
+                        error: errorMessage,
+                        stack: error.stack,
+                        originalZipPath: originalZip?.path,
+                        originalZipName: originalZip?.name
+                    });
+                }
+                
                 // Clean up temporary file if it exists
                 if (tempPath && fs.existsSync(tempPath)) {
                     try {
@@ -214,7 +247,8 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                 
                 logger.error('Error migrating to hybrid strategy:', {
                     fileId: file.id,
-                    error: errorMessage
+                    error: errorMessage,
+                    stack: error instanceof Error ? error.stack : undefined
                 });
             }
         }
