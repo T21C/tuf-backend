@@ -4,14 +4,455 @@ import { Command } from 'commander';
 import { logger } from '../../services/LoggerService.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
+import { storageManager } from '../services/storageManager.js';
+import { spacesStorage } from '../services/spacesStorage.js';
+import { processZipFile } from '../services/zipProcessor.js';
 import sequelize from '../../config/db.js';
 import { Transaction, Op } from 'sequelize';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Migration script to add storage type information to existing CDN file entries
  * This ensures that all files have proper storage type metadata for fallback logic
  */
+
+/**
+ * Migrate to hybrid storage strategy: zip files in Spaces, transformation files locally
+ * This function re-processes existing files to optimize for transformation performance
+ */
+export async function migrateToHybridStrategy(batchSize?: number): Promise<void> {
+    let transaction: Transaction | undefined;
+    
+    try {
+        logger.info('Starting migration to hybrid storage strategy (zips in Spaces, transformation files local)', {
+            batchSize: batchSize || 'all'
+        });
+        
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        // Get all zip files that need hybrid migration
+        const whereClause: any = {
+            type: 'LEVELZIP'
+        };
+        
+        const queryOptions: any = {
+            where: whereClause,
+            transaction
+        };
+        
+        if (batchSize && batchSize > 0) {
+            queryOptions.limit = batchSize;
+            queryOptions.order = [['createdAt', 'ASC']]; // Process oldest files first
+        }
+        
+        const filesToMigrate = await CdnFile.findAll(queryOptions);
+        
+        logger.info(`Found ${filesToMigrate.length} zip files to migrate to hybrid strategy`);
+        
+        let migratedCount = 0;
+        let errorCount = 0;
+        const migrationResults: Array<{
+            fileId: string;
+            success: boolean;
+            error?: string;
+            tempPath?: string;
+        }> = [];
+        
+        // Get the first available drive for temporary storage
+        const drives = storageManager.getDrivesStatus();
+        const primaryDrive = drives[0]?.drivePath;
+        
+        if (!primaryDrive) {
+            throw new Error('No available drives for temporary storage');
+        }
+        
+        logger.info(`Using primary drive for temporary storage: ${primaryDrive}`);
+        
+        for (const file of filesToMigrate) {
+            let tempPath: string | undefined;
+            
+            try {
+                const metadata = file.metadata as any || {};
+                const originalZip = metadata.originalZip;
+                
+                if (!originalZip?.path) {
+                    throw new Error('No original zip path found in metadata');
+                }
+                
+                // Check if file exists and get its current location
+                const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                    originalZip.path,
+                    originalZip.storageType
+                );
+                
+                if (!fileCheck.exists) {
+                    logger.warn('Original zip file not found, skipping:', {
+                        fileId: file.id,
+                        filePath: originalZip.path,
+                        expectedStorageType: originalZip.storageType
+                    });
+                    continue;
+                }
+                
+                // Create temporary directory on primary drive
+                const tempDir = path.join(primaryDrive, 'temp', 'hybrid-migration', file.id);
+                await fs.promises.mkdir(tempDir, { recursive: true });
+                
+                // Download zip file to temporary location if it's in Spaces
+                let zipSourcePath: string;
+                if (fileCheck.storageType === StorageType.SPACES) {
+                    // Download from Spaces to temp
+                    tempPath = path.join(tempDir, path.basename(originalZip.path));
+                    await spacesStorage.downloadFile(originalZip.path, tempPath);
+                    zipSourcePath = tempPath;
+                    
+                    logger.info('Downloaded zip from Spaces to temporary location:', {
+                        fileId: file.id,
+                        spacesPath: originalZip.path,
+                        tempPath
+                    });
+                } else {
+                    // File is already local, copy to temp
+                    const originalPath = path.join(await storageManager.getDrive(), originalZip.path);
+                    tempPath = path.join(tempDir, path.basename(originalZip.path));
+                    await fs.promises.copyFile(originalPath, tempPath);
+                    zipSourcePath = tempPath;
+                    
+                    logger.info('Copied local zip to temporary location:', {
+                        fileId: file.id,
+                        originalPath,
+                        tempPath
+                    });
+                }
+                
+                // Delete original files using standard deletion function
+                await hybridStorageManager.deleteLevelZipFiles(file.id, metadata);
+                
+                logger.info('Deleted original files:', {
+                    fileId: file.id
+                });
+                
+                // Re-process through standard procedure with hybrid strategy
+                // The zipProcessor will use the current hybrid storage configuration
+                await processZipFile(
+                    zipSourcePath,
+                    file.id, // Use existing fileId to maintain consistency
+                    originalZip.name || path.basename(originalZip.path)
+                );
+                
+                // Clean up temporary file
+                if (tempPath && fs.existsSync(tempPath)) {
+                    await fs.promises.unlink(tempPath);
+                    await fs.promises.rmdir(path.dirname(tempPath));
+                }
+                
+                migratedCount++;
+                migrationResults.push({
+                    fileId: file.id,
+                    success: true
+                });
+                
+                logger.info('Successfully migrated to hybrid strategy:', {
+                    fileId: file.id,
+                    originalPath: originalZip.path
+                });
+                
+                if (migratedCount % 5 === 0) {
+                    logger.info(`Hybrid migration progress: ${migratedCount}/${filesToMigrate.length} files processed`);
+                }
+                
+            } catch (error) {
+                errorCount++;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                
+                // Clean up temporary file if it exists
+                if (tempPath && fs.existsSync(tempPath)) {
+                    try {
+                        await fs.promises.unlink(tempPath);
+                        const tempDir = path.dirname(tempPath);
+                        if (fs.existsSync(tempDir)) {
+                            await fs.promises.rmdir(tempDir);
+                        }
+                    } catch (cleanupError) {
+                        logger.warn('Failed to clean up temporary file:', {
+                            tempPath,
+                            error: cleanupError
+                        });
+                    }
+                }
+                
+                migrationResults.push({
+                    fileId: file.id,
+                    success: false,
+                    error: errorMessage,
+                    tempPath
+                });
+                
+                logger.error('Error migrating to hybrid strategy:', {
+                    fileId: file.id,
+                    error: errorMessage
+                });
+            }
+        }
+        
+        // Commit transaction
+        await transaction.commit();
+        
+        // Log detailed results
+        const successRate = filesToMigrate.length > 0 ? ((migratedCount / filesToMigrate.length) * 100).toFixed(2) : '0';
+        
+        logger.info('Hybrid strategy migration completed:', {
+            totalFiles: filesToMigrate.length,
+            migratedCount,
+            errorCount,
+            successRate: `${successRate}%`,
+            primaryDrive,
+            batchSize: batchSize || 'unlimited'
+        });
+        
+        // Log failed migrations for debugging
+        const failedMigrations = migrationResults.filter(r => !r.success);
+        if (failedMigrations.length > 0) {
+            logger.warn('Failed hybrid migrations summary:', {
+                failedCount: failedMigrations.length,
+                failedFileIds: failedMigrations.map(f => f.fileId),
+                sampleErrors: failedMigrations.slice(0, 5).map(f => ({
+                    fileId: f.fileId,
+                    error: f.error
+                }))
+            });
+        }
+        
+    } catch (error) {
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
+        logger.error('Hybrid strategy migration failed:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+    }
+}
+
+/**
+ * Migrate local zip files to DigitalOcean Spaces
+ * This function copies local files to temp, deletes originals, then re-uploads to Spaces
+ */
+export async function migrateLocalZipsToSpaces(batchSize?: number): Promise<void> {
+    let transaction: Transaction | undefined;
+    
+    try {
+        logger.info('Starting migration of local zip files to DigitalOcean Spaces', {
+            batchSize: batchSize || 'all'
+        });
+        
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        // Get local zip files that need migration
+        const whereClause: any = {
+            type: 'LEVELZIP',
+            [Op.or]: [
+                { metadata: null },
+                { metadata: { storageType: StorageType.LOCAL } },
+                { metadata: { storageType: null } }
+            ]
+        };
+        
+        const queryOptions: any = {
+            where: whereClause,
+            transaction
+        };
+        
+        if (batchSize && batchSize > 0) {
+            queryOptions.limit = batchSize;
+            queryOptions.order = [['createdAt', 'ASC']]; // Process oldest files first
+        }
+        
+        const filesToMigrate = await CdnFile.findAll(queryOptions);
+        
+        logger.info(`Found ${filesToMigrate.length} local zip files to migrate to Spaces`);
+        
+        let migratedCount = 0;
+        let errorCount = 0;
+        const migrationResults: Array<{
+            fileId: string;
+            success: boolean;
+            error?: string;
+            tempPath?: string;
+        }> = [];
+        
+        // Get the first available drive for temporary storage
+        const drives = storageManager.getDrivesStatus();
+        const primaryDrive = drives[0]?.drivePath; // Use first available drive
+        
+        if (!primaryDrive) {
+            throw new Error('No available drives for temporary storage');
+        }
+        
+        logger.info(`Using primary drive for temporary storage: ${primaryDrive}`);
+        
+        for (const file of filesToMigrate) {
+            let tempPath: string | undefined;
+            
+            try {
+                const metadata = file.metadata as any || {};
+                const originalZip = metadata.originalZip;
+                
+                if (!originalZip?.path) {
+                    throw new Error('No original zip path found in metadata');
+                }
+                
+                // Check if file exists locally
+                const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                    originalZip.path,
+                    StorageType.LOCAL
+                );
+                
+                if (!fileCheck.exists) {
+                    logger.warn('Local zip file not found, skipping:', {
+                        fileId: file.id,
+                        filePath: originalZip.path
+                    });
+                    continue;
+                }
+                
+                // Create temporary directory on primary drive
+                const tempDir = path.join(primaryDrive, 'temp', 'migration', file.id);
+                await fs.promises.mkdir(tempDir, { recursive: true });
+                
+                // Copy file to temporary location
+                const originalPath = path.join(await storageManager.getDrive(), originalZip.path);
+                tempPath = path.join(tempDir, path.basename(originalZip.path));
+                
+                await fs.promises.copyFile(originalPath, tempPath);
+                
+                logger.info('Copied file to temporary location:', {
+                    fileId: file.id,
+                    originalPath,
+                    tempPath
+                });
+                
+                // Delete original file using standard deletion function
+                await hybridStorageManager.deleteLevelZipFiles(file.id, metadata);
+                
+                logger.info('Deleted original local files:', {
+                    fileId: file.id
+                });
+                
+                // Re-upload through standard procedure (as if it just arrived)
+                await processZipFile(
+                    tempPath,
+                    file.id, // Use existing fileId
+                    path.basename(originalZip.path)
+                );
+                
+                // Clean up temporary file
+                await fs.promises.unlink(tempPath);
+                await fs.promises.rmdir(path.dirname(tempPath));
+                
+                migratedCount++;
+                migrationResults.push({
+                    fileId: file.id,
+                    success: true
+                });
+                
+                logger.info('Successfully migrated zip to Spaces:', {
+                    fileId: file.id,
+                    originalPath: originalZip.path
+                });
+                
+                if (migratedCount % 5 === 0) {
+                    logger.info(`Migration progress: ${migratedCount}/${filesToMigrate.length} files processed`);
+                }
+                
+            } catch (error) {
+                errorCount++;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                
+                // Clean up temporary file if it exists
+                if (tempPath && fs.existsSync(tempPath)) {
+                    try {
+                        await fs.promises.unlink(tempPath);
+                        const tempDir = path.dirname(tempPath);
+                        if (fs.existsSync(tempDir)) {
+                            await fs.promises.rmdir(tempDir);
+                        }
+                    } catch (cleanupError) {
+                        logger.warn('Failed to clean up temporary file:', {
+                            tempPath,
+                            error: cleanupError
+                        });
+                    }
+                }
+                
+                migrationResults.push({
+                    fileId: file.id,
+                    success: false,
+                    error: errorMessage,
+                    tempPath
+                });
+                
+                logger.error('Error migrating zip file:', {
+                    fileId: file.id,
+                    error: errorMessage
+                });
+            }
+        }
+        
+        // Commit transaction
+        await transaction.commit();
+        
+        // Log detailed results
+        const successRate = filesToMigrate.length > 0 ? ((migratedCount / filesToMigrate.length) * 100).toFixed(2) : '0';
+        
+        logger.info('Local zip migration to Spaces completed:', {
+            totalFiles: filesToMigrate.length,
+            migratedCount,
+            errorCount,
+            successRate: `${successRate}%`,
+            primaryDrive,
+            batchSize: batchSize || 'unlimited'
+        });
+        
+        // Log failed migrations for debugging
+        const failedMigrations = migrationResults.filter(r => !r.success);
+        if (failedMigrations.length > 0) {
+            logger.warn('Failed migrations summary:', {
+                failedCount: failedMigrations.length,
+                failedFileIds: failedMigrations.map(f => f.fileId),
+                sampleErrors: failedMigrations.slice(0, 5).map(f => ({
+                    fileId: f.fileId,
+                    error: f.error
+                }))
+            });
+        }
+        
+    } catch (error) {
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
+        logger.error('Local zip migration to Spaces failed:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+    }
+}
 export async function migrateStorageTypes(batchSize?: number, fileType?: string): Promise<void> {
     let transaction: Transaction | undefined;
     
@@ -261,6 +702,115 @@ export async function verifyMigration(): Promise<void> {
             error: error instanceof Error ? error.message : String(error)
         });
         throw error;
+    }
+}
+
+/**
+ * Get drive usage statistics to monitor migration progress
+ */
+export async function getDriveUsageStats(): Promise<{
+    drives: Array<{
+        drive: string;
+        totalSpace: string;
+        usedSpace: string;
+        availableSpace: string;
+        usagePercentage: string;
+        fileCount: number;
+    }>;
+    totalFiles: number;
+    filesInSpaces: number;
+    filesLocal: number;
+}> {
+    try {
+        logger.info('Getting drive usage statistics');
+        
+        const drives = storageManager.getDrivesStatus();
+        const driveStats = [];
+        
+        for (const drive of drives) {
+            try {
+                const fileCount = await getFileCountOnDrive(drive.drivePath);
+                
+                driveStats.push({
+                    drive: drive.drivePath,
+                    totalSpace: `${Math.round(drive.totalSpace / (1024**3))} GB`,
+                    usedSpace: `${Math.round(drive.usedSpace / (1024**3))} GB`,
+                    availableSpace: `${Math.round(drive.availableSpace / (1024**3))} GB`,
+                    usagePercentage: `${drive.usagePercentage}%`,
+                    fileCount
+                });
+            } catch (error) {
+                logger.warn(`Failed to get stats for drive ${drive.drivePath}:`, error);
+                driveStats.push({
+                    drive: drive.drivePath,
+                    totalSpace: 'Unknown',
+                    usedSpace: 'Unknown',
+                    availableSpace: 'Unknown',
+                    usagePercentage: 'Unknown',
+                    fileCount: 0
+                });
+            }
+        }
+        
+        // Get file distribution stats
+        const totalFiles = await CdnFile.count({ where: { type: 'LEVELZIP' } });
+        const filesInSpaces = await CdnFile.count({
+            where: {
+                type: 'LEVELZIP',
+                metadata: { storageType: StorageType.SPACES }
+            }
+        });
+        const filesLocal = totalFiles - filesInSpaces;
+        
+        const result = {
+            drives: driveStats,
+            totalFiles,
+            filesInSpaces,
+            filesLocal
+        };
+        
+        logger.info('Drive usage statistics:', result);
+        return result;
+        
+    } catch (error) {
+        logger.error('Failed to get drive usage statistics:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+    }
+}
+
+/**
+ * Helper function to count files on a specific drive
+ */
+async function getFileCountOnDrive(drive: string): Promise<number> {
+    try {
+        const cdnRoot = path.join(drive, 'tuf-cdn');
+        if (!fs.existsSync(cdnRoot)) {
+            return 0;
+        }
+        
+        let fileCount = 0;
+        const levelsDir = path.join(cdnRoot, 'levels');
+        const zipsDir = path.join(cdnRoot, 'zips');
+        
+        for (const dir of [levelsDir, zipsDir]) {
+            if (fs.existsSync(dir)) {
+                const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (entry.isDirectory()) {
+                        const subDir = path.join(dir, entry.name);
+                        const subEntries = await fs.promises.readdir(subDir, { withFileTypes: true });
+                        fileCount += subEntries.filter(e => e.isFile()).length;
+                    }
+                }
+            }
+        }
+        
+        return fileCount;
+    } catch (error) {
+        logger.warn(`Failed to count files on drive ${drive}:`, error);
+        return 0;
     }
 }
 
@@ -618,6 +1168,86 @@ program
     } catch (error) {
       logger.error('Verification failed:', error);
       console.error('Verification failed:', error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('migrate-to-spaces')
+  .description('Migrate local zip files to DigitalOcean Spaces')
+  .option('-b, --batch-size <number>', 'Number of files to process in each batch', '10')
+  .action(async (options) => {
+    try {
+      logger.info('Starting migration of local zips to Spaces...');
+      
+      const batchSize = parseInt(options.batchSize);
+      
+      await migrateLocalZipsToSpaces(batchSize);
+      
+      console.log('\n=== Migration to Spaces Results ===');
+      console.log('Local zip migration to Spaces completed successfully!');
+      
+      process.exit(0);
+    } catch (error) {
+      logger.error('Migration to Spaces failed:', error);
+      console.error('Migration to Spaces failed:', error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('drive-stats')
+  .description('Show drive usage statistics')
+  .action(async () => {
+    try {
+      logger.info('Gathering drive usage statistics...');
+      
+      const stats = await getDriveUsageStats();
+      
+      console.log('\n=== Drive Usage Statistics ===');
+      console.log(`Total zip files: ${stats.totalFiles}`);
+      console.log(`Files in Spaces: ${stats.filesInSpaces}`);
+      console.log(`Files local: ${stats.filesLocal}`);
+      console.log(`Migration progress: ${((stats.filesInSpaces / stats.totalFiles) * 100).toFixed(1)}%`);
+      
+      console.log('\n=== Drive Information ===');
+      stats.drives.forEach(drive => {
+        console.log(`\nDrive ${drive.drive}:`);
+        console.log(`  Total Space: ${drive.totalSpace}`);
+        console.log(`  Used Space: ${drive.usedSpace}`);
+        console.log(`  Available Space: ${drive.availableSpace}`);
+        console.log(`  Usage: ${drive.usagePercentage}`);
+        console.log(`  CDN Files: ${drive.fileCount}`);
+      });
+      
+      process.exit(0);
+    } catch (error) {
+      logger.error('Drive statistics gathering failed:', error);
+      console.error('Drive statistics gathering failed:', error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('migrate-hybrid')
+  .description('Migrate to hybrid storage strategy: zip files in Spaces, transformation files locally')
+  .option('-b, --batch-size <number>', 'Number of files to process in each batch', '10')
+  .action(async (options) => {
+    try {
+      logger.info('Starting migration to hybrid storage strategy...');
+      
+      const batchSize = parseInt(options.batchSize);
+      
+      await migrateToHybridStrategy(batchSize);
+      
+      console.log('\n=== Hybrid Strategy Migration Results ===');
+      console.log('Hybrid storage strategy migration completed successfully!');
+      console.log('Zip files are now in Spaces, transformation files (.adofai, songs) are local.');
+      
+      process.exit(0);
+    } catch (error) {
+      logger.error('Hybrid strategy migration failed:', error);
+      console.error('Hybrid strategy migration failed:', error);
       process.exit(1);
     }
   });
