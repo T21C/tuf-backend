@@ -156,10 +156,12 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                 
                 // Re-process through standard procedure with hybrid strategy
                 // The zipProcessor will use the current hybrid storage configuration
+                // Use the original filename from the zip file itself, not from metadata
+                const originalFilename = path.basename(zipSourcePath);
                 await processZipFile(
                     zipSourcePath,
                     file.id, // Use existing fileId to maintain consistency
-                    originalZip.name || path.basename(originalZip.path)
+                    originalFilename
                 );
                 
                 // Clean up temporary file
