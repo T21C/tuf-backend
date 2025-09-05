@@ -949,6 +949,17 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
     }
 
     try {
+      // Store the old file ID for cleanup if it exists
+      let oldFileId: string | null = null;
+      if (level.dlLink && isCdnUrl(level.dlLink)) {
+        oldFileId = getFileIdFromCdnUrl(level.dlLink);
+        logger.info('Found existing CDN file to clean up after upload', {
+          levelId,
+          oldFileId,
+          oldDlLink: level.dlLink
+        });
+      }
+
       // Read the assembled file
       const assembledFilePath = path.join('uploads', 'assembled', req.user!.id, `${fileId}.zip`);
       const fileBuffer = await fs.promises.readFile(assembledFilePath);
@@ -970,6 +981,30 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
 
       // Commit the transaction
       await transaction.commit();
+
+      // Clean up old CDN file after successful upload and database update
+      if (oldFileId) {
+        try {
+          logger.info('Cleaning up old CDN file after successful upload', {
+            levelId,
+            oldFileId,
+            newFileId: uploadResult.fileId
+          });
+          await cdnService.deleteFile(oldFileId);
+          logger.info('Successfully cleaned up old CDN file', {
+            levelId,
+            oldFileId
+          });
+        } catch (cleanupError) {
+          // Log cleanup error but don't fail the request since the upload was successful
+          logger.error('Failed to clean up old CDN file after successful upload:', {
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            levelId,
+            oldFileId,
+            newFileId: uploadResult.fileId
+          });
+        }
+      }
 
       // Clean up all user uploads after successful processing
       try {

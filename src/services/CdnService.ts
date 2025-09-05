@@ -296,16 +296,94 @@ class CdnService {
         }
     }
 
-    async deleteFile(fileId: string): Promise<void> {
-        try {
-            if (await this.checkFileExists(fileId)) {
-                await this.client.delete(`/${fileId}`);
+    async deleteFile(fileId: string, retries: number = 2): Promise<void> {
+        let lastError: any;
+        
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                if (await this.checkFileExists(fileId)) {
+                    const response = await this.client.delete(`/${fileId}`);
+                    logger.info('Successfully deleted CDN file', {
+                        fileId,
+                        status: response.status,
+                        attempt: attempt + 1
+                    });
+                    return; // Success, exit retry loop
+                } else {
+                    logger.warn('CDN file does not exist, skipping deletion', { 
+                        fileId,
+                        attempt: attempt + 1
+                    });
+                    return; // File doesn't exist, no need to retry
+                }
+            } catch (error) {
+                lastError = error;
+                
+                // Don't retry for certain errors
+                if (error instanceof Error && 'response' in error) {
+                    const axiosError = error as AxiosError;
+                    const status = axiosError.response?.status;
+                    
+                    // Don't retry for 404 (file not found) or 4xx client errors
+                    if (status && status >= 400 && status < 500) {
+                        break; // Exit retry loop
+                    }
+                }
+                
+                if (attempt < retries) {
+                    const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+                    logger.warn('CDN file deletion failed, retrying', {
+                        fileId,
+                        attempt: attempt + 1,
+                        maxRetries: retries + 1,
+                        delayMs: delay,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
             }
-        } catch (error) {
-            throw new CdnError('Failed to delete file', 'DELETE_FILE_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
-            });
         }
+        
+        // All retries failed, provide detailed error information
+        let errorMessage = 'Failed to delete file';
+        let errorCode = 'DELETE_FILE_ERROR';
+        
+        if (lastError instanceof Error && 'response' in lastError) {
+            const axiosError = lastError as AxiosError;
+            const status = axiosError.response?.status;
+            const statusText = axiosError.response?.statusText;
+            
+            if (status === 404) {
+                errorMessage = 'File not found in CDN service';
+                errorCode = 'FILE_NOT_FOUND';
+            } else if (status === 500) {
+                errorMessage = 'CDN service internal error during deletion';
+                errorCode = 'CDN_SERVICE_ERROR';
+            } else if (status) {
+                errorMessage = `CDN service returned ${status} ${statusText}`;
+                errorCode = `HTTP_${status}`;
+            } else if (axiosError.code === 'ECONNREFUSED') {
+                errorMessage = 'CDN service is not running or not accessible';
+                errorCode = 'CDN_SERVICE_UNAVAILABLE';
+            } else if (axiosError.code === 'ETIMEDOUT') {
+                errorMessage = 'CDN service request timed out';
+                errorCode = 'CDN_SERVICE_TIMEOUT';
+            }
+        }
+        
+        logger.error('CDN file deletion failed after all retries', {
+            fileId,
+            error: lastError instanceof Error ? lastError.message : String(lastError),
+            errorCode,
+            errorMessage,
+            totalAttempts: retries + 1
+        });
+        
+        throw new CdnError(errorMessage, errorCode, {
+            originalError: lastError instanceof Error ? lastError.message : String(lastError),
+            fileId,
+            totalAttempts: retries + 1
+        });
     }
 
     async getLevelFiles(fileId: string): Promise<Array<{

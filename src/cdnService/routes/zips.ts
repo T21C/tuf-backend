@@ -54,7 +54,6 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     : path.resolve(file.path).replace(/\\/g, '/');
 
                 const levelDict = new LevelDict(normalizedPath);
-                logger.debug('levelDict', levelDict);
 
                 return {
                     name: file.name,

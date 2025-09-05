@@ -5,10 +5,12 @@ import { CDN_CONFIG } from '../config.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { logger } from '../../services/LoggerService.js';
 import { storageManager } from './storageManager.js';
+import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
 import LevelDict from 'adofai-lib';
 import sequelize from '../../config/db.js';
 import { Transaction } from 'sequelize';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import { decodeFilename } from '../misc/utils.js';
 
 
 interface ZipEntry {
@@ -86,29 +88,15 @@ interface LevelFiles {
     allLevelFiles: LevelFile[];
 }
 
-function decodeFilename(hex: string): string {
-    try {
-        // Convert hex string to bytes
-        const bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
-        // Convert bytes to UTF-8 string
-        return new TextDecoder().decode(bytes);
-    } catch (error) {
-        logger.error('Failed to decode filename:', {
-            error: error instanceof Error ? error.message : String(error),
-            encodedString: hex
-        });
-        return 'level.zip'; // Fallback name
-    }
-}
 
-export async function processZipFile(zipFilePath: string, zipFileId: string, encodedFilename: string): Promise<void> {
+export async function processZipFile(zipFilePath: string, zipFileId: string, originalFilename: string): Promise<void> {
     let transaction: Transaction | undefined;
     let permanentDir: string | null = null;
     
     logger.info('Starting zip file processing:', { 
         zipFilePath, 
         zipFileId, 
-        encodedFilename,
+        originalFilename,
         fileSize: (await fs.promises.stat(zipFilePath)).size
     });
     
@@ -124,7 +112,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
         }> = [];
         const songFiles: { [key: string]: any } = {};
 
-        // Reserve a drive for all operations
+        // Reserve a drive for temporary operations
         const storageRoot = await storageManager.getDrive();
         logger.info(`Processing zip file on drive:`, {
             drive: storageRoot,
@@ -133,23 +121,21 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
             totalSize: zipEntries.reduce((sum, entry) => sum + entry.size, 0)
         });
         
-        // Create permanent storage directory for this zip
-        permanentDir = path.join(storageRoot, 'levels', zipFileId);
+        // Create temporary storage directory for this zip processing
+        permanentDir = path.join(storageRoot, 'temp', zipFileId);
         await fs.promises.mkdir(permanentDir, { recursive: true });
-        logger.info('Created permanent storage directory:', { 
+        logger.info('Created temporary storage directory:', { 
             permanentDir,
             drive: storageRoot
         });
 
-        // Decode the filename from the encoded filename
-        const finalZipName = decodeFilename(encodedFilename);
-        logger.info('Using decoded zip name:', { 
-            finalZipName,
-            encodedName: encodedFilename,
-            decodedSuccessfully: finalZipName !== 'level.zip'
+        // Use the original filename directly
+        const finalZipName = decodeFilename(originalFilename);
+        logger.info('Using original zip name:', { 
+            finalZipName
         });
 
-        // Store the original zip file with its decoded name
+        // Store the original zip file with its original name
         const originalZipPath = path.join(permanentDir, finalZipName);
         await fs.promises.copyFile(zipFilePath, originalZipPath);
         const originalZipSize = (await fs.promises.stat(originalZipPath)).size;
@@ -176,15 +162,11 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                 try {
                     const levelDict = new LevelDict(tempPath);
                     
-                    // Move file to permanent storage with original filename
                     const levelFilename = path.basename(entry.relativePath);
-                    const permanentPath = path.join(permanentDir, levelFilename);
-                    await fs.promises.copyFile(tempPath, permanentPath);
-                    await fs.promises.unlink(tempPath); // Clean up temp file
                     
                     const levelFile = {
                         name: levelFilename,
-                        path: permanentPath, // Store absolute path
+                        path: tempPath, // Keep temp path for now, will be uploaded later
                         size: entry.size,
                         hasYouTubeStream: levelDict.getSetting("requiredMods")?.includes('YouTubeStream'),
                         songFilename: levelDict.getSetting("songFilename"),
@@ -202,7 +184,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                     logger.debug('Processed level file:', {
                         name: levelFilename,
                         size: entry.size,
-                        path: permanentPath,
+                        path: tempPath,
                         hasYouTubeStream: levelFile.hasYouTubeStream
                     });
                 } catch (error) {
@@ -221,18 +203,14 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
         for (const entry of zipEntries) {
             if (!entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())) {
                 // Extract song to temp first
-                const songTempPath = path.join(storageRoot, 'temp', entry.name);
+                const songTempPath = path.join(permanentDir, entry.name);
                 await extractFile(zipFilePath, entry, songTempPath);
 
-                // Move song to permanent storage with original filename
                 const songFilename = path.basename(entry.relativePath);
-                const songPermanentPath = path.join(permanentDir, songFilename);
-                await fs.promises.copyFile(songTempPath, songPermanentPath);
-                await fs.promises.unlink(songTempPath); // Clean up temp file
 
                 songFiles[songFilename] = {
                     name: songFilename,
-                    path: songPermanentPath, // Store absolute path
+                    path: songTempPath, // Keep temp path for now, will be uploaded later
                     size: entry.size,
                     type: path.extname(entry.relativePath).toLowerCase().slice(1)
                 };
@@ -240,9 +218,60 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
             }
         }
 
-        // Clean up the parent temp directory
-        const tempDir = path.join(storageRoot, 'temp');
-        storageManager.cleanupFiles(tempDir);
+        // Upload files to hybrid storage (Spaces or local)
+        logger.info('Uploading processed files to hybrid storage', {
+            fileId: zipFileId,
+            levelCount: allLevelFiles.length,
+            songCount: Object.keys(songFiles).length
+        });
+
+        // Upload level files
+        const levelUploadResult = await hybridStorageManager.uploadLevelFiles(
+            allLevelFiles.map(file => ({
+                sourcePath: file.path,
+                filename: file.name,
+                size: file.size
+            })),
+            zipFileId
+        );
+
+        // Update file paths in metadata
+        allLevelFiles.forEach((file, index) => {
+            const uploadedFile = levelUploadResult.files[index];
+            file.path = uploadedFile.path;
+        });
+
+        // Upload song files
+        const songUploadPromises = Object.values(songFiles).map(async (songFile) => {
+            const result = await hybridStorageManager.uploadLevelFile(
+                songFile.path,
+                zipFileId,
+                songFile.name,
+                false // not a zip
+            );
+            return {
+                ...songFile,
+                path: result.filePath,
+                storageType: result.storageType
+            };
+        });
+
+        const uploadedSongFiles = await Promise.all(songUploadPromises);
+        const updatedSongFiles: { [key: string]: any } = {};
+        uploadedSongFiles.forEach(songFile => {
+            updatedSongFiles[songFile.name] = songFile;
+        });
+
+        // Upload original zip file
+        const zipUploadResult = await hybridStorageManager.uploadLevelFile(
+            originalZipPath,
+            zipFileId,
+            finalZipName,
+            true // is a zip
+        );
+
+        // Clean up temporary files
+        storageManager.cleanupFiles(permanentDir);
 
         // Determine target level
         let targetLevel: string | null = null;
@@ -254,34 +283,49 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
                 return (current.size > largest.size) ? current : largest;
             });
 
-            targetLevel = largestLevel.path; // Use absolute path
+            targetLevel = largestLevel.path; // Use storage path (Spaces key or local path)
 
             logger.info('Selected largest level file as target:', {
                 selectedLevel: largestLevel.name,
                 size: largestLevel.size,
                 path: largestLevel.path,
-                totalLevels: allLevelFiles.length
+                totalLevels: allLevelFiles.length,
+                storageType: levelUploadResult.storageType
             });
         }
 
         // Start transaction for database operations
         transaction = await sequelize.transaction();
         
-        // Create database entry with absolute path within transaction
+        // Create database entry with comprehensive storage information
         await CdnFile.create({
             id: zipFileId,
             type: 'LEVELZIP',
-            filePath: permanentDir,
+            filePath: zipUploadResult.filePath, // Use the actual storage path
             metadata: {
                 levelFiles,
                 allLevelFiles,
-                songFiles,
+                songFiles: updatedSongFiles,
                 targetLevel,
                 pathConfirmed,
+                // Always include storage type at the root level for easy access
+                storageType: levelUploadResult.storageType,
                 originalZip: {
                     name: finalZipName,
-                    path: originalZipPath, // Store absolute path
-                    size: originalZipSize
+                    path: zipUploadResult.filePath, // Use the actual storage path
+                    size: originalZipSize,
+                    storageType: zipUploadResult.storageType,
+                    originalFilename: finalZipName
+                },
+                levelStorageType: levelUploadResult.storageType,
+                songStorageType: uploadedSongFiles[0]?.storageType || levelUploadResult.storageType,
+                // Add timestamp for debugging
+                uploadedAt: new Date().toISOString(),
+                storageInfo: {
+                    primary: levelUploadResult.storageType,
+                    levels: levelUploadResult.storageType,
+                    songs: uploadedSongFiles[0]?.storageType || levelUploadResult.storageType,
+                    zip: zipUploadResult.storageType
                 }
             }
         }, { transaction });
@@ -293,14 +337,17 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, enc
             fileId: zipFileId,
             drive: storageRoot,
             levelCount: allLevelFiles.length,
-            songCount: Object.keys(songFiles).length,
+            songCount: Object.keys(updatedSongFiles).length,
             totalLevelSize,
             totalSongSize,
             originalZipSize,
             totalSize: totalLevelSize + totalSongSize + originalZipSize,
             targetLevel,
             pathConfirmed,
-            permanentDir,
+            storageType: levelUploadResult.storageType,
+            levelStorageType: levelUploadResult.storageType,
+            songStorageType: uploadedSongFiles[0]?.storageType || levelUploadResult.storageType,
+            zipStorageType: zipUploadResult.storageType,
             hasOriginalZip: true
         });
     } catch (error) {

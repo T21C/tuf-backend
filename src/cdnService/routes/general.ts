@@ -6,6 +6,7 @@ import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
 import { storageManager } from "../services/storageManager.js";
+import { hybridStorageManager, StorageType } from "../services/hybridStorageManager.js";
 import { Op } from "sequelize";
 import sequelize from "../../config/db.js";
 import { Transaction } from "sequelize";
@@ -65,6 +66,7 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
                 name: string;
                 path: string;
                 size: number;
+                originalFilename?: string;
             };
             allLevelFiles?: Array<{
                 name: string;
@@ -81,6 +83,7 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             }>;
             targetLevel?: string | null;
             pathConfirmed?: boolean;
+            storageType?: StorageType;
         };
 
         if (!metadata.originalZip) {
@@ -89,70 +92,193 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
 
         const { originalZip } = metadata;
         
-        // Check if file exists
+        // Check if file exists and get file stats
+        let stats: fs.Stats;
+        let fileStream: fs.ReadStream | NodeJS.ReadableStream;
+        
+        let fileCheck: { exists: boolean; storageType: StorageType; actualPath: string };
+        
         try {
-            await fs.promises.access(originalZip.path, fs.constants.F_OK);
-        } catch (error) {
-            logger.error('Zip file not found on disk:', {
+            // Use fallback logic to find the file
+            fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                originalZip.path, 
+                metadata.storageType
+            );
+            
+            if (!fileCheck.exists) {
+                logger.error('Zip file not found in any storage:', {
+                    fileId,
+                    path: originalZip.path,
+                    preferredStorageType: metadata.storageType,
+                    checkedStorageType: fileCheck.storageType
+                });
+                return res.status(404).json({ error: 'Zip file not found' });
+            }
+            
+            logger.debug('File found using fallback logic:', {
                 fileId,
                 path: originalZip.path,
+                foundInStorage: fileCheck.storageType,
+                preferredStorage: metadata.storageType
+            });
+            
+            if (fileCheck.storageType === StorageType.SPACES) {
+                // For Spaces storage, redirect to presigned URL for direct download
+                const { spacesStorage } = await import('../services/spacesStorage.js');
+                
+                // Generate presigned URL for direct download (expires in 1 hour)
+                const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path, 3600);
+                
+                logger.info('Redirecting to Spaces presigned URL:', {
+                    fileId,
+                    path: originalZip.path,
+                    url: presignedUrl
+                });
+                
+                // Redirect to the presigned URL
+                res.redirect(302, presignedUrl);
+                return;
+            } else {
+                // For local storage, use the actual path found
+                stats = await fs.promises.stat(fileCheck.actualPath);
+                fileStream = fs.createReadStream(fileCheck.actualPath);
+            }
+        } catch (error) {
+            logger.error('Zip file access error:', {
+                fileId,
+                path: originalZip.path,
+                preferredStorageType: metadata.storageType,
                 error: error instanceof Error ? error.message : String(error)
             });
             return res.status(404).json({ error: 'Zip file not found' });
         }
 
-        // Get file stats
-        const stats = await fs.promises.stat(originalZip.path);
-
-        logger.debug('Setting headers for zip file:', {
-            fileId,
-            path: originalZip.path,
-            baseName: originalZip.name
-        });
-
-        // Set basic headers
-        res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Content-Length', stats.size);
-        
-        // Set encoded filename in Content-Disposition
-        const encodedFilename = encodeURIComponent(originalZip.name);
-        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
-        
-        // Set encoded metadata headers
-        setSafeHeader(res, 'X-Level-FileId', fileId);
-        setSafeHeader(res, 'X-Level-Name', originalZip.name);
-        setSafeHeader(res, 'X-Level-Size', originalZip.size);
-        setSafeHeader(res, 'X-Level-Files', {
-            levelFiles: metadata.allLevelFiles,
-            songFiles: metadata.songFiles
-        });
-        setSafeHeader(res, 'X-Level-Target', {
-            targetLevel: metadata.targetLevel,
-            pathConfirmed: metadata.pathConfirmed
-        });
-
-        // Clean up old access logs before incrementing access count
-        await cleanupOldAccessLogs();
-        
-        file.increment('accessCount');
-        // Stream the file
-        const fileStream = fs.createReadStream(originalZip.path);
-        fileStream.pipe(res);
-
-        // Handle errors during streaming
-        fileStream.on('error', (error) => {
-            logger.error('Error streaming zip file:', {
+        // Only continue with local file streaming (Spaces files are redirected above)
+        if (fileCheck.storageType === StorageType.LOCAL) {
+            logger.debug('Setting headers for local zip file:', {
                 fileId,
                 path: originalZip.path,
-                error: error instanceof Error ? error.message : String(error)
+                baseName: originalZip.name
             });
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Error streaming file' });
+
+            // Handle range requests for better streaming support
+            const range = req.headers.range;
+            let start = 0;
+            let end = stats.size - 1;
+            let statusCode = 200;
+            
+            if (range) {
+                const ranges = range.replace(/bytes=/, '').split('-');
+                start = parseInt(ranges[0], 10);
+                end = ranges[1] ? parseInt(ranges[1], 10) : stats.size - 1;
+                
+                if (start >= stats.size) {
+                    res.status(416).setHeader('Content-Range', `bytes */${stats.size}`);
+                    return res.end();
+                }
+                
+                statusCode = 206; // Partial Content
+                fileStream = fs.createReadStream(fileCheck.actualPath, { start, end });
             }
-        });
+            
+            // Set basic headers
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Length', end - start + 1);
+            
+            if (statusCode === 206) {
+                res.setHeader('Content-Range', `bytes ${start}-${end}/${stats.size}`);
+                res.setHeader('Accept-Ranges', 'bytes');
+            }
+            
+            // Set filename in Content-Disposition (decode only when sending to user)
+            const displayFilename = metadata.originalZip?.originalFilename || originalZip.name;
+            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(displayFilename)}`);
+            
+            // Set encoded metadata headers
+            setSafeHeader(res, 'X-Level-FileId', fileId);
+            setSafeHeader(res, 'X-Level-Name', displayFilename);
+            setSafeHeader(res, 'X-Level-Size', originalZip.size);
+            setSafeHeader(res, 'X-Level-Files', {
+                levelFiles: metadata.allLevelFiles,
+                songFiles: metadata.songFiles
+            });
+            setSafeHeader(res, 'X-Level-Target', {
+                targetLevel: metadata.targetLevel,
+                pathConfirmed: metadata.pathConfirmed
+            });
+
+            // Clean up old access logs before incrementing access count
+            await cleanupOldAccessLogs();
+            
+            file.increment('accessCount');
+            
+            // Set status code for range requests
+            res.status(statusCode);
+            
+            // Stream the file
+            fileStream.pipe(res);
+
+            // Handle errors during streaming
+            (fileStream as any).on('error', (error: any) => {
+                logger.error('Error streaming zip file:', {
+                    fileId,
+                    path: originalZip.path,
+                    storageType: metadata.storageType || StorageType.LOCAL,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Error streaming file' });
+                }
+            });
+        }
         return;
     }
 
+
+// HEAD endpoint for checking file existence
+router.head('/:fileId', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        
+        const file = await CdnFile.findByPk(fileId);
+        if (!file) {
+            return res.status(404).end();
+        }
+
+        // For LEVELZIP files, check if the file exists in storage using fallback logic
+        if (file.type === 'LEVELZIP') {
+            const metadata = file.metadata as any;
+            const originalZip = metadata?.originalZip;
+            
+            if (originalZip?.path) {
+                const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                    originalZip.path,
+                    originalZip.storageType
+                );
+                
+                if (!fileCheck.exists) {
+                    return res.status(404).end();
+                }
+            }
+        } else {
+            // For other file types, check if file exists on disk
+            try {
+                await fs.promises.access(file.filePath, fs.constants.F_OK);
+            } catch (error) {
+                return res.status(404).end();
+            }
+        }
+
+        // File exists, return 200 with no body
+        return res.status(200).end();
+    } catch (error) {
+        logger.error('HEAD request error:', {
+            error: error instanceof Error ? error.message : String(error),
+            fileId: req.params.fileId
+        });
+        return res.status(500).end();
+    }
+});
 
 router.get('/:fileId', async (req: Request, res: Response) => {
     try {
@@ -272,8 +398,10 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        // Store file path before deletion for cleanup
+        // Store file information before deletion for cleanup
         const filePath = file.filePath;
+        const fileType = file.type;
+        const metadata = file.metadata as any;
         
         // Delete the database entry first within transaction
         await file.destroy({ transaction });
@@ -281,42 +409,77 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
         // Commit the transaction
         await transaction.commit();
         
-        // Clean up files from disk after successful database deletion
+        // Clean up files using hybrid storage manager after successful database deletion
         try {
-            // Use specialized cleanup for image directories
-            if (['PROFILE', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL'].includes(file.type)) {
-                const cleanupSuccess = storageManager.cleanupImageDirectory(filePath, fileId, file.type);
-                if (cleanupSuccess) {
-                    logger.info('Image file deleted successfully:', {
-                        fileId,
-                        filePath,
-                        type: file.type,
-                        timestamp: new Date().toISOString()
-                    });
+            if (fileType === 'LEVELZIP' && metadata) {
+                // For level zip files, delete all associated files (extracted levels, songs, etc.)
+                logger.info('Deleting level zip and all associated files', {
+                    fileId,
+                    fileType,
+                    hasMetadata: !!metadata
+                });
+                
+                await hybridStorageManager.deleteLevelZipFiles(fileId, metadata);
+                
+                logger.info('Level zip and associated files deleted successfully:', {
+                    fileId,
+                    fileType,
+                    timestamp: new Date().toISOString()
+                });
+            } else {
+                // For other file types, determine storage type and delete appropriately
+                const storageType = metadata?.storageType || StorageType.LOCAL;
+                
+                if (['PROFILE', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL'].includes(fileType)) {
+                    // Use specialized cleanup for image directories (legacy local storage)
+                    if (storageType === StorageType.LOCAL) {
+                        const cleanupSuccess = storageManager.cleanupImageDirectory(filePath, fileId, fileType);
+                        if (cleanupSuccess) {
+                            logger.info('Image file deleted successfully:', {
+                                fileId,
+                                filePath,
+                                type: fileType,
+                                storageType,
+                                timestamp: new Date().toISOString()
+                            });
+                        } else {
+                            logger.error('Failed to cleanup image directory, but database entry was removed:', {
+                                fileId,
+                                filePath,
+                                type: fileType,
+                                storageType,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    } else {
+                        // Use hybrid storage manager for cloud-stored images
+                        await hybridStorageManager.deleteFile(filePath, storageType);
+                        logger.info('Image file deleted from hybrid storage successfully:', {
+                            fileId,
+                            filePath,
+                            type: fileType,
+                            storageType,
+                            timestamp: new Date().toISOString()
+                        });
+                    }
                 } else {
-                    logger.error('Failed to cleanup image directory, but database entry was removed:', {
+                    // Use hybrid storage manager for other file types
+                    await hybridStorageManager.deleteFile(filePath, storageType);
+                    logger.info('File deleted from hybrid storage successfully:', {
                         fileId,
                         filePath,
-                        type: file.type,
+                        type: fileType,
+                        storageType,
                         timestamp: new Date().toISOString()
                     });
                 }
-            } else {
-                // Use general cleanup for other file types
-                storageManager.cleanupFiles(filePath);
-                logger.info('File deleted successfully:', {
-                    fileId,
-                    filePath,
-                    type: file.type,
-                    timestamp: new Date().toISOString()
-                });
             }
         } catch (cleanupError) {
-            logger.error('Failed to clean up files from disk:', {
+            logger.error('Failed to clean up files from storage:', {
                 error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
                 fileId,
                 filePath,
-                type: file.type,
+                type: fileType,
                 timestamp: new Date().toISOString()
             });
             // Don't fail the request if file cleanup fails - database is already updated

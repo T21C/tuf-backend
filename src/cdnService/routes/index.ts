@@ -4,6 +4,7 @@ import zipsRouter from './zips.js';
 import moderationRouter from './moderation.js';
 import generalRouter from './general.js';
 import levelsRouter from './levels.js';
+import storageRouter from './storage.js';
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ router.use('/images', imagesRouter);
 router.use('/zips', zipsRouter);
 router.use('/moderation', moderationRouter);
 router.use('/levels', levelsRouter);
+router.use('/storage', storageRouter);
 router.use('/', generalRouter);
 
 export default router;
