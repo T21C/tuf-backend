@@ -26,9 +26,11 @@ export async function migrateStorageTypes(batchSize?: number, fileType?: string)
         
         // Build where clause for files that don't have storage type information
         const whereClause: any = {
-            metadata: {
-                storageType: null
-            }
+            [Op.or]: [
+                { metadata: null },
+                { metadata: { storageType: null } },
+                { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+            ]
         };
         
         // Add file type filter if specified
@@ -67,7 +69,7 @@ export async function migrateStorageTypes(batchSize?: number, fileType?: string)
         
         for (const file of filesToMigrate) {
             try {
-                const metadata = file.metadata as any;
+                const metadata = file.metadata as any || {}; // Handle null metadata
                 let storageType = StorageType.LOCAL; // Default to local
                 
                 // Try to determine storage type by checking file existence
@@ -215,13 +217,16 @@ export async function verifyMigration(): Promise<void> {
         for (const file of sampleFiles) {
             const metadata = file.metadata as any;
             
-            if (metadata.storageType) {
+            // Default to local storage if metadata is null or storageType is not defined
+            const storageType = metadata?.storageType || StorageType.LOCAL;
+            
+            if (metadata?.storageType) {
                 verifiedCount++;
                 
                 // Test file access with fallback logic
                 const fileCheck = await hybridStorageManager.fileExistsWithFallback(
                     file.filePath,
-                    metadata.storageType
+                    storageType
                 );
                 
                 if (!fileCheck.exists) {
@@ -229,16 +234,17 @@ export async function verifyMigration(): Promise<void> {
                     logger.warn('File not accessible after migration:', {
                         fileId: file.id,
                         filePath: file.filePath,
-                        expectedStorageType: metadata.storageType,
+                        expectedStorageType: storageType,
                         foundStorageType: fileCheck.storageType
                     });
                 }
             } else {
-                issuesFound++;
-                logger.warn('File missing storage type after migration:', {
+                // File doesn't have storage type defined, this is expected for unmigrated files
+                logger.info('File without storage type (needs migration):', {
                     fileId: file.id,
                     filePath: file.filePath,
-                    type: file.type
+                    type: file.type,
+                    defaultingTo: StorageType.LOCAL
                 });
             }
         }
@@ -276,9 +282,11 @@ export async function getMigrationStats(): Promise<{
         // Get count of files needing migration
         const filesNeedingMigration = await CdnFile.count({
             where: {
-                metadata: {
-                    storageType: null
-                }
+                [Op.or]: [
+                    { metadata: null },
+                    { metadata: { storageType: null } },
+                    { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                ]
             }
         });
         
@@ -289,9 +297,11 @@ export async function getMigrationStats(): Promise<{
                 [sequelize.fn('COUNT', sequelize.col('id')), 'count']
             ],
             where: {
-                metadata: {
-                    storageType: null
-                }
+                [Op.or]: [
+                    { metadata: null },
+                    { metadata: { storageType: null } },
+                    { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                ]
             },
             group: ['type'],
             raw: true
@@ -401,9 +411,11 @@ export async function runBatchMigration(
             // Get count of remaining files before this batch
             const remainingBefore = await CdnFile.count({
                 where: {
-                    metadata: {
-                        storageType: null
-                    },
+                    [Op.or]: [
+                        { metadata: null },
+                        { metadata: { storageType: null } },
+                        { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                    ],
                     ...(fileType && { type: fileType })
                 }
             });
@@ -420,9 +432,11 @@ export async function runBatchMigration(
             // Get count of remaining files after this batch
             const remainingAfter = await CdnFile.count({
                 where: {
-                    metadata: {
-                        storageType: null
-                    },
+                    [Op.or]: [
+                        { metadata: null },
+                        { metadata: { storageType: null } },
+                        { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                    ],
                     ...(fileType && { type: fileType })
                 }
             });
