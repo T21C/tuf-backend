@@ -1024,7 +1024,7 @@ export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
         
         if (batchSize && batchSize > 0) {
             queryOptions.limit = batchSize;
-            queryOptions.order = [['createdAt', 'ASC']]; // Process oldest files first
+            queryOptions.order = [['createdAt', 'DESC']];
         }
         
         const filesToMigrate = await CdnFile.findAll(queryOptions);
@@ -1073,7 +1073,7 @@ export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
                         }
                         
                         // Check if song file exists locally
-                        const localPath = path.join(await storageManager.getDrive(), songFileData.path);
+                        const localPath = songFileData.path;
                         if (!fs.existsSync(localPath)) {
                             logger.warn('Local song file not found, skipping:', {
                                 fileId: file.id,
@@ -1084,7 +1084,7 @@ export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
                         }
                         
                         // Upload to Spaces
-                        const spacesPath = `songs/${file.id}/${path.basename(songFileData.path)}`;
+                        const spacesPath = `zips/${file.id}/${path.basename(songFileData.path)}`;
                         await spacesStorage.uploadFile(localPath, spacesPath);
                         
                         // Update metadata
