@@ -998,6 +998,493 @@ async function getFileCountOnDrive(drive: string): Promise<number> {
 }
 
 /**
+ * Migrate local song files to DigitalOcean Spaces
+ * This function moves song files from local storage to Spaces for better performance
+ */
+export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
+    let transaction: Transaction | undefined;
+    
+    try {
+        logger.info('Starting migration of local song files to DigitalOcean Spaces', {
+            batchSize: batchSize || 'all'
+        });
+        
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        // Get level zip files that have local song files
+        const whereClause: any = {
+            type: 'LEVELZIP',
+            metadata: {
+                songStorageType: StorageType.LOCAL
+            }
+        };
+        
+        const queryOptions: any = {
+            where: whereClause,
+            transaction
+        };
+        
+        if (batchSize && batchSize > 0) {
+            queryOptions.limit = batchSize;
+            queryOptions.order = [['createdAt', 'ASC']]; // Process oldest files first
+        }
+        
+        const filesToMigrate = await CdnFile.findAll(queryOptions);
+        
+        logger.info(`Found ${filesToMigrate.length} files with local song files to migrate to Spaces`);
+        
+        let migratedCount = 0;
+        let errorCount = 0;
+        const migrationResults: Array<{
+            fileId: string;
+            success: boolean;
+            error?: string;
+            songsMigrated?: number;
+        }> = [];
+        
+        for (const file of filesToMigrate) {
+            try {
+                const metadata = file.metadata as any || {};
+                const songFiles = metadata.songFiles || {};
+                
+                if (!songFiles || Object.keys(songFiles).length === 0) {
+                    logger.info('No song files found, skipping:', {
+                        fileId: file.id
+                    });
+                    continue;
+                }
+                
+                logger.info('Starting song file migration for:', {
+                    fileId: file.id,
+                    songCount: Object.keys(songFiles).length
+                });
+                
+                let songsMigrated = 0;
+                const updatedSongFiles = { ...songFiles };
+                
+                // Migrate each song file to Spaces
+                for (const [songKey, songFile] of Object.entries(songFiles)) {
+                    try {
+                        const songFileData = songFile as any;
+                        if (!songFileData.path) {
+                            logger.warn('Song file missing path, skipping:', {
+                                fileId: file.id,
+                                songKey
+                            });
+                            continue;
+                        }
+                        
+                        // Check if song file exists locally
+                        const localPath = path.join(await storageManager.getDrive(), songFileData.path);
+                        if (!fs.existsSync(localPath)) {
+                            logger.warn('Local song file not found, skipping:', {
+                                fileId: file.id,
+                                songKey,
+                                localPath
+                            });
+                            continue;
+                        }
+                        
+                        // Upload to Spaces
+                        const spacesPath = `songs/${file.id}/${path.basename(songFileData.path)}`;
+                        await spacesStorage.uploadFile(localPath, spacesPath);
+                        
+                        // Update metadata
+                        updatedSongFiles[songKey] = {
+                            ...songFileData,
+                            path: spacesPath,
+                            storageType: StorageType.SPACES,
+                            migratedAt: new Date().toISOString()
+                        };
+                        
+                        // Delete local file
+                        await fs.promises.unlink(localPath);
+                        
+                        songsMigrated++;
+                        
+                        logger.info('Migrated song file to Spaces:', {
+                            fileId: file.id,
+                            songKey,
+                            localPath,
+                            spacesPath
+                        });
+                        
+                    } catch (error) {
+                        logger.error('Failed to migrate individual song file:', {
+                            fileId: file.id,
+                            songKey,
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    }
+                }
+                
+                // Update metadata with new song file locations
+                const updatedMetadata = {
+                    ...metadata,
+                    songFiles: updatedSongFiles,
+                    songStorageType: StorageType.SPACES,
+                    songMigrationAt: new Date().toISOString()
+                };
+                
+                await file.update({
+                    metadata: updatedMetadata
+                }, { transaction });
+                
+                migratedCount++;
+                migrationResults.push({
+                    fileId: file.id,
+                    success: true,
+                    songsMigrated
+                });
+                
+                logger.info('Successfully migrated song files to Spaces:', {
+                    fileId: file.id,
+                    songsMigrated,
+                    totalSongs: Object.keys(songFiles).length
+                });
+                
+                if (migratedCount % 5 === 0) {
+                    logger.info(`Song migration progress: ${migratedCount}/${filesToMigrate.length} files processed`);
+                }
+                
+            } catch (error) {
+                errorCount++;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                
+                migrationResults.push({
+                    fileId: file.id,
+                    success: false,
+                    error: errorMessage
+                });
+                
+                logger.error('Error migrating song files:', {
+                    fileId: file.id,
+                    error: errorMessage
+                });
+            }
+        }
+        
+        // Commit transaction
+        await transaction.commit();
+        
+        // Log detailed results
+        const successRate = filesToMigrate.length > 0 ? ((migratedCount / filesToMigrate.length) * 100).toFixed(2) : '0';
+        const totalSongsMigrated = migrationResults
+            .filter(r => r.success)
+            .reduce((sum, r) => sum + (r.songsMigrated || 0), 0);
+        
+        logger.info('Local song file migration to Spaces completed:', {
+            totalFiles: filesToMigrate.length,
+            migratedCount,
+            errorCount,
+            successRate: `${successRate}%`,
+            totalSongsMigrated,
+            batchSize: batchSize || 'unlimited'
+        });
+        
+        // Log failed migrations for debugging
+        const failedMigrations = migrationResults.filter(r => !r.success);
+        if (failedMigrations.length > 0) {
+            logger.warn('Failed song migrations summary:', {
+                failedCount: failedMigrations.length,
+                failedFileIds: failedMigrations.map(f => f.fileId),
+                sampleErrors: failedMigrations.slice(0, 5).map(f => ({
+                    fileId: f.fileId,
+                    error: f.error
+                }))
+            });
+        }
+        
+    } catch (error) {
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
+        logger.error('Local song file migration to Spaces failed:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+    }
+}
+
+/**
+ * Redistribute files across drives to prioritize filling first drives completely
+ * Instead of evenly distributing files, this fills drives in order of priority
+ */
+export async function redistributeFilesAcrossDrives(batchSize?: number): Promise<void> {
+    let transaction: Transaction | undefined;
+    
+    try {
+        logger.info('Starting file redistribution to prioritize filling first drives completely', {
+            batchSize: batchSize || 'all'
+        });
+        
+        // Get drive status and sort by priority (first in list = highest priority)
+        const drives = storageManager.getDrivesStatus();
+        if (drives.length < 2) {
+            logger.info('Only one drive available, no redistribution needed');
+            return;
+        }
+        
+        // Sort drives by priority (first drive = highest priority)
+        const sortedDrives = drives.sort((a, b) => {
+            // Primary drive should be first
+            return a.drivePath.localeCompare(b.drivePath);
+        });
+        
+        logger.info('Drive priority order:', {
+            drives: sortedDrives.map(d => ({
+                path: d.drivePath,
+                availableSpace: `${Math.round(d.availableSpace / (1024**3))} GB`,
+                usagePercentage: `${d.usagePercentage}%`
+            }))
+        });
+        
+        // Start transaction
+        transaction = await sequelize.transaction();
+        
+        // Get all local files that can be moved
+        const whereClause: any = {
+            type: 'LEVELZIP',
+            metadata: {
+                storageType: StorageType.LOCAL
+            }
+        };
+        
+        const queryOptions: any = {
+            where: whereClause,
+            transaction
+        };
+        
+        if (batchSize && batchSize > 0) {
+            queryOptions.limit = batchSize;
+            queryOptions.order = [['createdAt', 'ASC']]; // Process oldest files first
+        }
+        
+        const filesToRedistribute = await CdnFile.findAll(queryOptions);
+        
+        logger.info(`Found ${filesToRedistribute.length} local files to redistribute`);
+        
+        let redistributedCount = 0;
+        let errorCount = 0;
+        const redistributionResults: Array<{
+            fileId: string;
+            success: boolean;
+            fromDrive?: string;
+            toDrive?: string;
+            error?: string;
+        }> = [];
+        
+        // Track space usage per drive
+        const driveSpaceUsage = new Map<string, number>();
+        sortedDrives.forEach(drive => {
+            driveSpaceUsage.set(drive.drivePath, drive.usedSpace);
+        });
+        
+        for (const file of filesToRedistribute) {
+            try {
+                const metadata = file.metadata as any || {};
+                const originalZip = metadata.originalZip;
+                
+                if (!originalZip?.path) {
+                    logger.warn('No original zip path found, skipping:', {
+                        fileId: file.id
+                    });
+                    continue;
+                }
+                
+                // Determine current drive by checking which drive contains the file
+                const drives = storageManager.getDrivesStatus();
+                let currentDrive: string | null = null;
+                
+                for (const drive of drives) {
+                    const fullPath = path.join(drive.drivePath, originalZip.path);
+                    if (fs.existsSync(fullPath)) {
+                        currentDrive = drive.drivePath;
+                        break;
+                    }
+                }
+                
+                if (!currentDrive) {
+                    logger.warn('Could not determine current drive, skipping:', {
+                        fileId: file.id,
+                        filePath: originalZip.path
+                    });
+                    continue;
+                }
+                
+                // Find the best target drive (first drive with enough space)
+                let targetDrive: string | null = null;
+                const fileSize = originalZip.size || 0;
+                
+                for (const drive of sortedDrives) {
+                    const currentUsage = driveSpaceUsage.get(drive.drivePath) || 0;
+                    const availableSpace = drive.totalSpace - currentUsage;
+                    
+                    if (availableSpace > fileSize) {
+                        targetDrive = drive.drivePath;
+                        break;
+                    }
+                }
+                
+                if (!targetDrive) {
+                    logger.warn('No drive has enough space for file, skipping:', {
+                        fileId: file.id,
+                        fileSize: `${Math.round(fileSize / (1024**2))} MB`
+                    });
+                    continue;
+                }
+                
+                // Skip if file is already on the target drive
+                if (currentDrive === targetDrive) {
+                    logger.info('File already on target drive, skipping:', {
+                        fileId: file.id,
+                        drive: currentDrive
+                    });
+                    continue;
+                }
+                
+                logger.info('Redistributing file:', {
+                    fileId: file.id,
+                    fromDrive: currentDrive,
+                    toDrive: targetDrive,
+                    fileSize: `${Math.round(fileSize / (1024**2))} MB`
+                });
+                
+                // Create new path on target drive
+                const fileName = path.basename(originalZip.path);
+                const newPath = path.join(targetDrive, 'tuf-cdn', 'zips', file.id, fileName);
+                
+                // Ensure target directory exists
+                await fs.promises.mkdir(path.dirname(newPath), { recursive: true });
+                
+                // Move file to new location
+                const currentPath = path.join(currentDrive, originalZip.path);
+                await fs.promises.rename(currentPath, newPath);
+                
+                // Update metadata with new path
+                const relativePath = path.relative(targetDrive, newPath);
+                const updatedMetadata = {
+                    ...metadata,
+                    originalZip: {
+                        ...originalZip,
+                        path: relativePath
+                    },
+                    redistributedAt: new Date().toISOString(),
+                    redistributedFrom: currentDrive,
+                    redistributedTo: targetDrive
+                };
+                
+                await file.update({
+                    metadata: updatedMetadata
+                }, { transaction });
+                
+                // Update space usage tracking
+                const currentUsage = driveSpaceUsage.get(currentDrive) || 0;
+                const targetUsage = driveSpaceUsage.get(targetDrive) || 0;
+                driveSpaceUsage.set(currentDrive, currentUsage - fileSize);
+                driveSpaceUsage.set(targetDrive, targetUsage + fileSize);
+                
+                redistributedCount++;
+                redistributionResults.push({
+                    fileId: file.id,
+                    success: true,
+                    fromDrive: currentDrive,
+                    toDrive: targetDrive
+                });
+                
+                logger.info('Successfully redistributed file:', {
+                    fileId: file.id,
+                    fromDrive: currentDrive,
+                    toDrive: targetDrive,
+                    newPath: relativePath
+                });
+                
+                if (redistributedCount % 10 === 0) {
+                    logger.info(`Redistribution progress: ${redistributedCount}/${filesToRedistribute.length} files processed`);
+                }
+                
+            } catch (error) {
+                errorCount++;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                
+                redistributionResults.push({
+                    fileId: file.id,
+                    success: false,
+                    error: errorMessage
+                });
+                
+                logger.error('Error redistributing file:', {
+                    fileId: file.id,
+                    error: errorMessage
+                });
+            }
+        }
+        
+        // Commit transaction
+        await transaction.commit();
+        
+        // Log detailed results
+        const successRate = filesToRedistribute.length > 0 ? ((redistributedCount / filesToRedistribute.length) * 100).toFixed(2) : '0';
+        
+        logger.info('File redistribution completed:', {
+            totalFiles: filesToRedistribute.length,
+            redistributedCount,
+            errorCount,
+            successRate: `${successRate}%`,
+            batchSize: batchSize || 'unlimited'
+        });
+        
+        // Log final drive usage
+        logger.info('Final drive usage after redistribution:', {
+            drives: sortedDrives.map(drive => {
+                const usage = driveSpaceUsage.get(drive.drivePath) || 0;
+                return {
+                    drive: drive.drivePath,
+                    usedSpace: `${Math.round(usage / (1024**3))} GB`,
+                    totalSpace: `${Math.round(drive.totalSpace / (1024**3))} GB`,
+                    usagePercentage: `${((usage / drive.totalSpace) * 100).toFixed(1)}%`
+                };
+            })
+        });
+        
+        // Log failed redistributions for debugging
+        const failedRedistributions = redistributionResults.filter(r => !r.success);
+        if (failedRedistributions.length > 0) {
+            logger.warn('Failed redistributions summary:', {
+                failedCount: failedRedistributions.length,
+                failedFileIds: failedRedistributions.map(f => f.fileId),
+                sampleErrors: failedRedistributions.slice(0, 5).map(f => ({
+                    fileId: f.fileId,
+                    error: f.error
+                }))
+            });
+        }
+        
+    } catch (error) {
+        // Rollback transaction if it exists
+        if (transaction) {
+            try {
+                await safeTransactionRollback(transaction);
+            } catch (rollbackError) {
+                logger.warn('Transaction rollback failed:', rollbackError);
+            }
+        }
+        
+        logger.error('File redistribution failed:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+    }
+}
+
+/**
  * Get statistics about files that need migration
  */
 export async function getMigrationStats(): Promise<{
@@ -1431,6 +1918,54 @@ program
     } catch (error) {
       logger.error('Hybrid strategy migration failed:', error);
       console.error('Hybrid strategy migration failed:', error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('migrate-songs')
+  .description('Migrate local song files to DigitalOcean Spaces')
+  .option('-b, --batch-size <number>', 'Number of files to process in each batch', '10')
+  .action(async (options) => {
+    try {
+      logger.info('Starting migration of local song files to Spaces...');
+      
+      const batchSize = parseInt(options.batchSize);
+      
+      await migrateLocalSongFiles(batchSize);
+      
+      console.log('\n=== Song Files Migration Results ===');
+      console.log('Local song files migration to Spaces completed successfully!');
+      console.log('Song files are now stored in DigitalOcean Spaces for better performance.');
+      
+      process.exit(0);
+    } catch (error) {
+      logger.error('Song files migration failed:', error);
+      console.error('Song files migration failed:', error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('redistribute-drives')
+  .description('Redistribute files across drives to prioritize filling first drives completely')
+  .option('-b, --batch-size <number>', 'Number of files to process in each batch', '50')
+  .action(async (options) => {
+    try {
+      logger.info('Starting file redistribution across drives...');
+      
+      const batchSize = parseInt(options.batchSize);
+      
+      await redistributeFilesAcrossDrives(batchSize);
+      
+      console.log('\n=== Drive Redistribution Results ===');
+      console.log('File redistribution completed successfully!');
+      console.log('Files have been redistributed to prioritize filling first drives completely.');
+      
+      process.exit(0);
+    } catch (error) {
+      logger.error('Drive redistribution failed:', error);
+      console.error('Drive redistribution failed:', error);
       process.exit(1);
     }
   });
