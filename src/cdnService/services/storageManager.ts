@@ -28,7 +28,7 @@ interface StorageDrive {
 export class StorageManager {
     private static instance: StorageManager;
     private drives: StorageDrive[] = [];
-    private readonly STORAGE_THRESHOLD = 90; // 90% usage threshold
+    private readonly STORAGE_THRESHOLD = parseInt(process.env.STORAGE_THRESHOLD || '90') || 90; // 90% usage threshold
     private readonly isWindows = process.platform === 'win32';
 
     constructor() {

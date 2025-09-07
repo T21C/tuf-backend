@@ -1215,14 +1215,153 @@ export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
 }
 
 /**
- * Redistribute files across drives to prioritize filling first drives completely
- * Instead of evenly distributing files, this fills drives in order of priority
+ * Detect which drive contains a given path by checking against STORAGE_DRIVES
+ */
+function detectCurrentDrive(filePath: string): string | null {
+    const storageDrivesEnv = process.env.STORAGE_DRIVES;
+    if (!storageDrivesEnv) {
+        throw new Error('STORAGE_DRIVES environment variable not set');
+    }
+    
+    const storageDrives = storageDrivesEnv.split(',').map(drive => drive.trim());
+    
+    // Normalize the file path for comparison
+    const normalizedFilePath = filePath.replace(/\\/g, '/');
+    
+    for (const drive of storageDrives) {
+        // Normalize the drive path for comparison
+        const normalizedDrive = drive.replace(/\\/g, '/');
+        
+        // Check if the file path contains this drive
+        if (normalizedFilePath.includes(normalizedDrive)) {
+            return drive; // Return the original drive path format
+        }
+        
+        // Also check if the drive is just a letter (like "D:") and the path starts with it
+        if (drive.length === 2 && drive.endsWith(':') && filePath.toUpperCase().startsWith(drive.toUpperCase())) {
+            return drive;
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Find the UUID-based folder path from a file path
+ * Example: "/mnt/volume_sgp1_03/levels/da49583f-9617-4faa-bd42-bc574c96037c/main.adofai" 
+ * Returns: "/mnt/volume_sgp1_03/levels/da49583f-9617-4faa-bd42-bc574c96037c"
+ * Example: "D:\\tuf-cdn\\levels\\f05d2f02-f5bc-4734-9555-b200b88b94cc\\level.adofai"
+ * Returns: "D:\\tuf-cdn\\levels\\f05d2f02-f5bc-4734-9555-b200b88b94cc"
+ */
+function findUuidFolderPath(filePath: string): string | null {
+    const uuidRegex = /([a-f0-9-]{36})/;
+    const match = filePath.match(uuidRegex);
+    
+    if (match) {
+        const uuid = match[1];
+        const uuidIndex = filePath.indexOf(uuid);
+        if (uuidIndex !== -1) {
+            // Find the end of the UUID folder (after the UUID)
+            const afterUuid = filePath.substring(uuidIndex + uuid.length);
+            // Check for both forward slash and backslash
+            const nextSlash = afterUuid.search(/[/\\]/);
+            if (nextSlash !== -1) {
+                return filePath.substring(0, uuidIndex + uuid.length);
+            } else {
+                // If no slash after UUID, the path ends with the UUID folder
+                return filePath;
+            }
+        }
+    }
+    
+    return null;
+}
+
+/**
+ * Update all path fields in metadata after moving a folder
+ */
+function updateMetadataPaths(metadata: any, fromDrive: string, toDrive: string, fileId: string): any {
+    const updatedMetadata = { ...metadata };
+    
+    // Update targetLevel
+    if (updatedMetadata.targetLevel) {
+        updatedMetadata.targetLevel = updatedMetadata.targetLevel.replace(fromDrive, toDrive);
+    }
+    
+    // Update levelFiles paths
+    if (updatedMetadata.levelFiles) {
+        const updatedLevelFiles = { ...updatedMetadata.levelFiles };
+        Object.keys(updatedLevelFiles).forEach(key => {
+            if (updatedLevelFiles[key].path) {
+                updatedLevelFiles[key] = {
+                    ...updatedLevelFiles[key],
+                    path: updatedLevelFiles[key].path.replace(fromDrive, toDrive)
+                };
+            }
+            if (updatedLevelFiles[key].localPath) {
+                updatedLevelFiles[key] = {
+                    ...updatedLevelFiles[key],
+                    localPath: updatedLevelFiles[key].localPath.replace(fromDrive, toDrive)
+                };
+            }
+        });
+        updatedMetadata.levelFiles = updatedLevelFiles;
+    }
+    
+    // Update songFiles paths
+    if (updatedMetadata.songFiles) {
+        const updatedSongFiles = { ...updatedMetadata.songFiles };
+        Object.keys(updatedSongFiles).forEach(key => {
+            if (updatedSongFiles[key].path) {
+                updatedSongFiles[key] = {
+                    ...updatedSongFiles[key],
+                    path: updatedSongFiles[key].path.replace(fromDrive, toDrive)
+                };
+            }
+            if (updatedSongFiles[key].localPath) {
+                updatedSongFiles[key] = {
+                    ...updatedSongFiles[key],
+                    localPath: updatedSongFiles[key].localPath.replace(fromDrive, toDrive)
+                };
+            }
+        });
+        updatedMetadata.songFiles = updatedSongFiles;
+    }
+    
+    // Update allLevelFiles paths
+    if (updatedMetadata.allLevelFiles && Array.isArray(updatedMetadata.allLevelFiles)) {
+        updatedMetadata.allLevelFiles = updatedMetadata.allLevelFiles.map((levelFile: any) => ({
+            ...levelFile,
+            path: levelFile.path ? levelFile.path.replace(fromDrive, toDrive) : levelFile.path,
+            localPath: levelFile.localPath ? levelFile.localPath.replace(fromDrive, toDrive) : levelFile.localPath
+        }));
+    }
+    
+    // Update originalZip path (if it's local)
+    if (updatedMetadata.originalZip && updatedMetadata.originalZip.path) {
+        updatedMetadata.originalZip = {
+            ...updatedMetadata.originalZip,
+            path: updatedMetadata.originalZip.path.replace(fromDrive, toDrive)
+        };
+    }
+    
+    // Add redistribution tracking
+    updatedMetadata.redistributedAt = new Date().toISOString();
+    updatedMetadata.redistributedFrom = fromDrive;
+    updatedMetadata.redistributedTo = toDrive;
+    
+    return updatedMetadata;
+}
+
+/**
+ * Redistribute files across drives by moving entire UUID folders
+ * This simplified approach moves whole folders instead of individual files
  */
 export async function redistributeFilesAcrossDrives(batchSize?: number): Promise<void> {
     let transaction: Transaction | undefined;
     
     try {
-        logger.info('Starting file redistribution to prioritize filling first drives completely', {
+        logger.info('Starting simplified file redistribution by moving entire UUID folders', {
             batchSize: batchSize || 'all'
         });
         
@@ -1234,15 +1373,17 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
         }
         
         // Sort drives by priority (first drive = highest priority)
+        // Extract drive letter for proper sorting
         const sortedDrives = drives.sort((a, b) => {
-            // Primary drive should be first
-            return a.drivePath.localeCompare(b.drivePath);
+            const driveA = a.drivePath.match(/^([A-Za-z]:)/)?.[1] || a.drivePath;
+            const driveB = b.drivePath.match(/^([A-Za-z]:)/)?.[1] || b.drivePath;
+            return driveA.localeCompare(driveB);
         });
         
         logger.info('Drive priority order:', {
             drives: sortedDrives.map(d => ({
                 path: d.drivePath,
-                availableSpace: `${Math.round(d.availableSpace / (1024**3))} GB`,
+                availableSpace: `${d.availableSpace} GB`,
                 usagePercentage: `${d.usagePercentage}%`
             }))
         });
@@ -1265,7 +1406,7 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
         
         if (batchSize && batchSize > 0) {
             queryOptions.limit = batchSize;
-            queryOptions.order = [['createdAt', 'ASC']]; // Process oldest files first
+            queryOptions.order = [['createdAt', 'DESC']];
         }
         
         const filesToRedistribute = await CdnFile.findAll(queryOptions);
@@ -1282,86 +1423,90 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
             error?: string;
         }> = [];
         
-        // Track space usage per drive
-        const driveSpaceUsage = new Map<string, number>();
-        sortedDrives.forEach(drive => {
-            driveSpaceUsage.set(drive.drivePath, drive.usedSpace);
-        });
-        
         for (const file of filesToRedistribute) {
             try {
                 const metadata = file.metadata as any || {};
-                const originalZip = metadata.originalZip;
                 
-                if (!originalZip?.path) {
-                    logger.warn('No original zip path found, skipping:', {
-                        fileId: file.id
-                    });
-                    continue;
-                }
-                
-                // Determine current drive by checking which drive contains the level files
-                // Since zips are now in Spaces, we need to check level files instead
-                const drives = storageManager.getDrivesStatus();
+                // Determine current drive by checking targetLevel or any file path
                 let currentDrive: string | null = null;
+                let uuidFolderPath: string | null = null;
                 
-                // Check level files to determine the drive (they're always local)
-                const levelFilesForDriveCheck = metadata.levelFiles || {};
-                for (const [levelKey, levelFile] of Object.entries(levelFilesForDriveCheck)) {
-                    const levelFileData = levelFile as any;
-                    if (levelFileData.path) {
-                        // Check if this level file exists on any drive
-                        for (const drive of drives) {
-                            const fullPath = path.join(drive.drivePath, levelFileData.path);
-                            if (fs.existsSync(fullPath)) {
-                                currentDrive = drive.drivePath;
-                                break;
-                            }
-                        }
-                        if (currentDrive) break;
+                // Check targetLevel first (most reliable)
+                if (metadata.targetLevel) {
+                    currentDrive = detectCurrentDrive(metadata.targetLevel);
+                    if (currentDrive) {
+                        uuidFolderPath = findUuidFolderPath(metadata.targetLevel);
                     }
                 }
                 
-                if (!currentDrive) {
-                    logger.warn('Could not determine current drive, skipping:', {
+                // If not found in targetLevel, check levelFiles
+                if (!currentDrive && metadata.levelFiles) {
+                    for (const levelFile of Object.values(metadata.levelFiles) as any[]) {
+                        if (levelFile.path) {
+                            currentDrive = detectCurrentDrive(levelFile.path);
+                            if (currentDrive) {
+                                uuidFolderPath = findUuidFolderPath(levelFile.path);
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Fallback: extract drive from path directly (for Windows paths like D:\...)
+                if (!currentDrive && metadata.targetLevel) {
+                    const driveMatch = metadata.targetLevel.match(/^([A-Za-z]:)/);
+                    if (driveMatch) {
+                        currentDrive = driveMatch[1];
+                        uuidFolderPath = findUuidFolderPath(metadata.targetLevel);
+                        logger.info('Using fallback drive detection:', {
+                            fileId: file.id,
+                            detectedDrive: currentDrive,
+                            targetLevel: metadata.targetLevel
+                        });
+                    }
+                }
+                
+                if (!currentDrive || !uuidFolderPath) {
+                    logger.warn('Could not determine current drive or UUID folder, skipping:', {
                         fileId: file.id,
-                        filePath: originalZip.path
+                        currentDrive,
+                        uuidFolderPath,
+                        targetLevel: metadata.targetLevel,
+                        storageDrivesEnv: process.env.STORAGE_DRIVES,
+                        levelFiles: metadata.levelFiles ? Object.keys(metadata.levelFiles) : 'none'
                     });
                     continue;
                 }
                 
-                // Find the best target drive (first drive with enough space)
+                // Find the first non-full drive
                 let targetDrive: string | null = null;
+                const folderSize = await getFolderSize(uuidFolderPath);
+                const folderSizeGB = folderSize / (1024**3); // Convert to GB for comparison
                 
-                // Calculate total size of level and song files (not zip, since it's in Spaces)
-                let totalFileSize = 0;
-                const levelFilesForSize = metadata.levelFiles || {};
-                const songFilesForSize = metadata.songFiles || {};
-                
-                // Add up sizes of all level files
-                Object.values(levelFilesForSize).forEach((levelFile: any) => {
-                    totalFileSize += levelFile.size || 0;
-                });
-                
-                // Add up sizes of all song files
-                Object.values(songFilesForSize).forEach((songFile: any) => {
-                    totalFileSize += songFile.size || 0;
+                logger.info('Checking drive space for folder:', {
+                    fileId: file.id,
+                    folderSize: `${Math.round(folderSize / (1024**2))} MB`,
+                    folderSizeGB: `${folderSizeGB.toFixed(3)} GB`,
+                    drives: sortedDrives.map(d => ({
+                        path: d.drivePath,
+                        availableSpaceGB: d.availableSpace,
+                        hasEnoughSpace: d.availableSpace > folderSizeGB
+                    }))
                 });
                 
                 for (const drive of sortedDrives) {
-                    const currentUsage = driveSpaceUsage.get(drive.drivePath) || 0;
-                    const availableSpace = drive.totalSpace - currentUsage;
-                    
-                    if (availableSpace > totalFileSize) {
+                    // availableSpace is already in GB from storage manager
+                    if (drive.availableSpace > folderSizeGB) {
                         targetDrive = drive.drivePath;
                         break;
                     }
                 }
                 
                 if (!targetDrive) {
-                    logger.warn('No drive has enough space for files, skipping:', {
+                    logger.warn('No drive has enough space for folder, skipping:', {
                         fileId: file.id,
-                        totalFileSize: `${Math.round(totalFileSize / (1024**2))} MB`
+                        folderSize: `${Math.round(folderSize / (1024**2))} MB`,
+                        uuidFolderPath
                     });
                     continue;
                 }
@@ -1375,86 +1520,30 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     continue;
                 }
                 
-                logger.info('Redistributing files:', {
+                logger.info('Redistributing UUID folder:', {
                     fileId: file.id,
                     fromDrive: currentDrive,
                     toDrive: targetDrive,
-                    totalFileSize: `${Math.round(totalFileSize / (1024**2))} MB`,
-                    levelFiles: Object.keys(levelFilesForSize).length,
-                    songFiles: Object.keys(songFilesForSize).length
+                    uuidFolderPath,
+                    folderSize: `${Math.round(folderSize / (1024**2))} MB`
                 });
                 
-                // Move level files to new drive (zip files stay in Spaces)
-                const updatedLevelFiles = { ...levelFilesForSize };
-                const updatedSongFiles = { ...songFilesForSize };
+                // Create new folder path on target drive
+                const relativePath = path.relative(currentDrive, uuidFolderPath);
+                const newFolderPath = path.join(targetDrive, relativePath);
                 
-                // Move level files
-                for (const [levelKey, levelFile] of Object.entries(levelFilesForSize)) {
-                    const levelFileData = levelFile as any;
-                    if (levelFileData.path) {
-                        const currentLevelPath = path.join(currentDrive, levelFileData.path);
-                        const fileName = path.basename(levelFileData.path);
-                        const newLevelPath = path.join(targetDrive, 'tuf-cdn', 'levels', file.id, fileName);
-                        
-                        // Ensure target directory exists
-                        await fs.promises.mkdir(path.dirname(newLevelPath), { recursive: true });
-                        
-                        // Move the level file
-                        await fs.promises.rename(currentLevelPath, newLevelPath);
-                        
-                        // Update metadata with new path
-                        const relativeLevelPath = path.relative(targetDrive, newLevelPath);
-                        updatedLevelFiles[levelKey] = {
-                            ...levelFileData,
-                            path: relativeLevelPath,
-                            localPath: newLevelPath // Add absolute local path for easier access
-                        };
-                    }
-                }
+                // Ensure target directory exists
+                await fs.promises.mkdir(path.dirname(newFolderPath), { recursive: true });
                 
-                // Move song files
-                for (const [songKey, songFile] of Object.entries(songFilesForSize)) {
-                    const songFileData = songFile as any;
-                    if (songFileData.path) {
-                        const currentSongPath = path.join(currentDrive, songFileData.path);
-                        const fileName = path.basename(songFileData.path);
-                        const newSongPath = path.join(targetDrive, 'tuf-cdn', 'levels', file.id, fileName);
-                        
-                        // Ensure target directory exists
-                        await fs.promises.mkdir(path.dirname(newSongPath), { recursive: true });
-                        
-                        // Move the song file
-                        await fs.promises.rename(currentSongPath, newSongPath);
-                        
-                        // Update metadata with new path
-                        const relativeSongPath = path.relative(targetDrive, newSongPath);
-                        updatedSongFiles[songKey] = {
-                            ...songFileData,
-                            path: relativeSongPath,
-                            localPath: newSongPath // Add absolute local path for easier access
-                        };
-                    }
-                }
+                // Move the entire folder
+                await fs.promises.rename(uuidFolderPath, newFolderPath);
                 
-                // Update metadata with new paths and add localPath for easier access
-                const updatedMetadata = {
-                    ...metadata,
-                    levelFiles: updatedLevelFiles,
-                    songFiles: updatedSongFiles,
-                    redistributedAt: new Date().toISOString(),
-                    redistributedFrom: currentDrive,
-                    redistributedTo: targetDrive
-                };
+                // Update metadata with new paths
+                const updatedMetadata = updateMetadataPaths(metadata, currentDrive, targetDrive, file.id);
                 
                 await file.update({
                     metadata: updatedMetadata
                 }, { transaction });
-                
-                // Update space usage tracking
-                const currentUsage = driveSpaceUsage.get(currentDrive) || 0;
-                const targetUsage = driveSpaceUsage.get(targetDrive) || 0;
-                driveSpaceUsage.set(currentDrive, currentUsage - totalFileSize);
-                driveSpaceUsage.set(targetDrive, targetUsage + totalFileSize);
                 
                 redistributedCount++;
                 redistributionResults.push({
@@ -1464,12 +1553,12 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     toDrive: targetDrive
                 });
                 
-                logger.info('Successfully redistributed files:', {
+                logger.info('Successfully redistributed UUID folder:', {
                     fileId: file.id,
                     fromDrive: currentDrive,
                     toDrive: targetDrive,
-                    levelFilesMoved: Object.keys(updatedLevelFiles).length,
-                    songFilesMoved: Object.keys(updatedSongFiles).length
+                    fromPath: uuidFolderPath,
+                    toPath: newFolderPath
                 });
                 
                 if (redistributedCount % 10 === 0) {
@@ -1507,19 +1596,6 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
             batchSize: batchSize || 'unlimited'
         });
         
-        // Log final drive usage
-        logger.info('Final drive usage after redistribution:', {
-            drives: sortedDrives.map(drive => {
-                const usage = driveSpaceUsage.get(drive.drivePath) || 0;
-                return {
-                    drive: drive.drivePath,
-                    usedSpace: `${Math.round(usage / (1024**3))} GB`,
-                    totalSpace: `${Math.round(drive.totalSpace / (1024**3))} GB`,
-                    usagePercentage: `${((usage / drive.totalSpace) * 100).toFixed(1)}%`
-                };
-            })
-        });
-        
         // Log failed redistributions for debugging
         const failedRedistributions = redistributionResults.filter(r => !r.success);
         if (failedRedistributions.length > 0) {
@@ -1547,6 +1623,36 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
             error: error instanceof Error ? error.message : String(error)
         });
         throw error;
+    }
+}
+
+/**
+ * Helper function to calculate folder size
+ */
+async function getFolderSize(folderPath: string): Promise<number> {
+    try {
+        let totalSize = 0;
+        
+        const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
+        
+        for (const entry of entries) {
+            const fullPath = path.join(folderPath, entry.name);
+            
+            if (entry.isDirectory()) {
+                totalSize += await getFolderSize(fullPath);
+            } else {
+                const stats = await fs.promises.stat(fullPath);
+                totalSize += stats.size;
+            }
+        }
+        
+        return totalSize;
+    } catch (error) {
+        logger.warn('Failed to calculate folder size:', {
+            folderPath,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return 0;
     }
 }
 
