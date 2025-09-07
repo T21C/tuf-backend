@@ -975,20 +975,17 @@ async function getFileCountOnDrive(drive: string): Promise<number> {
         
         let fileCount = 0;
         const levelsDir = path.join(cdnRoot, 'levels');
-        const zipsDir = path.join(cdnRoot, 'zips');
         
-        for (const dir of [levelsDir, zipsDir]) {
-            if (fs.existsSync(dir)) {
-                const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+            if (fs.existsSync(levelsDir)) {
+                const entries = await fs.promises.readdir(levelsDir, { withFileTypes: true });
                 for (const entry of entries) {
                     if (entry.isDirectory()) {
-                        const subDir = path.join(dir, entry.name);
+                        const subDir = path.join(levelsDir, entry.name);
                         const subEntries = await fs.promises.readdir(subDir, { withFileTypes: true });
                         fileCount += subEntries.filter(e => e.isFile()).length;
                     }
                 }
             }
-        }
         
         return fileCount;
     } catch (error) {
@@ -1279,76 +1276,54 @@ function findUuidFolderPath(filePath: string): string | null {
 
 /**
  * Update all path fields in metadata after moving a folder
+ * Uses simple string replacement to update all absolute paths
+ * Normalizes all paths to use forward slashes for consistent replacement
  */
 function updateMetadataPaths(metadata: any, fromDrive: string, toDrive: string, fileId: string): any {
-    const updatedMetadata = { ...metadata };
+    // Normalize drive paths to use forward slashes
+    const normalizedFromDrive = fromDrive.replace(/\\\\/g, '/');
+    const normalizedToDrive = toDrive.replace(/\\\\/g, '/');
     
-    // Update targetLevel
-    if (updatedMetadata.targetLevel) {
-        updatedMetadata.targetLevel = updatedMetadata.targetLevel.replace(fromDrive, toDrive);
-    }
+    logger.info('Normalized from drive:', {
+        normalizedFromDrive
+    });
+
+    logger.info('Normalized to drive:', {
+        normalizedToDrive
+    });
+
+    // Convert metadata to JSON string for easy replacement
+    let metadataString = JSON.stringify(metadata).replace(/\\\\/g, '/');
     
-    // Update levelFiles paths
-    if (updatedMetadata.levelFiles) {
-        const updatedLevelFiles = { ...updatedMetadata.levelFiles };
-        Object.keys(updatedLevelFiles).forEach(key => {
-            if (updatedLevelFiles[key].path) {
-                updatedLevelFiles[key] = {
-                    ...updatedLevelFiles[key],
-                    path: updatedLevelFiles[key].path.replace(fromDrive, toDrive)
-                };
-            }
-            if (updatedLevelFiles[key].localPath) {
-                updatedLevelFiles[key] = {
-                    ...updatedLevelFiles[key],
-                    localPath: updatedLevelFiles[key].localPath.replace(fromDrive, toDrive)
-                };
-            }
-        });
-        updatedMetadata.levelFiles = updatedLevelFiles;
-    }
+    logger.info('Metadata string:', {
+        metadataString
+    });
+
+    // Replace all occurrences of the old drive path with the new one
+    // This will match both forward slashes and double backslashes in the JSON
+    const updatedMetadataString = metadataString.replace(
+        new RegExp(normalizedFromDrive, 'g'),
+        normalizedToDrive
+    );
     
-    // Update songFiles paths
-    if (updatedMetadata.songFiles) {
-        const updatedSongFiles = { ...updatedMetadata.songFiles };
-        Object.keys(updatedSongFiles).forEach(key => {
-            if (updatedSongFiles[key].path) {
-                updatedSongFiles[key] = {
-                    ...updatedSongFiles[key],
-                    path: updatedSongFiles[key].path.replace(fromDrive, toDrive)
-                };
-            }
-            if (updatedSongFiles[key].localPath) {
-                updatedSongFiles[key] = {
-                    ...updatedSongFiles[key],
-                    localPath: updatedSongFiles[key].localPath.replace(fromDrive, toDrive)
-                };
-            }
-        });
-        updatedMetadata.songFiles = updatedSongFiles;
-    }
-    
-    // Update allLevelFiles paths
-    if (updatedMetadata.allLevelFiles && Array.isArray(updatedMetadata.allLevelFiles)) {
-        updatedMetadata.allLevelFiles = updatedMetadata.allLevelFiles.map((levelFile: any) => ({
-            ...levelFile,
-            path: levelFile.path ? levelFile.path.replace(fromDrive, toDrive) : levelFile.path,
-            localPath: levelFile.localPath ? levelFile.localPath.replace(fromDrive, toDrive) : levelFile.localPath
-        }));
-    }
-    
-    // Update originalZip path (if it's local)
-    if (updatedMetadata.originalZip && updatedMetadata.originalZip.path) {
-        updatedMetadata.originalZip = {
-            ...updatedMetadata.originalZip,
-            path: updatedMetadata.originalZip.path.replace(fromDrive, toDrive)
-        };
-    }
+    logger.info('Updated metadata string:', {
+        updatedMetadataString
+    });
+
+    // Parse back to object
+    const updatedMetadata = JSON.parse(updatedMetadataString);
     
     // Add redistribution tracking
     updatedMetadata.redistributedAt = new Date().toISOString();
     updatedMetadata.redistributedFrom = fromDrive;
     updatedMetadata.redistributedTo = toDrive;
+    
+    logger.info('Updated metadata paths:', {
+        fileId,
+        fromDrive: normalizedFromDrive,
+        toDrive: normalizedToDrive,
+        replacements: (metadataString.match(new RegExp(normalizedFromDrive, 'g')) || []).length
+    });
     
     return updatedMetadata;
 }
@@ -1487,12 +1462,12 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                 const bestDrive = storageManager.getBestDriveForRedistribution('most_occupied');
                 
                 if (bestDrive) {
-                    targetDrive = bestDrive.drivePath;
+                    targetDrive = bestDrive.storagePath;
                 } else {
                     // Fallback to 'least_occupied' if no drive is available with 'most_occupied' strategy
                     const fallbackDrive = storageManager.getBestDriveForRedistribution('least_occupied');
                     if (fallbackDrive) {
-                        targetDrive = fallbackDrive.drivePath;
+                        targetDrive = fallbackDrive.storagePath;
                     }
                 }
                 
@@ -1524,15 +1499,24 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     strategy: 'percentage-based (most_occupied)'
                 });
                 
+                // Verify source folder exists before attempting to move
+                if (!fs.existsSync(uuidFolderPath)) {
+                    logger.warn('Source folder does not exist, skipping:', {
+                        fileId: file.id,
+                        uuidFolderPath,
+                        currentDrive,
+                        targetDrive
+                    });
+                    continue;
+                }
+                
                 // Create new folder path on target drive
                 const relativePath = path.relative(currentDrive, uuidFolderPath);
                 const newFolderPath = path.join(targetDrive, relativePath);
                 
-                // Ensure target directory exists
-                await fs.promises.mkdir(path.dirname(newFolderPath), { recursive: true });
-                
-                // Move the entire folder
-                await fs.promises.rename(uuidFolderPath, newFolderPath);
+                // Note: Directory structure is ensured by storageManager.getBestDriveForRedistribution()
+                // Move the entire folder (handle cross-drive moves)
+                await moveFolderCrossDrive(uuidFolderPath, newFolderPath);
                 
                 // Update metadata with new paths
                 const updatedMetadata = updateMetadataPaths(metadata, currentDrive, targetDrive, file.id);
@@ -1649,6 +1633,93 @@ async function getFolderSize(folderPath: string): Promise<number> {
             error: error instanceof Error ? error.message : String(error)
         });
         return 0;
+    }
+}
+
+/**
+ * Move a folder across drives (handles cross-device link errors)
+ * Uses copy-and-delete approach for cross-drive moves
+ */
+async function moveFolderCrossDrive(sourcePath: string, targetPath: string): Promise<void> {
+    try {
+        // Verify source exists before attempting move
+        if (!fs.existsSync(sourcePath)) {
+            throw new Error(`Source folder does not exist: ${sourcePath}`);
+        }
+        
+        // Verify source is actually a directory
+        const sourceStats = await fs.promises.stat(sourcePath);
+        if (!sourceStats.isDirectory()) {
+            throw new Error(`Source path is not a directory: ${sourcePath}`);
+        }
+        
+        logger.info('Starting folder move operation:', {
+            from: sourcePath,
+            to: targetPath,
+            sourceExists: true,
+            sourceIsDirectory: true
+        });
+        
+        // First, try a simple rename (works for same-drive moves)
+        try {
+            await fs.promises.rename(sourcePath, targetPath);
+            logger.info('Successfully moved folder (same drive):', {
+                from: sourcePath,
+                to: targetPath
+            });
+            return;
+        } catch (renameError) {
+            // If rename fails with EXDEV error, it's a cross-drive move
+            if (renameError instanceof Error && renameError.message.includes('EXDEV')) {
+                logger.info('Cross-drive move detected, using copy-and-delete approach:', {
+                    from: sourcePath,
+                    to: targetPath
+                });
+                
+                // Use copy-and-delete for cross-drive moves
+                await copyFolderRecursive(sourcePath, targetPath);
+                await fs.promises.rm(sourcePath, { recursive: true, force: true });
+                
+                logger.info('Successfully moved folder (cross-drive):', {
+                    from: sourcePath,
+                    to: targetPath
+                });
+            } else {
+                // Re-throw if it's a different error
+                throw renameError;
+            }
+        }
+    } catch (error) {
+        logger.error('Failed to move folder:', {
+            from: sourcePath,
+            to: targetPath,
+            error: error instanceof Error ? error.message : String(error),
+            sourceExists: fs.existsSync(sourcePath)
+        });
+        throw error;
+    }
+}
+
+/**
+ * Recursively copy a folder and all its contents
+ */
+async function copyFolderRecursive(sourcePath: string, targetPath: string): Promise<void> {
+    // Ensure target directory exists
+    await fs.promises.mkdir(targetPath, { recursive: true });
+    
+    const entries = await fs.promises.readdir(sourcePath, { withFileTypes: true });
+    
+    for (const entry of entries) {
+        const sourceEntryPath = path.join(sourcePath, entry.name);
+        const targetEntryPath = path.join(targetPath, entry.name);
+        
+        if (entry.isDirectory()) {
+            // Recursively copy subdirectories
+            await copyFolderRecursive(sourceEntryPath, targetEntryPath);
+        } else {
+            // Copy files
+            await fs.promises.copyFile(sourceEntryPath, targetEntryPath);
+        }
     }
 }
 

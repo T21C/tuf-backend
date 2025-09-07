@@ -308,6 +308,9 @@ export class StorageManager {
             selectedDrive = availableDrives.sort((a, b) => a.usagePercentage - b.usagePercentage)[0];
         }
 
+        // Ensure the necessary directory structure exists on the selected drive
+        this.ensureRedistributionDirectories(selectedDrive);
+
         logger.info(`Selected drive for redistribution (${mode}):`, {
             drive: selectedDrive.storagePath,
             usagePercentage: selectedDrive.usagePercentage,
@@ -323,6 +326,38 @@ export class StorageManager {
         });
 
         return selectedDrive;
+    }
+
+    /**
+     * Ensure that the necessary directory structure exists for redistribution
+     * Creates levels directory if it doesn't exist (zips folder is deprecated)
+     */
+    private ensureRedistributionDirectories(drive: StorageDrive): void {
+        try {
+            const levelsDir = path.join(drive.storagePath, 'levels');
+            
+            // Create levels directory if it doesn't exist
+            if (!fs.existsSync(levelsDir)) {
+                fs.mkdirSync(levelsDir, { recursive: true });
+                logger.info('Created levels directory for redistribution:', {
+                    drive: drive.storagePath,
+                    directory: levelsDir
+                });
+            }
+            
+            logger.debug('Verified redistribution directory exists:', {
+                drive: drive.storagePath,
+                levelsDir: levelsDir,
+                levelsExists: fs.existsSync(levelsDir)
+            });
+            
+        } catch (error) {
+            logger.error('Failed to ensure redistribution directories:', {
+                drive: drive.storagePath,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
     }
 
     // Utility function to safely delete files and directories
