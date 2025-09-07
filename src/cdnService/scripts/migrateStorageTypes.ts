@@ -1094,6 +1094,7 @@ export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
                         updatedSongFiles[songKey] = {
                             ...songFileData,
                             path: spacesPath,
+                            localPath: localPath, // Keep original local path for reference
                             storageType: StorageType.SPACES,
                             migratedAt: new Date().toISOString()
                         };
@@ -1299,15 +1300,25 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     continue;
                 }
                 
-                // Determine current drive by checking which drive contains the file
+                // Determine current drive by checking which drive contains the level files
+                // Since zips are now in Spaces, we need to check level files instead
                 const drives = storageManager.getDrivesStatus();
                 let currentDrive: string | null = null;
                 
-                for (const drive of drives) {
-                    const fullPath = path.join(drive.drivePath, originalZip.path);
-                    if (fs.existsSync(fullPath)) {
-                        currentDrive = drive.drivePath;
-                        break;
+                // Check level files to determine the drive (they're always local)
+                const levelFilesForDriveCheck = metadata.levelFiles || {};
+                for (const [levelKey, levelFile] of Object.entries(levelFilesForDriveCheck)) {
+                    const levelFileData = levelFile as any;
+                    if (levelFileData.path) {
+                        // Check if this level file exists on any drive
+                        for (const drive of drives) {
+                            const fullPath = path.join(drive.drivePath, levelFileData.path);
+                            if (fs.existsSync(fullPath)) {
+                                currentDrive = drive.drivePath;
+                                break;
+                            }
+                        }
+                        if (currentDrive) break;
                     }
                 }
                 
@@ -1321,22 +1332,36 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                 
                 // Find the best target drive (first drive with enough space)
                 let targetDrive: string | null = null;
-                const fileSize = originalZip.size || 0;
+                
+                // Calculate total size of level and song files (not zip, since it's in Spaces)
+                let totalFileSize = 0;
+                const levelFilesForSize = metadata.levelFiles || {};
+                const songFilesForSize = metadata.songFiles || {};
+                
+                // Add up sizes of all level files
+                Object.values(levelFilesForSize).forEach((levelFile: any) => {
+                    totalFileSize += levelFile.size || 0;
+                });
+                
+                // Add up sizes of all song files
+                Object.values(songFilesForSize).forEach((songFile: any) => {
+                    totalFileSize += songFile.size || 0;
+                });
                 
                 for (const drive of sortedDrives) {
                     const currentUsage = driveSpaceUsage.get(drive.drivePath) || 0;
                     const availableSpace = drive.totalSpace - currentUsage;
                     
-                    if (availableSpace > fileSize) {
+                    if (availableSpace > totalFileSize) {
                         targetDrive = drive.drivePath;
                         break;
                     }
                 }
                 
                 if (!targetDrive) {
-                    logger.warn('No drive has enough space for file, skipping:', {
+                    logger.warn('No drive has enough space for files, skipping:', {
                         fileId: file.id,
-                        fileSize: `${Math.round(fileSize / (1024**2))} MB`
+                        totalFileSize: `${Math.round(totalFileSize / (1024**2))} MB`
                     });
                     continue;
                 }
@@ -1350,32 +1375,72 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     continue;
                 }
                 
-                logger.info('Redistributing file:', {
+                logger.info('Redistributing files:', {
                     fileId: file.id,
                     fromDrive: currentDrive,
                     toDrive: targetDrive,
-                    fileSize: `${Math.round(fileSize / (1024**2))} MB`
+                    totalFileSize: `${Math.round(totalFileSize / (1024**2))} MB`,
+                    levelFiles: Object.keys(levelFilesForSize).length,
+                    songFiles: Object.keys(songFilesForSize).length
                 });
                 
-                // Create new path on target drive
-                const fileName = path.basename(originalZip.path);
-                const newPath = path.join(targetDrive, 'tuf-cdn', 'zips', file.id, fileName);
+                // Move level files to new drive (zip files stay in Spaces)
+                const updatedLevelFiles = { ...levelFilesForSize };
+                const updatedSongFiles = { ...songFilesForSize };
                 
-                // Ensure target directory exists
-                await fs.promises.mkdir(path.dirname(newPath), { recursive: true });
+                // Move level files
+                for (const [levelKey, levelFile] of Object.entries(levelFilesForSize)) {
+                    const levelFileData = levelFile as any;
+                    if (levelFileData.path) {
+                        const currentLevelPath = path.join(currentDrive, levelFileData.path);
+                        const fileName = path.basename(levelFileData.path);
+                        const newLevelPath = path.join(targetDrive, 'tuf-cdn', 'levels', file.id, fileName);
+                        
+                        // Ensure target directory exists
+                        await fs.promises.mkdir(path.dirname(newLevelPath), { recursive: true });
+                        
+                        // Move the level file
+                        await fs.promises.rename(currentLevelPath, newLevelPath);
+                        
+                        // Update metadata with new path
+                        const relativeLevelPath = path.relative(targetDrive, newLevelPath);
+                        updatedLevelFiles[levelKey] = {
+                            ...levelFileData,
+                            path: relativeLevelPath,
+                            localPath: newLevelPath // Add absolute local path for easier access
+                        };
+                    }
+                }
                 
-                // Move file to new location
-                const currentPath = path.join(currentDrive, originalZip.path);
-                await fs.promises.rename(currentPath, newPath);
+                // Move song files
+                for (const [songKey, songFile] of Object.entries(songFilesForSize)) {
+                    const songFileData = songFile as any;
+                    if (songFileData.path) {
+                        const currentSongPath = path.join(currentDrive, songFileData.path);
+                        const fileName = path.basename(songFileData.path);
+                        const newSongPath = path.join(targetDrive, 'tuf-cdn', 'levels', file.id, fileName);
+                        
+                        // Ensure target directory exists
+                        await fs.promises.mkdir(path.dirname(newSongPath), { recursive: true });
+                        
+                        // Move the song file
+                        await fs.promises.rename(currentSongPath, newSongPath);
+                        
+                        // Update metadata with new path
+                        const relativeSongPath = path.relative(targetDrive, newSongPath);
+                        updatedSongFiles[songKey] = {
+                            ...songFileData,
+                            path: relativeSongPath,
+                            localPath: newSongPath // Add absolute local path for easier access
+                        };
+                    }
+                }
                 
-                // Update metadata with new path
-                const relativePath = path.relative(targetDrive, newPath);
+                // Update metadata with new paths and add localPath for easier access
                 const updatedMetadata = {
                     ...metadata,
-                    originalZip: {
-                        ...originalZip,
-                        path: relativePath
-                    },
+                    levelFiles: updatedLevelFiles,
+                    songFiles: updatedSongFiles,
                     redistributedAt: new Date().toISOString(),
                     redistributedFrom: currentDrive,
                     redistributedTo: targetDrive
@@ -1388,8 +1453,8 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                 // Update space usage tracking
                 const currentUsage = driveSpaceUsage.get(currentDrive) || 0;
                 const targetUsage = driveSpaceUsage.get(targetDrive) || 0;
-                driveSpaceUsage.set(currentDrive, currentUsage - fileSize);
-                driveSpaceUsage.set(targetDrive, targetUsage + fileSize);
+                driveSpaceUsage.set(currentDrive, currentUsage - totalFileSize);
+                driveSpaceUsage.set(targetDrive, targetUsage + totalFileSize);
                 
                 redistributedCount++;
                 redistributionResults.push({
@@ -1399,11 +1464,12 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     toDrive: targetDrive
                 });
                 
-                logger.info('Successfully redistributed file:', {
+                logger.info('Successfully redistributed files:', {
                     fileId: file.id,
                     fromDrive: currentDrive,
                     toDrive: targetDrive,
-                    newPath: relativePath
+                    levelFilesMoved: Object.keys(updatedLevelFiles).length,
+                    songFilesMoved: Object.keys(updatedSongFiles).length
                 });
                 
                 if (redistributedCount % 10 === 0) {
