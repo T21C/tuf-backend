@@ -241,25 +241,28 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
             file.path = uploadedFile.path;
         });
 
-        // Upload song files
-        const songUploadPromises = Object.values(songFiles).map(async (songFile) => {
-            const result = await hybridStorageManager.uploadLevelFile(
-                songFile.path,
-                zipFileId,
-                songFile.name,
-                false // not a zip
-            );
-            return {
-                ...songFile,
-                path: result.filePath,
-                storageType: result.storageType
-            };
-        });
+        // Upload song files using hybrid storage manager
+        const songUploadResult = await hybridStorageManager.uploadSongFiles(
+            Object.values(songFiles).map(songFile => ({
+                sourcePath: songFile.path,
+                filename: songFile.name,
+                size: songFile.size,
+                type: songFile.type
+            })),
+            zipFileId
+        );
 
-        const uploadedSongFiles = await Promise.all(songUploadPromises);
+        // Update file paths in metadata
         const updatedSongFiles: { [key: string]: any } = {};
-        uploadedSongFiles.forEach(songFile => {
-            updatedSongFiles[songFile.name] = songFile;
+        songUploadResult.files.forEach((uploadedFile, index) => {
+            const originalSongFile = Object.values(songFiles)[index];
+            updatedSongFiles[uploadedFile.filename] = {
+                ...originalSongFile,
+                path: uploadedFile.path,
+                storageType: songUploadResult.storageType,
+                url: uploadedFile.url,
+                key: uploadedFile.key
+            };
         });
 
         // Upload original zip file
@@ -318,13 +321,13 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
                     originalFilename: finalZipName
                 },
                 levelStorageType: levelUploadResult.storageType,
-                songStorageType: uploadedSongFiles[0]?.storageType || levelUploadResult.storageType,
+                songStorageType: songUploadResult.storageType,
                 // Add timestamp for debugging
                 uploadedAt: new Date().toISOString(),
                 storageInfo: {
                     primary: levelUploadResult.storageType,
                     levels: levelUploadResult.storageType,
-                    songs: uploadedSongFiles[0]?.storageType || levelUploadResult.storageType,
+                    songs: songUploadResult.storageType,
                     zip: zipUploadResult.storageType
                 }
             }
@@ -346,7 +349,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
             pathConfirmed,
             storageType: levelUploadResult.storageType,
             levelStorageType: levelUploadResult.storageType,
-            songStorageType: uploadedSongFiles[0]?.storageType || levelUploadResult.storageType,
+            songStorageType: songUploadResult.storageType,
             zipStorageType: zipUploadResult.storageType,
             hasOriginalZip: true
         });

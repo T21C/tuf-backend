@@ -18,6 +18,7 @@ export enum StorageType {
 interface StorageConfig {
     type: StorageType;
     useSpacesForLevels: boolean;
+    useSpacesForSongs: boolean;
     useSpacesForImages: boolean;
     useSpacesForZips: boolean;
     fallbackToLocal: boolean;
@@ -42,6 +43,7 @@ export class HybridStorageManager {
     private loadConfig(): StorageConfig {
         const storageType = (process.env.STORAGE_TYPE as StorageType) || StorageType.HYBRID;
         const useSpacesForLevels = process.env.USE_SPACES_FOR_LEVELS === 'true';
+        const useSpacesForSongs = process.env.USE_SPACES_FOR_SONGS === 'true';
         const useSpacesForImages = process.env.USE_SPACES_FOR_IMAGES === 'true';
         const useSpacesForZips = process.env.USE_SPACES_FOR_ZIPS === 'true';
         const fallbackToLocal = process.env.SPACES_FALLBACK_TO_LOCAL !== 'false';
@@ -49,6 +51,7 @@ export class HybridStorageManager {
         return {
             type: storageType,
             useSpacesForLevels,
+            useSpacesForSongs,
             useSpacesForImages,
             useSpacesForZips,
             fallbackToLocal
@@ -71,9 +74,8 @@ export class HybridStorageManager {
         originalFilename?: string;
     }> {
         try {
-            const shouldUseSpaces = isZip ? this.config.useSpacesForZips : this.config.useSpacesForLevels;
 
-            if (shouldUseSpaces && this.config.type !== StorageType.LOCAL) {
+            if (this.config.useSpacesForSongs && this.config.type !== StorageType.LOCAL) {
                 try {
                     const keyResult = isZip 
                         ? spacesStorage.generateZipKey(fileId, originalFilename)
@@ -140,6 +142,79 @@ export class HybridStorageManager {
                 fileId,
                 originalFilename,
                 isZip
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Upload song files to Spaces only
+     */
+    public async uploadSongFiles(
+        files: Array<{ sourcePath: string; filename: string; size: number; type: string }>,
+        fileId: string
+    ): Promise<{
+        storageType: StorageType;
+        files: Array<{
+            filename: string;
+            path: string;
+            size: number;
+            type: string;
+            url?: string;
+            key?: string;
+        }>;
+    }> {
+        try {
+            const results: Array<{
+                filename: string;
+                path: string;
+                size: number;
+                type: string;
+                url?: string;
+                key?: string;
+            }> = [];
+
+            // Upload all song files to Spaces
+            for (const file of files) {
+                const spacesKey = `zips/${fileId}/${file.filename}`;
+                
+                const result = await spacesStorage.uploadFile(
+                    file.sourcePath, 
+                    spacesKey, 
+                    `audio/${file.type}`,
+                    {
+                        fileId,
+                        originalFilename: encodeURIComponent(file.filename),
+                        uploadType: 'song',
+                        uploadedAt: new Date().toISOString()
+                    }
+                );
+
+                results.push({
+                    filename: file.filename,
+                    path: result.key,
+                    size: file.size,
+                    type: file.type,
+                    url: result.url,
+                    key: result.key
+                });
+            }
+
+            logger.info('All song files uploaded to Spaces', {
+                fileId,
+                fileCount: files.length,
+                totalSize: files.reduce((sum, f) => sum + f.size, 0)
+            });
+
+            return {
+                storageType: StorageType.SPACES,
+                files: results
+            };
+        } catch (error) {
+            logger.error('Failed to upload song files to Spaces', {
+                error: error instanceof Error ? error.message : String(error),
+                fileId,
+                fileCount: files.length
             });
             throw error;
         }
