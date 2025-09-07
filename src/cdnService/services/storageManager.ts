@@ -274,6 +274,57 @@ export class StorageManager {
         }));
     }
 
+    /**
+     * Get the best drive for redistribution based on percentage usage
+     * @param mode 'least_occupied' | 'most_occupied' - Strategy for drive selection
+     * @returns The selected drive or null if no suitable drive found
+     */
+    public getBestDriveForRedistribution(mode: 'least_occupied' | 'most_occupied' = 'least_occupied'): StorageDrive | null {
+        // Update drive usage information
+        this.updateDriveUsage();
+
+        // Filter drives that are below the storage threshold
+        const availableDrives = this.drives.filter(drive => drive.usagePercentage < this.STORAGE_THRESHOLD);
+
+        if (availableDrives.length === 0) {
+            logger.warn('No drives available below storage threshold', {
+                threshold: this.STORAGE_THRESHOLD,
+                drives: this.drives.map(d => ({
+                    path: d.storagePath,
+                    usage: d.usagePercentage,
+                    available: this.formatBytes(d.availableSpace)
+                }))
+            });
+            return null;
+        }
+
+        let selectedDrive: StorageDrive;
+
+        if (mode === 'most_occupied') {
+            // Sort by usage percentage descending (most occupied first)
+            selectedDrive = availableDrives.sort((a, b) => b.usagePercentage - a.usagePercentage)[0];
+        } else {
+            // Sort by usage percentage ascending (least occupied first)
+            selectedDrive = availableDrives.sort((a, b) => a.usagePercentage - b.usagePercentage)[0];
+        }
+
+        logger.info(`Selected drive for redistribution (${mode}):`, {
+            drive: selectedDrive.storagePath,
+            usagePercentage: selectedDrive.usagePercentage,
+            availableSpace: this.formatBytes(selectedDrive.availableSpace),
+            threshold: this.STORAGE_THRESHOLD,
+            totalAvailableDrives: availableDrives.length,
+            allDrives: this.drives.map(d => ({
+                path: d.storagePath,
+                usage: d.usagePercentage,
+                available: this.formatBytes(d.availableSpace),
+                isAvailable: d.usagePercentage < this.STORAGE_THRESHOLD
+            }))
+        });
+
+        return selectedDrive;
+    }
+
     // Utility function to safely delete files and directories
     // Specialized method for cleaning up image directories
     public cleanupImageDirectory(imageDir: string, fileId: string, imageType: string): boolean {

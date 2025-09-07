@@ -1365,26 +1365,19 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
             batchSize: batchSize || 'all'
         });
         
-        // Get drive status and sort by priority (first in list = highest priority)
+        // Get drive status
         const drives = storageManager.getDrivesStatus();
         if (drives.length < 2) {
             logger.info('Only one drive available, no redistribution needed');
             return;
         }
         
-        // Sort drives by priority (first drive = highest priority)
-        // Extract drive letter for proper sorting
-        const sortedDrives = drives.sort((a, b) => {
-            const driveA = a.drivePath.match(/^([A-Za-z]:)/)?.[1] || a.drivePath;
-            const driveB = b.drivePath.match(/^([A-Za-z]:)/)?.[1] || b.drivePath;
-            return driveA.localeCompare(driveB);
-        });
-        
-        logger.info('Drive priority order:', {
-            drives: sortedDrives.map(d => ({
+        logger.info('Available drives for redistribution:', {
+            drives: drives.map(d => ({
                 path: d.drivePath,
                 availableSpace: `${d.availableSpace} GB`,
-                usagePercentage: `${d.usagePercentage}%`
+                usagePercentage: `${d.usagePercentage}%`,
+                isAvailable: d.usagePercentage < 99 // Using 99% threshold
             }))
         });
         
@@ -1478,35 +1471,37 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     continue;
                 }
                 
-                // Find the first non-full drive
+                // Find the best target drive using percentage-based approach
                 let targetDrive: string | null = null;
                 const folderSize = await getFolderSize(uuidFolderPath);
-                const folderSizeGB = folderSize / (1024**3); // Convert to GB for comparison
                 
                 logger.info('Checking drive space for folder:', {
                     fileId: file.id,
                     folderSize: `${Math.round(folderSize / (1024**2))} MB`,
-                    folderSizeGB: `${folderSizeGB.toFixed(3)} GB`,
-                    drives: sortedDrives.map(d => ({
-                        path: d.drivePath,
-                        availableSpaceGB: d.availableSpace,
-                        hasEnoughSpace: d.availableSpace > folderSizeGB
-                    }))
+                    currentDrive: currentDrive,
+                    uuidFolderPath: uuidFolderPath
                 });
                 
-                for (const drive of sortedDrives) {
-                    // availableSpace is already in GB from storage manager
-                    if (drive.availableSpace > folderSizeGB) {
-                        targetDrive = drive.drivePath;
-                        break;
+                // Use the storage manager's percentage-based drive selection
+                // Try 'most_occupied' first to fill up drives efficiently
+                const bestDrive = storageManager.getBestDriveForRedistribution('most_occupied');
+                
+                if (bestDrive) {
+                    targetDrive = bestDrive.drivePath;
+                } else {
+                    // Fallback to 'least_occupied' if no drive is available with 'most_occupied' strategy
+                    const fallbackDrive = storageManager.getBestDriveForRedistribution('least_occupied');
+                    if (fallbackDrive) {
+                        targetDrive = fallbackDrive.drivePath;
                     }
                 }
                 
                 if (!targetDrive) {
-                    logger.warn('No drive has enough space for folder, skipping:', {
+                    logger.warn('No suitable drive found below threshold, skipping:', {
                         fileId: file.id,
                         folderSize: `${Math.round(folderSize / (1024**2))} MB`,
-                        uuidFolderPath
+                        uuidFolderPath,
+                        threshold: '99%'
                     });
                     continue;
                 }
@@ -1525,7 +1520,8 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
                     fromDrive: currentDrive,
                     toDrive: targetDrive,
                     uuidFolderPath,
-                    folderSize: `${Math.round(folderSize / (1024**2))} MB`
+                    folderSize: `${Math.round(folderSize / (1024**2))} MB`,
+                    strategy: 'percentage-based (most_occupied)'
                 });
                 
                 // Create new folder path on target drive
