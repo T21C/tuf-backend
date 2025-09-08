@@ -68,16 +68,17 @@ const extractLevelTypes = (levelData: LevelDict) => {
 
 // Transform level endpoint
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
+    const { fileId } = req.params;
+    const tempDir = path.join(CDN_CONFIG.user_root, fileId, 'temp');
     try {
-        const { fileId } = req.params;
         const file = await CdnFile.findByPk(fileId);
 
         if (!file) {
-            return res.status(404).json({ error: 'File not found' });
+            throw { error: 'File not found', code: 404 };
         }
 
         if (file.type !== 'LEVELZIP') {
-            return res.status(400).json({ error: 'File is not a level zip' });
+            throw { error: 'File is not a level zip', code: 400 };
         }
 
         const metadata = file.metadata as {
@@ -114,7 +115,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         // Validate metadata structure
         if (!file.metadata) {
             logger.error('Missing metadata object:', { fileId });
-            return res.status(400).json({ error: 'Level metadata is missing' });
+            throw { error: 'Level metadata is missing', code: 400 };
         }
 
         if (!metadata.songFiles) {
@@ -122,7 +123,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 fileId,
                 metadata: file.metadata 
             });
-            return res.status(400).json({ error: 'Song files not found in metadata' });
+            throw { error: 'Song files not found in metadata', code: 400 };
         }
 
         // If targetLevel is missing, find the largest level file
@@ -132,7 +133,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     fileId,
                     metadata: file.metadata 
                 });
-                return res.status(400).json({ error: 'No level files found in metadata' });
+                throw { error: 'No level files found in metadata', code: 400 };
             }
 
             // Sort by size and pick the largest
@@ -164,7 +165,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 preferredStorageType,
                 checkedStorageType: levelCheck.storageType
             });
-            return res.status(400).json({ error: 'Target level file not found in storage' });
+            throw { error: 'Target level file not found in storage', code: 400 };
         }
         
         logger.debug('Target level found using fallback logic:', {
@@ -204,7 +205,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         
         if (levelCheck.storageType === StorageType.SPACES) {
             // Download from Spaces to temporary file
-            const tempPath = path.join(CDN_CONFIG.user_root, 'temp', `level_${Date.now()}.adofai`);
+            const tempPath = path.join(tempDir, `level_${Date.now()}.adofai`);
             await hybridStorageManager.downloadFile(levelPath, StorageType.SPACES, tempPath);
             parsedLevel = await new LevelDict(tempPath);
             
@@ -231,7 +232,6 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         // Handle different response formats
         if (format === 'zip') {
             // Create a temporary file for the transformed level
-            const tempDir = path.join(CDN_CONFIG.user_root, 'temp');
             await fs.promises.mkdir(tempDir, { recursive: true });
             
             const tempLevelPath = path.join(tempDir, `transformed_${Date.now()}.adofai`);
@@ -241,8 +241,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             const songFilename = transformedLevel.getSetting("songFilename");
             const requiresYSMod = transformedLevel.getSetting("requiredMods")?.includes('YouTubeStream');
             if (!requiresYSMod && (!songFilename || !metadata.songFiles[songFilename])) {
-                await fs.promises.unlink(tempLevelPath);
-                return res.status(400).json({ error: 'Song file not found in level' });
+                throw { error: 'Song file not found in level', code: 400 };
             }
 
             // Handle song file download if needed using fallback logic
@@ -264,13 +263,12 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                         songPath: songFile.path,
                         preferredStorageType: preferredSongStorageType
                     });
-                    await fs.promises.unlink(tempLevelPath);
-                    return res.status(400).json({ error: 'Song file not found in storage' });
+                    throw { error: 'Song file not found in storage', code: 400 };
                 }
                 
                 if (songCheck.storageType === StorageType.SPACES) {
                     // Download song file from Spaces to temporary location
-                    const tempSongPath = path.join(CDN_CONFIG.user_root, 'temp', `song_${Date.now()}_${songFilename}`);
+                    const tempSongPath = path.join(tempDir, `song_${Date.now()}_${songFilename}`);
                     await hybridStorageManager.downloadFile(songFile.path, StorageType.SPACES, tempSongPath);
                     songFilePath = tempSongPath;
                 } else {
@@ -345,7 +343,14 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         }
     } catch (error) {
         logger.error('Level transformation error for ' + req.query.fileId + ':', error);
-        res.status(500).json({ error: 'Level transformation failed' });
+        fs.promises.rmdir(tempDir, { recursive: true }).catch(() => {logger.error('Failed to delete temp directory: ' + tempDir + ", error: " + error)});
+        // Handle custom error objects with code
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            res.status(customError.code).json({ error: customError.error });
+        } else {
+            res.status(500).json({ error: 'Level transformation failed' });
+        }
     }
     return;
 });
@@ -355,16 +360,16 @@ router.get('/transform-options', async (req: Request, res: Response) => {
         const fileId = req.query.fileId as string;
         
         if (!fileId) {
-            return res.status(400).json({ error: 'File ID is required' });
+            throw { error: 'File ID is required', code: 400 };
         }
 
         const file = await CdnFile.findByPk(fileId);
         if (!file) {
-            return res.status(404).json({ error: 'File not found' });
+            throw { error: 'File not found', code: 404 };
         }
 
         if (file.type !== 'LEVELZIP') {
-            return res.status(400).json({ error: 'File is not a level zip' });
+            throw { error: 'File is not a level zip', code: 400 };
         }
 
         const metadata = file.metadata as {
@@ -410,7 +415,13 @@ router.get('/transform-options', async (req: Request, res: Response) => {
         res.json(availableTypes);
     } catch (error) {
         logger.error('Error getting transform options for ' + req.query.fileId + ':', error);
-        res.status(500).json({ error: 'Failed to get transform options' });
+        // Handle custom error objects with code
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            res.status(customError.code).json({ error: customError.error });
+        } else {
+            res.status(500).json({ error: 'Failed to get transform options' });
+        }
     }
     return
 });
