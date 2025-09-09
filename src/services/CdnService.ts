@@ -198,7 +198,7 @@ class CdnService {
         fileId: string;
         metadata: any;
     }> {
-        logger.info('Starting level zip upload to CDN:', {
+        logger.debug('Starting level zip upload to CDN:', {
             filename,
             bufferSize: (zipBuffer.length / 1024 / 1024).toFixed(2) + 'MB',
             timestamp: new Date().toISOString()
@@ -224,7 +224,7 @@ class CdnService {
                 }
             });
 
-            logger.info('Level zip successfully uploaded to CDN:', {
+            logger.debug('Level zip successfully uploaded to CDN:', {
                 fileId: response.data.fileId,
                 filename,
                 timestamp: new Date().toISOString()
@@ -303,7 +303,7 @@ class CdnService {
             try {
                 if (await this.checkFileExists(fileId)) {
                     const response = await this.client.delete(`/${fileId}`);
-                    logger.info('Successfully deleted CDN file', {
+                    logger.debug('Successfully deleted CDN file', {
                         fileId,
                         status: response.status,
                         attempt: attempt + 1

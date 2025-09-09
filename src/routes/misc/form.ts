@@ -139,14 +139,14 @@ async function cleanUpFile(req: Request) {
       // Check if file exists before attempting to delete
       await fs.promises.access(req.file.path);
       await fs.promises.unlink(req.file.path);
-      logger.info('Temporary file cleaned up successfully:', {
+      logger.debug('Temporary file cleaned up successfully:', {
         path: req.file.path,
         timestamp: new Date().toISOString()
       });
     } catch (cleanupError) {
       // File might not exist or already be deleted
       if ((cleanupError as any).code === 'ENOENT') {
-        logger.info('Temporary file already deleted:', {
+        logger.debug('Temporary file already deleted:', {
           path: req.file.path,
           timestamp: new Date().toISOString()
         });
@@ -167,7 +167,7 @@ async function cleanUpCdnFile(fileId: string | null) {
   
   try {
     await cdnService.deleteFile(fileId);
-    logger.info('CDN file cleaned up successfully:', {
+    logger.debug('CDN file cleaned up successfully:', {
       fileId,
       timestamp: new Date().toISOString()
     });

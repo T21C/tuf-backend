@@ -985,13 +985,13 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
       // Clean up old CDN file after successful upload and database update
       if (oldFileId) {
         try {
-          logger.info('Cleaning up old CDN file after successful upload', {
+          logger.debug('Cleaning up old CDN file after successful upload', {
             levelId,
             oldFileId,
             newFileId: uploadResult.fileId
           });
           await cdnService.deleteFile(oldFileId);
-          logger.info('Successfully cleaned up old CDN file', {
+          logger.debug('Successfully cleaned up old CDN file', {
             levelId,
             oldFileId
           });
