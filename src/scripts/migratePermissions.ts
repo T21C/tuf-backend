@@ -3,6 +3,9 @@
 import { Command } from 'commander';
 import PermissionMigrationService from '../services/PermissionMigrationService.js';
 import { logger } from '../services/LoggerService.js';
+import { User } from '../models/index.js';
+import Player from '../models/players/Player.js';
+import { permissionFlags } from '../config/constants.js';
 
 const program = new Command();
 
@@ -146,11 +149,6 @@ program
   .action(async () => {
     try {
       logger.info('Gathering permission statistics...');
-      
-             // Import necessary models
-       const { User } = await import('../models/index.js');
-       const Player = (await import('../models/players/Player.js')).default;
-       const { permissionFlags } = await import('../config/constants.js');
       
              const users = await User.findAll();
        

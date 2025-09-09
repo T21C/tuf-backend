@@ -11,6 +11,7 @@ import { Op } from "sequelize";
 import sequelize from "../../config/db.js";
 import { Transaction } from "sequelize";
 import { safeTransactionRollback } from "../../utils/Utility.js";
+import { spacesStorage } from "../services/spacesStorage.js";
 
 const router = Router();
 
@@ -123,8 +124,6 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             });
             
             if (fileCheck.storageType === StorageType.SPACES) {
-                // For Spaces storage, redirect to presigned URL for direct download
-                const { spacesStorage } = await import('../services/spacesStorage.js');
                 
                 // Generate presigned URL for direct download (expires in 1 hour)
                 const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path, 3600);
