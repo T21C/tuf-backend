@@ -267,6 +267,20 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
         };
     }
 
+    if (imageType === 'CURATION_ICON') {
+        return {
+            minWidth: 32,
+            maxWidth: sizes.width * 8,
+            minHeight: 32,
+            maxHeight: sizes.height * 8,
+            maxSize: typeConfig.maxSize,
+            allowedFormats: [...typeConfig.formats],
+            requireSquare: true,
+            maxAspectRatio: 1.1,
+            minAspectRatio: 0.9
+        };
+    }
+
     // Default validation for other image types
     return {
         minWidth: Math.min(sizes.width, sizes.height) * 0.5,

@@ -48,7 +48,7 @@ export const IMAGE_TYPES = {
             small: { width: 100, height: 75 }
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
-        maxSize: 2 * 1024 * 1024 // 2MB
+        maxSize: 5 * 1024 * 1024 // 5MB
     },
     CURATION_ICON: {
         name: 'curation_icon',
@@ -58,7 +58,7 @@ export const IMAGE_TYPES = {
             small: { width: 64, height: 64 }
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
-        maxSize: 1 * 1024 * 1024 // 1MB
+        maxSize: 5 * 1024 * 1024 // 5MB
     },
     LEVEL_THUMBNAIL: {
         name: 'level_thumbnail',
