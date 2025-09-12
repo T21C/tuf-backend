@@ -44,14 +44,28 @@ const cleanupRepackFolder = async () => {
             if (stats.mtime.getTime() < cutoffTime) {
                 await fs.promises.rm(filePath, { recursive: true, force: true });
                 cleanedCount++;
+                logger.info(`Cleaned up old repack folder: ${file}`);
             }
         }
 
         if (cleanedCount > 0) {
-            logger.info(`Cleaned up ${cleanedCount} old files from repack folder`);
+            logger.info(`Cleaned up ${cleanedCount} old repack folders`);
         }
     } catch (error) {
         logger.error('Failed to cleanup repack folder:', error);
+    }
+};
+
+// Clean up specific UUID repack folder
+const cleanupUuidRepackFolder = async (fileId: string) => {
+    try {
+        const uuidRepackFolder = path.join(REPACK_FOLDER, fileId);
+        if (fs.existsSync(uuidRepackFolder)) {
+            await fs.promises.rm(uuidRepackFolder, { recursive: true, force: true });
+            logger.info(`Cleaned up UUID repack folder: ${fileId}`);
+        }
+    } catch (error) {
+        logger.error(`Failed to cleanup UUID repack folder ${fileId}:`, error);
     }
 };
 
@@ -119,7 +133,14 @@ const extractLevelTypes = (levelData: LevelDict) => {
 // Transform level endpoint
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
     const { fileId } = req.params;
-    const tempDir = path.join(CDN_CONFIG.user_root, fileId, 'temp');
+    
+    // Clean up any existing repack folder for this UUID first
+    await cleanupUuidRepackFolder(fileId);
+    
+    // Use repack folder instead of temp folder for all repack-related files
+    const uuidRepackDir = path.join(REPACK_FOLDER, fileId);
+    const tempDir = path.join(uuidRepackDir, 'temp');
+    
     try {
         const file = await CdnFile.findByPk(fileId);
 
@@ -342,8 +363,8 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 } : undefined
             };
 
-            // Repack the zip into the dedicated repack folder
-            const repackZipPath = await repackZipFile(tempMetadata, REPACK_FOLDER);
+            // Repack the zip into the UUID-specific repack folder
+            const repackZipPath = await repackZipFile(tempMetadata, uuidRepackDir);
             
             // Set headers for zip download with encoded filename
             res.setHeader('Content-Type', 'application/zip');
@@ -358,7 +379,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
             // Clean up temp files immediately after streaming starts
             fileStream.on('open', () => {
-                // Clean up temp files but keep the repack zip for retention period
+                // Clean up temp files but keep the entire UUID repack folder for retention period
                 fs.promises.unlink(tempLevelPath).catch(() => {});
                 if (songFilePath && songFilePath.includes('temp')) {
                     fs.promises.unlink(songFilePath).catch(() => {});
@@ -366,6 +387,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 
                 logger.info('Repack zip created and streaming started:', {
                     fileId,
+                    uuidRepackDir,
                     zipPath: repackZipPath,
                     retentionHours: REPACK_RETENTION_HOURS,
                     timestamp: new Date().toISOString()
@@ -377,14 +399,12 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 logger.error('Error streaming zip file:', {
                     error: error.message,
                     zipPath: repackZipPath,
-                    fileId
+                    fileId,
+                    uuidRepackDir
                 });
                 
-                // Clean up temp files on error
-                fs.promises.unlink(tempLevelPath).catch(() => {});
-                if (songFilePath && songFilePath.includes('temp')) {
-                    fs.promises.unlink(songFilePath).catch(() => {});
-                }
+                // Clean up entire UUID repack folder on error
+                fs.promises.rm(uuidRepackDir, { recursive: true, force: true }).catch(() => {});
                 
                 if (!res.headersSent) {
                     res.status(500).json({ error: 'Error streaming file' });
@@ -408,10 +428,10 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
     } catch (error) {
         logger.error('Level transformation error for ' + req.query.fileId + ':', error);
         
-        // Clean up temp directory on error
-        fs.promises.rm(tempDir, { recursive: true, force: true }).catch((cleanupError) => {
-            logger.error('Failed to delete temp directory:', {
-                tempDir,
+        // Clean up entire UUID repack directory on error
+        fs.promises.rm(uuidRepackDir, { recursive: true, force: true }).catch((cleanupError) => {
+            logger.error('Failed to delete UUID repack directory:', {
+                uuidRepackDir,
                 originalError: error,
                 cleanupError
             });
