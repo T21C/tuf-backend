@@ -410,6 +410,7 @@ router.post(
                 model: User,
                 as: 'user',
                 attributes: ['avatarUrl', 'username', 'nickname'],
+                required: false
               },
             ],
           },
