@@ -405,6 +405,13 @@ router.post(
           {
             model: Player,
             as: 'player',
+            include: [
+              {
+                model: User,
+                as: 'user',
+                attributes: ['avatarUrl', 'username', 'nickname'],
+              },
+            ],
           },
           {
             model: Judgement,
