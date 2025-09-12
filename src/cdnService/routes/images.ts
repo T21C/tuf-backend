@@ -30,7 +30,6 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         });
 
         if (!file) {
-            logger.error(`Image not found: ${fileId} (${imageType})`);
             return res.status(404).json({ error: 'Image not found' });
         }
 

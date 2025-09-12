@@ -953,7 +953,7 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
       let oldFileId: string | null = null;
       if (level.dlLink && isCdnUrl(level.dlLink)) {
         oldFileId = getFileIdFromCdnUrl(level.dlLink);
-        logger.info('Found existing CDN file to clean up after upload', {
+        logger.debug('Found existing CDN file to clean up after upload', {
           levelId,
           oldFileId,
           oldDlLink: level.dlLink
