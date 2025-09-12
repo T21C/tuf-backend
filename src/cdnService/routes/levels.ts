@@ -11,6 +11,56 @@ import { hybridStorageManager, StorageType } from "../services/hybridStorageMana
 import LevelDict, { LevelJSON, Action } from "adofai-lib";
 import { decodeFilename } from "../misc/utils.js";
 
+// Repack folder configuration
+const REPACK_FOLDER = path.join(CDN_CONFIG.user_root, 'repack');
+const REPACK_RETENTION_HOURS = 1;
+
+// Ensure repack folder exists and clean it on startup
+const initializeRepackFolder = async () => {
+    try {
+        if (!fs.existsSync(REPACK_FOLDER)) {
+            fs.mkdirSync(REPACK_FOLDER, { recursive: true });
+            logger.info('Created repack folder:', REPACK_FOLDER);
+        } else {
+            // Clean up old files on startup
+            await cleanupRepackFolder();
+        }
+    } catch (error) {
+        logger.error('Failed to initialize repack folder:', error);
+    }
+};
+
+// Clean up files older than retention period
+const cleanupRepackFolder = async () => {
+    try {
+        const files = await fs.promises.readdir(REPACK_FOLDER);
+        const cutoffTime = Date.now() - (REPACK_RETENTION_HOURS * 60 * 60 * 1000);
+        let cleanedCount = 0;
+
+        for (const file of files) {
+            const filePath = path.join(REPACK_FOLDER, file);
+            const stats = await fs.promises.stat(filePath);
+            
+            if (stats.mtime.getTime() < cutoffTime) {
+                await fs.promises.rm(filePath, { recursive: true, force: true });
+                cleanedCount++;
+            }
+        }
+
+        if (cleanedCount > 0) {
+            logger.info(`Cleaned up ${cleanedCount} old files from repack folder`);
+        }
+    } catch (error) {
+        logger.error('Failed to cleanup repack folder:', error);
+    }
+};
+
+// Initialize repack folder on module load
+initializeRepackFolder();
+
+// Schedule periodic cleanup every 30 minutes
+setInterval(cleanupRepackFolder, 30 * 60 * 1000);
+
 // Add helper function for sanitizing filenames
 const sanitizeFilename = (filename: string): string => {
   // Remove or replace invalid characters
@@ -231,7 +281,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
         // Handle different response formats
         if (format === 'zip') {
-            // Create a temporary file for the transformed level
+            // Create a temporary file for the transformed level in the temp dir
             await fs.promises.mkdir(tempDir, { recursive: true });
             
             const tempLevelPath = path.join(tempDir, `transformed_${Date.now()}.adofai`);
@@ -292,8 +342,8 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 } : undefined
             };
 
-            // Repack the zip
-            const zipPath = await repackZipFile(tempMetadata);
+            // Repack the zip into the dedicated repack folder
+            const repackZipPath = await repackZipFile(tempMetadata, REPACK_FOLDER);
             
             // Set headers for zip download with encoded filename
             res.setHeader('Content-Type', 'application/zip');
@@ -302,26 +352,40 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             const displayFilename = path.basename(levelPath);
             res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}.zip`));
             
-            // Stream the zip file
-            const fileStream = fs.createReadStream(zipPath);
+            // Stream the zip file from the repack folder
+            const fileStream = fs.createReadStream(repackZipPath);
             fileStream.pipe(res);
 
-            // Clean up after streaming
-            fileStream.on('end', () => {
-                fs.promises.unlink(zipPath).catch(() => {});
+            // Clean up temp files immediately after streaming starts
+            fileStream.on('open', () => {
+                // Clean up temp files but keep the repack zip for retention period
                 fs.promises.unlink(tempLevelPath).catch(() => {});
                 if (songFilePath && songFilePath.includes('temp')) {
                     fs.promises.unlink(songFilePath).catch(() => {});
                 }
+                
+                logger.info('Repack zip created and streaming started:', {
+                    fileId,
+                    zipPath: repackZipPath,
+                    retentionHours: REPACK_RETENTION_HOURS,
+                    timestamp: new Date().toISOString()
+                });
             });
 
+            // Handle streaming errors
             fileStream.on('error', (error) => {
-                logger.error('Error streaming zip file:', error);
-                fs.promises.unlink(zipPath).catch(() => {});
+                logger.error('Error streaming zip file:', {
+                    error: error.message,
+                    zipPath: repackZipPath,
+                    fileId
+                });
+                
+                // Clean up temp files on error
                 fs.promises.unlink(tempLevelPath).catch(() => {});
                 if (songFilePath && songFilePath.includes('temp')) {
                     fs.promises.unlink(songFilePath).catch(() => {});
                 }
+                
                 if (!res.headersSent) {
                     res.status(500).json({ error: 'Error streaming file' });
                 }
@@ -343,7 +407,16 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         }
     } catch (error) {
         logger.error('Level transformation error for ' + req.query.fileId + ':', error);
-        fs.promises.rmdir(tempDir, { recursive: true }).catch(() => {logger.error('Failed to delete temp directory: ' + tempDir + ", error: " + error)});
+        
+        // Clean up temp directory on error
+        fs.promises.rm(tempDir, { recursive: true, force: true }).catch((cleanupError) => {
+            logger.error('Failed to delete temp directory:', {
+                tempDir,
+                originalError: error,
+                cleanupError
+            });
+        });
+        
         // Handle custom error objects with code
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
             const customError = error as { code: number; error: string };

@@ -406,19 +406,28 @@ interface RepackMetadata {
     };
 }
 
-export async function repackZipFile(metadata: RepackMetadata): Promise<string> {
+export async function repackZipFile(metadata: RepackMetadata, outputDir?: string): Promise<string> {
     let tempZipPath: string | null = null;
     
-    logger.info('Starting zip file repacking:', { metadata });
+    logger.info('Starting zip file repacking:', { metadata, outputDir });
     
-        const storageRoot = await storageManager.getDrive();
-        
-        try {
+    try {
+        // Use provided output directory or default to temp folder
+        if (outputDir) {
+            // Ensure output directory exists
+            await fs.promises.mkdir(outputDir, { recursive: true });
+            tempZipPath = path.join(
+                outputDir,
+                'repacked_' + Date.now() + '_' + Math.random().toString(36).substring(7) + '.zip'
+            );
+        } else {
+            const storageRoot = await storageManager.getDrive();
             tempZipPath = path.join(
                 storageRoot,
                 'temp',
                 'repacked_' + Date.now() + '_' + Math.random().toString(36).substring(7) + '.zip'
             );
+        }
             logger.info('Created temporary zip path:', { tempZipPath });
 
             const zip = new AdmZip();
@@ -450,18 +459,21 @@ export async function repackZipFile(metadata: RepackMetadata): Promise<string> {
             
             logger.info('Zip file repacked successfully');
             return tempZipPath;
-    }
-    catch (error) {
+    } catch (error) {
         logger.error('Error repacking zip file:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
             metadata,
-            tempZipPath
+            tempZipPath,
+            outputDir
         });
         
         if (tempZipPath) {
             logger.info('Cleaning up temporary zip file due to error:', { tempZipPath });
-            storageManager.cleanupFiles(tempZipPath);
+            // Only cleanup if it's in the temp folder, not in the repack folder
+            if (!outputDir) {
+                storageManager.cleanupFiles(tempZipPath);
+            }
         }
         throw new Error('Failed to repack zip file');
     }
