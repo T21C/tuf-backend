@@ -110,19 +110,19 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    if (req.body.username.length > 20) {
+    if (req.body.username && req.body.username.length > 20) {
       return res.status(400).json({error: 'Username must be less than 60 characters'});
     }
 
-    if (req.body.username.length < 3) {
+    if (req.body.username && req.body.username.length < 3) {
       return res.status(400).json({error: 'Username must be at least 3 characters'});
     }
 
-    if (req.body.nickname.length > 20) {
+    if (req.body.nickname && req.body.nickname.length > 20) {
       return res.status(400).json({error: 'Nickname must be less than 50 characters'});
     }
 
-    if (req.body.nickname.length < 3) {
+    if (req.body.nickname && req.body.nickname.length < 3) {
       return res.status(400).json({error: 'Nickname must be at least 3 characters'});
     }
     // Check if nickname is being changed and validate uniqueness
