@@ -107,23 +107,23 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     const user = req.user;
 
     if (!user) {
-      return res.status(401).json({error: 'User not authenticated'});
+      throw new Error('User not authenticated');
     }
 
     if (req.body.username && req.body.username.length > 20) {
-      return res.status(400).json({error: 'Username must be less than 60 characters'});
+      throw {'error': 'Username must be less than 60 characters', 'code': 400};
     }
 
     if (req.body.username && req.body.username.length < 3) {
-      return res.status(400).json({error: 'Username must be at least 3 characters'});
+      throw {'error': 'Username must be at least 3 characters', 'code': 400};
     }
 
     if (req.body.nickname && req.body.nickname.length > 20) {
-      return res.status(400).json({error: 'Nickname must be less than 50 characters'});
+      throw {'error': 'Nickname must be less than 50 characters', 'code': 400};
     }
 
     if (req.body.nickname && req.body.nickname.length < 3) {
-      return res.status(400).json({error: 'Nickname must be at least 3 characters'});
+      throw {'error': 'Nickname must be at least 3 characters', 'code': 400};
     }
     // Check if nickname is being changed and validate uniqueness
     if (req.body.nickname && req.body.nickname !== user.nickname) {
@@ -138,8 +138,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         transaction
       });
       if (existingPlayer || existingUser) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'Nickname already taken'});
+        throw {'error': 'Nickname already taken', 'code': 400};
       }
     }
     const targetPlayerName = req.body.nickname || user.player?.name || user.nickname;
@@ -152,8 +151,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       });
       
       if (existingUser) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'Username already taken'});
+        throw {'error': 'Username already taken', 'code': 400};
       }
 
       // Check rate limit if user has changed username before
@@ -169,8 +167,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + (24 * 60 * 60 * 1000));
           
-          await safeTransactionRollback(transaction);
-          return res.status(429).json({
+          throw ({
             error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
             nextAvailableChange,
             timeRemaining: {
@@ -178,7 +175,8 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
               minutes,
               seconds,
               formatted: timeString
-            }
+            },
+            code: 429
           });
         }
       }
@@ -217,8 +215,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           transaction
         });
         if (existingPlayer) {
-          await safeTransactionRollback(transaction);
-          return res.status(400).json({error: 'Player name already taken'});
+          throw {'error': 'Player name already taken', 'code': 400};
         }
       }
       await User.update(
@@ -249,8 +246,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     });
 
     if (!updatedUser) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({error: 'User not found after update'});
+      throw {'error': 'User not found after update', 'code': 404};
     }
 
     await transaction.commit();
@@ -276,10 +272,10 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         providers: providers.map((p: OAuthProvider) => p.provider),
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error updating user profile:', error);
-    return res.status(500).json({error: 'Failed to update profile'});
+    return res.status(error.code || 500).json({error: error.error || 'Failed to update profile'});
   }
 });
 
