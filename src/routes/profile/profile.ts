@@ -107,7 +107,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     const user = req.user;
 
     if (!user) {
-      throw new Error('User not authenticated');
+      throw {'error': 'User not authenticated', 'code': 401};
     }
 
     if (req.body.username && req.body.username.length > 60) {
