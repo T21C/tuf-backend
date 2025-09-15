@@ -110,7 +110,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       throw new Error('User not authenticated');
     }
 
-    if (req.body.username && req.body.username.length > 20) {
+    if (req.body.username && req.body.username.length > 60) {
       throw {'error': 'Username must be less than 60 characters', 'code': 400};
     }
 
@@ -118,8 +118,8 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       throw {'error': 'Username must be at least 3 characters', 'code': 400};
     }
 
-    if (req.body.nickname && req.body.nickname.length > 20) {
-      throw {'error': 'Nickname must be less than 50 characters', 'code': 400};
+    if (req.body.nickname && req.body.nickname.length > 60) {
+      throw {'error': 'Nickname must be less than 60 characters', 'code': 400};
     }
 
     if (req.body.nickname && req.body.nickname.length < 3) {
@@ -275,7 +275,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error updating user profile:', error);
-    return res.status(error.code || 500).json({error: error.error || 'Failed to update profile'});
+    return res.status(error.code || 500).json(error || 'Failed to update profile');
   }
 });
 
