@@ -26,6 +26,7 @@ import LevelSubmissionTeamRequest from './submissions/LevelSubmissionTeamRequest
 import LevelSubmission from './submissions/LevelSubmission.js';
 import AnnouncementDirective from './announcements/AnnouncementDirective.js';
 import { CurationType, Curation, CurationSchedule } from './curations/index.js';
+import { LevelPack, LevelPackItem } from './packs/index.js';
 
 export function initializeAssociations() {
   // User <-> Player associations
@@ -500,4 +501,58 @@ export function initializeAssociations() {
     as: 'assignedByUser',
   });
 
+  // LevelPack <-> LevelPackItem associations
+  LevelPack.hasMany(LevelPackItem, {
+    foreignKey: 'packId',
+    as: 'packItems',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelPackItem.belongsTo(LevelPack, {
+    foreignKey: 'packId',
+    as: 'pack',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // Level <-> LevelPackItem associations
+  Level.hasMany(LevelPackItem, {
+    foreignKey: 'levelId',
+    as: 'packItems',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelPackItem.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // Level <-> LevelPack (through LevelPackItem) associations
+  Level.belongsToMany(LevelPack, {
+    through: LevelPackItem,
+    as: 'levelPacks',
+    foreignKey: 'levelId',
+    otherKey: 'packId',
+  });
+
+  LevelPack.belongsToMany(Level, {
+    through: LevelPackItem,
+    as: 'levels',
+    foreignKey: 'packId',
+    otherKey: 'levelId',
+  });
+
+  LevelPack.belongsTo(User, {
+    foreignKey: 'ownerId',
+    as: 'packOwner',
+  });
+
+  User.hasMany(LevelPack, {
+    foreignKey: 'ownerId',
+    as: 'ownedPacks',
+  });
 }
