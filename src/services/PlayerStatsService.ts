@@ -169,6 +169,7 @@ export class PlayerStatsService {
     FROM PassesData p
     JOIN player_pass_summary ps ON p.playerId = ps.playerId AND p.levelId = ps.levelId
     WHERE ps.name LIKE 'U%'
+    AND ps.type = 'PGU'
     GROUP BY p.playerId
   ),
   WorldsFirstCountCalc AS (

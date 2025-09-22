@@ -274,7 +274,9 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    logger.error('Error updating user profile:', error);
+    if (!error.code) {
+      logger.error('Error updating user profile:', error);
+    }
     return res.status(error.code || 500).json(error || 'Failed to update profile');
   }
 });
