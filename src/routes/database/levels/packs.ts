@@ -220,111 +220,88 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       includeLevels = true;
     }
 
-    // Phase 1: Fetch all matching pack IDs with isPinned flag, sorted with pins first
-    const allPackIds: { id: number, isPinned: boolean }[] = [];
+    // Fetch all matching packs first
+    const allPacks: any[] = [];
     let totalCount = 0;
 
-    // Only fetch pinned pack IDs if not specifically filtering for non-pinned
-    if (parsedPinned !== 'false') {
-      const pinnedResult = await LevelPack.findAndCountAll({
-        where: pinnedWhereConditions,
-        attributes: ['id', 'isPinned'],
-        include: includeLevels ? [{
-          model: LevelPackItem,
-          as: 'packItems',
-          where: parsedLevelId ? { levelId: parseInt(parsedLevelId) } : undefined,
-          required: parsedLevelId ? true : false,
-          attributes: [] // Only need for filtering, not data
-        }] : [],
-        order: [[sort as string, order as string]],
-        distinct: true
-      });
-      
-      allPackIds.push(...pinnedResult.rows.map(pack => ({ id: pack.id, isPinned: pack.isPinned })));
-      totalCount += pinnedResult.count;
-    }
-
-    // Fetch regular pack IDs
-    const regularResult = await LevelPack.findAndCountAll({
+    // Fetch regular packs
+    const result = await LevelPack.findAndCountAll({
       where: whereConditions,
-      attributes: ['id', 'isPinned'],
       include: includeLevels ? [{
         model: LevelPackItem,
         as: 'packItems',
         where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
         required: levelId ? true : false,
-        attributes: [] // Only need for filtering, not data
+        include: [{
+          model: Level,
+          as: 'level',
+          attributes: ['id', 'song', 'artist', 'creator', 'charter', 'vfxer', 'team', 'diffId']
+        }]
       },
-    {
-      model: User,
-      as: 'packOwner',
-      attributes: ['id', 'nickname', 'username', 'avatarUrl']
-    }] : [],
-      order: [[sort as string, order as string]],
-      distinct: true
-    });
-    
-    allPackIds.push(...regularResult.rows.map(pack => ({ id: pack.id, isPinned: pack.isPinned })));
-    totalCount += regularResult.count;
-
-    // Apply pagination to the combined pack IDs
-    const paginatedPackIds = allPackIds.slice(parsedOffset, parsedOffset + parsedLimit);
-
-    // Phase 2: Fetch full pack objects for the paginated IDs
-    let fullPacks: any[] = [];
-    if (paginatedPackIds.length > 0) {
-      const packIds = paginatedPackIds.map(p => p.id);
-      
-      fullPacks = await LevelPack.findAll({
-        where: { id: { [Op.in]: packIds } },
-        include: includeLevels ? [{
+      {
+        model: User,
+        as: 'packOwner',
+        attributes: ['id', 'nickname', 'username', 'avatarUrl']
+      }] : [
+        {
           model: LevelPackItem,
           as: 'packItems',
-          where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
-          required: levelId ? true : false,
           include: [{
             model: Level,
             as: 'level',
-            attributes: ['id', 'song', 'artist', 'creator', 'diffId']
+            attributes: ['id', 'song', 'artist', 'creator', 'charter', 'vfxer', 'team', 'diffId']
           }]
         },
         {
           model: User,
           as: 'packOwner',
           attributes: ['id', 'nickname', 'username', 'avatarUrl']
-        }] : [
-          {
-            model: LevelPackItem,
-            as: 'packItems',
-            include: [{
-              model: Level,
-              as: 'level',
-              attributes: ['id', 'song', 'artist', 'creator', 'diffId']
-            }]
-          },
-          {
-            model: User,
-            as: 'packOwner',
-            attributes: ['id', 'nickname', 'username', 'avatarUrl']
-          }
-        ],
-        order: [
-          // Maintain the original sort order within the paginated results
-          [sort as string, order as string]
-        ]
-      });
+        }
+      ],
+      order: [[sort as string, order as string]],
+      distinct: true
+    });
+    
+    allPacks.push(...result.rows);
+    totalCount += result.count;
 
-      // Sort the full packs to match the paginated order (pins first, then by original sort)
-      const packOrderMap = new Map(paginatedPackIds.map((p, index) => [p.id, index]));
-      fullPacks.sort((a, b) => {
-        const aIndex = packOrderMap.get(a.id) ?? 0;
-        const bIndex = packOrderMap.get(b.id) ?? 0;
-        return aIndex - bIndex;
-      });
-    }
+    // Sort all packs to have pinned first, then by the original sort order
+    allPacks.sort((a, b) => {
+      // Pinned packs come first
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      
+      // If both are pinned or both are not pinned, maintain original sort order
+      const sortField = sort as string;
+      const sortOrder = order as string;
+      
+      let aValue = a[sortField];
+      let bValue = b[sortField];
+      
+      // Handle date fields
+      if (sortField === 'createdAt' || sortField === 'updatedAt') {
+        aValue = new Date(aValue).getTime();
+        bValue = new Date(bValue).getTime();
+      }
+      
+      // Handle string fields
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        aValue = aValue.toLowerCase();
+        bValue = bValue.toLowerCase();
+      }
+      
+      if (sortOrder === 'ASC') {
+        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      } else {
+        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+      }
+    });
+
+    // Apply pagination to the sorted packs
+    const paginatedPacks = allPacks.slice(parsedOffset, parsedOffset + parsedLimit);
 
     // Filter packs based on user permissions
-    const filteredPacks = fullPacks.filter(pack => canViewPack(pack, userReq));
+    const filteredPacks = paginatedPacks.filter(pack => canViewPack(pack, userReq));
 
     return res.json({
       packs: filteredPacks,
