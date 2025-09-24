@@ -131,15 +131,58 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       includeLevels = true;
     }
 
-    // Fetch pinned packs first (admin-curated important packs)
-    let pinnedPacks: any[] = [];
-    let regularPacks: any[] = [];
+    // Phase 1: Fetch all matching pack IDs with isPinned flag, sorted with pins first
+    const allPackIds: { id: number, isPinned: boolean }[] = [];
     let totalCount = 0;
 
-    // Only fetch pinned packs if not specifically filtering for non-pinned
+    // Only fetch pinned pack IDs if not specifically filtering for non-pinned
     if (pinned !== 'false') {
       const pinnedResult = await LevelPack.findAndCountAll({
         where: pinnedWhereConditions,
+        attributes: ['id', 'isPinned'],
+        include: includeLevels ? [{
+          model: LevelPackItem,
+          as: 'packItems',
+          where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
+          required: levelId ? true : false,
+          attributes: [] // Only need for filtering, not data
+        }] : [],
+        order: [[sort as string, order as string]],
+        distinct: true
+      });
+      
+      allPackIds.push(...pinnedResult.rows.map(pack => ({ id: pack.id, isPinned: pack.isPinned })));
+      totalCount += pinnedResult.count;
+    }
+
+    // Fetch regular pack IDs
+    const regularResult = await LevelPack.findAndCountAll({
+      where: whereConditions,
+      attributes: ['id', 'isPinned'],
+      include: includeLevels ? [{
+        model: LevelPackItem,
+        as: 'packItems',
+        where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
+        required: levelId ? true : false,
+        attributes: [] // Only need for filtering, not data
+      }] : [],
+      order: [[sort as string, order as string]],
+      distinct: true
+    });
+    
+    allPackIds.push(...regularResult.rows.map(pack => ({ id: pack.id, isPinned: pack.isPinned })));
+    totalCount += regularResult.count;
+
+    // Apply pagination to the combined pack IDs
+    const paginatedPackIds = allPackIds.slice(parsedOffset, parsedOffset + parsedLimit);
+
+    // Phase 2: Fetch full pack objects for the paginated IDs
+    let fullPacks: any[] = [];
+    if (paginatedPackIds.length > 0) {
+      const packIds = paginatedPackIds.map(p => p.id);
+      
+      fullPacks = await LevelPack.findAll({
+        where: { id: { [Op.in]: packIds } },
         include: includeLevels ? [{
           model: LevelPackItem,
           as: 'packItems',
@@ -155,54 +198,29 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             as: 'packOwner',
             attributes: ['id', 'username', 'avatarUrl']
           }]
-        }] : [],
-        order: [[sort as string, order as string]],
-        distinct: true
+        }] : [
+          {
+            model: LevelPackItem,
+            as: 'packItems',
+          },
+        ],
+        order: [
+          // Maintain the original sort order within the paginated results
+          [sort as string, order as string]
+        ]
       });
-      
-      pinnedPacks = pinnedResult.rows;
-      totalCount += pinnedResult.count;
+
+      // Sort the full packs to match the paginated order (pins first, then by original sort)
+      const packOrderMap = new Map(paginatedPackIds.map((p, index) => [p.id, index]));
+      fullPacks.sort((a, b) => {
+        const aIndex = packOrderMap.get(a.id) ?? 0;
+        const bIndex = packOrderMap.get(b.id) ?? 0;
+        return aIndex - bIndex;
+      });
     }
 
-    // Fetch regular packs
-    const regularResult = await LevelPack.findAndCountAll({
-      where: whereConditions,
-      include: includeLevels ? [{
-        model: LevelPackItem,
-        as: 'packItems',
-        where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
-        required: levelId ? true : false,
-        include: [{
-          model: Level,
-          as: 'level',
-          attributes: ['id', 'song', 'artist', 'creator', 'diffId']
-        },
-        {
-          model: User,
-          as: 'packOwner',
-          attributes: ['id', 'username', 'avatarUrl']
-        }]
-      }] : [
-        {
-          model: LevelPackItem,
-          as: 'packItems',
-        },
-      ],
-      order: [[sort as string, order as string]],
-      distinct: true
-    });
-    
-    regularPacks = regularResult.rows;
-    totalCount += regularResult.count;
-
-    // Combine results: pinned packs first, then regular packs
-    const allPacks = [...pinnedPacks, ...regularPacks];
-    
-    // Apply pagination to the combined results
-    const paginatedPacks = allPacks.slice(parsedOffset, parsedOffset + parsedLimit);
-
     // Filter packs based on user permissions
-    const filteredPacks = paginatedPacks.filter(pack => canViewPack(pack, userReq));
+    const filteredPacks = fullPacks.filter(pack => canViewPack(pack, userReq));
 
     return res.json({
       packs: filteredPacks,
