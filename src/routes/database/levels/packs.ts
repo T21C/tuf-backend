@@ -276,6 +276,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           {
             model: LevelPackItem,
             as: 'packItems',
+            include: [{
+              model: Level,
+              as: 'level',
+              attributes: ['id', 'song', 'artist', 'creator', 'diffId']
+            }]
           },
           {
             model: User,
