@@ -165,7 +165,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
         required: levelId ? true : false,
         attributes: [] // Only need for filtering, not data
-      }] : [],
+      },
+    {
+      model: User,
+      as: 'packOwner',
+      attributes: ['id', 'nickname', 'username', 'avatarUrl']
+    }] : [],
       order: [[sort as string, order as string]],
       distinct: true
     });
@@ -192,17 +197,22 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             model: Level,
             as: 'level',
             attributes: ['id', 'song', 'artist', 'creator', 'diffId']
-          },
-          {
-            model: User,
-            as: 'packOwner',
-            attributes: ['id', 'username', 'avatarUrl']
           }]
+        },
+        {
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
         }] : [
           {
             model: LevelPackItem,
             as: 'packItems',
           },
+          {
+            model: User,
+            as: 'packOwner',
+            attributes: ['id', 'nickname', 'username', 'avatarUrl']
+          }
         ],
         order: [
           // Maintain the original sort order within the paginated results
@@ -257,7 +267,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       {
         model: User,
         as: 'packOwner',
-        attributes: ['id', 'username', 'avatarUrl']
+        attributes: ['id', 'nickname', 'username', 'avatarUrl']
       }]
     });
 
@@ -340,7 +350,7 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
         include: [{
             model: User,
             as: 'packOwner',
-            attributes: ['id', 'username', 'avatarUrl']
+            attributes: ['id', 'nickname', 'username', 'avatarUrl']
         },
         {
             model: LevelPackItem,
