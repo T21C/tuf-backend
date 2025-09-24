@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { logger } from "../../services/LoggerService.js";
 import CdnFile from "../../models/cdn/CdnFile.js";
-import { CDN_CONFIG, MIME_TYPES } from "../config.js";
+import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from "../config.js";
 import FileAccessLog from "../../models/cdn/FileAccessLog.js";
 import fs from "fs";
 import path from "path";
@@ -294,7 +294,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         }
         
         // Handle image types - redirect to proper image endpoint or serve original
-        if (['PROFILE', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL'].includes(file.type)) {
+        if (IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES]) {
             filePath = path.join(file.filePath, 'original.png');
         }
         
@@ -429,7 +429,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                 // For other file types, determine storage type and delete appropriately
                 const storageType = metadata?.storageType || StorageType.LOCAL;
                 
-                if (['PROFILE', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL'].includes(fileType)) {
+                if (IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES]) {
                     // Use specialized cleanup for image directories (legacy local storage)
                     if (storageType === StorageType.LOCAL) {
                         const cleanupSuccess = storageManager.cleanupImageDirectory(filePath, fileId, fileType);

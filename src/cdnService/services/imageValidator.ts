@@ -256,9 +256,9 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
     if (imageType === 'PROFILE') {
         return {
             minWidth: 32,  // Minimum width for profile images
-            maxWidth: sizes.width * 4,
+            maxWidth: sizes.width * 8,
             minHeight: 32, // Minimum height for profile images
-            maxHeight: sizes.height * 4,
+            maxHeight: sizes.height * 8,
             maxSize: typeConfig.maxSize,
             allowedFormats: [...typeConfig.formats],
             requireSquare: true, // Profile images should still be square
@@ -267,7 +267,7 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
         };
     }
 
-    if (imageType === 'CURATION_ICON') {
+    if (imageType === 'CURATION_ICON' || imageType === 'PACK_ICON') {
         return {
             minWidth: 32,
             maxWidth: sizes.width * 8,

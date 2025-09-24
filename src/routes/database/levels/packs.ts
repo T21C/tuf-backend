@@ -10,8 +10,28 @@ import { hasFlag } from '../../../utils/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import { safeTransactionRollback } from '../../../utils/Utility.js';
 import { parseSearchQuery, extractFieldValues, extractGeneralSearchTerms, queryParserConfigs } from '../../../utils/queryParser.js';
+import { getFileIdFromCdnUrl, isCdnUrl } from '../../../utils/Utility.js';
+import multer from 'multer';
+import cdnService from '../../../services/CdnService.js';
+import { CdnError } from '../../../services/CdnService.js';
 
 const router: Router = Router();
+
+// Configure multer for memory storage
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPEG, PNG and WebP are allowed.'));
+        }
+    }
+});
 
 // Constants
 const MAX_PACKS_PER_USER = 20;
@@ -752,6 +772,125 @@ router.get('/user/:ownerUsername', Auth.addUserToRequest(), async (req: Request,
     logger.error('Error fetching user packs:', error);
     return res.status(500).json({ error: 'Failed to fetch user packs' });
   }
+});
+
+// POST /packs/:id/icon - Upload pack icon
+router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request, res: Response) => {
+    try {
+        const packId = parseInt(req.params.id);
+        if (isNaN(packId)) {
+            return res.status(400).json({ error: 'Invalid pack ID' });
+        }
+
+        const pack = await LevelPack.findByPk(packId);
+        if (!pack) {
+            return res.status(404).json({ error: 'Pack not found' });
+        }
+
+        if (!canEditPack(pack, req.user)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                error: 'No file uploaded',
+                code: 'NO_FILE'
+            });
+        }
+
+        // Upload to CDN
+        const result = await cdnService.uploadPackIcon(
+            req.file.buffer,
+            req.file.originalname
+        );
+
+        // Delete old icon if it exists
+        try {
+            if (pack.iconUrl && isCdnUrl(pack.iconUrl)) {
+                const oldFileId = getFileIdFromCdnUrl(pack.iconUrl);
+                if (oldFileId && await cdnService.checkFileExists(oldFileId)) {
+                    await cdnService.deleteFile(oldFileId);
+                }
+            }
+        } catch (error) {
+            logger.error('Error deleting old pack icon from CDN:', error);
+        }
+
+        // Update pack's icon information
+        await pack.update({
+            iconUrl: result.urls.original
+        });
+
+        return res.json({
+            message: 'Pack icon uploaded successfully',
+            icon: {
+                id: result.fileId,
+                urls: result.urls,
+            }
+        });
+    } catch (error) {
+        logger.error('Error uploading pack icon:', error);
+        
+        if (error instanceof CdnError) {
+            return res.status(400).json({
+                error: error.message,
+                code: error.code,
+                details: error.details
+            });
+        }
+        
+        return res.status(500).json({
+            error: 'Failed to upload pack icon',
+            code: 'SERVER_ERROR',
+            details: error instanceof Error ? error.message : String(error)
+        });
+    }
+});
+
+// DELETE /packs/:id/icon - Remove pack icon
+router.delete('/:id/icon', Auth.user(), async (req: Request, res: Response) => {
+    try {
+        const packId = parseInt(req.params.id);
+        if (isNaN(packId)) {
+            return res.status(400).json({ error: 'Invalid pack ID' });
+        }
+
+        const pack = await LevelPack.findByPk(packId);
+        if (!pack) {
+            return res.status(404).json({ error: 'Pack not found' });
+        }
+
+        if (!canEditPack(pack, req.user)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        if (!pack.iconUrl || !isCdnUrl(pack.iconUrl)) {
+            return res.status(400).json({ error: 'No icon to remove' });
+        }
+
+        // Extract file ID from URL before clearing it
+        const oldFileId = getFileIdFromCdnUrl(pack.iconUrl);
+
+        // Update pack's icon information first
+        await pack.update({
+            iconUrl: null
+        });
+
+        // Delete from CDN after updating pack record
+        try {
+            if (oldFileId) {
+                await cdnService.deleteFile(oldFileId);
+            }
+        } catch (error) {
+            // Log the error but don't fail the request since pack record is already updated
+            logger.error('Error deleting old pack icon from CDN:', error);
+        }
+
+        return res.json({ message: 'Pack icon removed successfully' });
+    } catch (error) {
+        logger.error('Error removing pack icon:', error);
+        return res.status(500).json({ error: 'Failed to remove pack icon' });
+    }
 });
 
 export default router;
