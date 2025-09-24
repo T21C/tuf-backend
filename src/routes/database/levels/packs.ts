@@ -182,7 +182,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           as: 'packOwner',
           attributes: ['id', 'username', 'avatarUrl']
         }]
-      }] : [],
+      }] : [
+        {
+          model: LevelPackItem,
+          as: 'packItems',
+        },
+      ],
       order: [[sort as string, order as string]],
       distinct: true
     });
