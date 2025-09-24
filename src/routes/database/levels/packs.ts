@@ -9,6 +9,7 @@ import { logger } from '../../../services/LoggerService.js';
 import { hasFlag } from '../../../utils/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { parseSearchQuery, extractFieldValues, extractGeneralSearchTerms, queryParserConfigs } from '../../../utils/queryParser.js';
 
 const router: Router = Router();
 
@@ -17,6 +18,7 @@ const MAX_PACKS_PER_USER = 20;
 const MAX_LEVELS_PER_PACK = 500;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
+
 
 // Helper function to check if user can view pack
 const canViewPack = (pack: LevelPack, user: any): boolean => {
@@ -74,41 +76,90 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     const parsedLimit = Math.min(parseInt(limit as string) || DEFAULT_LIMIT, MAX_LIMIT);
     const parsedOffset = parseInt(offset as string) || 0;
 
+    // Parse the query for special field patterns
+    let parsedQuery = query as string;
+    let parsedOwnerUsername = ownerUsername as string;
+    let parsedLevelId = levelId as string;
+    let parsedViewMode = viewMode as string;
+    let parsedPinned = pinned as string;
 
-    const userReq = ownerUsername ? await User.findOne({
+    // If query contains special patterns, parse them and extract values
+    if (query) {
+      const searchGroups = parseSearchQuery(query as string, queryParserConfigs.pack);
+      
+      // Extract special field values using utility functions
+      const ownerUsernames = extractFieldValues(searchGroups, 'ownerusername');
+      const levelIds = extractFieldValues(searchGroups, 'levelid');
+      const viewModes = extractFieldValues(searchGroups, 'viewmode');
+      const pinnedValues = extractFieldValues(searchGroups, 'pinned');
+      
+      // Use the first value found for each field
+      if (ownerUsernames.length > 0) parsedOwnerUsername = ownerUsernames[0];
+      if (levelIds.length > 0) parsedLevelId = levelIds[0];
+      if (viewModes.length > 0) parsedViewMode = viewModes[0];
+      if (pinnedValues.length > 0) parsedPinned = pinnedValues[0];
+    }
+
+    const userReq = parsedOwnerUsername ? await User.findOne({
       where: {
-        username: ownerUsername as string
+        username: parsedOwnerUsername
       }
     }) : null;
 
     // Build where conditions for regular packs
     const whereConditions: any = {};
 
-    // Search functionality
-    if (query) {
-      whereConditions.name = {
-        [Op.like]: `%${query}%`
-      };
-    }
-
+    // Handle parsed special fields
     if (userReq) {    
       whereConditions.ownerId = userReq.id;
     }
 
-    // Filter by view mode for non-owners
-    if (!req.user || userReq && whereConditions.ownerId !== userReq.id) {
+    if (parsedViewMode !== undefined) {
+      const viewModeValue = parseInt(parsedViewMode);
+      if (!isNaN(viewModeValue)) {
+        whereConditions.viewMode = viewModeValue;
+      }
+    }
+
+    if (parsedPinned !== undefined) {
+      if (parsedPinned === 'true') {
+        whereConditions.isPinned = true;
+      } else if (parsedPinned === 'false') {
+        whereConditions.isPinned = false;
+      }
+    }
+
+    // Handle name search from query
+    if (query) {
+      const searchGroups = parseSearchQuery(query as string, queryParserConfigs.pack);
+      
+      // Extract name search terms using utility functions
+      const nameSearchTerms = extractFieldValues(searchGroups, 'name');
+      const generalSearchTerms = extractGeneralSearchTerms(searchGroups);
+      const allSearchTerms = [...nameSearchTerms, ...generalSearchTerms];
+      
+      // If we have name search terms, add them to where conditions
+      if (allSearchTerms.length > 0) {
+        const nameConditions = allSearchTerms.map(term => ({
+          name: {
+            [Op.like]: `%${term}%`
+          }
+        }));
+        
+        if (nameConditions.length === 1) {
+          whereConditions.name = nameConditions[0].name;
+        } else {
+          whereConditions[Op.or] = nameConditions;
+        }
+      }
+    }
+
+    // Filter by view mode for non-owners (only if not already set by query parsing)
+    if (!whereConditions.viewMode && (!req.user || (userReq && whereConditions.ownerId !== userReq.id))) {
       whereConditions.viewMode = {
         [Op.in]: [LevelPackViewModes.PUBLIC, LevelPackViewModes.LINKONLY]
       }
     }
-
-    // Handle pinned filter - only apply to non-pinned packs
-    if (pinned === 'true') {
-      whereConditions.isPinned = true;
-    } else if (pinned === 'false') {
-      whereConditions.isPinned = false;
-    }
-    // If pinned is not specified, we'll show all packs (pinned first via ordering)
 
     // Build where conditions for pinned packs (admin-curated important packs)
     const pinnedWhereConditions: any = {
@@ -117,9 +168,27 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     // Pinned packs should match search queries but ignore other filters
     if (query) {
-      pinnedWhereConditions.name = {
-        [Op.like]: `%${query}%`
-      };
+      const searchGroups = parseSearchQuery(query as string, queryParserConfigs.pack);
+      
+      // Extract name search terms for pinned packs using utility functions
+      const nameSearchTerms = extractFieldValues(searchGroups, 'name');
+      const generalSearchTerms = extractGeneralSearchTerms(searchGroups);
+      const allSearchTerms = [...nameSearchTerms, ...generalSearchTerms];
+      
+      // If we have name search terms, add them to pinned where conditions
+      if (allSearchTerms.length > 0) {
+        const nameConditions = allSearchTerms.map(term => ({
+          name: {
+            [Op.like]: `%${term}%`
+          }
+        }));
+        
+        if (nameConditions.length === 1) {
+          pinnedWhereConditions.name = nameConditions[0].name;
+        } else {
+          pinnedWhereConditions[Op.or] = nameConditions;
+        }
+      }
     }
 
     // Pinned packs are always visible (admin-curated)
@@ -127,7 +196,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     // If searching by level ID, we need to join with LevelPackItem
     let includeLevels = false;
-    if (levelId) {
+    if (parsedLevelId) {
       includeLevels = true;
     }
 
@@ -136,15 +205,15 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     let totalCount = 0;
 
     // Only fetch pinned pack IDs if not specifically filtering for non-pinned
-    if (pinned !== 'false') {
+    if (parsedPinned !== 'false') {
       const pinnedResult = await LevelPack.findAndCountAll({
         where: pinnedWhereConditions,
         attributes: ['id', 'isPinned'],
         include: includeLevels ? [{
           model: LevelPackItem,
           as: 'packItems',
-          where: levelId ? { levelId: parseInt(levelId as string) } : undefined,
-          required: levelId ? true : false,
+          where: parsedLevelId ? { levelId: parseInt(parsedLevelId) } : undefined,
+          required: parsedLevelId ? true : false,
           attributes: [] // Only need for filtering, not data
         }] : [],
         order: [[sort as string, order as string]],
