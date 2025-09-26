@@ -1,8 +1,10 @@
 export {default as LevelPack} from './LevelPack.js';
 export {default as LevelPackItem} from './LevelPackItem.js';
+export {default as PackFolder} from './PackFolder.js';
 
 export type {ILevelPack} from './LevelPack.js';
 export type {ILevelPackItem} from './LevelPackItem.js';
+export type {IPackFolder} from './PackFolder.js';
 
 export const LevelPackViewModes = {
   PUBLIC: 1,

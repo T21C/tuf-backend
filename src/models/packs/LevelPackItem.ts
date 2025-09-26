@@ -45,7 +45,7 @@ LevelPackItem.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'levelpacks',
+        model: 'level_packs',
         key: 'id',
       },
       onDelete: 'CASCADE',
@@ -80,7 +80,7 @@ LevelPackItem.init(
   },
   {
     sequelize,
-    tableName: 'levelpackitems',
+    tableName: 'level_pack_items',
     timestamps: true,
     indexes: [
       {

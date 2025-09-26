@@ -29,7 +29,7 @@ import RateLimit from './auth/RateLimit.js';
 import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
 import {CurationType, Curation, CurationSchedule} from './curations/index.js';
-import {LevelPack, LevelPackItem} from './packs/index.js';
+import {LevelPack, LevelPackItem, PackFolder} from './packs/index.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -65,21 +65,14 @@ export const db = {
     CurationSchedule,
     LevelPack,
     LevelPackItem,
+    PackFolder,
   },
 };
 
 // Initialize associations after models are defined
 initializeAssociations();
 
-// Define associations
-User.hasMany(OAuthProvider, {
-  foreignKey: 'userId',
-  as: 'oauthProviders',
-});
-
-OAuthProvider.belongsTo(User, {
-  foreignKey: 'userId',
-});
+// Associations are now handled in individual association files
 
 export default db;
 

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '../../../middleware/auth.js';
-import { LevelPack, LevelPackItem, LevelPackViewModes, LevelPackCSSFlags } from '../../../models/packs/index.js';
+import { LevelPack, LevelPackItem, PackFolder, LevelPackViewModes, LevelPackCSSFlags } from '../../../models/packs/index.js';
 import Level from '../../../models/levels/Level.js';
 import { User } from '../../../models/index.js';
 import { Op, Transaction } from 'sequelize';
@@ -242,6 +242,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         model: User,
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
+      },
+      {
+        model: PackFolder,
+        as: 'folder',
+        attributes: ['id', 'name', 'parentFolderId']
       }] : [
         {
           model: LevelPackItem,
@@ -256,6 +261,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           model: User,
           as: 'packOwner',
           attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        },
+        {
+          model: PackFolder,
+          as: 'folder',
+          attributes: ['id', 'name', 'parentFolderId']
         }
       ],
       order: [[sort as string, order as string]],
@@ -331,7 +341,6 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         include: [{
           model: Level,
           as: 'level',
-          attributes: ['id', 'song', 'artist', 'creator', 'charter', 'vfxer', 'team', 'diffId', 'baseScore', 'clears', 'likes', 'videoLink', 'dlLink', 'workshopLink']
         }],
         order: [['sortOrder', 'ASC']]
       },
@@ -339,6 +348,11 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         model: User,
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
+      },
+      {
+        model: PackFolder,
+        as: 'folder',
+        attributes: ['id', 'name', 'parentFolderId']
       }]
     });
 
@@ -346,11 +360,33 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       return res.status(404).json({ error: 'Pack not found' });
     }
 
+    // Get all folders for the pack owner
+    const folders = await PackFolder.findAll({
+      where: {
+        ownerId: pack.ownerId
+      },
+      include: [
+        {
+          model: LevelPack,
+          as: 'packs',
+          attributes: ['id', 'name', 'iconUrl', 'isPinned', 'viewMode'],
+          order: [['sortOrder', 'ASC']]
+        }
+      ],
+      order: [['sortOrder', 'ASC']]
+    });
+
     if (!canViewPack(pack, req.user)) {
         return res.status(403).json({ error: 'Access denied' });
     }
 
-    return res.json(pack);
+    // Include folders in the response
+    const packWithFolders = {
+      ...pack.toJSON(),
+      folders: folders
+    };
+
+    return res.json(packWithFolders);
 
   } catch (error) {
     logger.error('Error fetching pack:', error);
@@ -868,6 +904,497 @@ router.delete('/:id/icon', Auth.user(), async (req: Request, res: Response) => {
         logger.error('Error removing pack icon:', error);
         return res.status(500).json({ error: 'Failed to remove pack icon' });
     }
+});
+
+// ==================== FOLDER MANAGEMENT ENDPOINTS ====================
+
+// Helper function to check if user can manage folder
+const canManageFolder = (folder: PackFolder, user: any): boolean => {
+  if (!user || !folder) return false;
+  
+  // Owner can manage their own folders
+  if (folder.ownerId === user.id) return true;
+  
+  // Admin can manage all folders
+  return hasFlag(user, permissionFlags.SUPER_ADMIN);
+};
+
+// Helper function to get folder hierarchy path
+const getFolderPath = async (folderId: number): Promise<string[]> => {
+  const path: string[] = [];
+  let currentFolderId = folderId;
+  
+  while (currentFolderId) {
+    const folder = await PackFolder.findByPk(currentFolderId);
+    if (!folder) break;
+    
+    path.unshift(folder.name);
+    currentFolderId = folder.parentFolderId || 0;
+  }
+  
+  return path;
+};
+
+// GET /packs/folders - Get all folders for a user
+router.get('/folders', Auth.user(), async (req: Request, res: Response) => {
+  try {
+    const { parentFolderId } = req.query;
+    
+    const whereConditions: any = {
+      ownerId: req.user!.id
+    };
+    
+    if (parentFolderId !== undefined) {
+      whereConditions.parentFolderId = parentFolderId === 'null' ? null : parseInt(parentFolderId as string);
+    }
+    
+    const folders = await PackFolder.findAll({
+      where: whereConditions,
+      include: [
+        {
+          model: PackFolder,
+          as: 'subFolders',
+          include: [
+            {
+              model: LevelPack,
+              as: 'packs',
+              attributes: ['id', 'name', 'iconUrl', 'isPinned', 'viewMode'],
+              order: [['sortOrder', 'ASC']]
+            }
+          ]
+        },
+        {
+          model: LevelPack,
+          as: 'packs',
+          attributes: ['id', 'name', 'iconUrl', 'isPinned', 'viewMode'],
+          order: [['sortOrder', 'ASC']]
+        }
+      ],
+      order: [['sortOrder', 'ASC']]
+    });
+    
+    // Add path information to each folder
+    const foldersWithPaths = await Promise.all(
+      folders.map(async (folder) => {
+        const path = await getFolderPath(folder.id);
+        return {
+          ...folder.toJSON(),
+          path: path.join(' > ')
+        };
+      })
+    );
+    
+    return res.json({ folders: foldersWithPaths });
+    
+  } catch (error) {
+    logger.error('Error fetching folders:', error);
+    return res.status(500).json({ error: 'Failed to fetch folders' });
+  }
+});
+
+
+// POST /packs/folders - Create new folder
+router.post('/folders', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { name, parentFolderId } = req.body;
+    
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
+    
+    // Check if parent folder exists and belongs to user
+    if (parentFolderId) {
+      const parentFolder = await PackFolder.findByPk(parentFolderId, { transaction });
+      if (!parentFolder || parentFolder.ownerId !== req.user!.id) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Invalid parent folder' });
+      }
+    }
+    
+    // Check for duplicate folder name in same parent
+    const existingFolder = await PackFolder.findOne({
+      where: {
+        ownerId: req.user!.id,
+        parentFolderId: parentFolderId || null,
+        name: name.trim()
+      },
+      transaction
+    });
+    
+    if (existingFolder) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Folder with this name already exists in this location' });
+    }
+    
+    // Get next sort order
+    const maxSortOrder = await PackFolder.max('sortOrder', {
+      where: {
+        ownerId: req.user!.id,
+        parentFolderId: parentFolderId || null
+      },
+      transaction
+    });
+    
+    const folder = await PackFolder.create({
+      ownerId: req.user!.id,
+      name: name.trim(),
+      parentFolderId: parentFolderId || null,
+      sortOrder: (maxSortOrder as number || 0) + 1
+    }, { transaction });
+    
+    await transaction.commit();
+    
+    return res.status(201).json(folder);
+    
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error creating folder:', error);
+    return res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
+// PUT /packs/folders/:id - Update folder
+router.put('/folders/:id', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const folderId = parseInt(req.params.id);
+    if (isNaN(folderId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid folder ID' });
+    }
+    
+    const folder = await PackFolder.findByPk(folderId, { transaction });
+    if (!folder) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+    
+    if (!canManageFolder(folder, req.user)) {
+      await safeTransactionRollback(transaction);
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const { name, parentFolderId, isExpanded } = req.body;
+    const updateData: any = {};
+    
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Folder name cannot be empty' });
+      }
+      
+      // Check for duplicate folder name in same parent
+      const existingFolder = await PackFolder.findOne({
+        where: {
+          ownerId: req.user!.id,
+          parentFolderId: folder.parentFolderId,
+          name: name.trim(),
+          id: { [Op.ne]: folderId }
+        },
+        transaction
+      });
+      
+      if (existingFolder) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Folder with this name already exists in this location' });
+      }
+      
+      updateData.name = name.trim();
+    }
+    
+    if (parentFolderId !== undefined) {
+      // Prevent moving folder into itself or its subfolders
+      if (parentFolderId === folderId) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Cannot move folder into itself' });
+      }
+      
+      // Check if new parent folder exists and belongs to user
+      if (parentFolderId) {
+        const newParentFolder = await PackFolder.findByPk(parentFolderId, { transaction });
+        if (!newParentFolder || newParentFolder.ownerId !== req.user!.id) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({ error: 'Invalid parent folder' });
+        }
+        
+        // Check for circular reference
+        let currentParentId = newParentFolder.parentFolderId;
+        while (currentParentId) {
+          if (currentParentId === folderId) {
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({ error: 'Cannot move folder into its own subfolder' });
+          }
+          const parentFolder = await PackFolder.findByPk(currentParentId, { transaction });
+          currentParentId = parentFolder?.parentFolderId || null;
+        }
+      }
+      
+      updateData.parentFolderId = parentFolderId;
+      
+      // Get new sort order in new parent
+      const maxSortOrder = await PackFolder.max('sortOrder', {
+        where: {
+          ownerId: req.user!.id,
+          parentFolderId: parentFolderId || null
+        },
+        transaction
+      });
+      updateData.sortOrder = (maxSortOrder as number || 0) + 1;
+    }
+    
+    if (isExpanded !== undefined) {
+      updateData.isExpanded = isExpanded;
+    }
+    
+    await folder.update(updateData, { transaction });
+    await transaction.commit();
+    
+    return res.json(folder);
+    
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating folder:', error);
+    return res.status(500).json({ error: 'Failed to update folder' });
+  }
+});
+
+// DELETE /packs/folders/:id - Delete folder
+router.delete('/folders/:id', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const folderId = parseInt(req.params.id);
+    if (isNaN(folderId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid folder ID' });
+    }
+    
+    const folder = await PackFolder.findByPk(folderId, { transaction });
+    if (!folder) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+    
+    if (!canManageFolder(folder, req.user)) {
+      await safeTransactionRollback(transaction);
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // Check if folder has subfolders or packs
+    const subFolderCount = await PackFolder.count({
+      where: { parentFolderId: folderId },
+      transaction
+    });
+    
+    const packCount = await LevelPack.count({
+      where: { folderId: folderId },
+      transaction
+    });
+    
+    if (subFolderCount > 0 || packCount > 0) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ 
+        error: 'Cannot delete folder that contains items',
+        details: { subFolders: subFolderCount, packs: packCount }
+      });
+    }
+    
+    await folder.destroy({ transaction });
+    await transaction.commit();
+    
+    return res.status(204).end();
+    
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error deleting folder:', error);
+    return res.status(500).json({ error: 'Failed to delete folder' });
+  }
+});
+
+// PUT /packs/folders/reorder - Reorder folders and packs
+router.put('/folders/reorder', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { folders, packs } = req.body;
+    
+    if (!Array.isArray(folders) || !Array.isArray(packs)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'folders and packs must be arrays' });
+    }
+    
+    // Update folder sort orders
+    for (const { id, sortOrder } of folders) {
+      if (id && sortOrder !== undefined) {
+        await PackFolder.update(
+          { sortOrder },
+          {
+            where: { 
+              id,
+              ownerId: req.user!.id // Ensure user owns the folder
+            },
+            transaction
+          }
+        );
+      }
+    }
+    
+    // Update pack sort orders
+    for (const { id, sortOrder, folderId } of packs) {
+      if (id && sortOrder !== undefined) {
+        await LevelPack.update(
+          { sortOrder, folderId: folderId || null },
+          {
+            where: { 
+              id,
+              ownerId: req.user!.id // Ensure user owns the pack
+            },
+            transaction
+          }
+        );
+      }
+    }
+    
+    await transaction.commit();
+    
+    return res.json({ success: true });
+    
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error reordering folders and packs:', error);
+    return res.status(500).json({ error: 'Failed to reorder items' });
+  }
+});
+
+// PUT /packs/folders/:folderId/packs/:levelId - Move level to folder
+router.put('/folders/:folderId/packs/:levelId', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const folderId = parseInt(req.params.folderId);
+    const levelId = parseInt(req.params.levelId);
+    
+    if (isNaN(folderId) || isNaN(levelId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid folder ID or level ID' });
+    }
+    
+    // Check if folder exists and belongs to user
+    const folder = await PackFolder.findByPk(folderId, { transaction });
+    if (!folder || folder.ownerId !== req.user!.id) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+    
+    // Check if level exists
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Level not found' });
+    }
+    
+    // Find the pack item that contains this level
+    const packItem = await LevelPackItem.findOne({
+      where: { levelId },
+      include: [{
+        model: LevelPack,
+        as: 'pack',
+        where: { ownerId: req.user!.id }
+      }],
+      transaction
+    });
+    
+    if (!packItem) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Level not found in your packs' });
+    }
+    
+    // Update the pack to be in the folder
+    await LevelPack.update(
+      { folderId },
+      {
+        where: { id: packItem.packId },
+        transaction
+      }
+    );
+    
+    await transaction.commit();
+    
+    return res.json({ success: true });
+    
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error moving level to folder:', error);
+    return res.status(500).json({ error: 'Failed to move level to folder' });
+  }
+});
+
+// PUT /packs/folders/:folderId/folders/:sourceFolderId - Move folder to another folder
+router.put('/folders/:folderId/folders/:sourceFolderId', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const targetFolderId = parseInt(req.params.folderId);
+    const sourceFolderId = parseInt(req.params.sourceFolderId);
+    
+    if (isNaN(targetFolderId) || isNaN(sourceFolderId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid folder ID' });
+    }
+    
+    // Check if target folder exists and belongs to user
+    const targetFolder = await PackFolder.findByPk(targetFolderId, { transaction });
+    if (!targetFolder || targetFolder.ownerId !== req.user!.id) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Target folder not found' });
+    }
+    
+    // Check if source folder exists and belongs to user
+    const sourceFolder = await PackFolder.findByPk(sourceFolderId, { transaction });
+    if (!sourceFolder || sourceFolder.ownerId !== req.user!.id) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Source folder not found' });
+    }
+    
+    // Prevent moving folder into itself or its subfolders
+    if (targetFolderId === sourceFolderId) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Cannot move folder into itself' });
+    }
+    
+    // Check for circular reference
+    let currentParentId = targetFolder.parentFolderId;
+    while (currentParentId) {
+      if (currentParentId === sourceFolderId) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Cannot move folder into its own subfolder' });
+      }
+      const parentFolder = await PackFolder.findByPk(currentParentId, { transaction });
+      currentParentId = parentFolder?.parentFolderId || null;
+    }
+    
+    // Update source folder's parent
+    await PackFolder.update(
+      { parentFolderId: targetFolderId },
+      {
+        where: { id: sourceFolderId },
+        transaction
+      }
+    );
+    
+    await transaction.commit();
+    
+    return res.json({ success: true });
+    
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error moving folder to folder:', error);
+    return res.status(500).json({ error: 'Failed to move folder to folder' });
+  }
 });
 
 export default router;
