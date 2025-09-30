@@ -24,18 +24,4 @@ export function initializeAuthAssociations() {
     foreignKey: 'userId',
     as: 'oauthUser',
   });
-
-
-
-  // User <-> LevelSubmission associations
-  // Note: LevelSubmission is imported in submissions associations
-  
-  // User <-> LevelPack associations
-  // Note: LevelPack is imported in packs associations
-  
-  // User <-> PackFolder associations
-  // Note: PackFolder is imported in packs associations
-  
-  // User <-> Curation associations
-  // Note: Curation is imported in curations associations
 }

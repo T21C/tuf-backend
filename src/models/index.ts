@@ -29,7 +29,7 @@ import RateLimit from './auth/RateLimit.js';
 import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
 import {CurationType, Curation, CurationSchedule} from './curations/index.js';
-import {LevelPack, LevelPackItem, PackFolder} from './packs/index.js';
+import {LevelPack, LevelPackItem} from './packs/index.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -64,8 +64,7 @@ export const db = {
     Curation,
     CurationSchedule,
     LevelPack,
-    LevelPackItem,
-    PackFolder,
+    LevelPackItem
   },
 };
 

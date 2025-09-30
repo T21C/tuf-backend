@@ -1,9 +1,20 @@
 import LevelPack from './LevelPack.js';
 import LevelPackItem from './LevelPackItem.js';
-import PackFolder from './PackFolder.js';
 import User from '../auth/User.js';
+import Level from '../levels/Level.js';
 
 export function initializePacksAssociations() {
+  // LevelPack <-> User associations
+  LevelPack.belongsTo(User, {
+    foreignKey: 'ownerId',
+    as: 'packOwner',
+  });
+
+  User.hasMany(LevelPack, {
+    foreignKey: 'ownerId',
+    as: 'ownedPacks',
+  });
+
   // LevelPack <-> LevelPackItem associations
   LevelPack.hasMany(LevelPackItem, {
     foreignKey: 'packId',
@@ -19,42 +30,33 @@ export function initializePacksAssociations() {
     onUpdate: 'CASCADE',
   });
 
-
-  // LevelPack <-> User associations
-  LevelPack.belongsTo(User, {
-    foreignKey: 'ownerId',
-    as: 'packOwner',
+  // LevelPackItem self-referencing tree structure
+  LevelPackItem.belongsTo(LevelPackItem, {
+    foreignKey: 'parentId',
+    as: 'parent',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
   });
 
-  User.hasMany(LevelPack, {
-    foreignKey: 'ownerId',
-    as: 'ownedPacks',
+  LevelPackItem.hasMany(LevelPackItem, {
+    foreignKey: 'parentId',
+    as: 'children',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
   });
 
-  // PackFolder associations
-  PackFolder.belongsTo(User, {
-    foreignKey: 'ownerId',
-    as: 'owner',
+  // LevelPackItem <-> Level associations
+  LevelPackItem.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'referencedLevel',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
   });
 
-  PackFolder.belongsTo(PackFolder, {
-    foreignKey: 'parentFolderId',
-    as: 'parentFolder',
-  });
-
-  PackFolder.hasMany(PackFolder, {
-    foreignKey: 'parentFolderId',
-    as: 'subFolders',
-  });
-
-  PackFolder.hasMany(LevelPack, {
-    foreignKey: 'folderId',
-    as: 'packs',
-  });
-
-  // LevelPack associations
-  LevelPack.belongsTo(PackFolder, {
-    foreignKey: 'folderId',
-    as: 'folder',
+  Level.hasMany(LevelPackItem, {
+    foreignKey: 'levelId',
+    as: 'packReferences',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
   });
 }

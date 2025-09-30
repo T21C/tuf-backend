@@ -11,8 +11,6 @@ export interface ILevelPack {
   cssFlags: number;
   isPinned: boolean;
   viewMode: number;
-  folderId: number | null;
-  sortOrder: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -20,7 +18,7 @@ export interface ILevelPack {
 type LevelPackAttributes = ILevelPack;
 type LevelPackCreationAttributes = Optional<
   LevelPackAttributes,
-  'id' | 'folderId' | 'sortOrder' | 'createdAt' | 'updatedAt'
+  'id' | 'createdAt' | 'updatedAt'
 >;
 
 class LevelPack
@@ -34,15 +32,12 @@ class LevelPack
   declare cssFlags: number;
   declare isPinned: boolean;
   declare viewMode: number;
-  declare folderId: number | null;
-  declare sortOrder: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 
   // Virtual fields from associations
   declare packItems?: LevelPackItem[];
   declare levels?: Level[];
-  declare folder?: any; // PackFolder
 }
 
 LevelPack.init(
@@ -85,21 +80,6 @@ LevelPack.init(
       defaultValue: 1,
       comment: 'View mode: 1=public, 2=linkonly, 3=private, 4=forced private (admin override)',
     },
-    folderId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'pack_folders',
-        key: 'id',
-      },
-      comment: 'Folder containing this pack',
-    },
-    sortOrder: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-      comment: 'Sort order within folder',
-    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -133,13 +113,6 @@ LevelPack.init(
       },
       {
         fields: ['ownerId', 'isPinned'],
-      },
-      {
-        fields: ['folderId'],
-      },
-      {
-        fields: ['folderId', 'sortOrder'],
-        name: 'level_packs_folder_sort',
       },
     ],
   }
