@@ -698,18 +698,22 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
   }
 });
 
-// PUT /packs/:id/items/:itemId/move - Move item to different parent
-router.put('/:id/items/:itemId/move', Auth.user(), async (req: Request, res: Response) => {
+// PUT /packs/:id/tree - Update entire pack tree structure
+router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
     const packId = parseInt(req.params.id);
-    const itemId = parseInt(req.params.itemId);
-    const { parentId, itemsToReorder } = req.body;
+    const { items } = req.body;
 
-    if (isNaN(packId) || isNaN(itemId)) {
+    if (isNaN(packId)) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or item ID' });
+      return res.status(400).json({ error: 'Invalid pack ID' });
+    }
+
+    if (!Array.isArray(items)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'items must be an array' });
     }
 
     const pack = await LevelPack.findByPk(packId, { transaction });
@@ -723,104 +727,96 @@ router.put('/:id/items/:itemId/move', Auth.user(), async (req: Request, res: Res
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const item = await LevelPackItem.findOne({
-      where: { id: itemId, packId },
+    // Flatten the tree structure to get all updates
+    const flattenTreeUpdates = (treeItems: any[], parentId: number | null = null, updates: any[] = []) => {
+      treeItems.forEach((item, index) => {
+        updates.push({
+          id: item.id,
+          parentId: parentId,
+          sortOrder: index
+        });
+        
+        if (item.children && Array.isArray(item.children)) {
+          flattenTreeUpdates(item.children, item.id, updates);
+        }
+      });
+      return updates;
+    };
+
+    const updates = flattenTreeUpdates(items);
+
+    // Validate all items belong to this pack
+    const itemIds = updates.map(u => u.id);
+    const packItems = await LevelPackItem.findAll({
+      where: {
+        packId,
+        id: { [Op.in]: itemIds }
+      },
       transaction
     });
 
-    if (!item) {
+    if (packItems.length !== itemIds.length) {
       await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Item not found in pack' });
+      return res.status(400).json({ error: 'Some items do not belong to this pack' });
     }
 
-    // Prevent moving item into itself
-    if (parentId === itemId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Cannot move item into itself' });
-    }
+    // Check for circular references in folders
+    const folderMap = new Map<number, number | null>();
+    updates.forEach(update => {
+      folderMap.set(update.id, update.parentId);
+    });
 
-    // Validate new parent
-    if (parentId) {
-      const newParent = await LevelPackItem.findOne({
-        where: { id: parentId, packId, type: 'folder' },
-        transaction
-      });
-
-      if (!newParent) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Invalid parent folder' });
-      }
-
-      // Check for circular reference (only for folders)
+    for (const item of packItems) {
       if (item.type === 'folder') {
-        let currentParentId = newParent.parentId;
+        let currentParentId = folderMap.get(item.id);
+        const visited = new Set<number>([item.id]);
+        
         while (currentParentId) {
-          if (currentParentId === itemId) {
+          if (visited.has(currentParentId)) {
             await safeTransactionRollback(transaction);
-            return res.status(400).json({ error: 'Cannot move folder into its own descendant' });
+            return res.status(400).json({ error: 'Circular reference detected in folder structure' });
           }
-          const parent = await LevelPackItem.findByPk(currentParentId, { transaction });
-          currentParentId = parent?.parentId || null;
+          visited.add(currentParentId);
+          currentParentId = folderMap.get(currentParentId);
         }
       }
     }
 
-    // If itemsToReorder is provided, batch update all items in the destination parent
-    if (itemsToReorder && Array.isArray(itemsToReorder)) {
-      // Validate that all items belong to the pack and new parent
-      const itemIds = itemsToReorder.map(i => i.id);
-      const itemsInParent = await LevelPackItem.findAll({
-        where: {
-          packId,
-          id: { [Op.in]: itemIds }
+    // Perform all updates
+    for (const update of updates) {
+      await LevelPackItem.update(
+        {
+          parentId: update.parentId,
+          sortOrder: update.sortOrder
         },
-        transaction
-      });
-
-      if (itemsInParent.length !== itemIds.length) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Invalid items in reorder list' });
-      }
-
-      // Update all items including the moved item
-      for (const { id, sortOrder } of itemsToReorder) {
-        await LevelPackItem.update(
-          {
-            parentId: parentId || null,
-            sortOrder
-          },
-          {
-            where: { id, packId },
-            transaction
-          }
-        );
-      }
-    } else {
-      // Legacy behavior: just append to end
-      const maxSortOrder = await LevelPackItem.max('sortOrder', {
-        where: {
-          packId,
-          parentId: parentId || null
-        },
-        transaction
-      });
-
-      await item.update({
-        parentId: parentId || null,
-        sortOrder: (maxSortOrder as number || 0) + 1
-      }, { transaction });
+        {
+          where: { id: update.id, packId },
+          transaction
+        }
+      );
     }
 
     await transaction.commit();
 
-    // Return updated item
-    const updatedItem = await LevelPackItem.findByPk(itemId);
-    return res.json(updatedItem);
+    // Return the updated tree
+    const updatedItems = await LevelPackItem.findAll({
+      where: { packId },
+      include: [{
+        model: Level,
+        as: 'referencedLevel',
+        required: false
+      }],
+      order: [['sortOrder', 'ASC']]
+    });
+
+    const updatedTree = buildItemTree(updatedItems);
+
+    return res.json({ items: updatedTree });
 
   } catch (error) {
     await safeTransactionRollback(transaction);
-    logger.error('Error moving pack item:', error);
-    return res.status(500).json({ error: 'Failed to move pack item' });
+    logger.error('Error updating pack tree:', error);
+    return res.status(500).json({ error: 'Failed to update pack tree' });
   }
 });
 
