@@ -1,6 +1,7 @@
 import User from './User.js';
 import OAuthProvider from './OAuthProvider.js';
 import Player from '../players/Player.js';
+import Creator from '../credits/Creator.js';
 
 export function initializeAuthAssociations() {
   // User <-> Player associations
@@ -24,4 +25,13 @@ export function initializeAuthAssociations() {
     foreignKey: 'userId',
     as: 'oauthUser',
   });
+ User.hasOne(Creator, {
+    foreignKey: 'id',
+    as: 'creator',
+  });
+  Creator.belongsTo(User, {
+    foreignKey: 'id',
+    as: 'user',
+  });
+
 }

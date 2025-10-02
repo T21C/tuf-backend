@@ -158,6 +158,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
       }],
+      attributes: {
+        include: [
+          'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned', 
+          'ownerId', 'createdAt', 'updatedAt'
+        ]
+      },
       order: [[sort as string, order as string]],
       limit: parsedLimit,
       offset: parsedOffset,
@@ -192,7 +198,13 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         model: User,
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
-      }]
+      }],
+      attributes: {
+        include: [
+          'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned', 
+          'ownerId', 'createdAt', 'updatedAt'
+        ]
+      }
     });
 
     if (!pack) {
@@ -260,12 +272,26 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
       return res.status(400).json({ error: `Maximum ${MAX_PACKS_PER_USER} packs allowed per user` });
     }
 
+    // Only allow admins to create public packs
+    let finalViewMode;
+    if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+      // Admins can set any view mode, default to public
+      finalViewMode = viewMode || LevelPackViewModes.PUBLIC;
+    } else {
+      // Non-admins can only create private or link-only packs, never public
+      if (viewMode === LevelPackViewModes.PUBLIC) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'Only administrators can create public packs' });
+      }
+      finalViewMode = viewMode || LevelPackViewModes.PRIVATE;
+    }
+
     const pack = await LevelPack.create({
       ownerId: queriedUser!.id,
       name: name.trim(),
       iconUrl: iconUrl || null,
       cssFlags: cssFlags || 0,
-      viewMode: viewMode || LevelPackViewModes.PUBLIC,
+      viewMode: finalViewMode,
       isPinned: isPinned || false
     }, { transaction });
 
@@ -317,12 +343,23 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
     if (cssFlags !== undefined) updateData.cssFlags = cssFlags;
     if (isPinned !== undefined) updateData.isPinned = isPinned;
 
-    // Only allow viewMode changes if user is admin or it's not forced private
+    // Only restrict viewMode changes when involving public visibility
     if (viewMode !== undefined) {
+      const isChangingToOrFromPublic = 
+        viewMode === LevelPackViewModes.PUBLIC || 
+        pack.viewMode === LevelPackViewModes.PUBLIC;
+      
+      if (isChangingToOrFromPublic && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'Only administrators can modify pack visibility to/from public' });
+      }
+      
+      // Additional check for forced private packs
       if (pack.viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
         await safeTransactionRollback(transaction);
         return res.status(403).json({ error: 'Cannot modify view mode of admin-locked pack' });
       }
+      
       updateData.viewMode = viewMode;
     }
 
