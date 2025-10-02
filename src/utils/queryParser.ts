@@ -164,7 +164,7 @@ export const queryParserConfigs = {
     isPassSearch: true
   },
   pack: {
-    allowedFields: ['name', 'ownerUsername', 'levelId', 'viewMode', 'pinned'],
+    allowedFields: ['name', 'owner', 'levelId', 'viewMode', 'pinned'],
     isPassSearch: false
   }
 };

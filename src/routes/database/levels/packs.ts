@@ -143,7 +143,7 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
           attributes: ['id']
         });
         packIds = packs.map(pack => pack.id);
-      } else if (field === 'ownerusername') {
+      } else if (field === 'owner') {
         // Owner username search
         const whereCondition = exact 
           ? { username: isNot ? { [Op.ne]: value } : value }
