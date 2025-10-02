@@ -92,6 +92,29 @@ const buildItemTree = (items: LevelPackItem[], parentId: number | null = null): 
   });
 };
 
+// Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
+const resolvePackId = async (param: string): Promise<number | null> => {
+  // Check if parameter looks like a linkCode (alphanumeric)
+  if (/^[A-Za-z0-9]+$/.test(param)) {
+    // Try to find by linkCode first
+    const pack = await LevelPack.findOne({
+      where: { linkCode: param }
+    });
+
+    if (pack) {
+      return pack.id;
+    }
+  }
+
+  // If not found by linkCode or parameter looks like a number, try numerical ID
+  const packId = parseInt(param);
+  if (!isNaN(packId)) {
+    return packId;
+  }
+
+  return null;
+};
+
 // Helper function to gather pack IDs based on search criteria
 const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set<number>> => {
   if (searchGroups.length === 0) {
@@ -363,26 +386,56 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 // GET /packs/:id - Get specific pack with its content tree
 router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
-    const packId = parseInt(req.params.id);
+    const param = req.params.id;
     const { tree = 'true' } = req.query;
 
-    if (isNaN(packId)) {
-      return res.status(400).json({ error: 'Invalid pack ID' });
+    let pack = null;
+    let packId = null;
+
+    // Check if parameter looks like a linkCode (alphanumeric)
+    if (/^[A-Za-z0-9]+$/.test(param)) {
+      // Try to find by linkCode first
+      pack = await LevelPack.findOne({
+        where: { linkCode: param },
+        include: [{
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        }],
+        attributes: {
+          include: [
+            'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned',
+            'ownerId', 'createdAt', 'updatedAt', 'linkCode'
+          ]
+        }
+      });
+
+      if (pack) {
+        packId = pack.id;
+      }
     }
 
-    const pack = await LevelPack.findByPk(packId, {
-      include: [{
-        model: User,
-        as: 'packOwner',
-        attributes: ['id', 'nickname', 'username', 'avatarUrl']
-      }],
-      attributes: {
-        include: [
-          'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned', 
-          'ownerId', 'createdAt', 'updatedAt'
-        ]
+    // If not found by linkCode or parameter looks like a number, try numerical ID
+    if (!pack) {
+      packId = parseInt(param);
+      if (isNaN(packId)) {
+        return res.status(400).json({ error: 'Invalid pack ID or link code' });
       }
-    });
+
+      pack = await LevelPack.findByPk(packId, {
+        include: [{
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        }],
+        attributes: {
+          include: [
+            'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned',
+            'ownerId', 'createdAt', 'updatedAt', 'linkCode'
+          ]
+        }
+      });
+    }
 
     if (!pack) {
       return res.status(404).json({ error: 'Pack not found' });
@@ -394,7 +447,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
 
     // Fetch all items in the pack
     const items = await LevelPackItem.findAll({
-      where: { packId },
+      where: { packId: pack.id },
       include: [{
         model: Level,
         as: 'referencedLevel',
@@ -471,13 +524,53 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
       }
     }
 
+    // Generate unique linkCode
+    const generateLinkCode = () => {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let result = '';
+      for (let i = 0; i < 8; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return result;
+    };
+
+    let linkCode = generateLinkCode();
+    let attempts = 0;
+    const maxAttempts = 50;
+
+    // Ensure uniqueness
+    while (attempts < maxAttempts) {
+      const existingPack = await LevelPack.findOne({
+        where: { linkCode },
+        transaction
+      });
+
+      if (!existingPack) {
+        break;
+      }
+
+      linkCode = generateLinkCode();
+      attempts++;
+    }
+
+    // If we still couldn't find a unique code, increase length
+    if (attempts >= maxAttempts) {
+      const extendedChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      let extendedCode = '';
+      for (let i = 0; i < 9; i++) {
+        extendedCode += extendedChars.charAt(Math.floor(Math.random() * extendedChars.length));
+      }
+      linkCode = extendedCode;
+    }
+
     const pack = await LevelPack.create({
       ownerId: queriedUser!.id,
       name: name.trim(),
       iconUrl: iconUrl || null,
       cssFlags: cssFlags || 0,
       viewMode: finalViewMode,
-      isPinned: finalIsPinned
+      isPinned: finalIsPinned,
+      linkCode
     }, { transaction });
 
     await transaction.commit();
@@ -494,15 +587,15 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
 // PUT /packs/:id - Update pack
 router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
-    const packId = parseInt(req.params.id);
-    if (isNaN(packId)) {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -571,15 +664,15 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
 // DELETE /packs/:id - Delete pack
 router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
-    const packId = parseInt(req.params.id);
-    if (isNaN(packId)) {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -605,12 +698,12 @@ router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
 // POST /packs/:id/icon - Upload pack icon
 router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request, res: Response) => {
     try {
-        const packId = parseInt(req.params.id);
-        if (isNaN(packId)) {
-            return res.status(400).json({ error: 'Invalid pack ID' });
+        const resolvedPackId = await resolvePackId(req.params.id);
+        if (!resolvedPackId) {
+            return res.status(400).json({ error: 'Invalid pack ID or link code' });
         }
 
-        const pack = await LevelPack.findByPk(packId);
+        const pack = await LevelPack.findByPk(resolvedPackId);
         if (!pack) {
             return res.status(404).json({ error: 'Pack not found' });
         }
@@ -676,12 +769,12 @@ router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request
 // DELETE /packs/:id/icon - Remove pack icon
 router.delete('/:id/icon', Auth.user(), async (req: Request, res: Response) => {
     try {
-        const packId = parseInt(req.params.id);
-        if (isNaN(packId)) {
-            return res.status(400).json({ error: 'Invalid pack ID' });
+        const resolvedPackId = await resolvePackId(req.params.id);
+        if (!resolvedPackId) {
+            return res.status(400).json({ error: 'Invalid pack ID or link code' });
         }
 
-        const pack = await LevelPack.findByPk(packId);
+        const pack = await LevelPack.findByPk(resolvedPackId);
         if (!pack) {
             return res.status(404).json({ error: 'Pack not found' });
         }
@@ -720,22 +813,22 @@ router.delete('/:id/icon', Auth.user(), async (req: Request, res: Response) => {
 // POST /packs/:id/items - Add item (folder or level) to pack
 router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
-  try {
-    const packId = parseInt(req.params.id);
-    const { type, name, levelId, parentId, sortOrder } = req.body;
 
-    if (isNaN(packId)) {
+  try {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
+
+    const { type, name, levelId, parentId, sortOrder } = req.body;
 
     if (!type || (type !== 'folder' && type !== 'level')) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Type must be "folder" or "level"' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -756,7 +849,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       // Check for duplicate folder name in same parent
       const existingFolder = await LevelPackItem.findOne({
         where: {
-          packId,
+          packId: resolvedPackId,
           type: 'folder',
           parentId: parentId || null,
           name: name.trim()
@@ -783,7 +876,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 
       // Check if level is already in pack
       const existingItem = await LevelPackItem.findOne({
-        where: { packId, type: 'level', levelId: parseInt(levelId) },
+        where: { packId: resolvedPackId, type: 'level', levelId: parseInt(levelId) },
         transaction
       });
 
@@ -796,7 +889,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
     // Validate parent if provided
     if (parentId) {
       const parent = await LevelPackItem.findOne({
-        where: { id: parentId, packId, type: 'folder' },
+        where: { id: parentId, packId: resolvedPackId, type: 'folder' },
         transaction
       });
 
@@ -808,7 +901,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 
     // Check item limit
     const itemCount = await LevelPackItem.count({
-      where: { packId },
+      where: { packId: resolvedPackId },
       transaction
     });
 
@@ -821,14 +914,14 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
     let finalSortOrder = sortOrder;
     if (finalSortOrder === undefined || finalSortOrder === null) {
       const maxSortOrder = await LevelPackItem.max('sortOrder', {
-        where: { packId, parentId: parentId || null },
+        where: { packId: resolvedPackId, parentId: parentId || null },
         transaction
       });
       finalSortOrder = (maxSortOrder as number || 0) + 1;
     }
 
     const item = await LevelPackItem.create({
-      packId,
+      packId: resolvedPackId,
       type,
       parentId: parentId || null,
       name: type === 'folder' ? name.trim() : null,
@@ -858,17 +951,22 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 // PUT /packs/:id/items/:itemId - Update item
 router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
-  try {
-    const packId = parseInt(req.params.id);
-    const itemId = parseInt(req.params.itemId);
 
-    if (isNaN(packId) || isNaN(itemId)) {
+  try {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or item ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const itemId = parseInt(req.params.itemId);
+
+    if (isNaN(itemId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid item ID' });
+    }
+
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -880,7 +978,7 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
     }
 
     const item = await LevelPackItem.findOne({
-      where: { id: itemId, packId },
+      where: { id: itemId, packId: resolvedPackId },
       transaction
     });
 
@@ -900,7 +998,7 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
       // Check for duplicate folder name in same parent
       const existingFolder = await LevelPackItem.findOne({
         where: {
-          packId,
+          packId: resolvedPackId,
           type: 'folder',
           parentId: item.parentId,
           name: name.trim(),
@@ -931,22 +1029,22 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
 // PUT /packs/:id/tree - Update entire pack tree structure
 router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
-  try {
-    const packId = parseInt(req.params.id);
-    const { items } = req.body;
 
-    if (isNaN(packId)) {
+  try {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
+
+    const { items } = req.body;
 
     if (!Array.isArray(items)) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'items must be an array' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -979,7 +1077,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     const itemIds = updates.map(u => u.id);
     const packItems = await LevelPackItem.findAll({
       where: {
-        packId,
+        packId: resolvedPackId,
         id: { [Op.in]: itemIds }
       },
       transaction
@@ -1020,7 +1118,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
           sortOrder: update.sortOrder
         },
         {
-          where: { id: update.id, packId },
+          where: { id: update.id, packId: resolvedPackId },
           transaction
         }
       );
@@ -1030,7 +1128,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
     // Return the updated tree
     const updatedItems = await LevelPackItem.findAll({
-      where: { packId },
+      where: { packId: resolvedPackId },
       include: [{
         model: Level,
         as: 'referencedLevel',
@@ -1055,15 +1153,15 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 // GET /packs/:id/favorite - Check if pack is favorited by current user
 router.get('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
   try {
-    const packId = parseInt(req.params.id);
-    if (isNaN(packId)) {
-      return res.status(400).json({ error: 'Invalid pack ID' });
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
 
     const favorite = await PackFavorite.findOne({
       where: {
         userId: req.user!.id,
-        packId: packId
+        packId: resolvedPackId
       }
     });
 
@@ -1083,13 +1181,13 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
   }
 
   try {
-    const packId = parseInt(req.params.id);
-    const { favorited } = req.body;
-
-    if (isNaN(packId) || !Number.isInteger(packId) || packId <= 0) {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
+
+    const { favorited } = req.body;
 
     if (typeof favorited !== 'boolean') {
       await safeTransactionRollback(transaction);
@@ -1097,7 +1195,7 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     }
 
     // Check if pack exists
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -1111,7 +1209,7 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
 
     // Check current favorite status
     const existingFavorite = await PackFavorite.findOne({
-      where: { packId, userId: req.user?.id },
+      where: { packId: resolvedPackId, userId: req.user?.id },
       transaction,
     });
 
@@ -1121,13 +1219,13 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     if (favorited && !currentlyFavorited) {
       // Add favorite
       await PackFavorite.create({
-        packId,
+        packId: resolvedPackId,
         userId: req.user?.id
       }, { transaction });
     } else if (!favorited && currentlyFavorited) {
       // Remove favorite
       await PackFavorite.destroy({
-        where: { packId, userId: req.user?.id },
+        where: { packId: resolvedPackId, userId: req.user?.id },
         transaction,
       });
     }
@@ -1136,7 +1234,7 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
 
     // Get updated favorite count
     const favoriteCount = await PackFavorite.count({
-      where: { packId },
+      where: { packId: resolvedPackId },
     });
 
     return res.json({
@@ -1181,17 +1279,22 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
 // DELETE /packs/:id/items/:itemId - Delete item
 router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
-  try {
-    const packId = parseInt(req.params.id);
-    const itemId = parseInt(req.params.itemId);
 
-    if (isNaN(packId) || isNaN(itemId)) {
+  try {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or item ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const itemId = parseInt(req.params.itemId);
+
+    if (isNaN(itemId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid item ID' });
+    }
+
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -1203,7 +1306,7 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
     }
 
     const item = await LevelPackItem.findOne({
-      where: { id: itemId, packId },
+      where: { id: itemId, packId: resolvedPackId },
       transaction
     });
 
@@ -1215,7 +1318,7 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
     // Check if folder has children
     if (item.type === 'folder') {
       const childCount = await LevelPackItem.count({
-        where: { packId, parentId: itemId },
+        where: { packId: resolvedPackId, parentId: itemId },
         transaction
       });
 
@@ -1243,22 +1346,22 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
 // PUT /packs/:id/items/reorder - Reorder multiple items
 router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
-  try {
-    const packId = parseInt(req.params.id);
-    const { items } = req.body;
 
-    if (isNaN(packId)) {
+  try {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
+
+    const { items } = req.body;
 
     if (!Array.isArray(items)) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'items must be an array' });
     }
 
-    const pack = await LevelPack.findByPk(packId, { transaction });
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Pack not found' });
@@ -1280,7 +1383,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
         await LevelPackItem.update(
           updateData,
           {
-            where: { id, packId },
+            where: { id, packId: resolvedPackId },
             transaction
           }
         );

@@ -11,6 +11,7 @@ export interface ILevelPack {
   cssFlags: number;
   isPinned: boolean;
   viewMode: number;
+  linkCode: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,7 +19,7 @@ export interface ILevelPack {
 type LevelPackAttributes = ILevelPack;
 type LevelPackCreationAttributes = Optional<
   LevelPackAttributes,
-  'id' | 'createdAt' | 'updatedAt'
+  'id' | 'createdAt' | 'updatedAt' | 'linkCode'
 >;
 
 class LevelPack
@@ -32,6 +33,7 @@ class LevelPack
   declare cssFlags: number;
   declare isPinned: boolean;
   declare viewMode: number;
+  declare linkCode: string;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -79,6 +81,12 @@ LevelPack.init(
       allowNull: false,
       defaultValue: 1,
       comment: 'View mode: 1=public, 2=linkonly, 3=private, 4=forced private (admin override)',
+    },
+    linkCode: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true,
+      comment: 'Random alphanumeric code for accessing link-only packs',
     },
     createdAt: {
       type: DataTypes.DATE,
