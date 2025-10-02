@@ -223,6 +223,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       query,
       viewMode,
       pinned,
+      myLikesOnly,
       offset = 0,
       limit = DEFAULT_LIMIT,
       sort = 'createdAt',
@@ -255,12 +256,32 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       whereConditions.isPinned = pinned === 'true';
     }
 
-    // Step 1: Gather pack IDs from search criteria
+    // Step 1: Handle myLikesOnly filter - get user's favorited pack IDs
+    let favoritedPackIds: Set<number> | null = null;
+    if (myLikesOnly === 'true' && req.user?.id) {
+      const favorites = await PackFavorite.findAll({
+        where: { userId: req.user.id },
+        attributes: ['packId']
+      });
+      favoritedPackIds = new Set(favorites.map(fav => fav.packId));
+
+      if (favoritedPackIds.size === 0) {
+        // User has no favorites, return empty response
+        return res.json({
+          packs: [],
+          total: 0,
+          offset: parsedOffset,
+          limit: parsedLimit
+        });
+      }
+    }
+
+    // Step 2: Gather pack IDs from search criteria
     let searchPackIds: Set<number> | null = null;
     if (query) {
       const searchGroups = parseSearchQuery(query as string, queryParserConfigs.pack);
       searchPackIds = await gatherPackIdsFromSearch(searchGroups);
-      
+
       // If search returned no results, return empty response
       if (searchPackIds.size === 0) {
         return res.json({
@@ -272,7 +293,16 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       }
     }
 
-    // Step 2: Apply search pack IDs to where conditions
+    // Step 3: Combine filters - intersection of favorites and search results
+    if (favoritedPackIds && searchPackIds) {
+      // Intersection of both sets
+      searchPackIds = new Set([...searchPackIds].filter(id => favoritedPackIds!.has(id)));
+    } else if (favoritedPackIds) {
+      // Only favorites filter
+      searchPackIds = favoritedPackIds;
+    }
+
+    // Step 4: Apply search pack IDs to where conditions
     if (searchPackIds && searchPackIds.size > 0) {
       whereConditions.id = { [Op.in]: Array.from(searchPackIds) };
     }
