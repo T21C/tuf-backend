@@ -157,7 +157,18 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         model: User,
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
-      }],
+      },
+      {
+        model: LevelPackItem,
+        as: 'packItems',
+        include: [{
+          model: Level,
+          as: 'referencedLevel',
+          required: false
+        }],
+        required: false
+      }
+    ],
       attributes: {
         include: [
           'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned', 
@@ -170,8 +181,17 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       distinct: true
     });
 
+    const favoritedPacks = req.user ? await PackFavorite.findAll({
+      where: {
+        userId: req.user.id
+      }
+    }) : [];
+
     return res.json({
-      packs: result.rows,
+      packs: result.rows.map(pack => ({
+        ...pack.toJSON(),
+        isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id)
+      })),
       total: result.count,
       offset: parsedOffset,
       limit: parsedLimit
@@ -897,6 +917,83 @@ router.get('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
   }
 });
 
+// PUT /packs/:id/favorite - Set pack favorite status explicitly
+router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  if (!req.user) {
+    await safeTransactionRollback(transaction);
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const packId = parseInt(req.params.id);
+    const { favorited } = req.body;
+
+    if (isNaN(packId) || !Number.isInteger(packId) || packId <= 0) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid pack ID' });
+    }
+
+    if (typeof favorited !== 'boolean') {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'favorited must be a boolean value' });
+    }
+
+    // Check if pack exists
+    const pack = await LevelPack.findByPk(packId, { transaction });
+    if (!pack) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    // Check if pack is admin-locked
+    if (pack.viewMode === 4) { // FORCED_PRIVATE
+      await safeTransactionRollback(transaction);
+      return res.status(403).json({ error: 'Cannot favorite admin-locked pack' });
+    }
+
+    // Check current favorite status
+    const existingFavorite = await PackFavorite.findOne({
+      where: { packId, userId: req.user?.id },
+      transaction,
+    });
+
+    const currentlyFavorited = !!existingFavorite;
+
+    // Only make changes if the desired state differs from current state
+    if (favorited && !currentlyFavorited) {
+      // Add favorite
+      await PackFavorite.create({
+        packId,
+        userId: req.user?.id
+      }, { transaction });
+    } else if (!favorited && currentlyFavorited) {
+      // Remove favorite
+      await PackFavorite.destroy({
+        where: { packId, userId: req.user?.id },
+        transaction,
+      });
+    }
+
+    await transaction.commit();
+
+    // Get updated favorite count
+    const favoriteCount = await PackFavorite.count({
+      where: { packId },
+    });
+
+    return res.json({
+      success: true,
+      favorited: favorited,
+      favorites: favoriteCount
+    });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error setting pack favorite status:', error);
+    return res.status(500).json({ error: 'Failed to set pack favorite status' });
+  }
+});
+
 // GET /packs/favorites - Get user's favorited packs
 router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
   try {
@@ -921,88 +1018,6 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error fetching favorited packs:', error);
     return res.status(500).json({ error: 'Failed to fetch favorited packs' });
-  }
-});
-
-// POST /packs/:id/favorite - Add pack to favorites
-router.post('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
-
-  try {
-    const packId = parseInt(req.params.id);
-    if (isNaN(packId)) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
-    }
-
-    const pack = await LevelPack.findByPk(packId, { transaction });
-    if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
-    }
-
-    // Check if already favorited
-    const existingFavorite = await PackFavorite.findOne({
-      where: {
-        userId: req.user!.id,
-        packId: packId
-      },
-      transaction
-    });
-
-    if (existingFavorite) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Pack already in favorites' });
-    }
-
-    // Create favorite
-    await PackFavorite.create({
-      userId: req.user!.id,
-      packId: packId
-    }, { transaction });
-
-    await transaction.commit();
-
-    return res.status(201).json({ message: 'Pack added to favorites' });
-  } catch (error) {
-    await safeTransactionRollback(transaction);
-    logger.error('Error adding pack to favorites:', error);
-    return res.status(500).json({ error: 'Failed to add pack to favorites' });
-  }
-});
-
-// DELETE /packs/:id/favorite - Remove pack from favorites
-router.delete('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
-
-  try {
-    const packId = parseInt(req.params.id);
-    if (isNaN(packId)) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID' });
-    }
-
-    const favorite = await PackFavorite.findOne({
-      where: {
-        userId: req.user!.id,
-        packId: packId
-      },
-      transaction
-    });
-
-    if (!favorite) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not in favorites' });
-    }
-
-    await favorite.destroy({ transaction });
-    await transaction.commit();
-
-    return res.status(200).json({ message: 'Pack removed from favorites' });
-  } catch (error) {
-    await safeTransactionRollback(transaction);
-    logger.error('Error removing pack from favorites:', error);
-    return res.status(500).json({ error: 'Failed to remove pack from favorites' });
   }
 });
 
