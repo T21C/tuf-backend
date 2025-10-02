@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '../../../middleware/auth.js';
-import { LevelPack, LevelPackItem, LevelPackViewModes, LevelPackCSSFlags } from '../../../models/packs/index.js';
+import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes, LevelPackCSSFlags } from '../../../models/packs/index.js';
 import Level from '../../../models/levels/Level.js';
 import { User } from '../../../models/index.js';
 import { Op, Transaction } from 'sequelize';
@@ -133,7 +133,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       // If not owner and not admin, only show public/linkonly
       if (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
         whereConditions.viewMode = {
-          [Op.in]: [LevelPackViewModes.PUBLIC, LevelPackViewModes.LINKONLY]
+          [Op.in]: [LevelPackViewModes.PUBLIC]
         };
       }
     }
@@ -272,11 +272,14 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
       return res.status(400).json({ error: `Maximum ${MAX_PACKS_PER_USER} packs allowed per user` });
     }
 
-    // Only allow admins to create public packs
+    // Only allow admins to create public packs or set pin status
     let finalViewMode;
+    let finalIsPinned = false;
+
     if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       // Admins can set any view mode, default to public
       finalViewMode = viewMode || LevelPackViewModes.PUBLIC;
+      finalIsPinned = isPinned || false;
     } else {
       // Non-admins can only create private or link-only packs, never public
       if (viewMode === LevelPackViewModes.PUBLIC) {
@@ -284,6 +287,11 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
         return res.status(403).json({ error: 'Only administrators can create public packs' });
       }
       finalViewMode = viewMode || LevelPackViewModes.PRIVATE;
+      // Non-admins cannot set pin status
+      if (isPinned) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'Only administrators can set pack pin status' });
+      }
     }
 
     const pack = await LevelPack.create({
@@ -292,7 +300,7 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
       iconUrl: iconUrl || null,
       cssFlags: cssFlags || 0,
       viewMode: finalViewMode,
-      isPinned: isPinned || false
+      isPinned: finalIsPinned
     }, { transaction });
 
     await transaction.commit();
@@ -341,7 +349,15 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
 
     if (iconUrl !== undefined) updateData.iconUrl = iconUrl;
     if (cssFlags !== undefined) updateData.cssFlags = cssFlags;
-    if (isPinned !== undefined) updateData.isPinned = isPinned;
+
+    // Only allow admins to modify pin status
+    if (isPinned !== undefined) {
+      if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'Only administrators can modify pack pin status' });
+      }
+      updateData.isPinned = isPinned;
+    }
 
     // Only restrict viewMode changes when involving public visibility
     if (viewMode !== undefined) {
@@ -854,6 +870,139 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     await safeTransactionRollback(transaction);
     logger.error('Error updating pack tree:', error);
     return res.status(500).json({ error: 'Failed to update pack tree' });
+  }
+});
+
+// ==================== PACK FAVORITES OPERATIONS ====================
+
+// GET /packs/:id/favorite - Check if pack is favorited by current user
+router.get('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
+  try {
+    const packId = parseInt(req.params.id);
+    if (isNaN(packId)) {
+      return res.status(400).json({ error: 'Invalid pack ID' });
+    }
+
+    const favorite = await PackFavorite.findOne({
+      where: {
+        userId: req.user!.id,
+        packId: packId
+      }
+    });
+
+    return res.json({ isFavorited: !!favorite });
+  } catch (error) {
+    logger.error('Error checking favorite status:', error);
+    return res.status(500).json({ error: 'Failed to check favorite status' });
+  }
+});
+
+// GET /packs/favorites - Get user's favorited packs
+router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
+  try {
+    const packs = await LevelPack.findAll({
+      include: [
+        {
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        },
+        {
+          model: PackFavorite,
+          as: 'favorites',
+          where: { userId: req.user!.id },
+          required: true
+        }
+      ],
+      order: [['name', 'ASC']],
+    });
+
+    return res.json({ packs });
+  } catch (error) {
+    logger.error('Error fetching favorited packs:', error);
+    return res.status(500).json({ error: 'Failed to fetch favorited packs' });
+  }
+});
+
+// POST /packs/:id/favorite - Add pack to favorites
+router.post('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const packId = parseInt(req.params.id);
+    if (isNaN(packId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid pack ID' });
+    }
+
+    const pack = await LevelPack.findByPk(packId, { transaction });
+    if (!pack) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    // Check if already favorited
+    const existingFavorite = await PackFavorite.findOne({
+      where: {
+        userId: req.user!.id,
+        packId: packId
+      },
+      transaction
+    });
+
+    if (existingFavorite) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Pack already in favorites' });
+    }
+
+    // Create favorite
+    await PackFavorite.create({
+      userId: req.user!.id,
+      packId: packId
+    }, { transaction });
+
+    await transaction.commit();
+
+    return res.status(201).json({ message: 'Pack added to favorites' });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error adding pack to favorites:', error);
+    return res.status(500).json({ error: 'Failed to add pack to favorites' });
+  }
+});
+
+// DELETE /packs/:id/favorite - Remove pack from favorites
+router.delete('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const packId = parseInt(req.params.id);
+    if (isNaN(packId)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid pack ID' });
+    }
+
+    const favorite = await PackFavorite.findOne({
+      where: {
+        userId: req.user!.id,
+        packId: packId
+      },
+      transaction
+    });
+
+    if (!favorite) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Pack not in favorites' });
+    }
+
+    await favorite.destroy({ transaction });
+    await transaction.commit();
+
+    return res.status(200).json({ message: 'Pack removed from favorites' });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error removing pack from favorites:', error);
+    return res.status(500).json({ error: 'Failed to remove pack from favorites' });
   }
 });
 

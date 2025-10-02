@@ -1,5 +1,6 @@
 import LevelPack from './LevelPack.js';
 import LevelPackItem from './LevelPackItem.js';
+import PackFavorite from './PackFavorite.js';
 import User from '../auth/User.js';
 import Level from '../levels/Level.js';
 
@@ -58,5 +59,27 @@ export function initializePacksAssociations() {
     as: 'packReferences',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
+  });
+
+  // PackFavorite <-> User associations
+  PackFavorite.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
+  User.hasMany(PackFavorite, {
+    foreignKey: 'userId',
+    as: 'packFavorites',
+  });
+
+  // PackFavorite <-> LevelPack associations
+  PackFavorite.belongsTo(LevelPack, {
+    foreignKey: 'packId',
+    as: 'pack',
+  });
+
+  LevelPack.hasMany(PackFavorite, {
+    foreignKey: 'packId',
+    as: 'favorites',
   });
 }
