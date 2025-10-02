@@ -9,7 +9,7 @@ import { logger } from '../../../services/LoggerService.js';
 import { hasFlag } from '../../../utils/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import { safeTransactionRollback } from '../../../utils/Utility.js';
-import { parseSearchQuery, extractFieldValues, extractGeneralSearchTerms, queryParserConfigs } from '../../../utils/queryParser.js';
+import { parseSearchQuery, extractFieldValues, extractGeneralSearchTerms, queryParserConfigs, type FieldSearch, type SearchGroup } from '../../../utils/queryParser.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '../../../utils/Utility.js';
 import multer from 'multer';
 import cdnService from '../../../services/CdnService.js';
@@ -92,6 +92,128 @@ const buildItemTree = (items: LevelPackItem[], parentId: number | null = null): 
   });
 };
 
+// Helper function to gather pack IDs based on search criteria
+const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set<number>> => {
+  if (searchGroups.length === 0) {
+    return new Set(); // No search criteria, return empty set
+  }
+
+  // Process each group (OR logic between groups)
+  const groupResults: Set<number>[] = [];
+
+  for (const group of searchGroups) {
+    const groupPackIdSets: Set<number>[] = [];
+
+    // Process each term within the group (AND logic within groups)
+    for (const term of group.terms) {
+      const { field, value, exact, isNot } = term;
+      let packIds: number[] = [];
+
+      if (field === 'any' || field === 'name') {
+        // Pack name search
+        const whereCondition = exact 
+          ? { name: isNot ? { [Op.ne]: value } : value }
+          : { name: isNot ? { [Op.notLike]: `%${value}%` } : { [Op.like]: `%${value}%` } };
+        
+        const packs = await LevelPack.findAll({
+          where: whereCondition,
+          attributes: ['id']
+        });
+        packIds = packs.map(pack => pack.id);
+      } else if (field === 'ownerusername') {
+        // Owner username search
+        const whereCondition = exact 
+          ? { username: isNot ? { [Op.ne]: value } : value }
+          : { username: isNot ? { [Op.notLike]: `%${value}%` } : { [Op.like]: `%${value}%` } };
+        
+        const owners = await User.findAll({
+          where: whereCondition,
+          attributes: ['id']
+        });
+        
+        if (owners.length > 0) {
+          const ownerIds = owners.map(owner => owner.id);
+          const packs = await LevelPack.findAll({
+            where: { ownerId: { [Op.in]: ownerIds } },
+            attributes: ['id']
+          });
+          packIds = packs.map(pack => pack.id);
+        }
+      } else if (field === 'levelid') {
+        // Level ID search - find packs containing this level
+        const levelId = parseInt(value);
+        if (!isNaN(levelId)) {
+          const whereCondition = {
+            type: 'level',
+            levelId: isNot ? { [Op.ne]: levelId } : levelId
+          };
+          
+          const packItems = await LevelPackItem.findAll({
+            where: whereCondition,
+            attributes: ['packId']
+          });
+          packIds = packItems.map(item => item.packId);
+          
+          // If NOT search, we need to find packs that don't contain this level
+          if (isNot) {
+            const allPacks = await LevelPack.findAll({
+              attributes: ['id']
+            });
+            const allPackIds = allPacks.map(pack => pack.id);
+            const containingPackIds = new Set(packIds);
+            packIds = allPackIds.filter(id => !containingPackIds.has(id));
+          }
+        }
+      } else if (field === 'viewmode') {
+        // View mode search
+        const viewMode = parseInt(value);
+        if (!isNaN(viewMode)) {
+          const whereCondition = { viewMode: isNot ? { [Op.ne]: viewMode } : viewMode };
+          const packs = await LevelPack.findAll({
+            where: whereCondition,
+            attributes: ['id']
+          });
+          packIds = packs.map(pack => pack.id);
+        }
+      } else if (field === 'pinned') {
+        // Pinned status search
+        const pinned = value.toLowerCase() === 'true';
+        const whereCondition = { isPinned: isNot ? !pinned : pinned };
+        const packs = await LevelPack.findAll({
+          where: whereCondition,
+          attributes: ['id']
+        });
+        packIds = packs.map(pack => pack.id);
+      }
+
+      if (packIds.length > 0) {
+        groupPackIdSets.push(new Set(packIds));
+      }
+    }
+
+    // Combine terms within group using intersection (AND logic)
+    if (groupPackIdSets.length > 0) {
+      let groupResult = groupPackIdSets[0];
+      for (let i = 1; i < groupPackIdSets.length; i++) {
+        groupResult = new Set([...groupResult].filter(id => groupPackIdSets[i].has(id)));
+      }
+      groupResults.push(groupResult);
+    }
+  }
+
+  // Combine groups using union (OR logic)
+  if (groupResults.length === 0) {
+    return new Set();
+  }
+
+  let finalResult = groupResults[0];
+  for (let i = 1; i < groupResults.length; i++) {
+    finalResult = new Set([...finalResult, ...groupResults[i]]);
+  }
+
+  return finalResult;
+};
+
 // ==================== PACK OPERATIONS ====================
 
 // GET /packs - List all packs
@@ -99,7 +221,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   try {
     const {
       query,
-      ownerUsername,
       viewMode,
       pinned,
       offset = 0,
@@ -113,15 +234,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     const whereConditions: any = {};
 
-    // Filter by owner
-    if (ownerUsername) {
-      const owner = await User.findOne({
-        where: { username: ownerUsername as string }
-      });
-      if (owner) {
-        whereConditions.ownerId = owner.id;
-      }
-    }
 
     // Filter by view mode
     if (viewMode !== undefined) {
@@ -143,14 +255,29 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       whereConditions.isPinned = pinned === 'true';
     }
 
-    // Search by name
+    // Step 1: Gather pack IDs from search criteria
+    let searchPackIds: Set<number> | null = null;
     if (query) {
-      whereConditions.name = {
-        [Op.like]: `%${query}%`
-      };
+      const searchGroups = parseSearchQuery(query as string, queryParserConfigs.pack);
+      searchPackIds = await gatherPackIdsFromSearch(searchGroups);
+      
+      // If search returned no results, return empty response
+      if (searchPackIds.size === 0) {
+        return res.json({
+          packs: [],
+          total: 0,
+          offset: parsedOffset,
+          limit: parsedLimit
+        });
+      }
     }
 
-    // Fetch packs
+    // Step 2: Apply search pack IDs to where conditions
+    if (searchPackIds && searchPackIds.size > 0) {
+      whereConditions.id = { [Op.in]: Array.from(searchPackIds) };
+    }
+
+    // Fetch packs with proper includes
     const result = await LevelPack.findAndCountAll({
       where: whereConditions,
       include: [{
