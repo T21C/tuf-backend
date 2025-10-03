@@ -266,19 +266,17 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
 
     // Filter by view mode
-    if (viewMode !== undefined) {
+    if (viewMode !== undefined && hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       const viewModeValue = parseInt(viewMode as string);
       if (!isNaN(viewModeValue)) {
         whereConditions.viewMode = viewModeValue;
       }
-    } else if (!req.user || !whereConditions.ownerId || whereConditions.ownerId !== req.user.id) {
-      // If not owner and not admin, only show public/linkonly
-      if (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        whereConditions.viewMode = {
-          [Op.in]: [LevelPackViewModes.PUBLIC]
-        };
-      }
     }
+    
+    const ownPacks = req.user ? await LevelPack.findAll({
+      where: { ownerId: req.user.id }
+    }) : [];
+    const ownPackIds = new Set(ownPacks.map(pack => pack.id));
 
     // Filter by pinned
     if (pinned !== undefined) {
@@ -373,12 +371,20 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       }
     }) : [];
 
+    const viewModeFilter = (pack: LevelPack) => {
+      if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) return true;
+      if (ownPackIds.has(pack.id)) return true;
+      if (pack.viewMode === LevelPackViewModes.PUBLIC) return true;
+      return false;
+    };
+
+    const ownerFilteredPacks = result.rows.filter(viewModeFilter);
     return res.json({
-      packs: result.rows.map(pack => ({
+      packs: ownerFilteredPacks.map(pack => ({
         ...pack.toJSON(),
         isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id)
       })),
-      total: result.count,
+      total: ownerFilteredPacks.length,
       offset: parsedOffset,
       limit: parsedLimit
     });
