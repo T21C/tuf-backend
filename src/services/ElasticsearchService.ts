@@ -26,19 +26,7 @@ import { safeTransactionRollback } from '../utils/Utility.js';
 import User from '../models/auth/User.js';
 import Curation from '../models/curations/Curation.js';
 import CurationType from '../models/curations/CurationType.js';
-
-// Add these type definitions at the top of the file, after imports
-type FieldSearch = {
-  field: string;
-  value: string;
-  exact: boolean;
-  isNot: boolean;
-};
-
-type SearchGroup = {
-  terms: FieldSearch[];
-  operation: 'AND' | 'OR';
-};
+import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '../utils/queryParser.js';
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -927,93 +915,33 @@ class ElasticsearchService {
   }
 
   private parseFieldSearch(term: string, isPassSearch: boolean = false): FieldSearch | null {
-    // Trim the term here when parsing
-    const trimmedTerm = term.trim();
-    if (!trimmedTerm) return null;
-
-    // Check for NOT operator
-    const isNot = trimmedTerm.startsWith('\\!');
-    const searchTerm = isNot ? trimmedTerm.slice(2) : trimmedTerm;
-
-    // Define fields based on search type
-    const levelFields = ['song', 'artist', 'charter', 'team', 'vfxer', 'creator', 'dlLink', 'legacyDllink', 'videolink'];
-    const passFields = ['player', 'video', 'vidtitle', 'level.song', 'level.artist', 'level.dlLink'];
-    const allowedFields = isPassSearch ? passFields : levelFields;
-
-    // Check for exact match with equals sign
-    const exactMatch = searchTerm.match(new RegExp(`^(${allowedFields.join('|')})=(.+)$`, 'i'));
-    if (exactMatch) {
-      const field = exactMatch[1].toLowerCase();
-      const value = exactMatch[2].trim();
-      const puaValue = convertToPUA(value);
-      logger.debug(`Exact match search - Field: ${field}, Original value: ${value}, PUA value: ${puaValue}`);
+    const config = isPassSearch ? queryParserConfigs.pass : queryParserConfigs.level;
+    const result = parseSearchQuery(term, config);
+    
+    if (result.length > 0 && result[0].terms.length > 0) {
+      const fieldSearch = result[0].terms[0];
+      // Convert value to PUA for Elasticsearch
       return {
-        field,
-        value: puaValue,
-        exact: true,
-        isNot
+        ...fieldSearch,
+        value: convertToPUA(fieldSearch.value)
       };
     }
-
-    // Check for partial match with colon
-    const partialMatch = searchTerm.match(new RegExp(`^(${allowedFields.join('|')}):(.+)$`, 'i'));
-    if (partialMatch) {
-      const field = partialMatch[1].toLowerCase();
-      const value = partialMatch[2].trim();
-      const puaValue = convertToPUA(value);
-      logger.debug(`Partial match search - Field: ${field}, Original value: ${value}, PUA value: ${puaValue}`);
-      return {
-        field,
-        value: puaValue,
-        exact: false,
-        isNot
-      };
-    }
-
-    // Handle general search term with NOT operator
-    const puaValue = convertToPUA(searchTerm.trim());
-    logger.debug(`General search - Original value: ${searchTerm.trim()}, PUA value: ${puaValue}`);
-    return {
-      field: 'any',
-      value: puaValue,
-      exact: false,
-      isNot
-    };
+    
+    return null;
   }
 
   private parseSearchQuery(query: string, isPassSearch: boolean = false): SearchGroup[] {
-    if (!query) return [];
-
-    // Split by | for OR groups and handle trimming here
-    const groups = query
-      .split('|')
-      .map(group => {
-        // Split by comma for AND terms within each group
-        const terms = group
-          .split(',')
-          .map(term => term.trim())
-          .filter(term => term.length > 0)
-          .map(term => {
-            const fieldSearch = this.parseFieldSearch(term, isPassSearch);
-            if (fieldSearch) {
-              return fieldSearch;
-            }
-            return {
-              field: 'any',
-              value: term.trim(),
-              exact: false,
-              isNot: false
-            };
-          });
-
-        return {
-          terms,
-          operation: 'AND' as const,
-        };
-      })
-      .filter(group => group.terms.length > 0); // Remove empty groups
-
-    return groups;
+    const config = isPassSearch ? queryParserConfigs.pass : queryParserConfigs.level;
+    const groups = parseSearchQuery(query, config);
+    
+    // Convert all values to PUA for Elasticsearch
+    return groups.map(group => ({
+      ...group,
+      terms: group.terms.map(term => ({
+        ...term,
+        value: convertToPUA(term.value)
+      }))
+    }));
   }
 
   private buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases: boolean = false): any {

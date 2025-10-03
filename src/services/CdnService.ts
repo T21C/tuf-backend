@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import { logger } from './LoggerService.js';
+import { ImageFileType } from '../models/cdn/CdnFile.js';
 
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
@@ -36,7 +37,7 @@ class CdnService {
     async uploadImage(
         imageBuffer: Buffer, 
         filename: string,
-        type: 'PROFILE' | 'BANNER' | 'THUMBNAIL' | 'CURATION_ICON' | 'LEVEL_THUMBNAIL'
+        type: ImageFileType
     ): Promise<{
         success: boolean;
         fileId: string;
@@ -184,6 +185,58 @@ class CdnService {
             });
             throw new CdnError(
                 'Failed to upload level thumbnail',
+                'UPLOAD_ERROR',
+                { originalError: error instanceof Error ? error.message : String(error) }
+            );
+        }
+    }
+
+    async uploadPackIcon(
+        iconBuffer: Buffer,
+        filename: string
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        urls: Record<string, string>;
+        metadata: any;
+    }> {
+        try {
+            const formData = new FormData();
+            formData.append('image', iconBuffer, {
+                filename,
+                contentType: this.getContentType(filename)
+            });
+
+            const response = await this.client.post('/images/pack_icon', formData, {
+                headers: {
+                    ...formData.getHeaders(),
+                    'X-File-Type': 'PACK_ICON'
+                }
+            });
+
+            return response.data;
+        } catch (error) {
+            if (error instanceof AxiosError && error.response?.data) {
+                const errorData = error.response.data;
+                logger.error('Failed to upload pack icon to CDN:', {
+                    error: errorData.error || 'Failed to upload pack icon',
+                    code: errorData.code || 'UPLOAD_ERROR',
+                    details: errorData.details,
+                    timestamp: new Date().toISOString()
+                });
+                throw new CdnError(
+                    errorData.error || 'Failed to upload pack icon',
+                    errorData.code || 'UPLOAD_ERROR',
+                    errorData.details
+                );
+            }
+            
+            logger.error('Failed to upload pack icon to CDN:', {
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString()
+            });
+            throw new CdnError(
+                'Failed to upload pack icon',
                 'UPLOAD_ERROR',
                 { originalError: error instanceof Error ? error.message : String(error) }
             );

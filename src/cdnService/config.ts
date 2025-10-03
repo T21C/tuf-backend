@@ -71,6 +71,16 @@ export const IMAGE_TYPES = {
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 10 * 1024 * 1024 // 10MB
+    },
+    PACK_ICON: {
+        name: 'pack_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
+        maxSize: 5 * 1024 * 1024 // 5MB
     }
 } as const;
 
@@ -80,6 +90,7 @@ export const MIME_TYPES = {
     'THUMBNAIL': 'image/png',
     'CURATION_ICON': 'image/png',
     'LEVEL_THUMBNAIL': 'image/png',
+    'PACK_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
     'GENERAL': 'application/octet-stream'
 } as const;
