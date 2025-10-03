@@ -462,10 +462,13 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       order: [['sortOrder', 'ASC']]
     });
 
-    const clearedLevelIds = await Pass.findAll({
-      where: { playerId: req.user?.playerId, isDeleted: false },
+    let clearedLevelIds: number[] = [];
+    if (req.user) {
+    clearedLevelIds = await Pass.findAll({
+      where: { playerId: req.user.playerId, isDeleted: false },
       attributes: ['levelId']
     }).then(levels => levels.map(level => level.levelId));
+  }
 
     const packData: any = pack.toJSON();
 
@@ -1239,7 +1242,10 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
       order: [['sortOrder', 'ASC']]
     });
 
-    const updatedTree = buildItemTree(updatedItems);
+    // Convert Sequelize models to plain objects to avoid circular references
+    const plainItems = updatedItems.map(item => item.toJSON());
+    
+    const updatedTree = buildItemTree(plainItems);
 
     return res.json({ items: updatedTree });
 
