@@ -472,19 +472,16 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
 
     const packData: any = pack.toJSON();
 
-    console.log(items)
     items = items.map((item: any) => ({
       ...item.dataValues,
       isCleared: clearedLevelIds.includes(item.levelId || 0)
     }));
-    console.log(items)
 
     
 
     if (tree === 'true') {
       // Build tree structure
       packData.items = buildItemTree(items);
-      console.log(packData.items)
     } else {
       // Flat list
       packData.items = items;
