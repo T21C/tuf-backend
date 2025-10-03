@@ -14,6 +14,7 @@ import { getFileIdFromCdnUrl, isCdnUrl } from '../../../utils/Utility.js';
 import multer from 'multer';
 import cdnService from '../../../services/CdnService.js';
 import { CdnError } from '../../../services/CdnService.js';
+import Pass from '../../../models/passes/Pass.js';
 
 const router: Router = Router();
 
@@ -78,15 +79,20 @@ const canEditPack = (pack: LevelPack, user: any): boolean => {
 };
 
 // Helper function to build tree recursively from items
-const buildItemTree = (items: LevelPackItem[], parentId: number | null = null): any[] => {
-  const children = items.filter(item => item.parentId === parentId);
+const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
+  const children = items.filter(item => {
+    // Handle both Sequelize model instances and plain objects
+    const itemParentId = item.parentId;
+    return itemParentId === parentId;
+  });
   
   return children.map(item => {
-    const itemJson = item.toJSON();
-    const subChildren = buildItemTree(items, item.id);
+    // Handle both Sequelize model instances and plain objects
+    const itemId = item.id;
+    const subChildren = buildItemTree(items, itemId);
     
     return {
-      ...itemJson,
+      ...item,
       children: subChildren.length > 0 ? subChildren : undefined
     };
   });
@@ -446,7 +452,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     }
 
     // Fetch all items in the pack
-    const items = await LevelPackItem.findAll({
+    let items = await LevelPackItem.findAll({
       where: { packId: pack.id },
       include: [{
         model: Level,
@@ -456,11 +462,26 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       order: [['sortOrder', 'ASC']]
     });
 
+    const clearedLevelIds = await Pass.findAll({
+      where: { playerId: req.user?.playerId, isDeleted: false },
+      attributes: ['levelId']
+    }).then(levels => levels.map(level => level.levelId));
+
     const packData: any = pack.toJSON();
+
+    console.log(items)
+    items = items.map((item: any) => ({
+      ...item.dataValues,
+      isCleared: clearedLevelIds.includes(item.levelId || 0)
+    }));
+    console.log(items)
+
+    
 
     if (tree === 'true') {
       // Build tree structure
       packData.items = buildItemTree(items);
+      console.log(packData.items)
     } else {
       // Flat list
       packData.items = items;
@@ -821,7 +842,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid pack ID or link code' });
     }
 
-    const { type, name, levelId, parentId, sortOrder } = req.body;
+    const { type, name, levelIds, parentId, sortOrder } = req.body;
 
     if (!type || (type !== 'folder' && type !== 'level')) {
       await safeTransactionRollback(transaction);
@@ -863,89 +884,170 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       }
     } else {
       // type === 'level'
-      if (!levelId || isNaN(parseInt(levelId))) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Valid level ID is required' });
+      let levelIdsToAdd: number[] = [];
+
+      // Parse levelIds from string if provided
+      if (levelIds && typeof levelIds === 'string') {
+        // Extract all numbers from the string using regex
+        const numberMatches = levelIds.match(/\d+/g);
+        if (numberMatches) {
+          levelIdsToAdd = numberMatches.map(match => parseInt(match)).filter(id => !isNaN(id));
+        }
       }
 
-      const level = await Level.findByPk(parseInt(levelId), { transaction });
-      if (!level) {
+      if (levelIdsToAdd.length === 0) {
         await safeTransactionRollback(transaction);
-        return res.status(404).json({ error: 'Level not found' });
+        return res.status(400).json({ error: 'Valid level ID(s) are required' });
       }
 
-      // Check if level is already in pack
-      const existingItem = await LevelPackItem.findOne({
-        where: { packId: resolvedPackId, type: 'level', levelId: parseInt(levelId) },
+      // Validate all levels exist
+      const levels = await Level.findAll({
+        where: { id: { [Op.in]: levelIdsToAdd } },
         transaction
       });
 
-      if (existingItem) {
+      if (levels.length !== levelIdsToAdd.length) {
         await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Level already in pack' });
+        return res.status(404).json({ error: 'One or more levels not found' });
       }
-    }
 
-    // Validate parent if provided
-    if (parentId) {
-      const parent = await LevelPackItem.findOne({
-        where: { id: parentId, packId: resolvedPackId, type: 'folder' },
+      // Check which levels are already in pack
+      const existingItems = await LevelPackItem.findAll({
+        where: { 
+          packId: resolvedPackId, 
+          type: 'level', 
+          levelId: { [Op.in]: levelIdsToAdd } 
+        },
         transaction
       });
 
-      if (!parent) {
+      const existingLevelIds = existingItems.map(item => item.levelId);
+      const newLevelIds = levelIdsToAdd.filter(id => !existingLevelIds.includes(id));
+
+      if (newLevelIds.length === 0) {
         await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Invalid parent folder' });
+        return res.status(400).json({ error: 'All specified levels are already in pack' });
       }
-    }
 
-    // Check item limit
-    const itemCount = await LevelPackItem.count({
-      where: { packId: resolvedPackId },
-      transaction
-    });
-
-    if (itemCount >= MAX_ITEMS_PER_PACK) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: `Maximum ${MAX_ITEMS_PER_PACK} items allowed per pack` });
-    }
-
-    // Determine sort order
-    let finalSortOrder = sortOrder;
-    if (finalSortOrder === undefined || finalSortOrder === null) {
-      const maxSortOrder = await LevelPackItem.max('sortOrder', {
-        where: { packId: resolvedPackId, parentId: parentId || null },
+      // Check item limit
+      const currentItemCount = await LevelPackItem.count({
+        where: { packId: resolvedPackId },
         transaction
       });
-      finalSortOrder = (maxSortOrder as number || 0) + 1;
+
+      if (currentItemCount + newLevelIds.length > MAX_ITEMS_PER_PACK) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ 
+          error: `Adding ${newLevelIds.length} items would exceed the maximum ${MAX_ITEMS_PER_PACK} items per pack`,
+          details: { 
+            currentCount: currentItemCount, 
+            tryingToAdd: newLevelIds.length,
+            maxAllowed: MAX_ITEMS_PER_PACK
+          }
+        });
+      }
+
+      // Add all new levels
+      const createdItems = [];
+      for (let i = 0; i < newLevelIds.length; i++) {
+        const levelIdToAdd = newLevelIds[i];
+        
+        // Determine sort order for this item
+        let finalSortOrder = sortOrder;
+        if (finalSortOrder === undefined || finalSortOrder === null) {
+          const maxSortOrder = await LevelPackItem.max('sortOrder', {
+            where: { packId: resolvedPackId, parentId: parentId || null },
+            transaction
+          });
+          finalSortOrder = (maxSortOrder as number || 0) + 1 + i;
+        } else {
+          finalSortOrder = finalSortOrder + i;
+        }
+
+        const item = await LevelPackItem.create({
+          packId: resolvedPackId,
+          type: 'level',
+          parentId: parentId || null,
+          name: null,
+          levelId: levelIdToAdd,
+          sortOrder: finalSortOrder
+        }, { transaction });
+
+        createdItems.push(item);
+      }
+
+      await transaction.commit();
+
+      // Return all created items with level data
+      const result = await LevelPackItem.findAll({
+        where: { 
+          id: { [Op.in]: createdItems.map(item => item.id) }
+        },
+        include: [{
+          model: Level,
+          as: 'referencedLevel'
+        }]
+      });
+
+      return res.status(201).json(result);
     }
 
-    const item = await LevelPackItem.create({
-      packId: resolvedPackId,
-      type,
-      parentId: parentId || null,
-      name: type === 'folder' ? name.trim() : null,
-      levelId: type === 'level' ? parseInt(levelId) : null,
-      sortOrder: finalSortOrder
-    }, { transaction });
+    // Handle folder creation (single folder)
+    if (type === 'folder') {
+      // Validate parent if provided
+      if (parentId) {
+        const parent = await LevelPackItem.findOne({
+          where: { id: parentId, packId: resolvedPackId, type: 'folder' },
+          transaction
+        });
 
-    await transaction.commit();
+        if (!parent) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({ error: 'Invalid parent folder' });
+        }
+      }
 
-    // Return the item with level data if applicable
-    const result = await LevelPackItem.findByPk(item.id, {
-      include: type === 'level' ? [{
-        model: Level,
-        as: 'referencedLevel'
-      }] : []
-    });
+      // Check item limit
+      const itemCount = await LevelPackItem.count({
+        where: { packId: resolvedPackId },
+        transaction
+      });
 
-    return res.status(201).json(result);
+      if (itemCount >= MAX_ITEMS_PER_PACK) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: `Maximum ${MAX_ITEMS_PER_PACK} items allowed per pack` });
+      }
+
+      // Determine sort order
+      let finalSortOrder = sortOrder;
+      if (finalSortOrder === undefined || finalSortOrder === null) {
+        const maxSortOrder = await LevelPackItem.max('sortOrder', {
+          where: { packId: resolvedPackId, parentId: parentId || null },
+          transaction
+        });
+        finalSortOrder = (maxSortOrder as number || 0) + 1;
+      }
+
+      const item = await LevelPackItem.create({
+        packId: resolvedPackId,
+        type: 'folder',
+        parentId: parentId || null,
+        name: name.trim(),
+        levelId: null,
+        sortOrder: finalSortOrder
+      }, { transaction });
+
+      await transaction.commit();
+
+      return res.status(201).json(item);
+    }
 
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error adding item to pack:', error);
     return res.status(500).json({ error: 'Failed to add item to pack' });
   }
+  return res.status(500).json({ error: 'Failed to add item to pack' });
 });
 
 // PUT /packs/:id/items/:itemId - Update item
@@ -1315,21 +1417,6 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
       return res.status(404).json({ error: 'Item not found in pack' });
     }
 
-    // Check if folder has children
-    if (item.type === 'folder') {
-      const childCount = await LevelPackItem.count({
-        where: { packId: resolvedPackId, parentId: itemId },
-        transaction
-      });
-
-      if (childCount > 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ 
-          error: 'Cannot delete folder that contains items',
-          details: { children: childCount }
-        });
-      }
-    }
 
     await item.destroy({ transaction });
     await transaction.commit();
