@@ -371,6 +371,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         },
         {
           model: LevelPackItem,
+          attributes: ['levelId'],
           as: 'packItems',
           include: [{
             model: Level,
@@ -378,7 +379,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             attributes: ['id', 'artist', 'song', 'diffId'],
             required: false,
           }],
-          required: false
+          required: false,
         }],
         order: [
           ['isPinned', 'DESC'], // Maintain same sorting order
