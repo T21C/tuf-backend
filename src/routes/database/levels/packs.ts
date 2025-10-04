@@ -905,7 +905,10 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       let levelIdsToAdd: number[] = [];
 
       // Parse levelIds from string if provided
-      if (levelIds && typeof levelIds === 'string') {
+      if (typeof levelIds === 'number') {
+        levelIdsToAdd = [levelIds];
+      }
+      else if (levelIds && typeof levelIds === 'string') {
         // Extract all numbers from the string using regex
         const numberMatches = levelIds.match(/\d+/g);
         if (numberMatches) {
