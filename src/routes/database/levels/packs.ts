@@ -345,7 +345,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       ]
     });
     // Apply view mode filtering to get valid pack IDs
-    const viewModeFilter = (pack: LevelPack) => {
+    const viewModeFilter = (pack: LevelPack) : boolean => {
       if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) return true;
       if (ownPackIds.has(pack.id)) return true;
       if (pack.viewMode === LevelPackViewModes.PUBLIC) return true;
@@ -400,7 +400,9 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       packs: packs.map(pack => ({
         ...pack.toJSON(),
         id: pack.linkCode,
-        isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id)
+        isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id),
+        packItems: pack.packItems?.filter(item => item.levelId !== null).slice(0, 3),
+        totalLevelCount: pack.packItems?.length
       })),
       total: totalCount,
       offset: parsedOffset,
