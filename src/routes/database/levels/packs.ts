@@ -267,9 +267,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     const sortField = sortableFields[sort as keyof typeof sortableFields] || 'createdAt';
     const order = (orderQuery !== 'ASC' && orderQuery !== 'DESC') ? 'DESC' : orderQuery;
 
-    logger.info(`Sort field: ${sortField}, Order: ${order}`);
-
-
     // Filter by view mode
     if (viewMode !== undefined && hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       const viewModeValue = parseInt(viewMode as string);
