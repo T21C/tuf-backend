@@ -1,4 +1,8 @@
+import { Op } from 'sequelize';
 import AuditLog from '../models/admin/AuditLog.js';
+import { logger } from './LoggerService.js';
+
+const RETENTION_PERIOD = 1000 * 60 * 60 * 24 * 30; // one month retention
 
 export class AuditLogService {
   /**
@@ -28,6 +32,12 @@ export class AuditLogService {
         payload: payload ? JSON.stringify(payload) : null,
         result: result ? JSON.stringify(result) : null,
       });
+
+      await AuditLog.destroy({ where: {
+        createdAt: {
+          [Op.lt]: new Date(Date.now() - RETENTION_PERIOD)
+        }
+      }, })
     } catch (err) {
       // Optionally log to console or fallback logger
       // eslint-disable-next-line no-console
