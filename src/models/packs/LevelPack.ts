@@ -12,6 +12,8 @@ export interface ILevelPack {
   isPinned: boolean;
   viewMode: number;
   linkCode: string;
+  favoritesCount: number;
+  levelCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,7 +21,7 @@ export interface ILevelPack {
 type LevelPackAttributes = ILevelPack;
 type LevelPackCreationAttributes = Optional<
   LevelPackAttributes,
-  'id' | 'createdAt' | 'updatedAt' | 'linkCode'
+  'id' | 'createdAt' | 'updatedAt' | 'linkCode' | 'favoritesCount' | 'levelCount'
 >;
 
 class LevelPack
@@ -34,6 +36,8 @@ class LevelPack
   declare isPinned: boolean;
   declare viewMode: number;
   declare linkCode: string;
+  declare favoritesCount: number;
+  declare levelCount: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -88,6 +92,18 @@ LevelPack.init(
       unique: true,
       comment: 'Random alphanumeric code for accessing link-only packs',
     },
+    favoritesCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: 'Number of times this pack has been favorited',
+    },
+    levelCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: 'Number of levels in this pack',
+    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -121,6 +137,12 @@ LevelPack.init(
       },
       {
         fields: ['ownerId', 'isPinned'],
+      },
+      {
+        fields: ['favoritesCount'],
+      },
+      {
+        fields: ['levelCount'],
       },
     ],
   }

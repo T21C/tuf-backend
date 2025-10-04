@@ -68,9 +68,11 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     });
     let filteredUnrated = unratedRatings;
     // Apply the same filtering logic as the frontend
+    /*
     if (!hasFlag(user, permissionFlags.SUPER_ADMIN)) {
       filteredUnrated = await filterRatingsByUserTopDiff(unratedRatings, user);
     }
+    */
     // Get pending level submissions count
     const pendingLevelSubmissions = await LevelSubmission.count({
       where: {

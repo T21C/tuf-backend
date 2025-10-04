@@ -239,6 +239,12 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
 
 // ==================== PACK OPERATIONS ====================
 
+const sortableFields = {
+  "RECENT": 'createdAt',
+  "NAME": 'name',
+  "FAVORITES": 'favoritesCount',
+  "LEVELS": 'levelCount'
+};
 // GET /packs - List all packs
 router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
@@ -249,14 +255,19 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       myLikesOnly,
       offset = 0,
       limit = DEFAULT_LIMIT,
-      sort = 'createdAt',
-      order = 'DESC'
+      sort = 'RECENT',
+      order: orderQuery = 'DESC'
     } = req.query;
 
     const parsedLimit = Math.min(parseInt(limit as string) || DEFAULT_LIMIT, MAX_LIMIT);
     const parsedOffset = parseInt(offset as string) || 0;
 
     const whereConditions: any = {};
+
+    const sortField = sortableFields[sort as keyof typeof sortableFields] || 'createdAt';
+    const order = (orderQuery !== 'ASC' && orderQuery !== 'DESC') ? 'DESC' : orderQuery;
+
+    logger.info(`Sort field: ${sortField}, Order: ${order}`);
 
 
     // Filter by view mode
@@ -302,7 +313,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     if (query) {
       const searchGroups = parseSearchQuery(query as string, queryParserConfigs.pack);
       searchPackIds = await gatherPackIdsFromSearch(searchGroups);
-
       // If search returned no results, return empty response
       if (searchPackIds.size === 0) {
         return res.json({
@@ -322,43 +332,20 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       // Only favorites filter
       searchPackIds = favoritedPackIds;
     }
-
-    // Step 4: Apply search pack IDs to where conditions
+    
     if (searchPackIds && searchPackIds.size > 0) {
       whereConditions.id = { [Op.in]: Array.from(searchPackIds) };
     }
-
-    // Fetch packs with proper includes
-    const result = await LevelPack.findAndCountAll({
+    // First, get all pack IDs with sorting applied (isPinned first, then requested sort)
+    const sortedPacks = await LevelPack.findAll({
       where: whereConditions,
-      include: [{
-        model: User,
-        as: 'packOwner',
-        attributes: ['id', 'nickname', 'username', 'avatarUrl']
-      },
-      {
-        model: LevelPackItem,
-        as: 'packItems',
-        include: [{
-          model: Level,
-          as: 'referencedLevel',
-          required: false
-        }],
-        required: false
-      }
-    ],
-      order: [[sort as string, order as string]],
-      limit: parsedLimit,
-      offset: parsedOffset,
-      distinct: true
+      attributes: ['id', 'isPinned', sortField, 'viewMode'],
+      order: [
+        ['isPinned', 'DESC'], // Pinned packs first
+        [sortField, order] // Then by requested sort
+      ]
     });
-
-    const favoritedPacks = req.user ? await PackFavorite.findAll({
-      where: {
-        userId: req.user.id
-      }
-    }) : [];
-
+    // Apply view mode filtering to get valid pack IDs
     const viewModeFilter = (pack: LevelPack) => {
       if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) return true;
       if (ownPackIds.has(pack.id)) return true;
@@ -366,14 +353,55 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       return false;
     };
 
-    const ownerFilteredPacks = result.rows.filter(viewModeFilter);
+    const validPackIds = sortedPacks
+      .filter(viewModeFilter)
+      .map(pack => pack.id);
+
+    // Step 5: Apply pagination to the sorted ID list
+    const totalCount = validPackIds.length;
+    const paginatedPackIds = validPackIds.slice(parsedOffset, parsedOffset + parsedLimit);
+    // Step 6: Fetch full pack data for paginated IDs with same sorting
+    let packs: LevelPack[] = [];
+    if (paginatedPackIds.length > 0) {
+      packs = await LevelPack.findAll({
+        where: { id: { [Op.in]: paginatedPackIds } },
+        include: [{
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        },
+        {
+          model: LevelPackItem,
+          as: 'packItems',
+          include: [{
+            model: Level,
+            as: 'referencedLevel',
+            required: false
+          }],
+          required: false
+        }],
+        order: [
+          ['isPinned', 'DESC'], // Maintain same sorting order
+          [sortField, order]
+        ]
+      });
+    }
+
+    // Get favorites for current user
+    const favoritedPacks = req.user ? await PackFavorite.findAll({
+      where: {
+        userId: req.user.id,
+        packId: { [Op.in]: paginatedPackIds }
+      }
+    }) : [];
+
     return res.json({
-      packs: ownerFilteredPacks.map(pack => ({
+      packs: packs.map(pack => ({
         ...pack.toJSON(),
         id: pack.linkCode,
         isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id)
       })),
-      total: ownerFilteredPacks.length,
+      total: totalCount,
       offset: parsedOffset,
       limit: parsedLimit
     });
@@ -504,7 +532,7 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
       transaction
     });
 
-    if (userPackCount >= MAX_PACKS_PER_USER) {
+    if (userPackCount >= MAX_PACKS_PER_USER && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({ error: `Maximum ${MAX_PACKS_PER_USER} packs allowed per user` });
     }
@@ -1005,7 +1033,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         transaction
       });
 
-      if (itemCount >= MAX_ITEMS_PER_PACK) {
+      if (itemCount >= MAX_ITEMS_PER_PACK && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: `Maximum ${MAX_ITEMS_PER_PACK} items allowed per pack` });
       }
