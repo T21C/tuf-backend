@@ -908,6 +908,9 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       if (typeof levelIds === 'number') {
         levelIdsToAdd = [levelIds];
       }
+      if (Array.isArray(levelIds) && levelIds.every(id => typeof id === 'number')) {
+        levelIdsToAdd = levelIds;
+      }
       else if (levelIds && typeof levelIds === 'string') {
         // Extract all numbers from the string using regex
         const numberMatches = levelIds.match(/\d+/g);
