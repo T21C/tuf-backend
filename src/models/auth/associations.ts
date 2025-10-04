@@ -25,7 +25,8 @@ export function initializeAuthAssociations() {
     foreignKey: 'userId',
     as: 'oauthUser',
   });
- User.hasOne(Creator, {
+  User.hasOne(Creator, {
+  sourceKey: 'creatorId',
     foreignKey: 'id',
     as: 'creator',
   });
