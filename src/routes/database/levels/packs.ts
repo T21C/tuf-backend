@@ -886,16 +886,6 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
           parentId: parentId || null,
           name: name.trim()
         },
-        include: [{
-          model: Curation,
-          as: 'curation',
-          include: [{
-            model: CurationType,
-            as: 'type',
-            required: false
-          }],
-          required: false
-        }],
         transaction
       });
 
@@ -1133,16 +1123,6 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
           name: name.trim(),
           id: { [Op.ne]: itemId }
         },
-          include: [{
-            model: Curation,
-            as: 'curation',
-            include: [{
-              model: CurationType,
-              as: 'type',
-              required: false
-            }],
-            required: false
-          }],
         transaction
       });
 
