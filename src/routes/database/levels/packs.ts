@@ -112,12 +112,6 @@ const resolvePackId = async (param: string): Promise<number | null> => {
     }
   }
 
-  // If not found by linkCode or parameter looks like a number, try numerical ID
-  const packId = parseInt(param);
-  if (!isNaN(packId)) {
-    return packId;
-  }
-
   return null;
 };
 
@@ -353,12 +347,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         required: false
       }
     ],
-      attributes: {
-        include: [
-          'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned', 
-          'ownerId', 'createdAt', 'updatedAt'
-        ]
-      },
       order: [[sort as string, order as string]],
       limit: parsedLimit,
       offset: parsedOffset,
@@ -413,13 +401,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
           model: User,
           as: 'packOwner',
           attributes: ['id', 'nickname', 'username', 'avatarUrl']
-        }],
-        attributes: {
-          include: [
-            'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned',
-            'ownerId', 'createdAt', 'updatedAt', 'linkCode'
-          ]
-        }
+        }]
       });
 
       if (pack) {
@@ -439,13 +421,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
           model: User,
           as: 'packOwner',
           attributes: ['id', 'nickname', 'username', 'avatarUrl']
-        }],
-        attributes: {
-          include: [
-            'id', 'name', 'iconUrl', 'cssFlags', 'viewMode', 'isPinned',
-            'ownerId', 'createdAt', 'updatedAt', 'linkCode'
-          ]
-        }
+        }]
       });
     }
 

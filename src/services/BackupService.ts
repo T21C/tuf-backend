@@ -77,6 +77,7 @@ export class BackupService {
     }
 
     return new Promise((resolve, reject) => {
+      logger.info(`Restoring MySQL backup from: ${backupPath}`);
       exec(
         cmd,
         {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'},
@@ -84,7 +85,6 @@ export class BackupService {
           if (error) reject(error);
           else {
             try {
-              await db.sequelize.sync({force: false});
               logger.info(
                 `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
               );
