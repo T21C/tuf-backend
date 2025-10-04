@@ -791,7 +791,7 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
             include: [
               {
                 model: OAuthProvider,
-                as: 'oauthProviders',
+                as: 'providers',
               },
             ],
           },
@@ -807,7 +807,7 @@ router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: R
             include: [
               {
                 model: OAuthProvider,
-                as: 'oauthProviders',
+                as: 'providers',
               },
             ],
           },

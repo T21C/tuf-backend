@@ -370,6 +370,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     return res.json({
       packs: ownerFilteredPacks.map(pack => ({
         ...pack.toJSON(),
+        id: pack.linkCode,
         isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id)
       })),
       total: ownerFilteredPacks.length,
@@ -469,7 +470,10 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       packData.items = items;
     }
 
-    return res.json(packData);
+    return res.json({
+      ...packData,
+      id: packData.linkCode,
+    });
 
   } catch (error) {
     logger.error('Error fetching pack:', error);
@@ -578,7 +582,10 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
 
     await transaction.commit();
 
-    return res.status(201).json(pack);
+    return res.status(201).json({
+      ...pack,
+      id: pack.linkCode,
+    });
 
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -655,7 +662,10 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
     await pack.update(updateData, { transaction });
     await transaction.commit();
 
-    return res.json(pack);
+    return res.json({
+      ...pack,
+      id: pack.linkCode,
+    });
 
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -1017,7 +1027,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         name: name.trim(),
         levelId: null,
         sortOrder: finalSortOrder
-      }, { transaction });
+      }, { transaction })
 
       await transaction.commit();
 
@@ -1354,7 +1364,10 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
         }
       ],
       order: [['name', 'ASC']],
-    });
+    }).then(packs => packs.map(pack => ({
+      ...pack,
+      id: pack.linkCode,
+    })));
 
     return res.json({ packs });
   } catch (error) {
