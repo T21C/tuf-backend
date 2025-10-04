@@ -64,7 +64,7 @@ export function initializeSubmissionsAssociations() {
   // LevelSubmissionCreatorRequest <-> Creator associations
   LevelSubmissionCreatorRequest.belongsTo(Creator, {
     foreignKey: 'creatorId',
-    as: 'submissionCreator'
+    as: 'creator'
   });
 
   // LevelSubmission <-> LevelSubmissionTeamRequest associations
@@ -83,7 +83,7 @@ export function initializeSubmissionsAssociations() {
   // LevelSubmissionTeamRequest <-> Team associations
   LevelSubmissionTeamRequest.belongsTo(Team, {
     foreignKey: 'teamId',
-    as: 'submissionTeam'
+    as: 'team'
   });
 
   // LevelSubmission <-> User associations
