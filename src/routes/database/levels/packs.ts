@@ -15,6 +15,8 @@ import multer from 'multer';
 import cdnService from '../../../services/CdnService.js';
 import { CdnError } from '../../../services/CdnService.js';
 import Pass from '../../../models/passes/Pass.js';
+import Curation from '../../../models/curations/Curation.js';
+import CurationType from '../../../models/curations/CurationType.js';
 
 const router: Router = Router();
 
@@ -373,7 +375,8 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           include: [{
             model: Level,
             as: 'referencedLevel',
-            required: false
+            attributes: ['id', 'artist', 'song', 'diffId'],
+            required: false,
           }],
           required: false
         }],
@@ -415,57 +418,40 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     const param = req.params.id;
     const { tree = 'true' } = req.query;
 
-    let pack = null;
-    let packId = null;
-
-    // Check if parameter looks like a linkCode (alphanumeric)
-    if (/^[A-Za-z0-9]+$/.test(param)) {
-      // Try to find by linkCode first
-      pack = await LevelPack.findOne({
-        where: { linkCode: param },
-        include: [{
-          model: User,
-          as: 'packOwner',
-          attributes: ['id', 'nickname', 'username', 'avatarUrl']
-        }]
-      });
-
-      if (pack) {
-        packId = pack.id;
-      }
-    }
-
-    // If not found by linkCode or parameter looks like a number, try numerical ID
-    if (!pack) {
-      packId = parseInt(param);
-      if (isNaN(packId)) {
-        return res.status(400).json({ error: 'Invalid pack ID or link code' });
-      }
-
-      pack = await LevelPack.findByPk(packId, {
-        include: [{
-          model: User,
-          as: 'packOwner',
-          attributes: ['id', 'nickname', 'username', 'avatarUrl']
-        }]
-      });
-    }
-
-    if (!pack) {
+    const resolvedPackId = await resolvePackId(param);
+    if (!resolvedPackId) {
       return res.status(404).json({ error: 'Pack not found' });
     }
+    const pack = await LevelPack.findByPk(resolvedPackId, {
+      include: [{
+        model: User,
+        as: 'packOwner',
+        attributes: ['id', 'nickname', 'username', 'avatarUrl']
+      }]
+    });
 
-    if (!canViewPack(pack, req.user)) {
+
+    if (!canViewPack(pack!, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     // Fetch all items in the pack
     let items = await LevelPackItem.findAll({
-      where: { packId: pack.id },
+      where: { packId: pack!.id },
       include: [{
         model: Level,
         as: 'referencedLevel',
-        required: false
+        required: false,
+        include: [{
+          model: Curation,
+          as: 'curation',
+          include: [{
+            model: CurationType,
+            as: 'type',
+            required: false
+          }],
+          required: false
+        }]
       }],
       order: [['sortOrder', 'ASC']]
     });
@@ -478,7 +464,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     }).then(levels => levels.map(level => level.levelId));
   }
 
-    const packData: any = pack.toJSON();
+    const packData: any = pack!.toJSON();
 
     items = items.map((item: any) => ({
       ...item.dataValues,
@@ -892,6 +878,16 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
           parentId: parentId || null,
           name: name.trim()
         },
+        include: [{
+          model: Curation,
+          as: 'curation',
+          include: [{
+            model: CurationType,
+            as: 'type',
+            required: false
+          }],
+          required: false
+        }],
         transaction
       });
 
@@ -1123,6 +1119,16 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
           name: name.trim(),
           id: { [Op.ne]: itemId }
         },
+          include: [{
+            model: Curation,
+            as: 'curation',
+            include: [{
+              model: CurationType,
+              as: 'type',
+              required: false
+            }],
+            required: false
+          }],
         transaction
       });
 
@@ -1251,7 +1257,17 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
       include: [{
         model: Level,
         as: 'referencedLevel',
-        required: false
+        required: false,
+        include: [{
+          model: Curation,
+          as: 'curation',
+          include: [{
+            model: CurationType,
+            as: 'type',
+            required: false
+          }],
+          required: false
+        }]
       }],
       order: [['sortOrder', 'ASC']]
     });
