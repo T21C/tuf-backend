@@ -498,6 +498,10 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
   
   try {
     const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
+    if (viewMode === LevelPackViewModes.FORCED_PRIVATE) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Forced private packs are not allowed to be created' });
+    }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       await safeTransactionRollback(transaction);
@@ -630,6 +634,11 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
     const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
     const updateData: any = {};
 
+    if (viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+      await safeTransactionRollback(transaction);
+      return res.status(403).json({ error: 'Only administrators can force private packs' });
+    }
+
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length === 0) {
         await safeTransactionRollback(transaction);
@@ -642,11 +651,7 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
     if (cssFlags !== undefined) updateData.cssFlags = cssFlags;
 
     // Only allow admins to modify pin status
-    if (isPinned !== undefined) {
-      if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({ error: 'Only administrators can modify pack pin status' });
-      }
+    if (isPinned !== undefined && hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       updateData.isPinned = isPinned;
     }
 
@@ -674,7 +679,7 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
     await transaction.commit();
 
     return res.json({
-      ...pack,
+      ...pack.dataValues,
       id: pack.linkCode,
     });
 
