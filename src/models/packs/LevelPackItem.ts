@@ -37,7 +37,7 @@ class LevelPackItem
 
   // Virtual fields from associations
   declare pack?: LevelPack;
-  declare level?: Level;
+  declare referencedLevel?: Level;
   declare parent?: LevelPackItem;
   declare children?: LevelPackItem[];
 }

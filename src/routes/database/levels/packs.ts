@@ -381,7 +381,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             },
             as: 'referencedLevel',
             attributes: ['id', 'artist', 'song', 'diffId'],
-            required: false,
+            required: true,
           }],
           required: false,
         }],
@@ -405,7 +405,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         ...pack.toJSON(),
         id: pack.linkCode,
         isFavorited: favoritedPacks.some(favorite => favorite.packId === pack.id),
-        packItems: pack.packItems?.filter(item => item.levelId !== null).slice(0, 3),
+        packItems: pack.packItems?.filter(item => item.referencedLevel !== null).slice(0, 3),
         totalLevelCount: pack.packItems?.length
       })),
       total: totalCount,
@@ -443,12 +443,21 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     }
 
     // Fetch all items in the pack
-    let items = await LevelPackItem.findAll({
-      where: { packId: pack!.id },
+
+    let folders = await LevelPackItem.findAll({
+      where: { packId: pack!.id,
+        type: 'folder'
+       },
+    });
+
+    let levels = await LevelPackItem.findAll({
+      where: { packId: pack!.id,
+        type: 'level'
+       },
       include: [{
         model: Level,
         as: 'referencedLevel',
-        required: false,
+        required: true,
         where: {
           isDeleted: false,
           isHidden: false
@@ -476,6 +485,8 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
   }
 
     const packData: any = pack!.toJSON();
+
+    let items = [...folders, ...levels];
 
     items = items.map((item: any) => ({
       ...item.dataValues,
