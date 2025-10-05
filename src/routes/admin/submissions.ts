@@ -499,7 +499,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error processing level submission:', error, "submissionId", req.params.id, "rollbackReason", rollbackReason);
+      logger.error('Error approving level submission:', {error, submissionId: req.params.id, rollbackReason});
       return res
         .status(500)
         .json({error: 'Failed to process level submission'});
@@ -556,7 +556,7 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Submission declined successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error processing level submission:', error, "submissionId", req.params.id, "rollbackReason", rollbackReason);
+      logger.error('Error declining level submission:', {error, submissionId: req.params.id, rollbackReason});
       return res
         .status(500)
         .json({error: 'Failed to process level submission'});
@@ -770,7 +770,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error processing pass submission:', error, "submissionId", req.params.id);
+      logger.error('Error processing pass submission:', {error, submissionId: req.params.id});
       return res.status(500).json({error: 'Failed to process pass submission'});
     }
   }
@@ -803,7 +803,7 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       return res.json({message: 'Pass submission rejected successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
-      logger.error('Error declining pass submission:', error, "submissionId", req.params.id);
+      logger.error('Error declining pass submission:', {error, submissionId: req.params.id});
       return res.status(500).json({error: 'Failed to decline pass submission'});
     }
   }

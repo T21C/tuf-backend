@@ -1339,25 +1339,27 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
       return res.status(403).json({ error: 'Cannot favorite admin-locked pack' });
     }
 
-    // Check current favorite status
-    const existingFavorite = await PackFavorite.findOne({
-      where: { packId: resolvedPackId, userId: req.user?.id },
-      transaction,
-    });
-
-    const currentlyFavorited = !!existingFavorite;
-
-    // Only make changes if the desired state differs from current state
-    if (favorited && !currentlyFavorited) {
-      // Add favorite
-      await PackFavorite.create({
-        packId: resolvedPackId,
-        userId: req.user?.id
-      }, { transaction });
-    } else if (!favorited && currentlyFavorited) {
-      // Remove favorite
+    // Use upsert to handle race conditions and ensure desired state
+    if (favorited) {
+      // Use findOrCreate to add favorite (safe from duplicates)
+      await PackFavorite.findOrCreate({
+        where: { 
+          packId: resolvedPackId, 
+          userId: req.user?.id 
+        },
+        defaults: {
+          packId: resolvedPackId,
+          userId: req.user?.id
+        },
+        transaction
+      });
+    } else {
+      // Remove favorite if it exists
       await PackFavorite.destroy({
-        where: { packId: resolvedPackId, userId: req.user?.id },
+        where: { 
+          packId: resolvedPackId, 
+          userId: req.user?.id 
+        },
         transaction,
       });
     }
