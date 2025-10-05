@@ -211,12 +211,12 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
         packIds = packs.map(pack => pack.id);
       }
 
-      if (packIds.length > 0) {
-        groupPackIdSets.push(new Set(packIds));
-      }
+      // Always add the result set, even if empty (for proper AND logic)
+      groupPackIdSets.push(new Set(packIds));
     }
 
     // Combine terms within group using intersection (AND logic)
+    // If any term returns no results, the entire group should be empty
     if (groupPackIdSets.length > 0) {
       let groupResult = groupPackIdSets[0];
       for (let i = 1; i < groupPackIdSets.length; i++) {
