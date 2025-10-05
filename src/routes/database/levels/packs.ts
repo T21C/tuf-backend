@@ -375,6 +375,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           as: 'packItems',
           include: [{
             model: Level,
+            where: {
+              isDeleted: false,
+              isHidden: false
+            },
             as: 'referencedLevel',
             attributes: ['id', 'artist', 'song', 'diffId'],
             required: false,
@@ -445,6 +449,10 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         model: Level,
         as: 'referencedLevel',
         required: false,
+        where: {
+          isDeleted: false,
+          isHidden: false
+        },
         include: [{
           model: Curation,
           as: 'curation',
