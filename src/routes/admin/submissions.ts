@@ -296,8 +296,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         // Get the next available ID in a transaction-safe way
         const lastLevel = await Level.findOne({
           order: [['id', 'DESC']],
-          transaction,
-          lock: true // Lock the row to prevent race conditions
+          transaction
         });
         
         // Start from 1 if no levels exist, otherwise increment the last ID
