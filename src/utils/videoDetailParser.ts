@@ -146,7 +146,7 @@ async function getBilibiliVideoDetails(
       downloadLink: null,
     };
   } catch (error) {
-    logger.debug('Error fetching Bilibili video details:', error);
+    logger.debug(`Error fetching Bilibili video details for link ${url}:`, error);
     return null;
   }
 }
@@ -188,7 +188,7 @@ async function getYouTubeVideoDetails(
       downloadLink: (await getDriveFromYt(url, data))?.drive || null,
     };
   } catch (error) {
-    logger.error('Error fetching YouTube video details:', error);
+    logger.error(`Error fetching YouTube video details for link ${url}:`, error);
     return null;
   }
 }
@@ -266,7 +266,7 @@ async function getDriveFromYt(link: string, response: YouTubeResponse | null = n
       };
     }
   } catch (error) {
-    logger.error('Error fetching YouTube video details:', error);
+    logger.error(`Error fetching YouTube video details for link ${link}:`, error);
     return null;
   }
 
