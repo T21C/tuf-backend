@@ -1360,18 +1360,20 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
 
     // Use upsert to handle race conditions and ensure desired state
     if (favorited) {
-      // Use findOrCreate to add favorite (safe from duplicates)
-      await PackFavorite.findOrCreate({
-        where: { 
-          packId: resolvedPackId, 
-          userId: req.user?.id 
-        },
-        defaults: {
+      // Try to create, but ignore if already exists (race condition)
+      try {
+        await PackFavorite.create({
           packId: resolvedPackId,
           userId: req.user?.id
-        },
-        transaction
-      });
+        }, { transaction });
+      } catch (error: any) {
+        // If it's a unique constraint error, the favorite already exists - that's fine
+        if (error.name !== 'SequelizeUniqueConstraintError') {
+          throw error;
+        }
+        logger.debug('Favorite already exists', { packId: resolvedPackId, userId: req.user?.id });
+        // Otherwise, silently succeed since the desired state is achieved
+      }
     } else {
       // Remove favorite if it exists
       await PackFavorite.destroy({

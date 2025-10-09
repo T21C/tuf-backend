@@ -430,7 +430,7 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
       return response.data;
     } catch (error: unknown) {
       lastError = error;
-      logger.warn(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`);
+      logWithCondition(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
       
       if (attempt < maxRetries) {
         logWithCondition(`Waiting ${delayMs}ms before retrying...`, 'thumbnail');
@@ -439,7 +439,7 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
     }
   }
   
-  logger.error(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`);
+  logWithCondition(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`, 'thumbnail');
   throw lastError;
 }
 
@@ -787,7 +787,8 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           try {
             backgroundBuffer = await downloadImageWithRetry(details.image);
           } catch (error: unknown) {
-            logger.error(`Failed to download background image after all retries for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`);
+            if (error)
+            logWithCondition(`Failed to download background image after all retries for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
             // Create a black background
             backgroundBuffer = Buffer.alloc(width * height * 4, 0);
           }
