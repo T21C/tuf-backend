@@ -218,27 +218,30 @@ async function getDriveFromYt(link: string, response: YouTubeResponse | null = n
 
   if (!link) {
     return null;
-  } else if (link.split('/')[0].includes('youtu.be')) {
+  } else if (link.split('/')[0]?.includes('youtu.be')) {
     id = link.split('/').join(',').split('?').join(',').split(',')[1];
-  } else if (link.split('/')[2].includes('youtu.be')) {
+  } else if (link.split('/')[2]?.includes('youtu.be')) {
     id = link.split('/').join(',').split('?').join(',').split(',')[3];
   } else {
     id = link.split('?v=')[1];
   }
-
   try {
     if (!response) {
       response = await axios.get<YouTubeResponse>(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.YOUTUBE_API_KEY}`,
       ).then(res => res.data);
     }
-    const data = response!;
+    const data = response;
+    if (!data) {
+      return null;
+    }
 
     if (data.items?.[0]) {
       const desc = data.items[0].snippet.description;
       if (!desc) {
         return { drive: null, desc: null };
       }
+      logger.debug(`Description for link ${link}:`, desc);
       const format = desc.split('\n').join(',').split('/').join(',').split(',');
       dsc = desc;
 
