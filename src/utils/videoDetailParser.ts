@@ -229,13 +229,16 @@ async function getDriveFromYt(link: string, response: YouTubeResponse | null = n
   try {
     if (!response) {
       response = await axios.get<YouTubeResponse>(
-      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.VITE_YOUTUBE_API_KEY}`,
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.YOUTUBE_API_KEY}`,
       ).then(res => res.data);
     }
     const data = response!;
 
     if (data.items?.[0]) {
       const desc = data.items[0].snippet.description;
+      if (!desc) {
+        return { drive: null, desc: null };
+      }
       const format = desc.split('\n').join(',').split('/').join(',').split(',');
       dsc = desc;
 
