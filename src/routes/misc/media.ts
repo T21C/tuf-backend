@@ -1114,6 +1114,11 @@ setInterval(() => {
 router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
   try {
     const videoLink = decodeURIComponent(req.params.videoLink);
+    if (!videoLink) {
+      return res.status(400).json({
+        error: 'Video link is required'
+      });
+    }
     const now = Date.now();
     
     // Check if we have valid cached data
