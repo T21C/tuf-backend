@@ -6,7 +6,7 @@ import fs from 'fs';
 import puppeteer from 'puppeteer';
 import Level from '../../models/levels/Level.js';
 import Difficulty from '../../models/levels/Difficulty.js';
-import {getVideoDetails} from '../../utils/videoDetailParser.js';
+import {getVideoDetails, VideoDetails} from '../../utils/videoDetailParser.js';
 import Pass from '../../models/passes/Pass.js';
 import User from '../../models/auth/User.js';
 import {Buffer} from 'buffer';
@@ -22,6 +22,7 @@ import LevelCredit from '../../models/levels/LevelCredit.js';
 import sharp from 'sharp';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import { Auth } from '../../middleware/auth.js';
 
 const execAsync = promisify(exec);
 
@@ -1072,6 +1073,130 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     }
     logger.error(`Error generating image for level ${req.params.levelId}:`, error);
     return res.status(500).send('Error generating image');
+  }
+});
+
+// Enhanced caching with TTL and cleanup
+interface CachedVideoDetails {
+  data: any;
+  timestamp: number;
+  expiresAt: number;
+}
+
+const VIDEO_CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+const VIDEO_CACHE_NULL_TTL = 1000 * 60 * 5; // 5 minutes for failed lookups
+const CACHE_CLEANUP_INTERVAL = 1000 * 60 * 30; // Clean up every 30 minutes
+
+const cachedVideoDetails = new Map<string, CachedVideoDetails>();
+const cachedVideoDetailsPromise = new Map<string, Promise<any>>();
+
+// Periodic cleanup for expired cache entries
+setInterval(() => {
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  for (const [key, value] of cachedVideoDetails.entries()) {
+    if (now > value.expiresAt) {
+      cachedVideoDetails.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    logger.debug('Cleaned up expired video detail cache entries:', {
+      count: cleanedCount,
+      remaining: cachedVideoDetails.size,
+      timestamp: new Date().toISOString()
+    });
+  }
+}, CACHE_CLEANUP_INTERVAL);
+
+router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
+  try {
+    const videoLink = decodeURIComponent(req.params.videoLink);
+    const now = Date.now();
+    
+    // Check if we have valid cached data
+    const cached = cachedVideoDetails.get(videoLink);
+    if (cached && now < cached.expiresAt) {
+      logger.debug('Returning cached video details:', {
+        videoLink: videoLink.substring(0, 50),
+        age: Math.floor((now - cached.timestamp) / 1000) + 's',
+        timestamp: new Date().toISOString()
+      });
+      return res.json(cached.data);
+    }
+    
+    // Check if there's already a pending request for this URL
+    if (cachedVideoDetailsPromise.has(videoLink)) {
+      logger.debug('Waiting for existing video details request:', {
+        videoLink: videoLink.substring(0, 50),
+        timestamp: new Date().toISOString()
+      });
+      
+      try {
+        const result = await cachedVideoDetailsPromise.get(videoLink);
+        return res.json(result);
+      } catch (error) {
+        // If the promise failed, it will be cleaned up, so we'll fall through to retry
+        logger.warn('Existing video details request failed:', {
+          error: error instanceof Error ? error.message : String(error),
+          videoLink: videoLink.substring(0, 50),
+          timestamp: new Date().toISOString()
+        });
+        throw error;
+      }
+    }
+    
+    // Create new request and ensure all concurrent requests wait for it
+    const videoDetailsPromise = (async () => {
+      try {
+        const videoDetails = await getVideoDetails(videoLink);
+        
+        const ttl = videoDetails ? VIDEO_CACHE_TTL : VIDEO_CACHE_NULL_TTL;
+        const cacheEntry: CachedVideoDetails = {
+          data: videoDetails,
+          timestamp: now,
+          expiresAt: now + ttl
+        };
+        
+        cachedVideoDetails.set(videoLink, cacheEntry);
+        
+        logger.debug('Fetched and cached video details:', {
+          videoLink: videoLink.substring(0, 50),
+          success: !!videoDetails,
+          ttl: Math.floor(ttl / 1000) + 's',
+          timestamp: new Date().toISOString()
+        });
+        
+        return videoDetails;
+      } finally {
+        // Always clean up the promise cache after resolution (success or failure)
+        cachedVideoDetailsPromise.delete(videoLink);
+      }
+    })();
+    
+    // Store the promise so concurrent requests can await it
+    cachedVideoDetailsPromise.set(videoLink, videoDetailsPromise);
+    
+    // Await and return the result
+    const result = await videoDetailsPromise;
+    return res.json(result);
+    
+  } catch (error) {
+    logger.error('Error getting video details:', {
+      error: error instanceof Error ? {
+        message: error.message,
+        stack: error.stack
+      } : error,
+      videoLink: req.params.videoLink?.substring(0, 50),
+      timestamp: new Date().toISOString()
+    });
+    
+    return res.status(500).json({
+      error: 'Failed to fetch video details',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 

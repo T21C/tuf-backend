@@ -2,13 +2,13 @@ import twemoji from 'twemoji';
 import axios from 'axios';
 import { logger } from '../services/LoggerService.js';
 
-interface VideoDetails {
+export interface VideoDetails {
   title: string;
   channelName: string;
   timestamp: string;
   image: string | undefined;
   embed: string | null;
-  pfp: string;
+  downloadLink: string | null;
 }
 
 interface BilibiliData {
@@ -135,7 +135,7 @@ async function getBilibiliVideoDetails(
     const unix = data.pubdate;
     const date = new Date(unix * 1000);
     const imageUrl = `${IMAGE_API}?url=${encodeURIComponent(data.pic)}`;
-    const pfpUrl = `${IMAGE_API}?url=${encodeURIComponent(data.owner.face)}`;
+    // const pfpUrl = `${IMAGE_API}?url=${encodeURIComponent(data.owner.face)}`;
 
     return {
       title: data.title,
@@ -143,7 +143,7 @@ async function getBilibiliVideoDetails(
       timestamp: date.toISOString(),
       image: imageUrl,
       embed: getBilibiliEmbedUrl(data),
-      pfp: pfpUrl,
+      downloadLink: null,
     };
   } catch (error) {
     logger.debug('Error fetching Bilibili video details:', error);
@@ -167,7 +167,6 @@ async function getYouTubeVideoDetails(
 
   const apiKey = process.env.YOUTUBE_API_KEY;
   const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${apiKey}&part=snippet,contentDetails`;
-  let channelApiUrl = 'https://www.googleapis.com/youtube/v3/channels';
 
   try {
     const response = await axios.get<YouTubeResponse>(apiUrl);
@@ -175,17 +174,6 @@ async function getYouTubeVideoDetails(
     if (!data.items?.length) {
       return null;
     }
-
-    const channelId = data.items[0].snippet.channelId;
-    channelApiUrl = `${channelApiUrl}?${new URLSearchParams({
-      id: channelId,
-      key: apiKey as string,
-      part: 'snippet',
-    }).toString()}`;
-
-    const channelResponse =
-      await axios.get<YouTubeChannelResponse>(channelApiUrl);
-    const channelData = channelResponse.data;
 
     return {
       title: data.items[0].snippet.title,
@@ -197,7 +185,7 @@ async function getYouTubeVideoDetails(
         data.items[0].snippet.thumbnails?.medium?.url ||
         data.items[0].snippet.thumbnails?.default?.url,
       embed: getYouTubeEmbedUrl(url),
-      pfp: channelData.items[0].snippet.thumbnails.default.url,
+      downloadLink: (await getDriveFromYt(url, data))?.drive || null,
     };
   } catch (error) {
     logger.error('Error fetching YouTube video details:', error);
@@ -222,7 +210,7 @@ interface DriveResult {
   desc: string | null;
 }
 
-async function getDriveFromYt(link: string): Promise<DriveResult | null> {
+async function getDriveFromYt(link: string, response: YouTubeResponse | null = null): Promise<DriveResult | null> {
   let yoon = '';
   let drive = '';
   let dsc: string | null = null;
@@ -239,10 +227,12 @@ async function getDriveFromYt(link: string): Promise<DriveResult | null> {
   }
 
   try {
-    const response = await axios.get<YouTubeResponse>(
+    if (!response) {
+      response = await axios.get<YouTubeResponse>(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.VITE_YOUTUBE_API_KEY}`,
-    );
-    const data = response.data;
+      ).then(res => res.data);
+    }
+    const data = response!;
 
     if (data.items?.[0]) {
       const desc = data.items[0].snippet.description;
