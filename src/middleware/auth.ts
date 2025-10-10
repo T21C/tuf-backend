@@ -305,6 +305,7 @@ export const Auth = {
     return chainMiddleware(
       Auth.superAdmin(),
       async (req: Request, res: Response, next: NextFunction) => {
+        const {origin} = req.query;
         const {superAdminPassword: superAdminPasswordBody} = req.body;
         const superAdminPasswordHeader = req.headers['x-super-admin-password'];
         const superAdminPassword = superAdminPasswordBody || superAdminPasswordHeader;
@@ -312,7 +313,7 @@ export const Auth = {
         if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
           incorectPasswords.set(req.user!.id, (incorectPasswords.get(req.user!.id) || 0) + 1);
           if ((incorectPasswords.get(req.user!.id) || 0) >= 5) {
-            logger.warn(`User ${req.user!.id} has made ${incorectPasswords.get(req.user!.id)} incorrect password attempts`);
+            logger.warn(`User ${req.user!.id} has made ${incorectPasswords.get(req.user!.id)} incorrect password attempts while accessing ${origin} at link ${req.originalUrl}`);
           }
           res.status(403).json({message: 'Invalid super admin password'});
           return;

@@ -8,6 +8,9 @@ const verifyPasswordEndpoints: EndpointDefinition[] = [
     category: 'ADMIN',
     requiresAuth: true,
     parameters: {
+      query: {
+        origin: 'string (optional) - Origin of the request'
+      },
       headers: {
         'X-Super-Admin-Password': 'string (required) - Super admin password'
       }
