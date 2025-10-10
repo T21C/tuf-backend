@@ -525,7 +525,7 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ETIMEDOUT') {
       logger.error('Error fetching image: Timeout error');
     } else {
-      logger.error('Error fetching image:', error instanceof Error ? error.message : String(error).slice(0, 100));
+      logger.error('Error fetching image:', error);
     }
     res.status(500).send('Error fetching image.');
     return;
