@@ -8,7 +8,7 @@ export default {
       monthly: 10,
     },
     schedule: {
-      hourly: '0 */1 * * *', // Every 1 hour
+      hourly: '0 * * * *', // Every hour at minute 0
       daily: '0 1 * * *', // Every day at 1 AM
       weekly: '0 2 * * 0', // Every Sunday at 2 AM
       monthly: '0 3 1 * *', // 1st of each month at 3 AM
@@ -23,7 +23,7 @@ export default {
       monthly: 10,
     },
     schedule: {
-      hourly: '0 */1 * * *', // Every 1 hour
+      hourly: '0 * * * *', // Every hour at minute 0
       daily: '0 1 * * *', // Every day at 1 AM
       weekly: '0 2 * * 0', // Every Sunday at 2 AM
       monthly: '0 3 1 * *', // 1st of each month at 3 AM

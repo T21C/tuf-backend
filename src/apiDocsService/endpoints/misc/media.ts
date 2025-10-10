@@ -89,5 +89,22 @@ export const mediaEndpoints: EndpointDefinition[] = [
       '500': 'Server error processing avatar'
     },
     requiresAuth: true
+  },
+  {
+    method: 'GET',
+    path: '/media/video-details/:videoLink',
+    category: 'MEDIA',
+    description: 'Get video details (title, channel, thumbnail, etc.) from YouTube or Bilibili video link with caching',
+    parameters: {
+      path: {
+        videoLink: 'string (required) - URL-encoded video link (YouTube or Bilibili)'
+      }
+    },
+    responses: {
+      '200': 'Video details with title, channel name, timestamp, thumbnail URL, and embed URL',
+      '400': 'Video link is required',
+      '500': 'Failed to fetch video details'
+    },
+    requiresAuth: false
   }
 ]; 

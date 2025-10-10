@@ -76,6 +76,11 @@ export const API_CATEGORIES = {
         name: 'Admin',
         description: 'Admin endpoints',
         color: '#ff0000'
+    },
+    PACKS: {
+        name: 'Packs',
+        description: 'Pack management and retrieval endpoints',
+        color: '#ffd43b'
     }
 } as const;
 
