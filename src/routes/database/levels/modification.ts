@@ -962,6 +962,14 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
 
       // Read the assembled file
       const assembledFilePath = path.join('uploads', 'assembled', req.user!.id, `${fileId}.zip`);
+      
+      // Check if file exists before attempting to read
+      try {
+        await fs.promises.access(assembledFilePath);
+      } catch (accessError) {
+        throw new Error(`Assembled file not found. The upload may be incomplete or expired.`);
+      }
+      
       const fileBuffer = await fs.promises.readFile(assembledFilePath);
       
       const uploadResult = await cdnService.uploadLevelZip(
@@ -970,7 +978,14 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
       );
 
       // Clean up the assembled file
-      await fs.promises.unlink(assembledFilePath);
+      try {
+        await fs.promises.unlink(assembledFilePath);
+      } catch (unlinkError: any) {
+        // Ignore ENOENT errors - file is already gone
+        if (unlinkError.code !== 'ENOENT') {
+          logger.warn('Failed to clean up assembled file:', unlinkError);
+        }
+      }
 
       // Get the level files from the CDN service
       const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
@@ -1028,8 +1043,11 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
       try {
         const assembledFilePath = path.join('uploads', 'assembled', req.user!.id, `${fileId}.zip`);
         await fs.promises.unlink(assembledFilePath);
-      } catch (cleanupError) {
-        logger.warn('Failed to clean up assembled file:', cleanupError);
+      } catch (cleanupError: any) {
+        // Ignore ENOENT errors - file is already gone or never existed
+        if (cleanupError.code !== 'ENOENT') {
+          logger.warn('Failed to clean up assembled file:', cleanupError);
+        }
       }
       throw error;
     }
