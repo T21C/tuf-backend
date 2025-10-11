@@ -83,7 +83,7 @@ export class ImageFactory {
             // Commit the transaction
             await transaction.commit();
             
-            logger.info('Image uploaded successfully:', {
+            logger.debug('Image uploaded successfully:', {
                 fileId,
                 imageType,
                 imageDir,
@@ -120,7 +120,7 @@ export class ImageFactory {
             if (imageDir && fs.existsSync(imageDir)) {
                 try {
                     storageManager.cleanupFiles(imageDir);
-                    logger.info('Cleaned up image directory after failed upload:', {
+                    logger.debug('Cleaned up image directory after failed upload:', {
                         imageDir,
                         timestamp: new Date().toISOString()
                     });

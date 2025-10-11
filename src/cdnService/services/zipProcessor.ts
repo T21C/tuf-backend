@@ -24,7 +24,7 @@ async function extractZipEntries(zipFilePath: string): Promise<ZipEntry[]> {
     const zip = new AdmZip(zipFilePath);
     const entries = zip.getEntries();
     
-    logger.info('Extracting zip entries:', {
+    logger.debug('Extracting zip entries:', {
         entryCount: entries.length,
         entries: entries.map(entry => ({
             name: entry.name,
@@ -56,7 +56,7 @@ async function extractFile(zipFilePath: string, entry: ZipEntry, targetPath: str
     const buffer = zipEntry.getData();
     await fs.promises.writeFile(targetPath, buffer);
     
-    logger.info('Extracted file:', {
+    logger.debug('Extracted file:', {
         from: entry.relativePath,
         to: targetPath,
         size: entry.size
@@ -93,7 +93,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
     let transaction: Transaction | undefined;
     let permanentDir: string | null = null;
     
-    logger.info('Starting zip file processing:', { 
+    logger.debug('Starting zip file processing:', { 
         zipFilePath, 
         zipFileId, 
         originalFilename,
@@ -114,7 +114,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
 
         // Reserve a drive for temporary operations
         const storageRoot = await storageManager.getDrive();
-        logger.info(`Processing zip file on drive:`, {
+        logger.debug(`Processing zip file on drive:`, {
             drive: storageRoot,
             fileId: zipFileId,
             totalEntries: zipEntries.length,
@@ -124,14 +124,14 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         // Create temporary storage directory for this zip processing
         permanentDir = path.join(storageRoot, 'temp', zipFileId);
         await fs.promises.mkdir(permanentDir, { recursive: true });
-        logger.info('Created temporary storage directory:', { 
+        logger.debug('Created temporary storage directory:', { 
             permanentDir,
             drive: storageRoot
         });
 
         // Use the original filename directly
         const finalZipName = decodeFilename(originalFilename);
-        logger.info('Using original zip name:', { 
+        logger.debug('Using original zip name:', { 
             finalZipName
         });
 
@@ -139,7 +139,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         const originalZipPath = path.join(permanentDir, finalZipName);
         await fs.promises.copyFile(zipFilePath, originalZipPath);
         const originalZipSize = (await fs.promises.stat(originalZipPath)).size;
-        logger.info('Stored original zip file:', { 
+        logger.debug('Stored original zip file:', { 
             originalZipPath,
             finalZipName,
             size: originalZipSize,
@@ -219,7 +219,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         }
 
         // Upload files to hybrid storage (Spaces or local)
-        logger.info('Uploading processed files to hybrid storage', {
+        logger.debug('Uploading processed files to hybrid storage', {
             fileId: zipFileId,
             levelCount: allLevelFiles.length,
             songCount: Object.keys(songFiles).length
@@ -288,7 +288,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
 
             targetLevel = largestLevel.path; // Use storage path (Spaces key or local path)
 
-            logger.info('Selected largest level file as target:', {
+            logger.debug('Selected largest level file as target:', {
                 selectedLevel: largestLevel.name,
                 size: largestLevel.size,
                 path: largestLevel.path,
@@ -336,7 +336,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         // Commit the transaction
         await transaction.commit();
 
-        logger.info('Successfully processed zip file:', {
+        logger.debug('Successfully processed zip file:', {
             fileId: zipFileId,
             drive: storageRoot,
             levelCount: allLevelFiles.length,
@@ -367,7 +367,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         if (permanentDir && fs.existsSync(permanentDir)) {
             try {
                 storageManager.cleanupFiles(permanentDir);
-                logger.info('Cleaned up permanent directory after failed processing:', {
+                logger.debug('Cleaned up permanent directory after failed processing:', {
                     permanentDir,
                     timestamp: new Date().toISOString()
                 });
@@ -409,7 +409,7 @@ interface RepackMetadata {
 export async function repackZipFile(metadata: RepackMetadata, outputDir?: string): Promise<string> {
     let tempZipPath: string | null = null;
     
-    logger.info('Starting zip file repacking:', { metadata, outputDir });
+    logger.debug('Starting zip file repacking:', { metadata, outputDir });
     
     try {
         // Use provided output directory or default to temp folder
@@ -428,12 +428,12 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
                 'repacked_' + Date.now() + '_' + Math.random().toString(36).substring(7) + '.zip'
             );
         }
-            logger.info('Created temporary zip path:', { tempZipPath });
+            logger.debug('Created temporary zip path:', { tempZipPath });
 
             const zip = new AdmZip();
             
             // Add level file to zip
-            logger.info('Adding level file to zip:', {
+            logger.debug('Adding level file to zip:', {
                 levelFile: {
                     name: metadata.levelFile.name,
                     path: metadata.levelFile.path
@@ -445,7 +445,7 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
 
             // Add song file if present
             if (metadata.songFile) {
-                logger.info('Adding song file to zip:', {
+                logger.debug('Adding song file to zip:', {
                     songFile: {
                         name: metadata.songFile.name,
                         path: metadata.songFile.path
@@ -454,10 +454,10 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
                 zip.addLocalFile(metadata.songFile.path, '', metadata.songFile.name);
             }
 
-            logger.info('Writing zip file to disk:', { tempZipPath });
+            logger.debug('Writing zip file to disk:', { tempZipPath });
             zip.writeZip(tempZipPath);
             
-            logger.info('Zip file repacked successfully');
+            logger.debug('Zip file repacked successfully');
             return tempZipPath;
     } catch (error) {
         logger.error('Error repacking zip file:', {
@@ -469,7 +469,7 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
         });
         
         if (tempZipPath) {
-            logger.info('Cleaning up temporary zip file due to error:', { tempZipPath });
+            logger.debug('Cleaning up temporary zip file due to error:', { tempZipPath });
             // Only cleanup if it's in the temp folder, not in the repack folder
             if (!outputDir) {
                 storageManager.cleanupFiles(tempZipPath);

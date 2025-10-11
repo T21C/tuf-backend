@@ -50,7 +50,7 @@ async function cleanupOldAccessLogs(): Promise<void> {
         });
         
         if (deletedCount > 0) {
-            logger.info(`Cleaned up ${deletedCount} old file access logs older than 1 week`);
+            logger.debug(`Cleaned up ${deletedCount} old file access logs older than 1 week`);
         }
     } catch (error) {
         logger.error('Error cleaning up old file access logs:', {
@@ -412,7 +412,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
         try {
             if (fileType === 'LEVELZIP' && metadata) {
                 // For level zip files, delete all associated files (extracted levels, songs, etc.)
-                logger.info('Deleting level zip and all associated files', {
+                logger.debug('Deleting level zip and all associated files', {
                     fileId,
                     fileType,
                     hasMetadata: !!metadata
@@ -420,7 +420,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                 
                 await hybridStorageManager.deleteLevelZipFiles(fileId, metadata);
                 
-                logger.info('Level zip and associated files deleted successfully:', {
+                logger.debug('Level zip and associated files deleted successfully:', {
                     fileId,
                     fileType,
                     timestamp: new Date().toISOString()
@@ -434,7 +434,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     if (storageType === StorageType.LOCAL) {
                         const cleanupSuccess = storageManager.cleanupImageDirectory(filePath, fileId, fileType);
                         if (cleanupSuccess) {
-                            logger.info('Image file deleted successfully:', {
+                            logger.debug('Image file deleted successfully:', {
                                 fileId,
                                 filePath,
                                 type: fileType,
@@ -453,7 +453,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     } else {
                         // Use hybrid storage manager for cloud-stored images
                         await hybridStorageManager.deleteFile(filePath, storageType);
-                        logger.info('Image file deleted from hybrid storage successfully:', {
+                        logger.debug('Image file deleted from hybrid storage successfully:', {
                             fileId,
                             filePath,
                             type: fileType,
@@ -464,7 +464,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                 } else {
                     // Use hybrid storage manager for other file types
                     await hybridStorageManager.deleteFile(filePath, storageType);
-                    logger.info('File deleted from hybrid storage successfully:', {
+                    logger.debug('File deleted from hybrid storage successfully:', {
                         fileId,
                         filePath,
                         type: fileType,

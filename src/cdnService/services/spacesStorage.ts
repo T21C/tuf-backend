@@ -116,7 +116,7 @@ export class SpacesStorageManager {
 
             const result = await this.s3.upload(uploadParams).promise();
 
-            logger.info('File uploaded to Spaces successfully', {
+            logger.debug('File uploaded to Spaces successfully', {
                 key,
                 size: fileStats.size,
                 etag: result.ETag,
@@ -167,7 +167,7 @@ export class SpacesStorageManager {
 
             const result = await this.s3.upload(uploadParams).promise();
 
-            logger.info('Buffer uploaded to Spaces successfully', {
+            logger.debug('Buffer uploaded to Spaces successfully', {
                 key,
                 size: buffer.length,
                 etag: result.ETag,
@@ -214,9 +214,9 @@ export class SpacesStorageManager {
             if (localPath) {
                 await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
                 await fs.promises.writeFile(localPath, buffer);
-                logger.info('File downloaded and saved locally', { key, localPath, size: buffer.length });
+                logger.debug('File downloaded and saved locally', { key, localPath, size: buffer.length });
             } else {
-                logger.info('File downloaded from Spaces', { key, size: buffer.length });
+                logger.debug('File downloaded from Spaces', { key, size: buffer.length });
             }
 
             return buffer;
@@ -243,7 +243,7 @@ export class SpacesStorageManager {
 
             await this.s3.deleteObject(deleteParams).promise();
 
-            logger.info('File deleted from Spaces successfully', { key });
+            logger.debug('File deleted from Spaces successfully', { key });
         } catch (error) {
             logger.error('Failed to delete file from Spaces', {
                 error: error instanceof Error ? error.message : String(error),
@@ -282,7 +282,7 @@ export class SpacesStorageManager {
                 });
             }
 
-            logger.info('Files deleted from Spaces', { 
+            logger.debug('Files deleted from Spaces', { 
                 deletedCount: result.Deleted?.length || 0,
                 errorCount: result.Errors?.length || 0
             });
@@ -318,7 +318,7 @@ export class SpacesStorageManager {
                 url: this.getFileUrl(obj.Key || '')
             }));
 
-            logger.info('Files listed from Spaces', { 
+            logger.debug('Files listed from Spaces', { 
                 prefix, 
                 count: files.length,
                 totalSize: files.reduce((sum, file) => sum + file.size, 0)
@@ -573,7 +573,7 @@ export class SpacesStorageManager {
                 stats.totalSize += size;
             }
 
-            logger.info('Storage statistics retrieved from Spaces', stats);
+            logger.debug('Storage statistics retrieved from Spaces', stats);
             return stats;
         } catch (error) {
             logger.error('Failed to get storage statistics from Spaces', {

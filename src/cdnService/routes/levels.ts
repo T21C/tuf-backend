@@ -20,7 +20,7 @@ const initializeRepackFolder = async () => {
     try {
         if (!fs.existsSync(REPACK_FOLDER)) {
             fs.mkdirSync(REPACK_FOLDER, { recursive: true });
-            logger.info('Created repack folder:', REPACK_FOLDER);
+            logger.debug('Created repack folder:', REPACK_FOLDER);
         } else {
             // Clean up old files on startup
             await cleanupRepackFolder();
@@ -44,12 +44,12 @@ const cleanupRepackFolder = async () => {
             if (stats.mtime.getTime() < cutoffTime) {
                 await fs.promises.rm(filePath, { recursive: true, force: true });
                 cleanedCount++;
-                logger.info(`Cleaned up old repack folder: ${file}`);
+                logger.debug(`Cleaned up old repack folder: ${file}`);
             }
         }
 
         if (cleanedCount > 0) {
-            logger.info(`Cleaned up ${cleanedCount} old repack folders`);
+            logger.debug(`Cleaned up ${cleanedCount} old repack folders`);
         }
     } catch (error) {
         logger.error('Failed to cleanup repack folder:', error);
@@ -62,7 +62,7 @@ const cleanupUuidRepackFolder = async (fileId: string) => {
         const uuidRepackFolder = path.join(REPACK_FOLDER, fileId);
         if (fs.existsSync(uuidRepackFolder)) {
             await fs.promises.rm(uuidRepackFolder, { recursive: true, force: true });
-            logger.info(`Cleaned up UUID repack folder: ${fileId}`);
+            logger.debug(`Cleaned up UUID repack folder: ${fileId}`);
         }
     } catch (error) {
         logger.error(`Failed to cleanup UUID repack folder ${fileId}:`, error);
@@ -385,7 +385,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     fs.promises.unlink(songFilePath).catch(() => {});
                 }
                 
-                logger.info('Repack zip created and streaming started:', {
+                logger.debug('Repack zip created and streaming started:', {
                     fileId,
                     uuidRepackDir,
                     zipPath: repackZipPath,

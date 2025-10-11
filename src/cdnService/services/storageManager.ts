@@ -105,7 +105,7 @@ export class StorageManager {
                     // Ensure storage directory exists
                     if (!fs.existsSync(storagePath)) {
                         fs.mkdirSync(storagePath, { recursive: true });
-                        logger.info(`Created storage directory: ${storagePath}`);
+                        logger.debug(`Created storage directory: ${storagePath}`);
                     }
 
                     // The values from node-disk-info are already in bytes
@@ -126,7 +126,7 @@ export class StorageManager {
                         mounted: disk.mounted
                     });
 
-                    logger.info(`Initialized storage path ${storagePath}`, { 
+                    logger.debug(`Initialized storage path ${storagePath}`, { 
                         drive: drivePath,
                         filesystem: disk.filesystem,
                         mounted: disk.mounted,
@@ -185,7 +185,7 @@ export class StorageManager {
         const selectedDrive = availableDrives[0];
         
 
-        logger.info(`Selected least occupied drive for storage:`, {
+        logger.debug(`Selected least occupied drive for storage:`, {
             drive: selectedDrive.storagePath,
             availableSpace: this.formatBytes(selectedDrive.availableSpace),
             usagePercentage: selectedDrive.usagePercentage,
@@ -225,7 +225,7 @@ export class StorageManager {
                     // Log significant changes in drive usage
                     if (Math.abs(oldUsage - drive.usagePercentage) > 1 || 
                         Math.abs(oldAvailable - drive.availableSpace) > 1024 * 1024 * 100) { // 100MB change
-                        logger.info(`Drive usage updated:`, {
+                        logger.debug(`Drive usage updated:`, {
                             drive: drive.storagePath,
                             oldUsage: `${oldUsage}%`,
                             newUsage: `${drive.usagePercentage}%`,
@@ -311,7 +311,7 @@ export class StorageManager {
         // Ensure the necessary directory structure exists on the selected drive
         this.ensureRedistributionDirectories(selectedDrive);
 
-        logger.info(`Selected drive for redistribution (${mode}):`, {
+        logger.debug(`Selected drive for redistribution (${mode}):`, {
             drive: selectedDrive.storagePath,
             usagePercentage: selectedDrive.usagePercentage,
             availableSpace: this.formatBytes(selectedDrive.availableSpace),
@@ -339,7 +339,7 @@ export class StorageManager {
             // Create levels directory if it doesn't exist
             if (!fs.existsSync(levelsDir)) {
                 fs.mkdirSync(levelsDir, { recursive: true });
-                logger.info('Created levels directory for redistribution:', {
+                logger.debug('Created levels directory for redistribution:', {
                     drive: drive.storagePath,
                     directory: levelsDir
                 });
@@ -413,7 +413,7 @@ export class StorageManager {
                 // Log directory contents before deletion
                 try {
                     const contents = fs.readdirSync(normalizedAbsolutePath);
-                    logger.info('Deleting image directory:', {
+                    logger.debug('Deleting image directory:', {
                         directory: normalizedAbsolutePath,
                         fileId,
                         imageType,
@@ -429,7 +429,7 @@ export class StorageManager {
                 
                 // Verify deletion was successful
                 if (!fs.existsSync(normalizedAbsolutePath)) {
-                    logger.info('Successfully deleted image directory:', {
+                    logger.debug('Successfully deleted image directory:', {
                         directory: normalizedAbsolutePath,
                         fileId,
                         imageType
@@ -492,7 +492,7 @@ export class StorageManager {
                     continue;
                 }
 
-                logger.info(`Deleting file/directory: ${normalizedAbsolutePath}`);
+                logger.debug(`Deleting file/directory: ${normalizedAbsolutePath}`);
                 if (fs.existsSync(normalizedAbsolutePath)) {
                     const stats = fs.statSync(normalizedAbsolutePath);
                     if (stats.isDirectory()) {
@@ -500,7 +500,7 @@ export class StorageManager {
                         if (normalizedAbsolutePath.includes('/images/')) {
                             try {
                                 const contents = fs.readdirSync(normalizedAbsolutePath);
-                                logger.info(`Deleting image directory with ${contents.length} files:`, {
+                                logger.debug(`Deleting image directory with ${contents.length} files:`, {
                                     directory: normalizedAbsolutePath,
                                     files: contents
                                 });
@@ -509,10 +509,10 @@ export class StorageManager {
                             }
                         }
                         fs.rmSync(normalizedAbsolutePath, { recursive: true, force: true });
-                        logger.info(`Successfully deleted directory: ${normalizedAbsolutePath}`);
+                        logger.debug(`Successfully deleted directory: ${normalizedAbsolutePath}`);
                     } else {
                         fs.unlinkSync(normalizedAbsolutePath);
-                        logger.info(`Successfully deleted file: ${normalizedAbsolutePath}`);
+                        logger.debug(`Successfully deleted file: ${normalizedAbsolutePath}`);
                     }
                 } else {
                     logger.warn(`File/directory does not exist: ${normalizedAbsolutePath}`);

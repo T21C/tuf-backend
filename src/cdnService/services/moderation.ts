@@ -138,7 +138,7 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
             // Commit the transaction
             await transaction.commit();
             
-            logger.info('Image approved successfully:', {
+            logger.debug('Image approved successfully:', {
                 fileId,
                 pendingPath,
                 approvedPath,
@@ -158,7 +158,7 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
             // Clean up files from disk after successful database deletion
             try {
                 storageManager.cleanupFiles(filePath);
-                logger.info('Image rejected and cleaned up successfully:', {
+                logger.debug('Image rejected and cleaned up successfully:', {
                     fileId,
                     filePath,
                     moderatorId,

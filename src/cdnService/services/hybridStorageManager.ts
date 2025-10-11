@@ -90,7 +90,7 @@ export class HybridStorageManager {
                         uploadedAt: new Date().toISOString()
                     });
 
-                    logger.info('Level file uploaded to Spaces', {
+                    logger.debug('Level file uploaded to Spaces', {
                         fileId,
                         originalFilename: keyResult.originalFilename,
                         isZip,
@@ -124,7 +124,7 @@ export class HybridStorageManager {
             await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
             await fs.promises.copyFile(filePath, localPath);
 
-            logger.info('Level file stored locally', {
+            logger.debug('Level file stored locally', {
                 fileId,
                 originalFilename,
                 isZip,
@@ -200,7 +200,7 @@ export class HybridStorageManager {
                 });
             }
 
-            logger.info('All song files uploaded to Spaces', {
+            logger.debug('All song files uploaded to Spaces', {
                 fileId,
                 fileCount: files.length,
                 totalSize: files.reduce((sum, f) => sum + f.size, 0)
@@ -273,7 +273,7 @@ export class HybridStorageManager {
                         });
                     }
 
-                    logger.info('All level files uploaded to Spaces', {
+                    logger.debug('All level files uploaded to Spaces', {
                         fileId,
                         fileCount: files.length,
                         totalSize: files.reduce((sum, f) => sum + f.size, 0)
@@ -312,7 +312,7 @@ export class HybridStorageManager {
                 });
             }
 
-            logger.info('All level files stored locally', {
+            logger.debug('All level files stored locally', {
                 fileId,
                 fileCount: files.length,
                 levelDir
@@ -376,7 +376,7 @@ export class HybridStorageManager {
                 }
             }
 
-            logger.info('File deleted successfully', { filePath, storageType });
+            logger.debug('File deleted successfully', { filePath, storageType });
         } catch (error) {
             logger.error('Failed to delete file', {
                 error: error instanceof Error ? error.message : String(error),
@@ -393,7 +393,7 @@ export class HybridStorageManager {
      */
     public async deleteLevelZipFiles(fileId: string, metadata: any): Promise<void> {
         try {
-            logger.info('Deleting level zip folder from all storage types', {
+            logger.debug('Deleting level zip folder from all storage types', {
                 fileId,
                 folderStructure: {
                     spaces: `levels/${fileId}/ and zips/${fileId}/`,
@@ -404,7 +404,7 @@ export class HybridStorageManager {
             // Delete from both storage types using folder-based approach
             await this.deleteFolder(fileId);
 
-            logger.info('Successfully completed folder-based deletion of level zip files', {
+            logger.debug('Successfully completed folder-based deletion of level zip files', {
                 fileId
             });
         } catch (error) {
@@ -447,7 +447,7 @@ export class HybridStorageManager {
                 }
             }
 
-            logger.info('Files deleted successfully', {
+            logger.debug('Files deleted successfully', {
                 spacesCount: spacesFiles.length,
                 localCount: localFiles.length
             });
@@ -488,7 +488,7 @@ export class HybridStorageManager {
                     spacesFiles.forEach(path => {
                         deletionResults.push({ path, storageType: StorageType.SPACES, success: true });
                     });
-                    logger.info('Successfully deleted files from Spaces', { count: spacesFiles.length });
+                    logger.debug('Successfully deleted files from Spaces', { count: spacesFiles.length });
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     logger.warn('Some files failed to delete from Spaces', { 
@@ -536,7 +536,7 @@ export class HybridStorageManager {
             const successfulDeletions = deletionResults.filter(r => r.success).length;
             const failedDeletions = deletionResults.filter(r => !r.success).length;
 
-            logger.info('Comprehensive file deletion completed', {
+            logger.debug('Comprehensive file deletion completed', {
                 totalAttempts: files.length,
                 successful: successfulDeletions,
                 failed: failedDeletions,
@@ -602,7 +602,7 @@ export class HybridStorageManager {
                             filesDeleted: files.length
                         });
                         
-                        logger.info('Successfully deleted folder from Spaces', {
+                        logger.debug('Successfully deleted folder from Spaces', {
                             folder: folderPrefix,
                             filesDeleted: files.length
                         });
@@ -655,7 +655,7 @@ export class HybridStorageManager {
                                 filesDeleted: fileCount
                             });
                             
-                            logger.info('Successfully deleted folder from local storage', {
+                            logger.debug('Successfully deleted folder from local storage', {
                                 folder: folderPrefix,
                                 localPath: localFolderPath,
                                 filesDeleted: fileCount
@@ -704,7 +704,7 @@ export class HybridStorageManager {
                 .filter(r => r.success)
                 .reduce((sum, r) => sum + (r.filesDeleted || 0), 0);
 
-            logger.info('Comprehensive folder deletion completed', {
+            logger.debug('Comprehensive folder deletion completed', {
                 fileId,
                 totalFolders: foldersToDelete.length,
                 successful: successfulDeletions,
@@ -914,7 +914,7 @@ export class HybridStorageManager {
                 await spacesStorage.uploadFile(file.localPath, file.key, file.contentType);
                 results.push({ localPath: file.localPath, key: file.key, success: true });
                 
-                logger.info('File migrated to Spaces', {
+                logger.debug('File migrated to Spaces', {
                     localPath: file.localPath,
                     key: file.key
                 });
