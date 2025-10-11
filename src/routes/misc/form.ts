@@ -746,10 +746,7 @@ router.post(
     } catch (error) {
       // Enhanced error handling with proper cleanup
       logger.error('Submission error:', {
-        error: error instanceof Error ? {
-          message: error.message,
-          stack: error.stack
-        } : error,
+        error,
         formType: req.headers['x-form-type'],
         userId: req.user?.id,
         timestamp: new Date().toISOString()
