@@ -45,6 +45,19 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
 });
 
+// Handle Node.js warnings - filter out known non-critical warnings
+process.on('warning', (warning) => {
+  // Suppress TimeoutNegativeWarning - this happens when cron jobs overlap
+  // and try to schedule in the past. The cron library handles this by setting to 1ms.
+  if (warning.name === 'TimeoutNegativeWarning') {
+    logger.debug('Cron job scheduling adjustment (overlapping executions)');
+    return;
+  }
+  
+  // Log all other warnings normally
+  logger.warn('Node.js Warning:', warning);
+});
+
 // Add a handler for SIGTERM and SIGINT
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
