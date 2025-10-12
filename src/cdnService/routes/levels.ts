@@ -133,6 +133,9 @@ const extractLevelTypes = (levelData: LevelDict) => {
 // Transform level endpoint
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
     const { fileId } = req.params;
+    if (!fileId) {
+        throw { error: 'File ID is required', code: 400 };
+    }
     
     // Clean up any existing repack folder for this UUID first
     await cleanupUuidRepackFolder(fileId);
