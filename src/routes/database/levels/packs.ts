@@ -419,6 +419,37 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   }
 });
 
+// GET /packs/favorites - Get user's favorited packs
+// NOTE: This must be before GET /:id to avoid route collision
+router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
+  try {
+    const packs = await LevelPack.findAll({
+      include: [
+        {
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        },
+        {
+          model: PackFavorite,
+          as: 'favorites',
+          where: { userId: req.user!.id },
+          required: true
+        }
+      ],
+      order: [['name', 'ASC']],
+    }).then(packs => packs.map(pack => ({
+      ...pack,
+      id: pack.linkCode,
+    })));
+
+    return res.json({ packs });
+  } catch (error) {
+    logger.error('Error fetching favorited packs:', error);
+    return res.status(500).json({ error: 'Failed to fetch favorited packs' });
+  }
+});
+
 // GET /packs/:id - Get specific pack with its content tree
 router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
@@ -936,6 +967,19 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Valid level ID(s) are required' });
       }
 
+      // Validate parent if provided
+      if (parentId) {
+        const parent = await LevelPackItem.findOne({
+          where: { id: parentId, packId: resolvedPackId, type: 'folder' },
+          transaction
+        });
+
+        if (!parent) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({ error: 'Invalid parent folder' });
+        }
+      }
+
       // Validate all levels exist
       const levels = await Level.findAll({
         where: { id: { [Op.in]: levelIdsToAdd } },
@@ -1401,36 +1445,6 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     await safeTransactionRollback(transaction);
     logger.error('Error setting pack favorite status:', error);
     return res.status(500).json({ error: 'Failed to set pack favorite status' });
-  }
-});
-
-// GET /packs/favorites - Get user's favorited packs
-router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
-  try {
-    const packs = await LevelPack.findAll({
-      include: [
-        {
-          model: User,
-          as: 'packOwner',
-          attributes: ['id', 'nickname', 'username', 'avatarUrl']
-        },
-        {
-          model: PackFavorite,
-          as: 'favorites',
-          where: { userId: req.user!.id },
-          required: true
-        }
-      ],
-      order: [['name', 'ASC']],
-    }).then(packs => packs.map(pack => ({
-      ...pack,
-      id: pack.linkCode,
-    })));
-
-    return res.json({ packs });
-  } catch (error) {
-    logger.error('Error fetching favorited packs:', error);
-    return res.status(500).json({ error: 'Failed to fetch favorited packs' });
   }
 });
 
