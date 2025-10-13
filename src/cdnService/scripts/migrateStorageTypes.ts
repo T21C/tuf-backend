@@ -147,12 +147,13 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
         transaction = await sequelize.transaction();
         
         // Get all zip files that need hybrid migration
+        // Find files that are NOT already in SPACES (includes LOCAL, null metadata, or null storageType)
         const whereClause: any = {
             type: 'LEVELZIP',
             [Op.or]: [
                 { metadata: null },
-                { metadata: { storageType: StorageType.LOCAL } },
-                { metadata: { storageType: null } }
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`),
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') = '${StorageType.LOCAL}'`)
             ]
         };
         
@@ -658,8 +659,7 @@ export async function migrateStorageTypes(batchSize?: number, fileType?: string)
         const whereClause: any = {
             [Op.or]: [
                 { metadata: null },
-                { metadata: { storageType: null } },
-                { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`)
             ]
         };
         
@@ -946,7 +946,9 @@ export async function getDriveUsageStats(): Promise<{
         const filesInSpaces = await CdnFile.count({
             where: {
                 type: 'LEVELZIP',
-                metadata: { storageType: StorageType.SPACES }
+                [Op.and]: [
+                    sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') = '${StorageType.SPACES}'`)
+                ]
             }
         });
         const filesLocal = totalFiles - filesInSpaces;
@@ -1018,9 +1020,9 @@ export async function migrateLocalSongFiles(batchSize?: number): Promise<void> {
         // Get level zip files that have local song files
         const whereClause: any = {
             type: 'LEVELZIP',
-            metadata: {
-                songStorageType: StorageType.LOCAL
-            }
+            [Op.and]: [
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.songStorageType') = '${StorageType.LOCAL}'`)
+            ]
         };
         
         const queryOptions: any = {
@@ -1368,9 +1370,9 @@ export async function redistributeFilesAcrossDrives(batchSize?: number): Promise
         // Get all local files that can be moved
         const whereClause: any = {
             type: 'LEVELZIP',
-            metadata: {
-                storageType: StorageType.LOCAL
-            }
+            [Op.and]: [
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') = '${StorageType.LOCAL}'`)
+            ]
         };
         
         const queryOptions: any = {
@@ -1749,8 +1751,7 @@ export async function getMigrationStats(): Promise<{
             where: {
                 [Op.or]: [
                     { metadata: null },
-                    { metadata: { storageType: null } },
-                    { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                    sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`)
                 ]
             }
         });
@@ -1764,8 +1765,7 @@ export async function getMigrationStats(): Promise<{
             where: {
                 [Op.or]: [
                     { metadata: null },
-                    { metadata: { storageType: null } },
-                    { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                    sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`)
                 ]
             },
             group: ['type'],
@@ -1779,11 +1779,9 @@ export async function getMigrationStats(): Promise<{
                 [sequelize.fn('COUNT', sequelize.col('id')), 'count']
             ],
             where: {
-                metadata: {
-                    storageType: {
-                        [Op.ne]: null
-                    }
-                }
+                [Op.and]: [
+                    sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NOT NULL`)
+                ]
             },
             group: [sequelize.literal("JSON_EXTRACT(metadata, '$.storageType')") as any],
             raw: true
@@ -1878,8 +1876,7 @@ export async function runBatchMigration(
                 where: {
                     [Op.or]: [
                         { metadata: null },
-                        { metadata: { storageType: null } },
-                        { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                        sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`)
                     ],
                     ...(fileType && { type: fileType })
                 }
@@ -1899,8 +1896,7 @@ export async function runBatchMigration(
                 where: {
                     [Op.or]: [
                         { metadata: null },
-                        { metadata: { storageType: null } },
-                        { metadata: { [Op.not]: { storageType: { [Op.ne]: null } } } }
+                        sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`)
                     ],
                     ...(fileType && { type: fileType })
                 }
