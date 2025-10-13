@@ -147,13 +147,14 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
         transaction = await sequelize.transaction();
         
         // Get all zip files that need hybrid migration
-        // Find files that are NOT already in SPACES (includes LOCAL, null metadata, or null storageType)
+        // Find files where originalZip is NOT already in SPACES
         const whereClause: any = {
             type: 'LEVELZIP',
             [Op.or]: [
                 { metadata: null },
-                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`),
-                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') = '${StorageType.LOCAL}'`)
+                // Check originalZip.storageType, not just storageType
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.originalZip.storageType') IS NULL`),
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.originalZip.storageType') = '${StorageType.LOCAL}'`)
             ]
         };
         
@@ -215,6 +216,15 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     originalZipSize: originalZip.size,
                     originalZipStorageType: originalZip.storageType
                 });
+                
+                // Safety check: Skip if already in SPACES
+                if (originalZip.storageType === StorageType.SPACES) {
+                    logger.info('File already in Spaces, skipping:', {
+                        fileId: file.id,
+                        originalZipPath: originalZip.path
+                    });
+                    continue;
+                }
                 
                 // Check if file exists and get its current location
                 const fileCheck = await hybridStorageManager.fileExistsWithFallback(
@@ -448,13 +458,14 @@ export async function migrateLocalZipsToSpaces(batchSize?: number): Promise<void
         transaction = await sequelize.transaction();
         
         // Get local zip files that need migration
-        // Find files that are NOT already in SPACES (includes LOCAL, null metadata, or null storageType)
+        // Find files where originalZip is NOT already in SPACES
         const whereClause: any = {
             type: 'LEVELZIP',
             [Op.or]: [
                 { metadata: null },
-                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`),
-                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') = '${StorageType.LOCAL}'`)
+                // Check originalZip.storageType, not just storageType
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.originalZip.storageType') IS NULL`),
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.originalZip.storageType') = '${StorageType.LOCAL}'`)
             ]
         };
         
@@ -500,6 +511,15 @@ export async function migrateLocalZipsToSpaces(batchSize?: number): Promise<void
                 
                 if (!originalZip?.path) {
                     throw new Error('No original zip path found in metadata');
+                }
+                
+                // Safety check: Skip if already in SPACES
+                if (originalZip.storageType === StorageType.SPACES) {
+                    logger.info('File already in Spaces, skipping:', {
+                        fileId: file.id,
+                        originalZipPath: originalZip.path
+                    });
+                    continue;
                 }
                 
                 // Check if file exists locally
