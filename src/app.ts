@@ -135,7 +135,9 @@ export async function startServer() {
 
     // Initialize PlayerStatsService after database is ready
     const playerStatsService = PlayerStatsService.getInstance();
-    await playerStatsService.initialize();
+    // speed up initialization
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    playerStatsService.initialize();
 
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
