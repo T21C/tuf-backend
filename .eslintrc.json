@@ -8,5 +8,5 @@
       "endOfLine": "auto"
     }]
   },
-  "ignorePatterns": ["dist/**/*", "build/**/*", "node_modules/**/*"]
+  "ignorePatterns": ["dist/**/*", "build/**/*", "node_modules/**/*", "uploads/**/*", "temp/**/*", "cache/**/*", "backups/**/*", "profiles/**/*", "src/database/generate_meta_inserts.bat", "src/database/meta_inserts.sql", "*.sh", "__pycache__/**/*"]
 }

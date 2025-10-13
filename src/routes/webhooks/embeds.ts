@@ -107,7 +107,6 @@ export async function createRerateEmbed(
   const level = levelInfo.dataValues;
   const team = level?.team ? level?.team : null;
   const charter = level?.charter ? level?.charter : null;
-  const creator = level?.creator ? level?.creator : null;
   const vfxer = level?.vfxer ? level?.vfxer : null;
   const videoInfo = await getVideoDetails(level.videoLink).then(
     details => details,
@@ -158,8 +157,6 @@ export async function createRerateEmbed(
   if (team) embed.addField('', `Team\n**${formatString(team)}**`, true);
   if (vfxer) embed.addField('', `VFX\n**${formatString(vfxer)}**`, true);
   if (charter) embed.addField('', `Chart\n**${formatString(charter)}**`, true);
-  else if (creator)
-    embed.addField('', `Creator\n**${formatString(creator)}**`, true);
   if (comment && level.difficulty?.name === 'Censored')
     embed.addField('Reason', `**${formatString(comment)}**`, false);
 
@@ -184,7 +181,6 @@ export async function createNewLevelEmbed(
   const level = levelInfo.dataValues;
   const team = level?.team ? level?.team : null;
   const charter = level?.charter ? level?.charter : null;
-  const creator = level?.creator ? level?.creator : null;
   const vfxer = level?.vfxer ? level?.vfxer : null;
   const comment = level?.publicComments
     ? level?.publicComments
@@ -216,8 +212,6 @@ export async function createNewLevelEmbed(
   if (team) embed.addField('', `Team\n**${formatString(team)}**`, true);
   if (vfxer) embed.addField('', `VFX\n**${formatString(vfxer)}**`, true);
   if (charter) embed.addField('', `Chart\n**${formatString(charter)}**`, true);
-  else if (creator)
-    embed.addField('', `Creator\n**${formatString(creator)}**`, true);
 
   embed
     .addField(

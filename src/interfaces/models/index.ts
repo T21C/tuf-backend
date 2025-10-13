@@ -33,10 +33,11 @@ export interface ILevel extends IBaseModel {
   id: number;
   song: string;
   artist: string;
-  //creator: string;
-  //charter: string;
-  //vfxer: string;
-  //team: string;
+  charter: string;
+  charters: string[];
+  vfxer: string;
+  vfxers: string[];
+  team: string;
   diffId: number;
   baseScore: number | null;
   previousBaseScore: number | null;

@@ -25,10 +25,6 @@ class Level
   declare id: number;
   declare song: string;
   declare artist: string;
-  //declare creator: string;
-  //declare charter: string;
-  //declare vfxer: string;
-  //declare team: string;
   declare diffId: number;
   declare baseScore: number | null;
   declare previousBaseScore: number | null;
@@ -65,6 +61,13 @@ class Level
   declare levelCredits?: LevelCredit[];   
   declare aliases?: LevelAlias[] | null;
   declare curation?: Curation | null;
+
+  declare charter: string;
+  declare vfxer: string;
+  declare team: string;
+  declare charters: string[];
+  declare vfxers: string[];
+
 }
 
 Level.init(
@@ -82,24 +85,6 @@ Level.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    /*
-    creator: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    charter: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    vfxer: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    team: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    */
     diffId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -247,6 +232,36 @@ Level.init(
         }
         return null;
       }
+    },
+    charter: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name).join(', ');
+      },
+    },
+    charters: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name);
+      },
+    },
+    vfxer: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name).join(', ');
+      },
+    },
+    vfxers: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name);
+      },
+    },
+    team: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        return this.teamObject?.name;
+      },
     }
   },
   {

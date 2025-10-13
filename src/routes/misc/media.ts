@@ -41,6 +41,15 @@ function formatAxiosError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function formatCredits(credits: string[]): string {
+  const sliceLength = 3;
+  
+  if (!credits) return "";
+  return credits.length > sliceLength ?
+    credits.slice(0, sliceLength).join(', ') + " and " + (credits.length - sliceLength) + " more"
+    : credits.join(', ');
+}
+
 // Promise map for tracking ongoing thumbnail generation
 const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
 
@@ -843,20 +852,18 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           const artistOverflow = artist.length > 35;
           const songOverflow = song.length > 35;
 
-          const charters = level.levelCredits?.filter(credit => credit.role === 'charter').map(credit => credit.creator?.name) || [];
-          const vfxers = level.levelCredits?.filter(credit => credit.role === 'vfxer').map(credit => credit.creator?.name) || [];
+          const charters = formatCredits(level.charters);
+          const vfxers = formatCredits(level.vfxers);
 
           const firstRow = level.teamObject ? "By " + level.teamObject.name :   
-            vfxers?.length > 0 ?
-            "Chart: " + charters.join(', ')
+            vfxers ?
+            "Chart: " + vfxers
             : 
-              charters?.length > 4 ?
-                "By " + charters.slice(0, 4).join(', ') + " and " + (charters.length - 4) + " more"
-                : "By " + charters.join(', ');
+              charters
 
           const secondRow = !level.teamObject 
-          && vfxers.length > 0 && charters.length > 0
-          ? "VFX: " + vfxers.join(', ')
+          && vfxers && charters
+          ? "VFX: " + vfxers
           : "";
 
           const html = `
