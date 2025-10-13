@@ -148,7 +148,12 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
         
         // Get all zip files that need hybrid migration
         const whereClause: any = {
-            type: 'LEVELZIP'
+            type: 'LEVELZIP',
+            [Op.or]: [
+                { metadata: null },
+                { metadata: { storageType: StorageType.LOCAL } },
+                { metadata: { storageType: null } }
+            ]
         };
         
         const queryOptions: any = {
@@ -442,12 +447,13 @@ export async function migrateLocalZipsToSpaces(batchSize?: number): Promise<void
         transaction = await sequelize.transaction();
         
         // Get local zip files that need migration
+        // Find files that are NOT already in SPACES (includes LOCAL, null metadata, or null storageType)
         const whereClause: any = {
             type: 'LEVELZIP',
             [Op.or]: [
                 { metadata: null },
-                { metadata: { storageType: StorageType.LOCAL } },
-                { metadata: { storageType: null } }
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') IS NULL`),
+                sequelize.literal(`JSON_EXTRACT(metadata, '$.storageType') = '${StorageType.LOCAL}'`)
             ]
         };
         
