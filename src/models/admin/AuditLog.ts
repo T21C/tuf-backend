@@ -53,4 +53,4 @@ AuditLog.init(
 
 AuditLog.belongsTo(User, { as: 'user', foreignKey: 'userId' });
 
-export default AuditLog; 
+export default AuditLog;

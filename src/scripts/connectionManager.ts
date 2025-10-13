@@ -10,18 +10,18 @@ const sequelize = new Sequelize({
   host: process.env.DB_HOST,
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.NODE_ENV === 'staging' 
-    ? process.env.DB_STAGING_DATABASE 
+  database: process.env.NODE_ENV === 'staging'
+    ? process.env.DB_STAGING_DATABASE
     : process.env.DB_DATABASE,
   logging: false,
 });
 
 async function killAllConnections() {
   try {
-    const database = process.env.NODE_ENV === 'staging' 
-      ? process.env.DB_STAGING_DATABASE 
+    const database = process.env.NODE_ENV === 'staging'
+      ? process.env.DB_STAGING_DATABASE
       : process.env.DB_DATABASE;
-    
+
     const [results] = await sequelize.query(`
       SELECT CONCAT('KILL ', id, ';') as kill_command
       FROM information_schema.processlist 
@@ -30,7 +30,7 @@ async function killAllConnections() {
     `, {
       replacements: [database]
     });
-    
+
     if (results.length > 0) {
       console.log(`Found ${results.length} connections to kill`);
       for (const row of results as any) {
@@ -52,10 +52,10 @@ async function killAllConnections() {
 
 async function getConnectionStats() {
   try {
-    const database = process.env.NODE_ENV === 'staging' 
-      ? process.env.DB_STAGING_DATABASE 
+    const database = process.env.NODE_ENV === 'staging'
+      ? process.env.DB_STAGING_DATABASE
       : process.env.DB_DATABASE;
-    
+
     const [results] = await sequelize.query(`
       SELECT 
         COUNT(*) as total_connections,
@@ -67,10 +67,10 @@ async function getConnectionStats() {
     `, {
       replacements: [database]
     });
-    
+
     console.log('Connection Statistics:');
     console.log(JSON.stringify(results[0], null, 2));
-    
+
     return results[0];
   } catch (error: any) {
     console.error('Error getting connection stats:', error.message);
@@ -80,10 +80,10 @@ async function getConnectionStats() {
 
 async function showAllConnections() {
   try {
-    const database = process.env.NODE_ENV === 'staging' 
-      ? process.env.DB_STAGING_DATABASE 
+    const database = process.env.NODE_ENV === 'staging'
+      ? process.env.DB_STAGING_DATABASE
       : process.env.DB_DATABASE;
-    
+
     const [results] = await sequelize.query(`
       SELECT 
         id,
@@ -100,10 +100,10 @@ async function showAllConnections() {
     `, {
       replacements: [database]
     });
-    
+
     console.log(`\nAll connections to database '${database}':`);
     console.table(results);
-    
+
     return results;
   } catch (error: any) {
     console.error('Error getting all connections:', error.message);
@@ -113,11 +113,11 @@ async function showAllConnections() {
 
 async function main() {
   const command = process.argv[2];
-  
+
   try {
     await sequelize.authenticate();
     console.log('Database connection established successfully');
-    
+
     switch (command) {
       case 'kill':
         await killAllConnections();
@@ -160,4 +160,4 @@ Examples:
   }
 }
 
-main();
+await main();

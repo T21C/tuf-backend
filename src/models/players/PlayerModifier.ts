@@ -35,13 +35,13 @@ class PlayerModifier extends Model {
     [ModifierType.OOPS_ALL_MISS]: 13,
 
     // Very low chance (total 12%)
-    [ModifierType.SCORE_FLIP]: 6, 
+    [ModifierType.SCORE_FLIP]: 6,
     [ModifierType.KING_OF_CASTLE]: 6,
 
     // Super low chance (total 5%)
     [ModifierType.PLAYER_SWAP]: 2.0,
     [ModifierType.BAN_HAMMER]: 3.0
-  } 
+  }
 
   static readonly PROBABILITIESTEST = {
     [ModifierType.RANKED_ADD]: 0,
@@ -53,7 +53,7 @@ class PlayerModifier extends Model {
     [ModifierType.PLAYER_SWAP]: 100,
     [ModifierType.BAN_HAMMER]: 0
   }
-  
+
 
   // Modifier configurations
   static readonly CONFIGS: Partial<Record<ModifierType, { min: number; max: number }>> = {
@@ -113,4 +113,4 @@ PlayerModifier.init({
   timestamps: false
 });
 
-export default PlayerModifier; 
+export default PlayerModifier;

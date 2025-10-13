@@ -11,10 +11,10 @@ import Team from '../../models/credits/Team.js';
 import Creator from '../../models/credits/Creator.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import { logger } from '../../services/LoggerService.js';
-import { 
-  getDifficulties, 
-  parseRatingRange, 
-  calculateRequestedDifficulty 
+import {
+  getDifficulties,
+  parseRatingRange,
+  calculateRequestedDifficulty
 } from '../../utils/RatingUtils.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { hasFlag } from '../../utils/permissionUtils.js';
@@ -45,6 +45,7 @@ async function normalizeRating(
     if (!match || !match[1]) {
       return {specialRatings: []};
     }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, prefix, num] = match;
     const normalizedRating = prefix.toUpperCase() + num;
 
@@ -125,12 +126,12 @@ async function normalizeRating(
   );
 
   // Find the difficulty with the closest sortOrder
-  const closestDifficulty = 
+  const closestDifficulty =
     Array.from(difficultyMap.values())
       .filter(d => d.type === 'PGU')
       .sort((a, b) => a.id - b.id)
-      .find(d => d.id == avgId) 
-      || 
+      .find(d => d.id === avgId)
+      ||
     Array.from(difficultyMap.values())
       .filter(d => d.type === 'PGU')
       .sort((a, b) => b.id - a.id)[0];
@@ -145,7 +146,7 @@ async function normalizeRating(
 async function calculateAverageRating(
   detailObject: RatingDetail[],
   transaction: any,
-  isCommunity: boolean = false,
+  isCommunity = false,
 ) {
   const {nameMap: difficultyMap} = await getDifficulties(transaction);
   const details = detailObject
@@ -187,11 +188,13 @@ async function calculateAverageRating(
 
   // Check if any special rating has 4 or more votes
   const specialRatings = Array.from(voteCounts.entries())
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     .filter(([_, data]) => data.difficulty.type === 'SPECIAL')
     .sort((a, b) => b[1].count - a[1].count);
 
   const requiredVotes = isCommunity ? 6 : 4;
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   for (const [_, data] of specialRatings) {
     if (data.count >= requiredVotes) {
       return data.difficulty;
@@ -303,7 +306,7 @@ router.get('/', async (req: Request, res: Response) => {
           rating.level?.rerateNum || null,
           rating.requesterFR || null,
         );
-        
+
         // Convert to plain object and add the calculated field
         const ratingData = rating.toJSON();
         return {
@@ -347,7 +350,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       return res.status(403).json({error: 'User is not a rater'});
     }
 
-    if (user.player?.stats?.topDiffId == 0) {
+    if (user.player?.stats?.topDiffId === 0) {
       await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'You need at least one pass to rate!'});
     }
@@ -735,7 +738,7 @@ router.delete(
 
       // Get remaining rating details
       const details = await RatingDetail.findAll({
-        where: { 
+        where: {
           ratingId: id
         },
         transaction,

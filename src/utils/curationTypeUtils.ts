@@ -18,7 +18,7 @@ const extractAbilities = (input: CurationTypeInput): bigint => {
       return BigInt(input.abilities || 0);
     }
   }
-  
+
   // If it's a number or bigint, convert to bigint
   return BigInt((input || 0) as number);
 };
@@ -80,7 +80,7 @@ export const removeAbility = (curationType: CurationTypeInput, ability: bigint):
  */
 export const canAssignCurationType = (userFlags: bigint, curationAbilities: bigint): boolean => {
   // Super admins and head curators can assign all curation types
-  if ((userFlags & permissionFlags.SUPER_ADMIN) !== 0n 
+  if ((userFlags & permissionFlags.SUPER_ADMIN) !== 0n
   || (userFlags & permissionFlags.HEAD_CURATOR) !== 0n) {
     return true;
   }
@@ -100,7 +100,7 @@ export const canAssignCurationType = (userFlags: bigint, curationAbilities: bigi
   if (hasRaterAssignable && isRater) {
     return true;
   }
-  
+
   // If no specific assignment flag, only super admins can assign
   return false;
 };
@@ -113,7 +113,7 @@ export const getDefaultColor = (abilities: bigint): string => {
   if (hasAbility(abilities, curationTypeAbilities.CUSTOM_COLOR_THEME)) {
     return '#e0e0e0'; // Light gray for custom theme
   }
-  
+
   return '#ffffff'; // Default white
 };
 
@@ -123,11 +123,11 @@ export const getDefaultColor = (abilities: bigint): string => {
  */
 export const getHoverInfo = (curation: any): string => {
   const info: string[] = [];
-  
+
   if (hasAbility(curation.type?.abilities, curationTypeAbilities.SHOW_ASSIGNER)) {
     info.push(`By: ${curation.assignedBy || 'Unknown'}`);
   }
-  
+
   return info.join(' | ');
 };
 
@@ -142,7 +142,7 @@ export const whereHasAbility = (ability: bigint): Literal => {
  * Create a Sequelize where clause for checking if a curation type has any of the specified abilities
  */
 export const whereHasAnyAbility = (abilities: bigint[]): any => {
-  const conditions = abilities.map(ability => 
+  const conditions = abilities.map(ability =>
     sequelize.literal(`(abilities & ${ability}) = ${ability}`)
   );
   return {
@@ -154,7 +154,7 @@ export const whereHasAnyAbility = (abilities: bigint[]): any => {
  * Create a Sequelize where clause for checking if a curation type has all of the specified abilities
  */
 export const whereHasAllAbilities = (abilities: bigint[]): any => {
-  const conditions = abilities.map(ability => 
+  const conditions = abilities.map(ability =>
     sequelize.literal(`(abilities & ${ability}) = ${ability}`)
   );
   return {
@@ -171,7 +171,7 @@ export const whereHasAllAbilities = (abilities: bigint[]): any => {
  */
 export const setCurationTypeAbility = (curationType: CurationType, ability: bigint, value: boolean): bigint => {
   const currentAbilities = extractAbilities(curationType);
-  
+
   if (value) {
     return addAbility(currentAbilities, ability);
   } else {
@@ -188,13 +188,13 @@ export const setCurationTypeAbility = (curationType: CurationType, ability: bigi
  * @returns Promise that resolves when the update is complete
  */
 export const setCurationTypeAbilityAndSave = async (
-  curationType: CurationType, 
-  ability: bigint, 
-  value: boolean, 
+  curationType: CurationType,
+  ability: bigint,
+  value: boolean,
   transaction?: Transaction
 ): Promise<void> => {
   const newAbilities = setCurationTypeAbility(curationType, ability, value);
-  await curationType.update({ 
+  await curationType.update({
     abilities: newAbilities
   }, { transaction });
 };

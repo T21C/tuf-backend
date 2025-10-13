@@ -1,4 +1,4 @@
-import { Model, DataTypes } from 'sequelize';
+import { DataTypes } from 'sequelize';
 import sequelize from '../../config/db.js';
 import BaseModel from '../BaseModel.js';
 import LevelSubmission from './LevelSubmission.js';
@@ -70,4 +70,4 @@ LevelSubmissionCreatorRequest.init({
   timestamps: true
 });
 
-export default LevelSubmissionCreatorRequest; 
+export default LevelSubmissionCreatorRequest;

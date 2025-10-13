@@ -36,13 +36,14 @@ if (!fs.existsSync(CDN_CONFIG.user_root)) {
 
 // Middleware
 app.use(cors({
-    origin: "*",
+    origin: '*',
     methods: ['GET', 'POST', 'DELETE'],
     allowedHeaders: ['Content-Type']
 }));
 app.use(express.json());
 
 // Global error handling middleware
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
     logger.error('Express error:', {
         error: err.message,
@@ -50,7 +51,7 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
         path: req.path,
         method: req.method
     });
-    
+
     res.status(500).json({
         error: 'Internal server error',
         message: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -61,6 +62,6 @@ app.use('/', router);
 
 app.listen(CDN_CONFIG.port, () => {
     logger.info(`CDN service running on port ${CDN_CONFIG.port}`);
-}); 
+});
 
-export default app; 
+export default app;

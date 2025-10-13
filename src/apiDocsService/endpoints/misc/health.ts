@@ -13,4 +13,4 @@ export const healthEndpoints: EndpointDefinition[] = [
     },
     requiresAuth: false
   }
-]; 
+];

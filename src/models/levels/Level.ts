@@ -4,8 +4,7 @@ import {
   ILevel,
   IPass,
   IDifficulty,
-  ICreator,
-  ITeam,
+  ICreator
 } from '../../interfaces/models/index.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
@@ -58,7 +57,7 @@ class Level
   declare difficulty?: IDifficulty;
   declare previousDifficulty?: IDifficulty;
   declare levelCreators?: ICreator[];
-  declare levelCredits?: LevelCredit[];   
+  declare levelCredits?: LevelCredit[];
   declare aliases?: LevelAlias[] | null;
   declare curation?: Curation | null;
 
@@ -220,12 +219,12 @@ Level.init(
       get() {
         // If passes are loaded, find the highest accuracy
         if (this.passes && this.passes.length > 0) {
-          const validPasses = this.passes.filter(pass => 
-            pass.accuracy !== null && 
-            !pass.isDeleted && 
+          const validPasses = this.passes.filter(pass =>
+            pass.accuracy !== null &&
+            !pass.isDeleted &&
             !pass.isHidden
           );
-          
+
           if (validPasses.length > 0) {
             return Math.max(...validPasses.map(pass => pass.accuracy || 0));
           }

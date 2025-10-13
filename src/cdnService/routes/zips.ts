@@ -1,24 +1,24 @@
-import path from "path";
-import { logger } from "../../services/LoggerService.js";
-import { storageManager } from "../services/storageManager.js";
-import { CDN_CONFIG } from "../config.js";
-import { processZipFile } from "../services/zipProcessor.js";
+import path from 'path';
+import { logger } from '../../services/LoggerService.js';
+import { storageManager } from '../services/storageManager.js';
+import { CDN_CONFIG } from '../config.js';
+import { processZipFile } from '../services/zipProcessor.js';
 import { Request, Response, Router } from 'express';
-import CdnFile from "../../models/cdn/CdnFile.js";
+import CdnFile from '../../models/cdn/CdnFile.js';
 import crypto from 'crypto';
-import LevelDict from "adofai-lib";
-import sequelize from "../../config/db.js";
-import { Transaction } from "sequelize";
-import { safeTransactionRollback } from "../../utils/Utility.js";
+import LevelDict from 'adofai-lib';
+import sequelize from '../../config/db.js';
+import { Transaction } from 'sequelize';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 const router = Router();
 
 // Get level files in a zip
 router.get('/:fileId/levels', async (req: Request, res: Response) => {
     const { fileId } = req.params;
-    
+
     logger.debug('Getting level files for zip:', { fileId });
-    
+
     try {
         const levelEntry = await CdnFile.findByPk(fileId);
         if (!levelEntry || !levelEntry.metadata) {
@@ -49,7 +49,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         const levelFiles = await Promise.all(allLevelFiles.map(async (file) => {
             try {
                 // Normalize the path to use forward slashes and ensure it's absolute
-                const normalizedPath = path.isAbsolute(file.path) 
+                const normalizedPath = path.isAbsolute(file.path)
                     ? file.path.replace(/\\/g, '/')
                     : path.resolve(file.path).replace(/\\/g, '/');
 
@@ -58,19 +58,19 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                 return {
                     name: file.name,
                     size: file.size,
-                    hasYouTubeStream: levelDict.getSetting("requiredMods")?.includes('YouTubeStream'),
-                    songFilename: levelDict.getSetting("songFilename"),
-                    artist: levelDict.getSetting("artist"),
-                    song: levelDict.getSetting("song"),
-                    author: levelDict.getSetting("author"),
-                    difficulty: levelDict.getSetting("difficulty"),
-                    bpm: levelDict.getSetting("bpm")
+                    hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
+                    songFilename: levelDict.getSetting('songFilename'),
+                    artist: levelDict.getSetting('artist'),
+                    song: levelDict.getSetting('song'),
+                    author: levelDict.getSetting('author'),
+                    difficulty: levelDict.getSetting('difficulty'),
+                    bpm: levelDict.getSetting('bpm')
                 };
             } catch (error) {
                 logger.error('Failed to analyze level file:', {
                     error: error instanceof Error ? error.message : String(error),
                     path: file.path,
-                    normalizedPath: path.isAbsolute(file.path) 
+                    normalizedPath: path.isAbsolute(file.path)
                         ? file.path.replace(/\\/g, '/')
                         : path.resolve(file.path).replace(/\\/g, '/')
                 });
@@ -106,7 +106,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
 // Level zip upload endpoint
 router.post('/', (req: Request, res: Response) => {
     logger.debug('Received zip upload request');
-    
+
     storageManager.upload(req, res, async (err) => {
         if (err) {
             logger.error('Multer error during zip upload:', {
@@ -134,7 +134,7 @@ router.post('/', (req: Request, res: Response) => {
             // Generate a UUID for the database entry
             const fileId = crypto.randomUUID();
             logger.debug('Generated UUID for database entry:', { fileId });
-            
+
             // Process zip file first to validate contents
             logger.debug('Starting zip file processing');
             await processZipFile(req.file.path, fileId, req.file.originalname);
@@ -151,7 +151,7 @@ router.post('/', (req: Request, res: Response) => {
                 url: `${CDN_CONFIG.baseUrl}/${fileId}`,
             };
             logger.debug('Zip upload completed successfully:', response);
-            
+
             res.json(response);
         } catch (error) {
             logger.error('Error during zip upload process:', {
@@ -163,7 +163,7 @@ router.post('/', (req: Request, res: Response) => {
                     path: req.file.path
                 } : null
             });
-            
+
             storageManager.cleanupFiles(req.file.path);
 
             // Try to parse error message if it's JSON
@@ -180,7 +180,7 @@ router.post('/', (req: Request, res: Response) => {
                 };
             }
 
-            res.status(400).json({ 
+            res.status(400).json({
                 error: errorDetails.message,
                 code: 'VALIDATION_ERROR',
                 details: errorDetails
@@ -196,13 +196,13 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
     const { fileId } = req.params;
     const { targetLevel } = req.body;
     let transaction: Transaction | undefined;
-    
+
     logger.debug('Setting target level for zip:', { fileId, targetLevel });
-    
+
     try {
         // Start transaction
         transaction = await sequelize.transaction();
-        
+
         const levelEntry = await CdnFile.findByPk(fileId, { transaction });
         if (!levelEntry || !levelEntry.metadata) {
             await safeTransactionRollback(transaction);
@@ -233,24 +233,24 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
         const matchingLevel = metadata.allLevelFiles.find(file => {
             const filePath = file.path.replace(/\\/g, '/');
             const targetPath = targetLevel.replace(/\\/g, '/');
-            
+
             // Direct path match
             if (filePath === targetPath) {
                 return true;
             }
-            
+
             // Filename match
             if (path.basename(filePath) === targetFilename) {
                 return true;
             }
-            
+
             // Check if target is a relative path and matches any subdirectory
             if (!path.isAbsolute(targetPath)) {
                 const fileDir = path.dirname(filePath);
                 const targetDir = path.dirname(targetPath);
                 return fileDir.endsWith(targetDir) && path.basename(filePath) === targetFilename;
             }
-            
+
             return false;
         });
 
@@ -276,7 +276,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
                 pathConfirmed: true
             }
         }, { transaction });
-        
+
         // Commit the transaction
         await transaction.commit();
 
@@ -301,7 +301,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
                 logger.warn('Transaction rollback failed:', rollbackError);
             }
         }
-        
+
         logger.error('Error setting target level:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,

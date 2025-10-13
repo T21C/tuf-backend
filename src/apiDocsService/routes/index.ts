@@ -7,4 +7,4 @@ const router = express.Router();
 router.use('/', docsRouter);
 router.use('/api', apiRouter);
 
-export default router; 
+export default router;

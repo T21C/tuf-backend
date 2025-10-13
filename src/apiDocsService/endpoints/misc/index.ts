@@ -17,4 +17,4 @@ const miscEndpoints: EndpointDefinition[] = [
   ...healthEndpoints
 ];
 
-export default miscEndpoints; 
+export default miscEndpoints;

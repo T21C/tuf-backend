@@ -126,4 +126,4 @@ const referencesEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default referencesEndpoints; 
+export default referencesEndpoints;

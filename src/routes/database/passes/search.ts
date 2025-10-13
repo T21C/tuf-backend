@@ -94,13 +94,13 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       if (!passId || isNaN(passId)) {
         return res.status(400).json({error: 'Invalid pass ID'});
       }
-  
-  
+
+
       const pass = await playerStatsService.getPassDetails(passId, req.user);
       if (!pass) {
         return res.status(404).json({error: 'Pass not found'});
       }
-  
+
       return res.json(pass);
     } catch (error) {
       logger.error('Error fetching pass:', error);
@@ -110,7 +110,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       });
     }
   });
-  
+
 router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const {levelId} = req.params;
@@ -153,14 +153,14 @@ router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Reque
           },
         ],
       });
-  
+
       return res.json(passes);
     } catch (error) {
       logger.error('Error fetching passes:', error);
       return res.status(500).json({error: 'Failed to fetch passes'});
     }
   });
-  
+
   // Update the GET endpoint to use the unified search
   router.get('/', async (req: Request, res: Response) => {
     try {
@@ -177,7 +177,7 @@ router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Reque
         limit = '30',
         sort,
       } = req.query;
-  
+
       const result = await searchPasses({
         deletedFilter: ensureString(deletedFilter),
         minDiff: ensureString(minDiff),
@@ -191,7 +191,7 @@ router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Reque
         limit,
         sort: ensureString(sort)
       });
-  
+
       return res.json(result);
     } catch (error) {
       logger.error('Error fetching passes:', error);

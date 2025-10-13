@@ -242,8 +242,8 @@ router.put('/bulk/:difficultyId([0-9]+)', Auth.superAdmin(), async (req: Request
       // Find references to add and remove
       const toAdd = references.filter(ref => !currentRefMap.has(ref.levelId));
       const toRemove = currentRefs.filter(ref => !newRefMap.has(ref.levelId));
-      const toUpdate = references.filter(ref => 
-        currentRefMap.has(ref.levelId) && 
+      const toUpdate = references.filter(ref =>
+        currentRefMap.has(ref.levelId) &&
         currentRefMap.get(ref.levelId)?.type !== ref.type
       );
 
@@ -251,7 +251,7 @@ router.put('/bulk/:difficultyId([0-9]+)', Auth.superAdmin(), async (req: Request
       await Promise.all(toRemove.map(ref => ref.destroy({ transaction: t })));
 
       // Add new references
-      await Promise.all(toAdd.map(ref => 
+      await Promise.all(toAdd.map(ref =>
         Reference.create({
           difficultyId: parseInt(difficultyId),
           levelId: ref.levelId,
@@ -262,7 +262,7 @@ router.put('/bulk/:difficultyId([0-9]+)', Auth.superAdmin(), async (req: Request
       ));
 
       // Update existing references
-      await Promise.all(toUpdate.map(ref => 
+      await Promise.all(toUpdate.map(ref =>
         currentRefMap.get(ref.levelId)?.update({
           type: ref.type,
           updatedAt: new Date()

@@ -42,4 +42,4 @@ const loginEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default loginEndpoints; 
+export default loginEndpoints;

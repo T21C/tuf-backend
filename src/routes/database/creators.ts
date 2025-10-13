@@ -1,4 +1,4 @@
-import {Op, where, WhereOptions} from 'sequelize';
+import {Op} from 'sequelize';
 import {Auth} from '../../middleware/auth.js';
 import Creator from '../../models/credits/Creator.js';
 import Level from '../../models/levels/Level.js';
@@ -44,7 +44,7 @@ router.get('/', async (req: Request, res: Response) => {
 
       const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
       const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
-      
+
       const startTime = Date.now();
       const where: any = {};
       if (hideVerified === 'true') {
@@ -100,7 +100,7 @@ router.get('/', async (req: Request, res: Response) => {
       if (excludeAliases !== 'true') {
         creatorsByAlias.forEach(alias => creatorIds.add(alias.creatorId));
       }
-      
+
       logger.debug(`Total by id for ${escapedSearch}: ${creatorIds.size}`);
       // Then get paginated results
       const {rows: creators, count: totalCount} = await Creator.findAndCountAll({
@@ -171,7 +171,7 @@ router.get('/byId/:creatorId([0-9]+)', async (req: Request, res: Response) => {
     logger.error('Error fetching creator:', error);
     return res.status(500).json({ error: 'Failed to fetch creator details' });
   }
-}); 
+});
 
 // Get team by ID with members and levels
 router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) => {
@@ -239,7 +239,7 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
         hideVerified,
         excludeAliases
       });
-      // Get level counts for creators 
+      // Get level counts for creators
       const levelCounts = (await LevelCredit.findAll({
         where: {
           levelId: {
@@ -263,7 +263,7 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
         id: level.id,
         song: level.song,
         artist: level.artist,
-        legacyCreator: "[LEGACY CREATOR DISABLED]",
+        legacyCreator: '[LEGACY CREATOR DISABLED]',
         isVerified: level.isVerified,
         teamId: level.teamId,
         team: level.teamObject
@@ -275,13 +275,13 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
               aliases: level.teamObject.aliases || []
             }
           : null,
-        currentCreators: level.levelCredits?.map((credit: { 
-          creator: { 
-            id: number; 
-            name: string; 
-            creatorAliases?: { name: string }[] 
-          }; 
-          role: CreditRole 
+        currentCreators: level.levelCredits?.map((credit: {
+          creator: {
+            id: number;
+            name: string;
+            creatorAliases?: { name: string }[]
+          };
+          role: CreditRole
         }) => ({
           id: credit.creator.id,
           name: credit.creator.name,
@@ -325,7 +325,7 @@ router.post('/', async (req: Request, res: Response) => {
         creatorId: creator.id,
         name: alias.trim(),
       }));
-      
+
       await CreatorAlias.bulkCreate(aliasRecords, { transaction });
     }
 
@@ -383,10 +383,10 @@ router.put('/level/:levelId([0-9]+)', Auth.superAdmin(), async (req: Request, re
       }
 
       await transaction.commit();
-      
+
       // Wait for indexing to complete
       await elasticsearchService.indexLevel(parseInt(levelId));
-      
+
       return res.json({message: 'Level creators updated successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -423,10 +423,10 @@ router.post('/level/:levelId([0-9]+)/verify', Auth.superAdmin(), async (req: Req
       );
 
       await transaction.commit();
-      
+
       // Wait for indexing to complete
       await elasticsearchService.indexLevel(parseInt(levelId));
-      
+
       return res.json({message: 'Level credits verified successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -463,10 +463,10 @@ router.post('/level/:levelId([0-9]+)/unverify', Auth.superAdmin(), async (req: R
       );
 
       await transaction.commit();
-      
+
       // Wait for indexing to complete
       await elasticsearchService.indexLevel(parseInt(levelId));
-      
+
       return res.json({message: 'Level credits unverified successfully'});
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -550,20 +550,20 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       const mergedAliases = [
         ...new Set([...targetAliases, ...sourceAliases, sourceCreator.name]),
       ];
-      
+
       // Delete existing target aliases
       await CreatorAlias.destroy({
         where: { creatorId: targetId },
         transaction
       });
-      
+
       // Create new merged aliases
       if (mergedAliases.length > 0) {
         const aliasRecords = mergedAliases.map(alias => ({
           creatorId: targetId,
           name: alias,
         }));
-        
+
         await CreatorAlias.bulkCreate(aliasRecords, { transaction });
       }
 
@@ -572,8 +572,10 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
 
       await transaction.commit();
 
-      await elasticsearchService.reindexByCreatorId(parseInt(sourceId));
-      await elasticsearchService.reindexByCreatorId(parseInt(targetId));
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      elasticsearchService.reindexByCreatorId(parseInt(sourceId));
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      elasticsearchService.reindexByCreatorId(parseInt(targetId));
       return res.json({success: true});
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -685,9 +687,9 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
               creatorId: targetCreator.id,
               isNewRequest: true,
             },
-            { 
+            {
               where: { id: request.id },
-              transaction 
+              transaction
             }
           );
         }
@@ -704,6 +706,7 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
 
       await transaction.commit();
 
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       elasticsearchService.reindexByCreatorId(parseInt(creatorId));
       return res.json({
         message: 'Creator split successfully',
@@ -752,7 +755,7 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
           creatorId: parseInt(id),
           name: alias.trim(),
         }));
-        
+
         await CreatorAlias.bulkCreate(aliasRecords, { transaction });
       }
     }
@@ -826,6 +829,7 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
         }
       ],
     });
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     elasticsearchService.reindexByCreatorId(parseInt(id));
     return res.json(updatedCreator);
   } catch (error) {
@@ -945,11 +949,11 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
         // If members are provided, update team members
         if (members) {
           // Ensure members is an array of numbers and deduplicate
-          const memberIds = Array.isArray(members) 
+          const memberIds = Array.isArray(members)
             ? members.filter((id): id is number => typeof id === 'number')
             : [];
           const uniqueMembers = [...new Set(memberIds)];
-          
+
           // Get all levels associated with this team
           const teamLevels = await Level.findAll({
             where: {teamId: team.id},
@@ -1070,6 +1074,7 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
         return res.status(500).json({ error: 'Failed to fetch created team' });
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({
         message: 'Team updated successfully',
@@ -1122,6 +1127,7 @@ router.delete('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Req
       await level.update({teamId: null}, {transaction});
 
       await transaction.commit();
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team association removed successfully'});
     } catch (error) {
@@ -1173,6 +1179,7 @@ router.delete('/team/:teamId([0-9]+)', Auth.superAdmin(), async (req: Request, r
       }
 
       await transaction.commit();
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       elasticsearchService.indexLevel(parseInt(levelId));
       return res.json({message: 'Team deleted successfully'});
     } catch (error) {
@@ -1292,7 +1299,7 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
 
     // Determine if userOrPlayerId is a UUID (user ID) or playerId
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrPlayerId);
-    
+
     let user;
     if (isUUID) {
       // Direct user ID lookup
@@ -1304,7 +1311,7 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid user or player ID format' });
       }
-      
+
       user = await User.findOne({
         where: { playerId },
         transaction
@@ -1330,8 +1337,8 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
 
     if (existingUserWithCreator && existingUserWithCreator.id !== user.id) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ 
-        error: `Creator "${creator.name}" is already assigned to user "${existingUserWithCreator.username}" (ID: ${existingUserWithCreator.id})` 
+      return res.status(400).json({
+        error: `Creator "${creator.name}" is already assigned to user "${existingUserWithCreator.username}" (ID: ${existingUserWithCreator.id})`
       });
     }
 
@@ -1369,7 +1376,7 @@ router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), as
 
     // Determine if userOrPlayerId is a UUID (user ID) or playerId
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrPlayerId);
-    
+
     let user;
     if (isUUID) {
       // Direct user ID lookup
@@ -1381,7 +1388,7 @@ router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), as
         await safeTransactionRollback(transaction);
         return res.status(400).json({ error: 'Invalid user or player ID format' });
       }
-      
+
       user = await User.findOne({
         where: { playerId },
         transaction
@@ -1439,10 +1446,10 @@ router.get('/search/:name', async (req: Request, res: Response) => {
         details: 'The search term contains invalid characters'
       });
     }
-    
+
     // Function to escape special characters for MySQL
     const escapedName = escapeForMySQL(name);
-    
+
     const creatorsByName = await Creator.findAll({
       where: {name: {[Op.like]: `%${escapedName}%`}},
       attributes: ['id'],
@@ -1453,7 +1460,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       attributes: ['creatorId'],
     });
 
-    const creatorIds: Set<number> = 
+    const creatorIds: Set<number> =
     new Set(creatorsByName.map(creator => creator.id)
     .concat(creatorsByAlias.map(alias => alias.creatorId)));
 
@@ -1565,7 +1572,7 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
         teamId: team.id,
         name: alias.trim(),
       }));
-      
+
       await TeamAlias.bulkCreate(aliasRecords, { transaction });
     }
 

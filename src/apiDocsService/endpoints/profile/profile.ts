@@ -85,4 +85,4 @@ const profileEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default profileEndpoints; 
+export default profileEndpoints;

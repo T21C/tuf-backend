@@ -5,4 +5,4 @@ const embedsEndpoints: EndpointDefinition[] = [
   // These are not API endpoints but internal functions used by webhook endpoints
 ];
 
-export default embedsEndpoints; 
+export default embedsEndpoints;

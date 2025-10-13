@@ -2,7 +2,7 @@ import Pass from '../../models/passes/Pass.js';
 import Level from '../../models/levels/Level.js';
 import AnnouncementDirective from '../../models/announcements/AnnouncementDirective.js';
 import DirectiveConditionHistory from '../../models/announcements/DirectiveConditionHistory.js';
-import {DirectiveCondition} from '../../interfaces/models/index.js';
+import {ConditionOperator, DirectiveCondition, DirectiveConditionType} from '../../interfaces/models/index.js';
 import AnnouncementChannel from '../../models/announcements/AnnouncementChannel.js';
 import AnnouncementRole from '../../models/announcements/AnnouncementRole.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
@@ -23,27 +23,28 @@ interface AnnouncementConfig {
 
 
 
+
 function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Level): boolean {
   if (!condition) return true;
 
 
   switch (condition.type) {
-    case 'ACCURACY':
+    case DirectiveConditionType.ACCURACY:
       if (!condition.value || !condition.operator) return false;
       const accuracy = pass.accuracy || 0;
       const targetAccuracy = Number(condition.value);
-      
+
       const result = (() => {
         switch (condition.operator) {
-          case 'EQUAL':
+          case ConditionOperator.EQUAL:
             return accuracy === targetAccuracy;
-          case 'GREATER_THAN':
+          case ConditionOperator.GREATER_THAN:
             return accuracy > targetAccuracy;
-          case 'LESS_THAN':
+          case ConditionOperator.LESS_THAN:
             return accuracy < targetAccuracy;
-          case 'GREATER_THAN_EQUAL':
+          case ConditionOperator.GREATER_THAN_OR_EQUAL:
             return accuracy >= targetAccuracy;
-          case 'LESS_THAN_EQUAL':
+          case ConditionOperator.LESS_THAN_OR_EQUAL:
             return accuracy <= targetAccuracy;
           default:
             return false;
@@ -53,30 +54,30 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
 
       return result;
 
-    case 'WORLDS_FIRST':
+    case DirectiveConditionType.WORLDS_FIRST:
       return pass.isWorldsFirst === true;
 
-    case 'BASE_SCORE':
+    case DirectiveConditionType.BASE_SCORE:
       if (!condition.value || !condition.operator || !level.baseScore) return false;
       const baseScore = level.baseScore;
       const targetScore = Number(condition.value);
-      
+
       switch (condition.operator) {
-        case 'EQUAL':
+        case ConditionOperator.EQUAL:
           return baseScore === targetScore;
-        case 'GREATER_THAN':
+        case ConditionOperator.GREATER_THAN:
           return baseScore > targetScore;
-        case 'LESS_THAN':
+        case ConditionOperator.LESS_THAN:
           return baseScore < targetScore;
-        case 'GREATER_THAN_EQUAL':
+        case ConditionOperator.GREATER_THAN_OR_EQUAL:
           return baseScore >= targetScore;
-        case 'LESS_THAN_EQUAL':
+        case ConditionOperator.LESS_THAN_OR_EQUAL:
           return baseScore <= targetScore;
         default:
           return false;
       }
 
-    case 'CUSTOM':
+    case DirectiveConditionType.CUSTOM:
       if (!condition.customFunction) return false;
       try {
         return evaluateDirectiveCondition(condition.customFunction, pass, level);
@@ -109,11 +110,11 @@ async function hasConditionBeenMetBefore(level: Level, pass: Pass, condition: Di
       conditionHash,
     },
   });
-  
+
   if (history) {
     return true; // Condition has been recorded as met before
   }
-  
+
   const otherPasses = await Pass.findAll({
     where: {
       levelId: level.id,
@@ -132,7 +133,7 @@ async function hasConditionBeenMetBefore(level: Level, pass: Pass, condition: Di
   });
   // If no history record exists, check all existing passes for this level
   // to determine if any previous pass would have met this condition
-  
+
   if (otherPasses.length === 0) {
     return false; // No passes exist for this level, so condition hasn't been met before
   }
@@ -145,7 +146,7 @@ async function hasConditionBeenMetBefore(level: Level, pass: Pass, condition: Di
       return true;
     }
   }
-  
+
   // No previous pass meets the condition, so this is truly first of its kind
   return false;
 }
@@ -191,14 +192,14 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
 
   const filteredDirectives = await Promise.all(directives.map(async directive => {
     if (!pass || !level) return true;
-    
+
     // For firstOfKind directives, we need to check if this condition was ever met before for this specific level
     if (directive.firstOfKind) {
       const conditionMet = await hasConditionBeenMetBefore(level, pass, directive.condition);
       if (conditionMet) {
         return false; // Skip this directive if the condition was met before for this level
       }
-      
+
       // If the condition is met now, record it for this level
       const isMet = evaluateCondition(directive.condition, pass, level);
       if (isMet) {
@@ -206,27 +207,15 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
       }
       return isMet;
     }
-    
+
     return evaluateCondition(directive.condition, pass, level);
   }));
 
   return directives.filter((_, index) => filteredDirectives[index]);
 }
 
-function channelTypeToName(type: string): string {
-  const mapping: {[key: string]: string} = {
-    'PLANETARY': 'planetary-levels',
-    'GALACTIC': 'galactic-levels',
-    'UNIVERSAL': 'universal-levels',
-    'CENSORED': 'censored-levels',
-    'RERATES': 'rerates'
-  };
-  return mapping[type] || type.toLowerCase() + '-levels';
-}
-
 export async function getLevelAnnouncementConfig(
   level: Level,
-  isRerate = false,
 ): Promise<AnnouncementConfig> {
   const difficulty = level?.difficulty;
   if (!difficulty) {
@@ -248,17 +237,17 @@ export async function getLevelAnnouncementConfig(
 
     for (const action of directive.actions) {
       if (!action.channel) continue;
-      
+
       const channelLabel = action.channel.label;
-      
+
       // Skip if this channel has already been processed
       if (processedChannels.has(channelLabel)) continue;
-      
+
       // Mark this channel as processed
       processedChannels.add(channelLabel);
-      
+
       config.webhooks[channelLabel] = action.channel.webhookUrl;
-      
+
       if (action.pingType === 'EVERYONE') {
         config.pings[channelLabel] = '@everyone';
       } else if (action.pingType === 'ROLE' && action.role?.roleId) {
@@ -292,17 +281,17 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
 
     for (const action of directive.actions) {
       if (!action.channel) continue;
-      
+
       const channelLabel = action.channel.label;
-      
+
       // Skip if this channel has already been processed
       if (processedChannels.has(channelLabel)) continue;
-      
+
       // Mark this channel as processed
       processedChannels.add(channelLabel);
-      
+
       config.webhooks[channelLabel] = action.channel.webhookUrl;
-      
+
       if (action.pingType === 'EVERYONE') {
         config.pings[channelLabel] = '@everyone';
       } else if (action.pingType === 'ROLE' && action.role?.roleId) {

@@ -114,4 +114,4 @@ const aliasesEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default aliasesEndpoints; 
+export default aliasesEndpoints;

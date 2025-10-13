@@ -58,4 +58,4 @@ AnnouncementChannel.init(
   },
 );
 
-export default AnnouncementChannel; 
+export default AnnouncementChannel;

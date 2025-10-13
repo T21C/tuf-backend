@@ -19,4 +19,4 @@ export const eventsEndpoints: EndpointDefinition[] = [
     },
     requiresAuth: false
   }
-]; 
+];

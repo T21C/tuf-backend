@@ -92,29 +92,29 @@ const getBaseHtml = (clientUrl: string) => {
   // Production mode - use manifest
   const manifest = readManifest();
   const { js, css, imports } = getRequiredAssets(manifest);
-  
+
   // Get vendor and UI chunks from manifest
   const vendorChunk = Object.entries(manifest).find(([key]) => key.includes('vendor'))?.[1]?.file;
   const uiChunk = Object.entries(manifest).find(([key]) => key.includes('ui'))?.[1]?.file;
-  
+
   const modulePreloads = [
     vendorChunk ? `<link rel="modulepreload" crossorigin href="/${vendorChunk}">` : '',
     uiChunk ? `<link rel="modulepreload" crossorigin href="/${uiChunk}">` : ''
   ].filter(Boolean).join('\n');
-  
-  const cssLinks = css.map(file => 
+
+  const cssLinks = css.map(file =>
     `<link rel="stylesheet" crossorigin href="/${file}">`
   ).join('\n');
-  
+
   const jsScripts = [
-    ...imports.map(file => 
+    ...imports.map(file =>
       `<script type="module" crossorigin src="/${file}"></script>`
     ),
     `<script type="module" crossorigin src="/${js[0]}"></script>`
   ].join('\n');
 
   // Get favicon path from manifest or fallback
-  const faviconPath = manifest['src/assets/tuf-logo/logo.png']?.file 
+  const faviconPath = manifest['src/assets/tuf-logo/logo.png']?.file
     ? `/${manifest['src/assets/tuf-logo/logo.png'].file}`
     : '/logo.png';
 
@@ -179,7 +179,7 @@ export const htmlMetaMiddleware = async (
         const difficultyName = escapeMetaText(pass.level.difficulty?.name || 'Unknown Difficulty');
         const playerName = escapeMetaText(pass.player.name);
         const songName = escapeMetaText(pass.level.song);
-        
+
         metaTags = `
           <meta name="description" content="${difficultyName} • Score: ${pass.scoreV2}" />
           <meta property="og:site_name" content="The Universal Forum" />
@@ -197,7 +197,7 @@ export const htmlMetaMiddleware = async (
       else {
         metaTags = notFoundTags.replace('Not found', 'Pass not found')
       }
-    } 
+    }
     else if (req.path.startsWith('/levels/')) {
       const level = await Level.findByPk(id, {
         include: [
@@ -220,7 +220,7 @@ export const htmlMetaMiddleware = async (
 
         const songName = escapeMetaText(level.song);
         const artistName = escapeMetaText(level.artist);
-        
+
         metaTags = `
           <meta name="description" content="Created by ${creators}" />
           <meta property="og:site_name" content="The Universal Forum" />

@@ -1,13 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import { CDN_CONFIG } from '../config.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import { logger } from '../../services/LoggerService.js';
 import { storageManager } from './storageManager.js';
-import sequelize from "../../config/db.js";
-import { Transaction } from "sequelize";
-import { safeTransactionRollback } from "../../utils/Utility.js";
+import sequelize from '../../config/db.js';
+import { Transaction } from 'sequelize';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 export interface ImageValidationResult {
     isValid: boolean;
@@ -42,7 +41,7 @@ export async function validateImage(filePath: string, maxSize: number): Promise<
         // Check file size
         const stats = fs.statSync(filePath);
         result.metadata.size = stats.size;
-        
+
         if (stats.size > maxSize) {
             result.isValid = false;
             result.errors.push(`File size exceeds maximum allowed size of ${maxSize / (1024 * 1024)}MB`);
@@ -80,7 +79,7 @@ export async function validateImage(filePath: string, maxSize: number): Promise<
         // Check for potential malicious content
         const buffer = await fs.promises.readFile(filePath);
         const header = buffer.slice(0, 8).toString('hex');
-        
+
         // Check for common image file signatures
         const validSignatures = {
             jpeg: 'ffd8ffe0',
@@ -104,11 +103,11 @@ export async function validateImage(filePath: string, maxSize: number): Promise<
 
 export async function moderateImage(fileId: string, approved: boolean, moderatorId: string, reason?: string) {
     let transaction: Transaction | undefined;
-    
+
     try {
         // Start transaction
         transaction = await sequelize.transaction();
-        
+
         const file = await CdnFile.findByPk(fileId, { transaction });
         if (!file) {
             await safeTransactionRollback(transaction);
@@ -119,13 +118,13 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
             // Move file from pending to approved directory
             const pendingPath = file.filePath;
             const approvedPath = file.filePath.replace('/pending/', '/approved/');
-            
+
             // Create approved directory if it doesn't exist
             fs.mkdirSync(path.dirname(approvedPath), { recursive: true });
-            
+
             // Move the file
             fs.renameSync(pendingPath, approvedPath);
-            
+
             // Update database record within transaction
             await file.update({
                 filePath: approvedPath,
@@ -134,10 +133,10 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
                 moderatedBy: moderatorId,
                 moderationReason: reason
             }, { transaction });
-            
+
             // Commit the transaction
             await transaction.commit();
-            
+
             logger.debug('Image approved successfully:', {
                 fileId,
                 pendingPath,
@@ -148,13 +147,13 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
         } else {
             // Store file path before deletion
             const filePath = file.filePath;
-            
+
             // Delete the database record first within transaction
             await file.destroy({ transaction });
-            
+
             // Commit the transaction
             await transaction.commit();
-            
+
             // Clean up files from disk after successful database deletion
             try {
                 storageManager.cleanupFiles(filePath);
@@ -185,7 +184,7 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
                 logger.warn('Transaction rollback failed:', rollbackError);
             }
         }
-        
+
         logger.error('Moderation error:', {
             error: error instanceof Error ? error.message : String(error),
             fileId,
@@ -200,7 +199,7 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
 export async function getPendingImages(page = 1, limit = 20) {
     try {
         const offset = (page - 1) * limit;
-        
+
         const { count, rows } = await CdnFile.findAndCountAll({
             where: {
                 status: 'pending'
@@ -220,4 +219,4 @@ export async function getPendingImages(page = 1, limit = 20) {
         logger.error('Failed to fetch pending images:', error);
         throw new Error('Failed to fetch pending images');
     }
-} 
+}

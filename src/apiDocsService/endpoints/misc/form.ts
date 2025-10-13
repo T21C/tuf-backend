@@ -36,4 +36,4 @@ export const formEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default formEndpoints; 
+export default formEndpoints;

@@ -80,4 +80,4 @@ export const corsOptions = {
     'ETag',
     'Last-Modified'
   ],
-}; 
+};

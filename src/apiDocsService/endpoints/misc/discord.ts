@@ -18,4 +18,4 @@ export const discordEndpoints: EndpointDefinition[] = [
     },
     requiresAuth: false
   }
-]; 
+];

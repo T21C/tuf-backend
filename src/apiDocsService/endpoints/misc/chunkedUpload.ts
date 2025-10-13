@@ -71,4 +71,4 @@ export const chunkedUploadEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default chunkedUploadEndpoints; 
+export default chunkedUploadEndpoints;

@@ -63,4 +63,4 @@ const webhookEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default webhookEndpoints; 
+export default webhookEndpoints;

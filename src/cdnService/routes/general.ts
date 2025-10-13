@@ -1,17 +1,17 @@
-import { Router, Request, Response } from "express";
-import { logger } from "../../services/LoggerService.js";
-import CdnFile from "../../models/cdn/CdnFile.js";
-import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from "../config.js";
-import FileAccessLog from "../../models/cdn/FileAccessLog.js";
-import fs from "fs";
-import path from "path";
-import { storageManager } from "../services/storageManager.js";
-import { hybridStorageManager, StorageType } from "../services/hybridStorageManager.js";
-import { Op } from "sequelize";
-import sequelize from "../../config/db.js";
-import { Transaction } from "sequelize";
-import { safeTransactionRollback } from "../../utils/Utility.js";
-import { spacesStorage } from "../services/spacesStorage.js";
+import { Router, Request, Response } from 'express';
+import { logger } from '../../services/LoggerService.js';
+import CdnFile from '../../models/cdn/CdnFile.js';
+import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '../config.js';
+import FileAccessLog from '../../models/cdn/FileAccessLog.js';
+import fs from 'fs';
+import path from 'path';
+import { storageManager } from '../services/storageManager.js';
+import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
+import { Op } from 'sequelize';
+import sequelize from '../../config/db.js';
+import { Transaction } from 'sequelize';
+import { safeTransactionRollback } from '../../utils/Utility.js';
+import { spacesStorage } from '../services/spacesStorage.js';
 
 const router = Router();
 
@@ -40,7 +40,7 @@ async function cleanupOldAccessLogs(): Promise<void> {
     try {
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-        
+
         const deletedCount = await FileAccessLog.destroy({
             where: {
                 createdAt: {
@@ -48,7 +48,7 @@ async function cleanupOldAccessLogs(): Promise<void> {
                 }
             }
         });
-        
+
         if (deletedCount > 0) {
             logger.debug(`Cleaned up ${deletedCount} old file access logs older than 1 week`);
         }
@@ -92,20 +92,20 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         }
 
         const { originalZip } = metadata;
-        
+
         // Check if file exists and get file stats
         let stats: fs.Stats;
         let fileStream: fs.ReadStream | NodeJS.ReadableStream;
-        
+
         let fileCheck: { exists: boolean; storageType: StorageType; actualPath: string };
-        
+
         try {
             // Use fallback logic to find the file
             fileCheck = await hybridStorageManager.fileExistsWithFallback(
-                originalZip.path, 
+                originalZip.path,
                 metadata.storageType
             );
-            
+
             if (!fileCheck.exists) {
                 logger.error('Zip file not found in any storage:', {
                     fileId,
@@ -115,25 +115,25 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
                 });
                 return res.status(404).json({ error: 'Zip file not found' });
             }
-            
+
             logger.debug('File found using fallback logic:', {
                 fileId,
                 path: originalZip.path,
                 foundInStorage: fileCheck.storageType,
                 preferredStorage: metadata.storageType
             });
-            
+
             if (fileCheck.storageType === StorageType.SPACES) {
-                
+
                 // Generate presigned URL for direct download (expires in 1 hour)
                 const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path, 3600);
-                
+
                 logger.debug('Redirecting to Spaces presigned URL:', {
                     fileId,
                     path: originalZip.path,
                     url: presignedUrl
                 });
-                
+
                 // Redirect to the presigned URL
                 res.redirect(302, presignedUrl);
                 return;
@@ -165,34 +165,34 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             let start = 0;
             let end = stats.size - 1;
             let statusCode = 200;
-            
+
             if (range) {
                 const ranges = range.replace(/bytes=/, '').split('-');
                 start = parseInt(ranges[0], 10);
                 end = ranges[1] ? parseInt(ranges[1], 10) : stats.size - 1;
-                
+
                 if (start >= stats.size) {
                     res.status(416).setHeader('Content-Range', `bytes */${stats.size}`);
                     return res.end();
                 }
-                
+
                 statusCode = 206; // Partial Content
                 fileStream = fs.createReadStream(fileCheck.actualPath, { start, end });
             }
-            
+
             // Set basic headers
             res.setHeader('Content-Type', 'application/zip');
             res.setHeader('Content-Length', end - start + 1);
-            
+
             if (statusCode === 206) {
                 res.setHeader('Content-Range', `bytes ${start}-${end}/${stats.size}`);
                 res.setHeader('Accept-Ranges', 'bytes');
             }
-            
+
             // Set filename in Content-Disposition (decode only when sending to user)
             const displayFilename = metadata.originalZip?.originalFilename || originalZip.name;
             res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(displayFilename)}`);
-            
+
             // Set encoded metadata headers
             setSafeHeader(res, 'X-Level-FileId', fileId);
             setSafeHeader(res, 'X-Level-Name', displayFilename);
@@ -208,12 +208,12 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
 
             // Clean up old access logs before incrementing access count
             await cleanupOldAccessLogs();
-            
-            file.increment('accessCount');
-            
+
+            await file.increment('accessCount');
+
             // Set status code for range requests
             res.status(statusCode);
-            
+
             // Stream the file
             fileStream.pipe(res);
 
@@ -238,7 +238,7 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
 router.head('/:fileId', async (req: Request, res: Response) => {
     try {
         const { fileId } = req.params;
-        
+
         const file = await CdnFile.findByPk(fileId);
         if (!file) {
             return res.status(404).end();
@@ -248,13 +248,13 @@ router.head('/:fileId', async (req: Request, res: Response) => {
         if (file.type === 'LEVELZIP') {
             const metadata = file.metadata as any;
             const originalZip = metadata?.originalZip;
-            
+
             if (originalZip?.path) {
                 const fileCheck = await hybridStorageManager.fileExistsWithFallback(
                     originalZip.path,
                     originalZip.storageType
                 );
-                
+
                 if (!fileCheck.exists) {
                     return res.status(404).end();
                 }
@@ -292,15 +292,15 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         if (file.type === 'LEVELZIP') {
             return handleZipRequest(req, res, file);
         }
-        
+
         // Handle image types - redirect to proper image endpoint or serve original
         if (IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES]) {
             filePath = path.join(file.filePath, 'original.png');
         }
-        
+
         // Clean up old access logs before creating new ones
         await cleanupOldAccessLogs();
-        
+
         await FileAccessLog.create({
             fileId: fileId,
             ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
@@ -323,7 +323,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 
         // Get file stats
         const stats = await fs.promises.stat(filePath);
-        
+
         // Set headers
         res.setHeader('Content-Type', MIME_TYPES[file.type as keyof typeof MIME_TYPES]);
         res.setHeader('Content-Length', stats.size);
@@ -331,7 +331,7 @@ router.get('/:fileId', async (req: Request, res: Response) => {
 
         // Create read stream with error handling
         const fileStream = fs.createReadStream(filePath);
-        
+
         // Handle stream errors
         fileStream.on('error', (error) => {
             logger.error('Error streaming file:', {
@@ -383,13 +383,13 @@ router.get('/:fileId/metadata', async (req: Request, res: Response) => {
 // Delete file endpoint
 router.delete('/:fileId', async (req: Request, res: Response) => {
     let transaction: Transaction | undefined;
-    
+
     try {
         const { fileId } = req.params;
-        
+
         // Start transaction
         transaction = await sequelize.transaction();
-        
+
         const file = await CdnFile.findByPk(fileId, { transaction });
 
         if (!file) {
@@ -401,13 +401,13 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
         const filePath = file.filePath;
         const fileType = file.type;
         const metadata = file.metadata as any;
-        
+
         // Delete the database entry first within transaction
         await file.destroy({ transaction });
-        
+
         // Commit the transaction
         await transaction.commit();
-        
+
         // Clean up files using hybrid storage manager after successful database deletion
         try {
             if (fileType === 'LEVELZIP' && metadata) {
@@ -417,9 +417,9 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     fileType,
                     hasMetadata: !!metadata
                 });
-                
-                await hybridStorageManager.deleteLevelZipFiles(fileId, metadata);
-                
+
+                await hybridStorageManager.deleteLevelZipFiles(fileId);
+
                 logger.debug('Level zip and associated files deleted successfully:', {
                     fileId,
                     fileType,
@@ -428,7 +428,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
             } else {
                 // For other file types, determine storage type and delete appropriately
                 const storageType = metadata?.storageType || StorageType.LOCAL;
-                
+
                 if (IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES]) {
                     // Use specialized cleanup for image directories (legacy local storage)
                     if (storageType === StorageType.LOCAL) {
@@ -494,7 +494,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                 logger.warn('Transaction rollback failed:', rollbackError);
             }
         }
-        
+
         logger.error('File deletion error:', {
             error: error instanceof Error ? error.message : String(error),
             fileId: req.params.fileId,

@@ -56,11 +56,11 @@ export const emailService = {
       logger.error(`Axios request failed, error type: ${typeof error}, error: ${error}, response: ${response}`);
       return false;
     }
-      
+
       if (response?.status === 202) {
         return true;
       }
-      
+
       logger.error('Email sending failed with status:', response?.status);
       return false;
     } catch (error) {

@@ -15,7 +15,7 @@ import { IPlayer } from '../interfaces/models/index.js';
 import { OAuthProvider } from '../models/index.js';
 import Creator from '../models/credits/Creator.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
-import { hasFlag, wherePermission } from '../utils/permissionUtils.js';
+import { hasFlag } from '../utils/permissionUtils.js';
 import { permissionFlags } from '../config/constants.js';
 // Define operation types for the queue
 type QueueOperation = {
@@ -64,7 +64,7 @@ export class PlayerStatsService {
   private isProcessingQueue = false;
   private pendingPlayerIds: Set<number> = new Set();
   private debounceTimer: NodeJS.Timeout | null = null;
-  private statsQuery = 
+  private statsQuery =
   `
   WITH PassesData AS (
     SELECT 
@@ -250,7 +250,7 @@ export class PlayerStatsService {
 
     try {
       await this.reloadAllStats();
-      this.reloadAllStatsCron();
+      await this.reloadAllStatsCron();
       this.isInitialized = true;
     } catch (error) {
       logger.error('Error initializing PlayerStatsService:', error);
@@ -268,39 +268,39 @@ export class PlayerStatsService {
   // Add queue processing methods
   private async addToQueue(operation: QueueOperation): Promise<void> {
     // logger.debug(`[PlayerStatsService] Adding operation to queue: ${operation.type}`);
-    
+
     // Add operation to queue with priority (lower number = higher priority)
     this.operationQueue.push({
       ...operation,
       priority: operation.priority || 10
     });
-    
+
     // Sort queue by priority
     this.operationQueue.sort((a, b) => (a.priority || 10) - (b.priority || 10));
-    
+
     // Start processing queue if not already processing
     if (!this.isProcessingQueue) {
-      this.processQueue();
+      await this.processQueue();
     }
   }
-  
+
   private async processQueue(): Promise<void> {
     if (this.isProcessingQueue || this.operationQueue.length === 0) {
       return;
     }
-    
+
     this.isProcessingQueue = true;
-    
+
     try {
       while (this.operationQueue.length > 0) {
         // Check memory usage before processing each operation
         // checkMemoryUsage()
-        
+
         const operation = this.operationQueue.shift();
         if (!operation) continue;
-        
+
         // logger.debug(`[PlayerStatsService] Processing queue operation: ${operation.type}`);
-        
+
         try {
           switch (operation.type) {
             case 'reloadAllStats':
@@ -334,19 +334,15 @@ export class PlayerStatsService {
     this.updating = true;
     const playerCount = await Player.count();
     //logger.debug(`[PlayerStatsService] Processing ${playerCount} players`);
-    
+
     // Process in smaller chunks to reduce memory pressure
     const BATCH_SIZE = Math.ceil(this.CHUNK_SIZE / this.BATCHES_PER_CHUNK);
-    
-    
-    let totalBatches = 0;
-    let successfulBatches = 0;
-    let failedBatches = 0;
-    
+
+
+
     for (let chunkStart = 0; chunkStart < playerCount; chunkStart += this.CHUNK_SIZE) {
-      const chunkStartTime = Date.now();
       const chunkEnd = Math.min(chunkStart + this.CHUNK_SIZE, playerCount);
-      
+
       // Get IDs for this chunk
       const chunkPlayerIds = await Player.findAll({
         attributes: ['id'],
@@ -354,15 +350,13 @@ export class PlayerStatsService {
         offset: chunkStart,
         limit: chunkEnd - chunkStart,
       });
-      
+
       const playerIds = chunkPlayerIds.map(player => player.id);
-      
+
       // Process this chunk in batches
       for (let i = 0; i < playerIds.length; i += BATCH_SIZE) {
-        totalBatches++;
-        const batchStartTime = Date.now();
         const batchIds = playerIds.slice(i, i + BATCH_SIZE);
-       
+
         // Use a single transaction for the entire batch
         const transaction = await sequelize.transaction();
         try {
@@ -375,7 +369,7 @@ export class PlayerStatsService {
           // Calculate all stats in a single query
           const statsUpdates = await sequelize.query(this.statsQuery,
             {
-              replacements: { 
+              replacements: {
                 playerIds: batchIds,
                 excludedLevelIds: null,
                 excludedPassIds: null
@@ -387,16 +381,16 @@ export class PlayerStatsService {
 
           // Create a lookup table for difficulty IDs
           const difficultyLookup = await sequelize.query(
-            `SELECT id, sortOrder FROM difficulties WHERE type = 'PGU'`,
+            'SELECT id, sortOrder FROM difficulties WHERE type = \'PGU\'',
             { type: QueryTypes.SELECT }
           ) as { id: number, sortOrder: number }[];
-          
+
           // Create a map of sortOrder to id for quick lookups
           const sortOrderToIdMap = new Map<number, number>();
           difficultyLookup.forEach(diff => {
             sortOrderToIdMap.set(diff.sortOrder, diff.id);
           });
-          
+
           // Process the stats updates to add the correct difficulty IDs
           if (statsUpdates.length > 0) {
             // Add the correct difficulty IDs based on sort order
@@ -404,15 +398,15 @@ export class PlayerStatsService {
                 stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
                 stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
             });
-            
+
             // Bulk insert all stats in a single query
             await PlayerStats.bulkCreate(statsUpdates, { transaction });
           }
-          
+
           // Create stats for players who don't have any passes
           const playersWithStats = new Set(statsUpdates.map(stat => stat.id));
           const playersWithoutStats = batchIds.filter(id => !playersWithStats.has(id));
-          
+
           if (playersWithoutStats.length > 0) {
             const emptyStats = playersWithoutStats.map(id => ({
               id,
@@ -430,23 +424,21 @@ export class PlayerStatsService {
               createdAt: new Date(),
               updatedAt: new Date()
             }));
-            
+
             await PlayerStats.bulkCreate(emptyStats, { transaction });
           }
-          
+
           await transaction.commit();
-          successfulBatches++;
-          
+
         } catch (error) {
-          failedBatches++;
           this.updating = false;
-          logger.error(`[PlayerStatsService] Batch processing failed:`, error);
+          logger.error('[PlayerStatsService] Batch processing failed:', error);
           await safeTransactionRollback(transaction);
         }
       }
-      
+
     }
-    
+
     // After all batches are processed, update ranks in a single transaction
     try {
       await this._updateRanks();
@@ -454,7 +446,7 @@ export class PlayerStatsService {
       this.updating = false;
       logger.error('[PlayerStatsService] Failed to update ranks:', error);
     }
-    
+
     this.updating = false;
     // Emit SSE event
     sseManager.broadcast({
@@ -463,7 +455,7 @@ export class PlayerStatsService {
         action: 'fullReload',
       },
     });
-    
+
     const totalDuration = Date.now() - startTime;
     logger.debug(`[PlayerStatsService] Full stats reload for ${playerCount} players completed in ${totalDuration}ms`);
     //logger.debug(`[PlayerStatsService] Batch statistics: ${successfulBatches}/${totalBatches} successful, ${failedBatches} failed`);
@@ -473,11 +465,11 @@ export class PlayerStatsService {
     playerIds: number[]
   ): Promise<void> {
     const startTime = Date.now();
-    
+
     if (this.updating) {
       return;
     }
-    
+
     // Check if playerIds is empty
     if (!playerIds || playerIds.length === 0) {
       this.updating = false;
@@ -498,7 +490,7 @@ export class PlayerStatsService {
       // Calculate all stats in a single query
       const statsUpdates = await sequelize.query(this.statsQuery,
         {
-          replacements: { 
+          replacements: {
             playerIds,
             excludedLevelIds: null,
             excludedPassIds: null
@@ -510,16 +502,16 @@ export class PlayerStatsService {
 
       // Create a lookup table for difficulty IDs
       const difficultyLookup = await sequelize.query(
-        `SELECT id, sortOrder FROM difficulties WHERE type = 'PGU'`,
+        'SELECT id, sortOrder FROM difficulties WHERE type = \'PGU\'',
         { type: QueryTypes.SELECT }
       ) as { id: number, sortOrder: number }[];
-      
+
       // Create a map of sortOrder to id for quick lookups
       const sortOrderToIdMap = new Map<number, number>();
       difficultyLookup.forEach(diff => {
         sortOrderToIdMap.set(diff.sortOrder, diff.id);
       });
-      
+
       // Process the stats updates to add the correct difficulty IDs
       if (statsUpdates.length > 0) {
         // Add the correct difficulty IDs based on sort order
@@ -527,15 +519,15 @@ export class PlayerStatsService {
             stat.topDiffId = sortOrderToIdMap.get(stat.topDiffId) || 0;
             stat.top12kDiffId = sortOrderToIdMap.get(stat.top12kDiffId) || 0;
         });
-        
+
         // Bulk insert all stats in a single query
         await PlayerStats.bulkCreate(statsUpdates, { transaction });
       }
-      
+
       // Create stats for players who don't have any passes
       const playersWithStats = new Set(statsUpdates.map(stat => stat.id));
       const playersWithoutStats = playerIds.filter(id => !playersWithStats.has(id));
-      
+
       if (playersWithoutStats.length > 0) {
         const emptyStats = playersWithoutStats.map(id => ({
           id,
@@ -553,19 +545,19 @@ export class PlayerStatsService {
           createdAt: new Date(),
           updatedAt: new Date()
         }));
-        
+
         await PlayerStats.bulkCreate(emptyStats, { transaction });
       }
-      
+
       await transaction.commit();
       logger.debug(`[PlayerStatsService] Stats updated for ${statsUpdates.length} players with stats, ${playersWithoutStats.length} players without stats`);
 
     } catch (error) {
       this.updating = false;
-      logger.error(`[PlayerStatsService] Failed to update player stats:`, error);
+      logger.error('[PlayerStatsService] Failed to update player stats:', error);
       await safeTransactionRollback(transaction);
     }
-    
+
     // After all batches are processed, update ranks in a single transaction
     try {
       await this._updateRanks();
@@ -581,16 +573,15 @@ export class PlayerStatsService {
         action: 'fullReload',
       },
     });
-    
+
     this.updating = false;
     const totalDuration = Date.now() - startTime;
     logger.debug(`[PlayerStatsService] Player stats update completed in ${totalDuration}ms`);
   }
 
   private async _updateRanks(): Promise<void> {
-    const startTime = Date.now();
     // logger.debug(`[PlayerStatsService] Starting rank updates`);
-    
+
     const transaction = await sequelize.transaction();
     try {
 
@@ -632,7 +623,6 @@ export class PlayerStatsService {
       );
 
       await transaction.commit();
-      const duration = Date.now() - startTime;
       // logger.debug(`[PlayerStatsService] Rank updates completed in ${duration}ms`);
 
       // Notify clients about the rank updates
@@ -662,8 +652,8 @@ export class PlayerStatsService {
     this.pendingPlayerIds.clear();
     this.debounceTimer = null;
 
-    await this.addToQueue({ 
-      type: 'updatePlayerStats', 
+    await this.addToQueue({
+      type: 'updatePlayerStats',
       params: playerIds,
       priority: 2
     });
@@ -681,8 +671,8 @@ export class PlayerStatsService {
     }
 
     // Set new timer
-    this.debounceTimer = setTimeout(() => {
-      this.handleDebouncedUpdate();
+    this.debounceTimer = setTimeout(async () => {
+      await this.handleDebouncedUpdate();
     }, this.DEBOUNCE_DELAY);
   }
 
@@ -774,7 +764,7 @@ export class PlayerStatsService {
     }
     try {
       const whereClause: any = {};
-      
+
       // Modified to handle unverified users as banned
       if (showBanned === 'hide') {
         whereClause['rankedScoreRank'] = { [Op.and]: [
@@ -824,7 +814,7 @@ export class PlayerStatsService {
           field: sequelize.literal(
             '(SELECT COUNT(*) FROM passes ' +
             'JOIN levels ON levels.id = passes.levelId ' +
-            'WHERE passes.playerId = player.id ' + 
+            'WHERE passes.playerId = player.id ' +
             'AND passes.isDeleted = false ' +
             'AND levels.isDeleted = false)'
           ),
@@ -995,7 +985,7 @@ export class PlayerStatsService {
         },
       ],
     });
-    
+
     const topScores = await sequelize.query(`
       SELECT 
         p.id,
@@ -1017,7 +1007,7 @@ export class PlayerStatsService {
     }
 
     const currentStats = await sequelize.query(this.statsQuery, {
-      replacements: { 
+      replacements: {
         playerIds: [pass.player?.id || 0],
         excludedLevelIds: null,
         excludedPassIds: null,
@@ -1025,16 +1015,16 @@ export class PlayerStatsService {
       type: QueryTypes.SELECT,
     }).then((result: any) => result[0])
     const previousStats = await sequelize.query(this.statsQuery, {
-      replacements: { 
+      replacements: {
         playerIds: [pass.player?.id || 0],
         excludedLevelIds: null,
         excludedPassIds: [passId]
       },
       type: QueryTypes.SELECT,
     }).then((result: any) => result[0]);
-    
 
-    
+
+
     const impact = (currentStats?.rankedScore || 0) - (previousStats?.rankedScore || 0);
 
     // Get player stats for rank
@@ -1101,7 +1091,7 @@ export class PlayerStatsService {
         },
       ],
     });
-  
+
     // Load all user data in one query
     const allUserData = await User.findAll({
       where: {playerId: playerId},
@@ -1122,7 +1112,7 @@ export class PlayerStatsService {
       ],
       attributes: ['id', 'playerId', 'nickname', 'avatarUrl', 'username', 'permissionFlags'],
     });
-  
+
     // Create lookup maps for faster access
     const passesMap = new Map<number, Pass[]>();
     allPasses.forEach((pass: Pass) => {
@@ -1131,18 +1121,18 @@ export class PlayerStatsService {
       }
       passesMap.get(pass.playerId)?.push(pass);
     });
-  
+
     const userDataMap = new Map(
       allUserData.map((user: any) => [user.playerId, user]),
     );
-  
+
     const playerStatsService = PlayerStatsService.getInstance();
-  
+
     // Process each player with the pre-loaded data
         const playerData = player.get({plain: true});
         const passes = passesMap.get(player.id) || [];
         const userData = userDataMap.get(player.id) as any;
-  
+
         // Process Discord data
         let discordProvider: any;
         if (userData?.dataValues?.providers?.length > 0) {
@@ -1151,7 +1141,7 @@ export class PlayerStatsService {
             ? `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png`
             : null;
         }
-  
+
         // Get player stats from service
         const stats = await playerStatsService.getPlayerStats(player.id).then(stats => stats?.[0]);
         const uniquePasses = new Map();
@@ -1163,7 +1153,7 @@ export class PlayerStatsService {
             uniquePasses.set(pass.levelId, pass);
           }
         });
-    
+
         const isLevelAvailable = (level: Level) => {
           return level.isExternallyAvailable || level.dlLink || level.workshopLink;
         }
@@ -1187,7 +1177,7 @@ export class PlayerStatsService {
           }));
 
 
-  
+
         return {
           id: playerData.id,
           name: playerData.name,
@@ -1235,5 +1225,5 @@ export class PlayerStatsService {
           uniquePasses,
           stats
     } as unknown as EnrichedPlayer
-    };
+    }
   }

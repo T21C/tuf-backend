@@ -1,5 +1,5 @@
 import { logger } from '../../services/LoggerService.js';
-import LevelDict, { LevelJSON, Action } from 'adofai-lib';
+import LevelDict, { Action } from 'adofai-lib';
 
 /**
  * List of core gameplay events that MUST NEVER be removed from a level file.
@@ -45,19 +45,19 @@ export const ALWAYS_REMOVE_EVENTS: ReadonlySet<RegExp> = new Set([
 
 export interface TransformOptions {
     /**
-     * Keep only these event types (besides protected ones).  
+     * Keep only these event types (besides protected ones).
      * If undefined – all event types are kept unless they appear in `dropEventTypes`.
      */
     keepEventTypes?: Set<string>;
 
     /**
-     * Remove these event types.  
+     * Remove these event types.
      * Ignored for any type present in `PROTECTED_EVENT_TYPES` or `extraProtectedEventTypes`.
      */
     dropEventTypes?: Set<string>;
 
     /**
-     * Multiply every `MoveCamera` / zoom-like event by this factor.  
+     * Multiply every `MoveCamera` / zoom-like event by this factor.
      * Defaults to `1` (no change).
      */
     baseCameraZoom?: number;
@@ -183,11 +183,11 @@ export function transformLevel(level: LevelDict, options: TransformOptions = {})
     if (settings) {
         if (constantBackgroundColor) {
             // Extract opacity from the hex color (last 2 digits)
-            const opacity = parseInt(constantBackgroundColor.slice(-2), 16) / 255;
+            //const opacity = parseInt(constantBackgroundColor.slice(-2), 16) / 255;
             const color = constantBackgroundColor.slice(0, -2);
             settings.backgroundColor = color;
-            settings.bgImage = "";
-            settings.showDefaultBGIfNoImage = "Disabled";
+            settings.bgImage = '';
+            settings.showDefaultBGIfNoImage = 'Disabled';
         }
         if (baseCameraZoom !== 1 && typeof settings.zoom === 'number') {
             settings.zoom *= baseCameraZoom;
@@ -201,16 +201,16 @@ export function transformLevel(level: LevelDict, options: TransformOptions = {})
     if (constantBackgroundColor) {
         const flashAction: Action = {
             floor: 0,
-            eventType: "Flash",
+            eventType: 'Flash',
             duration: 0,
-            plane: "Background",
+            plane: 'Background',
             startColor: constantBackgroundColor,
             startOpacity: 100,
             endColor: constantBackgroundColor,
             endOpacity: 100,
             angleOffset: -99999,
-            ease: "Linear",
-            eventTag: ""
+            ease: 'Linear',
+            eventTag: ''
         };
         cloned.insertAction(0, flashAction);
     }
@@ -225,7 +225,7 @@ export function transformLevel(level: LevelDict, options: TransformOptions = {})
         keepEventTypes: keepEventTypes ? Array.from(keepEventTypes) : undefined,
         dropEventTypes: dropEventTypes ? Array.from(dropEventTypes) : undefined,
         baseCameraZoom,
-        additionalPatterns: additionalPatterns.size > 0 ? 
+        additionalPatterns: additionalPatterns.size > 0 ?
             Array.from(additionalPatterns).map(p => p.toString()) : undefined,
         constantBackgroundColor,
         removeForegroundFlash,
@@ -233,4 +233,4 @@ export function transformLevel(level: LevelDict, options: TransformOptions = {})
     });
 
     return cloned;
-} 
+}

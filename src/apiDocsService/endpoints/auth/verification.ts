@@ -39,4 +39,4 @@ const verificationEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default verificationEndpoints; 
+export default verificationEndpoints;

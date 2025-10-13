@@ -26,4 +26,4 @@ router.use('/discord', discordRoutes);
 // Chunked upload routes
 router.use('/chunked-upload', chunkedUploadRoutes);
 
-export default router; 
+export default router;

@@ -42,7 +42,7 @@ const CONNECTION_THRESHOLD = 0.8; // 80% of max connections
 const IDLE_CONNECTION_TIMEOUT = 5 * 60 * 1000; // 5 minutes - close connections idle for this long
 
 let connectionMonitorTimer: NodeJS.Timeout | null = null;
-let isRefreshingPool = false;
+const isRefreshingPool = false;
 
 export const closeIdleConnections = async (): Promise<void> => {
   // Create a separate management connection to avoid pool issues
@@ -60,7 +60,7 @@ export const closeIdleConnections = async (): Promise<void> => {
 
   try {
     await managementSequelize.authenticate();
-    
+
     const [results] = await managementSequelize.query(`
       SELECT id, time 
       FROM information_schema.processlist 
@@ -117,7 +117,7 @@ export const startConnectionMonitoring = (): void => {
       }
 
       const stats = await getConnectionStats();
-      
+
       if (stats) {
         const totalConnections = stats.total_connections;
         const connectionUsage = totalConnections / MAX_CONNECTIONS;
@@ -165,7 +165,7 @@ export const killAllConnections = async (): Promise<void> => {
 
   try {
     await managementSequelize.authenticate();
-    
+
     const [results] = await managementSequelize.query(`
       SELECT CONCAT('KILL ', id, ';') as kill_command
       FROM information_schema.processlist 
@@ -178,7 +178,7 @@ export const killAllConnections = async (): Promise<void> => {
           : process.env.DB_DATABASE
       ]
     });
-    
+
     if (results.length > 0) {
       logger.info(`Found ${results.length} connections to kill`);
       for (const row of results as any[]) {
@@ -246,7 +246,7 @@ export const getConnectionStats = async (): Promise<any> => {
           : process.env.DB_DATABASE
       ]
     });
-    
+
     return results[0];
   } catch (error) {
     logger.error('Error getting connection stats:', error);
@@ -265,7 +265,7 @@ export const gracefulShutdown = async (): Promise<void> => {
   try {
     logger.info('Stopping connection monitoring...');
     stopConnectionMonitoring();
-    
+
     logger.info('Closing database connections...');
     await sequelize.close();
     logger.info('Database connections closed');

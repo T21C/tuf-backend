@@ -6,9 +6,9 @@ import { validateImage, getValidationOptionsForType, ImageValidationError } from
 import { processImage } from './imageProcessor.js';
 import { storageManager } from './storageManager.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
-import sequelize from "../../config/db.js";
-import { Transaction } from "sequelize";
-import { safeTransactionRollback } from "../../utils/Utility.js";
+import sequelize from '../../config/db.js';
+import { Transaction } from 'sequelize';
+import { safeTransactionRollback } from '../../utils/Utility.js';
 
 
 export interface ImageUploadResult {
@@ -45,44 +45,41 @@ export class ImageFactory {
         imageType: ImageType
     ): Promise<ImageUploadResult> {
         let transaction: Transaction | undefined;
-        let createdFileId: string | null = null;
         let imageDir: string | null = null;
-        
+
         try {
             // Validate image
             const validationOptions = getValidationOptionsForType(imageType);
-            const validationResult = await validateImage(filePath, imageType, validationOptions);
-            
+            await validateImage(filePath, imageType, validationOptions);
+
             const fileId = path.parse(filePath).name;
             const imageConfig = IMAGE_TYPES[imageType];
             imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
-            
+
             // Create directory for this image's versions
             fs.mkdirSync(imageDir, { recursive: true });
-            
+
             // Save original file
             const originalPath = path.join(imageDir, 'original.png');
             fs.copyFileSync(filePath, originalPath);
             storageManager.cleanupFiles(filePath);
 
             // Process variants
-            const processedFiles = await processImage(originalPath, imageType, fileId);
-            
+            await processImage(originalPath, imageType, fileId);
+
             // Start transaction for database operations
             transaction = await sequelize.transaction();
-            
+
             // Create database entry with absolute path within transaction
-            const cdnFile = await CdnFile.create({
+            await CdnFile.create({
                 id: fileId,
                 type: imageType,
                 filePath: imageDir, // Store absolute path
             }, { transaction });
-            
-            createdFileId = fileId;
-            
+
             // Commit the transaction
             await transaction.commit();
-            
+
             logger.debug('Image uploaded successfully:', {
                 fileId,
                 imageType,
@@ -115,7 +112,7 @@ export class ImageFactory {
                     logger.warn('Transaction rollback failed:', rollbackError);
                 }
             }
-            
+
             // Clean up created files if database operation failed
             if (imageDir && fs.existsSync(imageDir)) {
                 try {
@@ -132,14 +129,14 @@ export class ImageFactory {
                     });
                 }
             }
-            
+
             logger.error('Image processing error:', {
                 error: error instanceof Error ? error.message : String(error),
                 filePath,
                 imageType,
                 timestamp: new Date().toISOString()
             });
-            
+
             if (error instanceof ImageValidationError) {
                 throw new ImageProcessingError(
                     'Image validation failed',
@@ -151,7 +148,7 @@ export class ImageFactory {
                     }
                 );
             }
-            
+
             throw new ImageProcessingError(
                 'Failed to process image',
                 'PROCESSING_ERROR',
@@ -161,4 +158,4 @@ export class ImageFactory {
     }
 }
 
-export default ImageFactory.getInstance(); 
+export default ImageFactory.getInstance();

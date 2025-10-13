@@ -8,7 +8,6 @@ import Player from '../models/players/Player.js';
 import User from '../models/auth/User.js';
 import Judgement from '../models/passes/Judgement.js';
 import sequelize from '../config/db.js';
-import PlayerStats from '../models/players/PlayerStats.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import { calcAcc } from '../utils/CalcAcc.js';
 import { getScoreV2 } from '../utils/CalcScore.js';
@@ -17,11 +16,11 @@ import { logger } from './LoggerService.js';
 import { permissionFlags } from '../config/constants.js';
 import { hasFlag } from '../utils/permissionUtils.js';
 
-const ENABLE_MODIFIERS = env.APRIL_FOOLS === "true";
+const ENABLE_MODIFIERS = env.APRIL_FOOLS === 'true';
 
 export class ModifierService {
   private static instance: ModifierService;
-  private modifiersEnabled: boolean = true;
+  private modifiersEnabled = true;
   private readonly SEC_HOURS = 3600;
   private readonly SEC_MINUTES = 60;
 
@@ -72,7 +71,7 @@ export class ModifierService {
             [Op.or]: [
               {
                 playerId
-              }, 
+              },
               {
                 value: playerId
               }
@@ -115,8 +114,8 @@ export class ModifierService {
     if (isNonStackable) {
       // Find existing non-expired modifier of the same type
 
-      const where = 
-      type === ModifierType.PLAYER_SWAP 
+      const where =
+      type === ModifierType.PLAYER_SWAP
       ? {
           [Op.or]: [
             {
@@ -127,7 +126,7 @@ export class ModifierService {
               value: playerId
             }
           ],
-      } 
+      }
       : {
         playerId,
         type
@@ -140,7 +139,7 @@ export class ModifierService {
       if (existingModifier) {
         // Extend the expiration time using the custom duration
         const newExpiresAt = this.getExpirationTime(type);
-        
+
         if (type !== ModifierType.PLAYER_SWAP) {
           await existingModifier.update({
             expiresAt: newExpiresAt,
@@ -184,10 +183,10 @@ export class ModifierService {
         return;
       }
 
-      
+
       for (const modifier of expiredModifiers) {
         try {
-          
+
           switch (modifier.type) {
             case ModifierType.KING_OF_CASTLE:
               await this.handleKingOfCastle(modifier.playerId, false);
@@ -243,9 +242,9 @@ export class ModifierService {
     }
   }
 
-  public async handleKingOfCastle(playerId: number, hide: boolean = true): Promise<void> {
+  public async handleKingOfCastle(playerId: number, hide = true): Promise<void> {
     try {
-      
+
       // Get all passes where the player has WF
       const wfPasses = await Pass.findAll({
         where: {
@@ -255,9 +254,9 @@ export class ModifierService {
         }
       });
 
-      
+
       for (const wfPass of wfPasses) {
-        
+
         // Find all other passes for this level
         const otherPasses = await Pass.findAll({
           where: {
@@ -267,7 +266,7 @@ export class ModifierService {
           }
         });
 
-        
+
         // Hide all other passes
         await Pass.update(
           { isDeleted: hide },
@@ -291,41 +290,38 @@ export class ModifierService {
           await this.recalculateLevelClearCount(wfPass.levelId);
         }
       }
-      
+
     } catch (error) {
       logger.error(`[KOC] Error handling kingofcastle for player ${playerId}:`, error);
     }
   }
 
-  public async handleBanHammer(playerId: number, ban: boolean = true): Promise<void> {
+  public async handleBanHammer(playerId: number, ban = true): Promise<void> {
     const player = await Player.findByPk(playerId);
     if (!player) {
       logger.error(`[Ban Hammer] Player ${playerId} not found`);
       return;
     }
     if (!ban) {
-      player.update({
+      await player.update({
         isBanned: false
       });
     }
     else {
-      player.update({
+      await player.update({
         isBanned: !player.isBanned
       });
     }
   }
 
-  public async handleSuperAdmin(playerId: number, sourceModifier: PlayerModifier, enable: boolean = true): Promise<void> {
-    if (1==1){
-      return; // Disable super admin
-    }
+  public async handleSuperAdmin(playerId: number, sourceModifier: PlayerModifier, enable = true): Promise<void> {
     const user = await User.findOne({
       where: {
         playerId: playerId
       }
     });
     if (enable && hasFlag(user, permissionFlags.SUPER_ADMIN)) {
-      sourceModifier.destroy();
+      await sourceModifier.destroy();
       logger.info(`[Super Admin] Player ${playerId} already has super admin, destroying source modifier`);
       return;
     }
@@ -333,15 +329,15 @@ export class ModifierService {
       logger.error(`[Super Admin] Player ${playerId} not found`);
       return;
     }
-    user.update({
+    await user.update({
       isSuperAdmin: enable
     });
-    user.increment('permissionVersion', { by: 1 });
+    await user.increment('permissionVersion', { by: 1 });
   }
 
-  public async handleOopsAllMiss(playerId: number, undo: boolean = false): Promise<void> {   
+  public async handleOopsAllMiss(playerId: number, undo = false): Promise<void> {
     try {
-      
+
       const passes = await Pass.findAll({
         where: {
           playerId: playerId,
@@ -357,7 +353,7 @@ export class ModifierService {
         return;
       }
 
-      
+
       const transaction = await sequelize.transaction();
       try {
         for (const pass of passes) {
@@ -368,7 +364,7 @@ export class ModifierService {
                 ...pass.judgements,
                 earlyDouble: newEarlyDouble > 0 ? newEarlyDouble : 0
               }, { transaction });
-            
+
             // Get level data for score recalculation
             const level = await Level.findByPk(pass.levelId, {
               include: [{
@@ -381,7 +377,7 @@ export class ModifierService {
             if (level) {
               // Recalculate accuracy
               const newAccuracy = calcAcc(pass.judgements);
-              
+
               // Recalculate score
               const newScore = getScoreV2(
                 {
@@ -395,11 +391,11 @@ export class ModifierService {
                     lateSingle: pass.judgements.lateSingle || 0,
                     lateDouble: pass.judgements.lateDouble || 0,
                   },
-                  isNoHoldTap: pass.isNoHoldTap || false 
+                  isNoHoldTap: pass.isNoHoldTap || false
                 },
                 {
                   baseScore: level.baseScore || 0,
-                  difficulty: level.difficulty || { baseScore: 0, name: "" }
+                  difficulty: level.difficulty || { baseScore: 0, name: '' }
                 }
               );
 
@@ -414,7 +410,7 @@ export class ModifierService {
         }
 
         await transaction.commit();
-        
+
         // Update player stats after all passes are processed
         await PlayerStatsService.getInstance().updatePlayerStats([playerId]);
       } catch (error) {
@@ -431,7 +427,7 @@ export class ModifierService {
     if (!this.modifiersEnabled) return;
     const playerId = modifier.playerId;
     try {
-      
+
       switch (modifier.type) {
         case ModifierType.KING_OF_CASTLE:
           await this.handleKingOfCastle(playerId, true);
@@ -449,7 +445,7 @@ export class ModifierService {
           await this.handlePlayerSwap(playerId);
           break;
       }
-      
+
     } catch (error) {
       logger.error(`[ModifierService] Error applying modifier ${modifier.type} for player ${playerId}:`, error);
       throw error;
@@ -458,10 +454,10 @@ export class ModifierService {
 
   public async applyAllModifiers(playerId: number): Promise<void> {
     if (!this.modifiersEnabled) return;
-    
+
     try {
       const activeModifiers = await this.getActiveModifiers(playerId);
-      
+
       for (const modifier of activeModifiers) {
         try {
           await this.applyModifier(modifier);
@@ -476,9 +472,9 @@ export class ModifierService {
 
   public async applyScoreModifiers(playerId: number, stats: any): Promise<any> {
     if (!this.modifiersEnabled) return stats;
-    
+
     const activeModifiers = await this.getActiveModifiers(playerId);
-    let modifiedStats = { ...stats };
+    const modifiedStats = { ...stats };
 
     for (const modifier of activeModifiers) {
       switch (modifier.type) {
@@ -520,7 +516,7 @@ export class ModifierService {
           type: ModifierType.PLAYER_SWAP
         }
       });
-      
+
       const playersInSwapIds = playersInSwap.reduce((ids, modifier) => {
         ids.push(modifier.playerId);
         if (modifier.value) ids.push(modifier.value);
@@ -544,13 +540,13 @@ export class ModifierService {
     }
   }
 
-  public async handlePlayerSwap(playerId: number, undo: boolean = false): Promise<void> {
+  public async handlePlayerSwap(playerId: number, undo = false): Promise<void> {
     const playersInSwap = await PlayerModifier.findAll({
       where: {
         type: ModifierType.PLAYER_SWAP
       }
     });
-    
+
     const playersInSwapIds = playersInSwap.reduce((ids, modifier) => {
       ids.push(modifier.playerId);
       if (modifier.value) ids.push(modifier.value);
@@ -564,7 +560,7 @@ export class ModifierService {
     }
     try {
         let swap = null;
-    
+
         swap = await PlayerModifier.findOne({
           where: {
             playerId: playerId,
@@ -583,7 +579,7 @@ export class ModifierService {
 
       const player = await Player.findByPk(playerId);
       const targetPlayer = await Player.findByPk(targetPlayerId);
-      
+
       if (!player || !targetPlayer) {
         logger.error(`[Player Swap] Player lookup failed - Player ${playerId}: ${!!player}, Target ${targetPlayerId}: ${!!targetPlayer}`);
         return;
@@ -592,7 +588,7 @@ export class ModifierService {
       // For undo, we don't need to check for existing swaps
       if (!undo) {
         // Check if either player is already in a swap
-        
+
 
         swap = await PlayerModifier.update({
           value: targetPlayerId,
@@ -608,7 +604,7 @@ export class ModifierService {
         });
 
         if (!swap) {
-          logger.error(`[Player Swap] Failed to create swap`);
+          logger.error('[Player Swap] Failed to create swap');
           return;
         }
       }
@@ -617,7 +613,7 @@ export class ModifierService {
       const transaction = await sequelize.transaction();
       try {
         const playerPasses = await Pass.findAll({
-          where: { 
+          where: {
             playerId: undo ? targetPlayerId : playerId,
             isDeleted: false
           },
@@ -625,7 +621,7 @@ export class ModifierService {
         });
 
         const targetPasses = await Pass.findAll({
-          where: { 
+          where: {
             playerId: undo ? playerId : targetPlayerId,
             isDeleted: false
           },
@@ -646,10 +642,10 @@ export class ModifierService {
           }
         });
 
-        const playerUpdateResult = await Pass.update(
+        await Pass.update(
           { playerId: undo ? playerId : targetPlayerId },
           {
-            where: { 
+            where: {
               id: {
                 [Op.in]: playerPasses.map(pass => pass.id)
               }
@@ -657,10 +653,10 @@ export class ModifierService {
             transaction
           }
         );
-        const targetUpdateResult = await Pass.update(
+        await Pass.update(
           { playerId: undo ? targetPlayerId : playerId },
           {
-            where: { 
+            where: {
               id: {
                 [Op.in]: targetPasses.map(pass => pass.id)
               }
@@ -668,15 +664,15 @@ export class ModifierService {
             transaction
           }
         );
-        
-        const playerModifierUpdateResult = await PlayerModifier.update(
+
+        await PlayerModifier.update(
           { playerId: undo ? targetPlayerId :  playerId},
           {
             where: { id: { [Op.in]: playerModifiers.map(modifier => modifier.id) } }
           }
         );
-        
-        const targetModifierUpdateResult = await PlayerModifier.update(
+
+        await PlayerModifier.update(
           { playerId: undo ? playerId : targetPlayerId },
           {
             where: { id: { [Op.in]: targetModifiers.map(modifier => modifier.id) } }
@@ -687,7 +683,7 @@ export class ModifierService {
         await transaction.commit();
       } catch (error) {
         await transaction.rollback();
-        logger.error(`[Player Swap] Transaction failed, rolling back:`, error);
+        logger.error('[Player Swap] Transaction failed, rolling back:', error);
         throw error;
       }
     } catch (error) {
@@ -702,7 +698,7 @@ export class ModifierService {
 
     for (const [type, probability] of Object.entries(PlayerModifier.PROBABILITIES)) {
       cumulativeProbability += probability;
-      
+
       if (roll <= cumulativeProbability) {
         let value = null;
         if (type === ModifierType.RANKED_MULTIPLY) {
@@ -720,13 +716,13 @@ export class ModifierService {
   private flipScore(score: number): number {
     // Convert to string and handle decimals
     const scoreStr = score.toFixed(2);
-    
+
     // Split into integer and decimal parts
     const [intPart, decPart] = scoreStr.split('.');
-    
+
     // Flip the integer part
     const flippedInt = intPart.split('').reverse().join('');
-    
+
     // Combine back with decimal part
     return parseFloat(`${flippedInt}.${decPart}`);
   }
@@ -739,10 +735,10 @@ export class ModifierService {
     score12K: number
   ): number {
     // Convert all scores to integers and sum them
-    return Math.floor(rankedScore) + 
-           Math.floor(generalScore) + 
-           Math.floor(ppScore) + 
-           Math.floor(wfScore) + 
+    return Math.floor(rankedScore) +
+           Math.floor(generalScore) +
+           Math.floor(ppScore) +
+           Math.floor(wfScore) +
            Math.floor(score12K);
   }
 
@@ -768,10 +764,10 @@ export class ModifierService {
           modifier.type,
           modifier.value
         );
-        
+
         // Update player stats
         await PlayerStatsService.getInstance().updatePlayerStats([playerId]);
-        
+
         return { modifier: banModifier };
       }
 

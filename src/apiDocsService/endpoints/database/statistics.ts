@@ -23,4 +23,4 @@ const statisticsEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default statisticsEndpoints; 
+export default statisticsEndpoints;

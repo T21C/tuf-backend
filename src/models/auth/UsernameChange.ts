@@ -69,4 +69,4 @@ UsernameChange.belongsTo(User, {
   as: 'user'
 });
 
-export default UsernameChange; 
+export default UsernameChange;

@@ -111,4 +111,4 @@ DirectiveAction.belongsTo(AnnouncementRole, {
   as: 'role',
 });
 
-export default DirectiveAction; 
+export default DirectiveAction;

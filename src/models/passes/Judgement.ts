@@ -1,7 +1,6 @@
 import {DataTypes, Model} from 'sequelize';
 import sequelize from '../../config/db.js';
 import {IJudgement} from '../../interfaces/models/index.js';
-import { calcAcc } from '../../utils/CalcAcc.js';
 
 class Judgement extends Model<IJudgement> implements IJudgement {
   declare id: number;

@@ -84,4 +84,4 @@ export const API_CATEGORIES = {
     }
 } as const;
 
-export type ApiCategory = keyof typeof API_CATEGORIES; 
+export type ApiCategory = keyof typeof API_CATEGORIES;

@@ -75,4 +75,4 @@ const modificationEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default modificationEndpoints; 
+export default modificationEndpoints;

@@ -9,7 +9,7 @@
 export function cyrb128(str: string): [number, number, number, number] {
   let h1 = 1779033703, h2 = 3144134277,
       h3 = 1013904242, h4 = 2773480762;
-  
+
   for (let i = 0, k; i < str.length; i++) {
     k = str.charCodeAt(i);
     h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
@@ -17,14 +17,14 @@ export function cyrb128(str: string): [number, number, number, number] {
     h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
     h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
   }
-  
+
   h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
   h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
   h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
   h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
-  
+
   h1 ^= (h2 ^ h3 ^ h4), h2 ^= h1, h3 ^= h1, h4 ^= h1;
-  
+
   return [h1>>>0, h2>>>0, h3>>>0, h4>>>0];
 }
 
@@ -34,7 +34,7 @@ export function cyrb128(str: string): [number, number, number, number] {
  */
 export function sfc32(a: number, b: number, c: number, d: number) {
   return function() {
-    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
+    a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
     let t = (a + b) | 0;
     a = b ^ b >>> 9;
     b = c + (c << 3) | 0;
@@ -85,12 +85,12 @@ export function createNumericSeededRandom(seed: number) {
 export function seededShuffle<T>(array: T[], seed: number): T[] {
   const rand = createNumericSeededRandom(seed);
   const result = [...array];
-  
+
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
   }
-  
+
   return result;
 }
 
@@ -108,8 +108,8 @@ export function seededRandomRange(min: number, max: number, seed: number): numbe
  */
 export function getDailySeed(): number {
   const today = new Date();
-  return today.getFullYear() * 10000 + 
-         (today.getMonth() + 1) * 100 + 
+  return today.getFullYear() * 10000 +
+         (today.getMonth() + 1) * 100 +
          today.getDate();
 }
 
@@ -118,10 +118,10 @@ export function getDailySeed(): number {
  * Useful for testing or generating historical seeds
  */
 export function getDateSeed(date: Date): number {
-  return date.getFullYear() * 10000 + 
-         (date.getMonth() + 1) * 100 + 
+  return date.getFullYear() * 10000 +
+         (date.getMonth() + 1) * 100 +
          date.getDate();
-} 
+}
 
 
 export function getRandomSeed() {

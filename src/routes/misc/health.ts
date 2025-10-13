@@ -13,10 +13,10 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     // Check database connection
     const dbStatus = await checkDatabase();
-    
+
     // Check socket server
     const socketStatus = checkSocketServer();
-    
+
     // Get system information
     const systemInfo = {
       uptime: process.uptime(),
@@ -25,11 +25,11 @@ router.get('/', async (req: Request, res: Response) => {
       platform: process.platform,
       env: process.env.NODE_ENV || 'development'
     };
-    
+
     // Determine overall health status
     const isonline = dbStatus.connected && socketStatus.connected;
     const status = isonline ? 'online' : 'degraded';
-    
+
     // Return health information
     res.status(200).json({
       status,
@@ -86,4 +86,4 @@ function checkSocketServer() {
   }
 }
 
-export default router; 
+export default router;

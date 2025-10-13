@@ -1,5 +1,4 @@
 import { HealthService } from './HealthService.js';
-import { logger } from '../services/LoggerService.js';
 
 // Inform users about running the health service independently
 console.log('Starting health service in standalone mode...');

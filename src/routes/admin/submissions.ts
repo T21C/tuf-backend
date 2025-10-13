@@ -135,7 +135,7 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
 
     const submissionsWithStats = pendingLevelSubmissions.map(submission => {
       const submissionData = submission.toJSON();
-      
+
       // Process creator requests
       submissionData.creatorRequests = submissionData.creatorRequests?.map((request: CreatorRequest) => {
         if (request.creator?.credits) {
@@ -245,7 +245,7 @@ router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Respo
 // Handle level submission actions (approve/reject)
 router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
-    let rollbackReason = "";
+    let rollbackReason = '';
     try {
       const {id} = req.params;
         const submissionObj = await LevelSubmission.findOne({
@@ -264,7 +264,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
 
         if (!submissionObj) {
-          rollbackReason = "Submission not found";
+          rollbackReason = 'Submission not found';
           await safeTransactionRollback(transaction, logger);
           return res.status(404).json({error: 'Submission not found'});
         }
@@ -275,7 +275,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         );
 
         if (hasUnhandledCreators) {
-          rollbackReason = "All creators must be either assigned to existing creators or marked as new creators";
+          rollbackReason = 'All creators must be either assigned to existing creators or marked as new creators';
           await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'All creators must be either assigned to existing creators or marked as new creators'
@@ -284,7 +284,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Check if team request is properly handled
         if (submissionObj.teamRequestData && !submissionObj.teamRequestData.teamId && !submissionObj.teamRequestData.isNewRequest) {
-          rollbackReason = "Team must be either assigned to an existing team or marked as a new team";
+          rollbackReason = 'Team must be either assigned to an existing team or marked as a new team';
           await safeTransactionRollback(transaction, logger);
           return res.status(400).json({
             error: 'Team must be either assigned to an existing team or marked as a new team'
@@ -292,7 +292,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         }
 
         const submission = submissionObj.dataValues;
-        
+
         // Get first charter and vfxer from creator requests
         const firstCharter = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'charter');
         const firstVfxer = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'vfxer');
@@ -314,7 +314,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Use existing team
             team = await Team.findByPk(submission.teamRequestData.teamId, { transaction });
             if (!team) {
-              rollbackReason = "Referenced team not found";
+              rollbackReason = 'Referenced team not found';
               await safeTransactionRollback(transaction, logger);
               return res.status(404).json({ error: 'Referenced team not found' });
             }
@@ -347,7 +347,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           {
             song: submission.song,
             artist: submission.artist,
-            creator: firstCharter?.creatorName || '',
             charter: firstCharter?.creatorName || '',
             vfxer: firstVfxer?.creatorName || '',
             team: team?.name || '',
@@ -358,7 +357,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             isDeleted: false,
             diffId: 0,
             baseScore: 0,
-            isVerified: hasSimpleCredits && allExistingCreatorsVerified && 
+            isVerified: hasSimpleCredits && allExistingCreatorsVerified &&
                        !submission.creatorRequests?.some((r: LevelSubmissionCreatorRequest) => r.isNewRequest) &&
                        (!submission.teamRequestData || !submission.teamRequestData.isNewRequest),
             clears: 0,
@@ -488,14 +487,14 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
 router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
-    let rollbackReason = "";
+    let rollbackReason = '';
     try {
       const {id} = req.params;
 
       // Get the submission to check if it has a level zip
       const submission = await LevelSubmission.findByPk(id);
       if (!submission) {
-        rollbackReason = "Submission not found";
+        rollbackReason = 'Submission not found';
         await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found'});
       }
@@ -679,7 +678,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       await updateWorldsFirstStatus(submission.levelId, transaction);
 
         // Commit the transaction for this submission
-        
+
       const newPass = await Pass.findByPk(pass.id, {
           include: [
             {
@@ -714,7 +713,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         }
 
       await transaction.commit();
-      
+
       // Index the pass in Elasticsearch after transaction is committed
       await elasticsearchService.indexPass(newPass!);
       await elasticsearchService.indexLevel(newPass!.level!);
@@ -915,7 +914,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
     for (const submission of pendingSubmissions) {
       // Create a new transaction for each submission
       const transaction = await sequelize.transaction();
-      
+
       try {
         // Validate required data
         if (!submission.flags || !submission.judgements || !submission.level || !submission.level.difficulty) {
@@ -1058,10 +1057,10 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         // Rollback the transaction for this submission
         await safeTransactionRollback(transaction, logger);
         logger.error(`Error auto-approving submission ${submission.id}:`, error);
-        results.push({ 
-          id: submission.id, 
-          success: false, 
-          error: error instanceof Error ? error.message : String(error) 
+        results.push({
+          id: submission.id,
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
         });
       }
     }
@@ -1107,7 +1106,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
     if (creatorRequests) {
       await Promise.all(creatorRequests.map(async (request: any) => {
         if (!request.id) return;
-        
+
         await LevelSubmissionCreatorRequest.update({
           creatorId: request.creatorId,
           creatorName: request.creatorName,
@@ -1196,7 +1195,7 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
 
     // Process the submission data to match the format used in pending submissions
     const submissionData = updatedSubmission.toJSON();
-      
+
     // Process creator requests
     submissionData.creatorRequests = submissionData.creatorRequests?.map((request: any) => {
       if (request.creator?.credits) {
@@ -1352,10 +1351,10 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
           teamId: team.id,
           name: alias.trim(),
         }));
-        
-        await TeamAlias.bulkCreate(aliasRecords, { 
+
+        await TeamAlias.bulkCreate(aliasRecords, {
           transaction,
-          ignoreDuplicates: true 
+          ignoreDuplicates: true
         });
       }
 
@@ -1454,7 +1453,7 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
 
     // Process the submission data to match the format used in pending submissions
     const submissionData = updatedSubmission.toJSON();
-      
+
     // Process creator requests
     submissionData.creatorRequests = submissionData.creatorRequests?.map((request: any) => {
       if (request.creator?.credits) {
@@ -1522,21 +1521,21 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
 
     // Create a new creator request with a placeholder name
     const placeholderName = `New ${role.charAt(0).toUpperCase() + role.slice(1)}`;
-    const newRequest = 
-    role === 'team' 
 
-    ? await LevelSubmissionTeamRequest.create({
+    if (role === 'team') {
+      await LevelSubmissionTeamRequest.create({
       submissionId: parseInt(id),
       teamName: placeholderName,
       isNewRequest: true
-    }, { transaction }) 
-    
-    : await LevelSubmissionCreatorRequest.create({
+    }, { transaction })
+    } else {
+      await LevelSubmissionCreatorRequest.create({
       submissionId: parseInt(id),
       role,
       creatorName: placeholderName,
       isNewRequest: true
     }, { transaction });
+    }
 
     await transaction.commit();
 
@@ -1649,7 +1648,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
       // Handle creator request deletion
       const request = submission.creatorRequests.find(r => r.id === parseInt(requestId));
       const isCharter = request?.role === CreditRole.CHARTER;
-      
+
       if (isCharter) {
         const charterCount = submission.creatorRequests.filter(r => r.role === CreditRole.CHARTER).length;
         if (charterCount <= 1) {

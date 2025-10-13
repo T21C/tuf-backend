@@ -2,7 +2,7 @@ import {Router, Request, Response} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {OAuthProvider, User} from '../../models/index.js';
 import bcrypt from 'bcrypt';
-import sequelize from "../../config/db.js";
+import sequelize from '../../config/db.js';
 import { Op } from 'sequelize';
 import UsernameChange from '../../models/auth/UsernameChange.js';
 import Player from '../../models/players/Player.js';
@@ -103,7 +103,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const username = ""; //req.body;
+    const username = ''; //req.body;
     const user = req.user;
 
     if (!user) {
@@ -149,7 +149,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         where: {username},
         transaction
       });
-      
+
       if (existingUser) {
         throw {'error': 'Username already taken', 'code': 400};
       }
@@ -158,15 +158,15 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       if (user.lastUsernameChange) {
         const msSinceLastChange = Date.now() - new Date(user.lastUsernameChange).getTime();
         const msRemaining = (24 * 60 * 60 * 1000) - msSinceLastChange;
-        
+
         if (msRemaining > 0) {
           const hours = Math.floor(msRemaining / (60 * 60 * 1000));
           const minutes = Math.floor((msRemaining % (60 * 60 * 1000)) / (60 * 1000));
           const seconds = Math.floor((msRemaining % (60 * 1000)) / 1000);
-          
+
           const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + (24 * 60 * 60 * 1000));
-          
+
           throw ({
             error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
             nextAvailableChange,
@@ -180,7 +180,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           });
         }
       }
-      
+
       // Create username change record
       await UsernameChange.create({
         userId: user.id,
@@ -205,7 +205,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     } else {
       // Just update nickname if username isn't changing
       // Check if player name is being changed and validate uniqueness
-      
+
       if (targetPlayerName !== user.player?.name) {
         const existingPlayer = await Player.findOne({
           where: {
@@ -226,7 +226,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         }
       );
       await Player.update(
-        { 
+        {
           name: targetPlayerName,
           country: req.body.country
         },
@@ -251,7 +251,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
 
     await transaction.commit();
 
-    elasticsearchService.updatePlayerPasses(user.playerId!);
+    await elasticsearchService.updatePlayerPasses(user.playerId!);
 
     return res.json({
       message: 'Profile updated successfully',
@@ -365,7 +365,7 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
         });
     } catch (error) {
         logger.error('Error uploading avatar:', error);
-        
+
         if (error instanceof CdnError) {
             return res.status(400).json({
                 error: error.message,
@@ -373,7 +373,7 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
                 details: error.details
             });
         }
-        
+
         return res.status(500).json({
             error: 'Failed to upload avatar',
             code: 'SERVER_ERROR',

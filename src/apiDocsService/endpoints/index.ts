@@ -16,4 +16,4 @@ export const allEndpoints: EndpointDefinition[] = [
   ...webhookEndpoints
 ];
 
-export default allEndpoints; 
+export default allEndpoints;

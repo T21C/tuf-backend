@@ -8,7 +8,7 @@ export class TeamAlias extends Model {
   public name!: string;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
-  
+
   // Associations
   public team!: Team;
 }
@@ -38,4 +38,4 @@ TeamAlias.init(
     tableName: 'team_aliases',
     timestamps: true,
   }
-); 
+);

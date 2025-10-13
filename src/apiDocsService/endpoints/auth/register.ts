@@ -23,4 +23,4 @@ const registerEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default registerEndpoints; 
+export default registerEndpoints;

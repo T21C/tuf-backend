@@ -1,15 +1,14 @@
-import { Router, Request, Response } from "express";
-import { logger } from "../../services/LoggerService.js";
-import CdnFile from "../../models/cdn/CdnFile.js";
-import { CDN_CONFIG } from "../config.js";
-import FileAccessLog from "../../models/cdn/FileAccessLog.js";
-import fs from "fs";
-import path from "path";
-import { PROTECTED_EVENT_TYPES, transformLevel } from "../services/levelTransformer.js";
-import { repackZipFile } from "../services/zipProcessor.js";
-import { hybridStorageManager, StorageType } from "../services/hybridStorageManager.js";
-import LevelDict, { LevelJSON, Action } from "adofai-lib";
-import { decodeFilename } from "../misc/utils.js";
+import { Router, Request, Response } from 'express';
+import { logger } from '../../services/LoggerService.js';
+import CdnFile from '../../models/cdn/CdnFile.js';
+import { CDN_CONFIG } from '../config.js';
+import FileAccessLog from '../../models/cdn/FileAccessLog.js';
+import fs from 'fs';
+import path from 'path';
+import { PROTECTED_EVENT_TYPES, transformLevel } from '../services/levelTransformer.js';
+import { repackZipFile } from '../services/zipProcessor.js';
+import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
+import LevelDict, { Action } from 'adofai-lib';
 
 // Repack folder configuration
 const REPACK_FOLDER = path.join(CDN_CONFIG.user_root, 'repack');
@@ -40,7 +39,7 @@ const cleanupRepackFolder = async () => {
         for (const file of files) {
             const filePath = path.join(REPACK_FOLDER, file);
             const stats = await fs.promises.stat(filePath);
-            
+
             if (stats.mtime.getTime() < cutoffTime) {
                 await fs.promises.rm(filePath, { recursive: true, force: true });
                 cleanedCount++;
@@ -70,7 +69,7 @@ const cleanupUuidRepackFolder = async (fileId: string) => {
 };
 
 // Initialize repack folder on module load
-initializeRepackFolder();
+await initializeRepackFolder();
 
 // Schedule periodic cleanup every 30 minutes
 setInterval(cleanupRepackFolder, 30 * 60 * 1000);
@@ -89,7 +88,7 @@ const sanitizeFilename = (filename: string): string => {
 // Add helper function for encoding Content-Disposition
 const encodeContentDisposition = (filename: string): string => {
   const sanitized = sanitizeFilename(filename);
-  
+
   return `attachment; filename*=UTF-8''${sanitized}`;
 };
 
@@ -136,14 +135,14 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
     if (!fileId) {
         throw { error: 'File ID is required', code: 400 };
     }
-    
+
     // Clean up any existing repack folder for this UUID first
     await cleanupUuidRepackFolder(fileId);
-    
+
     // Use repack folder instead of temp folder for all repack-related files
     const uuidRepackDir = path.join(REPACK_FOLDER, fileId);
     const tempDir = path.join(uuidRepackDir, 'temp');
-    
+
     try {
         const file = await CdnFile.findByPk(fileId);
 
@@ -193,9 +192,9 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         }
 
         if (!metadata.songFiles) {
-            logger.error('Missing song files in metadata:', { 
+            logger.error('Missing song files in metadata:', {
                 fileId,
-                metadata: file.metadata 
+                metadata: file.metadata
             });
             throw { error: 'Song files not found in metadata', code: 400 };
         }
@@ -203,9 +202,9 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         // If targetLevel is missing, find the largest level file
         if (!metadata.targetLevel) {
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
-                logger.error('No level files found in metadata:', { 
+                logger.error('No level files found in metadata:', {
                     fileId,
-                    metadata: file.metadata 
+                    metadata: file.metadata
                 });
                 throw { error: 'No level files found in metadata', code: 400 };
             }
@@ -228,10 +227,10 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         // Validate target level exists using fallback logic
         const preferredStorageType = metadata.levelStorageType || metadata.storageType;
         const levelCheck = await hybridStorageManager.fileExistsWithFallback(
-            metadata.targetLevel, 
+            metadata.targetLevel,
             preferredStorageType
         );
-        
+
         if (!levelCheck.exists) {
             logger.error('Target level file not found in any storage:', {
                 fileId,
@@ -241,7 +240,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             });
             throw { error: 'Target level file not found in storage', code: 400 };
         }
-        
+
         logger.debug('Target level found using fallback logic:', {
             fileId,
             targetLevel: metadata.targetLevel,
@@ -276,13 +275,13 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         // Read the level file from storage using the found storage type
         const levelPath = metadata.targetLevel;
         let parsedLevel: LevelDict;
-        
+
         if (levelCheck.storageType === StorageType.SPACES) {
             // Download from Spaces to temporary file
             const tempPath = path.join(tempDir, `level_${Date.now()}.adofai`);
             await hybridStorageManager.downloadFile(levelPath, StorageType.SPACES, tempPath);
             parsedLevel = await new LevelDict(tempPath);
-            
+
             // Clean up temp file after parsing
             fs.promises.unlink(tempPath).catch(() => {});
         } else {
@@ -307,13 +306,13 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         if (format === 'zip') {
             // Create a temporary file for the transformed level in the temp dir
             await fs.promises.mkdir(tempDir, { recursive: true });
-            
+
             const tempLevelPath = path.join(tempDir, `transformed_${Date.now()}.adofai`);
             await fs.promises.writeFile(tempLevelPath, JSON.stringify(transformedLevel, null, 2));
 
             // Find the song file referenced in the level
-            const songFilename = transformedLevel.getSetting("songFilename");
-            const requiresYSMod = transformedLevel.getSetting("requiredMods")?.includes('YouTubeStream');
+            const songFilename = transformedLevel.getSetting('songFilename');
+            const requiresYSMod = transformedLevel.getSetting('requiredMods')?.includes('YouTubeStream');
             if (!requiresYSMod && (!songFilename || !metadata.songFiles[songFilename])) {
                 throw { error: 'Song file not found in level', code: 400 };
             }
@@ -323,13 +322,13 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             if (!requiresYSMod && songFilename && metadata.songFiles[songFilename]) {
                 const songFile = metadata.songFiles[songFilename];
                 const preferredSongStorageType = metadata.songStorageType || metadata.storageType;
-                
+
                 // Use fallback logic to find the song file
                 const songCheck = await hybridStorageManager.fileExistsWithFallback(
-                    songFile.path, 
+                    songFile.path,
                     preferredSongStorageType
                 );
-                
+
                 if (!songCheck.exists) {
                     logger.error('Song file not found in any storage:', {
                         fileId,
@@ -339,7 +338,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     });
                     throw { error: 'Song file not found in storage', code: 400 };
                 }
-                
+
                 if (songCheck.storageType === StorageType.SPACES) {
                     // Download song file from Spaces to temporary location
                     const tempSongPath = path.join(tempDir, `song_${Date.now()}_${songFilename}`);
@@ -368,14 +367,14 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
             // Repack the zip into the UUID-specific repack folder
             const repackZipPath = await repackZipFile(tempMetadata, uuidRepackDir);
-            
+
             // Set headers for zip download with encoded filename
             res.setHeader('Content-Type', 'application/zip');
-            
+
             // Use the original filename from the path (no encoding/decoding needed)
             const displayFilename = path.basename(levelPath);
             res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}.zip`));
-            
+
             // Stream the zip file from the repack folder
             const fileStream = fs.createReadStream(repackZipPath);
             fileStream.pipe(res);
@@ -387,7 +386,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 if (songFilePath && songFilePath.includes('temp')) {
                     fs.promises.unlink(songFilePath).catch(() => {});
                 }
-                
+
                 logger.debug('Repack zip created and streaming started:', {
                     fileId,
                     uuidRepackDir,
@@ -405,10 +404,10 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     fileId,
                     uuidRepackDir
                 });
-                
+
                 // Clean up entire UUID repack folder on error
                 fs.promises.rm(uuidRepackDir, { recursive: true, force: true }).catch(() => {});
-                
+
                 if (!res.headersSent) {
                     res.status(500).json({ error: 'Error streaming file' });
                 }
@@ -416,7 +415,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         } else if (format === 'adofai') {
             // Return JSON response with encoded filename
             res.setHeader('Content-Type', 'application/json');
-            
+
             // Use the original filename from the path (no encoding/decoding needed)
             const displayFilename = path.basename(levelPath);
             res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}`));
@@ -430,7 +429,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         }
     } catch (error) {
         logger.error('Level transformation error for ' + req.query.fileId + ':', error);
-        
+
         // Clean up entire UUID repack directory on error
         fs.promises.rm(uuidRepackDir, { recursive: true, force: true }).catch((cleanupError) => {
             logger.error('Failed to delete UUID repack directory:', {
@@ -439,7 +438,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 cleanupError
             });
         });
-        
+
         // Handle custom error objects with code
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
             const customError = error as { code: number; error: string };
@@ -454,7 +453,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 router.get('/transform-options', async (req: Request, res: Response) => {
     try {
         const fileId = req.query.fileId as string;
-        
+
         if (!fileId) {
             throw { error: 'File ID is required', code: 400 };
         }
@@ -480,9 +479,9 @@ router.get('/transform-options', async (req: Request, res: Response) => {
         // If targetLevel is missing, find the largest level file
         if (!metadata.targetLevel) {
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
-                logger.error('No level files found in metadata:', { 
+                logger.error('No level files found in metadata:', {
                     fileId,
-                    metadata: file.metadata 
+                    metadata: file.metadata
                 });
                 return res.status(400).json({ error: 'No level files found in metadata' });
             }
@@ -504,7 +503,7 @@ router.get('/transform-options', async (req: Request, res: Response) => {
 
         // Read the level file
         const parsedLevel = await new LevelDict(metadata.targetLevel);
-        
+
         // Extract available types from the level
         const availableTypes = extractLevelTypes(parsedLevel);
 

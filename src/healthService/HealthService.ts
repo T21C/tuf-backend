@@ -3,16 +3,15 @@ import http from 'http';
 import axios from 'axios';
 import sequelize from '../config/db.js';
 import v8 from 'v8';
-import { logger } from '../services/LoggerService.js';
 
 export class HealthService {
   private static instance: HealthService;
   private app: express.Application;
   private server: http.Server | null = null;
-  private port: number = 3883; // Fixed port for the health service
+  private port = 3883; // Fixed port for the health service
   private mainServerPort: number;
   private mainServerUrl: string;
-  private isRunning: boolean = false;
+  private isRunning = false;
   private startTime: Date | null = null;
   private lastCheckTime: Date | null = null;
   private status: 'online' | 'degraded' | 'offline' = 'online';
@@ -42,29 +41,29 @@ export class HealthService {
     this.app.get('/health', (req, res) => {
       const uptime = this.startTime ? this.getUptime() : 'Not started';
       const lastCheck = this.lastCheckTime ? this.lastCheckTime.toISOString() : 'Never';
-      
+
       // Format memory usage for display
       const formatMemory = (bytes: number) => {
         const mb = bytes / (1024 * 1024);
         return `${mb.toFixed(2)} MB`;
       };
-      
+
       // Format uptime for display
       const formatUptime = (seconds: number) => {
         const days = Math.floor(seconds / (24 * 60 * 60));
         const hours = Math.floor((seconds % (24 * 60 * 60)) / (60 * 60));
         const minutes = Math.floor((seconds % (60 * 60)) / 60);
         const secs = Math.floor(seconds % 60);
-        
+
         return `${days}d ${hours}h ${minutes}m ${secs}s`;
       };
-      
+
       // Get main server info if available
-      const mainServerUptime = this.mainServerInfo?.system?.uptime 
-        ? formatUptime(this.mainServerInfo.system.uptime) 
+      const mainServerUptime = this.mainServerInfo?.system?.uptime
+        ? formatUptime(this.mainServerInfo.system.uptime)
         : 'Unknown';
-      
-      const mainServerMemory = this.mainServerInfo?.system?.memory 
+
+      const mainServerMemory = this.mainServerInfo?.system?.memory
         ? {
             rss: formatMemory(this.mainServerInfo.system.memory.rss),
             heapTotal: formatMemory(this.mainServerInfo.system.memory.heapTotal),
@@ -73,12 +72,12 @@ export class HealthService {
             arrayBuffers: formatMemory(this.mainServerInfo.system.memory.arrayBuffers)
           }
         : null;
-      
+
       const mainServerStatus = this.mainServerInfo?.status || 'Unknown';
       const mainServerEnv = this.mainServerInfo?.system?.env || 'Unknown';
       const mainServerNodeVersion = this.mainServerInfo?.system?.nodeVersion || 'Unknown';
       const mainServerPlatform = this.mainServerInfo?.system?.platform || 'Unknown';
-      
+
       res.send(`
         <!DOCTYPE html>
         <html>
@@ -241,24 +240,24 @@ export class HealthService {
     });
 
     // JSON API endpoint for health checks with CORS headers
-    this.app.get('/health/api', (req, res) => {
+    this.app.get('/health/api', async (req, res) => {
       // Set CORS headers to allow all origins
       res.header('Access-Control-Allow-Origin', '*');
       res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      
+
       // Handle preflight requests
       if (req.method === 'OPTIONS') {
         return res.status(200).end();
       }
-      
+
       this.lastCheckTime = new Date();
-      this.runHealthChecks();
-      
+      await this.runHealthChecks();
+
       // Get memory limits
       const v8Stats = v8.getHeapStatistics();
       const memoryUsage = process.memoryUsage();
-      
+
       // Calculate memory limits
       const memoryLimits = {
         heapSizeLimit: v8Stats.heap_size_limit,
@@ -268,7 +267,7 @@ export class HealthService {
         // maxRSS is in KB, convert to bytes for consistency with other memory values
         rssLimit: process.resourceUsage().maxRSS ? process.resourceUsage().maxRSS * 1024 : 'Unknown'
       };
-      
+
       return res.json({
         status: this.status,
         timestamp: this.lastCheckTime.toISOString(),
@@ -293,7 +292,7 @@ export class HealthService {
         return '#000000';
     }
   }
-  
+
   private getStatusColorForServer(status: string): string {
     switch (status) {
       case 'online':
@@ -309,13 +308,13 @@ export class HealthService {
 
   private getUptime(): string {
     if (!this.startTime) return 'Not started';
-    
+
     const uptimeMs = Date.now() - this.startTime.getTime();
     const seconds = Math.floor((uptimeMs / 1000) % 60);
     const minutes = Math.floor((uptimeMs / (1000 * 60)) % 60);
     const hours = Math.floor((uptimeMs / (1000 * 60 * 60)) % 24);
     const days = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
-    
+
     return `${days}d ${hours}h ${minutes}m ${seconds}s`;
   }
 
@@ -324,10 +323,10 @@ export class HealthService {
       const response = await axios.get(`${this.mainServerUrl}/health`, {
         timeout: 5000 // 5 second timeout
       });
-      
+
       // Store the main server info for display
       this.mainServerInfo = response.data;
-      
+
       return response.status === 200;
     } catch (error) {
       console.error(`Main server health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -345,13 +344,13 @@ export class HealthService {
       console.error('Database health check failed:', error);
       this.checks.database = false;
     }
-    
+
     // Check main server
     this.checks.mainServer = await this.checkMainServer();
-    
+
     // Determine overall status
     const offlineCount = Object.values(this.checks).filter(check => !check).length;
-    
+
     if (offlineCount === 0) {
       this.status = 'online';
     } else if (offlineCount === 1) {
@@ -366,11 +365,11 @@ export class HealthService {
       console.warn('Health service is already running');
       return;
     }
-    
+
     try {
       // Create server with both IPv4 and IPv6 support
       this.server = http.createServer(this.app);
-      
+
       // Listen on both IPv4 and IPv6
       this.server.listen(this.port, '::', () => {
         this.isRunning = true;
@@ -378,10 +377,10 @@ export class HealthService {
         console.log(`Health service listening on port ${this.port} (IPv4 and IPv6)`);
         console.log(`Monitoring main server at ${this.mainServerUrl}`);
       });
-      
+
       // Run initial health check
       await this.runHealthChecks();
-      
+
       // Set up periodic health checks (every 5 seconds)
       this.checkInterval = setInterval(async () => {
         await this.runHealthChecks();
@@ -396,14 +395,14 @@ export class HealthService {
       console.warn('Health service is not running');
       return;
     }
-    
+
     try {
       // Clear the check interval
       if (this.checkInterval) {
         clearInterval(this.checkInterval);
         this.checkInterval = null;
       }
-      
+
       await new Promise<void>((resolve) => {
         this.server?.close(() => {
           this.isRunning = false;
@@ -424,4 +423,4 @@ export class HealthService {
   public isServiceRunning(): boolean {
     return this.isRunning;
   }
-} 
+}

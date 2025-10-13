@@ -9,7 +9,7 @@ import {
   import sequelize from '../../config/db.js';
   import Level from './Level.js';
 import User from '../auth/User.js';
-  
+
   class LevelLikes extends Model<
     InferAttributes<LevelLikes>,
     InferCreationAttributes<LevelLikes>
@@ -20,7 +20,7 @@ import User from '../auth/User.js';
     declare createdAt: CreationOptional<Date>;
     declare updatedAt: CreationOptional<Date>;
   }
-  
+
   LevelLikes.init(
     {
       id: {
@@ -66,5 +66,5 @@ import User from '../auth/User.js';
       ],
     },
   );
-  
+
   export default LevelLikes;

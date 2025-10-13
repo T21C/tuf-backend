@@ -6,7 +6,7 @@ import {
   HasOneGetAssociationMixin,
 } from 'sequelize';
 import sequelize from '../../config/db.js';
-import {IDifficulty, IPass, IPlayer} from '../../interfaces/models/index.js';
+import {IPass, IPlayer} from '../../interfaces/models/index.js';
 import Pass from '../passes/Pass.js';
 import User from '../auth/User.js';
 import PlayerStats from '../players/PlayerStats.js';

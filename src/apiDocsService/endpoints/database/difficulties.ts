@@ -318,4 +318,4 @@ const difficultiesEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default difficultiesEndpoints; 
+export default difficultiesEndpoints;

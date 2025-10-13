@@ -1,15 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '../../../middleware/auth.js';
-import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes, LevelPackCSSFlags } from '../../../models/packs/index.js';
+import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes } from '../../../models/packs/index.js';
 import Level from '../../../models/levels/Level.js';
 import { User } from '../../../models/index.js';
-import { Op, Transaction } from 'sequelize';
+import { Op } from 'sequelize';
 import sequelize from '../../../config/db.js';
 import { logger } from '../../../services/LoggerService.js';
 import { hasFlag } from '../../../utils/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import { safeTransactionRollback } from '../../../utils/Utility.js';
-import { parseSearchQuery, extractFieldValues, extractGeneralSearchTerms, queryParserConfigs, type FieldSearch, type SearchGroup } from '../../../utils/queryParser.js';
+import { parseSearchQuery,  queryParserConfigs, type SearchGroup } from '../../../utils/queryParser.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '../../../utils/Utility.js';
 import multer from 'multer';
 import cdnService from '../../../services/CdnService.js';
@@ -45,13 +45,13 @@ const MAX_LIMIT = 100;
 // Helper function to check if user can view pack
 const canViewPack = (pack: LevelPack, user: any): boolean => {
   if (!pack) return false;
-  
+
   // Owner can always view their own packs
   if (user && pack.ownerId === user.id) return true;
-  
+
   // Admin can view all packs
   if (user && hasFlag(user, permissionFlags.SUPER_ADMIN)) return true;
-  
+
   // Check view mode
   switch (pack.viewMode) {
     case LevelPackViewModes.PUBLIC:
@@ -70,12 +70,12 @@ const canViewPack = (pack: LevelPack, user: any): boolean => {
 // Helper function to check if user can edit pack
 const canEditPack = (pack: LevelPack, user: any): boolean => {
   if (!user || !pack) return false;
-  
+
   // Owner can edit their own packs (unless forced private)
   if (pack.ownerId === user.id && pack.viewMode !== LevelPackViewModes.FORCED_PRIVATE) {
     return true;
   }
-  
+
   // Admin can edit all packs
   return hasFlag(user, permissionFlags.SUPER_ADMIN);
 };
@@ -87,12 +87,12 @@ const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
     const itemParentId = item.parentId;
     return itemParentId === parentId;
   });
-  
+
   return children.map(item => {
     // Handle both Sequelize model instances and plain objects
     const itemId = item.id;
     const subChildren = buildItemTree(items, itemId);
-    
+
     return {
       ...item,
       children: subChildren.length > 0 ? subChildren : undefined
@@ -136,10 +136,10 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
 
       if (field === 'any' || field === 'name') {
         // Pack name search
-        const whereCondition = exact 
+        const whereCondition = exact
           ? { name: isNot ? { [Op.ne]: value } : value }
           : { name: isNot ? { [Op.notLike]: `%${value}%` } : { [Op.like]: `%${value}%` } };
-        
+
         const packs = await LevelPack.findAll({
           where: whereCondition,
           attributes: ['id']
@@ -147,15 +147,15 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
         packIds = packs.map(pack => pack.id);
       } else if (field === 'owner') {
         // Owner username search
-        const whereCondition = exact 
+        const whereCondition = exact
           ? { username: isNot ? { [Op.ne]: value } : value }
           : { username: isNot ? { [Op.notLike]: `%${value}%` } : { [Op.like]: `%${value}%` } };
-        
+
         const owners = await User.findAll({
           where: whereCondition,
           attributes: ['id']
         });
-        
+
         if (owners.length > 0) {
           const ownerIds = owners.map(owner => owner.id);
           const packs = await LevelPack.findAll({
@@ -172,13 +172,13 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
             type: 'level',
             levelId: isNot ? { [Op.ne]: levelId } : levelId
           };
-          
+
           const packItems = await LevelPackItem.findAll({
             where: whereCondition,
             attributes: ['packId']
           });
           packIds = packItems.map(item => item.packId);
-          
+
           // If NOT search, we need to find packs that don't contain this level
           if (isNot) {
             const allPacks = await LevelPack.findAll({
@@ -242,10 +242,10 @@ const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set
 // ==================== PACK OPERATIONS ====================
 
 const sortableFields = {
-  "RECENT": 'createdAt',
-  "NAME": 'name',
-  "FAVORITES": 'favoritesCount',
-  "LEVELS": 'levelCount'
+  'RECENT': 'createdAt',
+  'NAME': 'name',
+  'FAVORITES': 'favoritesCount',
+  'LEVELS': 'levelCount'
 };
 // GET /packs - List all packs
 router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
@@ -276,7 +276,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         whereConditions.viewMode = viewModeValue;
       }
     }
-    
+
     const ownPacks = req.user ? await LevelPack.findAll({
       where: { ownerId: req.user.id }
     }) : [];
@@ -331,7 +331,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       // Only favorites filter
       searchPackIds = favoritedPackIds;
     }
-    
+
     if (searchPackIds && searchPackIds.size > 0) {
       whereConditions.id = { [Op.in]: Array.from(searchPackIds) };
     }
@@ -475,13 +475,13 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
 
     // Fetch all items in the pack
 
-    let folders = await LevelPackItem.findAll({
+    const folders = await LevelPackItem.findAll({
       where: { packId: pack!.id,
         type: 'folder'
        },
     });
 
-    let levels = await LevelPackItem.findAll({
+    const levels = await LevelPackItem.findAll({
       where: { packId: pack!.id,
         type: 'level'
        },
@@ -524,7 +524,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       isCleared: clearedLevelIds.includes(item.levelId || 0)
     }));
 
-    
+
 
     if (tree === 'true') {
       // Build tree structure
@@ -548,7 +548,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
 // POST /packs - Create new pack
 router.post('/', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE) {
@@ -710,21 +710,21 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
 
     // Only restrict viewMode changes when involving public visibility
     if (viewMode !== undefined) {
-      const isChangingToOrFromPublic = 
-        viewMode === LevelPackViewModes.PUBLIC || 
+      const isChangingToOrFromPublic =
+        viewMode === LevelPackViewModes.PUBLIC ||
         pack.viewMode === LevelPackViewModes.PUBLIC;
-      
+
       if (isChangingToOrFromPublic && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
         await safeTransactionRollback(transaction);
         return res.status(403).json({ error: 'Only administrators can modify pack visibility to/from public' });
       }
-      
+
       // Additional check for forced private packs
       if (pack.viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
         await safeTransactionRollback(transaction);
         return res.status(403).json({ error: 'Cannot modify view mode of admin-locked pack' });
       }
-      
+
       updateData.viewMode = viewMode;
     }
 
@@ -831,7 +831,7 @@ router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request
         });
     } catch (error) {
         logger.error('Error uploading pack icon:', error);
-        
+
         if (error instanceof CdnError) {
             return res.status(400).json({
                 error: error.message,
@@ -839,7 +839,7 @@ router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request
                 details: error.details
             });
         }
-        
+
         return res.status(500).json({
             error: 'Failed to upload pack icon',
             code: 'SERVER_ERROR',
@@ -993,10 +993,10 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 
       // Check which levels are already in pack
       const existingItems = await LevelPackItem.findAll({
-        where: { 
-          packId: resolvedPackId, 
-          type: 'level', 
-          levelId: { [Op.in]: levelIdsToAdd } 
+        where: {
+          packId: resolvedPackId,
+          type: 'level',
+          levelId: { [Op.in]: levelIdsToAdd }
         },
         transaction
       });
@@ -1017,10 +1017,10 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 
       if (currentItemCount + newLevelIds.length > MAX_ITEMS_PER_PACK) {
         await safeTransactionRollback(transaction);
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: `Adding ${newLevelIds.length} items would exceed the maximum ${MAX_ITEMS_PER_PACK} items per pack`,
-          details: { 
-            currentCount: currentItemCount, 
+          details: {
+            currentCount: currentItemCount,
             tryingToAdd: newLevelIds.length,
             maxAllowed: MAX_ITEMS_PER_PACK
           }
@@ -1031,7 +1031,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       const createdItems = [];
       for (let i = 0; i < newLevelIds.length; i++) {
         const levelIdToAdd = newLevelIds[i];
-        
+
         // Determine sort order for this item
         let finalSortOrder = sortOrder;
         if (finalSortOrder === undefined || finalSortOrder === null) {
@@ -1060,7 +1060,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 
       // Return all created items with level data
       const result = await LevelPackItem.findAll({
-        where: { 
+        where: {
           id: { [Op.in]: createdItems.map(item => item.id) }
         },
         include: [{
@@ -1170,7 +1170,7 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
     }
 
     const { name } = req.body;
-    
+
     if (item.type === 'folder' && name !== undefined) {
       if (typeof name !== 'string' || name.trim().length === 0) {
         await safeTransactionRollback(transaction);
@@ -1245,7 +1245,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
           parentId: parentId,
           sortOrder: index
         });
-        
+
         if (item.children && Array.isArray(item.children)) {
           flattenTreeUpdates(item.children, item.id, updates);
         }
@@ -1280,7 +1280,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
       if (item.type === 'folder') {
         let currentParentId = folderMap.get(item.id);
         const visited = new Set<number>([item.id]);
-        
+
         while (currentParentId) {
           if (visited.has(currentParentId)) {
             await safeTransactionRollback(transaction);
@@ -1331,7 +1331,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
     // Convert Sequelize models to plain objects to avoid circular references
     const plainItems = updatedItems.map(item => item.toJSON());
-    
+
     const updatedTree = buildItemTree(plainItems);
 
     return res.json({ items: updatedTree });
@@ -1421,9 +1421,9 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     } else {
       // Remove favorite if it exists
       await PackFavorite.destroy({
-        where: { 
-          packId: resolvedPackId, 
-          userId: req.user?.id 
+        where: {
+          packId: resolvedPackId,
+          userId: req.user?.id
         },
         transaction,
       });

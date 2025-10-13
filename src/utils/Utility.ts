@@ -1,4 +1,4 @@
-import { CDN_CONFIG } from "../cdnService/config.js";
+import { CDN_CONFIG } from '../cdnService/config.js';
 
 export function validateFeelingRating(value: string) {
   const exprPattern1 = '[PGUpgu][1-9]'; // Handles single letters followed by 1-9
@@ -81,13 +81,13 @@ export const withTransactionCheck = async <T>(
   if (!isTransactionUsable(transaction)) {
     throw new Error(`Transaction is no longer usable before ${operationName}`);
   }
-  
+
   const result = await operation();
-  
+
   if (!isTransactionUsable(transaction)) {
     throw new Error(`Transaction is no longer usable after ${operationName} - likely rolled back due to a database error`);
   }
-  
+
   return result;
 };
 
@@ -98,13 +98,13 @@ export const withTransactionCheck = async <T>(
  */
 export const isTransactionUsable = (transaction: any): boolean => {
   if (!transaction) return false;
-  
+
   // Check if transaction is finished (committed or rolled back)
   if (transaction.finished) return false;
-  
+
   // Check if transaction has been rolled back
   if (transaction.rolledBack) return false;
-  
+
   // Additional check for transaction state
   try {
     // Try to access transaction properties to see if it's still valid
@@ -123,7 +123,7 @@ export const isTransactionUsable = (transaction: any): boolean => {
  */
 export const safeTransactionRollback = async (transaction: any, logger?: any): Promise<boolean> => {
   if (!transaction) return false;
-  
+
   // Check if transaction is already finished
   if (transaction.finished) {
     if (logger) {
@@ -131,7 +131,7 @@ export const safeTransactionRollback = async (transaction: any, logger?: any): P
     }
     return false;
   }
-  
+
   try {
     await transaction.rollback();
     return true;

@@ -26,7 +26,7 @@ class PassSubmission extends BaseModel {
   declare submitterDiscordUsername: string | null;
   declare submitterDiscordId: string | null;
   declare submitterDiscordPfp: string | null;
-  declare userId: string | null; 
+  declare userId: string | null;
   // Virtual fields from associations
   declare assignedPlayer?: Player;
   declare passerPlayer?: Player;

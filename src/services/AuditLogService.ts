@@ -1,6 +1,5 @@
 import { Op } from 'sequelize';
 import AuditLog from '../models/admin/AuditLog.js';
-import { logger } from './LoggerService.js';
 
 const RETENTION_PERIOD = 1000 * 60 * 60 * 24 * 30; // one month retention
 
@@ -44,4 +43,4 @@ export class AuditLogService {
       console.error('Failed to write audit log:', err);
     }
   }
-} 
+}

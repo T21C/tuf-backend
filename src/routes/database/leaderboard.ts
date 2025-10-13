@@ -36,7 +36,7 @@ router.get('/', async (req: Request, res: Response) => {
         return res.json({ count: 0, results: [] });
       }
       // Find the user with this Discord OAuth provider
-      let userWithDiscord = await User.findOne({
+      const userWithDiscord = await User.findOne({
         include: [
           {
             model: OAuthProvider,
@@ -48,7 +48,7 @@ router.get('/', async (req: Request, res: Response) => {
           },
         ],
       });
-      let lookupId = userWithDiscord?.playerId || idQuery;
+      const lookupId = userWithDiscord?.playerId || idQuery;
       const { total, players } = await playerStatsService.getLeaderboard(
         sortBy as string,
         order as 'asc' | 'desc',
@@ -65,7 +65,7 @@ router.get('/', async (req: Request, res: Response) => {
       const idQuery = query.slice(1); // Remove the @ prefix
 
       // Find the user with this Discord OAuth provider
-      let userWithDiscord = await User.findOne({
+      const userWithDiscord = await User.findOne({
         include: [
           {
             model: OAuthProvider,

@@ -93,7 +93,7 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
       // Schedule stats update for affected players
       const affectedPlayerIds = new Set(passes.map(pass => pass.playerId));
 
-      playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+      await playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
 
 
       await recalcTransaction.commit();
@@ -119,27 +119,28 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
 const checkUserTimeout = (userId: string): number | null => {
     const timeout = userTimeouts.get(userId);
     if (!timeout) return null;
-    
+
     const now = Date.now();
     if (now >= timeout) {
       userTimeouts.delete(userId);
       return null;
     }
-    
+
     return Math.ceil((timeout - now) / 1000);
   };
 
 // Add check level timeout function
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const checkLevelTimeout = (levelId: number): number | null => {
     const timeout = levelTimeouts.get(levelId);
     if (!timeout) return null;
-    
+
     const remainingTime = timeout - Date.now();
     if (remainingTime <= 0) {
       levelTimeouts.delete(levelId);
       return null;
     }
-    
+
     return Math.ceil(remainingTime / 1000);
   };
 const router = Router();
@@ -149,59 +150,59 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
       return res.status(727).json({ error: 'April fools over, roulette is disabled' });
     }
     const transaction = await sequelize.transaction();
-  
+
     try {
       const levelId = parseInt(req.params.id);
       let { diffId, baseScore, publicComments } = req.body;
-      
+
       // Sanitize text inputs
       publicComments = sanitizeTextInput(publicComments);
-      
+
       if (!req.user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-  
+
       // if (req.user?.player?.isBanned) {
       //   return res.status(403).json({ error: 'Your account is banned' });
       // }
-  
+
       const timeoutDuration = bigWheelTimeout;
       const timeout = Date.now() + timeoutDuration;
       userTimeouts.set(req.user.id, timeout);
-  
+
       if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
         return res.status(400).json({ error: 'Invalid level ID' });
       }
-  
+
       if (!diffId || !Number.isInteger(diffId) || diffId <= 0) {
         return res.status(400).json({ error: 'Invalid difficulty ID' });
       }
-  
+
       if (!baseScore || !Number.isInteger(baseScore) || baseScore <= 0) {
         baseScore = null;
       }
-  
+
       const difficulty = await Difficulty.findByPk(diffId, { transaction });
       if (!difficulty) {
         await transaction.rollback();
         return res.status(404).json({ error: 'Difficulty not found' });
       }
-  
+
       const level = await Level.findByPk(levelId, { transaction });
       if (!level) {
         await transaction.rollback();
         return res.status(404).json({ error: 'Level not found' });
       }
-  
+
       await level.update({
         diffId: diffId,
         baseScore: baseScore,
         previousDiffId: level.diffId,
         publicComments: publicComments
       }, { transaction });
-  
+
       await transaction.commit();
-  
+
       // Send immediate response
       const response = {
         message: 'Level difficulty updated successfully',
@@ -215,10 +216,11 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
         timeout: timeoutDuration / 1000
       };
       res.json(response);
-  
+
       // Handle pass updates asynchronously
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       handlePassUpdates(levelId, diffId, baseScore);
-  
+
       return;
     } catch (error) {
       await transaction.rollback();
@@ -226,33 +228,33 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
       return res.status(500).json({ error: 'Failed to update level difficulty' });
     }
   });
-  
+
   // Add new endpoint for level timeouts
   router.put('/:id([0-9]+)/timeout', Auth.verified(), async (req: Request, res: Response) => {
     if (!ENABLE_ROULETTE) {
       return res.status(727).json({ error: 'April fools over, roulette is disabled' });
     }
     const transaction = await sequelize.transaction();
-    
+
     try {
       const levelId = parseInt(req.params.id);
       let { diffId, baseScore, publicComments } = req.body;
-      
+
       // Sanitize text inputs
       publicComments = sanitizeTextInput(publicComments);
-      
+
       if (!req.user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-  
+
       // if (req.user?.player?.isBanned) {
       //   return res.status(403).json({ error: 'Your account is banned' });
       // }
-  
+
       const timeoutDuration = individualLevelTimeout;
       const timeout = Date.now() + timeoutDuration;
       levelTimeouts.set(levelId, timeout);
-  
+
       // Update level difficulty and base score
       await Level.update(
         {
@@ -265,9 +267,9 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
           transaction
         }
       );
-  
+
       await transaction.commit();
-  
+
       // Get updated level data
       const level = await Level.findByPk(levelId, {
         include: [
@@ -277,7 +279,7 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
           },
         ]
       });
-  
+
       // Send immediate response
       const response = {
         success: true,
@@ -291,10 +293,11 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
         }
       };
       res.json(response);
-  
+
       // Handle pass updates asynchronously
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       handlePassUpdates(levelId, diffId, baseScore);
-  
+
       return;
     } catch (error) {
       await transaction.rollback();
@@ -318,10 +321,10 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
           });
         }
       }
-  
+
       // Generate a daily seed
       const seed = getRandomSeed();
-      
+
       // Get all levels
       const levels = await Level.findAll({
         where: {
@@ -341,11 +344,11 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
         ],
         attributes: ['id', 'song']
       });
-  
+
       const modLevels = levels.filter(level => level.id % 4 === 0);
       // Shuffle array using seeded random
       const shuffledLevels = seededShuffle(modLevels, seed);
-  
+
       // Transform the data to match slot machine format
       const slotItems = shuffledLevels.map(level => ({
         id: level.id,
@@ -353,7 +356,7 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
         color: level.difficulty?.color || '#666666',
         diffId: level.difficulty?.id
       }));
-  
+
       return res.json({
         items: slotItems,
         seed: seed

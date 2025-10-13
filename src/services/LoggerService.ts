@@ -27,7 +27,7 @@ const reset = '\x1b[0m';
  */
 const safeStringify = (obj: any): string => {
   if (!obj || Object.keys(obj).length === 0) return '';
-  
+
   try {
     // Handle circular references by using a cache
     const cache: any[] = [];
@@ -159,7 +159,7 @@ class LoggerService {
 const logger = LoggerService.getInstance();
 
 // Log current mode
-logger.info("current mode", process.env.MODE);
+logger.info('current mode', process.env.MODE);
 
 // Export the logger singleton
-export { logger }; 
+export { logger };

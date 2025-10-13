@@ -62,4 +62,4 @@ const aprilFoolsEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default aprilFoolsEndpoints; 
+export default aprilFoolsEndpoints;

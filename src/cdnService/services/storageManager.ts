@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import diskInfo from 'node-disk-info';
@@ -9,9 +8,6 @@ import { logger } from '../../services/LoggerService.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import dotenv from 'dotenv';
 dotenv.config();
-
-const statAsync = promisify(fs.stat);
-const readdirAsync = promisify(fs.readdir);
 
 interface StorageDrive {
     drivePath: string;      // The actual drive path (e.g., "D:" or "/mnt/data")
@@ -32,6 +28,7 @@ export class StorageManager {
     private readonly isWindows = process.platform === 'win32';
 
     constructor() {
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         this.initializeDrives();
     }
 
@@ -44,8 +41,8 @@ export class StorageManager {
 
     private normalizeDrivePath(drivePath: string): string {
         // Remove trailing slashes and normalize
-        const normalized = drivePath.replace(/[\/\\]$/, '');
-        
+        const normalized = drivePath.replace(/[/\\]$/, '');
+
         if (this.isWindows) {
             // For Windows, convert to uppercase and ensure drive letter format
             return normalized.toUpperCase();
@@ -58,7 +55,7 @@ export class StorageManager {
     private getDrivePathFromStoragePath(storagePath: string): string {
         if (this.isWindows) {
             // For Windows, get the drive letter
-            return path.parse(storagePath).root.replace(/[\/\\]$/, '');
+            return path.parse(storagePath).root.replace(/[/\\]$/, '');
         } else {
             // For Linux, get the mount point
             // If path is /mnt/data/storage, we want /mnt/data
@@ -74,9 +71,9 @@ export class StorageManager {
         try {
             const diskInfoList = diskInfo.getDiskInfoSync();
             logger.info('Disk info:', diskInfoList);
-            
+
             const storagePaths = process.env.STORAGE_DRIVES?.split(',') || [process.env.USER_CDN_ROOT];
-            
+
             if (!storagePaths) {
                 throw new Error('STORAGE_DRIVES is not set');
             }
@@ -91,9 +88,9 @@ export class StorageManager {
                     // Get the drive/mount path from the storage path
                     const drivePath = this.getDrivePathFromStoragePath(storagePath);
                     const normalizedDrivePath = this.normalizeDrivePath(drivePath);
-                    
+
                     // Find matching disk info for the drive
-                    const disk = diskInfoList.find(d => 
+                    const disk = diskInfoList.find(d =>
                         this.normalizeDrivePath(d.mounted) === normalizedDrivePath
                     );
 
@@ -126,7 +123,7 @@ export class StorageManager {
                         mounted: disk.mounted
                     });
 
-                    logger.debug(`Initialized storage path ${storagePath}`, { 
+                    logger.debug(`Initialized storage path ${storagePath}`, {
                         drive: drivePath,
                         filesystem: disk.filesystem,
                         mounted: disk.mounted,
@@ -183,9 +180,9 @@ export class StorageManager {
 
         // Get the drive with most available space
         const selectedDrive = availableDrives[0];
-        
 
-        logger.debug(`Selected least occupied drive for storage:`, {
+
+        logger.debug('Selected least occupied drive for storage:', {
             drive: selectedDrive.storagePath,
             availableSpace: this.formatBytes(selectedDrive.availableSpace),
             usagePercentage: selectedDrive.usagePercentage,
@@ -205,9 +202,9 @@ export class StorageManager {
     private async updateDriveUsage() {
         try {
             const diskInfoList = diskInfo.getDiskInfoSync();
-            
+
             for (const drive of this.drives) {
-                const disk = diskInfoList.find(d => 
+                const disk = diskInfoList.find(d =>
                     this.normalizeDrivePath(d.mounted) === this.normalizeDrivePath(drive.drivePath)
                 );
 
@@ -216,16 +213,16 @@ export class StorageManager {
                     const multiplier = this.isWindows ? 1 : 1024;
                     const oldUsage = drive.usagePercentage;
                     const oldAvailable = drive.availableSpace;
-                    
+
                     drive.usedSpace = disk.used * multiplier;
                     drive.availableSpace = disk.available * multiplier;
                     drive.usagePercentage = parseFloat(disk.capacity);
                     drive.isActive = drive.usagePercentage < this.STORAGE_THRESHOLD;
 
                     // Log significant changes in drive usage
-                    if (Math.abs(oldUsage - drive.usagePercentage) > 1 || 
+                    if (Math.abs(oldUsage - drive.usagePercentage) > 1 ||
                         Math.abs(oldAvailable - drive.availableSpace) > 1024 * 1024 * 100) { // 100MB change
-                        logger.debug(`Drive usage updated:`, {
+                        logger.debug('Drive usage updated:', {
                             drive: drive.storagePath,
                             oldUsage: `${oldUsage}%`,
                             newUsage: `${drive.usagePercentage}%`,
@@ -279,9 +276,9 @@ export class StorageManager {
      * @param mode 'least_occupied' | 'most_occupied' - Strategy for drive selection
      * @returns The selected drive or null if no suitable drive found
      */
-    public getBestDriveForRedistribution(mode: 'least_occupied' | 'most_occupied' = 'least_occupied'): StorageDrive | null {
+    public async getBestDriveForRedistribution(mode: 'least_occupied' | 'most_occupied' = 'least_occupied'): Promise<StorageDrive | null> {
         // Update drive usage information
-        this.updateDriveUsage();
+        await this.updateDriveUsage();
 
         // Filter drives that are below the storage threshold
         const availableDrives = this.drives.filter(drive => drive.usagePercentage < this.STORAGE_THRESHOLD);
@@ -335,7 +332,7 @@ export class StorageManager {
     private ensureRedistributionDirectories(drive: StorageDrive): void {
         try {
             const levelsDir = path.join(drive.storagePath, 'levels');
-            
+
             // Create levels directory if it doesn't exist
             if (!fs.existsSync(levelsDir)) {
                 fs.mkdirSync(levelsDir, { recursive: true });
@@ -344,13 +341,13 @@ export class StorageManager {
                     directory: levelsDir
                 });
             }
-            
+
             logger.debug('Verified redistribution directory exists:', {
                 drive: drive.storagePath,
                 levelsDir: levelsDir,
                 levelsExists: fs.existsSync(levelsDir)
             });
-            
+
         } catch (error) {
             logger.error('Failed to ensure redistribution directories:', {
                 drive: drive.storagePath,
@@ -377,7 +374,7 @@ export class StorageManager {
             const isWithinStorage = this.drives.some(drive => {
                 const normalizedStoragePath = path.resolve(drive.storagePath).replace(/\\/g, '/');
                 return normalizedAbsolutePath.startsWith(normalizedStoragePath);
-            }) || normalizedAbsolutePath.startsWith("/mnt/misc_volume_01");
+            }) || normalizedAbsolutePath.startsWith('/mnt/misc_volume_01');
 
             if (!isWithinStorage) {
                 logger.error('Image directory is outside of storage paths:', {
@@ -426,7 +423,7 @@ export class StorageManager {
 
                 // Delete the directory and all its contents
                 fs.rmSync(normalizedAbsolutePath, { recursive: true, force: true });
-                
+
                 // Verify deletion was successful
                 if (!fs.existsSync(normalizedAbsolutePath)) {
                     logger.debug('Successfully deleted image directory:', {
@@ -482,7 +479,7 @@ export class StorageManager {
                 const isWithinStorage = this.drives.some(drive => {
                     const normalizedStoragePath = path.resolve(drive.storagePath).replace(/\\/g, '/');
                     return normalizedAbsolutePath.startsWith(normalizedStoragePath);
-                }) || normalizedAbsolutePath.startsWith("/mnt/misc_volume_01");
+                }) || normalizedAbsolutePath.startsWith('/mnt/misc_volume_01');
 
                 if (!isWithinStorage) {
                     logger.error('Attempted to delete file outside of storage directories:', {
@@ -587,12 +584,12 @@ export class StorageManager {
             if (!IMAGE_TYPES[imageType]) {
                 return cb(new Error('Invalid image type'));
             }
-            
+
             const ext = path.extname(file.originalname).toLowerCase().slice(1) as typeof IMAGE_TYPES[ImageType]['formats'][number];
             if (!IMAGE_TYPES[imageType].formats.includes(ext)) {
                 return cb(new Error(`Invalid file type. Allowed types: ${IMAGE_TYPES[imageType].formats.join(', ')}`));
             }
-            
+
             cb(null, true);
         }
     }).single('image');

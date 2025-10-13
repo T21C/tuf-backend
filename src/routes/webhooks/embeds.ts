@@ -135,7 +135,7 @@ export async function createRerateEmbed(
   const currentBaseScore = level.baseScore || level.difficulty?.baseScore || 0;
   const previousBaseScore = level.previousBaseScore || level.previousDifficulty?.baseScore || 0;
   // Check if this is a baseScore change without difficulty change
-  const isBaseScoreChange = previousBaseScore !== currentBaseScore 
+  const isBaseScoreChange = previousBaseScore !== currentBaseScore
                           && level.previousDiffId === level.diffId;
 
   if (isBaseScoreChange) {

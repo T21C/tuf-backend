@@ -48,11 +48,11 @@ const getXaccMtp = (inp: IJudgements, baseScore: number) => {
   if (xacc_percentage < 100) {
     return -0.027 / (xacc - 1.0054) + 0.513;
   }
-  if (xacc_percentage === 100) { 
+  if (xacc_percentage === 100) {
     const a = 2100;
     const k = 14;
     const h = -a / (k - 6);
-  
+
     return (-a) / (baseScore - h) + k;
   }
   return 1;
@@ -94,7 +94,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
 
   let speedMtp = 0;
   let score = 0;
-  if (levelData.difficulty?.name === "Marathon") {
+  if (levelData.difficulty?.name === 'Marathon') {
     speedMtp = getSpeedMtp(speed, true);
     score = Math.max(base * xaccMtp * speedMtp, 1);
   } else {

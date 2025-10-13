@@ -70,4 +70,4 @@ export const utilsEndpoints: EndpointDefinition[] = [
     },
     requiresAuth: false
   }
-]; 
+];

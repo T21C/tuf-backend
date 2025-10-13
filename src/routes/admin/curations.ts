@@ -1,7 +1,6 @@
 import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '../../middleware/auth.js';
-import {db} from '../../models/index.js';
-import {Op, Transaction} from 'sequelize';
+import {Op} from 'sequelize';
 import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '../../utils/Utility.js';
 import multer from 'multer';
 import CdnService from '../../services/CdnService.js';
@@ -14,9 +13,9 @@ import Creator from '../../models/credits/Creator.js';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import sequelize from '../../config/db.js';
-import { hasAnyFlag, hasFlag } from '../../utils/permissionUtils.js';
-import { permissionFlags, curationTypeAbilities } from '../../config/constants.js';
-import { canAssignCurationType, hasAbility } from '../../utils/curationTypeUtils.js';
+import { hasAnyFlag } from '../../utils/permissionUtils.js';
+import { permissionFlags } from '../../config/constants.js';
+import { canAssignCurationType } from '../../utils/curationTypeUtils.js';
 
 const router: Router = Router();
 
@@ -30,7 +29,7 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
   if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
     return next();
   }
-  
+
   // Regular curators and raters need to check if they can assign the curation type
   if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
     return Curation.findByPk(id, {
@@ -39,19 +38,19 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
       if (!curation) {
         return res.status(404).json({error: 'Curation not found'});
       }
-      
+
       // Check if user can assign this curation type based on abilities
       if (curation.type && canAssignCurationType(BigInt(req.user?.permissionFlags || 0), BigInt(curation.type.abilities))) {
         return next();
       }
-      
+
       return res.status(403).json({error: 'You do not have permission to manage this curation'});
     }).catch((error) => {
       logger.error('Error checking curation permission:', error);
       return res.status(500).json({error: 'Internal server error'});
     });
   }
-  
+
   return res.status(403).json({error: 'You do not have permission to manage curations'});
 };
 
@@ -68,12 +67,12 @@ const requireCurationCreationPermission = (req: Request, res: Response, next: Ne
   if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
     return next();
   }
-  
+
   // Regular curators and raters can create curations
   if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
     return next();
   }
-  
+
   return res.status(403).json({error: 'You do not have permission to create curations'});
 };
 
@@ -82,7 +81,7 @@ const requireCuratorOrRater = (req: Request, res: Response, next: NextFunction) 
   // First run base authentication
   return Auth.user()(req, res, (err) => {
     if (err) return next(err);
-    
+
     // Then check permissions
     return requireCurationCreationPermission(req, res, next);
   });
@@ -161,13 +160,13 @@ router.get('/types', async (req, res) => {
     const types = await CurationType.findAll({
       order: [['sortOrder', 'ASC'], ['name', 'ASC']],
     });
-    
+
     // Convert BigInt abilities to string for JSON serialization
     const serializedTypes = types.map(type => ({
       ...type.toJSON(),
       abilities: type.abilities.toString()
     }));
-    
+
     return res.json(serializedTypes);
   } catch (error) {
     logger.error('Error fetching curation types:', error);
@@ -179,7 +178,7 @@ router.get('/types', async (req, res) => {
 router.post('/types', Auth.superAdminPassword(), async (req, res) => {
   try {
     const {name, icon, color, abilities} = req.body;
-    
+
     if (!name) {
       return res.status(400).json({error: 'Name is required'});
     }
@@ -187,8 +186,8 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
     // Check for duplicate name (case-insensitive)
     const existingType = await CurationType.findOne({
       where: sequelize.where(
-        sequelize.fn('LOWER', sequelize.col('name')), 
-        '=', 
+        sequelize.fn('LOWER', sequelize.col('name')),
+        '=',
         name.trim().toLowerCase()
       )
     });
@@ -237,8 +236,8 @@ router.put('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => 
         where: {
           [Op.and]: [
             sequelize.where(
-              sequelize.fn('LOWER', sequelize.col('name')), 
-              '=', 
+              sequelize.fn('LOWER', sequelize.col('name')),
+              '=',
               name.trim().toLowerCase()
             ),
             {
@@ -280,7 +279,7 @@ router.put('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => 
 // Delete curation type
 router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {id} = req.params;
 
@@ -310,10 +309,10 @@ router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
     await type.destroy({ transaction });
 
     await transaction.commit();
-    
+
     // Reindex affected levels after successful deletion
     await elasticsearchService.reindexLevels(affectedLevelIds);
-    
+
     logger.info(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
     return res.status(204).send();
   } catch (error) {
@@ -327,7 +326,7 @@ router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
 router.post('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), upload.single('icon'), async (req, res) => {
   try {
     const {id} = req.params;
-    
+
     if (!req.file) {
       return res.status(400).json({error: 'No icon file uploaded'});
     }
@@ -360,7 +359,7 @@ router.post('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), upload.single(
 // Delete curation icon
 router.delete('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {id} = req.params;
 
@@ -389,10 +388,10 @@ router.delete('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), async (req, 
 // Update curation type sort orders
 router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { sortOrders } = req.body;
-    
+
     if (!sortOrders || !Array.isArray(sortOrders)) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Sort orders array is required'});
@@ -407,10 +406,10 @@ router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => 
     }
 
     await transaction.commit();
-    
+
     // Reindex curated levels after sort order changes
     await reindexCuratedLevels();
-    
+
     logger.info(`Successfully updated sort orders for ${sortOrders.length} curation types`);
     return res.json({success: true, message: 'Sort orders updated successfully'});
   } catch (error) {
@@ -429,7 +428,7 @@ router.get('/', async (req, res) => {
     const where: any = {};
     if (typeId) where.typeId = typeId;
     if (levelId) where.levelId = levelId;
-    
+
     // Add excludeIds filter if provided
     if (excludeIds) {
       const excludeArray = Array.isArray(excludeIds) ? excludeIds : [excludeIds];
@@ -438,22 +437,22 @@ router.get('/', async (req, res) => {
 
     // Handle search differently to avoid count inconsistencies
     let curations;
-    
+
     if (search) {
       const searchStr = Array.isArray(search) ? String(search[0]) : String(search);
-      
+
       // Check if search starts with # for direct level ID lookup
       if (searchStr && searchStr.startsWith('#') && searchStr.length > 1) {
         const levelId = searchStr.substring(1); // Remove the # and get the level ID
-        
+
         // Validate that the level ID is a number
         if (!/^\d+$/.test(levelId)) {
           return res.status(400).json({error: 'Invalid level ID format after hashtag'});
         }
-        
+
         // Direct lookup by level ID
         where.levelId = parseInt(levelId);
-        
+
         const include = [
           {
             model: CurationType,
@@ -483,7 +482,7 @@ router.get('/', async (req, res) => {
           order: [['createdAt', 'DESC']],
           distinct: true,
         });
-        
+
         logger.info(`Direct level ID lookup for level ${levelId}: found ${curations.count} curations`);
       } else {
         // Regular text search
@@ -494,18 +493,18 @@ router.get('/', async (req, res) => {
             {creator: {[Op.like]: `%${search}%`}},
           ],
         };
-        
+
         // First get the level IDs that match the search
         const matchingLevels = await Level.findAll({
           where: searchWhere,
           attributes: ['id'],
         });
-        
+
         const matchingLevelIds = matchingLevels.map(level => level.id);
-        
+
         // Update the where clause to filter by matching level IDs
         where.levelId = { [Op.in]: matchingLevelIds };
-        
+
         const include = [
           {
             model: CurationType,
@@ -641,7 +640,7 @@ router.get('/', async (req, res) => {
       }
 
       // Find the first assignable curation type for this user
-      assignableType = allCurationTypes.find(type => 
+      assignableType = allCurationTypes.find(type =>
         canAssignCurationType(userFlags, BigInt(type.abilities))
       ) || null;
 
@@ -698,7 +697,7 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
   try {
     const {id} = req.params;
     const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
-    
+
     const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
       return res.status(404).json({error: 'Curation not found'});
@@ -803,7 +802,7 @@ router.get('/:id([0-9]+)', async (req, res) => {
 // Delete curation
 router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {id} = req.params;
 
@@ -815,10 +814,6 @@ router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: R
 
     // Clean up CDN files for this curation
     await cleanupCurationCdnFiles([curation]);
-
-    // Store levelId for reindexing
-    const levelId = curation.levelId;
-
     // Delete the curation (this will cascade delete related schedules)
     await curation.destroy({ transaction });
 
@@ -841,18 +836,18 @@ router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: R
 router.get('/schedules', async (req, res) => {
   try {
     const { weekStart } = req.query;
-    
+
     const where: any = { isActive: true };
-    
+
     // Always use UTC dates for consistency
     let targetWeekStart: Date;
-    
+
     if (weekStart) {
       // If weekStart is provided, use it but ensure it's treated as UTC
       const inputDate = new Date(weekStart as string);
       const dayOfWeek = inputDate.getUTCDay(); // Use UTC day of week
       const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
-      
+
       targetWeekStart = new Date(inputDate);
       targetWeekStart.setUTCDate(inputDate.getUTCDate() - daysToSubtract);
       // Set to start of day in UTC
@@ -862,7 +857,7 @@ router.get('/schedules', async (req, res) => {
       const now = new Date();
       const dayOfWeek = now.getUTCDay(); // Use UTC day of week
       const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
-      
+
       targetWeekStart = new Date(now);
       targetWeekStart.setUTCDate(now.getUTCDate() - daysToSubtract);
       // Set to start of day in UTC
@@ -948,12 +943,12 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
     const inputDate = new Date(weekStart);
     const dayOfWeek = inputDate.getUTCDay(); // Use UTC day of week
     const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Convert to Monday-based week
-    
+
     const weekStartDate = new Date(inputDate);
     weekStartDate.setUTCDate(inputDate.getUTCDate() - daysToSubtract);
     // Set to start of day in UTC
     weekStartDate.setUTCHours(0, 0, 0, 0);
-    
+
     // Check for existing schedule for this curation in the same week and list type
     const existingSchedule = await CurationSchedule.findOne({
       where: {
@@ -1017,7 +1012,7 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
                   model: Creator,
                   as: 'levelCreators',
                 }
-            
+
               ],
             },
           ],
@@ -1088,7 +1083,7 @@ router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
 router.post('/:id([0-9]+)/thumbnail', [requireCurationManagementPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
-    
+
     if (!req.file) {
       return res.status(400).json({error: 'No thumbnail file uploaded'});
     }
@@ -1101,7 +1096,7 @@ router.post('/:id([0-9]+)/thumbnail', [requireCurationManagementPermission, uplo
     // Delete existing thumbnail first if it exists
     if (curation.previewLink && isCdnUrl(curation.previewLink)) {
       const existingFileId = getFileIdFromCdnUrl(curation.previewLink);
-      
+
       if (existingFileId) {
         try {
           logger.info(`Deleting existing thumbnail ${existingFileId} before uploading new one`);
@@ -1139,7 +1134,7 @@ router.post('/:id([0-9]+)/thumbnail', [requireCurationManagementPermission, uplo
 // Delete level thumbnail
 router.delete('/:id([0-9]+)/thumbnail', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const {id} = req.params;
 

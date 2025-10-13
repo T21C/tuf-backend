@@ -83,7 +83,7 @@ export async function calculateRequestedDifficulty(
 ): Promise<number | null> {
   // Prioritize rerateNum over requesterFR
   const input = rerateNum || requesterFR;
-  
+
   if (!input || input.trim() === '') {
     return null;
   }
@@ -107,7 +107,7 @@ export async function calculateRequestedDifficulty(
   }
 
   // Find the difficulty with the lowest sortOrder (minimum difficulty)
-  const minDifficulty = difficulties.reduce((min, current) => 
+  const minDifficulty = difficulties.reduce((min, current) =>
     current.sortOrder < min.sortOrder ? current : min
   );
 
@@ -123,7 +123,7 @@ export async function filterRatingsByUserTopDiff(ratings: any[], user: any): Pro
 
   const {map: difficultyMap, nameMap} = await getDifficulties(null);
   const userTopDiff = difficultyMap.get(user.player.stats.topDiffId.toString());
-  
+
   if (!userTopDiff || userTopDiff.type !== 'PGU') {
     return ratings;
   }
@@ -132,7 +132,7 @@ export async function filterRatingsByUserTopDiff(ratings: any[], user: any): Pro
   const p16Difficulty = nameMap.get('P16');
   const g20Difficulty = nameMap.get('G20');
   const u1Difficulty = nameMap.get('U1');
-  
+
   if (!p16Difficulty || !g20Difficulty || !u1Difficulty) {
     return ratings;
   }
@@ -151,7 +151,7 @@ export async function filterRatingsByUserTopDiff(ratings: any[], user: any): Pro
     // Check for legacy 1-21.3 system using simple regex patterns
     const legacyConvertedParts = parts.map((part: string) => {
       if (/^1?[0-9](\.[0-9]+)?$/.test(part)) {
-        return `P5`;
+        return 'P5';
       } else if (/^20(\.[0-9]+)?$/.test(part)) {
         return 'G5';
       } else if (/^21(\.[0-9]+)?$/.test(part)) {
@@ -172,7 +172,7 @@ export async function filterRatingsByUserTopDiff(ratings: any[], user: any): Pro
 
       if (difficulties.length > 0) {
         // Find the difficulty with the lowest sortOrder (minimum difficulty)
-        const minDifficulty = difficulties.reduce((min: any, current: any) => 
+        const minDifficulty = difficulties.reduce((min: any, current: any) =>
           current.sortOrder < min.sortOrder ? current : min
         );
         requestedDiffId = minDifficulty.id;
@@ -189,7 +189,7 @@ export async function filterRatingsByUserTopDiff(ratings: any[], user: any): Pro
     if (!requestedDifficulty) {
       return true; // Allow if difficulty not found in map
     }
-    
+
     if (requestedDifficulty.type !== 'PGU') {
       return true; // Allow special difficulties
     }
@@ -210,7 +210,7 @@ export async function filterRatingsByUserTopDiff(ratings: any[], user: any): Pro
       return false; // Block U difficulties for P17-G20 users
     }
   });
-  
+
   logger.debug(`[RatingUtils] Filtered ratings: ${filtered.length}, ${ratings.length}`);
   return filtered;
 }

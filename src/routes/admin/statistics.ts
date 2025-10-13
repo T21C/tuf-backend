@@ -9,9 +9,8 @@ import User from '../../models/auth/User.js';
 import sequelize from '../../config/db.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
-import { filterRatingsByUserTopDiff } from '../../utils/RatingUtils.js';
 import { permissionFlags } from '../../config/constants.js';
-import { hasFlag, wherehasFlag} from '../../utils/permissionUtils.js';
+import { wherehasFlag} from '../../utils/permissionUtils.js';
 
 const router: Router = Router();
 
@@ -21,7 +20,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     if (!user) {
       return res.status(401).json({error: 'User not authenticated'});
     }
-    
+
     // Get unrated ratings count using a proper subquery
     const allRatings = await Rating.findAll({
       where: {
@@ -46,7 +45,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
     });
 
     const unratedRatings = allRatings.filter(
-      (rating: Rating) => 
+      (rating: Rating) =>
         !/^vote/i.test(rating.level?.rerateNum || '')
       &&
         (rating.details?.length || 0) < 4
@@ -66,7 +65,7 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
         }
       ]
     });
-    let filteredUnrated = unratedRatings;
+    const filteredUnrated = unratedRatings;
     // Apply the same filtering logic as the frontend
     /*
     if (!hasFlag(user, permissionFlags.SUPER_ADMIN)) {
@@ -105,8 +104,8 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
 router.get('/ratings-per-user', async (req: Request, res: Response) => {
   try {
     // Get the date parameters from query string
-    let { startDate, endDate, page = '1', limit = '20' } = req.query;
-    
+    const { startDate, endDate, page = '1', limit = '20' } = req.query;
+
     // Parse pagination parameters
     const pageNum = parseInt(page as string) || 1;
     const limitNum = parseInt(limit as string) || 20;
@@ -195,15 +194,15 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
     });
 
     // Calculate overall average ratings per day for the entire timespan
-    const overallAverageRatingsPerDay = daysDiff > 0 
-      ? totalRatingsCount / daysDiff 
+    const overallAverageRatingsPerDay = daysDiff > 0
+      ? totalRatingsCount / daysDiff
       : 0;
 
     // Format active raters
     const formattedActiveRaters = activeRaters.map((result: any) => {
       const ratingCount = parseInt(result.dataValues.ratingCount);
       const averagePerDay = daysDiff > 0 ? ratingCount / daysDiff : 0;
-      
+
       return {
         userId: result.userId,
         username: result.user?.username || 'Unknown',
@@ -226,10 +225,10 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
 
     // Combine both lists: active raters first, then inactive raters
     const allRaters = [...formattedActiveRaters, ...formattedInactiveRaters];
-    
+
     // Calculate total count for pagination
     const totalCount = allRaters.length;
-    
+
     // Apply pagination to the combined list
     const paginatedRaters = allRaters.slice(offset, offset + limitNum);
 

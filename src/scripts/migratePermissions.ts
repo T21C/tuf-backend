@@ -21,7 +21,7 @@ program
   .action(async (options) => {
     try {
       logger.info('Starting permission migration script...');
- 
+
       const migrationService = PermissionMigrationService.getInstance();
       const stats = await migrationService.migrateAllUsers(options.dryRun);
 
@@ -59,13 +59,13 @@ program
   .action(async () => {
     try {
       logger.info('Starting migration verification...');
-      
+
       const migrationService = PermissionMigrationService.getInstance();
       const result = await migrationService.verifyMigration();
 
       console.log('\n=== Verification Results ===');
       console.log(`Valid: ${result.valid ? 'Yes' : 'No'}`);
-      
+
       if (result.issues.length > 0) {
         console.log('\n=== Issues Found ===');
         result.issues.forEach(issue => console.log(`- ${issue}`));
@@ -89,14 +89,14 @@ program
   .action(async (userId, options) => {
     try {
       logger.info(`Starting migration for user ${userId}...`);
-      
+
       const migrationService = PermissionMigrationService.getInstance();
       const result = await migrationService.migrateUser(userId, options.dryRun);
 
       if (result.success) {
         console.log('\n=== User Migration Results ===');
         console.log(`User ID: ${userId}`);
-        console.log(`Success: Yes`);
+        console.log('Success: Yes');
         console.log(`Before: ${JSON.stringify(result.before)}`);
         console.log(`After: ${result.after?.permissionNames.join(', ')} (${result.after?.permissionFlags})`);
       } else {
@@ -121,13 +121,13 @@ program
   .action(async (options) => {
     try {
       logger.info('Starting migration rollback...');
-      
+
       const migrationService = PermissionMigrationService.getInstance();
       const result = await migrationService.rollbackMigration(options.dryRun);
 
       if (result.success) {
         console.log('\n=== Rollback Results ===');
-        console.log(`Success: Yes`);
+        console.log('Success: Yes');
         console.log(`Affected users: ${result.affectedUsers}`);
       } else {
         console.log('\n=== Rollback Failed ===');
@@ -149,20 +149,17 @@ program
   .action(async () => {
     try {
       logger.info('Gathering permission statistics...');
-      
+
              const users = await User.findAll();
-       
+
              // Get all players for the users
       const playerIds = users.map(user => user.playerId).filter((id): id is number => id !== undefined);
-      const players = await Player.findAll({
+      await Player.findAll({
         where: {
           id: playerIds
         }
       });
 
-       // Create a map of playerId to player for easy lookup
-       const playerMap = new Map(players.map((player: any) => [player.id, player]));
-      
       const stats = {
         totalUsers: users.length,
         usersWithFlags: 0,
@@ -175,7 +172,7 @@ program
          const userFlags = BigInt(user.permissionFlags || 0);
          if (userFlags !== 0n) {
           stats.usersWithFlags++;
-          
+
                    // Count individual permissions
          Object.entries(permissionFlags).forEach(([name, flag]) => {
            const userFlags = BigInt(user.permissionFlags || 0);

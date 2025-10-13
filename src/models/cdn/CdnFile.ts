@@ -53,4 +53,4 @@ CdnFile.init({
     }
 });
 
-export default CdnFile; 
+export default CdnFile;

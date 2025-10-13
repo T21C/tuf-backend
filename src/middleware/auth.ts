@@ -151,15 +151,15 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
 const chainMiddleware = (...middlewares: MiddlewareFunction[]): MiddlewareFunction => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     let index = 0;
-    
+
     const executeNext = async () => {
       if (index >= middlewares.length) {
         return next();
       }
-      
+
       const middleware = middlewares[index];
       index++;
-      
+
       try {
         await middleware(req, res, executeNext);
       } catch (error) {
@@ -167,7 +167,7 @@ const chainMiddleware = (...middlewares: MiddlewareFunction[]): MiddlewareFuncti
         res.status(500).json({error: 'Internal server error'});
       }
     };
-    
+
     await executeNext();
   };
 };
@@ -181,12 +181,12 @@ const requirePermission = (checkFn: (user: UserAttributes) => boolean, errorMess
       res.status(401).json({error: 'User not found'});
       return;
     }
-    
+
     if (!checkFn(req.user)) {
       res.status(403).json({error: errorMessage});
       return;
     }
-    
+
     next();
   };
 };
@@ -224,11 +224,11 @@ const auditLogMiddleware: MiddlewareFunction = async (req: Request, res: Respons
       });
     });
   }
-  
+
   next();
 };
 
-let incorectPasswords: Map<string, number> = new Map();
+const incorectPasswords: Map<string, number> = new Map();
 
 /**
  * Auth middleware factory
@@ -243,7 +243,7 @@ export const Auth = {
   /**
    * Require head curator privileges
    */
-  headCurator: (): MiddlewareFunction => 
+  headCurator: (): MiddlewareFunction =>
     chainMiddleware(
       baseAuth,
       requirePermission(
@@ -257,12 +257,12 @@ export const Auth = {
   /**
    * Require curator privileges
    */
-  curator: (): MiddlewareFunction => 
+  curator: (): MiddlewareFunction =>
     chainMiddleware(
       baseAuth,
       requirePermission(
         (user) => hasAnyFlag(user, [
-          permissionFlags.CURATOR, 
+          permissionFlags.CURATOR,
           permissionFlags.SUPER_ADMIN
         ]),
         'Curator access required'
@@ -272,10 +272,10 @@ export const Auth = {
   /**
    * Require rater privileges
    */
-  rater: (): MiddlewareFunction => 
+  rater: (): MiddlewareFunction =>
     chainMiddleware(
       baseAuth,
-      requirePermission(  
+      requirePermission(
         (user) => hasAnyFlag(user, [
           permissionFlags.RATER,
           permissionFlags.SUPER_ADMIN
@@ -288,7 +288,7 @@ export const Auth = {
   /**
    * Require super admin privileges
    */
-  superAdmin: (): MiddlewareFunction => 
+  superAdmin: (): MiddlewareFunction =>
     chainMiddleware(
       baseAuth,
       requirePermission(
@@ -309,7 +309,7 @@ export const Auth = {
         const {superAdminPassword: superAdminPasswordBody} = req.body;
         const superAdminPasswordHeader = req.headers['x-super-admin-password'];
         const superAdminPassword = superAdminPasswordBody || superAdminPasswordHeader;
-        
+
         if (!superAdminPassword || superAdminPassword !== process.env.SUPER_ADMIN_KEY) {
           incorectPasswords.set(req.user!.id, (incorectPasswords.get(req.user!.id) || 0) + 1);
           if ((incorectPasswords.get(req.user!.id) || 0) >= 5) {
@@ -318,12 +318,12 @@ export const Auth = {
           res.status(403).json({message: 'Invalid super admin password'});
           return;
         }
-        
+
         if ((incorectPasswords.get(req.user!.id) || 0) >= 5) {
           logger.warn(`User ${req.user!.id} successfully entered password after ${incorectPasswords.get(req.user!.id)} incorrect attempts`);
           incorectPasswords.delete(req.user!.id);
         }
-        
+
         next();
       }
     );
@@ -332,7 +332,7 @@ export const Auth = {
   /**
    * Require verified email
    */
-  verified: (): MiddlewareFunction => 
+  verified: (): MiddlewareFunction =>
     chainMiddleware(
       baseAuth,
       requirePermission(
@@ -344,7 +344,7 @@ export const Auth = {
   /**
    * Allow specific providers only
    */
-  provider: (providerName: string): MiddlewareFunction => 
+  provider: (providerName: string): MiddlewareFunction =>
     chainMiddleware(
       baseAuth,
       requirePermission(

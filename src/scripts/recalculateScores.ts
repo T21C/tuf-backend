@@ -24,12 +24,12 @@ async function recalculateScores() {
   try {
     logger.info('Starting score recalculation...');
     logger.info('This script will recalculate scoreV2 for all passes using the current formula.');
-    
+
     if (CONFIRMATION_REQUIRED) {
       logger.info('\nWARNING: This operation will update scoreV2 for all passes in the database.');
       logger.info('Make sure you have backed up your database before proceeding.');
       logger.info('Press Ctrl+C to cancel or wait 5 seconds to continue...');
-      
+
       // Wait for 5 seconds to allow cancellation
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
@@ -128,7 +128,7 @@ async function recalculateScores() {
           }, { transaction });
 
           processedCount++;
-          
+
           // Log significant changes
           if (Math.abs(currentScore - newScore) > 1) {
             logger.info(`Pass ${pass.id} (Level: ${pass.level.difficulty?.name}): Score updated from ${currentScore.toFixed(2)} to ${newScore.toFixed(2)}`);
@@ -172,4 +172,4 @@ sequelize.authenticate()
   .catch((error) => {
     logger.error('Script failed:', error);
     process.exit(1);
-  }); 
+  });

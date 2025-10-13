@@ -33,13 +33,13 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('UNHANDLED REJECTION! Logging error but continuing...');
   logger.error('Reason:', reason);
-  
+
   // Check if it's a transaction rollback error and handle it gracefully
   if (reason instanceof Error && reason.message.includes('Transaction cannot be rolled back')) {
     logger.warn('Transaction rollback error detected - this is likely a duplicate rollback call');
     return; // Don't treat this as a critical error
   }
-  
+
   // For other unhandled rejections, log but don't shut down
   logger.error('Promise:', promise);
   logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
@@ -53,7 +53,7 @@ process.on('warning', (warning) => {
     logger.debug('Cron job scheduling adjustment (overlapping executions)');
     return;
   }
-  
+
   // Log all other warnings normally
   logger.warn('Node.js Warning:', warning);
 });
@@ -189,6 +189,7 @@ export async function startServer() {
     });
 
     // Global error handling middleware - must be last
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
     app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
       // Handle URI decoding errors specifically
       if (err instanceof URIError) {
@@ -198,7 +199,7 @@ export async function startServer() {
           method: req.method,
           ip: req.ip
         });
-        
+
         return res.status(400).json({
           error: 'Invalid URL encoding',
           message: 'The requested URL contains invalid characters'
@@ -213,7 +214,7 @@ export async function startServer() {
         method: req.method,
         ip: req.ip
       });
-      
+
       return res.status(500).json({
         error: 'Internal server error',
         message: process.env.NODE_ENV === 'development' ? err.message : undefined

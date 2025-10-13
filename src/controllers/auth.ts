@@ -61,7 +61,7 @@ class AuthController {
       const {email, password, username, captchaToken} = req.body;
 
       if (captchaToken) {
-        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'registration');
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
         if (!isValidCaptcha) {
           return res.status(400).json({message: 'Invalid captcha'});
         }
@@ -121,14 +121,14 @@ class AuthController {
       let usernameExists = true;
       let attempts = 0;
       const maxAttempts = 10; // Limit attempts to prevent infinite loop
-      
+
       while (usernameExists && attempts < maxAttempts) {
         const existingPlayer = await Player.findOne({
           where: {
             name: finalUsername,
           },
         });
-        
+
         if (!existingPlayer) {
           usernameExists = false;
         } else {
@@ -138,7 +138,7 @@ class AuthController {
           attempts++;
         }
       }
-      
+
       if (usernameExists) {
         return res.status(400).json({message: 'Could not generate a unique username. Please try a different username.'});
       }
@@ -317,7 +317,7 @@ class AuthController {
 
       // Send verification email
       const emailSent = await emailService.sendVerificationEmail(email, verificationToken);
-      
+
       if (!emailSent) {
         return res.status(500).json({message: 'Failed to send verification email'});
       }
@@ -347,8 +347,8 @@ class AuthController {
 
       // Get client IP for captcha check
       const forwardedFor = req.headers['x-forwarded-for'];
-      const ip = typeof forwardedFor === 'string' 
-        ? forwardedFor?.split(',')[0].trim() 
+      const ip = typeof forwardedFor === 'string'
+        ? forwardedFor?.split(',')[0].trim()
         : req.ip || req.connection?.remoteAddress || '127.0.0.1';
 
       // Validate input
@@ -365,19 +365,19 @@ class AuthController {
           return res
             .status(400)
             .json({
-              error: 'Captcha required', 
+              error: 'Captcha required',
               requireCaptcha: true,
               message: 'Please complete the captcha verification to continue'
             });
         }
 
-        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'login');
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
         if (!isValidCaptcha) {
           recordFailedAttempt(ip);
           return res
             .status(400)
             .json({
-              error: 'Invalid captcha or high risk score detected', 
+              error: 'Invalid captcha or high risk score detected',
               requireCaptcha: true,
               message: 'Captcha verification failed. Please try again.'
             });
@@ -473,7 +473,7 @@ class AuthController {
       // Check if captcha is required (after 2 failed attempts)
       const ip = req.headers['x-forwarded-for'] as string || req.ip || '127.0.0.1';
       const captchaRequired = isCaptchaRequired(ip);
-      
+
       if (captchaRequired) {
         if (!captchaToken) {
           return res.status(400).json({
@@ -483,7 +483,7 @@ class AuthController {
           });
         }
 
-        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken, 'password-reset');
+        const isValidCaptcha = await captchaService.verifyCaptcha(captchaToken);
         if (!isValidCaptcha) {
           return res.status(400).json({
             error: 'Invalid captcha',
@@ -519,7 +519,7 @@ class AuthController {
 
       // Send password reset email
       const emailSent = await emailService.sendPasswordResetEmail(email, resetToken);
-      
+
       if (!emailSent) {
         logger.error('Failed to send password reset email to:', email);
         return res.status(500).json({message: 'Failed to send password reset email'});

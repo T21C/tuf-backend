@@ -27,7 +27,7 @@ import RatingDetail from '../../models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { permissionFlags } from '../../config/constants.js';
 import { hasFlag, setUserPermissionAndSave, wherePermission } from '../../utils/permissionUtils.js';
-import { serializePlayer, serializeUser } from '../../utils/jsonHelpers.js';
+import { serializePlayer } from '../../utils/jsonHelpers.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -43,21 +43,22 @@ const getCooldownKey = (playerId: number, targetPlayerId: number): string => {
   return `${playerId}:${targetPlayerId}`;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const isOnCooldown = (playerId: number, targetPlayerId: number): boolean => {
   const key = getCooldownKey(playerId, targetPlayerId);
   const isSelfRoll = playerId === targetPlayerId;
   const cooldownMap = isSelfRoll ? selfRollCooldowns : otherRollCooldowns;
   const cooldownTime = isSelfRoll ? SELF_ROLL_COOLDOWN_MS : OTHER_ROLL_COOLDOWN_MS;
-  
+
   const timestamp = cooldownMap.get(key);
   if (!timestamp) return false;
-  
+
   const now = Date.now();
   if (now - timestamp >= cooldownTime) {
     cooldownMap.delete(key);
     return false;
   }
-  
+
   return true;
 };
 
@@ -65,7 +66,7 @@ const addCooldown = (playerId: number, targetPlayerId: number): void => {
   const key = getCooldownKey(playerId, targetPlayerId);
   const isSelfRoll = playerId === targetPlayerId;
   const cooldownMap = isSelfRoll ? selfRollCooldowns : otherRollCooldowns;
-  
+
   cooldownMap.set(key, Date.now());
 };
 
@@ -74,18 +75,18 @@ const getRemainingCooldown = (playerId: number, targetPlayerId: number): number 
   const isSelfRoll = playerId === targetPlayerId;
   const cooldownMap = isSelfRoll ? selfRollCooldowns : otherRollCooldowns;
   const cooldownTime = isSelfRoll ? SELF_ROLL_COOLDOWN_MS : OTHER_ROLL_COOLDOWN_MS;
-  
+
   const timestamp = cooldownMap.get(key);
   if (!timestamp) return 0;
-  
+
   const now = Date.now();
   const remaining = cooldownTime - (now - timestamp);
-  
+
   if (remaining <= 0) {
     cooldownMap.delete(key);
     return 0;
   }
-  
+
   return Math.ceil(remaining / 1000); // Convert to seconds
 };
 
@@ -105,7 +106,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
-    
+
     // First check if player exists at all
     const playerExists = await Player.findByPk(id, {
       include: [
@@ -140,6 +141,7 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
         // Handle both Sequelize model instances and plain objects
         const plainPass = pass.get ? pass.get({plain: true}) : pass;
         if (plainPass.level && plainPass.level.isHidden) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { level, ...passWithoutLevel } = plainPass;
           return {
             level: {
@@ -156,10 +158,10 @@ router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
     const plainEnrichedPlayer = enrichedPlayer ? {
       ...enrichedPlayer,
       passes: enrichedPlayer.passes,
-      topScores: enrichedPlayer.topScores?.map((score: any) => 
+      topScores: enrichedPlayer.topScores?.map((score: any) =>
         score.get ? score.get({plain: true}) : score
       ),
-      potentialTopScores: enrichedPlayer.potentialTopScores?.map((score: any) => 
+      potentialTopScores: enrichedPlayer.potentialTopScores?.map((score: any) =>
         score.get ? score.get({plain: true}) : score
       )
     } : null;
@@ -183,7 +185,7 @@ router.get('/search/:name', async (req: Request, res: Response) => {
   try {
     const name = req.params.name; // Exp  ress has already decoded this
     const escapedName = escapeForMySQL(name);
-    
+
     const players = await Player.findAll({
       where: {
         name: {
@@ -462,8 +464,8 @@ router.get('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
           id: discordId,
           username: discordUser.username,
           avatar: discordUser.avatar,
-          avatarUrl: discordUser.avatar ? 
-            `https://cdn.discordapp.com/avatars/${discordId}/${discordUser.avatar}.png` : 
+          avatarUrl: discordUser.avatar ?
+            `https://cdn.discordapp.com/avatars/${discordId}/${discordUser.avatar}.png` :
             null
         },
       });
@@ -752,12 +754,12 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
       }
 
       await player.update({isSubmissionsPaused}, {transaction});
-      
+
       // Update user permission flags if player has a user
       if (player.user) {
         await setUserPermissionAndSave(player.user, permissionFlags.SUBMISSIONS_PAUSED, isSubmissionsPaused, transaction);
       }
-      
+
       await transaction.commit();
 
       sseManager.broadcast({type: 'playerUpdate'});
@@ -1025,16 +1027,16 @@ router.get('/:playerId([0-9]+)/modifiers', Auth.addUserToRequest(), async (req, 
 
     const playerId = req.user?.playerId;
     const targetPlayerId = parseInt(req.params.playerId);
-    
+
 
     const modifiers = await modifierService.getActiveModifiers(targetPlayerId);
-    
+
     // Get cooldown information
     let remainingCooldown = 0;
     if (playerId) {
       remainingCooldown = getRemainingCooldown(playerId, targetPlayerId);
     }
-    
+
     return res.json({
       modifiers,
       probabilities: PlayerModifier.PROBABILITIES,
@@ -1057,7 +1059,7 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
   try {
     const playerId = req.user?.playerId;
     const targetPlayerId = parseInt(req.body.targetPlayerId);
-    
+
     if (!playerId) {
       return res.status(403).json({ error: 'Player ID not found' });
     }
@@ -1070,7 +1072,7 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
     const remainingCooldown = getRemainingCooldown(playerId, targetPlayerId);
 
     if (remainingCooldown > 0) {
-      return res.status(429).json({ 
+      return res.status(429).json({
         error: 'Spin cooldown active',
         remainingSeconds: remainingCooldown,
         isSelfRoll: playerId === targetPlayerId
@@ -1078,17 +1080,17 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
     }
 
     const result = await modifierService.handleModifierGeneration(playerId, targetPlayerId);
-    
+
     if (result.error || !result.modifier) {
       return res.status(400).json({ error: result.error });
     }
-    
+
     // Apply the modifier
     await modifierService.applyModifier(result.modifier);
-    
+
     // Add cooldown after successful generation
     addCooldown(playerId, targetPlayerId);
-    
+
     return res.json({ modifier: result.modifier });
   } catch (error) {
     logger.error('Error generating modifier:', error);

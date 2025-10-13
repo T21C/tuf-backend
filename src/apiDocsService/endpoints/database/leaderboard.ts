@@ -24,4 +24,4 @@ const leaderboardEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default leaderboardEndpoints; 
+export default leaderboardEndpoints;

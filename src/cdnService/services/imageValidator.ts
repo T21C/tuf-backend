@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import sharp from 'sharp';
 import { IMAGE_TYPES, ImageType } from '../config.js';
 import { logger } from '../../services/LoggerService.js';
@@ -84,7 +83,7 @@ export class ImageValidationError extends Error {
 }
 
 export async function validateImage(
-    filePath: string, 
+    filePath: string,
     imageType: ImageType,
     customOptions?: Partial<ValidationOptions>
 ): Promise<ImageValidationResult> {
@@ -115,7 +114,7 @@ export async function validateImage(
         // Check file size
         const stats = fs.statSync(filePath);
         result.metadata.size = stats.size;
-        
+
         if (stats.size > options.maxSize!) {
             result.isValid = false;
             result.errors.push(`File size exceeds maximum allowed size of ${options.maxSize! / (1024 * 1024)}MB`);
@@ -178,12 +177,12 @@ export async function validateImage(
         // Check for potential malicious content
         const buffer = await fs.promises.readFile(filePath);
         const header = buffer.slice(0, 8).toString('hex');
-        
+
         // Check for valid image signatures
-        const isValidSignature = Object.values(IMAGE_SIGNATURES).some(signatures => 
+        const isValidSignature = Object.values(IMAGE_SIGNATURES).some(signatures =>
             signatures.some(sig => header.startsWith(sig))
         );
-        
+
         if (!isValidSignature) {
             result.isValid = false;
             result.errors.push('Invalid image file signature. File may be corrupted or not a valid image.');
@@ -193,11 +192,11 @@ export async function validateImage(
         if (result.metadata.format === 'jpeg' && !IMAGE_SIGNATURES.jpeg.some(sig => header.startsWith(sig))) {
             result.warnings.push('JPEG file may be corrupted or modified');
         }
-        
+
         if (result.metadata.format === 'png' && !IMAGE_SIGNATURES.png.some(sig => header.startsWith(sig))) {
             result.warnings.push('PNG file may be corrupted or modified');
         }
-        
+
         if (result.metadata.format === 'webp' && !IMAGE_SIGNATURES.webp.some(sig => header.startsWith(sig))) {
             result.warnings.push('WebP file may be corrupted or modified');
         }
@@ -293,4 +292,4 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
         maxAspectRatio: imageType === 'BANNER' ? 2 : 1.5,
         minAspectRatio: imageType === 'BANNER' ? 0.5 : 0.75
     };
-} 
+}

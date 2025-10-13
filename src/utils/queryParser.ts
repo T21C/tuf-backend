@@ -121,7 +121,7 @@ export const parseSearchQuery = (query: string, config: QueryParserConfig): Sear
  */
 export const extractFieldValues = (searchGroups: SearchGroup[], fieldName: string): string[] => {
   const values: string[] = [];
-  
+
   for (const group of searchGroups) {
     for (const term of group.terms) {
       if (term.field === fieldName) {
@@ -129,7 +129,7 @@ export const extractFieldValues = (searchGroups: SearchGroup[], fieldName: strin
       }
     }
   }
-  
+
   return values;
 };
 
@@ -140,7 +140,7 @@ export const extractFieldValues = (searchGroups: SearchGroup[], fieldName: strin
  */
 export const extractGeneralSearchTerms = (searchGroups: SearchGroup[]): string[] => {
   const terms: string[] = [];
-  
+
   for (const group of searchGroups) {
     for (const term of group.terms) {
       if (term.field === 'any') {
@@ -148,7 +148,7 @@ export const extractGeneralSearchTerms = (searchGroups: SearchGroup[]): string[]
       }
     }
   }
-  
+
   return terms;
 };
 

@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { API_DOCS_CONFIG, API_CATEGORIES } from '../config.js';
+import { API_DOCS_CONFIG } from '../config.js';
 import { logger } from '../../services/LoggerService.js';
 import DocumentationService from '../services/DocumentationService.js';
 
@@ -9,7 +9,7 @@ const router = express.Router();
 router.get('/', (req: Request, res: Response) => {
   const docService = DocumentationService.getInstance();
   const categories = docService.getCategories();
-  
+
   res.send(`
     <!DOCTYPE html>
     <html lang="en">
@@ -530,7 +530,7 @@ router.get('/', (req: Request, res: Response) => {
           <div class="filter-controls">
             <select class="filter-select" id="categoryFilter">
               <option value="">All Categories</option>
-              ${Array.from(categories.entries()).map(([key, category]) => 
+              ${Array.from(categories.entries()).map(([key, category]) =>
                 `<option value="${key.toLowerCase()}">${category.name} (${category.endpoints.length})</option>`
               ).join('')}
             </select>
@@ -863,4 +863,4 @@ router.get('/spec', (req: Request, res: Response) => {
   }
 });
 
-export default router; 
+export default router;

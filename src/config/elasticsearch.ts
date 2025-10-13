@@ -73,7 +73,7 @@ export const levelMapping = {
   mappings: {
     properties: {
       id: { type: 'integer' as const },
-      song: { 
+      song: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
@@ -81,27 +81,27 @@ export const levelMapping = {
             type: 'text' as const,
             analyzer: 'exact_match_analyzer'
           },
-          keyword: { 
+          keyword: {
             type: 'keyword' as const,
             normalizer: 'lowercase'
           }
         }
       },
-      artist: { 
+      artist: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { 
+          keyword: {
             type: 'keyword' as const,
             normalizer: 'lowercase'
           }
         }
       },
-      team: { 
+      team: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
-          keyword: { 
+          keyword: {
             type: 'keyword' as const,
             normalizer: 'lowercase'
           }
@@ -111,54 +111,54 @@ export const levelMapping = {
       diffId: { type: 'integer' as const },
       baseScore: { type: 'long' as const },
       previousBaseScore: { type: 'long' as const },
-      videoLink: { 
+      videoLink: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
           keyword: { type: 'keyword' as const }
         }
       },
-      dlLink: { 
+      dlLink: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
           keyword: { type: 'keyword' as const }
         }
       },
-      legacyDllink: { 
+      legacyDllink: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
           keyword: { type: 'keyword' as const }
         }
       },
-      workshopLink: { 
+      workshopLink: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
         fields: {
           keyword: { type: 'keyword' as const }
         }
       },
-      publicComments: { 
+      publicComments: {
         type: 'text' as const,
         fields: {
           keyword: { type: 'keyword' as const, ignore_above: 256 }
         }
       },
-      submitterDiscordId: { 
+      submitterDiscordId: {
         type: 'text' as const,
         fields: {
           keyword: { type: 'keyword' as const, ignore_above: 256 }
         }
       },
       toRate: { type: 'boolean' as const },
-      rerateReason: { 
+      rerateReason: {
         type: 'text' as const,
         fields: {
           keyword: { type: 'keyword' as const, ignore_above: 256 }
         }
       },
-      rerateNum: { 
+      rerateNum: {
         type: 'text' as const,
         fields: {
           keyword: { type: 'keyword' as const, ignore_above: 256 }
@@ -183,7 +183,7 @@ export const levelMapping = {
           levelId: { type: 'integer' as const },
           currentDifficultyId: { type: 'integer' as const },
           lowDiff: { type: 'boolean' as const },
-          requesterFR: { 
+          requesterFR: {
             type: 'text' as const,
             fields: {
               keyword: { type: 'keyword' as const, ignore_above: 256 }
@@ -229,7 +229,7 @@ export const levelMapping = {
           id: { type: 'long' as const },
           levelId: { type: 'long' as const },
           creatorId: { type: 'integer' as const },
-          role: { 
+          role: {
             type: 'text' as const,
             fields: {
               keyword: { type: 'keyword' as const, ignore_above: 256 }
@@ -240,10 +240,10 @@ export const levelMapping = {
             type: 'nested' as const,
             properties: {
               id: { type: 'integer' as const },
-              name: { 
+              name: {
                 type: 'text' as const,
                 fields: {
-                  keyword: { 
+                  keyword: {
                     type: 'keyword' as const,
                     normalizer: 'lowercase'
                   }
@@ -258,10 +258,10 @@ export const levelMapping = {
                 properties: {
                   id: { type: 'long' as const },
                   creatorId: { type: 'long' as const },
-                  name: { 
+                  name: {
                     type: 'text' as const,
                     fields: {
-                      keyword: { 
+                      keyword: {
                         type: 'keyword' as const,
                         normalizer: 'lowercase'
                       }
@@ -398,7 +398,7 @@ export const indices = {
 
 // Function to generate hash of mappings
 export function generateMappingHash(mappings: any): string {
-  return hash(mappings, { 
+  return hash(mappings, {
     respectType: false,
     unorderedArrays: true,
     unorderedSets: true,
@@ -435,14 +435,14 @@ export function storeMappingHash(hash: string): void {
 }
 
 // Function to check if reindexing is needed
-export async function checkIfReindexingNeeded(client: Client): Promise<{ needsReindex: boolean }> {
+export async function checkIfReindexingNeeded(): Promise<{ needsReindex: boolean }> {
   try {
     // Generate hash of the current index configuration
     const currentHash = generateMappingHash(indices);
-    
+
     // Get stored hash
     const storedHash = readStoredMappingHash();
-    
+
     // If hashes don't match, reindexing is needed
     if (currentHash !== storedHash) {
       logger.info('Index configuration has changed, reindexing needed');
@@ -482,7 +482,7 @@ export async function initializeElasticsearch() {
       throw new Error('Elasticsearch failed to initialize after multiple retries');
     }
 
-    const { needsReindex } = await checkIfReindexingNeeded(client);
+    const { needsReindex } = await checkIfReindexingNeeded();
     const indexExists = await Promise.all([
       client.indices.exists({ index: levelIndexName }),
       client.indices.exists({ index: passIndexName }),
@@ -495,9 +495,9 @@ export async function initializeElasticsearch() {
       logger.info('Performing reindex...');
 
       // Delete any existing indices and aliases
-      await client.indices.delete({ 
+      await client.indices.delete({
         index: [levelIndexName, passIndexName, levelAlias, passAlias, creditsAlias],
-        ignore_unavailable: true 
+        ignore_unavailable: true
       }).catch(() => {});
 
       // Create indices with their mappings
@@ -539,4 +539,4 @@ export async function initializeElasticsearch() {
   }
 }
 
-export default client; 
+export default client;

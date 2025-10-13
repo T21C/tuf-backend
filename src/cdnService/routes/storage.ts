@@ -1,7 +1,7 @@
-import { Router, Request, Response } from "express";
-import { logger } from "../../services/LoggerService.js";
-import { hybridStorageManager } from "../services/hybridStorageManager.js";
-import { spacesStorage } from "../services/spacesStorage.js";
+import { Router, Request, Response } from 'express';
+import { logger } from '../../services/LoggerService.js';
+import { hybridStorageManager } from '../services/hybridStorageManager.js';
+import { spacesStorage } from '../services/spacesStorage.js';
 
 const router = Router();
 
@@ -17,8 +17,8 @@ router.get('/stats', async (req: Request, res: Response) => {
         logger.error('Failed to get storage statistics:', {
             error: error instanceof Error ? error.message : String(error)
         });
-        res.status(500).json({ 
-            error: 'Failed to get storage statistics' 
+        res.status(500).json({
+            error: 'Failed to get storage statistics'
         });
     }
 });
@@ -35,8 +35,8 @@ router.get('/spaces/stats', async (req: Request, res: Response) => {
         logger.error('Failed to get Spaces storage statistics:', {
             error: error instanceof Error ? error.message : String(error)
         });
-        res.status(500).json({ 
-            error: 'Failed to get Spaces storage statistics' 
+        res.status(500).json({
+            error: 'Failed to get Spaces storage statistics'
         });
     }
 });
@@ -46,7 +46,7 @@ router.get('/spaces/files', async (req: Request, res: Response) => {
     try {
         const { prefix = '', maxKeys = 100 } = req.query;
         const files = await spacesStorage.listFiles(String(prefix), Number(maxKeys));
-        
+
         res.json({
             success: true,
             files,
@@ -56,8 +56,8 @@ router.get('/spaces/files', async (req: Request, res: Response) => {
         logger.error('Failed to list Spaces files:', {
             error: error instanceof Error ? error.message : String(error)
         });
-        res.status(500).json({ 
-            error: 'Failed to list Spaces files' 
+        res.status(500).json({
+            error: 'Failed to list Spaces files'
         });
     }
 });
@@ -67,7 +67,7 @@ router.get('/spaces/exists/:key(*)', async (req: Request, res: Response) => {
     try {
         const { key } = req.params;
         const exists = await spacesStorage.fileExists(key);
-        
+
         res.json({
             success: true,
             key,
@@ -78,8 +78,8 @@ router.get('/spaces/exists/:key(*)', async (req: Request, res: Response) => {
             error: error instanceof Error ? error.message : String(error),
             key: req.params.key
         });
-        res.status(500).json({ 
-            error: 'Failed to check file existence' 
+        res.status(500).json({
+            error: 'Failed to check file existence'
         });
     }
 });
@@ -90,7 +90,7 @@ router.get('/spaces/url/:key(*)', async (req: Request, res: Response) => {
         const { key } = req.params;
         const { expires = 3600 } = req.query;
         const url = await spacesStorage.getPresignedUrl(key, Number(expires));
-        
+
         res.json({
             success: true,
             key,
@@ -102,8 +102,8 @@ router.get('/spaces/url/:key(*)', async (req: Request, res: Response) => {
             error: error instanceof Error ? error.message : String(error),
             key: req.params.key
         });
-        res.status(500).json({ 
-            error: 'Failed to get presigned URL' 
+        res.status(500).json({
+            error: 'Failed to get presigned URL'
         });
     }
 });
@@ -113,7 +113,7 @@ router.delete('/spaces/:key(*)', async (req: Request, res: Response) => {
     try {
         const { key } = req.params;
         await spacesStorage.deleteFile(key);
-        
+
         res.json({
             success: true,
             key,
@@ -124,8 +124,8 @@ router.delete('/spaces/:key(*)', async (req: Request, res: Response) => {
             error: error instanceof Error ? error.message : String(error),
             key: req.params.key
         });
-        res.status(500).json({ 
-            error: 'Failed to delete file' 
+        res.status(500).json({
+            error: 'Failed to delete file'
         });
     }
 });
@@ -135,7 +135,7 @@ router.get('/spaces/test', async (req: Request, res: Response) => {
     try {
         // Try to list files with a test prefix
         const files = await spacesStorage.listFiles('test/', 1);
-        
+
         res.json({
             success: true,
             message: 'Spaces connection successful',
@@ -148,7 +148,7 @@ router.get('/spaces/test', async (req: Request, res: Response) => {
         logger.error('Spaces connection test failed:', {
             error: error instanceof Error ? error.message : String(error)
         });
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Spaces connection test failed',
             details: error instanceof Error ? error.message : String(error)
         });
@@ -159,15 +159,15 @@ router.get('/spaces/test', async (req: Request, res: Response) => {
 router.post('/migrate-storage-types', async (req: Request, res: Response) => {
     try {
         const { migrateStorageTypes, verifyMigration } = await import('../scripts/migrateStorageTypes.js');
-        
+
         logger.info('Starting storage type migration via API');
-        
+
         // Run migration
         await migrateStorageTypes();
-        
+
         // Run verification
         await verifyMigration();
-        
+
         res.json({
             success: true,
             message: 'Storage type migration completed successfully'
@@ -176,7 +176,7 @@ router.post('/migrate-storage-types', async (req: Request, res: Response) => {
         logger.error('Storage type migration failed:', {
             error: error instanceof Error ? error.message : String(error)
         });
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Storage type migration failed',
             details: error instanceof Error ? error.message : String(error)
         });

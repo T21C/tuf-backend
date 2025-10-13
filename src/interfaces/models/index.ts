@@ -1,4 +1,4 @@
-import {Model, Optional} from 'sequelize';
+import {Model} from 'sequelize';
 import {UserAttributes} from '../../models/auth/User.js';
 import DirectiveAction from '../../models/announcements/DirectiveAction.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
@@ -33,32 +33,32 @@ export interface ILevel extends IBaseModel {
   id: number;
   song: string;
   artist: string;
-  charter: string;
-  charters: string[];
-  vfxer: string;
-  vfxers: string[];
-  team: string;
+  charter?: string;
+  charters?: string[];
+  vfxer?: string;
+  vfxers?: string[];
+  team?: string;
   diffId: number;
   baseScore: number | null;
   previousBaseScore: number | null;
   clears: number;
   likes: number;
   videoLink: string;
-  dlLink: string; 
-  legacyDllink: string | null;
+  dlLink: string;
+  legacyDllink?: string | null;
   workshopLink: string;
   publicComments: string;
-  submitterDiscordId: string | null;
+  submitterDiscordId?: string | null;
   toRate: boolean;
-  rerateReason: string;
+  rerateReason?: string;
   rerateNum: string;
-  previousDiffId: number;
+  previousDiffId?: number;
   isAnnounced: boolean;
   isDeleted: boolean;
   createdAt: Date;
   updatedAt: Date;
-  isHidden: boolean;
-  isVerified: boolean;
+  isHidden?: boolean;
+  isVerified?: boolean;
   isExternallyAvailable: boolean;
   teamId?: number | null;
   passes?: IPass[];
@@ -248,10 +248,27 @@ export interface IAnnouncementRole {
   updatedAt?: Date;
 }
 
+export enum ConditionOperator {
+  EQUAL = 'EQUAL',
+  NOT_EQUAL = 'NOT_EQUAL',
+  GREATER_THAN = 'GREATER_THAN',
+  LESS_THAN = 'LESS_THAN',
+  GREATER_THAN_OR_EQUAL = 'GREATER_THAN_OR_EQUAL',
+  LESS_THAN_OR_EQUAL = 'LESS_THAN_OR_EQUAL',
+  CUSTOM = 'CUSTOM',
+}
+
+export enum DirectiveConditionType {
+  ACCURACY = 'ACCURACY',
+  WORLDS_FIRST = 'WORLDS_FIRST',
+  BASE_SCORE = 'BASE_SCORE',
+  CUSTOM = 'CUSTOM',
+}
+
 export type DirectiveCondition = {
-  type: 'ACCURACY' | 'WORLDS_FIRST' | 'BASE_SCORE' | 'CUSTOM';
+  type: DirectiveConditionType;
   value?: number | string;
-  operator?: 'EQUAL' | 'GREATER_THAN' | 'LESS_THAN' | 'GREATER_THAN_EQUAL' | 'LESS_THAN_EQUAL';
+  operator?: ConditionOperator;
   customFunction?: string; // JavaScript function as string
 }
 

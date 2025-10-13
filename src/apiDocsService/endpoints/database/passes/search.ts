@@ -77,4 +77,4 @@ const searchEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default searchEndpoints; 
+export default searchEndpoints;

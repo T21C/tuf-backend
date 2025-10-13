@@ -22,38 +22,38 @@ LevelRerateHistory.init(
       autoIncrement: true,
       primaryKey: true,
     },
-    levelId: { 
-        type: DataTypes.INTEGER, 
-        allowNull: false, 
-        references: { model: 'levels', key: 'id' } 
+    levelId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: { model: 'levels', key: 'id' }
     },
-    previousDiffId: { 
-        type: DataTypes.INTEGER, 
-        allowNull: false, 
-        references: { model: 'difficulties', key: 'id' } 
+    previousDiffId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: { model: 'difficulties', key: 'id' }
     },
-    newDiffId: { 
-        type: DataTypes.INTEGER, 
-        allowNull: false, 
-        references: { model: 'difficulties', key: 'id' } 
+    newDiffId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: { model: 'difficulties', key: 'id' }
     },
-    previousBaseScore: { 
-        type: DataTypes.FLOAT, 
-        allowNull: false 
+    previousBaseScore: {
+        type: DataTypes.FLOAT,
+        allowNull: false
     },
-    newBaseScore: { 
-        type: DataTypes.FLOAT, 
-        allowNull: false 
+    newBaseScore: {
+        type: DataTypes.FLOAT,
+        allowNull: false
     },
-    reratedBy: { 
-        type: DataTypes.UUID, 
-        allowNull: true, 
-        references: { model: 'users', key: 'id' } 
+    reratedBy: {
+        type: DataTypes.UUID,
+        allowNull: true,
+        references: { model: 'users', key: 'id' }
     },
-    createdAt: { 
-        type: DataTypes.DATE, 
-        allowNull: false, 
-        defaultValue: DataTypes.NOW 
+    createdAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW
     },
   },
   {
@@ -68,4 +68,4 @@ LevelRerateHistory.belongsTo(Difficulty, { foreignKey: 'previousDiffId', as: 'pr
 LevelRerateHistory.belongsTo(Difficulty, { foreignKey: 'newDiffId', as: 'newDifficulty' });
 LevelRerateHistory.belongsTo(User, { foreignKey: 'reratedBy', as: 'user' });
 
-export default LevelRerateHistory; 
+export default LevelRerateHistory;

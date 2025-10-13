@@ -1,12 +1,12 @@
-import { logger } from "../../services/LoggerService.js";
-import imageFactory, { ImageProcessingError } from "../services/imageFactory.js";
-import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from "../config.js";
+import { logger } from '../../services/LoggerService.js';
+import imageFactory, { ImageProcessingError } from '../services/imageFactory.js';
+import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from '../config.js';
 import { Request, Response, Router } from 'express';
-import CdnFile from "../../models/cdn/CdnFile.js";
+import CdnFile from '../../models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
-import FileAccessLog from "../../models/cdn/FileAccessLog.js";
-import { storageManager } from "../services/storageManager.js";
+import FileAccessLog from '../../models/cdn/FileAccessLog.js';
+import { storageManager } from '../services/storageManager.js';
 
 const router = Router();
 
@@ -64,9 +64,9 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
 router.post('/:type', (req: Request, res: Response) => {
     const imageType = req.params.type.toUpperCase() as ImageType;
     const typeHeader = req.headers['x-file-type'] as ImageType;
-    
+
     if (!IMAGE_TYPES[imageType]) {
-        return res.status(400).json({ 
+        return res.status(400).json({
             error: 'Invalid image type',
             code: 'INVALID_TYPE'
         });
@@ -74,7 +74,7 @@ router.post('/:type', (req: Request, res: Response) => {
 
     // Validate that type header matches the URL parameter
     if (typeHeader && typeHeader !== imageType) {
-        return res.status(400).json({ 
+        return res.status(400).json({
             error: 'Type mismatch',
             code: 'TYPE_MISMATCH',
             details: 'The X-File-Type header does not match the image type in the URL'
@@ -84,14 +84,14 @@ router.post('/:type', (req: Request, res: Response) => {
     storageManager.imageUpload(req, res, async (err) => {
         if (err) {
             logger.error('Image upload error:', err);
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: err.message,
                 code: 'UPLOAD_ERROR'
             });
         }
 
         if (!req.file) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'No image uploaded',
                 code: 'NO_FILE'
             });
@@ -107,7 +107,7 @@ router.post('/:type', (req: Request, res: Response) => {
         } catch (error) {
             logger.error('Image processing error:', error);
             storageManager.cleanupFiles(req.file.path);
-            
+
             if (error instanceof ImageProcessingError) {
                 return res.status(400).json({
                     error: error.message,
@@ -115,8 +115,8 @@ router.post('/:type', (req: Request, res: Response) => {
                     details: error.details
                 });
             }
-            
-            res.status(500).json({ 
+
+            res.status(500).json({
                 error: 'Image processing failed',
                 code: 'PROCESSING_ERROR',
                 details: error instanceof Error ? error.message : String(error)

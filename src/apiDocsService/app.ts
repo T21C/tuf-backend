@@ -30,7 +30,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Middleware
 app.use(cors({
-    origin: "*",
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -38,6 +38,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Global error handling middleware
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
     logger.error('Express error:', {
         error: err.message,
@@ -45,7 +46,7 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
         path: req.path,
         method: req.method
     });
-    
+
     res.status(500).json({
         error: 'Internal server error',
         message: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -56,6 +57,6 @@ app.use('/', router);
 
 app.listen(API_DOCS_CONFIG.port, () => {
     logger.info(`API Documentation service running on port ${API_DOCS_CONFIG.port}`);
-}); 
+});
 
-export default app; 
+export default app;

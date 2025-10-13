@@ -89,8 +89,9 @@ export function createMultiFieldSearchCondition(
 
 export const escapeForMySQL = (str: string) => {
   if (!str) return '';
-  
-  return str.replace(/[\0\x08\x09\x1a\n\r"'\\\%\_]/g, char => {
+
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/[\0\x08\x09\x1a\n\r"'%_\\]/g, char => {
     switch (char) {
       case '\0':
         return '\\0';
@@ -123,7 +124,7 @@ export const escapeForMySQL = (str: string) => {
  */
 export const convertToPUA = (str: string): string => {
   if (!str) return '';
-  
+
   // Create a regex pattern from all special characters
   const pattern = new RegExp(`[\\${Object.keys(SPECIAL_CHAR_MAP).join('\\')}]`, 'g');
 
@@ -137,10 +138,10 @@ export const convertToPUA = (str: string): string => {
  */
 export const convertFromPUA = (str: string): string => {
   if (!str) return '';
-  
+
   // Create a regex pattern from all PUA characters
   const pattern = new RegExp(`[${Object.values(SPECIAL_CHAR_MAP).join('')}]`, 'g');
-  
+
   return str.replace(pattern, char => PUA_CHAR_MAP[char] || char);
 };
 
@@ -151,7 +152,7 @@ export const convertFromPUA = (str: string): string => {
  */
 export const prepareSearchTerm = (str: string): string => {
   if (!str) return '';
-  
+
   // Convert special characters to PUA characters
   return convertToPUA(str)
     .replace(/\s+/g, ' ') // Normalize whitespace

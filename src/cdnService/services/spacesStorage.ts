@@ -87,8 +87,8 @@ export class SpacesStorageManager {
      * Upload a file to DigitalOcean Spaces
      */
     public async uploadFile(
-        filePath: string, 
-        key: string, 
+        filePath: string,
+        key: string,
         contentType?: string,
         metadata?: Record<string, string>
     ): Promise<UploadResult> {
@@ -267,10 +267,10 @@ export class SpacesStorageManager {
                 }
             };
 
-            logger.debug('Deleting multiple files from Spaces', { 
-                count: keys.length, 
+            logger.debug('Deleting multiple files from Spaces', {
+                count: keys.length,
                 keys: keys.slice(0, 5), // Log first 5 keys
-                bucket: this.config.bucket 
+                bucket: this.config.bucket
             });
 
             const result = await this.s3.deleteObjects(deleteParams).promise();
@@ -282,7 +282,7 @@ export class SpacesStorageManager {
                 });
             }
 
-            logger.debug('Files deleted from Spaces', { 
+            logger.debug('Files deleted from Spaces', {
                 deletedCount: result.Deleted?.length || 0,
                 errorCount: result.Errors?.length || 0
             });
@@ -298,7 +298,7 @@ export class SpacesStorageManager {
     /**
      * List files in a directory/prefix
      */
-    public async listFiles(prefix: string, maxKeys: number = 1000): Promise<SpacesFile[]> {
+    public async listFiles(prefix: string, maxKeys = 1000): Promise<SpacesFile[]> {
         try {
             const listParams: AWS.S3.ListObjectsV2Request = {
                 Bucket: this.config.bucket,
@@ -318,8 +318,8 @@ export class SpacesStorageManager {
                 url: this.getFileUrl(obj.Key || '')
             }));
 
-            logger.debug('Files listed from Spaces', { 
-                prefix, 
+            logger.debug('Files listed from Spaces', {
+                prefix,
                 count: files.length,
                 totalSize: files.reduce((sum, file) => sum + file.size, 0)
             });
@@ -393,7 +393,7 @@ export class SpacesStorageManager {
             };
 
             const response = await this.s3.getObject(params).promise();
-            
+
             if (!response.Body) {
                 throw new Error('No body in response');
             }
@@ -430,7 +430,7 @@ export class SpacesStorageManager {
             };
 
             const response = await this.s3.getObject(params).promise();
-            
+
             if (!response.Body) {
                 throw new Error('No body in response');
             }
@@ -460,7 +460,7 @@ export class SpacesStorageManager {
     /**
      * Generate a presigned URL for temporary access to a private file
      */
-    public async getPresignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    public async getPresignedUrl(key: string, expiresIn = 3600): Promise<string> {
         try {
             const params: AWS.S3.GetObjectRequest = {
                 Bucket: this.config.bucket,
@@ -519,7 +519,7 @@ export class SpacesStorageManager {
     /**
      * Generate a unique key for temporary files
      */
-    public generateTempKey(prefix: string = 'temp'): string {
+    public generateTempKey(prefix = 'temp'): string {
         return `${prefix}/${uuidv4()}`;
     }
 
@@ -567,7 +567,7 @@ export class SpacesStorageManager {
                 const files = await this.listFiles(prefix, 10000);
                 const count = files.length;
                 const size = files.reduce((sum, file) => sum + file.size, 0);
-                
+
                 stats.byPrefix[prefix] = { count, size };
                 stats.totalFiles += count;
                 stats.totalSize += size;

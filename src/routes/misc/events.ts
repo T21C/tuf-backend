@@ -1,6 +1,5 @@
 import {Router} from 'express';
 import {sseManager} from '../../utils/sse.js';
-import {Auth} from '../../middleware/auth.js';
 import {Request, Response} from 'express';
 import User from '../../models/auth/User.js';
 import { clientUrlEnv } from '../../config/app.config.js';
@@ -40,7 +39,7 @@ router.get('/', async (req: SSERequest, res: Response) => {
   } else {
     res.setHeader('Access-Control-Allow-Origin', clientUrlEnv || 'http://localhost:5173');
   }
-  
+
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', [

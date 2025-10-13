@@ -107,4 +107,4 @@ export const mediaEndpoints: EndpointDefinition[] = [
     },
     requiresAuth: false
   }
-]; 
+];

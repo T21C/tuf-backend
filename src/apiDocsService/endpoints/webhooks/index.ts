@@ -9,4 +9,4 @@ const webhookEndpointsList: EndpointDefinition[] = [
   ...channelParserEndpoints
 ];
 
-export default webhookEndpointsList; 
+export default webhookEndpointsList;

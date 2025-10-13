@@ -9,9 +9,9 @@ router.get('/endpoints', (req: Request, res: Response) => {
   try {
     const docService = DocumentationService.getInstance();
     const categories = docService.getCategories();
-    
+
     const endpoints: Record<string, any> = {};
-    
+
     categories.forEach((category, key) => {
       endpoints[key.toLowerCase()] = {
         name: category.name,
@@ -30,7 +30,7 @@ router.get('/endpoints', (req: Request, res: Response) => {
         }))
       };
     });
-    
+
     res.json(endpoints);
   } catch (error) {
     logger.error('Error fetching endpoints:', error);
@@ -41,15 +41,15 @@ router.get('/endpoints', (req: Request, res: Response) => {
 // Get endpoint details
 router.get('/endpoints/:category/:method/:path(*)', (req: Request, res: Response) => {
   try {
-    const { category, method, path } = req.params;
+    const { method, path } = req.params;
     const docService = DocumentationService.getInstance();
-    
+
     const endpoint = docService.getEndpoint(method.toUpperCase(), `/${path}`);
-    
+
     if (!endpoint) {
       return res.status(404).json({ error: 'Endpoint not found' });
     }
-    
+
     res.json(endpoint);
   } catch (error) {
     logger.error('Error fetching endpoint details:', error);
@@ -62,14 +62,14 @@ router.get('/endpoints/:category/:method/:path(*)', (req: Request, res: Response
 router.get('/search', (req: Request, res: Response) => {
   try {
     const { q } = req.query;
-    
+
     if (!q || typeof q !== 'string') {
       return res.status(400).json({ error: 'Search query is required' });
     }
-    
+
     const docService = DocumentationService.getInstance();
     const results = docService.searchEndpoints(q);
-    
+
     res.json({
       query: q,
       results: results.map(endpoint => ({
@@ -93,7 +93,7 @@ router.get('/categories', (req: Request, res: Response) => {
   try {
     const docService = DocumentationService.getInstance();
     const categories = docService.getCategories();
-    
+
     const categoriesList = Array.from(categories.entries()).map(([key, category]) => ({
       key,
       name: category.name,
@@ -103,7 +103,7 @@ router.get('/categories', (req: Request, res: Response) => {
       authRequiredCount: category.endpoints.filter(ep => ep.requiresAuth).length,
       adminOnlyCount: category.endpoints.filter(ep => ep.requiresAdmin).length
     }));
-    
+
     res.json(categoriesList);
   } catch (error) {
     logger.error('Error fetching categories:', error);
@@ -117,7 +117,7 @@ router.get('/stats', (req: Request, res: Response) => {
     const docService = DocumentationService.getInstance();
     const categories = docService.getCategories();
     const allEndpoints = docService.getAllEndpoints();
-    
+
     const stats = {
       totalEndpoints: allEndpoints.length,
       totalCategories: categories.size,
@@ -132,6 +132,7 @@ router.get('/stats', (req: Request, res: Response) => {
         PATCH: allEndpoints.filter(ep => ep.method === 'PATCH').length,
         HEAD: allEndpoints.filter(ep => ep.method === 'HEAD').length
       },
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       categories: Array.from(categories.entries()).map(([key, category]) => ({
         name: category.name,
         endpointCount: category.endpoints.length,
@@ -139,7 +140,7 @@ router.get('/stats', (req: Request, res: Response) => {
         adminOnlyCount: category.endpoints.filter(ep => ep.requiresAdmin).length
       }))
     };
-    
+
     res.json(stats);
   } catch (error) {
     logger.error('Error fetching API stats:', error);
@@ -156,4 +157,4 @@ router.get('/health', (req: Request, res: Response) => {
   });
 });
 
-export default router; 
+export default router;

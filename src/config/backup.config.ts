@@ -3,7 +3,7 @@ export default {
     backupPath: process.env.MYSQL_BACKUP_PATH || './backups/mysql',
     retention: {
       hourly: 24,
-      daily: 24,  
+      daily: 24,
       weekly: 10,
       monthly: 10,
     },
@@ -18,7 +18,7 @@ export default {
     backupPath: process.env.FILES_BACKUP_PATH || './backups/files',
     retention: {
       hourly: 10,
-      daily: 14,  
+      daily: 14,
       weekly: 14,
       monthly: 10,
     },

@@ -19,4 +19,4 @@ const databaseEndpoints: EndpointDefinition[] = [
   ...statisticsEndpoints
 ];
 
-export default databaseEndpoints; 
+export default databaseEndpoints;

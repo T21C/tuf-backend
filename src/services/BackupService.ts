@@ -4,7 +4,6 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import { CronJob } from 'cron';
 import config from '../config/backup.config.js';
-import db from '../models/index.js';
 import dotenv from 'dotenv';
 import { logger } from './LoggerService.js';
 import ElasticsearchService from './ElasticsearchService.js';
@@ -23,10 +22,10 @@ export class BackupService {
     this.config = config;
     this.isWindows = process.env.OS === 'Windows_NT';
     if (!fsSync.existsSync(this.config.mysql.backupPath)) {
-      fs.mkdir(this.config.mysql.backupPath, {recursive: true});
+      fsSync.mkdirSync(this.config.mysql.backupPath, {recursive: true});
     }
     if (!fsSync.existsSync(this.config.files.backupPath)) {
-      fs.mkdir(this.config.files.backupPath, {recursive: true});
+      fsSync.mkdirSync(this.config.files.backupPath, {recursive: true});
     }
     logger.info(
       `BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`,
@@ -116,22 +115,22 @@ export class BackupService {
       const cachePaths = this.config.files.include
         .filter(path => path.includes('cache'))
         .map(file => file.replace(/\//g, '\\'));
-      
+
       if (cachePaths.length === 0) {
         throw new Error('No cache paths found in include list');
       }
-      
+
       const includeFiles = cachePaths.join(',');
       cmd = `powershell -Command "Compress-Archive -Path ${includeFiles} -DestinationPath '${filePath.replace(/\\/g, '\\')}' -Force"`;
     } else {
       // Linux command using zip
       // Filter to only include cache directories and files
       const cachePaths = this.config.files.include.filter(path => path.includes('cache'));
-      
+
       if (cachePaths.length === 0) {
         throw new Error('No cache paths found in include list');
       }
-      
+
       const includeFiles = cachePaths.join(' ');
       cmd = `zip -r "${filePath}" ${includeFiles}`;
     }
@@ -150,17 +149,17 @@ export class BackupService {
       logger.warn('WARNING: Extract path is absolute, converting to relative:', extractPath);
       extractPath = path.join(process.cwd(), extractPath);
     }
-    
+
     // Clean up any existing temp directory before extraction
     try {
       await fs.rm(extractPath, {recursive: true, force: true});
     } catch (error) {
       // Ignore errors if directory doesn't exist
     }
-    
+
     // Ensure the extract path exists
     await fs.mkdir(extractPath, {recursive: true});
-    
+
     try {
       // Check if the backup file exists
       try {
@@ -168,10 +167,10 @@ export class BackupService {
       } catch (error) {
         throw new Error(`Backup file not found: ${backupPath}`);
       }
-      
+
       let cmd: string;
-      let sevenZipPath = '7z';
-      
+      const sevenZipPath = '7z';
+
       if (this.isWindows) {
         // Use 7-Zip to extract
         cmd = `"${sevenZipPath}" x "${backupPath}" -o"${extractPath}" -y`;
@@ -181,6 +180,7 @@ export class BackupService {
       }
 
       await new Promise((resolve, reject) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         exec(cmd, {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'}, (error, stdout, stderr) => {
           if (error) {
             reject(error);
@@ -192,7 +192,7 @@ export class BackupService {
 
       // Filter to only include cache directories
       const cachePaths = this.config.files.include.filter(path => path.includes('cache'));
-      
+
       if (cachePaths.length === 0) {
         throw new Error('No cache paths found in include list');
       }
@@ -203,17 +203,17 @@ export class BackupService {
         if (destination.includes('*')) {
           // For wildcard patterns, we need to find matching files in the extract path
           const baseDir = path.dirname(destination);
-          
+
           // Create the destination directory
           await fs.mkdir(baseDir, {recursive: true});
-          
+
           // Get all files in the extract path
           const extractFiles = await fs.readdir(extractPath);
-          
+
           // For each file in the extract path, create corresponding directories
           for (const file of extractFiles) {
             const sourcePath = path.join(extractPath, file);
-            
+
             // Check if it's a directory
             try {
               const stats = await fs.stat(sourcePath);
@@ -229,13 +229,13 @@ export class BackupService {
         } else {
           // Handle regular directory paths
           const destDir = path.dirname(destination);
-          
+
           // Ensure destination directory exists
           await fs.mkdir(destDir, {recursive: true});
-          
+
           // Check if the source is a directory in the extract path
           const sourceDir = path.join(extractPath, path.basename(destination));
-          
+
           try {
             const stats = await fs.stat(sourceDir);
             if (stats.isDirectory()) {
@@ -281,10 +281,10 @@ export class BackupService {
           // For wildcard patterns, we need to find matching files in the extract path
           const baseDir = path.dirname(destination);
           const fileNamePattern = path.basename(destination);
-          
+
           // Get all files in the extract path
           const extractFiles = await fs.readdir(extractPath);
-          
+
           // Filter files that match the pattern and exclude JSON files
           const matchingFiles = extractFiles.filter(file => {
             // Simple wildcard matching - can be improved for more complex patterns
@@ -292,12 +292,12 @@ export class BackupService {
             if (fileNamePattern === '*.json') return file.endsWith('.json');
             return file === fileNamePattern && !file.endsWith('.json');
           });
-          
+
           // Copy each matching file
           for (const file of matchingFiles) {
             const source = path.join(extractPath, file);
             const dest = path.join(baseDir, file);
-            
+
             try {
               // Check if source is a directory
               const stats = await fs.stat(source);
@@ -321,25 +321,24 @@ export class BackupService {
         } else {
           // Handle regular directory paths
           const source = path.join(extractPath, path.basename(destination));
-          const destDir = path.dirname(destination);
 
           try {
             // Check if source exists
             await fs.access(source);
-            
+
             // Check if source is a directory
             const stats = await fs.stat(source);
             if (stats.isDirectory()) {
               // For directories, ensure the destination exists and copy recursively
               await fs.mkdir(destination, {recursive: true});
-              
+
               // Remove existing files/directory if it exists
               try {
                 await fs.rm(destination, {recursive: true, force: true});
               } catch (error) {
                 // Ignore errors
               }
-              
+
               // Copy the directory
               await fs.cp(source, destination, {recursive: true});
             } else {
@@ -349,7 +348,7 @@ export class BackupService {
               } catch (error) {
                 // Ignore errors
               }
-              
+
               // Copy the file
               await fs.cp(source, destination, {recursive: true});
             }
@@ -365,18 +364,18 @@ export class BackupService {
                     const nestedPath = path.join(itemPath, path.basename(destination));
                     try {
                       const nestedStats = await fs.stat(nestedPath);
-                      
+
                       if (nestedStats.isDirectory()) {
                         // For directories, ensure the destination exists and copy recursively
                         await fs.mkdir(destination, {recursive: true});
-                        
+
                         // Remove existing files/directory if it exists
                         try {
                           await fs.rm(destination, {recursive: true, force: true});
                         } catch (rmError) {
                           // Ignore errors
                         }
-                        
+
                         // Copy the directory
                         await fs.cp(nestedPath, destination, {recursive: true});
                       } else {
@@ -386,7 +385,7 @@ export class BackupService {
                         } catch (rmError) {
                           // Ignore errors
                         }
-                        
+
                         // Copy the file
                         await fs.cp(nestedPath, destination, {recursive: true});
                       }
@@ -487,7 +486,7 @@ export class BackupService {
 
       // Copy the file instead of renaming
       await fs.copyFile(file.path, targetPath);
-      
+
       // Delete the temporary file after successful copy
       await fs.unlink(file.path);
 

@@ -159,4 +159,4 @@ const oauthEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default oauthEndpoints; 
+export default oauthEndpoints;

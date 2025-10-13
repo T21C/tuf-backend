@@ -59,4 +59,4 @@ AnnouncementRole.init(
   },
 );
 
-export default AnnouncementRole; 
+export default AnnouncementRole;

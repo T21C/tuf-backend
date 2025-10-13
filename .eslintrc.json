@@ -3,10 +3,13 @@
   "rules": {
     "@typescript-eslint/no-namespace": "off",
     "@typescript-eslint/no-explicit-any": "off",
+    "n/no-process-exit": "off",
+    "n/no-extraneous-import": "off",
+    "no-control-regex": "off",
+    "prefer-const": "off",
+    "no-case-declarations": "off",
     // Add any other rules you want to disable here
-    "prettier/prettier": ["error", {
-      "endOfLine": "auto"
-    }]
+    "prettier/prettier": "off"
   },
   "ignorePatterns": ["dist/**/*", "build/**/*", "node_modules/**/*", "uploads/**/*", "temp/**/*", "cache/**/*", "backups/**/*", "profiles/**/*", "src/database/generate_meta_inserts.bat", "src/database/meta_inserts.sql", "*.sh", "__pycache__/**/*"]
 }

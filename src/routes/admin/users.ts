@@ -179,7 +179,7 @@ router.post(
       };
 
       const targetFlag = roleToFlag[role];
-      
+
       // For ascending roles, we need to handle the hierarchy
       if (role === 'headcurator') {
         // Grant both curator and head curator
@@ -258,14 +258,6 @@ router.post(
         }
       }
 
-      // Map role names to permission flags
-      const roleToFlag: Record<string, bigint> = {
-        'rater': permissionFlags.RATER,
-        'superadmin': permissionFlags.SUPER_ADMIN,
-        'curator': permissionFlags.CURATOR,
-        'headcurator': permissionFlags.HEAD_CURATOR
-      };
-      
       // For ascending roles, we need to handle the hierarchy
       if (role === 'headcurator') {
         // Remove head curator but keep curator

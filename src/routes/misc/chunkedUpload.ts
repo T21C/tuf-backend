@@ -9,19 +9,6 @@ import { corsOptions } from '../../config/app.config.js';
 
 const router: Router = express.Router();
 
-// Ensure upload directories exist
-const ensureUploadDirs = (userId: string) => {
-  const chunkDir = path.join('uploads', 'chunks', userId);
-  const assembledDir = path.join('uploads', 'assembled', userId);
-  
-  if (!fs.existsSync(chunkDir)) {
-    fs.mkdirSync(chunkDir, { recursive: true });
-  }
-  if (!fs.existsSync(assembledDir)) {
-    fs.mkdirSync(assembledDir, { recursive: true });
-  }
-};
-
 // Update multer storage to use headers
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -39,7 +26,7 @@ const storage = multer.diskStorage({
 
 
     if (!fileId || chunkIndex === undefined) {
-      logger.error('Missing fileId or chunkIndex in headers', { 
+      logger.error('Missing fileId or chunkIndex in headers', {
         headers: req.headers,
         file: {
           fieldname: file.fieldname,
@@ -120,19 +107,19 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
       const outputPath = path.join(assembledDir, `${fileId}.zip`);
 
       const writeStream = fs.createWriteStream(outputPath);
-      
+
       // Read and write chunks in order
       for (let i = 0; i < metadata.totalChunks; i++) {
         const chunkPath = path.join('uploads', 'chunks', userId, `${fileId}_${i}`);
-        
+
         const chunkBuffer = fs.readFileSync(chunkPath);
         writeStream.write(chunkBuffer);
         // Remove chunk after writing
         fs.unlinkSync(chunkPath);
       }
-      
+
       writeStream.end();
-      
+
       // Wait for write to complete
       await new Promise<void>((resolve, reject) => {
         writeStream.on('finish', () => resolve());
@@ -141,7 +128,7 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
 
       // Clean up metadata
       uploadMetadata.delete(fileId);
-      
+
       return res.json({
         message: 'File assembled successfully',
         fileId,
@@ -162,11 +149,11 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
   return
 });
 
-// Validate upload status   
+// Validate upload status
 router.post('/validate', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { fileId } = req.body;
-    
+
     if (!fileId) {
       return res.status(400).json({ error: 'Missing fileId' });
     }
@@ -209,14 +196,14 @@ router.post('/validate', Auth.superAdmin(), async (req: Request, res: Response) 
       totalChunks: metadata.totalChunks,
       isComplete: metadata.receivedChunks.size === metadata.totalChunks,
       missingChunks: missingChunks.length > 0 ? missingChunks : undefined,
-      assembledPath: metadata.receivedChunks.size === metadata.totalChunks 
+      assembledPath: metadata.receivedChunks.size === metadata.totalChunks
         ? path.join('uploads', 'assembled', metadata.userId, `${fileId}.zip`)
         : undefined
     });
 
   } catch (error) {
     logger.error('Upload validation error:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to validate upload',
       details: error instanceof Error ? error.message : String(error)
     });
@@ -264,7 +251,7 @@ router.post('/cleanup', Auth.superAdmin(), async (req: Request, res: Response) =
     return res.json({ success: true, message: 'All uploads cleaned up successfully' });
   } catch (error) {
     logger.error('Cleanup error:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to clean up uploads',
       details: error instanceof Error ? error.message : String(error)
     });
@@ -274,4 +261,4 @@ router.post('/cleanup', Auth.superAdmin(), async (req: Request, res: Response) =
 // Export the cleanup function
 export { cleanupUserUploads };
 
-export default router; 
+export default router;

@@ -59,4 +59,4 @@ DirectiveConditionHistory.belongsTo(Level, {
   as: 'level',
 });
 
-export default DirectiveConditionHistory; 
+export default DirectiveConditionHistory;

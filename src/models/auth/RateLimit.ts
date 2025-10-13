@@ -14,7 +14,7 @@ interface RateLimitAttributes {
   updatedAt: Date;
 }
 
-export interface RateLimitCreationAttributes extends Omit<RateLimitAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
+export type RateLimitCreationAttributes = Omit<RateLimitAttributes, 'id' | 'createdAt' | 'updatedAt'>
 
 class RateLimit extends Model<RateLimitAttributes, RateLimitCreationAttributes> implements RateLimitAttributes {
   declare id?: number;
@@ -85,4 +85,4 @@ RateLimit.init(
   }
 );
 
-export default RateLimit; 
+export default RateLimit;

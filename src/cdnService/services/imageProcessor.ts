@@ -7,7 +7,7 @@ export async function processImage(filePath: string, imageType: ImageType, fileI
     const imageConfig = IMAGE_TYPES[imageType];
     const image = sharp(filePath);
     const processedFiles: Record<string, { path: string; mimeType: string }> = {};
-    
+
     // Create directory for this image's versions
     const imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
     fs.mkdirSync(imageDir, { recursive: true });
@@ -21,9 +21,9 @@ export async function processImage(filePath: string, imageType: ImageType, fileI
             };
             continue;
         }
-        
+
         const outputPath = path.join(imageDir, `${size}${path.extname(filePath)}`);
-        
+
         await image
             .clone()
             .resize(dimensions.width, dimensions.height, {

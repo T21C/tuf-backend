@@ -13,4 +13,4 @@ const authEndpoints: EndpointDefinition[] = [
   ...forgotPasswordEndpoints
 ];
 
-export default authEndpoints; 
+export default authEndpoints;

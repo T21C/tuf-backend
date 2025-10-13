@@ -14,7 +14,7 @@ import {getScoreV2} from '../../utils/CalcScore.js';
 import {calcAcc} from '../../utils/CalcAcc.js';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '../../models/submissions/LevelSubmissionTeamRequest.js';
-import sequelize from "../../config/db.js";
+import sequelize from '../../config/db.js';
 import { Transaction } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import Pass from '../../models/passes/Pass.js';
@@ -41,7 +41,7 @@ const storage = multer.diskStorage({
     cb(null, file.originalname);
   }
 });
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: {
     fileSize: 1000 * 1024 * 1024 // 1GB limit
@@ -54,13 +54,13 @@ const sanitizeTextInput = (input: string | null | undefined): string => {
   return input.trim();
 };
 
-const validateNumericInput = (input: any, min: number = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
+const validateNumericInput = (input: any, min = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
   const parsed = parseInt(input?.toString() || '0');
   if (isNaN(parsed)) return min;
   return Math.max(min, Math.min(max, parsed));
 };
 
-const validateFloatInput = (input: any, min: number = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
+const validateFloatInput = (input: any, min = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
   const parsed = parseFloat(input?.toString() || '0');
   if (isNaN(parsed)) return min;
   return Math.max(min, Math.min(max, parsed));
@@ -84,8 +84,8 @@ const safeParseJSON = (input: string | object | null | undefined): any => {
 
 // Validate creator request structure
 const validateCreatorRequest = (request: any): boolean => {
-  return request && 
-         typeof request.creatorName === 'string' && 
+  return request &&
+         typeof request.creatorName === 'string' &&
          request.creatorName.trim().length > 0 &&
          typeof request.role === 'string' &&
          request.role.trim().length > 0;
@@ -93,14 +93,14 @@ const validateCreatorRequest = (request: any): boolean => {
 
 // Validate team request structure
 const validateTeamRequest = (request: any): boolean => {
-  return request && 
-         typeof request.teamName === 'string' && 
+  return request &&
+         typeof request.teamName === 'string' &&
          request.teamName.trim().length > 0;
 };
 
 const cleanVideoUrl = (url: string) => {
   if (!url || typeof url !== 'string') return '';
-  
+
   // Match various video URL formats
   const patterns = [
     // YouTube patterns
@@ -164,7 +164,7 @@ async function cleanUpFile(req: Request) {
 // Enhanced CDN cleanup
 async function cleanUpCdnFile(fileId: string | null) {
   if (!fileId) return;
-  
+
   try {
     await cdnService.deleteFile(fileId);
     logger.debug('CDN file cleaned up successfully:', {
@@ -189,7 +189,7 @@ router.post(
   async (req: Request, res: Response) => {
     let transaction: Transaction | undefined;
     let uploadedFileId: string | null = null;
-    
+
     try {
       // Start a transaction
       transaction = await sequelize.transaction();
@@ -258,7 +258,7 @@ router.post(
           },
           transaction
         });
-        
+
         if (existingSubmissions.length > 0) {
           await cleanUpFile(req);
           await safeTransactionRollback(transaction);
@@ -269,7 +269,6 @@ router.post(
 
         // Handle level zip file if present
         let directDL: string | null = null;
-        let hasZipUpload = false;
         let levelFiles: any[] = [];
 
         if (req.file) {
@@ -285,9 +284,9 @@ router.post(
 
             // Read file from disk instead of using buffer
             const fileBuffer = await fs.promises.readFile(req.file.path);
-            
+
             const uploadResult = await cdnService.uploadLevelZip(
-              fileBuffer, 
+              fileBuffer,
               req.file.originalname
             );
 
@@ -299,14 +298,13 @@ router.post(
 
             // Get the level files from the CDN service
             levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
-            
+
             // If only one level file, use it directly
             directDL = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-            hasZipUpload = true;
           } catch (error) {
             // Clean up the temporary file in case of error
             await cleanUpFile(req);
-            
+
             // Clean up CDN file if it was uploaded
             if (uploadedFileId) {
               await cleanUpCdnFile(uploadedFileId);
@@ -321,7 +319,7 @@ router.post(
               size: req.file.size,
               timestamp: new Date().toISOString()
             });
-            
+
             await safeTransactionRollback(transaction);
             throw error;
           }
@@ -355,7 +353,7 @@ router.post(
               timestamp: new Date().toISOString()
             });
           }
-          
+
           await Promise.all(validRequests.map(async (request: any) => {
             return LevelSubmissionCreatorRequest.create({
               submissionId: submission.id,
@@ -521,7 +519,7 @@ router.post(
           ],
           transaction
         });
-        
+
         if (!level) {
           await cleanUpFile(req);
           await safeTransactionRollback(transaction);
@@ -598,7 +596,7 @@ router.post(
           },
           transaction
         });
-        
+
         const existingPass = existingJudgement ? await Pass.findOne({
           where: {
             id: existingJudgement.id,
@@ -611,7 +609,7 @@ router.post(
           },
           transaction
         }) : null;
-        
+
         if (existingPass) {
           await cleanUpFile(req);
           await safeTransactionRollback(transaction);
@@ -642,7 +640,7 @@ router.post(
         );
 
         const accuracy = calcAcc(sanitizedJudgements);
-        
+
         // Create the pass submission within transaction
         const submission = await PassSubmission.create({
           levelId: levelId,
@@ -678,7 +676,7 @@ router.post(
         };
 
         await PassSubmissionFlags.create(flags, { transaction });
-        
+
         const passObj = await PassSubmission.findByPk(submission.id, {
           include: [
             {

@@ -9,4 +9,4 @@ const passEndpoints: EndpointDefinition[] = [
   ...modification,
 ];
 
-export default passEndpoints; 
+export default passEndpoints;

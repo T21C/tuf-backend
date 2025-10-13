@@ -1,6 +1,6 @@
-import client, { 
-  levelIndexName, 
-  passIndexName, 
+import client, {
+  levelIndexName,
+  passIndexName,
   initializeElasticsearch,
   updateMappingHash
 } from '../config/elasticsearch.js';
@@ -30,7 +30,7 @@ import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGrou
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
-  private isInitialized: boolean = false;
+  private isInitialized = false;
 
   private constructor() {}
 
@@ -49,15 +49,15 @@ class ElasticsearchService {
 
     try {
       logger.info('Starting ElasticsearchService initialization...');
-      
+
       // Initialize Elasticsearch indices
       const needsReindex = await initializeElasticsearch();
-      
+
       // Set up database change listeners
       this.setupChangeListeners()
       logger.info('Database change listeners set up successfully');
 
-      
+
       if (needsReindex) {
         logger.info('Starting data reindexing...');
         const start = Date.now();
@@ -129,7 +129,7 @@ class ElasticsearchService {
 
     // Add afterBulkUpdate hook for Pass model
     Pass.addHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate', async (options: any) => {
-      logger.debug(`Pass bulk update hook triggered`);
+      logger.debug('Pass bulk update hook triggered');
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
@@ -153,7 +153,7 @@ class ElasticsearchService {
           }
         }
       } catch (error) {
-        logger.error(`Error in pass afterBulkUpdate hook:`, error);
+        logger.error('Error in pass afterBulkUpdate hook:', error);
       }
     });
 
@@ -195,14 +195,14 @@ class ElasticsearchService {
 
     // Add afterBulkUpdate hook for Level model
     Level.addHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate', async (options: any) => {
-      logger.debug(`Level bulk update hook triggered`);
+      logger.debug('Level bulk update hook triggered');
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
             const levelIds = await Level.findAll({ where: options.where, attributes: ['id'] });
             logger.debug(`Indexing ${levelIds.length} levels after bulk update`);
             await this.reindexLevels(levelIds.map(level => level.id));
-            
+
            });
         } else {
           if (options.where) {
@@ -212,7 +212,7 @@ class ElasticsearchService {
           }
         }
       } catch (error) {
-        logger.error(`Error in level afterBulkUpdate hook:`, error);
+        logger.error('Error in level afterBulkUpdate hook:', error);
       }
     });
 
@@ -240,7 +240,7 @@ class ElasticsearchService {
 
     // Add afterBulkUpdate hook for Curation model
     Curation.addHook('afterBulkUpdate', 'elasticsearchCurationBulkUpdate', async (options: any) => {
-      logger.debug(`Curation bulk update hook triggered`);
+      logger.debug('Curation bulk update hook triggered');
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
@@ -270,7 +270,7 @@ class ElasticsearchService {
           }
         }
       } catch (error) {
-        logger.error(`Error in curation afterBulkUpdate hook:`, error);
+        logger.error('Error in curation afterBulkUpdate hook:', error);
       }
     });
   }
@@ -325,34 +325,30 @@ class ElasticsearchService {
     ];
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
     logger.debug(`Getting level with relations for level ${levelId}`);
-    try {
-      const level = await Level.findByPk(levelId, 
-        {include: this.levelIncludes}
-      );
-      if (!level) return null;
-      const clears = await Pass.count({
-        where: {
-          levelId: levelId,
-          isDeleted: false,
-          isHidden: false,
-        },
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            where: {
-              isBanned: false
-            }
+    const level = await Level.findByPk(levelId,
+      {include: this.levelIncludes}
+    );
+    if (!level) return null;
+    const clears = await Pass.count({
+      where: {
+        levelId: levelId,
+        isDeleted: false,
+        isHidden: false,
+      },
+      include: [
+        {
+          model: Player,
+          as: 'player',
+          where: {
+            isBanned: false
           }
-        ]
-      });
-      logger.debug(`Level ${level.id} curationtype: ${level.curation?.type?.name}`);
-      level.clears = clears;
-      logger.debug(`Level ${level.id} has ${clears} clears`);
-      return level;
-    } catch (error) {
-      throw error;
-    }
+        }
+      ]
+    });
+    logger.debug(`Level ${level.id} curationtype: ${level.curation?.type?.name}`);
+    level.clears = clears;
+    logger.debug(`Level ${level.id} has ${clears} clears`);
+    return level;
   }
 
 
@@ -397,7 +393,7 @@ class ElasticsearchService {
           ...level.curation.get({ plain: true }),
         } : null,
         isCurated: !!level.curation,
-  
+
     };
   }
 
@@ -487,7 +483,7 @@ class ElasticsearchService {
       throw error;
     }
   }
-  
+
   private async getParsedPass(id: number): Promise<IPass | null> {
     const pass = await this.getPassWithRelations(id);
     if (!pass) return null;
@@ -510,7 +506,7 @@ class ElasticsearchService {
 
 
   public async indexLevel(level: Level | number): Promise<void> {
-    const id = typeof level === 'number' ? level 
+    const id = typeof level === 'number' ? level
     : typeof level === 'string' ? parseInt(level)
     : level.id;
     try {
@@ -546,10 +542,10 @@ class ElasticsearchService {
     try {
       const BATCH_SIZE = 200;
       const totalBatches = Math.ceil(levels.length / BATCH_SIZE);
-      
+
       for (let i = 0; i < levels.length; i += BATCH_SIZE) {
         const batch = levels.slice(i, i + BATCH_SIZE);
-        
+
         // Fetch the most recent confirmed rating for all levels in this batch
         const levelIds = batch.map(level => level.id);
         const ratings = await Rating.findAll({
@@ -560,7 +556,7 @@ class ElasticsearchService {
           order: [['confirmedAt', 'DESC']], // Order by most recent first
           attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
         });
-        
+
         // Create a map with only the most recent rating per level
         const ratingMap = new Map();
         ratings.forEach(rating => {
@@ -568,7 +564,7 @@ class ElasticsearchService {
             ratingMap.set(rating.levelId, rating);
           }
         });
-        
+
         const operations = batch.flatMap(level => {
           const rating = ratingMap.get(level.id);
 
@@ -649,7 +645,7 @@ class ElasticsearchService {
     try {
       const BATCH_SIZE = 100;
       const totalBatches = Math.ceil(passes.length / BATCH_SIZE);
-      
+
       for (let i = 0; i < passes.length; i += BATCH_SIZE) {
         const batch = passes.slice(i, i + BATCH_SIZE);
         const operations = batch.flatMap(pass => {
@@ -747,7 +743,7 @@ class ElasticsearchService {
       });
 
       await this.bulkIndexPasses(passes);
-      
+
     } catch (error) {
       logger.error('Error reindexing all passes:', error);
       throw error;
@@ -830,10 +826,10 @@ class ElasticsearchService {
     }
   }
 
-  private parseSearchQuery(query: string, isPassSearch: boolean = false): SearchGroup[] {
+  private parseSearchQuery(query: string, isPassSearch = false): SearchGroup[] {
     const config = isPassSearch ? queryParserConfigs.pass : queryParserConfigs.level;
     const groups = parseSearchQuery(query, config);
-    
+
     // Convert all values to PUA for Elasticsearch
     return groups.map(group => ({
       ...group,
@@ -844,20 +840,20 @@ class ElasticsearchService {
     }));
   }
 
-  private buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases: boolean = false): any {
+  private buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases = false): any {
     const { field, value, exact, isNot } = fieldSearch;
     // Note: value is already converted to PUA in parseFieldSearch
     const searchValue = prepareSearchTerm(value);
     logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
-    
+
     // Check if this is a numeric field (like id)
     const numericFields = queryParserConfigs.level.numericFields || [];
     const isNumericField = numericFields.includes(field);
-    
+
     // Handle numeric fields specially
     if (isNumericField && field !== 'any') {
       const numericValue = parseInt(searchValue, 10);
-      
+
       // For numeric fields, use term query for exact matches
       if (!isNaN(numericValue)) {
         const query = {
@@ -1278,7 +1274,7 @@ class ElasticsearchService {
                 bool: {
                   must: [
                     { exists: { field: 'dlLink' } },
-                    { 
+                    {
                       bool: {
                         must_not: [
                           { term: { 'dlLink.keyword': '' } }
@@ -1292,7 +1288,7 @@ class ElasticsearchService {
                 bool: {
                   must: [
                     { exists: { field: 'workshopLink' } },
-                    { 
+                    {
                       bool: {
                         must_not: [
                           { term: { 'workshopLink.keyword': '' } }
@@ -1318,7 +1314,7 @@ class ElasticsearchService {
                       bool: {
                         must: [
                           { exists: { field: 'dlLink' } },
-                          { 
+                          {
                             bool: {
                               must_not: [
                                 { term: { 'dlLink.keyword': '' } }
@@ -1332,7 +1328,7 @@ class ElasticsearchService {
                       bool: {
                         must: [
                           { exists: { field: 'workshopLink' } },
-                          { 
+                          {
                             bool: {
                               must_not: [
                                 { term: { 'workshopLink.keyword': '' } }
@@ -1413,7 +1409,7 @@ class ElasticsearchService {
       // Handle difficulty filters
       if (filters.pguRange || filters.specialDifficulties) {
         const difficultyConditions = [];
-        
+
         // Resolve PGU range to IDs
         if (filters.pguRange) {
           const { from, to } = filters.pguRange;
@@ -1421,7 +1417,7 @@ class ElasticsearchService {
           if (pguIds.length > 0) {
             difficultyConditions.push({
               terms: {
-                "diffId": pguIds
+                'diffId': pguIds
               }
             });
           }
@@ -1433,7 +1429,7 @@ class ElasticsearchService {
           if (specialIds.length > 0) {
             difficultyConditions.push({
               terms: {
-                "diffId": specialIds
+                'diffId': specialIds
               }
             });
           }
@@ -1496,7 +1492,7 @@ class ElasticsearchService {
     try {
       // Get sort options
       const sortOptions = this.getSortOptions(sort);
-      
+
       // Check if we should use regular search instead of scroll
       if (this.shouldUseRegularSearch(sortOptions)) {
         logger.warn('Using regular search instead of scroll due to sort type');
@@ -1516,7 +1512,7 @@ class ElasticsearchService {
 
       const scrollId = initialResponse._scroll_id;
       let hits: any[] = [];
-      let total = initialResponse.hits.total ? 
+      const total = initialResponse.hits.total ?
         (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
 
       try {
@@ -1572,8 +1568,8 @@ class ElasticsearchService {
 
   private shouldUseRegularSearch(sortOptions: any[]): boolean {
     // Check if any sort option uses random or script
-    return sortOptions.some(option => 
-      option._script !== undefined || 
+    return sortOptions.some(option =>
+      option._script !== undefined ||
       (typeof option === 'object' && Object.keys(option).some(key => key === '_script'))
     );
   }
@@ -1616,7 +1612,7 @@ class ElasticsearchService {
   }
 
   private isRandomSort(sortOptions: any[]): boolean {
-    return sortOptions.some(option => 
+    return sortOptions.some(option =>
       option._script?.script === 'Math.random()'
     );
   }
@@ -1737,7 +1733,7 @@ class ElasticsearchService {
 
   private getSortOptions(sort?: string): any[] {
     const direction = sort?.split('_').pop() === 'ASC' ? 'asc' : 'desc';
-    
+
     switch (sort?.split('_').slice(0, -1).join('_')) {
       case 'RECENT':
         return [{ id: direction }];
@@ -1791,8 +1787,8 @@ class ElasticsearchService {
         must.push({ term: { 'level.isDeleted': false } });
         must.push({ term: { 'player.isBanned': false } });
       } else if (filters.deletedFilter === 'only') {
-        must.push({ 
-          bool: { 
+        must.push({
+          bool: {
             should: [
               { term: { isDeleted: true } },
               { term: { 'level.isHidden': true } },
@@ -1818,7 +1814,7 @@ class ElasticsearchService {
       // Handle difficulty filters
       if (filters.minDiff || filters.maxDiff || filters.specialDifficulties) {
         const difficultyConditions = [];
-        
+
         // Handle PGU range
         if (filters.minDiff || filters.maxDiff) {
           const [fromDiff, toDiff] = await Promise.all([
@@ -1851,7 +1847,7 @@ class ElasticsearchService {
             if (pguDifficulties.length > 0) {
               difficultyConditions.push({
                 terms: {
-                  "level.diffId": pguDifficulties.map(d => d.id)
+                  'level.diffId': pguDifficulties.map(d => d.id)
                 }
               });
             }
@@ -1871,7 +1867,7 @@ class ElasticsearchService {
           if (specialDiffs.length > 0) {
             difficultyConditions.push({
               terms: {
-                "level.diffId": specialDiffs.map(d => d.id)
+                'level.diffId': specialDiffs.map(d => d.id)
               }
             });
           }
@@ -1935,7 +1931,7 @@ class ElasticsearchService {
     try {
       // Get sort options
       const sortOptions = this.getPassSortOptions(sort);
-      
+
       // Check if we should use regular search instead of scroll
       if (this.shouldUseRegularSearch(sortOptions)) {
         logger.warn('Using regular search instead of scroll due to sort type');
@@ -1955,7 +1951,7 @@ class ElasticsearchService {
 
       const scrollId = initialResponse._scroll_id;
       let hits: any[] = [];
-      let total = initialResponse.hits.total ? 
+      const total = initialResponse.hits.total ?
         (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
 
       try {
@@ -2115,7 +2111,7 @@ class ElasticsearchService {
 
   private getPassSortOptions(sort?: string): any[] {
     const direction = sort?.split('_').pop() === 'ASC' ? 'asc' : 'desc';
-    
+
     switch (sort?.split('_').slice(0, -1).join('_')) {
       case 'RECENT':
         return [{ vidUploadTime: direction }];
@@ -2137,15 +2133,15 @@ class ElasticsearchService {
     // Note: value is already converted to PUA in parseFieldSearch
     const searchValue = prepareSearchTerm(value);
     logger.debug(`Building pass search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
-    
+
     // Check if this is a numeric field
     const numericFields = queryParserConfigs.pass.numericFields || [];
     const isNumericField = numericFields.includes(field);
-    
+
     // Handle numeric fields specially
     if (isNumericField && field !== 'any') {
       const numericValue = parseInt(searchValue, 10);
-      
+
       // For numeric fields, use term query for exact matches
       if (!isNaN(numericValue)) {
         const query = {
@@ -2372,4 +2368,4 @@ class ElasticsearchService {
   }
 }
 
-export default ElasticsearchService; 
+export default ElasticsearchService;

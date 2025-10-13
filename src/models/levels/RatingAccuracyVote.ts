@@ -10,7 +10,7 @@ import {
   import Level from './Level.js';
 import User from '../auth/User.js';
 import Difficulty from './Difficulty.js';
-  
+
   class RatingAccuracyVote extends Model<
     InferAttributes<RatingAccuracyVote>,
     InferCreationAttributes<RatingAccuracyVote>
@@ -23,7 +23,7 @@ import Difficulty from './Difficulty.js';
     declare createdAt: CreationOptional<Date>;
     declare updatedAt: CreationOptional<Date>;
   }
-  
+
   RatingAccuracyVote.init(
     {
       id: {
@@ -89,5 +89,5 @@ import Difficulty from './Difficulty.js';
     foreignKey: 'userId',
     as: 'user',
   });
-  
+
   export default RatingAccuracyVote;

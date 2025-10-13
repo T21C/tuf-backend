@@ -5,7 +5,7 @@ import Pass from '../../models/passes/Pass.js';
 import Judgement from '../../models/passes/Judgement.js';
 import {Auth} from '../../middleware/auth.js';
 import {Op} from 'sequelize';
-import {DirectiveCondition, IDifficulty} from '../../interfaces/models/index.js';
+import {ConditionOperator, DirectiveCondition, DirectiveConditionType, IDifficulty} from '../../interfaces/models/index.js';
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
@@ -36,10 +36,10 @@ async function calculateDifficultiesHash(): Promise<string> {
   try {
     const diffs = await Difficulty.findAll();
     const diffsList = diffs.map(diff => diff.toJSON());
-    
+
     // Create a string representation of the difficulties
     const diffsString = JSON.stringify(diffsList);
-    
+
     // Calculate hash
     const hash = crypto.createHash('sha256').update(diffsString).digest('hex');
     return hash;
@@ -50,7 +50,7 @@ async function calculateDifficultiesHash(): Promise<string> {
 }
 
 // Initialize the hash
-(async () => {
+await (async () => {
   difficultiesHash = await calculateDifficultiesHash();
 })();
 
@@ -99,7 +99,7 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
 
 // Add this function before the router definition
 function validateCustomDirective(condition: DirectiveCondition): { isValid: boolean; error?: string } {
-  if (condition.type !== 'CUSTOM' || !condition.customFunction) {
+  if (condition.type !== DirectiveConditionType.CUSTOM || !condition.customFunction) {
     return { isValid: true };
   }
 
@@ -109,8 +109,8 @@ function validateCustomDirective(condition: DirectiveCondition): { isValid: bool
     parser.parse();
     return { isValid: true };
   } catch (error) {
-    return { 
-      isValid: false, 
+    return {
+      isValid: false,
       error: error instanceof Error ? error.message : 'Invalid custom directive format'
     };
   }
@@ -685,9 +685,9 @@ interface DirectiveInput {
   mode: 'STATIC' | 'CONDITIONAL';
   triggerType: 'PASS' | 'LEVEL';
   condition?: {
-    type: 'ACCURACY' | 'WORLDS_FIRST' | 'BASE_SCORE' | 'CUSTOM';
+    type: DirectiveConditionType;
     value?: number;
-    operator?: 'EQUAL' | 'GREATER_THAN' | 'LESS_THAN' | 'GREATER_THAN_EQUAL' | 'LESS_THAN_EQUAL';
+    operator?: ConditionOperator;
     customFunction?: string;
   };
   actions: {
@@ -781,34 +781,34 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
           return res.status(400).json({ error: 'Condition required for conditional mode' });
         }
 
-        if (!['ACCURACY', 'WORLDS_FIRST', 'BASE_SCORE', 'CUSTOM'].includes(directive.condition.type)) {
+        if (!DirectiveConditionType[directive.condition.type]) {
           await safeTransactionRollback(transaction);
           return res.status(400).json({ error: 'Invalid condition type' });
         }
 
         // Validate condition parameters based on type
         switch (directive.condition.type) {
-          case 'ACCURACY':
-          case 'BASE_SCORE':
+          case DirectiveConditionType.ACCURACY:
+          case DirectiveConditionType.BASE_SCORE:
             if (directive.condition.value === undefined || !directive.condition.operator) {
               await safeTransactionRollback(transaction);
               return res.status(400).json({ error: 'Missing condition parameters' });
             }
-            if (!['EQUAL', 'GREATER_THAN', 'LESS_THAN', 'GREATER_THAN_EQUAL', 'LESS_THAN_EQUAL'].includes(directive.condition.operator)) {
+            if (!ConditionOperator[directive.condition.operator]) {
               await safeTransactionRollback(transaction);
               return res.status(400).json({ error: 'Invalid operator' });
             }
             break;
-          case 'CUSTOM':
+          case DirectiveConditionType.CUSTOM:
             if (!directive.condition.customFunction) {
               await safeTransactionRollback(transaction);
               return res.status(400).json({ error: 'Missing custom function' });
             }
             // Validate custom function format
-            const validation = validateCustomDirective(directive.condition);
+            const validation = validateCustomDirective(directive.condition as DirectiveCondition);
             if (!validation.isValid) {
               await safeTransactionRollback(transaction);
-              return res.status(400).json({ 
+              return res.status(400).json({
                 error: 'Invalid custom directive format',
                 details: validation.error
               });
@@ -831,14 +831,14 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
     }
 
     // Delete existing directives and their actions
-    await AnnouncementDirective.destroy({ 
+    await AnnouncementDirective.destroy({
       where: { difficultyId: id },
-      transaction 
+      transaction
     });
 
     // Create new directives with their actions
     const createdDirectives = await Promise.all(
-      directives.map(async (directive, index) => {
+      directives.map(async (directive) => {
         const createdDirective = await AnnouncementDirective.create({
           difficultyId: id,
           name: directive.name,
@@ -875,8 +875,8 @@ router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, re
 
     // Fetch the created directives with their related data
     const fullDirectives = await AnnouncementDirective.findAll({
-      where: { 
-        id: createdDirectives.map(d => d.id) 
+      where: {
+        id: createdDirectives.map(d => d.id)
       },
       include: [{
         model: DirectiveAction,
@@ -914,7 +914,7 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
   const transaction = await sequelize.transaction();
   try {
     const { sortOrders } = req.body;
-    
+
     if (!Array.isArray(sortOrders)) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'Invalid sort orders format' });
@@ -927,25 +927,25 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
         if (id === undefined || sortOrder === undefined) {
           throw new Error('Missing id or sortOrder in sort orders array');
         }
-        
+
         const difficulty = await Difficulty.findByPk(id);
         if (!difficulty) {
           throw new Error(`Difficulty with ID ${id} not found`);
         }
-        
+
         await difficulty.update({ sortOrder }, { transaction });
       })
     );
 
     await transaction.commit();
-    
+
     // Update the hash after updating sort orders
     difficultiesHash = await calculateDifficultiesHash();
-    
+
     // Emit events for frontend updates
     const io = getIO();
     io.emit('difficultiesReordered');
-    
+
     sseManager.broadcast({
       type: 'difficultiesReordered',
       data: {
@@ -953,12 +953,12 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
         count: sortOrders.length
       }
     });
-    
+
     return res.json({ message: 'Sort orders updated successfully' });
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error updating sort orders:', error);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Failed to update sort orders',
       details: error instanceof Error ? error.message : String(error)
     });

@@ -306,4 +306,4 @@ const playersEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default playersEndpoints; 
+export default playersEndpoints;

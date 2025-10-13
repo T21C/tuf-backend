@@ -40,7 +40,7 @@ export function serializeUser(user: any): any {
   if (!user) return null;
 
   const userJson = user.toJSON ? user.toJSON() : user;
-  
+
   return {
     ...userJson,
     permissionFlags: user.permissionFlags ? user.permissionFlags.toString() : '0'
@@ -56,7 +56,7 @@ export function serializePlayer(player: any): any {
   if (!player) return null;
 
   const playerJson = player.toJSON ? player.toJSON() : player;
-  
+
   return {
     ...playerJson,
     user: player.user ? serializeUser(player.user) : null

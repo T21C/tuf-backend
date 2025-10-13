@@ -60,19 +60,19 @@ class DocumentationService {
     allEndpoints.forEach(endpoint => {
       this.addEndpoint(endpoint);
     });
-    
+
     logger.info(`Loaded ${allEndpoints.length} endpoints from endpoint files`);
   }
 
   public addEndpoint(endpoint: EndpointDefinition): void {
     const key = `${endpoint.method}:${endpoint.path}`;
     this.endpoints.set(key, endpoint);
-    
+
     const category = this.categories.get(endpoint.category);
     if (category) {
       category.endpoints.push(endpoint);
     }
-    
+
     logger.debug(`Added endpoint: ${key}`);
   }
 
@@ -100,7 +100,7 @@ class DocumentationService {
 
   public searchEndpoints(query: string): EndpointDefinition[] {
     const searchTerm = query.toLowerCase();
-    return Array.from(this.endpoints.values()).filter(endpoint => 
+    return Array.from(this.endpoints.values()).filter(endpoint =>
       endpoint.path.toLowerCase().includes(searchTerm) ||
       endpoint.description.toLowerCase().includes(searchTerm) ||
       endpoint.method.toLowerCase().includes(searchTerm)
@@ -110,25 +110,25 @@ class DocumentationService {
   public updateEndpoint(method: string, path: string, updates: Partial<EndpointDefinition>): boolean {
     const key = `${method}:${path}`;
     const existing = this.endpoints.get(key);
-    
+
     if (!existing) {
       return false;
     }
 
     const updated = { ...existing, ...updates };
     this.endpoints.set(key, updated);
-    
+
     // Update in category as well
     const category = this.categories.get(existing.category);
     if (category) {
-      const index = category.endpoints.findIndex(ep => 
+      const index = category.endpoints.findIndex(ep =>
         ep.method === method && ep.path === path
       );
       if (index !== -1) {
         category.endpoints[index] = updated;
       }
     }
-    
+
     logger.debug(`Updated endpoint: ${key}`);
     return true;
   }
@@ -136,33 +136,33 @@ class DocumentationService {
   public removeEndpoint(method: string, path: string): boolean {
     const key = `${method}:${path}`;
     const endpoint = this.endpoints.get(key);
-    
+
     if (!endpoint) {
       return false;
     }
 
     this.endpoints.delete(key);
-    
+
     // Remove from category as well
     const category = this.categories.get(endpoint.category);
     if (category) {
-      category.endpoints = category.endpoints.filter(ep => 
+      category.endpoints = category.endpoints.filter(ep =>
         !(ep.method === method && ep.path === path)
       );
     }
-    
+
     logger.debug(`Removed endpoint: ${key}`);
     return true;
   }
 
   public exportOpenAPISpec(): any {
     const paths: Record<string, any> = {};
-    
+
     this.endpoints.forEach(endpoint => {
       if (!paths[endpoint.path]) {
         paths[endpoint.path] = {};
       }
-      
+
       paths[endpoint.path][endpoint.method.toLowerCase()] = {
         summary: endpoint.description,
         description: endpoint.description,
@@ -207,7 +207,7 @@ class DocumentationService {
 
   private buildOpenAPIParameters(endpoint: EndpointDefinition): any[] {
     const parameters: any[] = [];
-    
+
     // Path parameters
     if (endpoint.parameters?.path) {
       Object.entries(endpoint.parameters.path).forEach(([name, description]) => {
@@ -220,7 +220,7 @@ class DocumentationService {
         });
       });
     }
-    
+
     // Query parameters
     if (endpoint.parameters?.query) {
       Object.entries(endpoint.parameters.query).forEach(([name, description]) => {
@@ -233,7 +233,7 @@ class DocumentationService {
         });
       });
     }
-    
+
     // Header parameters
     if (endpoint.parameters?.headers) {
       Object.entries(endpoint.parameters.headers).forEach(([name, description]) => {
@@ -246,7 +246,7 @@ class DocumentationService {
         });
       });
     }
-    
+
     return parameters;
   }
 
@@ -257,13 +257,13 @@ class DocumentationService {
 
     const properties: Record<string, any> = {};
     const required: string[] = [];
-    
+
     Object.entries(endpoint.parameters.body).forEach(([name, description]) => {
       const isRequired = description.includes('(required)');
       if (isRequired) {
         required.push(name);
       }
-      
+
       properties[name] = {
         type: 'string',
         description: description.replace(/\(required\)|\(optional\)/g, '').trim()
@@ -286,7 +286,7 @@ class DocumentationService {
 
   private buildOpenAPIResponses(endpoint: EndpointDefinition): Record<string, any> {
     const responses: Record<string, any> = {};
-    
+
     if (endpoint.responses) {
       Object.entries(endpoint.responses).forEach(([code, description]) => {
         responses[code] = {
@@ -301,9 +301,9 @@ class DocumentationService {
         };
       });
     }
-    
+
     return responses;
   }
 }
 
-export default DocumentationService; 
+export default DocumentationService;

@@ -1,16 +1,11 @@
 import express, {Request, Response, Router} from 'express';
 import fs from 'fs';
 import path from 'path';
-import {fileURLToPath} from 'url';
 import upload from '../../middleware/upload.js';
 import AdmZip from 'adm-zip';
 import { logger } from '../../services/LoggerService.js';
 
 const router: Router = express.Router();
-
-// ES Module equivalent of __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const languageConfigs = {
   en: {display: 'English', countryCode: 'us', folder: 'en'},
@@ -154,7 +149,7 @@ router.post(
             'Failed to extract archive with zip. Please check the archive format.',
           );
         }
-      
+
 
       // Find the actual translation root directory
       const translationRoot = findTranslationRoot(tempDir);
@@ -166,7 +161,7 @@ router.post(
       }
 
       // Get base English translations with correct path resolution
-      const enTranslationsDir = process.env.TRANSLATIONS_PATH + "/languages/en";
+      const enTranslationsDir = process.env.TRANSLATIONS_PATH + '/languages/en';
 
       // Get all JSON files from both directories
       const enFiles = getAllJsonFiles(enTranslationsDir);
@@ -236,7 +231,7 @@ router.get('/download-translations', async (req: Request, res: Response) => {
 
   try {
     // Update path resolution for English translations
-    const enTranslationsDir = process.env.TRANSLATIONS_PATH + "/languages/en";
+    const enTranslationsDir = process.env.TRANSLATIONS_PATH + '/languages/en';
     tempZipPath = path.join(
       'uploads',
       'en-translations-' +
@@ -276,7 +271,7 @@ const languages: {[key: string]: {display: string; countryCode: string; folder: 
 // Function to check if a language is implemented
 async function checkLanguageImplementation(langCode: string): Promise<number> {
   try {
-    const langDir = process.env.TRANSLATIONS_PATH + "/languages/" + langCode;
+    const langDir = process.env.TRANSLATIONS_PATH + '/languages/' + langCode;
 
     // Check if directory exists
     if (!fs.existsSync(langDir)) {
@@ -290,7 +285,7 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
     }
 
     // Get English translations for comparison
-    const enDir = process.env.TRANSLATIONS_PATH + "/languages/en";
+    const enDir = process.env.TRANSLATIONS_PATH + '/languages/en';
     const enFiles = getAllJsonFiles(enDir);
 
     let missingFiles = 0;
@@ -333,7 +328,7 @@ async function checkLanguageImplementation(langCode: string): Promise<number> {
 
 // Initialize languages configuration
 async function initializeLanguages() {
-  const baseDir = process.env.TRANSLATIONS_PATH + "/languages";
+  const baseDir = process.env.TRANSLATIONS_PATH + '/languages';
   if (!fs.existsSync(baseDir)) {
     logger.error('Translations path does not exist:', baseDir);
     return;
@@ -383,7 +378,7 @@ router.get(
       }
 
       // Update path resolution for translations
-      const translationsDir = process.env.TRANSLATIONS_PATH + "/languages/" + lang;
+      const translationsDir = process.env.TRANSLATIONS_PATH + '/languages/' + lang;
 
       // Check if directory exists
       if (!fs.existsSync(translationsDir)) {

@@ -5,4 +5,4 @@ const channelParserEndpoints: EndpointDefinition[] = [
   // These are not API endpoints but internal functions used by webhook endpoints
 ];
 
-export default channelParserEndpoints; 
+export default channelParserEndpoints;

@@ -292,12 +292,12 @@ router.get(
 
       // Set appropriate headers to prevent double compression
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      
+
       // For file backups, set the content type to application/zip
       if (type === 'files') {
         res.setHeader('Content-Type', 'application/zip');
       }
-      
+
       // Stream the file directly instead of using res.download
       const fileStream = createReadStream(filePath);
       fileStream.pipe(res);

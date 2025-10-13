@@ -1,30 +1,30 @@
-import { Router, Request, Response } from "express";
-import { Auth } from "../../../middleware/auth.js";
-import Difficulty from "../../../models/levels/Difficulty.js";
-import Level from "../../../models/levels/Level.js";
-import Pass from "../../../models/passes/Pass.js";
-import LevelCredit from "../../../models/levels/LevelCredit.js";
-import Team from "../../../models/credits/Team.js";
-import Creator from "../../../models/credits/Creator.js";
-import LevelAlias from "../../../models/levels/LevelAlias.js";
-import sequelize from "../../../config/db.js";
-import { Op, Transaction } from "sequelize";
-import Player from "../../../models/players/Player.js";
-import Judgement from "../../../models/passes/Judgement.js";
-import { CreatorAlias } from "../../../models/credits/CreatorAlias.js";
-import RatingDetail from "../../../models/levels/RatingDetail.js";
-import Rating from "../../../models/levels/Rating.js";
-import LevelLikes from "../../../models/levels/LevelLikes.js";
-import { User } from "../../../models/index.js";
-import RatingAccuracyVote from "../../../models/levels/RatingAccuracyVote.js";
-import { logger } from "../../../services/LoggerService.js";
+import { Router, Request, Response } from 'express';
+import { Auth } from '../../../middleware/auth.js';
+import Difficulty from '../../../models/levels/Difficulty.js';
+import Level from '../../../models/levels/Level.js';
+import Pass from '../../../models/passes/Pass.js';
+import LevelCredit from '../../../models/levels/LevelCredit.js';
+import Team from '../../../models/credits/Team.js';
+import Creator from '../../../models/credits/Creator.js';
+import LevelAlias from '../../../models/levels/LevelAlias.js';
+import sequelize from '../../../config/db.js';
+import { Op, Transaction } from 'sequelize';
+import Player from '../../../models/players/Player.js';
+import Judgement from '../../../models/passes/Judgement.js';
+import { CreatorAlias } from '../../../models/credits/CreatorAlias.js';
+import RatingDetail from '../../../models/levels/RatingDetail.js';
+import Rating from '../../../models/levels/Rating.js';
+import LevelLikes from '../../../models/levels/LevelLikes.js';
+import { User } from '../../../models/index.js';
+import RatingAccuracyVote from '../../../models/levels/RatingAccuracyVote.js';
+import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
-import LevelRerateHistory from "../../../models/levels/LevelRerateHistory.js";
-import { safeTransactionRollback } from "../../../utils/Utility.js";
-import Curation from "../../../models/curations/Curation.js";
-import CurationType from "../../../models/curations/CurationType.js";
-import { hasFlag } from "../../../utils/permissionUtils.js";
-import { permissionFlags } from "../../../config/constants.js";
+import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
+import { safeTransactionRollback } from '../../../utils/Utility.js';
+import Curation from '../../../models/curations/Curation.js';
+import CurationType from '../../../models/curations/CurationType.js';
+import { hasFlag } from '../../../utils/permissionUtils.js';
+import { permissionFlags } from '../../../config/constants.js';
 
 const MAX_LIMIT = 200;
 
@@ -112,7 +112,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
-    
+
   // Check if levelId is not a valid number
   if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
     return res.status(400).json({error: 'Invalid level ID'});
@@ -156,7 +156,7 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
     ],
   });
 
-  if (!level) {    
+  if (!level) {
     return res.status(404).json({ error: 'Level not found' });
   }
 
@@ -176,7 +176,7 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
 router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
-    
+
     if (isNaN(levelId)) {
       return res.status(400).end();
     }
@@ -312,10 +312,10 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         order: [['confirmedAt', 'DESC']],
         transaction,
       });
-      
+
       const votes = await RatingAccuracyVote.findAll({
-        where: { 
-          levelId: parseInt(req.params.id), 
+        where: {
+          levelId: parseInt(req.params.id),
           diffId: level?.difficulty?.id || 0
         },
         include: [
@@ -360,7 +360,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
         return res.status(404).json({ error: 'Level not found' });
       }
-      
+
 
       return res.json({
         level,

@@ -55,7 +55,7 @@ async function handleRateLimit(bucket: string): Promise<void> {
 
 class DiscordAPIError extends Error {
   status: number;
-  
+
   constructor(message: string, status: number) {
     super(message);
     this.name = 'DiscordAPIError';

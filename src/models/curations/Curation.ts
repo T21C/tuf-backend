@@ -71,7 +71,7 @@ Curation.init(
     shortDescription: {
       type: DataTypes.STRING(255),
       allowNull: true,
-      defaultValue: "",
+      defaultValue: '',
     },
     description: {
       type: DataTypes.TEXT,

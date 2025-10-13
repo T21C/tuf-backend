@@ -51,7 +51,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
                 required: true,
                 where: {
                   [Op.not]: {
-                    name: "Unranked" 
+                    name: 'Unranked'
                   }
                 }
               },
@@ -65,7 +65,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
         ],
         order: [['updatedAt', 'DESC']],
       });
-  
+
       return res.json(passes);
     } catch (error) {
       logger.error('Error fetching unannounced passes:', error);

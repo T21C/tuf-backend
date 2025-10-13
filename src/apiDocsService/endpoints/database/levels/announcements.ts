@@ -31,4 +31,4 @@ const announcementsEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default announcementsEndpoints; 
+export default announcementsEndpoints;

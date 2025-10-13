@@ -98,7 +98,7 @@ export async function searchPasses(query: any) {
         count: total,
         results: hits
       };
-    } 
+    }
     catch (error) {
     logger.error('Error in unified pass search:', error);
     throw error;

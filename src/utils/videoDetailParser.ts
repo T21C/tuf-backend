@@ -58,18 +58,6 @@ interface YouTubeResponse {
   }>;
 }
 
-interface YouTubeChannelResponse {
-  items: Array<{
-    snippet: {
-      thumbnails: {
-        default: {
-          url: string;
-        };
-      };
-    };
-  }>;
-}
-
 const ownUrlEnv =
   process.env.NODE_ENV === 'production'
     ? process.env.PROD_API_URL
@@ -123,7 +111,7 @@ async function getBilibiliVideoDetails(
   }
 
   const IMAGE_API = `${ownUrlEnv}${process.env.IMAGE_API}`;
-  const BILIBILI_API = `https://api.bilibili.com/x/web-interface/view`;
+  const BILIBILI_API = 'https://api.bilibili.com/x/web-interface/view';
 
   try {
     const response = await axios.get<{data: BilibiliData}>(`${BILIBILI_API}?bvid=${videoId}`);

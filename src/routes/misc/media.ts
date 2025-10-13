@@ -6,14 +6,12 @@ import fs from 'fs';
 import puppeteer from 'puppeteer';
 import Level from '../../models/levels/Level.js';
 import Difficulty from '../../models/levels/Difficulty.js';
-import {getVideoDetails, VideoDetails} from '../../utils/videoDetailParser.js';
-import Pass from '../../models/passes/Pass.js';
+import {getVideoDetails,} from '../../utils/videoDetailParser.js';
 import User from '../../models/auth/User.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '../../utils/random.js';
 import { logger } from '../../services/LoggerService.js';
-import { checkMemoryUsage } from '../../utils/memUtils.js';
 import Creator from '../../models/credits/Creator.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';
 import Team from '../../models/credits/Team.js';
@@ -22,7 +20,6 @@ import LevelCredit from '../../models/levels/LevelCredit.js';
 import sharp from 'sharp';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
-import { Auth } from '../../middleware/auth.js';
 
 const execAsync = promisify(exec);
 
@@ -35,7 +32,7 @@ function formatAxiosError(error: unknown): string {
       error.config?.url ? `URL: ${error.config.url}` : '',
       error.response?.status ? `Status: ${error.response.status}` : '',
     ].filter(Boolean);
-    
+
     return parts.join(' ');
   }
   return error instanceof Error ? error.message : String(error);
@@ -43,10 +40,10 @@ function formatAxiosError(error: unknown): string {
 
 function formatCredits(credits: string[]): string {
   const sliceLength = 3;
-  
-  if (!credits) return "";
+
+  if (!credits) return '';
   return credits.length > sliceLength ?
-    credits.slice(0, sliceLength).join(', ') + " and " + (credits.length - sliceLength) + " more"
+    credits.slice(0, sliceLength).join(', ') + ' and ' + (credits.length - sliceLength) + ' more'
     : credits.join(', ');
 }
 
@@ -110,10 +107,10 @@ function cleanExpiredCache(filePath: string): void {
 function cleanExpiredCacheDirectory(directory: string): void {
   try {
     if (!fs.existsSync(directory)) return;
-    
+
     const files = fs.readdirSync(directory);
     let cleanedCount = 0;
-    
+
     for (const file of files) {
       const filePath = path.join(directory, file);
       if (fs.existsSync(filePath) && isCacheExpired(filePath)) {
@@ -121,7 +118,7 @@ function cleanExpiredCacheDirectory(directory: string): void {
         cleanedCount++;
       }
     }
-    
+
     if (cleanedCount > 0) {
       logger.debug(`Cleaned up ${cleanedCount} expired cache files from ${directory}`);
     }
@@ -133,11 +130,11 @@ function cleanExpiredCacheDirectory(directory: string): void {
 // Function to clean all expired cache files
 function cleanAllExpiredCache(): void {
   cleanExpiredCacheDirectory(THUMBNAILS_CACHE_DIR);
-  
+
   // Also clean up any stale promises that might be hanging around
   const now = Date.now();
   const MAX_PROMISE_AGE = 5 * 60 * 1000; // 5 minutes
-  
+
   // Add timestamp to promises if not present
   for (const [key, promise] of thumbnailGenerationPromises.entries()) {
     if (!(promise as any).__timestamp) {
@@ -205,7 +202,7 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
   if (process.platform === 'win32') {
     // Windows implementation
     const { stdout } = await execAsync('wmic process where "name=\'chrome.exe\'" get ExecutablePath,ProcessId /format:csv');
-    
+
     const lines = stdout.split('\n').filter(line => line.trim());
     const puppeteerProcesses = lines
       .filter(line => line.toLowerCase().includes('puppeteer'))
@@ -231,15 +228,15 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
     // Linux/Mac - Using spawn for better process control
     return new Promise((resolve, reject) => {
       const pkill = spawn('pkill', ['-15', 'chrome']);
-      
+
       pkill.stdout.on('data', (data) => {
         logger.debug('pkill stdout:', data.toString());
       });
-      
+
       pkill.stderr.on('data', (data) => {
         logger.debug('pkill stderr:', data.toString());
       });
-      
+
       pkill.on('close', (code) => {
         if (code === 0 || code === 1) { // 0 = success, 1 = no processes found
           //logger.info('Successfully executed pkill command');
@@ -249,7 +246,7 @@ async function killExistingPuppeteerProcesses(): Promise<void> {
           resolve(); // Still resolve as this might be a non-error case
         }
       });
-      
+
       pkill.on('error', (err) => {
         logger.error('Error executing pkill:', err);
         reject(err);
@@ -270,10 +267,10 @@ async function createBrowser(): Promise<puppeteer.Browser> {
 
     // Kill any existing Puppeteer processes before creating a new one
     await killExistingPuppeteerProcesses();
-    logger.debug(`Waiting for 1 second before creating new browser instance`);
+    logger.debug('Waiting for 1 second before creating new browser instance');
     await new Promise(resolve => setTimeout(resolve, 1000));
     logger.debug(`Creating new browser instance (attempt ${browserRetries + 1}/${MAX_BROWSER_RETRIES})`);
-    
+
     const newBrowser = await puppeteer.launch({
       headless: true,
       defaultViewport: null,
@@ -323,7 +320,7 @@ async function createBrowser(): Promise<puppeteer.Browser> {
 
     // Reset retry counter after successful launch
     browserRetries = 0;
-    
+
     // Set up disconnection handler to mark the browser as needing recreation
     newBrowser.on('disconnected', async () => {
       logger.debug('Browser disconnected, will recreate on next request');
@@ -338,12 +335,12 @@ async function createBrowser(): Promise<puppeteer.Browser> {
   } catch (error) {
     logger.error(`Failed to create browser: ${error instanceof Error ? error.message : String(error)}`);
     browserRetries++;
-    
+
     if (browserRetries >= MAX_BROWSER_RETRIES) {
       browserRetries = 0;
       throw new Error(`Failed to create browser after ${MAX_BROWSER_RETRIES} attempts`);
     }
-    
+
     // Wait before retrying
     await new Promise(resolve => setTimeout(resolve, 1000));
     return createBrowser();
@@ -373,49 +370,49 @@ async function getBrowser(): Promise<puppeteer.Browser> {
 async function htmlToPng(html: string, width: number, height: number, maxRetries = 3): Promise<Buffer> {
   let lastError;
   let page = null;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       // Wait if we have too many active pages
       while (activePages >= MAX_CONCURRENT_PAGES) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
-      
+
       logWithCondition(`HTML to PNG conversion attempt ${attempt}/${maxRetries}`, 'thumbnail');
       const browser = await getBrowser();
       activePages++;
       page = await browser.newPage();
-      
+
       // Set up page error handling
       page.on('error', err => {
         logger.error('Page error:', err);
       });
-      
+
       // Set up page console logging
       page.on('console', msg => {
         logger.debug('Page console:', msg.text());
       });
-      
+
       await page.setViewport({ width, height });
       await page.setContent(html, { timeout: 30000 });
-      
+
       // Force garbage collection if available
       if (global.gc) {
         global.gc();
       }
-      
+
       const pngBuffer = await page.screenshot({
         type: 'png',
         omitBackground: true,
       });
-      
+
       return Buffer.from(pngBuffer);
     } catch (error) {
       lastError = error;
       //logger.warn(`HTML to PNG conversion failed (attempt ${attempt}/${maxRetries}): ${error instanceof Error ? error.message : String(error)}`);
-      
-      if (error instanceof Error && 
-          (error.message.includes('Protocol error') || 
+
+      if (error instanceof Error &&
+          (error.message.includes('Protocol error') ||
            error.message.includes('Connection closed') ||
            error.message.includes('Target closed'))) {
         browser = null;
@@ -430,22 +427,22 @@ async function htmlToPng(html: string, width: number, height: number, maxRetries
         activePages--;
       }
     }
-    
+
     // Wait before retrying
     await new Promise(resolve => setTimeout(resolve, attempt * 1000));
   }
-  
+
   throw lastError || new Error('HTML to PNG conversion failed');
 }
 
 // Add this helper function for retrying image downloads
 async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 5000): Promise<Buffer> {
   let lastError: Error | unknown;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       logWithCondition(`Attempting to download image from ${url} (attempt ${attempt}/${maxRetries})`, 'thumbnail');
-      const response = await axios.get(url, { 
+      const response = await axios.get(url, {
         responseType: 'arraybuffer',
         timeout: 10000, // 10 second timeout
         maxContentLength: 10 * 1024 * 1024, // 10MB max
@@ -456,14 +453,14 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
     } catch (error: unknown) {
       lastError = error;
       logWithCondition(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${formatAxiosError(error)}`, 'thumbnail');
-      
+
       if (attempt < maxRetries) {
         logWithCondition(`Waiting ${delayMs}ms before retrying...`, 'thumbnail');
         await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
   }
-  
+
   logWithCondition(`All ${maxRetries} attempts to download image from ${url} failed. Using black background instead.`, 'thumbnail');
   throw lastError;
 }
@@ -508,6 +505,7 @@ process.on('uncaughtException', async (error) => {
 });
 
 // Handle unhandled promise rejections
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 process.on('unhandledRejection', async (reason, promise) => {
   logger.error('Unhandled promise rejection:', reason);
   await cleanupBrowser();
@@ -704,7 +702,7 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
 
     return res.sendFile(fullPath);
   } catch (error) {
-    logger.error(`Error serving cached image:`, error);
+    logger.error('Error serving cached image:', error);
     return res.status(500).send('Error serving image');
   }
 });
@@ -717,7 +715,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     if (!level || level.isDeleted || level.isHidden) {
       return res.status(404).send('Level not found');
     }
-    
+
     logWithCondition(`Thumbnail requested for level ${levelId} with size ${size}`, 'thumbnail');
 
     // Get the cache path for LARGE version only
@@ -738,7 +736,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
         logWithCondition(`Thumbnail generation for level ${levelId} already in progress, waiting...`, 'thumbnail');
         try {
           largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
-          
+
           // Verify the file was actually saved
           if (!fs.existsSync(largeCachePath)) {
             logger.warn(`Promise resolved but thumbnail file not found for level ${levelId}, regenerating...`);
@@ -754,21 +752,21 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
             thumbnailGenerationPromises.delete(promiseKey);
           }
         }
-      
+
       // If we don't have the buffer yet (no concurrent generation or it failed)
       if (!largeBuffer) {
         // Create a new generation promise
         const generationPromise = (async () => {
           logWithCondition(`Generating new thumbnail for level ${levelId}`, 'thumbnail');
-          
+
           const level = await Level.findOne({
             where: {id: levelId},
             include: [
               {model: Difficulty, as: 'difficulty'},
-              {model: LevelCredit, as: 'levelCredits', 
+              {model: LevelCredit, as: 'levelCredits',
                 attributes: ['role'],
                 include: [
-                  {model: Creator, as: 'creator', 
+                  {model: Creator, as: 'creator',
                     attributes: ['name'],
                     include: [
                       {model: CreatorAlias, as: 'creatorAliases', attributes: ['name']}
@@ -776,7 +774,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
                   },
                 ],
               },
-              {model: Team, as: 'teamObject', 
+              {model: Team, as: 'teamObject',
                 attributes: ['name'],
                 include: [
                   {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
@@ -819,25 +817,25 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
             // Extract the icon path from the URL
             const iconUrl = new URL(diff.icon);
             const iconPath = iconUrl.pathname.split('/').pop();
-            
+
             if (!iconPath) {
               throw new Error('Invalid icon URL');
             }
-            
+
             // Sanitize the path to prevent directory traversal
             const sanitizedPath = path
               .normalize(iconPath)
               .replace(/^(\.\.(\/|\\|$))+/, '');
-            
+
             // Construct the full path to the icon in the cache
             const basePath = path.join(process.cwd(), 'cache', 'icons');
             const fullPath = path.join(basePath, sanitizedPath);
-            
+
             // Verify the path is within the allowed directory
             if (!fullPath.startsWith(basePath)) {
               throw new Error('Access denied');
             }
-            
+
             // Check if file exists in cache
             if (fs.existsSync(fullPath)) {
               iconBuffer = await fs.promises.readFile(fullPath);
@@ -855,16 +853,16 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           const charters = formatCredits(level.charters);
           const vfxers = formatCredits(level.vfxers);
 
-          const firstRow = level.teamObject ? "By " + level.teamObject.name :   
+          const firstRow = level.teamObject ? 'By ' + level.teamObject.name :
             vfxers ?
-            "Chart: " + vfxers
-            : 
+            'Chart: ' + vfxers
+            :
               charters
 
-          const secondRow = !level.teamObject 
+          const secondRow = !level.teamObject
           && vfxers && charters
-          ? "VFX: " + vfxers
-          : "";
+          ? 'VFX: ' + vfxers
+          : '';
 
           const html = `
             <html>
@@ -1031,17 +1029,17 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           `;
           // Convert to PNG
           const buffer = await htmlToPng(html, width, height);
-          
+
           // Save the LARGE version to cache
           await fs.promises.writeFile(largeCachePath, buffer);
           logWithCondition(`Saved LARGE thumbnail for level ${levelId} to cache`, 'thumbnail');
-          
+
           return buffer;
         })();
-        
+
         // Store the promise in the map
         thumbnailGenerationPromises.set(promiseKey, generationPromise);
-        
+
         try {
           // Wait for the generation to complete
           largeBuffer = await generationPromise;
@@ -1050,7 +1048,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           thumbnailGenerationPromises.delete(promiseKey);
           throw error;
         }
-        
+
         // Clean up the promise after successful completion
         thumbnailGenerationPromises.delete(promiseKey);
       }
@@ -1075,16 +1073,16 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
     // Send the response
     res.set('Content-Type', 'image/png');
     res.send(resizedBuffer);
-    
-    logWithCondition(`Memory usage after generation`, 'thumbnail');
+
+    logWithCondition('Memory usage after generation', 'thumbnail');
     //checkMemoryUsage();
     return;
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Video details not found")) {
+    if (error instanceof Error && error.message.startsWith('Video details not found')) {
       logger.debug(`Error generating image for level ${req.params.levelId} due to missing video details`);
       return res.status(404).send('Generation failed: missing video details');
     }
-    if (error instanceof Error && (error.message.startsWith("ProtocolError") || error.message.startsWith("Error: Protocol error"))) {
+    if (error instanceof Error && (error.message.startsWith('ProtocolError') || error.message.startsWith('Error: Protocol error'))) {
       logger.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
       return res.status(500).send('Generation failed: puppeteer protocol error');
     }
@@ -1111,14 +1109,14 @@ const cachedVideoDetailsPromise = new Map<string, Promise<any>>();
 setInterval(() => {
   const now = Date.now();
   let cleanedCount = 0;
-  
+
   for (const [key, value] of cachedVideoDetails.entries()) {
     if (now > value.expiresAt) {
       cachedVideoDetails.delete(key);
       cleanedCount++;
     }
   }
-  
+
   if (cleanedCount > 0) {
     logger.debug('Cleaned up expired video detail cache entries:', {
       count: cleanedCount,
@@ -1137,7 +1135,7 @@ router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
       });
     }
     const now = Date.now();
-    
+
     // Check if we have valid cached data
     const cached = cachedVideoDetails.get(videoLink);
     if (cached && now < cached.expiresAt) {
@@ -1148,14 +1146,14 @@ router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
       });
       return res.json(cached.data);
     }
-    
+
     // Check if there's already a pending request for this URL
     if (cachedVideoDetailsPromise.has(videoLink)) {
       logger.debug('Waiting for existing video details request:', {
         videoLink: videoLink.substring(0, 50),
         timestamp: new Date().toISOString()
       });
-      
+
       try {
         const result = await cachedVideoDetailsPromise.get(videoLink);
         return res.json(result);
@@ -1169,42 +1167,42 @@ router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
         throw error;
       }
     }
-    
+
     // Create new request and ensure all concurrent requests wait for it
     const videoDetailsPromise = (async () => {
       try {
         const videoDetails = await getVideoDetails(videoLink);
-        
+
         const ttl = videoDetails ? VIDEO_CACHE_TTL : VIDEO_CACHE_NULL_TTL;
         const cacheEntry: CachedVideoDetails = {
           data: videoDetails,
           timestamp: now,
           expiresAt: now + ttl
         };
-        
+
         cachedVideoDetails.set(videoLink, cacheEntry);
-        
+
         logger.debug('Fetched and cached video details:', {
           videoLink: videoLink.substring(0, 50),
           success: !!videoDetails,
           ttl: Math.floor(ttl / 1000) + 's',
           timestamp: new Date().toISOString()
         });
-        
+
         return videoDetails;
       } finally {
         // Always clean up the promise cache after resolution (success or failure)
         cachedVideoDetailsPromise.delete(videoLink);
       }
     })();
-    
+
     // Store the promise so concurrent requests can await it
     cachedVideoDetailsPromise.set(videoLink, videoDetailsPromise);
-    
+
     // Await and return the result
     const result = await videoDetailsPromise;
     return res.json(result);
-    
+
   } catch (error) {
     logger.error('Error getting video details:', {
       error: error instanceof Error ? {
@@ -1214,7 +1212,7 @@ router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
       videoLink: req.params.videoLink?.substring(0, 50),
       timestamp: new Date().toISOString()
     });
-    
+
     return res.status(500).json({
       error: 'Failed to fetch video details',
       details: error instanceof Error ? error.message : String(error)
@@ -1269,7 +1267,7 @@ router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
       const endAngle = (index + 1) * anglePerItem;
       const startRad = (startAngle - 90) * Math.PI / 180;
       const endRad = (endAngle - 90) * Math.PI / 180;
-      
+
       const x1 = centerX + radius * Math.cos(startRad);
       const y1 = centerY + radius * Math.sin(startRad);
       const x2 = centerX + radius * Math.cos(endRad);

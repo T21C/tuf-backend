@@ -390,4 +390,4 @@ const creatorsEndpoints: EndpointDefinition[] = [
   }
 ];
 
-export default creatorsEndpoints; 
+export default creatorsEndpoints;

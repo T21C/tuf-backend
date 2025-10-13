@@ -46,8 +46,8 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         isAnnounced,
         isDuplicate,
       } = req.body;
-  
-  
+
+
       // First fetch the pass with its current level data
       const pass = await Pass.findOne({
         where: {id: parseInt(id)},
@@ -74,7 +74,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         ],
         transaction,
       });
-      
+
       if (!pass) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Pass not found'});
@@ -96,13 +96,13 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           ],
           transaction,
         });
-  
+
         if (!newLevel) {
           await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'New level not found'});
         }
       }
-  
+
       // Update judgements if provided
       if (judgements) {
         await Judgement.update(
@@ -120,7 +120,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             transaction,
           },
         );
-  
+
         // Recalculate accuracy and score
         const updatedJudgements: IJudgements = {
           earlyDouble: judgements.earlyDouble,
@@ -131,9 +131,9 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           lateSingle: judgements.lateSingle,
           lateDouble: judgements.lateDouble,
         };
-  
+
         const calculatedAccuracy = calcAcc(updatedJudgements);
-        
+
         // Create pass data for score calculation with proper type handling
         const passData = {
           speed: speed || pass.speed || 1.0,
@@ -141,25 +141,25 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           isNoHoldTap:
             isNoHoldTap !== undefined ? isNoHoldTap : pass.isNoHoldTap || false,
         } as const;
-  
+
         // Use the new level data if levelId changed, otherwise use existing level data
         const levelData = newLevel || pass.level;
-  
+
         if (!levelData || !levelData.difficulty) {
           await safeTransactionRollback(transaction);
           return res
             .status(500)
             .json({error: 'Level or difficulty data not found'});
         }
-  
+
         // Create properly structured level data for score calculation
         const levelDataForScore = {
           baseScore: levelData.baseScore,
           difficulty: levelData.difficulty,
         };
-  
+
         const calculatedScore = getScoreV2(passData, levelDataForScore);
-        
+
         // Update pass with all fields including isDuplicate
         await pass.update(
           {
@@ -208,11 +208,11 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           {transaction},
         );
       }
-  
+
       // If vidUploadTime changed or levelId changed, recalculate isWorldsFirst for all passes of this level
       if (vidUploadTime || levelId !== oldPass.levelId) {
         // Get the target level ID (either new levelId or current one)
-        
+
         // Find the earliest non-deleted pass for this level from non-banned players
         const earliestPass = await Pass.findOne({
           where: {
@@ -241,7 +241,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           order: [['vidUploadTime', 'ASC']],
           transaction,
         });
-  
+
         // Reset all passes for this level to not be world's first
         await Pass.update(
           {isWorldsFirst: false},
@@ -250,7 +250,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             transaction,
           },
         );
-  
+
         // If we found an earliest pass, mark it as world's first
         if (earliestPass) {
           await Pass.update(
@@ -264,7 +264,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         await updateWorldsFirstStatus(oldPass.levelId, transaction);
         await updateWorldsFirstStatus(levelId, transaction);
       }
-  
+
       // Fetch the updated pass
       const updatedPass = await Pass.findOne({
         where: {id: parseInt(id)},
@@ -291,10 +291,10 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
         ],
         transaction,
       });
-  
-      
+
+
       await transaction.commit();
-  
+
       // Update player stats
       if (updatedPass?.player) {
         try {
@@ -303,7 +303,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           logger.error(`[Passes PUT] Error updating player stats for player ID: ${updatedPass.player.id}:`, error);
         }
       }
-  
+
       if (oldPass.levelId !== updatedPass?.levelId) {
         await elasticsearchService.indexLevel(oldPass.levelId);
       }
@@ -323,22 +323,22 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             type: 'passUpdate',
             data: updateData,
           });
-          
+
         } catch (error) {
-          logger.error(`[Passes PUT] Error getting player stats or emitting SSE event:`, error);
+          logger.error('[Passes PUT] Error getting player stats or emitting SSE event:', error);
           // Continue with the response even if this fails
         }
       }
-  
-      
+
+
       return res.json(updatedPass);
     } catch (error) {
       logger.error(`[Passes PUT] Error updating pass ID: ${req.params.id}:`, error);
       try {
         await safeTransactionRollback(transaction);
-        
+
       } catch (rollbackError) {
-        logger.error(`[Passes PUT] Error rolling back transaction:`, rollbackError);
+        logger.error('[Passes PUT] Error rolling back transaction:', rollbackError);
       }
       return res.status(500).json({
         error: 'Failed to update pass',
@@ -346,13 +346,13 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
       });
     }
   });
-  
+
   router.delete('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
-  
+
       try {
         const id = parseInt(req.params.id);
-  
+
         const pass = await Pass.findOne({
           where: {id},
           include: [
@@ -378,16 +378,16 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           ],
           transaction,
         });
-  
+
         if (!pass) {
           await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Pass not found'});
         }
-  
+
         // Store levelId and playerId before deleting
         const levelId = pass.levelId;
         const playerId = pass.player?.id;
-  
+
         // Soft delete the pass
         await Pass.update(
           {isDeleted: true},
@@ -396,10 +396,10 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             transaction,
           },
         );
-  
+
         // Update world's first status for this level
         await updateWorldsFirstStatus(levelId, transaction);
-  
+
         // Reload the pass to get updated data
         await pass.reload({
           include: [
@@ -425,13 +425,13 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           ],
           transaction,
         });
-  
+
         await transaction.commit();
         // Update player stats
         if (playerId) {
           await playerStatsService.updatePlayerStats([playerId]);
           const playerStats = await playerStatsService.getPlayerStats(playerId).then(stats => stats?.[0]);
-  
+
 
           const updateData = {
             playerId,
@@ -457,13 +457,13 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
       }
     },
   );
-  
+
   router.patch('/:id([0-9]+)/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
-  
+
       try {
         const id = parseInt(req.params.id);
-  
+
         const pass = await Pass.findOne({
           where: {id},
           include: [
@@ -485,16 +485,16 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
           ],
           transaction,
         });
-  
+
         if (!pass) {
           await safeTransactionRollback(transaction);
           return res.status(404).json({error: 'Pass not found'});
         }
-  
+
         // Store levelId and playerId
         const levelId = pass.levelId;
         const playerId = pass.player?.id;
-  
+
         // Restore the pass
         await Pass.update(
           {isDeleted: false},
@@ -503,13 +503,13 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             transaction,
           },
         );
-  
+
         // Update world's first status for this level
         await updateWorldsFirstStatus(levelId, transaction);
-        
-  
+
+
         await transaction.commit();
-  
+
         await elasticsearchService.indexLevel(pass.level!);
         // Update player stats
         if (playerId) {
@@ -527,7 +527,7 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
             data: updateData,
           });
         }
-  
+
         return res.json({
           message: 'Pass restored successfully',
           pass: pass,

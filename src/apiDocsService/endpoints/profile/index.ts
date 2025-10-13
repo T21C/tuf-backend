@@ -5,4 +5,4 @@ const profileEndpointsList: EndpointDefinition[] = [
   ...profileEndpoints
 ];
 
-export default profileEndpointsList; 
+export default profileEndpointsList;

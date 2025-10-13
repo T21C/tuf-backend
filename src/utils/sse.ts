@@ -30,8 +30,7 @@ class SSEManager {
 
     this.heartbeatInterval = setInterval(() => {
       const now = Date.now();
-      const ratingStats = this.getConnectionStats('rating');
-      
+
       this.clients.forEach((client, clientId) => {
         try {
           // Send ping to client
@@ -53,7 +52,7 @@ class SSEManager {
 
   private getConnectionStats(source?: string) {
     const clients = Array.from(this.clients.values());
-    const filteredClients = source 
+    const filteredClients = source
       ? clients.filter(client => client.metadata.source === source)
       : clients;
 
@@ -87,7 +86,7 @@ class SSEManager {
   private broadcastUserCount() {
     // Get stats for rating-specific connections only
     const ratingStats = this.getConnectionStats('rating');
-    
+
     // Broadcast only rating-specific counts to clients
     this.broadcast({
       type: 'userCount',
@@ -126,7 +125,7 @@ class SSEManager {
         // Silently handle error
       }
       this.clients.delete(clientId);
-      
+
       // Broadcast updated user count after removing client
       this.broadcastUserCount();
     }

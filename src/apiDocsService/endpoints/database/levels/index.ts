@@ -14,4 +14,4 @@ const levelsEndpoints = [
   ...packsEndpoints
 ];
 
-export default levelsEndpoints; 
+export default levelsEndpoints;

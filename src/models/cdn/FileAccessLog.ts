@@ -42,4 +42,4 @@ FileAccessLog.init({
 CdnFile.hasMany(FileAccessLog, { foreignKey: 'fileId' });
 FileAccessLog.belongsTo(CdnFile, { foreignKey: 'fileId' });
 
-export default FileAccessLog; 
+export default FileAccessLog;

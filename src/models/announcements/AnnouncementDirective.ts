@@ -96,4 +96,4 @@ AnnouncementDirective.hasMany(DirectiveAction, {
   onDelete: 'CASCADE',
 });
 
-export default AnnouncementDirective; 
+export default AnnouncementDirective;

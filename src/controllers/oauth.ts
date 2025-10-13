@@ -1,7 +1,7 @@
 import {Request, Response} from 'express';
 import OAuthService from '../services/OAuthService.js';
 import {tokenUtils} from '../utils/auth.js';
-import {OAuthProvider, User} from '../models/index.js';
+import {OAuthProvider} from '../models/index.js';
 import axios from 'axios';
 import {
   type RESTPostOAuth2AccessTokenResult,
@@ -40,7 +40,7 @@ async function handleDiscordOAuth(code: string, isLinking: boolean): Promise<{
   profile: RESTGetAPIUserResult;
 } | null> {
   // Exchange code for token
-  try{ 
+  try{
     const tokenResponse = await axios.post(
       'https://discord.com/api/oauth2/token',
       new URLSearchParams({
@@ -86,11 +86,11 @@ export const OAuthController = {
 
       const scopes = ['identify', 'email'];
       const redirectUri = clientUrlEnv + '/callback';
-      
+
       const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopes.join('%20')}`;
-      
+
       return res.json({url: authUrl});
     }
 
@@ -121,7 +121,7 @@ export const OAuthController = {
    */
   async handleCallback(req: Request, res: Response) {
     try {
-      const {provider} = req.params;
+      //const {provider} = req.params;
       const {code} = req.body;
       const isLinking = req.query.linking === 'true';
 

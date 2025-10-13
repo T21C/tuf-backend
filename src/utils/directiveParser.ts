@@ -30,10 +30,6 @@ const PASS_FIELDS = {
   'NO_MISS': (pass: IPass) => pass.judgements?.earlyDouble === 0
 } as const;
 
-const LEVEL_FIELDS = {
-  'BASESCORE': (level: Level) => level.baseScore || level.difficulty?.baseScore || 0
-} as const;
-
 // Token types for the parser
 type TokenType = 'FIELD' | 'OPERATOR' | 'NUMBER' | 'BOOLEAN' | 'EOF';
 
@@ -45,7 +41,7 @@ interface Token {
 
 export class DirectiveParser {
   private tokens: Token[] = [];
-  private current: number = 0;
+  private current = 0;
 
   constructor(private expression: string) {
     this.tokenize();
@@ -66,7 +62,7 @@ export class DirectiveParser {
 
       // Check for operators
       if (Object.keys(OPERATORS).some(op => this.expression.startsWith(op, position))) {
-        const operator = Object.keys(OPERATORS).find(op => 
+        const operator = Object.keys(OPERATORS).find(op =>
           this.expression.startsWith(op, position)
         )!;
         tokens.push({
@@ -148,7 +144,6 @@ export class DirectiveParser {
   private parseLogicalOr(): string {
     let expr = this.parseLogicalAnd();
     while (this.match('OPERATOR') && this.peek().value === '||') {
-      const operator = this.advance();
       expr = `(${expr} || ${this.parseLogicalAnd()})`;
     }
     return expr;
@@ -157,7 +152,6 @@ export class DirectiveParser {
   private parseLogicalAnd(): string {
     let expr = this.parseEquality();
     while (this.match('OPERATOR') && this.peek().value === '&&') {
-      const operator = this.advance();
       expr = `(${expr} && ${this.parseEquality()})`;
     }
     return expr;
@@ -183,7 +177,6 @@ export class DirectiveParser {
 
   private parsePrimary(): string {
     if (this.match('OPERATOR') && this.peek().value === '!') {
-      const operator = this.advance();
       return `(!${this.parsePrimary()})`;
     }
 
@@ -266,4 +259,4 @@ export function evaluateDirectiveCondition(
 /*
 const condition = "BASESCORE >= 100 && (IS_WF || ACCURACY >= 95)";
 const result = evaluateDirectiveCondition(condition, pass, level);
-*/ 
+*/

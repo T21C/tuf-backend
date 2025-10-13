@@ -1,6 +1,6 @@
 import {DataTypes, Model} from 'sequelize';
 import sequelize from '../../config/db.js';
-import {ICreator, ITeam} from '../../interfaces/models/index.js';
+import {ITeam} from '../../interfaces/models/index.js';
 import { TeamAlias } from './TeamAlias.js';
 import Creator from './Creator.js';
 import TeamMember from './TeamMember.js';

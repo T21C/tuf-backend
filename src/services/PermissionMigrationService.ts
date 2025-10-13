@@ -98,13 +98,13 @@ export class PermissionMigrationService {
    */
   private getPermissionNames(flags: bigint): string[] {
     const names: string[] = [];
-    
+
     Object.entries(permissionFlags).forEach(([name, flag]) => {
       if ((flags & flag) === flag) {
         names.push(name);
       }
     });
-    
+
     return names;
   }
 
@@ -112,8 +112,8 @@ export class PermissionMigrationService {
    * Migrate a single user's permissions
    */
   private async migrateUserPermissions(
-    user: User, 
-    player?: Player, 
+    user: User,
+    player?: Player,
     transaction?: Transaction
   ): Promise<{ success: boolean; error?: string; before?: any; after?: any }> {
     try {
@@ -154,7 +154,7 @@ export class PermissionMigrationService {
   /**
    * Migrate all users' permissions to the new bit-based system
    */
-  public async migrateAllUsers(dryRun: boolean = false): Promise<MigrationStats> {
+  public async migrateAllUsers(dryRun = false): Promise<MigrationStats> {
     const stats: MigrationStats = {
       totalUsers: 0,
       migratedUsers: 0,
@@ -204,7 +204,7 @@ export class PermissionMigrationService {
           // Get the associated player for this user
           const player = user.playerId ? playerMap.get(user.playerId) : undefined;
           const result = await this.migrateUserPermissions(user, player, dryRun ? undefined : transaction);
-          
+
           if (result.success) {
             stats.migratedUsers++;
             stats.details[user.username] = {
@@ -254,7 +254,7 @@ export class PermissionMigrationService {
   /**
    * Migrate a specific user's permissions
    */
-  public async migrateUser(userId: string, dryRun: boolean = false): Promise<{ success: boolean; error?: string; before?: any; after?: any }> {
+  public async migrateUser(userId: string, dryRun = false): Promise<{ success: boolean; error?: string; before?: any; after?: any }> {
     const transaction = await sequelize.transaction();
 
     try {
@@ -309,7 +309,7 @@ export class PermissionMigrationService {
       for (const user of users) {
         const player = user.playerId ? playerMap.get(user.playerId) : undefined;
         const expectedFlags = this.convertBooleanToPermissionFlags(user, player);
-        
+
                  const userFlags = BigInt(user.permissionFlags || 0);
          if (userFlags !== expectedFlags) {
            issues.push(`User ${user.username}: Expected flags ${expectedFlags}, got ${userFlags}`);
@@ -332,7 +332,7 @@ export class PermissionMigrationService {
   /**
    * Rollback migration by clearing permission flags
    */
-  public async rollbackMigration(dryRun: boolean = false): Promise<{ success: boolean; error?: string; affectedUsers: number }> {
+  public async rollbackMigration(dryRun = false): Promise<{ success: boolean; error?: string; affectedUsers: number }> {
     const transaction = await sequelize.transaction();
 
     try {
@@ -347,7 +347,7 @@ export class PermissionMigrationService {
 
       if (!dryRun) {
         await User.update(
-          { 
+          {
             permissionFlags: 0n,
             permissionVersion: sequelize.literal('permissionVersion + 1')
           },

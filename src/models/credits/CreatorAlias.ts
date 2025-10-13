@@ -8,7 +8,7 @@ export class CreatorAlias extends Model {
   declare name: string;
   declare createdAt: Date;
   declare updatedAt: Date;
-  
+
   // Associations
   declare creator: Creator;
 }

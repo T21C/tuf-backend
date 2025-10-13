@@ -29,7 +29,7 @@ export function initializeCurationsAssociations() {
   CurationSchedule.belongsTo(Curation, {
     foreignKey: 'curationId',
     as: 'scheduledCuration',
-  }); 
+  });
 
   Curation.hasMany(CurationSchedule, {
     foreignKey: 'curationId',

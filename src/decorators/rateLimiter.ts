@@ -26,8 +26,8 @@ export function RateLimiter(config: RateLimiterConfig) {
     descriptor.value = async function (req: Request, res: Response) {
       // Get client IP
       const forwardedFor = req.headers['x-forwarded-for'];
-      const ip = typeof forwardedFor === 'string' 
-        ? forwardedFor.split(',')[0].trim() 
+      const ip = typeof forwardedFor === 'string'
+        ? forwardedFor.split(',')[0].trim()
         : req.ip || req.connection.remoteAddress || '127.0.0.1';
 
       try {
@@ -90,14 +90,14 @@ async function isBlocked(ip: string, config: RateLimiterConfig) {
         }
       }
     });
-    
+
     if (blockedRecord) {
       return {
         blocked: true,
         retryAfter: Math.ceil((blockedRecord.blockedUntil!.getTime() - Date.now()))
       };
     }
-    
+
     return { blocked: false, retryAfter: 0 };
   } catch (error) {
     logger.error('Rate limiter isBlocked error:', error);
@@ -119,7 +119,7 @@ async function cleanupExpiredRateLimits(ip: string, type: string) {
         blocked: false // Only delete non-blocked expired records
       }
     });
-    
+
     if (deletedCount > 0) {
       logger.debug(`Cleaned up ${deletedCount} expired rate limit records for IP ${ip}, type ${type}`);
     }
@@ -132,7 +132,7 @@ async function increment(ip: string, config: RateLimiterConfig) {
   try {
     const now = new Date();
     const windowEnd = new Date(now.getTime() + config.windowMs);
-    
+
     let rateLimit = await RateLimit.findOne({
       where: {
         ip,
@@ -147,7 +147,7 @@ async function increment(ip: string, config: RateLimiterConfig) {
     if (!rateLimit) {
       // Clean up expired rate limits for this IP and type before creating new one
       await cleanupExpiredRateLimits(ip, config.type);
-      
+
       rateLimit = await RateLimit.create({
         ip,
         type: config.type,
@@ -167,7 +167,7 @@ async function increment(ip: string, config: RateLimiterConfig) {
         blocked: true,
         blockedUntil
       });
-      
+
       logger.debug(`IP ${ip} blocked for exceeding ${config.type} limit`);
       return true;
     }
@@ -200,10 +200,10 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
     // Middleware version for general rate limiting
     middleware: async (req: Request, res: Response, next: NextFunction) => {
       const forwardedFor = req.headers['x-forwarded-for'];
-      const ip = typeof forwardedFor === 'string' 
-        ? forwardedFor.split(',')[0].trim() 
+      const ip = typeof forwardedFor === 'string'
+        ? forwardedFor.split(',')[0].trim()
         : req.ip || req.connection.remoteAddress || '127.0.0.1';
-      
+
       logger.debug(`Rate limiter IP: ${ip}`);
       try {
         // Check if IP is blocked
@@ -229,7 +229,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         // Find or create rate limit record
         const now = new Date();
         const windowEnd = new Date(now.getTime() + windowMs);
-        
+
         // Find active record for this IP and type
         let rateLimit = await RateLimit.findOne({
           where: {
@@ -246,7 +246,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         if (!rateLimit) {
           // Clean up expired rate limits for this IP and type before creating new one
           await cleanupExpiredRateLimits(ip, type);
-          
+
           try {
             rateLimit = await RateLimit.create({
               ip,
@@ -268,14 +268,14 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
               },
               order: [['windowEnd', 'DESC']]
             });
-            
+
             // If still no record, increment attempts on the most recent record
             if (!rateLimit) {
               const mostRecent = await RateLimit.findOne({
                 where: { ip, type },
                 order: [['windowEnd', 'DESC']]
               });
-              
+
               if (mostRecent) {
                 await mostRecent.increment('attempts');
                 await mostRecent.reload();
@@ -307,10 +307,10 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
             blocked: true,
             blockedUntil
           });
-          
+
           logger.debug(`IP ${ip} blocked for exceeding ${type} limit`);
           logger.debug(`Body: ${JSON.stringify(req.body)}`);
-          
+
           return res.status(429).json({
             message: 'Rate limit exceeded. IP address blocked.',
             retryAfter: blockDuration,
@@ -320,7 +320,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         // Add rate limit info to response headers
         res.setHeader('X-RateLimit-Limit', maxAttempts);
         res.setHeader('X-RateLimit-Remaining', Math.max(0, maxAttempts - rateLimit.attempts));
-        
+
         return next();
       } catch (error) {
         logger.error('Rate limiter error:', error);
@@ -349,7 +349,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
         if (!rateLimit) {
           // Clean up expired rate limits for this IP and type before creating new one
           await cleanupExpiredRateLimits(ip, type);
-          
+
           rateLimit = await RateLimit.create({
             ip,
             type,
@@ -369,7 +369,7 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
             blocked: true,
             blockedUntil
           });
-          
+
           logger.debug(`IP ${ip} blocked for exceeding ${type} limit`);
           return true; // IP is now blocked
         }
@@ -402,14 +402,14 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
             }
           }
         });
-        
+
         if (blockedRecord) {
           return {
             blocked: true,
             retryAfter: Math.ceil((blockedRecord.blockedUntil!.getTime() - Date.now()))
           };
         }
-        
+
         return { blocked: false, retryAfter: 0 };
       } catch (error) {
         logger.error('Rate limiter isBlocked error:', error);
@@ -417,4 +417,4 @@ export const createRateLimiter = (config: Partial<RateLimitConfig> = {}) => {
       }
     }
   };
-}; 
+};
