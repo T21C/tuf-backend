@@ -217,14 +217,7 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     originalZipStorageType: originalZip.storageType
                 });
                 
-                // Safety check: Skip if already in SPACES
-                if (originalZip.storageType === StorageType.SPACES) {
-                    logger.info('File already in Spaces, skipping:', {
-                        fileId: file.id,
-                        originalZipPath: originalZip.path
-                    });
-                    continue;
-                }
+
                 
                 // Check if file exists and get its current location
                 const fileCheck = await hybridStorageManager.fileExistsWithFallback(
@@ -232,6 +225,13 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     originalZip.storageType
                 );
                 
+                if (originalZip.storageType === StorageType.SPACES) {
+                    logger.info('File already in Spaces, skipping:', {
+                        fileId: file.id,
+                        originalZipPath: originalZip.path
+                    });
+                    continue;
+                }
                 if (!fileCheck.exists) {
                     logger.warn('Original zip file not found, skipping:', {
                         fileId: file.id,
