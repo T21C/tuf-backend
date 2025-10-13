@@ -224,8 +224,8 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                     originalZip.path,
                     originalZip.storageType
                 );
-                
-                if (originalZip.storageType === StorageType.SPACES) {
+
+                if (fileCheck.storageType === StorageType.SPACES) {
                     logger.info('File already in Spaces, skipping:', {
                         fileId: file.id,
                         originalZipPath: originalZip.path
@@ -255,18 +255,7 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                 
                 // Download zip file to temporary location if it's in Spaces
                 let zipSourcePath: string;
-                if (fileCheck.storageType === StorageType.SPACES) {
-                    // Download from Spaces to temp
-                    tempPath = path.join(tempDir, path.basename(originalZip.path));
-                    await spacesStorage.downloadFile(originalZip.path, tempPath);
-                    zipSourcePath = tempPath;
-                    
-                    logger.info('Downloaded zip from Spaces to temporary location:', {
-                        fileId: file.id,
-                        spacesPath: originalZip.path,
-                        tempPath
-                    });
-                } else {
+
                     // File is already local, copy to temp
                     // Check if originalZip.path is already absolute or relative
                     const originalPath = path.isAbsolute(originalZip.path) 
@@ -289,7 +278,6 @@ export async function migrateToHybridStrategy(batchSize?: number): Promise<void>
                         isAbsolute: path.isAbsolute(originalZip.path),
                         fileExists: fs.existsSync(originalPath)
                     });
-                }
                 
                 // Delete original files using standard deletion function
                 await hybridStorageManager.deleteLevelZipFiles(file.id, metadata);
