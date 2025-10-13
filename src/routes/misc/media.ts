@@ -26,6 +26,21 @@ import { Auth } from '../../middleware/auth.js';
 
 const execAsync = promisify(exec);
 
+// Helper function to format axios errors for cleaner logging
+function formatAxiosError(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const parts = [
+      error.message,
+      error.code ? `[${error.code}]` : '',
+      error.config?.url ? `URL: ${error.config.url}` : '',
+      error.response?.status ? `Status: ${error.response.status}` : '',
+    ].filter(Boolean);
+    
+    return parts.join(' ');
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 // Promise map for tracking ongoing thumbnail generation
 const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
 
@@ -431,7 +446,7 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
       return response.data;
     } catch (error: unknown) {
       lastError = error;
-      logWithCondition(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
+      logWithCondition(`Failed to download image from ${url} on attempt ${attempt}/${maxRetries}: ${formatAxiosError(error)}`, 'thumbnail');
       
       if (attempt < maxRetries) {
         logWithCondition(`Waiting ${delayMs}ms before retrying...`, 'thumbnail');
@@ -521,12 +536,7 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
 
     return res.send(response.data);
   } catch (error) {
-    // Check for timeout errors
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ETIMEDOUT') {
-      logger.error('Error fetching image: Timeout error');
-    } else {
-      logger.error('Error fetching image:', error);
-    }
+    logger.error('Error fetching image:', formatAxiosError(error));
     res.status(500).send('Error fetching image.');
     return;
   }
@@ -590,7 +600,7 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
 
     return res.sendFile(avatarPath);
   } catch (error) {
-    logger.error('Error serving avatar:', error);
+    logger.error('Error serving avatar:', formatAxiosError(error));
     return res.status(500).send('Error serving avatar');
   }
 });
@@ -611,7 +621,7 @@ router.get('/github-asset', async (req: Request, res: Response) => {
     res.set('Content-Type', contentType);
     return res.send(response.data);
   } catch (error) {
-    logger.error('Error fetching GitHub asset:', error);
+    logger.error('Error fetching GitHub asset:', formatAxiosError(error));
     res.status(500).send('Error fetching asset.');
     return;
   }
