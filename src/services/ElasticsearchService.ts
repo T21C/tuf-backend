@@ -275,57 +275,60 @@ class ElasticsearchService {
     });
   }
 
-  private async getLevelWithRelations(levelId: number): Promise<Level | null> {
-    logger.debug(`Getting level with relations for level ${levelId}`);
-    try {
-      const level = await Level.findByPk(levelId, {
+
+
+  private levelIncludes = [
+      {
+        model: Difficulty,
+        as: 'difficulty'
+      },
+      {
+        model: LevelAlias,
+        as: 'aliases'
+      },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
         include: [
           {
-            model: Difficulty,
-            as: 'difficulty'
-          },
-          {
-            model: LevelAlias,
-            as: 'aliases'
-          },
-          {
-            model: LevelCredit,
-            as: 'levelCredits',
+            model: Creator,
+            as: 'creator',
             include: [
               {
-                model: Creator,
-                as: 'creator',
-                include: [
-                  {
-                    model: CreatorAlias,
-                    as: 'creatorAliases'
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            model: Team,
-            as: 'teamObject',
-            include: [
-              {
-                model: TeamAlias,
-                as: 'teamAliases'
-              }
-            ]
-          },
-          {
-            model: Curation,
-            as: 'curation',
-            include: [
-              {
-                model: CurationType,
-                as: 'type'
+                model: CreatorAlias,
+                as: 'creatorAliases'
               }
             ]
           }
-        ],
-      });
+        ]
+      },
+      {
+        model: Team,
+        as: 'teamObject',
+        include: [
+          {
+            model: TeamAlias,
+            as: 'teamAliases'
+          }
+        ]
+      },
+      {
+        model: Curation,
+        as: 'curation',
+        include: [
+          {
+            model: CurationType,
+            as: 'type'
+          }
+        ]
+      }
+    ];
+  private async getLevelWithRelations(levelId: number): Promise<Level | null> {
+    logger.debug(`Getting level with relations for level ${levelId}`);
+    try {
+      const level = await Level.findByPk(levelId, 
+        {include: this.levelIncludes}
+      );
       if (!level) return null;
       const clears = await Pass.count({
         where: {
@@ -352,6 +355,52 @@ class ElasticsearchService {
     }
   }
 
+
+  private parseFields(level: Level, rating: Rating | null = null): any {
+    return {
+        ...level.get({ plain: true }),
+        song: convertToPUA(level.song),
+        artist: convertToPUA(level.artist),
+        team: convertToPUA(level.teamObject?.name),
+        videoLink: level.videoLink ? convertToPUA(level.videoLink) : null,
+        dlLink: level.dlLink ? convertToPUA(level.dlLink) : null,
+        legacyDllink: level.legacyDllink ? convertToPUA(level.legacyDllink) : null,
+        // Process nested fields
+        aliases: level.aliases?.map(alias => ({
+          ...alias.get({ plain: true }),
+          originalValue: convertToPUA(alias.originalValue),
+          alias: convertToPUA(alias.alias)
+        })),
+        levelCredits: level.levelCredits?.map(credit => ({
+          ...credit.get({ plain: true }),
+          creator: credit.creator ? {
+            ...credit.creator.get({ plain: true }),
+            name: convertToPUA(credit.creator.name),
+            creatorAliases: credit.creator.creatorAliases?.map(alias => ({
+              ...alias.get({ plain: true }),
+              name: convertToPUA(alias.name)
+            }))
+          } : null
+        })),
+        rating: {
+          ...rating?.get({ plain: true }),
+        },
+        teamObject: level.teamObject ? {
+          ...level.teamObject.get({ plain: true }),
+          name: convertToPUA(level.teamObject.name),
+          aliases: level.teamObject.teamAliases?.map(alias => ({
+            ...alias.get({ plain: true }),
+            name: convertToPUA(alias.name)
+          }))
+        } : null,
+        curation: level.curation ? {
+          ...level.curation.get({ plain: true }),
+        } : null,
+        isCurated: !!level.curation,
+  
+    };
+  }
+
   private async getParsedLevel(id: number): Promise<ILevel | null> {
     const level = await this.getLevelWithRelations(id);
     if (!level) return null;
@@ -363,50 +412,7 @@ class ElasticsearchService {
       order: [['confirmedAt', 'DESC']], // Get the most recent confirmed rating
       attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
     });
-    const processedLevel = {
-      ...level.get({ plain: true }),
-      song: convertToPUA(level.song),
-      artist: convertToPUA(level.artist),
-      creator: convertToPUA(level.creator),
-      charter: convertToPUA(level.charter),
-      team: convertToPUA(level.team),
-      videoLink: level.videoLink ? convertToPUA(level.videoLink) : null,
-      dlLink: level.dlLink ? convertToPUA(level.dlLink) : null,
-      legacyDllink: level.legacyDllink ? convertToPUA(level.legacyDllink) : null,
-      // Process nested fields
-      aliases: level.aliases?.map(alias => ({
-        ...alias.get({ plain: true }),
-        originalValue: convertToPUA(alias.originalValue),
-        alias: convertToPUA(alias.alias)
-      })),
-      levelCredits: level.levelCredits?.map(credit => ({
-        ...credit.get({ plain: true }),
-        creator: credit.creator ? {
-          ...credit.creator.get({ plain: true }),
-          name: convertToPUA(credit.creator.name),
-          creatorAliases: credit.creator.creatorAliases?.map(alias => ({
-            ...alias.get({ plain: true }),
-            name: convertToPUA(alias.name)
-          }))
-        } : null
-      })),
-      rating: {
-        ...rating?.get({ plain: true }),
-      },
-      teamObject: level.teamObject ? {
-        ...level.teamObject.get({ plain: true }),
-        name: convertToPUA(level.teamObject.name),
-        aliases: level.teamObject.teamAliases?.map(alias => ({
-          ...alias.get({ plain: true }),
-          name: convertToPUA(alias.name)
-        }))
-      } : null,
-      curation: level.curation ? {
-        ...level.curation.get({ plain: true }),
-      } : null,
-      isCurated: !!level.curation,
-
-    };
+    const processedLevel = this.parseFields(level, rating);
     logger.debug(`Processed level ${id} videoLink: ${processedLevel.videoLink}`);
     return processedLevel as ILevel;
   }
@@ -566,52 +572,7 @@ class ElasticsearchService {
         const operations = batch.flatMap(level => {
           const rating = ratingMap.get(level.id);
 
-          const processedLevel = {
-            ...level.get({ plain: true }), // Convert to plain object
-            song: convertToPUA(level.song),
-            artist: convertToPUA(level.artist),
-            creator: convertToPUA(level.creator),
-            videoLink: convertToPUA(level.videoLink),
-            dlLink: convertToPUA(level.dlLink),
-            legacyDllink: level.legacyDllink ? convertToPUA(level.legacyDllink) : null,
-            charter: convertToPUA(level.charter),
-            team: convertToPUA(level.team),
-            // Process nested fields
-            aliases: level.aliases?.map(alias => ({
-              ...alias.get({ plain: true }),
-              originalValue: convertToPUA(alias.originalValue),
-              alias: convertToPUA(alias.alias)
-            })),
-            levelCredits: level.levelCredits?.map(credit => ({
-              ...credit.get({ plain: true }),
-              creator: credit.creator ? {
-                ...credit.creator.get({ plain: true }),
-                name: convertToPUA(credit.creator.name),
-                creatorAliases: credit.creator.creatorAliases?.map(alias => ({
-                  ...alias.get({ plain: true }),
-                  name: convertToPUA(alias.name)
-                }))
-              } : null
-            })),
-            rating: rating ? {
-              ...rating.get({ plain: true }),
-            } : null,
-            teamObject: level.teamObject ? {
-              ...level.teamObject.get({ plain: true }),
-              name: convertToPUA(level.teamObject.name),
-              aliases: level.teamObject.teamAliases?.map(alias => ({
-                ...alias.get({ plain: true }),
-                name: convertToPUA(alias.name)
-              }))
-            } : null,
-            curation: level.curation ? {
-              ...level.curation.get({ plain: true }),
-              type: level.curation.type ? {
-                ...level.curation.type.get({ plain: true })
-              } : null
-            } : null,
-            isCurated: !!level.curation,
-          };
+          const processedLevel = this.parseFields(level, rating);
           return [
             { index: { _index: levelIndexName, _id: level.id.toString() } },
             processedLevel
@@ -741,52 +702,7 @@ class ElasticsearchService {
     try {
       const levels = await Level.findAll({
         where: levelIds ? { id: { [Op.in]: levelIds } } : undefined,
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty'
-          },
-          {
-            model: LevelAlias,
-            as: 'aliases'
-          },
-          {
-            model: LevelCredit,
-            as: 'levelCredits',
-            include: [
-              {
-                model: Creator,
-                as: 'creator',
-                include: [
-                  {
-                    model: CreatorAlias,
-                    as: 'creatorAliases'
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            model: Team,
-            as: 'teamObject',
-            include: [
-              {
-                model: TeamAlias,
-                as: 'teamAliases'
-              }
-            ]
-          },
-          {
-            model: Curation,
-            as: 'curation',
-            include: [
-              {
-                model: CurationType,
-                as: 'type'
-              }
-            ]
-          }
-        ]
+        include: this.levelIncludes as any
       });
 
       await this.bulkIndexLevels(levels);
@@ -914,22 +830,6 @@ class ElasticsearchService {
     }
   }
 
-  private parseFieldSearch(term: string, isPassSearch: boolean = false): FieldSearch | null {
-    const config = isPassSearch ? queryParserConfigs.pass : queryParserConfigs.level;
-    const result = parseSearchQuery(term, config);
-    
-    if (result.length > 0 && result[0].terms.length > 0) {
-      const fieldSearch = result[0].terms[0];
-      // Convert value to PUA for Elasticsearch
-      return {
-        ...fieldSearch,
-        value: convertToPUA(fieldSearch.value)
-      };
-    }
-    
-    return null;
-  }
-
   private parseSearchQuery(query: string, isPassSearch: boolean = false): SearchGroup[] {
     const config = isPassSearch ? queryParserConfigs.pass : queryParserConfigs.level;
     const groups = parseSearchQuery(query, config);
@@ -949,6 +849,27 @@ class ElasticsearchService {
     // Note: value is already converted to PUA in parseFieldSearch
     const searchValue = prepareSearchTerm(value);
     logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+    
+    // Check if this is a numeric field (like id)
+    const numericFields = queryParserConfigs.level.numericFields || [];
+    const isNumericField = numericFields.includes(field);
+    
+    // Handle numeric fields specially
+    if (isNumericField && field !== 'any') {
+      const numericValue = parseInt(searchValue, 10);
+      
+      // For numeric fields, use term query for exact matches
+      if (!isNaN(numericValue)) {
+        const query = {
+          term: {
+            [field]: numericValue
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      } else {
+        return { bool: { must_not: [{ match_all: {} }] } };
+      }
+    }
 
     // For field-specific searches
     if (field !== 'any') {
@@ -957,24 +878,15 @@ class ElasticsearchService {
         // Handle role-based searches (charter, vfxer, creator)
         if (field === 'charter' || field === 'vfxer' || field === 'creator') {
           const query = {
-            bool: {
-              should: [
-                // Search in root level creator field
-                {
-                  term: {
-                    'creator.keyword': {
-                      value: searchValue,
-                      case_insensitive: true
-                    }
-                  }
-                },
-                // Search in nested levelCredits
-                {
-                  nested: {
-                    path: 'levelCredits',
-                    query: {
+            nested: {
+              path: 'levelCredits',
+              query: {
+                bool: {
+                  must: [
+                    // Check creator name/alias
+                    {
                       bool: {
-                        must: [
+                        should: [
                           {
                             term: {
                               'levelCredits.creator.name.keyword': {
@@ -983,23 +895,32 @@ class ElasticsearchService {
                               }
                             }
                           },
-                          ...(field === 'charter' ? [{
-                            term: {
-                              'levelCredits.role.keyword': 'charter'
+                          ...(excludeAliases ? [] : [{
+                            nested: {
+                              path: 'levelCredits.creator.creatorAliases',
+                              query: {
+                                term: {
+                                  'levelCredits.creator.creatorAliases.name.keyword': {
+                                    value: searchValue,
+                                    case_insensitive: true
+                                  }
+                                }
+                              }
                             }
-                          }] : []),
-                          ...(field === 'vfxer' ? [{
-                            term: {
-                              'levelCredits.role.keyword': 'vfxer'
-                            }
-                          }] : [])
-                        ]
+                          }])
+                        ],
+                        minimum_should_match: 1
                       }
-                    }
-                  }
+                    },
+                    // Check role (only for charter/vfxer)
+                    ...(field === 'charter' || field === 'vfxer' ? [{
+                      term: {
+                        'levelCredits.role.keyword': field
+                      }
+                    }] : [])
+                  ]
                 }
-              ],
-              minimum_should_match: 1
+              }
             }
           };
           return isNot ? { bool: { must_not: [query] } } : query;
@@ -1114,68 +1035,57 @@ class ElasticsearchService {
       // Handle role-based searches for partial matches
       if (field === 'charter' || field === 'vfxer' || field === 'creator') {
         const query = {
-          bool: {
-            should: [
-              // Search in root level creator field
-              {
-                wildcard: {
-                  'creator': {
-                    value: wildcardValue,
-                    case_insensitive: true
-                  }
-                }
-              },
-              // Search in nested levelCredits
-              {
-                nested: {
-                  path: 'levelCredits',
-                  query: {
-                    bool: {
-                      must: [
-                        {
-                          bool: {
-                            should: [
-                              {
-                                wildcard: {
-                                  'levelCredits.creator.name': {
-                                    value: wildcardValue,
-                                    case_insensitive: true
-                                  }
+          nested: {
+            path: 'levelCredits',
+            query: {
+              bool: {
+                must: [
+                  // Check creator name/alias
+                  {
+                    nested: {
+                      path: 'levelCredits.creator',
+                      query: {
+                        bool: {
+                          should: [
+                            {
+                              wildcard: {
+                                'levelCredits.creator.name': {
+                                  value: wildcardValue,
+                                  case_insensitive: true
                                 }
-                              },
-                              ...(excludeAliases ? [] : [{
-                                nested: {
-                                  path: 'levelCredits.creator.creatorAliases',
-                                  query: {
-                                    wildcard: {
-                                      'levelCredits.creator.creatorAliases.name': {
-                                        value: wildcardValue,
-                                        case_insensitive: true
-                                      }
+                              }
+                            },
+                            ...(excludeAliases ? [] : [{
+                              nested: {
+                                path: 'levelCredits.creator.creatorAliases',
+                                query: {
+                                  wildcard: {
+                                    'levelCredits.creator.creatorAliases.name': {
+                                      value: wildcardValue,
+                                      case_insensitive: true
                                     }
                                   }
                                 }
-                              }])
-                            ]
-                          }
-                        },
-                        ...(field === 'charter' ? [{
-                          term: {
-                            'levelCredits.role.keyword': 'charter'
-                          }
-                        }] : []),
-                        ...(field === 'vfxer' ? [{
-                          term: {
-                            'levelCredits.role.keyword': 'vfxer'
-                          }
-                        }] : [])
-                      ]
+                              }
+                            }])
+                          ],
+                          minimum_should_match: 1
+                        }
+                      }
                     }
-                  }
-                }
+                  },
+                  // Check role (only for charter/vfxer)
+                  ...(field === 'charter' || field === 'vfxer' ? [{
+                    term: {
+                      'levelCredits.role': {
+                        value: field,
+                        case_insensitive: true
+                      }
+                    }
+                  }] : [])
+                ]
               }
-            ],
-            minimum_should_match: 1
+            }
           }
         };
         return isNot ? { bool: { must_not: [query] } } : query;
@@ -1283,48 +1193,32 @@ class ElasticsearchService {
         should: [
           { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
-          { wildcard: { creator: { value: wildcardValue, case_insensitive: true } } },
-          ...(excludeAliases ? [] : [{
-            nested: {
-              path: 'aliases',
-              query: {
-                wildcard: {
-                  'aliases.alias': {
-                    value: wildcardValue,
-                    case_insensitive: true
-                  }
-                }
-              }
-            }
-          }]),
           {
             nested: {
               path: 'levelCredits',
               query: {
-                bool: {
-                  should: [
-                    {
-                      wildcard: {
-                        'levelCredits.creator.name': {
-                          value: wildcardValue,
-                          case_insensitive: true
-                        }
-                      }
-                    },
-                    ...(excludeAliases ? [] : [{
-                      nested: {
-                        path: 'levelCredits.creator.creatorAliases',
-                        query: {
-                          wildcard: {
-                            'levelCredits.creator.creatorAliases.name': {
-                              value: wildcardValue,
-                              case_insensitive: true
+                nested: {
+                  path: 'levelCredits.creator',
+                  query: {
+                    bool: {
+                      should: [
+                        { wildcard: { 'levelCredits.creator.name': { value: wildcardValue, case_insensitive: true } } },
+                        ...(excludeAliases ? [] : [{
+                          nested: {
+                            path: 'levelCredits.creator.creatorAliases',
+                            query: {
+                              wildcard: {
+                                'levelCredits.creator.creatorAliases.name': {
+                                  value: wildcardValue,
+                                  case_insensitive: true
+                                }
+                              }
                             }
                           }
-                        }
-                      }
-                    }])
-                  ]
+                        }])
+                      ]
+                    }
+                  }
                 }
               }
             }
@@ -1810,8 +1704,6 @@ class ElasticsearchService {
       ...source,
       song: convertFromPUA(source.song as string),
       artist: convertFromPUA(source.artist as string),
-      creator: convertFromPUA(source.creator as string),
-      charter: convertFromPUA(source.charter as string),
       team: convertFromPUA(source.team as string),
       videoLink: convertFromPUA(source.videoLink as string),
       dlLink: convertFromPUA(source.dlLink as string),
@@ -2245,6 +2137,29 @@ class ElasticsearchService {
     // Note: value is already converted to PUA in parseFieldSearch
     const searchValue = prepareSearchTerm(value);
     logger.debug(`Building pass search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+    
+    // Check if this is a numeric field
+    const numericFields = queryParserConfigs.pass.numericFields || [];
+    const isNumericField = numericFields.includes(field);
+    
+    // Handle numeric fields specially
+    if (isNumericField && field !== 'any') {
+      const numericValue = parseInt(searchValue, 10);
+      
+      // For numeric fields, use term query for exact matches
+      if (!isNaN(numericValue)) {
+        const query = {
+          term: {
+            [field]: numericValue
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      } else {
+        // If the value isn't a valid number, return a query that matches nothing
+        logger.warn(`Invalid numeric value for field ${field}: ${searchValue}`);
+        return { bool: { must_not: [{ match_all: {} }] } };
+      }
+    }
 
     // For field-specific searches
     if (field !== 'any') {

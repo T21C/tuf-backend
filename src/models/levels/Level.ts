@@ -25,10 +25,10 @@ class Level
   declare id: number;
   declare song: string;
   declare artist: string;
-  declare creator: string;
-  declare charter: string;
-  declare vfxer: string;
-  declare team: string;
+  //declare creator: string;
+  //declare charter: string;
+  //declare vfxer: string;
+  //declare team: string;
   declare diffId: number;
   declare baseScore: number | null;
   declare previousBaseScore: number | null;
@@ -82,6 +82,7 @@ Level.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    /*
     creator: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -98,6 +99,7 @@ Level.init(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    */
     diffId: {
       type: DataTypes.INTEGER,
       allowNull: false,

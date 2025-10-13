@@ -97,38 +97,6 @@ export const levelMapping = {
           }
         }
       },
-      creator: { 
-        type: 'text' as const,
-        analyzer: 'custom_text_analyzer',
-        fields: {
-          keyword: { 
-            type: 'keyword' as const, 
-            ignore_above: 256,
-            normalizer: 'lowercase'
-          }
-        }
-      },
-      charter: { 
-        type: 'text' as const,
-        analyzer: 'custom_text_analyzer',
-        fields: {
-          keyword: { 
-            type: 'keyword' as const,
-            normalizer: 'lowercase'
-          }
-        }
-      },
-      vfxer: { 
-        type: 'text' as const,
-        analyzer: 'custom_text_analyzer',
-        fields: {
-          keyword: { 
-            type: 'keyword' as const, 
-            ignore_above: 256,
-            normalizer: 'lowercase'
-          }
-        }
-      },
       team: { 
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',
@@ -272,7 +240,15 @@ export const levelMapping = {
             type: 'nested' as const,
             properties: {
               id: { type: 'integer' as const },
-              name: { type: 'text' as const },
+              name: { 
+                type: 'text' as const,
+                fields: {
+                  keyword: { 
+                    type: 'keyword' as const,
+                    normalizer: 'lowercase'
+                  }
+                }
+              },
               createdAt: { type: 'date' as const },
               updatedAt: { type: 'date' as const },
               isVerified: { type: 'boolean' as const },
@@ -282,7 +258,15 @@ export const levelMapping = {
                 properties: {
                   id: { type: 'long' as const },
                   creatorId: { type: 'long' as const },
-                  name: { type: 'text' as const },
+                  name: { 
+                    type: 'text' as const,
+                    fields: {
+                      keyword: { 
+                        type: 'keyword' as const,
+                        normalizer: 'lowercase'
+                      }
+                    }
+                  },
                   createdAt: { type: 'date' as const },
                   updatedAt: { type: 'date' as const }
                 }

@@ -239,8 +239,7 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
         hideVerified,
         excludeAliases
       });
-
-      // Get level counts for creators
+      // Get level counts for creators 
       const levelCounts = (await LevelCredit.findAll({
         where: {
           levelId: {
@@ -264,7 +263,7 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
         id: level.id,
         song: level.song,
         artist: level.artist,
-        legacyCreator: level.creator,
+        legacyCreator: "[LEGACY CREATOR DISABLED]",
         isVerified: level.isVerified,
         teamId: level.teamId,
         team: level.teamObject

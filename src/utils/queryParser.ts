@@ -15,6 +15,7 @@ export type SearchGroup = {
 
 export type QueryParserConfig = {
   allowedFields: string[];
+  numericFields?: string[]; // Fields that contain numeric values
   isPassSearch?: boolean;
 };
 
@@ -156,15 +157,16 @@ export const extractGeneralSearchTerms = (searchGroups: SearchGroup[]): string[]
  */
 export const queryParserConfigs = {
   level: {
-    allowedFields: ['song', 'artist', 'charter', 'team', 'vfxer', 'creator', 'dlLink', 'legacyDllink', 'videolink'],
-    isPassSearch: false
+    allowedFields: ['id', 'song', 'artist', 'charter', 'team', 'vfxer', 'creator', 'dlLink', 'legacyDllink', 'videolink'],
+    numericFields: ['id']
   },
   pass: {
     allowedFields: ['player', 'video', 'vidtitle', 'level.song', 'level.artist', 'level.dlLink'],
+    numericFields: [] as string[],
     isPassSearch: true
   },
   pack: {
     allowedFields: ['name', 'owner', 'levelId', 'viewMode', 'pinned'],
-    isPassSearch: false
+    numericFields: ['levelId']
   }
 };
