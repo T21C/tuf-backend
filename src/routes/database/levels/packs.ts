@@ -17,6 +17,8 @@ import { CdnError } from '../../../services/CdnService.js';
 import Pass from '../../../models/passes/Pass.js';
 import Curation from '../../../models/curations/Curation.js';
 import CurationType from '../../../models/curations/CurationType.js';
+import LevelCredit from '../../../models/levels/LevelCredit.js';
+import Creator from '../../../models/credits/Creator.js';
 
 const router: Router = Router();
 
@@ -382,6 +384,16 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             as: 'referencedLevel',
             attributes: ['id', 'artist', 'song', 'diffId'],
             required: true,
+            include: [{
+              model: LevelCredit,
+              as: 'levelCredits',
+              required: false,
+              include: [{
+                model: Creator,
+                as: 'creator',
+                required: false
+              }],
+            }]
           }],
           required: false,
         }],
@@ -502,7 +514,18 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
             required: false
           }],
           required: false
-        }]
+        },
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          required: false,
+          include: [{
+            model: Creator,
+            as: 'creator',
+            required: false
+          }],
+        }
+      ]
       }],
       order: [['sortOrder', 'ASC']]
     });
@@ -1323,8 +1346,19 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
             as: 'type',
             required: false
           }],
-          required: false
-        }]
+          required: false,
+        },
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          required: false,
+          include: [{
+            model: Creator,
+            as: 'creator',
+            required: false
+          }],
+        }
+      ]
       }],
       order: [['sortOrder', 'ASC']]
     });

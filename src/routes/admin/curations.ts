@@ -16,6 +16,7 @@ import sequelize from '../../config/db.js';
 import { hasAnyFlag } from '../../utils/permissionUtils.js';
 import { permissionFlags } from '../../config/constants.js';
 import { canAssignCurationType } from '../../utils/curationTypeUtils.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
 
 const router: Router = Router();
 
@@ -467,8 +468,12 @@ router.get('/', async (req, res) => {
                 as: 'difficulty',
               },
               {
-                model: Creator,
-                as: 'levelCreators',
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
               },
             ],
           },
@@ -519,8 +524,12 @@ router.get('/', async (req, res) => {
                 as: 'difficulty',
               },
               {
-                model: Creator,
-                as: 'levelCreators',
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
               },
             ],
           },
@@ -551,8 +560,12 @@ router.get('/', async (req, res) => {
               as: 'difficulty',
             },
             {
-              model: Creator,
-              as: 'levelCreators',
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+              }],
             },
           ],
         },
@@ -728,8 +741,12 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
               as: 'difficulty',
             },
             {
-              model: Creator,
-              as: 'levelCreators',
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+              }],
             }
           ],
         },
@@ -885,8 +902,12 @@ router.get('/schedules', async (req, res) => {
                   as: 'difficulty',
                 },
                 {
-                  model: Creator,
-                  as: 'levelCreators',
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
                 }
               ],
             },
@@ -1009,8 +1030,12 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
                   as: 'difficulty',
                 },
                 {
-                  model: Creator,
-                  as: 'levelCreators',
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
                 }
 
               ],
