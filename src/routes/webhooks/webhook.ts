@@ -26,6 +26,7 @@ import {Auth} from '../../middleware/auth.js';
 import { logger } from '../../services/LoggerService.js';
 import { clientUrlEnv } from '../../config/app.config.js';
 import { User } from '../../models/index.js';
+import { formatCredits } from '../../utils/Utility.js';
 
 const router: Router = express.Router();
 
@@ -233,8 +234,6 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const videoInfo = videoLink
     ? await getVideoDetails(videoLink).then(details => details)
     : null;
-  const submitterDiscordPfp = level?.submitterDiscordPfp || null;
-  const submitterDiscordId = level?.submitterDiscordId || null;
   const submitter: User | null = level?.levelSubmitter || null;
   // Process creators by role
   const charters = level.creatorRequests
@@ -247,12 +246,13 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const chartersString = charters.length > 0 ? charters.join(' & ') : 'Unknown';
   const vfxersString = vfxers.length > 0 ? vfxers.join(' & ') : null;
   const teamName = level.teamRequestData?.teamName || null;
-
+  const discordId = submitter?.providers?.find(provider => provider.provider === 'discord')?.providerId || null;
+  logger.debug("found discord id", discordId);
   const embed = new MessageBuilder()
     .setColor('#000000')
-    .setAuthor('New level submission', submitterDiscordPfp || placeHolder, '')
+    .setAuthor('New level submission', submitter?.avatarUrl || placeHolder, '')
     .setTitle(`${song || 'Unknown Song'} — ${artist || 'Unknown Artist'}`)
-    .addField('', `${submitterDiscordId ? `<@${submitterDiscordId}>` : `@${submitter?.nickname}`} #${submitter?.playerId}`, false)
+    .addField('', `${discordId ? `<@${discordId}>` : `@${submitter?.nickname}`} #${submitter?.playerId}`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
     .addField('', '', false);
 
@@ -281,15 +281,14 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
 }
 
 export async function passSubmissionHook(
-  passSubmission: PassSubmission,
+  pass: PassSubmission,
   sanitizedJudgements: IJudgements,
 ) {
   const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
   hook.setUsername('TUF Pass Submission Hook');
   hook.setAvatar(placeHolder);
-  if (!passSubmission)
+  if (!pass)
     return new MessageBuilder().setDescription('No pass info available');
-  const pass = passSubmission.dataValues;
   const level = pass.level;
 
   const submitter: User | null = pass.passSubmitter || null;
@@ -313,7 +312,9 @@ export async function passSubmissionHook(
     : '';
 
   const team = level?.team ? `Level by ${level?.team}` : null;
-  const credit = `Chart by ${trim(level?.charter || 'Unknown', 25)}${level?.vfxer ? ` | VFX by ${trim(level?.vfxer || 'Unknown', 25)}` : ''}`;
+  const credit = `Chart by ${trim(formatCredits(level?.charters), 25)}${level?.vfxer ? ` | VFX by ${trim(formatCredits(level?.vfxers), 25)}` : ''}`;
+
+  const discordId = submitter?.providers?.find(provider => provider.provider === 'discord')?.providerId || null;
 
   const embed = new MessageBuilder()
     .setAuthor(
@@ -332,7 +333,7 @@ export async function passSubmissionHook(
     .addField('Player', `**${pass.passer || 'Unknown Player'}**`, true)
     .addField(
       'Submitter',
-      `**${pass.submitterDiscordId ? `<@${pass.submitterDiscordId}>` : pass.submitterDiscordUsername || submitter?.username || 'Unknown Player'}** #${submitter?.playerId}`,
+      `**${discordId ? `<@${discordId}>` : submitter?.username || 'Unknown Player'}** #${submitter?.playerId}`,
       true,
     )
     .addField('', '', false)

@@ -20,6 +20,7 @@ import LevelCredit from '../../models/levels/LevelCredit.js';
 import sharp from 'sharp';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import { formatCredits } from '../../utils/Utility.js';
 
 const execAsync = promisify(exec);
 
@@ -36,15 +37,6 @@ function formatAxiosError(error: unknown): string {
     return parts.join(' ');
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-function formatCredits(credits: string[]): string {
-  const sliceLength = 3;
-
-  if (!credits) return '';
-  return credits.length > sliceLength ?
-    credits.slice(0, sliceLength).join(', ') + ' and ' + (credits.length - sliceLength) + ' more'
-    : credits.join(', ');
 }
 
 // Promise map for tracking ongoing thumbnail generation

@@ -16,9 +16,6 @@ class LevelSubmission extends BaseModel {
   declare directDL: string;
   declare wsLink: string;
   declare submitterId: string;
-  declare submitterDiscordUsername: string;
-  declare submitterDiscordPfp: string;
-  declare submitterDiscordId: string;
   declare status: 'pending' | 'approved' | 'declined';
   declare charterId: number | null;
   declare charterRequest: boolean;
@@ -71,16 +68,6 @@ LevelSubmission.init(
     wsLink: {
       type: DataTypes.TEXT,
       defaultValue: '',
-    },
-    submitterDiscordUsername: {
-      type: DataTypes.TEXT,
-    },
-    submitterDiscordPfp: {
-      type: DataTypes.TEXT,
-      defaultValue: '',
-    },
-    submitterDiscordId: {
-      type: DataTypes.TEXT,
     },
     status: {
       type: DataTypes.ENUM('pending', 'approved', 'declined'),

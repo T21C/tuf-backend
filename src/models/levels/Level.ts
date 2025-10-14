@@ -36,7 +36,6 @@ class Level
   declare legacyDllink: string | null;
   declare workshopLink: string;
   declare publicComments: string;
-  declare submitterDiscordId: string | null;
   declare toRate: boolean;
   declare rerateReason: string;
   declare rerateNum: string;
@@ -121,10 +120,6 @@ Level.init(
     },
     publicComments: {
       type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    submitterDiscordId: {
-      type: DataTypes.STRING,
       allowNull: true,
     },
     toRate: {

@@ -23,9 +23,6 @@ class PassSubmission extends BaseModel {
   declare feelingDifficulty: string | null;
   declare title: string | null;
   declare rawTime: Date | null;
-  declare submitterDiscordUsername: string | null;
-  declare submitterDiscordId: string | null;
-  declare submitterDiscordPfp: string | null;
   declare userId: string | null;
   // Virtual fields from associations
   declare assignedPlayer?: Player;
@@ -132,22 +129,6 @@ PassSubmission.init(
     },
     rawTime: {
       type: DataTypes.DATE,
-      allowNull: true,
-    },
-    submitterDiscordUsername: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    submitterEmail: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    submitterDiscordId: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    submitterDiscordPfp: {
-      type: DataTypes.TEXT,
       allowNull: true,
     },
     userId: {

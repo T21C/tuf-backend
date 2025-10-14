@@ -239,7 +239,8 @@ router.get('/search/:name', async (req: Request, res: Response) => {
     });
   }
 });
-
+/*
+DISCORD SHOULD ONLY BE MANAGED BY USERS
 router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
@@ -407,6 +408,7 @@ router.delete('/:id([0-9]+)/discord', Auth.superAdmin(), async (req: Request, re
     }
   },
 );
+*/
 
 router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
@@ -451,6 +453,8 @@ router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) =>
   },
 );
 
+/*
+DISCORD SHOULD ONLY BE MANAGED BY USERS
 router.get('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {discordId} = req.params;
@@ -479,7 +483,10 @@ router.get('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
     }
   },
 );
+*/
 
+/*
+DISCORD SHOULD ONLY BE MANAGED BY USERS
 router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
     try {
@@ -590,6 +597,7 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
     }
   },
 );
+*/
 
 router.put('/:id([0-9]+)/name', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {

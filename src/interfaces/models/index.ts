@@ -48,7 +48,6 @@ export interface ILevel extends IBaseModel {
   legacyDllink?: string | null;
   workshopLink: string;
   publicComments: string;
-  submitterDiscordId?: string | null;
   toRate: boolean;
   rerateReason?: string;
   rerateNum: string;
@@ -107,10 +106,6 @@ export interface IPlayer extends IBaseModel {
   isBanned: boolean;
   isSubmissionsPaused: boolean;
   pfp?: string | null;
-  discordId?: string | null;
-  discordUsername?: string | null;
-  discordAvatarId?: string | null;
-  discordAvatar?: string | null;
 
   // Associations
   passes?: IPass[];
@@ -208,10 +203,6 @@ export interface IPassSubmission extends IBaseModel {
   title: string;
   videoLink: string;
   rawTime: Date;
-  submitterDiscordUsername?: string;
-  submitterEmail?: string;
-  submitterDiscordId?: string;
-  submitterDiscordPfp?: string;
   status: 'pending' | 'approved' | 'declined';
   assignedPlayerId?: number | null;
 

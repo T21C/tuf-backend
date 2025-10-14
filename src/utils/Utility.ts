@@ -1,4 +1,6 @@
 import { CDN_CONFIG } from '../cdnService/config.js';
+import { ILevel } from '../interfaces/models/index.js';
+import LevelCredit from '../models/levels/LevelCredit.js';
 
 export function validateFeelingRating(value: string) {
   const exprPattern1 = '[PGUpgu][1-9]'; // Handles single letters followed by 1-9
@@ -156,4 +158,70 @@ export const getFileIdFromCdnUrl = (url: string): string | null => {
   const regex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/;
   const match = url.match(regex);
   return match ? match[1] : null;
+};
+
+
+
+export function formatCredits(credits: string[] | undefined): string {
+  const sliceLength = 3;
+
+  if (!credits) return '';
+  return credits.length > sliceLength ?
+    credits.slice(0, sliceLength).join(', ') + ' and ' + (credits.length - sliceLength) + ' more'
+    : credits.join(', ');
+}
+
+
+export const formatCreatorDisplay = (level: ILevel) => {
+  // If team exists, it takes priority
+  if (!level) return "";
+
+  if (level.team) {
+    return level.team;
+  }
+
+  // If no credits, fall back to creator field
+  if (!level.levelCredits || level.levelCredits.length === 0) {
+    return "No credits";
+  }
+
+  // Group credits by role
+  const creditsByRole = level.levelCredits.reduce((acc: Record<string, string[]>, credit: LevelCredit) => {
+    const role = credit.role.toLowerCase();
+    if (!acc[role]) {
+      acc[role] = [];
+    }
+    if (credit.creator?.name) {
+      acc[role].push(credit.creator?.name);
+    }
+    return acc;
+  }, {});
+
+  const charters = creditsByRole['charter'] || [];
+  const vfxers = creditsByRole['vfxer'] || [];
+
+  // Handle different cases based on number of credits
+  if (level.levelCredits.length >= 3) {
+    const parts = [];
+    if (charters.length > 0) {
+      parts.push(charters.length === 1 
+        ? charters[0] 
+        : `${charters[0]} & ${charters.length - 1} more`);
+    }
+    if (vfxers.length > 0) {
+      parts.push(vfxers.length === 1
+        ? vfxers[0]
+        : `${vfxers[0]} & ${vfxers.length - 1} more`);
+    }
+    return parts.join(' | ');
+  } else if (level.levelCredits.length === 2) {
+    if (charters.length === 2) {
+      return `${charters[0]} & ${charters[1]}`;
+    }
+    if (charters.length === 1 && vfxers.length === 1) {
+      return `${charters[0]} | ${vfxers[0]}`;
+    }
+  }
+
+  return level.levelCredits[0]?.creator?.name || "No credits";
 };

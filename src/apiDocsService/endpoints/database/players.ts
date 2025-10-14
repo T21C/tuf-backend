@@ -102,6 +102,8 @@ const playersEndpoints: EndpointDefinition[] = [
       '500': 'Failed to create player'
     }
   },
+  /*
+  DEPRECATED
   {
     path: '/v2/database/players/:id/discord/:discordId',
     method: 'GET',
@@ -144,6 +146,7 @@ const playersEndpoints: EndpointDefinition[] = [
       '500': 'Failed to update Discord info'
     }
   },
+  */
   {
     path: '/v2/database/players/:id/name',
     method: 'PUT',

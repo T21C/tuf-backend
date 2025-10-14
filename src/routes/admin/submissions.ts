@@ -363,7 +363,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             clears: 0,
             likes: 0,
             publicComments: '',
-            submitterDiscordId: submission.submitterDiscordId,
             rerateReason: '',
             rerateNum: '',
             previousDiffId: 0,

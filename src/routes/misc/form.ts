@@ -24,7 +24,7 @@ import { CdnError } from '../../services/CdnService.js';
 import { CDN_CONFIG } from '../../cdnService/config.js';
 import multer from 'multer';
 import fs from 'fs';
-import { User } from '../../models/index.js';
+import { OAuthProvider, User } from '../../models/index.js';
 import Player from '../../models/players/Player.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { hasFlag } from '../../utils/permissionUtils.js';
@@ -333,9 +333,6 @@ router.post(
           directDL: directDL || sanitizeTextInput(req.body.directDL) || '',
           userId: req.user?.id,
           wsLink: sanitizeTextInput(req.body.wsLink) || '',
-          submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username || '',
-          submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id || '',
-          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png` || '',
           status: 'pending',
           charter: '',
           vfxer: '',
@@ -390,7 +387,17 @@ router.post(
             {
               model: User,
               as: 'levelSubmitter',
-              attributes: ['id', 'username', 'playerId']
+              attributes: ['id', 'username', 'playerId', 'nickname', 'avatarUrl'],
+              include: [
+                {
+                  model: OAuthProvider,
+                  as: 'providers',
+                  required: false,
+                  where: {
+                    provider: 'discord'
+                  }
+                }
+              ]
             }
           ],
           transaction
@@ -654,9 +661,6 @@ router.post(
           title: sanitizeTextInput(req.body.title),
           videoLink: cleanVideoUrl(req.body.videoLink),
           rawTime: new Date(req.body.rawTime),
-          submitterDiscordUsername: (discordProvider?.dataValues?.profile as any)?.username,
-          submitterDiscordId: (discordProvider?.dataValues?.profile as any)?.id,
-          submitterDiscordPfp: `https://cdn.discordapp.com/avatars/${(discordProvider?.dataValues?.profile as any)?.id}/${(discordProvider?.dataValues?.profile as any)?.avatar}.png`,
           status: 'pending',
           assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
           userId: req.user?.id,
@@ -705,6 +709,14 @@ router.post(
                 {
                   model: Player,
                   as: 'player'
+                },
+                {
+                  model: OAuthProvider,
+                  as: 'providers',
+                  required: false,
+                  where: {
+                    provider: 'discord'
+                  }
                 }
               ]
             }

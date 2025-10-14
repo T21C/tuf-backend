@@ -27,11 +27,14 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
             as: 'player',
             attributes: ['name', 'country', 'isBanned'],
             required: true,
+            where: {
+              isBanned: false
+            },
             include: [
               {
                 model: User,
                 as: 'user',
-                required: true,
+                required: false,
                 where: wherePermission(permissionFlags.BANNED, false)
               }
             ]

@@ -30,10 +30,6 @@ type EnrichedPlayer = IPlayer & {
   uniquePasses: Map<number, Pass>;
   stats: PlayerStats | null;
   username?: string;
-  discordUsername?: string;
-  discordAvatar?: string;
-  discordAvatarId?: string;
-  discordId?: string;
   user?: {
     id: string;
     username: string;
@@ -1034,7 +1030,7 @@ export class PlayerStatsService {
       ...pass.toJSON(),
       player: {
         ...pass.player?.toJSON(),
-        discordUsername: pass.player?.user?.username,
+        username: pass.player?.user?.username,
         avatarUrl: pass.player?.user?.avatarUrl,
         pfp: pass.player?.pfp || null,
       },
