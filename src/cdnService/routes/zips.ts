@@ -273,7 +273,8 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             metadata: {
                 ...metadata,
                 targetLevel: matchingLevel.path,
-                pathConfirmed: true
+                pathConfirmed: true,
+                targetSafeToParse: false
             }
         }, { transaction });
 
