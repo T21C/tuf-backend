@@ -460,6 +460,32 @@ class CdnService {
         }
     }
 
+    async getLevelSettings(fileId: string): Promise<any> {
+        try {
+            const response = await this.client.get(`/levels/${fileId}/levelData?mode=settings`);
+            logger.debug('Level settings retrieved from CDN:', {
+                fileId,
+                metadata: response.data
+            });
+            return response.data;
+        } catch (error) {
+            throw new CdnError('Failed to get level settings', 'GET_LEVEL_SETTINGS_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
+    async getLevelAngles(fileId: string): Promise<any> {
+        try {
+            const response = await this.client.get(`/levels/${fileId}/levelData?mode=angles`);
+            return response.data;
+        } catch (error) {
+            throw new CdnError('Failed to get level angles', 'GET_LEVEL_ANGLES_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
     async setTargetLevel(fileId: string, targetLevel: string): Promise<{
         success: boolean;
         fileId: string;

@@ -521,4 +521,55 @@ router.get('/transform-options', async (req: Request, res: Response) => {
     return
 });
 
+
+router.get('/:fileId/levelData', async (req: Request, res: Response) => {
+    try {
+    const { fileId } = req.params;
+    const { mode } = req.query;
+    if (!fileId) {
+        throw { error: 'File ID is required', code: 400 };
+    }   
+    const file = await CdnFile.findByPk(fileId);
+    if (!file) {
+        throw { error: 'File not found', code: 404 };
+    }
+    if (file.type !== 'LEVELZIP') {
+        throw { error: 'File is not a level zip', code: 400 };
+    }
+    const metadata = file.metadata as {
+        allLevelFiles?: Array<{
+            name: string;
+            path: string;
+            size: number;
+        }>;
+        targetLevel?: string | null;
+    };
+    if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
+        throw { error: 'No level files found in metadata', code: 400 };
+    }
+    const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
+    const levelData = new LevelDict(targetLevel);
+
+    if (mode === 'full') {
+        res.json(levelData);
+    } else if (mode === 'settings') {
+        res.json(levelData.getSettings());
+    } else if (mode === 'actions') {
+        res.json(levelData.getActions());
+    } else if (mode === 'decorations') {
+        res.json(levelData.getDecorations());
+    } else if (mode === 'angles') {
+        res.json(levelData.getAngles());
+    } else if (mode === 'relativeAngles') {
+        res.json(levelData.getAnglesRelative());
+    } else {
+        res.json(levelData.toJSON());
+    }
+    return;
+    } catch (error) {
+        logger.error('Error getting level data for ' + req.params.fileId + ':', error);
+        res.status(500).json({ error: 'Failed to get level data' });
+    }
+});
+
 export default router;

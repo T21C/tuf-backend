@@ -20,11 +20,13 @@ import RatingAccuracyVote from '../../../models/levels/RatingAccuracyVote.js';
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { getFileIdFromCdnUrl, safeTransactionRollback } from '../../../utils/Utility.js';
 import Curation from '../../../models/curations/Curation.js';
 import CurationType from '../../../models/curations/CurationType.js';
 import { hasFlag } from '../../../utils/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
+import cdnService from '../../../services/CdnService.js';
+
 
 const MAX_LIMIT = 200;
 
@@ -348,6 +350,9 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         where: { levelId: parseInt(req.params.id) },
         order: [['createdAt', 'DESC']],
       });
+      const fileId = level?.dlLink ? getFileIdFromCdnUrl(level.dlLink) : undefined;
+      const levelSettings = fileId ? await cdnService.getLevelSettings(fileId) : undefined;
+      const levelAngles = fileId ? await cdnService.getLevelAngles(fileId) : undefined;
 
       await transaction.commit();
 
@@ -370,6 +375,8 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         totalVotes,
         isLiked,
         isCleared,
+        levelSettings,
+        levelAngles,
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
