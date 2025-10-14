@@ -351,9 +351,15 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         order: [['createdAt', 'DESC']],
       });
       const fileId = level?.dlLink ? getFileIdFromCdnUrl(level.dlLink) : undefined;
-      const levelSettings = fileId ? await cdnService.getLevelSettings(fileId) : undefined;
-      const levelAngles = fileId ? await cdnService.getLevelAngles(fileId) : undefined;
-
+      let bpm;
+      let tilecount;
+      try {
+      const fileReponse = fileId ? await cdnService.getLevelSettings(fileId, 'settings,angles') : undefined;
+        bpm = fileReponse?.settings?.bpm;
+        tilecount = fileReponse?.angles?.length;
+      } catch (error) {
+        logger.error('Error getting level settings:', error);
+      }
       await transaction.commit();
 
 
@@ -375,8 +381,8 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         totalVotes,
         isLiked,
         isCleared,
-        levelSettings,
-        levelAngles,
+        bpm,
+        tilecount,
       });
     } catch (error) {
       await safeTransactionRollback(transaction);

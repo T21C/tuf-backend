@@ -75,7 +75,7 @@ await initializeRepackFolder();
 setInterval(cleanupRepackFolder, 30 * 60 * 1000);
 
 // Add helper function for sanitizing filenames
-const sanitizeFilename = (filename: string): string => {
+function sanitizeFilename(filename: string): string {
   // Remove or replace invalid characters
   return filename
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_') // Replace invalid characters with underscore
@@ -86,16 +86,18 @@ const sanitizeFilename = (filename: string): string => {
 };
 
 // Add helper function for encoding Content-Disposition
-const encodeContentDisposition = (filename: string): string => {
+function encodeContentDisposition(filename: string): string {
   const sanitized = sanitizeFilename(filename);
-
-  return `attachment; filename*=UTF-8''${sanitized}`;
+  // Percent-encode the filename for RFC 2231 compliance
+  const encoded = encodeURIComponent(sanitized);
+  
+  return `attachment; filename*=UTF-8''${encoded}`;
 };
 
 const router = Router();
 
 // Function to extract unique event types and filters from a level file
-const extractLevelTypes = (levelData: LevelDict) => {
+function extractLevelTypes(levelData: LevelDict) {
     const eventTypes = new Set<string>();
     const filterTypes = new Set<string>();
     const advancedFilterTypes = new Set<string>();
@@ -172,6 +174,12 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             storageType?: StorageType;
             levelStorageType?: StorageType;
             songStorageType?: StorageType;
+            originalZip?: {
+                name: string;
+                path: string;
+                size: number;
+                originalFilename?: string;
+            };
         };
 
         // Log metadata structure for debugging
@@ -372,7 +380,8 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             res.setHeader('Content-Type', 'application/zip');
 
             // Use the original filename from the path (no encoding/decoding needed)
-            const displayFilename = path.basename(levelPath);
+            const displayFilename = metadata.originalZip?.name.replace('.zip', '');
+            console.log(displayFilename);
             res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}.zip`));
 
             // Stream the zip file from the repack folder
@@ -525,7 +534,7 @@ router.get('/transform-options', async (req: Request, res: Response) => {
 router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     try {
     const { fileId } = req.params;
-    const { mode } = req.query;
+    const { modes } = req.query;
     if (!fileId) {
         throw { error: 'File ID is required', code: 400 };
     }   
@@ -543,32 +552,56 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
             size: number;
         }>;
         targetLevel?: string | null;
+        targetSafeToParse?: boolean;
     };
     if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
         throw { error: 'No level files found in metadata', code: 400 };
     }
     const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
-    const levelData = new LevelDict(targetLevel);
-
-    if (mode === 'full') {
-        res.json(levelData);
-    } else if (mode === 'settings') {
-        res.json(levelData.getSettings());
-    } else if (mode === 'actions') {
-        res.json(levelData.getActions());
-    } else if (mode === 'decorations') {
-        res.json(levelData.getDecorations());
-    } else if (mode === 'angles') {
-        res.json(levelData.getAngles());
-    } else if (mode === 'relativeAngles') {
-        res.json(levelData.getAnglesRelative());
-    } else {
-        res.json(levelData.toJSON());
+    if (!fs.existsSync(targetLevel)) {
+        throw { error: 'Target level file not found', code: 400 };
     }
-    return;
+    
+    const safeToParse = metadata.targetSafeToParse || false;
+    let levelData: LevelDict;
+    if (!safeToParse) {
+        levelData = new LevelDict(targetLevel);
+        levelData.writeToFile(targetLevel);
+        await file.update({ metadata: { ...metadata, targetSafeToParse: true } });
+    } else {
+        levelData = LevelDict.fromJSON(fs.readFileSync(targetLevel, 'utf8'));
+    }
+
+    let response: {
+        settings?: any;
+        actions?: any;
+        decorations?: any;
+        angles?: any;
+        relativeAngles?: any;
+    } = {};
+    
+    if (!modes || typeof modes !== 'string') {
+        return res.json(levelData);
+    }
+    if (modes.includes('settings')) {
+        response.settings = levelData.getSettings();
+    }
+    if (modes.includes('actions')) {
+        response.actions = levelData.getActions();
+    } 
+    if (modes.includes('decorations')) {
+        response.decorations = levelData.getDecorations();
+    } 
+    if (modes.includes('angles')) {
+        response.angles = levelData.getAngles();
+    } 
+    if (modes.includes('relativeAngles')) {
+        response.relativeAngles = levelData.getAnglesRelative();
+    } 
+    return res.json(response);
     } catch (error) {
         logger.error('Error getting level data for ' + req.params.fileId + ':', error);
-        res.status(500).json({ error: 'Failed to get level data' });
+        return res.status(500).json({ error: 'Failed to get level data' });
     }
 });
 
