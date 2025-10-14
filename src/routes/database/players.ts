@@ -714,7 +714,15 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
       const {id} = req.params;
       const {isBanned} = req.body;
 
-      const player = await Player.findByPk(id, {transaction, include: [{model: User, as: 'user'}]});
+      const player = await Player.findByPk(id, {transaction, 
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'playerId', 'nickname', 'avatarUrl', 'username', 'permissionFlags'],
+          }
+        ]
+      });
       if (!player) {
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Player not found'});

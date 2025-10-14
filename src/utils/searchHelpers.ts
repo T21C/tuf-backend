@@ -87,7 +87,7 @@ export function createMultiFieldSearchCondition(
   };
 }
 
-export const escapeForMySQL = (str: string) => {
+export function escapeForMySQL(str: string) {
   if (!str) return '';
 
   // eslint-disable-next-line no-control-regex
@@ -122,7 +122,7 @@ export const escapeForMySQL = (str: string) => {
  * @param str The string to convert
  * @returns The converted string with special characters replaced by PUA characters
  */
-export const convertToPUA = (str: string): string => {
+export function convertToPUA(str: string): string {
   if (!str) return '';
 
   // Create a regex pattern from all special characters
@@ -136,7 +136,7 @@ export const convertToPUA = (str: string): string => {
  * @param str The string to convert
  * @returns The converted string with PUA characters replaced by original special characters
  */
-export const convertFromPUA = (str: string): string => {
+export function convertFromPUA(str: string): string {
   if (!str) return '';
 
   // Create a regex pattern from all PUA characters
@@ -150,7 +150,7 @@ export const convertFromPUA = (str: string): string => {
  * @param str The search term to convert
  * @returns The converted search term
  */
-export const prepareSearchTerm = (str: string): string => {
+export function prepareSearchTerm(str: string): string {
   if (!str) return '';
 
   // Convert special characters to PUA characters
