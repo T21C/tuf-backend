@@ -10,6 +10,7 @@ import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
 import Team from '../credits/Team.js';
 import Curation from '../curations/Curation.js';
+import Rating from './Rating.js';
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<
@@ -59,6 +60,7 @@ class Level
   declare levelCredits?: LevelCredit[];
   declare aliases?: LevelAlias[] | null;
   declare curation?: Curation | null;
+  declare ratings?: Rating[] | null;
 
   declare charter: string;
   declare vfxer: string;

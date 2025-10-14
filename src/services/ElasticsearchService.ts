@@ -28,6 +28,10 @@ import Curation from '../models/curations/Curation.js';
 import CurationType from '../models/curations/CurationType.js';
 import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '../utils/queryParser.js';
 
+const MAX_BATCH_SIZE = 4000;
+const BATCH_SIZE = 500;
+
+
 class ElasticsearchService {
   private static instance: ElasticsearchService;
   private isInitialized = false;
@@ -104,6 +108,7 @@ class ElasticsearchService {
     LevelLikes.removeHook('beforeSave', 'elasticsearchLevelLikesUpdate');
     Level.removeHook('beforeSave', 'elasticsearchLevelUpdate');
     Pass.removeHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate');
+    Pass.removeHook('afterBulkCreate', 'elasticsearchPassBulkCreate');
     Level.removeHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate');
 
     // Add hooks with unique names
@@ -154,6 +159,45 @@ class ElasticsearchService {
         }
       } catch (error) {
         logger.error('Error in pass afterBulkUpdate hook:', error);
+      }
+    });
+
+    // Add afterBulkCreate hook for Pass model (for bulkCreate with updateOnDuplicate)
+    Pass.addHook('afterBulkCreate', 'elasticsearchPassBulkCreate', async (instances: Pass[], options: any) => {
+      logger.debug(`Pass bulk create hook triggered for ${instances.length} passes`);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            if (instances.length > 0) {
+              // Get unique level IDs from the passes
+              const levelIds = Array.from(new Set(instances.map(pass => pass.levelId)));
+              const passIds = instances.map(pass => pass.id);
+              
+              logger.debug(`Bulk indexing ${passIds.length} passes and ${levelIds.length} levels after bulk create`);
+              
+              // Bulk index all affected passes
+              await this.reindexPasses(passIds);
+              
+              // Update all affected levels
+              for (const levelId of levelIds) {
+                await this.indexLevel(levelId);
+              }
+            }
+          });
+        } else {
+          if (instances.length > 0) {
+            const levelIds = Array.from(new Set(instances.map(pass => pass.levelId)));
+            const passIds = instances.map(pass => pass.id);
+            
+            await this.reindexPasses(passIds);
+            
+            for (const levelId of levelIds) {
+              await this.indexLevel(levelId);
+            }
+          }
+        }
+      } catch (error) {
+        logger.error('Error in pass afterBulkCreate hook:', error);
       }
     });
 
@@ -284,7 +328,80 @@ class ElasticsearchService {
       },
       {
         model: LevelAlias,
-        as: 'aliases'
+        as: 'aliases',
+        attributes: ['alias']
+      },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        include: [
+          {
+            model: Creator,
+            as: 'creator',
+            include: [
+              {
+                model: CreatorAlias,
+                as: 'creatorAliases',
+                attributes: ['name']
+              }
+            ]
+          }
+        ]
+      },
+      {
+        model: Team,
+        as: 'teamObject',
+        include: [
+          {
+            model: TeamAlias,
+            as: 'teamAliases',
+            attributes: ['name']
+          }
+        ]
+      },
+      {
+        model: Curation,
+        as: 'curation',
+        include: [
+          {
+            model: CurationType,
+            as: 'type'
+          }
+        ]
+      },
+      {
+        model: Rating,
+        as: 'ratings',
+        where: {
+          [Op.not]: {confirmedAt: null}
+        },
+        limit: 1,
+        required: false,
+        order: [['confirmedAt', 'DESC']] as any,
+        attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
+      }
+    ];
+
+  private passIncludes = [
+    {
+    model: Player,
+    as: 'player',
+    attributes: ['name', 'country', 'isBanned'],
+    include: [
+      {
+        model: User,
+        as: 'user',
+        attributes: ['avatarUrl', 'username']
+      }
+    ]
+  },
+  {
+    model: Level,
+    as: 'level',
+    include: [
+      {
+        model: Difficulty,
+        as: 'difficulty'
       },
       {
         model: LevelCredit,
@@ -308,21 +425,24 @@ class ElasticsearchService {
         include: [
           {
             model: TeamAlias,
-            as: 'teamAliases'
+            as: 'teamAliases',
+            attributes: ['name']
           }
         ]
       },
       {
-        model: Curation,
-        as: 'curation',
-        include: [
-          {
-            model: CurationType,
-            as: 'type'
-          }
-        ]
+        model: LevelAlias,
+        as: 'aliases',
+        attributes: ['alias']
       }
-    ];
+    ]
+  },
+  {
+    model: Judgement,
+    as: 'judgements'
+  }
+]
+
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
     logger.debug(`Getting level with relations for level ${levelId}`);
     const level = await Level.findByPk(levelId,
@@ -352,7 +472,7 @@ class ElasticsearchService {
   }
 
 
-  private parseFields(level: Level, rating: Rating | null = null): any {
+  private parseFields(level: Level): any {
     return {
         ...level.get({ plain: true }),
         song: convertToPUA(level.song),
@@ -363,8 +483,6 @@ class ElasticsearchService {
         legacyDllink: level.legacyDllink ? convertToPUA(level.legacyDllink) : null,
         // Process nested fields
         aliases: level.aliases?.map(alias => ({
-          ...alias.get({ plain: true }),
-          originalValue: convertToPUA(alias.originalValue),
           alias: convertToPUA(alias.alias)
         })),
         levelCredits: level.levelCredits?.map(credit => ({
@@ -379,7 +497,7 @@ class ElasticsearchService {
           } : null
         })),
         rating: {
-          ...rating?.get({ plain: true }),
+          ...level.ratings?.[0]?.get({ plain: true }),
         },
         teamObject: level.teamObject ? {
           ...level.teamObject.get({ plain: true }),
@@ -400,15 +518,7 @@ class ElasticsearchService {
   private async getParsedLevel(id: number): Promise<ILevel | null> {
     const level = await this.getLevelWithRelations(id);
     if (!level) return null;
-    const rating = await Rating.findOne({
-      where: {
-        levelId: id,
-        [Op.not]: {confirmedAt: null}
-      },
-      order: [['confirmedAt', 'DESC']], // Get the most recent confirmed rating
-      attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
-    });
-    const processedLevel = this.parseFields(level, rating);
+    const processedLevel = this.parseFields(level);
     logger.debug(`Processed level ${id} videoLink: ${processedLevel.videoLink}`);
     return processedLevel as ILevel;
   }
@@ -417,64 +527,7 @@ class ElasticsearchService {
     const transaction = await sequelize.transaction();
     try {
       const pass = await Pass.findByPk(passId, {
-        include: [
-          {
-          model: Player,
-          as: 'player',
-          attributes: ['name', 'country', 'isBanned'],
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['avatarUrl', 'username']
-            }
-          ]
-        },
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty'
-            },
-            {
-              model: LevelCredit,
-              as: 'levelCredits',
-              include: [
-                {
-                  model: Creator,
-                  as: 'creator',
-                  include: [
-                    {
-                      model: CreatorAlias,
-                      as: 'creatorAliases'
-                    }
-                  ]
-                }
-              ]
-            },
-            {
-              model: Team,
-              as: 'teamObject',
-              include: [
-                {
-                  model: TeamAlias,
-                  as: 'teamAliases'
-                }
-              ]
-            },
-            {
-              model: LevelAlias,
-              as: 'aliases'
-            }
-          ]
-        },
-        {
-          model: Judgement,
-          as: 'judgements'
-        }
-      ]
+        include: this.passIncludes
     });
     await transaction.commit();
     return pass;
@@ -540,35 +593,14 @@ class ElasticsearchService {
 
   public async bulkIndexLevels(levels: Level[]): Promise<void> {
     try {
-      const BATCH_SIZE = 200;
       const totalBatches = Math.ceil(levels.length / BATCH_SIZE);
-
+      logger.debug(`first level aliases`, levels[0].aliases);
+      // Process in batches for Elasticsearch
       for (let i = 0; i < levels.length; i += BATCH_SIZE) {
         const batch = levels.slice(i, i + BATCH_SIZE);
 
-        // Fetch the most recent confirmed rating for all levels in this batch
-        const levelIds = batch.map(level => level.id);
-        const ratings = await Rating.findAll({
-          where: {
-            levelId: { [Op.in]: levelIds },
-            [Op.not]: { confirmedAt: null }
-          },
-          order: [['confirmedAt', 'DESC']], // Order by most recent first
-          attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
-        });
-
-        // Create a map with only the most recent rating per level
-        const ratingMap = new Map();
-        ratings.forEach(rating => {
-          if (!ratingMap.has(rating.levelId)) {
-            ratingMap.set(rating.levelId, rating);
-          }
-        });
-
         const operations = batch.flatMap(level => {
-          const rating = ratingMap.get(level.id);
-
-          const processedLevel = this.parseFields(level, rating);
+          const processedLevel = this.parseFields(level);
           return [
             { index: { _index: levelIndexName, _id: level.id.toString() } },
             processedLevel
@@ -576,7 +608,10 @@ class ElasticsearchService {
         });
 
         if (operations.length > 0) {
-          await client.bulk({ operations });
+          await client.bulk({ 
+            operations,
+            refresh: false // Don't refresh after each batch for better performance
+          });
         }
       }
       logger.debug(`Successfully indexed ${levels.length} levels in ${totalBatches} batches`);
@@ -618,7 +653,7 @@ class ElasticsearchService {
         level: pass.level ? {
           ...pass.level.get({ plain: true }),
           song: convertToPUA(pass.level.song),
-          artist: convertToPUA(pass.level.artist)
+          artist: convertToPUA(pass.level.artist),
         } : null
       } : await this.getParsedPass(pass.id);
 
@@ -643,7 +678,6 @@ class ElasticsearchService {
 
   public async bulkIndexPasses(passes: any[]): Promise<void> {
     try {
-      const BATCH_SIZE = 100;
       const totalBatches = Math.ceil(passes.length / BATCH_SIZE);
 
       for (let i = 0; i < passes.length; i += BATCH_SIZE) {
@@ -696,56 +730,91 @@ class ElasticsearchService {
 
   public async reindexLevels(levelIds?: number[]): Promise<void> {
     try {
-      const levels = await Level.findAll({
-        where: levelIds ? { id: { [Op.in]: levelIds } } : undefined,
-        include: this.levelIncludes as any
+      const whereClause = levelIds ? { id: { [Op.in]: levelIds } } : undefined;
+      let offset = 0;
+      let processedCount = 0;
+
+      // Fetch first batch
+      let levels = await Level.findAll({
+        where: whereClause,
+        include: this.levelIncludes as any,
+        offset: offset,
+        limit: MAX_BATCH_SIZE
       });
 
-      await this.bulkIndexLevels(levels);
+      while (levels.length > 0) {
+        const currentBatchSize = levels.length;
+
+        // Concurrently fetch next batch and index current batch
+        const nextLevels = await Promise.all([
+          this.bulkIndexLevels(levels),
+          levels.length === MAX_BATCH_SIZE
+            ? Level.findAll({
+                where: whereClause,
+                include: this.levelIncludes as any,
+                offset: offset + MAX_BATCH_SIZE,
+                limit: MAX_BATCH_SIZE
+              })
+            : Promise.resolve([])
+        ]).then(([_, next]) => next);
+
+        processedCount += currentBatchSize;
+        logger.info(`Reindexed ${processedCount} levels...`);
+
+        // Move to next batch
+        offset += MAX_BATCH_SIZE;
+        levels = nextLevels;
+      }
+
+      logger.info(`Reindexing complete. Total levels indexed: ${processedCount}`);
     } catch (error) {
-      logger.error('Error reindexing all levels:', error);
+      logger.error('Error reindexing levels:', error);
       throw error;
     }
   }
 
+
   public async reindexPasses(passIds?: number[]): Promise<void> {
     try {
-      const passes = await Pass.findAll({
-        where: passIds ? { id: { [Op.in]: passIds } } : undefined,
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            attributes: ['name', 'country', 'isBanned'],
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ['avatarUrl', 'username']
-              }
-            ]
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty'
-              }
-            ]
-          },
-          {
-            model: Judgement,
-            as: 'judgements'
-          }
-        ]
+      const whereClause = passIds ? { id: { [Op.in]: passIds } } : undefined;
+      let offset = 0;
+      let processedCount = 0;
+
+      // Fetch first batch
+      let passes = await Pass.findAll({
+        where: whereClause,
+        include: this.passIncludes as any,
+        offset: offset,
+        limit: MAX_BATCH_SIZE
       });
 
-      await this.bulkIndexPasses(passes);
+      while (passes.length > 0) {
+        const currentBatchSize = passes.length;
 
+        // Concurrently fetch next batch and index current batch
+        const nextPasses = await Promise.all([
+          this.bulkIndexPasses(passes),
+          passes.length === MAX_BATCH_SIZE
+            ? Pass.findAll({
+                where: whereClause,
+                include: this.passIncludes as any,
+                offset: offset + MAX_BATCH_SIZE,
+                limit: MAX_BATCH_SIZE
+              })
+            : Promise.resolve([])
+        ]).then(([_, next]) => next);
+
+        processedCount += currentBatchSize;
+        logger.info(`Reindexed ${processedCount} passes...`);
+
+        // Move to next batch
+        offset += MAX_BATCH_SIZE;
+        passes = nextPasses;
+      }
+
+      logger.info(`Reindexing complete. Total passes indexed: ${processedCount}`);
     } catch (error) {
-      logger.error('Error reindexing all passes:', error);
+      logger.error('Error reindexing passes:', error);
       throw error;
     }
   }
@@ -1060,7 +1129,21 @@ class ElasticsearchService {
                 }
               }
             }
+          },
+          {
+            nested: {
+              path: 'aliases',
+              query: {
+                wildcard: {
+                  'aliases.alias': {
+                    value: wildcardValue,
+                    case_insensitive: true
+                  }
+                }
+              }
+            }
           }
+
         ]
       }
     };
@@ -2106,7 +2189,13 @@ class ElasticsearchService {
           { wildcard: { 'level.artist': { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { 'videoLink': { value: wildcardValue, case_insensitive: true } } },
           { wildcard: { 'vidTitle': { value: wildcardValue, case_insensitive: true } } },
-          { wildcard: { 'level.dlLink': { value: wildcardValue, case_insensitive: true } } }
+          { wildcard: { 'level.dlLink': { value: wildcardValue, case_insensitive: true } } },
+          { nested: {
+            path: 'level.aliases',
+            query: {
+              wildcard: { 'level.aliases.alias': { value: wildcardValue, case_insensitive: true } }
+            }
+          }}
         ],
         minimum_should_match: 1
       }

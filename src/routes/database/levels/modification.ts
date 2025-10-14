@@ -169,52 +169,72 @@ const handleScoreRecalculations = async (
     transaction,
   });
 
-  const batchSize = 100;
-  for (let i = 0; i < passes.length; i += batchSize) {
-    const batch = passes.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(async passData => {
-        const pass = passData.dataValues;
-        if (!pass.judgements) return;
+  // Get the difficulty once for all passes
+  const currentDifficulty = await Difficulty.findByPk(
+    updateData.diffId,
+    {transaction}
+  );
 
-        const accuracy = calcAcc(pass.judgements);
-        const currentDifficulty = await Difficulty.findByPk(
-          updateData.diffId || pass.level?.diffId,
-          {
-            transaction,
-          },
-        );
-
-        if (!currentDifficulty) {
-          logger.error(
-            `No difficulty found for pass ${pass.id} with diffId ${updateData.diffId || pass.level?.diffId}`,
-          );
-          return;
-        }
-
-        const levelData = {
-          baseScore: updateData.baseScore || pass.level?.baseScore || 0,
-          difficulty: currentDifficulty,
-        };
-
-        const scoreV2 = getScoreV2(
-          {
-            speed: pass.speed || 1,
-            judgements: pass.judgements,
-            isNoHoldTap: pass.isNoHoldTap || false,
-          },
-          levelData,
-        );
-
-        await Pass.update(
-          {accuracy, scoreV2},
-          {
-            where: {id: pass.id},
-            transaction,
-          },
-        );
-      }),
+  if (!currentDifficulty && updateData.diffId) {
+    logger.error(
+      `No difficulty found for level ${levelId} with diffId ${updateData.diffId}`,
     );
+    return [];
+  }
+
+  // Collect all updates for bulk operation
+  const passUpdates: Array<{id: number; levelId: number; playerId: number; accuracy: number; scoreV2: number}> = [];
+  
+  for (const passData of passes) {
+    const pass = passData.dataValues;
+    if (!pass.judgements) continue;
+
+    const accuracy = calcAcc(pass.judgements);
+    const diffToUse = currentDifficulty || pass.level?.difficulty;
+    
+    if (!diffToUse) {
+      logger.warn(`No difficulty found for pass ${pass.id}, skipping score calculation`);
+      continue;
+    }
+
+    const levelData = {
+      baseScore: updateData.baseScore || pass.level?.baseScore || 0,
+      difficulty: {
+        name: diffToUse.name,
+        baseScore: diffToUse.baseScore || 0,
+      },
+    };
+
+    const scoreV2 = getScoreV2(
+      {
+        speed: pass.speed || 1,
+        judgements: pass.judgements,
+        isNoHoldTap: pass.isNoHoldTap || false,
+      },
+      levelData,
+    );
+
+    passUpdates.push({
+      id: pass.id,
+      levelId: pass.levelId,
+      playerId: pass.playerId,
+      accuracy,
+      scoreV2,
+    });
+  }
+
+  // Perform bulk update if there are any updates
+  if (passUpdates.length > 0) {
+    // Update each pass using a bulk update query
+    await Pass.bulkCreate(
+      passUpdates,
+      {
+        updateOnDuplicate: ['accuracy', 'scoreV2'],
+        transaction,
+      },
+    );
+
+    logger.debug(`Bulk updated ${passUpdates.length} passes for level ${levelId}`);
   }
 
   return passes.map(pass => pass.playerId);

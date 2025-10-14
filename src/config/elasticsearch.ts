@@ -64,6 +64,12 @@ const settings = {
           'asciifolding'
         ]
       }
+    },
+    normalizer: {
+      lowercase: {
+        type: 'custom' as const,
+        filter: ['lowercase']
+      }
     }
   }
 }
@@ -208,13 +214,15 @@ export const levelMapping = {
       aliases: {
         type: 'nested' as const,
         properties: {
-          id: { type: 'long' as const },
-          levelId: { type: 'long' as const },
-          field: { type: 'keyword' as const },
-          originalValue: { type: 'text' as const },
-          alias: { type: 'text' as const },
-          createdAt: { type: 'date' as const },
-          updatedAt: { type: 'date' as const }
+          alias: { 
+            type: 'text' as const,
+            fields: {
+              keyword: {
+                type: 'keyword' as const,
+                normalizer: 'lowercase'
+              }
+            }
+          }
         }
       },
       levelCredits: {
@@ -260,9 +268,7 @@ export const levelMapping = {
                         normalizer: 'lowercase'
                       }
                     }
-                  },
-                  createdAt: { type: 'date' as const },
-                  updatedAt: { type: 'date' as const }
+                  }
                 }
               }
             }
@@ -358,6 +364,21 @@ export const passMapping = {
               name: { type: 'keyword' as const },
               type: { type: 'keyword' as const },
               sortOrder: { type: 'integer' as const }
+            }
+          },
+          aliases: {
+            type: 'nested' as const,
+            properties: {
+              alias: { 
+                type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
+                fields: {
+                  keyword: {
+                    type: 'keyword' as const,
+                    normalizer: 'lowercase'
+                  }
+                }
+              }
             }
           }
         }
