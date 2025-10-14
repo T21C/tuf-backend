@@ -17,6 +17,8 @@ import Creator from '../models/credits/Creator.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
 import { hasFlag } from '../utils/permissionUtils.js';
 import { permissionFlags } from '../config/constants.js';
+import LevelCredit from '../models/levels/LevelCredit.js';
+import Team from '../models/credits/Team.js';
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
@@ -972,6 +974,18 @@ export class PlayerStatsService {
             {
               model: Difficulty,
               as: 'difficulty',
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+              }],
+            },
+            {
+              model: Team,
+              as: 'teamObject'
             },
           ],
         },

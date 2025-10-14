@@ -19,6 +19,9 @@ import { wherePermission } from '../../../utils/permissionUtils.js';
 import { Op } from 'sequelize';
 import { permissionFlags } from '../../../config/constants.js';
 import { User } from '../../../models/index.js';
+import Creator from '../../../models/credits/Creator.js';
+import LevelCredit from '../../../models/levels/LevelCredit.js';
+import Team from '../../../models/credits/Team.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -61,6 +64,18 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
                 as: 'difficulty',
                 attributes: ['baseScore'],
               },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
+              },
+              {
+                model: Team,
+                as: 'teamObject',
+              },
             ],
           },
           {
@@ -92,6 +107,18 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
               model: Difficulty,
               as: 'difficulty',
               attributes: ['baseScore'],
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+              }],
+            },
+            {
+              model: Team,
+              as: 'teamObject',
             },
           ],
           transaction,
@@ -277,6 +304,18 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
                 model: Difficulty,
                 as: 'difficulty',
               },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
+              },
+              {
+                model: Team,
+                as: 'teamObject',
+              },
             ],
           },
           {
@@ -364,6 +403,10 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
                   model: Difficulty,
                   as: 'difficulty',
                 },
+                {
+                  model: Team,
+                  as: 'teamObject',
+                },
               ],
             },
             {
@@ -410,6 +453,18 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
                 {
                   model: Difficulty,
                   as: 'difficulty',
+                },
+                {
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
+                },
+                {
+                  model: Team,
+                  as: 'teamObject',
                 },
               ],
             },
@@ -474,6 +529,18 @@ router.put('/:id([0-9]+)', Auth.superAdmin(), async (req: Request, res: Response
                 {
                   model: Difficulty,
                   as: 'difficulty',
+                },
+                {
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
+                },
+                {
+                  model: Team,
+                  as: 'teamObject',
                 },
               ],
             },

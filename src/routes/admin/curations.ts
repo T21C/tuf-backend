@@ -17,6 +17,7 @@ import { hasAnyFlag } from '../../utils/permissionUtils.js';
 import { permissionFlags } from '../../config/constants.js';
 import { canAssignCurationType } from '../../utils/curationTypeUtils.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
+import Team from '../../models/credits/Team.js';
 
 const router: Router = Router();
 
@@ -531,6 +532,10 @@ router.get('/', async (req, res) => {
                   as: 'creator',
                 }],
               },
+              {
+                model: Team,
+                as: 'teamObject',
+              },
             ],
           },
         ];
@@ -566,6 +571,10 @@ router.get('/', async (req, res) => {
                 model: Creator,
                 as: 'creator',
               }],
+            },
+            {
+              model: Team,
+              as: 'teamObject',
             },
           ],
         },
@@ -683,6 +692,18 @@ router.get('/', async (req, res) => {
               model: Difficulty,
               as: 'difficulty',
             },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+              }],
+            },
+            {
+              model: Team,
+              as: 'teamObject',
+            },
           ],
         },
       ],
@@ -747,7 +768,11 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
                 model: Creator,
                 as: 'creator',
               }],
-            }
+            },
+            {
+              model: Team,
+              as: 'teamObject',
+            },
           ],
         },
       ],
@@ -790,6 +815,18 @@ router.get('/:id([0-9]+)', async (req, res) => {
             {
               model: Difficulty,
               as: 'difficulty',
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+              }],
+            },
+            {
+              model: Team,
+              as: 'teamObject',
             },
           ],
         },

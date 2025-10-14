@@ -111,6 +111,20 @@ router.get('/', async (req: Request, res: Response) => {
             as: 'createdLevels',
             through: {attributes: ['role']},
             attributes: ['id'],
+            include: [{
+              model: LevelCredit,
+              as: 'levelCredits',
+              include: [{
+                model: Creator,
+                as: 'creator',
+                attributes: ['id', 'name']
+              }],
+            },
+            {
+              model: Team,
+              as: 'teamObject',
+            },
+          ],
           },
           {
             model: User,
@@ -187,6 +201,14 @@ router.get('/teams/byId/:teamId([0-9]+)', async (req: Request, res: Response) =>
         {
           model: Level,
           as: 'levels',
+          include: [{
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{
+              model: Creator,
+              as: 'creator',
+            }],
+          }],
         },
         {
           model: TeamAlias,
@@ -816,6 +838,14 @@ router.put('/:id([0-9]+)', async (req: Request, res: Response) => {
           model: Level,
           as: 'createdLevels',
           through: {attributes: ['role']},
+          include: [{
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{
+              model: Creator,
+              as: 'creator',
+            }],
+          }],
         },
         {
           model: User,

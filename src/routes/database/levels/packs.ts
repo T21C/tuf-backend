@@ -19,6 +19,7 @@ import Curation from '../../../models/curations/Curation.js';
 import CurationType from '../../../models/curations/CurationType.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import Creator from '../../../models/credits/Creator.js';
+import Team from '../../../models/credits/Team.js';
 
 const router: Router = Router();
 
@@ -393,7 +394,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
                 as: 'creator',
                 required: false
               }],
-            }]
+            },
+            {
+              model: Team,
+              as: 'teamObject'
+            }
+          ]
           }],
           required: false,
         }],
@@ -524,7 +530,12 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
             as: 'creator',
             required: false
           }],
-        }
+        },
+        {
+          model: Team,
+          as: 'teamObject'
+        },
+
       ]
       }],
       order: [['sortOrder', 'ASC']]
@@ -1357,6 +1368,10 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
             as: 'creator',
             required: false
           }],
+        },
+        {
+          model: Team,
+          as: 'teamObject'
         }
       ]
       }],

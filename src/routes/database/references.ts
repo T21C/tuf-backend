@@ -6,6 +6,9 @@ import Level from '../../models/levels/Level.js';
 import {Auth} from '../../middleware/auth.js';
 import sequelize from '../../config/db.js';
 import { logger } from '../../services/LoggerService.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
+import Creator from '../../models/credits/Creator.js';
+import Team from '../../models/credits/Team.js';
 
 interface ILevelWithReference extends Level {
   reference?: {
@@ -32,6 +35,19 @@ router.get('/', async (req: Request, res: Response) => {
         {
           model: Level,
           as: 'referenceLevels',
+          include: [{
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{
+              model: Creator,
+              as: 'creator',
+            }],
+          },
+          {
+            model: Team,
+            as: 'teamObject',
+          },
+        ],
           through: {
             attributes: ['type'], // Include the type from the Reference model
             as: 'reference' // This will be the name of the property containing the reference data
@@ -75,6 +91,19 @@ router.get('/difficulty/:difficultyId([0-9]+)', async (req: Request, res: Respon
         {
           model: Level,
           as: 'referenceLevels',
+          include: [{
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{
+              model: Creator,
+              as: 'creator',
+            }],
+            },
+            {
+              model: Team,
+              as: 'teamObject',
+            },
+          ],
           through: {
             attributes: ['type'],
             as: 'reference'

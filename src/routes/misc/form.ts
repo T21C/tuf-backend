@@ -9,6 +9,8 @@ import {
 import {levelSubmissionHook, passSubmissionHook} from '../webhooks/webhook.js';
 import Level from '../../models/levels/Level.js';
 import Difficulty from '../../models/levels/Difficulty.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
+import Creator from '../../models/credits/Creator.js';
 import {sseManager} from '../../utils/sse.js';
 import {getScoreV2} from '../../utils/CalcScore.js';
 import {calcAcc} from '../../utils/CalcAcc.js';
@@ -698,6 +700,14 @@ router.post(
                 {
                   model: Difficulty,
                   as: 'difficulty',
+                },
+                {
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
                 },
               ],
             },

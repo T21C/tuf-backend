@@ -299,7 +299,17 @@ class ElasticsearchService {
                 as: 'creatorAliases'
               }
             ]
-          }
+          },
+          {
+            model: Team,
+            as: 'teamObject',
+            include: [
+              {
+                model: TeamAlias,
+                as: 'teamAliases'
+              }
+            ]
+          },
         ]
       },
       {

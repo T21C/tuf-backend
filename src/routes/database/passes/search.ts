@@ -14,6 +14,9 @@ import { searchPasses } from './index.js';
 import { ensureString } from '../../../utils/Utility.js';
 import { hasFlag, wherePermission } from '../../../utils/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
+import Creator from '../../../models/credits/Creator.js';
+import LevelCredit from '../../../models/levels/LevelCredit.js';
+import Team from '../../../models/credits/Team.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
@@ -64,6 +67,18 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
                 model: Difficulty,
                 as: 'difficulty',
                 required: true,
+              },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
+              },
+              {
+                model: Team,
+                as: 'teamObject',
               },
             ],
           },

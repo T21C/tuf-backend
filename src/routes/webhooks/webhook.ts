@@ -27,6 +27,9 @@ import { logger } from '../../services/LoggerService.js';
 import { clientUrlEnv } from '../../config/app.config.js';
 import { User } from '../../models/index.js';
 import { formatCredits } from '../../utils/Utility.js';
+import Creator from '../../models/credits/Creator.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
+import Team from '../../models/credits/Team.js';
 
 const router: Router = express.Router();
 
@@ -400,6 +403,18 @@ router.post(
               {
                 model: Difficulty,
                 as: 'difficulty',
+              },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
+              },
+              {
+                model: Team,
+                as: 'teamObject',
               },
             ],
           },

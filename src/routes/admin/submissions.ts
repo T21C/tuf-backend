@@ -557,6 +557,14 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                 model: Difficulty,
                 as: 'difficulty',
               },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
+              },
             ],
           },
           {
@@ -692,6 +700,14 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                   model: Difficulty,
                   as: 'difficulty',
                 },
+                {
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
+                },
               ],
             },
             {
@@ -803,6 +819,14 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
                 model: Difficulty,
                 as: 'difficulty',
               },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
+              },
             ],
           },
           {
@@ -838,6 +862,14 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
               {
                 model: Difficulty,
                 as: 'difficulty',
+              },
+              {
+                model: LevelCredit,
+                as: 'levelCredits',
+                include: [{
+                  model: Creator,
+                  as: 'creator',
+                }],
               },
             ],
           },
@@ -887,7 +919,10 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         {
           model: Level,
           as: 'level',
-          include: [{ model: Difficulty, as: 'difficulty' }],
+          include: [
+            { model: Difficulty, as: 'difficulty' },
+            { model: LevelCredit, as: 'levelCredits', include: [{ model: Creator, as: 'creator' }] },
+          ],
           required: true
         },
         {
@@ -993,6 +1028,14 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
                 {
                   model: Difficulty,
                   as: 'difficulty',
+                },
+                {
+                  model: LevelCredit,
+                  as: 'levelCredits',
+                  include: [{
+                    model: Creator,
+                    as: 'creator',
+                  }],
                 },
               ],
             },
