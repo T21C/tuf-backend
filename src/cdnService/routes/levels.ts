@@ -578,6 +578,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         decorations?: any;
         angles?: any;
         relativeAngles?: any;
+        accessCount?: number;
     } = {};
     
     if (!modes || typeof modes !== 'string') {
@@ -598,6 +599,9 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     if (modes.includes('relativeAngles')) {
         response.relativeAngles = levelData.getAnglesRelative();
     } 
+    if (modes.includes('accessCount')) {
+        response.accessCount = file.accessCount || 0;
+    }
     return res.json(response);
     } catch (error) {
         logger.error('Error getting level data for ' + req.params.fileId + ':', error);

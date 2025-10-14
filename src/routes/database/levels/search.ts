@@ -353,10 +353,12 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       const fileId = level?.dlLink ? getFileIdFromCdnUrl(level.dlLink) : undefined;
       let bpm;
       let tilecount;
+      let accessCount;
       try {
-      const fileReponse = fileId ? await cdnService.getLevelSettings(fileId, 'settings,angles') : undefined;
+      const fileReponse = fileId ? await cdnService.getLevelSettings(fileId, 'settings,angles,accessCount') : undefined;
         bpm = fileReponse?.settings?.bpm;
         tilecount = fileReponse?.angles?.length;
+        accessCount = fileReponse?.accessCount;
       } catch (error) {
         logger.error('Error getting level settings:', error);
       }
@@ -383,6 +385,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         isCleared,
         bpm,
         tilecount,
+        accessCount,
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
