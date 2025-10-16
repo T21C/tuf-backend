@@ -124,11 +124,6 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         let totalLevelSize = 0;
         for (const entry of zipEntries) {
             if (entry.relativePath.endsWith('.adofai')) {
-                // Skip backup files
-                if (entry.relativePath.toLowerCase().includes('backup')) {
-                    continue;
-                }
-
                 // Extract to temp first for analysis
                 const tempPath = path.join(storageRoot, 'temp', entry.relativePath);
                 await extractFile(zipFilePath, entry, tempPath);
