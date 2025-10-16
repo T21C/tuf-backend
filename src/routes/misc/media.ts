@@ -535,7 +535,10 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
 
     return res.send(response.data);
   } catch (error) {
-    logger.error('Error fetching image:', formatAxiosError(error));
+    const errorMessage = formatAxiosError(error)
+    if (errorMessage) {
+      logger.error(`Error fetching image for link ${imageUrl}:`, errorMessage);
+    }
     res.status(500).send('Error fetching image.');
     return;
   }

@@ -772,6 +772,14 @@ router.post(
         timestamp: new Date().toISOString()
       });
 
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details
+        });
+      }
+
       // Clean up uploaded CDN file if transaction failed
       if (uploadedFileId) {
         await cleanUpCdnFile(uploadedFileId);

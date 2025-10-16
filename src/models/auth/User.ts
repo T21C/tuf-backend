@@ -22,7 +22,7 @@ export interface UserAttributes {
   nickname?: string | null;
   avatarId?: string | null;
   avatarUrl?: string | null;
-  permissionFlags: bigint;
+  permissionFlags: bigint | number;
   permissionVersion: number;
   lastUsernameChange?: Date | null;
   previousUsername?: string | null;
@@ -51,7 +51,7 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare nickname?: string | null;
   declare avatarId?: string | null;
   declare avatarUrl?: string | null;
-  declare permissionFlags: bigint;
+  declare permissionFlags: bigint | number;
   declare permissionVersion: number;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;

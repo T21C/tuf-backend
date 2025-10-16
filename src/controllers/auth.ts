@@ -197,7 +197,7 @@ class AuthController {
         createdAt: now,
         permissionVersion: 1,
         playerId: player.id, // Associate with the created player
-        permissionFlags: 0n, // Start with no permissions
+        permissionFlags: 0, // Start with no permissions (Number will be auto-converted to BigInt by Sequelize)
       };
 
       const user = await User.create(userData);

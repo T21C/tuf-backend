@@ -289,14 +289,6 @@ class CdnService {
                 metadata: response.data.metadata
             };
         } catch (error) {
-            logger.error('Failed to upload level zip to CDN:', {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                filename,
-                bufferSize: zipBuffer.length,
-                timestamp: new Date().toISOString()
-            });
-
             if (error instanceof AxiosError && error.response?.data) {
                 const errorData = error.response.data;
                 throw new CdnError(

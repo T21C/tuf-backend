@@ -759,14 +759,14 @@ class ElasticsearchService {
         ]).then(([_, next]) => next);
 
         processedCount += currentBatchSize;
-        logger.info(`Reindexed ${processedCount} levels...`);
+        logger.debug(`Reindexed ${processedCount} levels...`);
 
         // Move to next batch
         offset += MAX_BATCH_SIZE;
         levels = nextLevels;
       }
 
-      logger.info(`Reindexing complete. Total levels indexed: ${processedCount}`);
+      logger.debug(`Reindexing complete. Total levels indexed: ${processedCount}`);
     } catch (error) {
       logger.error('Error reindexing levels:', error);
       throw error;
@@ -805,14 +805,14 @@ class ElasticsearchService {
         ]).then(([_, next]) => next);
 
         processedCount += currentBatchSize;
-        logger.info(`Reindexed ${processedCount} passes...`);
+        logger.debug(`Reindexed ${processedCount} passes...`);
 
         // Move to next batch
         offset += MAX_BATCH_SIZE;
         passes = nextPasses;
       }
 
-      logger.info(`Reindexing complete. Total passes indexed: ${processedCount}`);
+      logger.debug(`Reindexing complete. Total passes indexed: ${processedCount}`);
     } catch (error) {
       logger.error('Error reindexing passes:', error);
       throw error;
