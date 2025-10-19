@@ -71,7 +71,7 @@ function getBilibiliEmbedUrl(data: BilibiliData): string | null {
   const {aid, bvid, cid} = data;
 
   if (bvid) {
-    return `//player.bilibili.com/player.html?isOutside=true&aid=${aid}&bvid=${bvid}&cid=${cid}&p=1`;
+    return `//player.bilibili.com/player.html?isOutside=true&aid=${aid}&bvid=${bvid}&cid=${cid}&p=1&autoplay=0`;
   }
   return null;
 }
