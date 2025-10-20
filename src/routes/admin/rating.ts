@@ -349,11 +349,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       await safeTransactionRollback(transaction);
       return res.status(403).json({error: 'User is not a rater'});
     }
-
-    if (user.player?.stats?.topDiffId === 0) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({error: 'You need at least one pass to rate!'});
-    }
     // If rating is empty or null, treat it as a deletion request
     if (!rating || rating.trim() === '') {
       // Delete the rating detail

@@ -3,7 +3,6 @@ import Pass from '../models/passes/Pass.js';
 import Level from '../models/levels/Level.js';
 import Player from '../models/players/Player.js';
 import Difficulty from '../models/levels/Difficulty.js';
-import Creator from '../models/credits/Creator.js';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../services/LoggerService.js';
@@ -11,6 +10,9 @@ import { clientUrlEnv, ownUrl } from '../config/app.config.js';
 import { hasFlag } from '../utils/permissionUtils.js';
 import { User } from '../models/index.js';
 import { permissionFlags } from '../config/constants.js';
+import { formatCreatorDisplay } from '../utils/Utility.js';
+import LevelCredit from '../models/levels/LevelCredit.js';
+import Creator from '../models/credits/Creator.js';
 
 // Add type for manifest entries
 type ManifestEntry = {
@@ -203,20 +205,15 @@ export const htmlMetaMiddleware = async (
         include: [
           {model: Difficulty, as: 'difficulty'},
           {
-            model: Creator,
-            as: 'levelCreators',
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{model: Creator, as: 'creator'}],
           },
         ],
       });
 
       if (level && !level.isDeleted && !level.isHidden) {
-        const creators =
-          level.levelCreators
-            ?.map((creator: any) => {
-              return escapeMetaText(creator.name || 'Unknown');
-            })
-            .filter(Boolean)
-            .join(', ') || 'Unknown Creator';
+        const creators = escapeMetaText(formatCreatorDisplay(level));
 
         const songName = escapeMetaText(level.song);
         const artistName = escapeMetaText(level.artist);

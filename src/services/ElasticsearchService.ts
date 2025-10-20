@@ -22,7 +22,7 @@ import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/search
 import sequelize from '../config/db.js';
 import LevelLikes from '../models/levels/LevelLikes.js';
 import Rating from '../models/levels/Rating.js';
-import { safeTransactionRollback } from '../utils/Utility.js';
+import { formatCreatorDisplay, safeTransactionRollback } from '../utils/Utility.js';
 import User from '../models/auth/User.js';
 import Curation from '../models/curations/Curation.js';
 import CurationType from '../models/curations/CurationType.js';
@@ -485,6 +485,7 @@ class ElasticsearchService {
         aliases: level.aliases?.map(alias => ({
           alias: convertToPUA(alias.alias)
         })),
+        creator: formatCreatorDisplay(level),
         levelCredits: level.levelCredits?.map(credit => ({
           ...credit.get({ plain: true }),
           creator: credit.creator ? {

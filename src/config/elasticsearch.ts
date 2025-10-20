@@ -237,7 +237,6 @@ export const levelMapping = {
               keyword: { type: 'keyword' as const, ignore_above: 256 }
             }
           },
-          isVerified: { type: 'boolean' as const },
           creator: {
             type: 'nested' as const,
             properties: {
@@ -251,9 +250,6 @@ export const levelMapping = {
                   }
                 }
               },
-              createdAt: { type: 'date' as const },
-              updatedAt: { type: 'date' as const },
-              isVerified: { type: 'boolean' as const },
               userId: { type: 'keyword' as const },
               creatorAliases: {
                 type: 'nested' as const,
@@ -280,8 +276,6 @@ export const levelMapping = {
         properties: {
           id: { type: 'integer' as const },
           name: { type: 'text' as const },
-          createdAt: { type: 'date' as const },
-          updatedAt: { type: 'date' as const },
           aliases: {
             type: 'nested' as const,
             properties: {
@@ -303,8 +297,6 @@ export const levelMapping = {
             customCSS: { type: 'text' as const },
             customColor: { type: 'text' as const },
             assignedBy: { type: 'text' as const },
-            createdAt: { type: 'date' as const },
-            updatedAt: { type: 'date' as const },
             type: {
               type: 'nested' as const,
               properties: {
@@ -312,8 +304,6 @@ export const levelMapping = {
                 name: { type: 'text' as const },
                 icon: { type: 'text' as const },
                 color: { type: 'text' as const },
-                createdAt: { type: 'date' as const },
-                updatedAt: { type: 'date' as const }
               }
             }
         }
