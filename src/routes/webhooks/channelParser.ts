@@ -42,7 +42,7 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
             return accuracy > targetAccuracy;
           case ConditionOperator.LESS_THAN:
             return accuracy < targetAccuracy;
-          case ConditionOperator.GREATER_THAN_OR_EQUAL:
+          case ConditionOperator.GREATER_THAN_EQUAL:
             return accuracy >= targetAccuracy;
           case ConditionOperator.LESS_THAN_OR_EQUAL:
             return accuracy <= targetAccuracy;
@@ -69,7 +69,7 @@ function evaluateCondition(condition: DirectiveCondition, pass: Pass, level: Lev
           return baseScore > targetScore;
         case ConditionOperator.LESS_THAN:
           return baseScore < targetScore;
-        case ConditionOperator.GREATER_THAN_OR_EQUAL:
+        case ConditionOperator.GREATER_THAN_EQUAL:
           return baseScore >= targetScore;
         case ConditionOperator.LESS_THAN_OR_EQUAL:
           return baseScore <= targetScore;
