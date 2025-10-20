@@ -63,15 +63,6 @@ router.get('/', (req: Request, res: Response) => {
           margin: 0 auto;
         }
         
-        .version-badge {
-          display: inline-block;
-          background: rgba(255, 255, 255, 0.2);
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-size: 0.9rem;
-          margin-top: 10px;
-        }
-        
         .stats-bar {
           display: flex;
           justify-content: space-around;
@@ -503,7 +494,6 @@ router.get('/', (req: Request, res: Response) => {
         <div class="header">
           <h1>${API_DOCS_CONFIG.title}</h1>
           <p>${API_DOCS_CONFIG.description}</p>
-          <div class="version-badge">v${API_DOCS_CONFIG.version}</div>
         </div>
         
         <div class="stats-bar">

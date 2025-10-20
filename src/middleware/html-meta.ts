@@ -69,7 +69,7 @@ const getBaseHtml = (clientUrl: string) => {
       <html lang="en">
         <head>
           <meta charset="UTF-8" />
-          <link rel="icon" type="image/svg+xml" href="/src/assets/tuf-logo/logo.png" />
+          <link rel="icon" type="image/svg+xml" href="/src/assets/tuf-logo/logo.svg" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           
           <!-- METADATA_PLACEHOLDER -->
@@ -116,9 +116,9 @@ const getBaseHtml = (clientUrl: string) => {
   ].join('\n');
 
   // Get favicon path from manifest or fallback
-  const faviconPath = manifest['src/assets/tuf-logo/logo.png']?.file
-    ? `/${manifest['src/assets/tuf-logo/logo.png'].file}`
-    : '/logo.png';
+  const faviconPath = manifest['src/assets/tuf-logo/logo.svg']?.file
+    ? `/${manifest['src/assets/tuf-logo/logo.svg'].file}`
+    : '/logo.svg';
 
   return `
     <!DOCTYPE html>
