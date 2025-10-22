@@ -521,26 +521,53 @@ const router: Router = express.Router();
 
 router.get('/image-proxy', async (req: Request, res: Response) => {
   const imageUrl = req.query.url;
+  const maxAttempts = 5;
+  let attempt = 1;
+
   try {
     if (!imageUrl || typeof imageUrl !== 'string') {
       return res.status(400).send('Invalid image URL');
     }
 
-    const response = await axios.get(imageUrl, {
-      responseType: 'arraybuffer',
-    });
+    while (attempt <= maxAttempts) {
+      try {
+        const response = await axios.get(imageUrl, {
+          responseType: 'arraybuffer',
+          timeout: 10000, // 10 second timeout
+        });
 
-    const contentType = response.headers['content-type'];
-    res.set('Content-Type', contentType);
+        const contentType = response.headers['content-type'];
+        res.set('Content-Type', contentType);
 
-    return res.send(response.data);
-  } catch (error) {
-    const errorMessage = formatAxiosError(error)
-    if (errorMessage) {
-      logger.error(`Error fetching image for link ${imageUrl}:`, errorMessage);
+        return res.send(response.data);
+      } catch (error) {
+        // Handle 4XX errors - these are client errors and should not be retried
+        if (axios.isAxiosError(error) && error.response) {
+          const status = error.response.status;
+          if (status >= 400 && status < 500) {
+            logger.warn(`Client error (${status}) fetching image from ${imageUrl}`);
+            return res.status(status).send(`Error fetching image: ${error.message}`);
+          }
+        }
+
+        // For 5XX errors, network errors, or timeouts, retry
+        if (attempt >= maxAttempts) {
+          logger.error(`Error fetching image after ${maxAttempts} attempts for link ${imageUrl}:`, error);
+          return res.status(500).send('Error fetching image.');
+        }
+
+        logger.debug(`Image proxy attempt #${attempt} failed for ${imageUrl}, retrying...`);
+        attempt++;
+        // Wait 1 second before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
-    res.status(500).send('Error fetching image.');
-    return;
+
+    // This should never be reached, but satisfy TypeScript
+    return res.status(500).send('Error fetching image.');
+  } catch (error) {
+    logger.error(`Unexpected error in image proxy for link ${imageUrl}:`, error);
+    return res.status(500).send('Error fetching image.');
   }
 });
 
