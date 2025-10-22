@@ -381,7 +381,6 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
             // Use the original filename from the path (no encoding/decoding needed)
             const displayFilename = metadata.originalZip?.name.replace('.zip', '');
-            console.log(displayFilename);
             res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}.zip`));
 
             // Stream the zip file from the repack folder
@@ -437,7 +436,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             res.json(transformedLevel);
         }
     } catch (error) {
-        logger.error('Level transformation error for ' + req.query.fileId + ':', error);
+        logger.error('Unexpected level transformation error for ' + req.params.fileId + ':', error);
 
         // Clean up entire UUID repack directory on error
         fs.promises.rm(uuidRepackDir, { recursive: true, force: true }).catch((cleanupError) => {
@@ -518,14 +517,14 @@ router.get('/transform-options', async (req: Request, res: Response) => {
 
         res.json(availableTypes);
     } catch (error) {
-        logger.error('Error getting transform options for ' + req.query.fileId + ':', error);
         // Handle custom error objects with code
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
             const customError = error as { code: number; error: string };
-            res.status(customError.code).json({ error: customError.error });
+            return res.status(customError.code).json({ error: customError.error });
         } else {
-            res.status(500).json({ error: 'Failed to get transform options' });
-        }
+        logger.error('Unexpected error getting transform options for ' + req.query.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting transform options' });
+    }
     }
     return
 });
@@ -604,8 +603,12 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     }
     return res.json(response);
     } catch (error) {
-        logger.error('Error getting level data for ' + req.params.fileId + ':', error);
-        return res.status(500).json({ error: 'Failed to get level data' });
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('Unexpected error getting level data for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting level data' });
     }
 });
 
