@@ -545,14 +545,14 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
         if (axios.isAxiosError(error) && error.response) {
           const status = error.response.status;
           if (status >= 400 && status < 500) {
-            logger.warn(`Client error (${status}) fetching image from ${imageUrl}`);
+            logger.debug(`Client error (${status}) fetching image from ${imageUrl}`);
             return res.status(status).send(`Error fetching image: ${error.message}`);
           }
         }
 
         // For 5XX errors, network errors, or timeouts, retry
         if (attempt >= maxAttempts) {
-          logger.error(`Error fetching image after ${maxAttempts} attempts for link ${imageUrl}:`, error);
+          logger.debug(`Error fetching image after ${maxAttempts} attempts for link ${imageUrl}:`, error);
           return res.status(500).send('Error fetching image.');
         }
 
