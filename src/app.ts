@@ -122,10 +122,9 @@ export async function startServer() {
 
     // Initialize Elasticsearch
     try {
-      logger.info('Starting Elasticsearch initialization...');
+      logger.info('Starting Async Elasticsearch initialization...');
       const elasticsearchService = ElasticsearchService.getInstance();
-      await elasticsearchService.initialize();
-      logger.info('Elasticsearch initialization completed');
+      elasticsearchService.initialize();
     } catch (error) {
       logger.error('Error initializing Elasticsearch:', error);
       // Don't throw here, allow the app to start even if Elasticsearch fails
