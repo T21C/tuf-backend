@@ -62,8 +62,10 @@ router.get('/', async (req: Request, res: Response) => {
         ['sortOrder', 'ASC'], // Order difficulties by their sort order
         [{model: Level, as: 'referenceLevels'}, 'id', 'ASC'], // Order levels by ID
       ],
+    }).then(difficulties => {
+      return difficulties.filter(diff => /^[PGU]+[0-9]+$/.test(diff.name));
     });
-
+    
     // Transform the data into a more usable format
     const formattedReferences = difficulties.map(diff => ({
       difficulty: diff,
