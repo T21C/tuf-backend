@@ -45,12 +45,13 @@ class ElasticsearchService {
     return ElasticsearchService.instance;
   }
 
+  private isBeingInitialized: boolean = false;
   public async initialize(): Promise<void> {
-    if (this.isInitialized) {
-      logger.info('ElasticsearchService already initialized');
+    if (this.isInitialized || this.isBeingInitialized) {
+      logger.info(`ElasticsearchService ${this.isInitialized ? 'already' : 'is being'} initialized`);
       return;
     }
-
+    this.isBeingInitialized = true;
     try {
       logger.info('Starting ElasticsearchService initialization...');
 
@@ -87,6 +88,7 @@ class ElasticsearchService {
       this.isInitialized = false;
       throw error;
     }
+    this.isBeingInitialized = false;
   }
 
   public async updatePlayerPasses(playerId: number): Promise<void> {
