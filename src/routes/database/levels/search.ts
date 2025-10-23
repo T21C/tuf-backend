@@ -360,7 +360,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
         tilecount = fileReponse?.angles?.length;
         accessCount = fileReponse?.accessCount;
       } catch (error) {
-        logger.warn('Level settings missing for level:', {levelId: req.params.id});
+        logger.debug('Level settings missing for level:', {levelId: req.params.id});
       }
       await transaction.commit();
 
