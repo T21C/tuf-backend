@@ -51,24 +51,10 @@ const settings = {
       custom_text_analyzer: {
         type: 'custom' as const,
         tokenizer: 'whitespace',
-        filter: [
-          'lowercase',
-          'asciifolding'
-        ]
       },
       exact_match_analyzer: {
         type: 'custom' as const,
         tokenizer: 'keyword',
-        filter: [
-          'lowercase',
-          'asciifolding'
-        ]
-      }
-    },
-    normalizer: {
-      lowercase: {
-        type: 'custom' as const,
-        filter: ['lowercase']
       }
     }
   }
@@ -89,7 +75,6 @@ export const levelMapping = {
           },
           keyword: {
             type: 'keyword' as const,
-            normalizer: 'lowercase'
           }
         }
       },
@@ -99,7 +84,6 @@ export const levelMapping = {
         fields: {
           keyword: {
             type: 'keyword' as const,
-            normalizer: 'lowercase'
           }
         }
       },
@@ -109,7 +93,6 @@ export const levelMapping = {
         fields: {
           keyword: {
             type: 'keyword' as const,
-            normalizer: 'lowercase'
           }
         }
       },
@@ -219,7 +202,6 @@ export const levelMapping = {
             fields: {
               keyword: {
                 type: 'keyword' as const,
-                normalizer: 'lowercase'
               }
             }
           }
@@ -246,7 +228,6 @@ export const levelMapping = {
                 fields: {
                   keyword: {
                     type: 'keyword' as const,
-                    normalizer: 'lowercase'
                   }
                 }
               },
@@ -261,7 +242,6 @@ export const levelMapping = {
                     fields: {
                       keyword: {
                         type: 'keyword' as const,
-                        normalizer: 'lowercase'
                       }
                     }
                   }
@@ -365,7 +345,6 @@ export const passMapping = {
                 fields: {
                   keyword: {
                     type: 'keyword' as const,
-                    normalizer: 'lowercase'
                   }
                 }
               }
