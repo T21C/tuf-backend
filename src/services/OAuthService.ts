@@ -61,6 +61,21 @@ class OAuthService {
         where: {email: profile.email},
         include: [{model: OAuthProvider, as: 'providers'}],
       });
+      
+      // If user exists but doesn't have this provider linked, link it
+      if (user) {
+        const now = new Date();
+        await OAuthProvider.create({
+          userId: user.id,
+          provider: profile.provider,
+          providerId: profile.id,
+          profile: profile,
+          createdAt: now,
+          updatedAt: now,
+        });
+        
+        return [user, false];
+      }
     }
 
     // Create new user if none exists
@@ -100,24 +115,45 @@ class OAuthService {
           throw new Error('Failed to create player after multiple attempts');
         }
 
-        user = await User.create({
-          id: uuidv4(),
-          username: profile.username,
-          email: profile.email || undefined,
-          nickname: profile.nickname,
-          avatarId: profile.avatarId,
-          avatarUrl: profile.avatarUrl,
-          isEmailVerified: !!profile.email,
-          isRater: false,
-          isSuperAdmin: false,
-          isRatingBanned: false,
-          status: 'active',
-          permissionVersion: 1,
-          playerId,
-          createdAt: now,
-          updatedAt: now,
-          permissionFlags: 0,
-        });
+        // Try to create user with retry logic for username conflicts
+        let username = profile.username;
+        let userAttempts = 0;
+        const maxUserAttempts = 5;
+        while (userAttempts < maxUserAttempts) {
+          try {
+            user = await User.create({
+              id: uuidv4(),
+              username: username,
+              email: profile.email || undefined,
+              nickname: profile.nickname,
+              avatarId: profile.avatarId,
+              avatarUrl: profile.avatarUrl,
+              isEmailVerified: !!profile.email,
+              isRater: false,
+              isSuperAdmin: false,
+              isRatingBanned: false,
+              status: 'active',
+              permissionVersion: 1,
+              playerId,
+              createdAt: now,
+              updatedAt: now,
+              permissionFlags: 0,
+            });
+            break;
+          } catch (error: any) {
+            if (error.name === 'SequelizeUniqueConstraintError' && error.errors?.[0]?.path === 'username') {
+              // If username is duplicate, append a random number and try again
+              username = `${profile.username}${Math.floor(Math.random() * 10000)}`;
+              userAttempts++;
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        if (!user) {
+          throw new Error('Failed to create user after multiple attempts');
+        }
 
         // Create OAuth provider link
         await OAuthProvider.create({
