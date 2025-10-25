@@ -1739,6 +1739,16 @@ class ElasticsearchService {
         }
       }
 
+      // Handle speed filter when sorting by speed
+      const sortType = filters.sort?.split('_').slice(0, -1).join('_');
+      if (sortType === 'SPEED') {
+        must.push({
+          range: {
+            speed: { gt: 1 }
+          }
+        });
+      }
+
       // Handle difficulty filters
       if (filters.minDiff || filters.maxDiff || filters.specialDifficulties) {
         const difficultyConditions = [];
