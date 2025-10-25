@@ -17,6 +17,7 @@ class PlayerStats extends Model {
   declare score12KRank: number;
   declare averageXacc: number;
   declare universalPassCount: number;
+  declare totalPasses: number;
   declare worldsFirstCount: number;
   declare lastUpdated?: Date;
   declare createdAt?: Date;
@@ -112,6 +113,11 @@ PlayerStats.init(
       defaultValue: 0,
     },
     worldsFirstCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    totalPasses: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,

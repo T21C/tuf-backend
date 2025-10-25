@@ -196,6 +196,13 @@ export class PlayerStatsService {
     WHERE ps.type = 'PGU'
     AND p.is12K = true
     GROUP BY p.playerId
+  ),
+  TotalPassesCalc AS (
+    SELECT 
+      p.playerId,
+      COUNT(*) as totalPasses
+    FROM PassesData p
+    GROUP BY p.playerId
   )
   SELECT 
     p.playerId as id,
@@ -209,6 +216,7 @@ export class PlayerStatsService {
     COALESCE(wfc.worldsFirstCount, 0) as worldsFirstCount,
     COALESCE(tdi.maxSortOrder, 0) as topDiffId,
     COALESCE(td12k.maxSortOrder, 0) as top12kDiffId,
+    COALESCE(tpc.totalPasses, 0) as totalPasses,
     NOW() as lastUpdated,
     NOW() as createdAt,
     NOW() as updatedAt
@@ -223,6 +231,7 @@ export class PlayerStatsService {
   LEFT JOIN WorldsFirstCountCalc wfc ON wfc.playerId = p.playerId
   LEFT JOIN TopDiffId tdi ON tdi.playerId = p.playerId
   LEFT JOIN TopDiff12kId td12k ON td12k.playerId = p.playerId
+  LEFT JOIN TotalPassesCalc tpc ON tpc.playerId = p.playerId
   `
 
 
@@ -418,6 +427,7 @@ export class PlayerStatsService {
               worldsFirstCount: 0,
               topDiffId: 0,
               top12kDiffId: 0,
+              totalPasses: 0,
               lastUpdated: new Date(),
               createdAt: new Date(),
               updatedAt: new Date()
@@ -539,6 +549,7 @@ export class PlayerStatsService {
           worldsFirstCount: 0,
           topDiffId: 0,
           top12kDiffId: 0,
+          totalPasses: 0,
           lastUpdated: new Date(),
           createdAt: new Date(),
           updatedAt: new Date()
@@ -689,21 +700,6 @@ export class PlayerStatsService {
   public async getPlayerStats(playerIds: number[] | number): Promise<PlayerStats[]> {
     playerIds = Array.isArray(playerIds) ? playerIds : [playerIds];
     const playerStats = await PlayerStats.findAll({
-      attributes: {
-        include: [
-          [
-            sequelize.literal(`(
-              SELECT COUNT(*) 
-              FROM passes 
-              JOIN levels ON levels.id = passes.levelId 
-              WHERE passes.playerId = PlayerStats.id
-              AND passes.isDeleted = false 
-              AND levels.isDeleted = false
-            )`),
-            'totalPasses',
-          ],
-        ],
-      },
       where: {id: playerIds},
       include: [
         {
@@ -797,7 +793,7 @@ export class PlayerStatsService {
           )
         ];
       }
-
+      whereClause['totalPasses'] = { [Op.gt]: 0 };
       // Map frontend sort fields to database fields and their corresponding rank fields
       const sortFieldMap: {
         [key: string]: {field: any; rankField: string | null};
@@ -808,16 +804,7 @@ export class PlayerStatsService {
         wfScore: {field: 'wfScore', rankField: 'wfScoreRank'},
         score12K: {field: 'score12K', rankField: 'score12KRank'},
         averageXacc: {field: 'averageXacc', rankField: null},
-        totalPasses: {
-          field: sequelize.literal(
-            '(SELECT COUNT(*) FROM passes ' +
-            'JOIN levels ON levels.id = passes.levelId ' +
-            'WHERE passes.playerId = player.id ' +
-            'AND passes.isDeleted = false ' +
-            'AND levels.isDeleted = false)'
-          ),
-          rankField: null,
-        },
+        totalPasses: {field: 'totalPasses', rankField: null},
         universalPassCount: {field: 'universalPassCount', rankField: null},
         worldsFirstCount: {field: 'worldsFirstCount', rankField: null},
         topDiffId: {field: 'topDiffId', rankField: null},
@@ -876,13 +863,6 @@ export class PlayerStatsService {
 
       // Then get paginated results
       const players = await PlayerStats.findAll({
-        attributes: {
-          include: [
-            [sortFieldMap['totalPasses'].field, 'totalPasses'],
-            [sortFieldMap['topDiffId'].field, 'topDiffId'],
-            [sortFieldMap['top12kDiffId'].field, 'top12kDiffId'],
-          ],
-        },
         include: [
           {
             model: Player,
@@ -1226,7 +1206,7 @@ export class PlayerStatsService {
           worldsFirstCount: stats?.worldsFirstCount || 0,
           topDiff: stats?.topDiff,
           top12kDiff: stats?.top12kDiff,
-          totalPasses: passes.length,
+          totalPasses: stats?.totalPasses || 0,
           createdAt: playerData.createdAt,
           updatedAt: playerData.updatedAt,
           passes,
