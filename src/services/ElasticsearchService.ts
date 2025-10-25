@@ -2047,6 +2047,8 @@ class ElasticsearchService {
         return [{ scoreV2: direction }, { id: 'desc' }];
       case 'XACC':
         return [{ accuracy: direction }, { scoreV2: 'desc' }, { id: 'desc' }];
+      case 'SPEED':
+        return [{ speed: direction }, { speed: 'desc' }, { id: 'desc' }];
       case 'DIFF':
         return [{ 'level.difficulty.sortOrder': direction }, { scoreV2: 'desc' }, { id: 'desc' }];
       case 'RANDOM':
