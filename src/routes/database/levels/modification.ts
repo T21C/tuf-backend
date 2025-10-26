@@ -76,7 +76,6 @@ const handleRatingChanges = async (
         );
       }
     } else {
-      // Delete rating if toRate is being set to false
       const existingRating = await Rating.findOne({
         where: {
           levelId: level.id,
@@ -86,14 +85,12 @@ const handleRatingChanges = async (
       });
 
       if (existingRating) {
-        await Rating.update(
+        await existingRating.update(
           {
             confirmedAt: new Date(),
+            requesterFR: req.body.rerateNum || level.rerateNum || existingRating.requesterFR,
           },
-          {
-            where: {id: existingRating.id},
-            transaction,
-          },
+          {transaction},
         );
       }
     }
