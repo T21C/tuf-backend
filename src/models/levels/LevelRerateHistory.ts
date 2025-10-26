@@ -29,20 +29,32 @@ LevelRerateHistory.init(
     },
     previousDiffId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
         references: { model: 'difficulties', key: 'id' }
     },
     newDiffId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
         references: { model: 'difficulties', key: 'id' }
+    },
+    oldLegacyValue: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null
+    },
+    newLegacyValue: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null
     },
     previousBaseScore: {
         type: DataTypes.FLOAT,
+        defaultValue: 0,
         allowNull: false
     },
     newBaseScore: {
         type: DataTypes.FLOAT,
+        defaultValue: 0,
         allowNull: false
     },
     reratedBy: {
@@ -60,6 +72,18 @@ LevelRerateHistory.init(
     sequelize,
     tableName: 'level_rerate_histories',
     timestamps: false,
+    indexes: [
+      {
+        name: 'idx_rerate_unique_diff',
+        unique: true,
+        fields: ['levelId', 'previousDiffId', 'newDiffId', 'createdAt'],
+      },
+      {
+        name: 'idx_rerate_unique_legacy',
+        unique: true,
+        fields: ['levelId', 'oldLegacyValue', 'newLegacyValue', 'createdAt'],
+      },
+    ],
   }
 );
 
