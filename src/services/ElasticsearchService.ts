@@ -1377,7 +1377,7 @@ class ElasticsearchService {
 
       // Validate and limit offset to prevent integer overflow
       const maxOffset = 2147483647; // Maximum 32-bit integer
-      const maxResultWindow = 50000; // Elasticsearch's default max_result_window
+      const maxResultWindow = 10000; // Elasticsearch's default max_result_window
       const offset = Math.min(Math.max(0, Number(filters.offset) || 0), maxOffset);
       const limit = Math.min(100, Math.max(1, Number(filters.limit) || 30));
 
@@ -1825,7 +1825,7 @@ class ElasticsearchService {
 
       // Validate and limit offset to prevent integer overflow
       const maxOffset = 2147483647; // Maximum 32-bit integer
-      const maxResultWindow = 50000; // Elasticsearch's default max_result_window
+      const maxResultWindow = 10000; // Elasticsearch's default max_result_window
       const offset = Math.min(Math.max(0, Number(filters.offset) || 0), maxOffset);
       const limit = Math.min(100, Math.max(1, Number(filters.limit) || 30));
 
