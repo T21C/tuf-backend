@@ -1392,7 +1392,9 @@ class ElasticsearchService {
         query: searchQuery,
         sort: this.getSortOptions(filters.sort),
         from: offset,
-        size: limit
+        size: limit,
+        track_total_hits: true, // Ensure accurate total count
+        track_scores: true // Keep scores for sorting
       });
 
       // Convert PUA characters back to original special characters in the results
