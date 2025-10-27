@@ -16,7 +16,8 @@ router.get('/', async (req: Request, res: Response) => {
       showBanned = 'show',
       query,
       offset = '0',
-      limit = '30'
+      limit = '30',
+      filters: filtersParam
     } = req.query;
 
     if (!validSortOptions.includes(sortBy as string)) {
@@ -28,6 +29,19 @@ router.get('/', async (req: Request, res: Response) => {
     // Parse offset and limit to numbers
     const offsetNum = Math.max(0, parseInt(offset as string) || 0);
     const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 30));
+
+    // Parse filters from query params
+    let filters: Record<string, [number, number]> | undefined;
+    if (filtersParam && typeof filtersParam === 'string') {
+      try {
+        filters = JSON.parse(filtersParam);
+      } catch (error) {
+        logger.error('Error parsing filters:', error);
+      }
+    }
+
+    // Get max fields for filter limits (cached or fresh)
+    const maxFields = await playerStatsService.getMaxFields();
 
     // If there's a query and it starts with #, treat it as a Discord ID search
     if (query && typeof query === 'string' && query.startsWith('#')) {
@@ -55,9 +69,11 @@ router.get('/', async (req: Request, res: Response) => {
         showBanned as 'show' | 'hide' | 'only',
         lookupId,
         offsetNum,
-        limitNum
+        limitNum,
+        undefined,
+        filters
       );
-      return res.json({ count: total, results: players });
+      return res.json({ count: total, results: players, maxFields });
     }
 
 
@@ -85,9 +101,11 @@ router.get('/', async (req: Request, res: Response) => {
         showBanned as 'show' | 'hide' | 'only',
         userWithDiscord?.playerId || 0,
         offsetNum,
-        limitNum
+        limitNum,
+        undefined,
+        filters
       );
-      return res.json({ count: total, results: players });
+      return res.json({ count: total, results: players, maxFields });
     }
 
     // Regular leaderboard fetch without Discord ID filter
@@ -98,10 +116,11 @@ router.get('/', async (req: Request, res: Response) => {
       undefined,
       offsetNum,
       limitNum,
-      query as string // Pass the query string for name search
+      query as string, // Pass the query string for name search
+      filters
     );
 
-    return res.json({ count: total, results: players });
+    return res.json({ count: total, results: players, maxFields });
   } catch (error) {
     logger.error('Error fetching leaderboard:', error);
     return res.status(500).json({

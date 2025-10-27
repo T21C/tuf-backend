@@ -741,6 +741,30 @@ export class PlayerStatsService {
     }));
   }
 
+  public async getMaxFields(): Promise<any> {
+    try {
+      const maxValues = await PlayerStats.findOne({
+        attributes: [
+          [sequelize.fn('MAX', sequelize.col('rankedScore')), 'maxRankedScore'],
+          [sequelize.fn('MAX', sequelize.col('generalScore')), 'maxGeneralScore'],
+          [sequelize.fn('MAX', sequelize.col('ppScore')), 'maxPpScore'],
+          [sequelize.fn('MAX', sequelize.col('wfScore')), 'maxWfScore'],
+          [sequelize.fn('MAX', sequelize.col('score12K')), 'maxScore12K'],
+          [sequelize.fn('MAX', sequelize.col('averageXacc')), 'maxAverageXacc'],
+          [sequelize.fn('MAX', sequelize.col('totalPasses')), 'maxTotalPasses'],
+          [sequelize.fn('MAX', sequelize.col('universalPassCount')), 'maxUniversalPassCount'],
+          [sequelize.fn('MAX', sequelize.col('worldsFirstCount')), 'maxWorldsFirstCount'],
+        ],
+        raw: true
+      });
+
+      return maxValues || {};
+    } catch (error) {
+      logger.error('Error getting max fields:', error);
+      return {};
+    }
+  }
+
   public async getLeaderboard(
     sortBy = 'rankedScore',
     order: 'asc' | 'desc' = 'desc',
@@ -748,7 +772,8 @@ export class PlayerStatsService {
     playerId?: number,
     offset = 0,
     limit = 30,
-    nameQuery?: string
+    nameQuery?: string,
+    filters?: Record<string, [number, number]>
   ): Promise<{ total: number; players: PlayerStats[] }> {
     if (playerId && playerId < 1) {
       return {
@@ -777,6 +802,12 @@ export class PlayerStatsService {
         whereClause['$player.id$'] = playerId;
       }
 
+      // Add country filter if provided
+      if (filters?.['country']) {
+        logger.debug(`[PlayerStatsService] Country filter: ${filters['country']}`);
+        whereClause['$player.country$'] = filters['country'];
+      }
+
       const escapedQuery = nameQuery ? escapeForMySQL(nameQuery) : '';
       // Add name search if provided
       if (nameQuery && !nameQuery.startsWith('#')) {
@@ -794,6 +825,30 @@ export class PlayerStatsService {
         ];
       }
       whereClause['totalPasses'] = { [Op.gt]: 0 };
+
+      // Apply filters if provided
+      if (filters) {
+        const filterFieldMap: Record<string, string> = {
+          rankedScore: 'rankedScore',
+          generalScore: 'generalScore',
+          ppScore: 'ppScore',
+          wfScore: 'wfScore',
+          score12K: 'score12K',
+          averageXacc: 'averageXacc',
+          totalPasses: 'totalPasses',
+          universalPassCount: 'universalPassCount',
+          worldsFirstCount: 'worldsFirstCount'
+        };
+
+        Object.entries(filters).forEach(([key, [min, max]]) => {
+          const fieldName = filterFieldMap[key];
+          if (fieldName) {
+            whereClause[fieldName] = {
+              [Op.between]: [min, max]
+            };
+          }
+        });
+      }
       // Map frontend sort fields to database fields and their corresponding rank fields
       const sortFieldMap: {
         [key: string]: {field: any; rankField: string | null};
