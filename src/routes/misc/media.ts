@@ -21,6 +21,8 @@ import sharp from 'sharp';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { formatCredits } from '../../utils/Utility.js';
+import Curation from '../../models/curations/Curation.js';
+import CurationType from '../../models/curations/CurationType.js';
 
 const execAsync = promisify(exec);
 
@@ -784,6 +786,9 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           const level = await Level.findOne({
             where: {id: levelId},
             include: [
+              {model: Curation, as: 'curation', include: [
+                {model: CurationType, as: 'type', attributes: ['icon']}
+              ]},
               {model: Difficulty, as: 'difficulty'},
               {model: LevelCredit, as: 'levelCredits',
                 attributes: ['role'],
@@ -940,10 +945,21 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
                     align-items: center;
                     justify-content: flex-end;
                   }
+                    .difficulty-container {
+                      position: relative;
+                    }
                   .difficulty-icon {
                     width: ${iconSize}px;
                     height: ${iconSize}px;
                     margin-right: ${25*multiplier}px;
+                  }
+                  .curation-icon {
+                  position: absolute;
+                  bottom: -12%;
+                  right: 12%;
+                  width: ${Math.round(iconSize/1.85)}px;
+                  height: ${Math.round(iconSize/1.85)}px;
+                  z-index: 3;
                   }
                   .song-info {
                     display: flex;
@@ -1019,11 +1035,14 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
                 <!-- Header -->
                 <div class="header">
                   <div class="header-left">
+                    <div class="difficulty-container">
                     <img 
                       class="difficulty-icon"
                       src="data:image/png;base64,${iconBuffer.toString('base64')}" 
                       alt="Difficulty Icon"
                     />
+                    ${level.curation?.type?.icon ? `<img class="curation-icon" src="${level.curation?.type?.icon}" alt="Curation Icon">` : ''}
+                    </div>
                     <div class="song-info">
                       <div class="song-title text">${song}</div>
                       <div class="artist-name text" 
