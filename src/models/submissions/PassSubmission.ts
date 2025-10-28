@@ -3,7 +3,7 @@ import sequelize from '../../config/db.js';
 import BaseModel from '../BaseModel.js';
 import Player from '../players/Player.js';
 import Level from '../levels/Level.js';
-import { calcAcc } from '../../utils/CalcAcc.js';
+import { calcAcc } from '../../utils/pass/CalcAcc.js';
 import User from '../auth/User.js';
 class PassSubmission extends BaseModel {
   declare passer: string;

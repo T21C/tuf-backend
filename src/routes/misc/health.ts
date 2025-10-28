@@ -1,6 +1,6 @@
 import express, { Request, Response, Router } from 'express';
 import sequelize from '../../config/db.js';
-import { getIO } from '../../utils/socket.js';
+import { getIO } from '../../utils/server/socket.js';
 import { logger } from '../../services/LoggerService.js';
 
 const router: Router = express.Router();

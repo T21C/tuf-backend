@@ -2,7 +2,7 @@ import {Auth} from '../../middleware/auth.js';
 import Rating from '../../models/levels/Rating.js';
 import RatingDetail from '../../models/levels/RatingDetail.js';
 import Level from '../../models/levels/Level.js';
-import {sseManager} from '../../utils/sse.js';
+import {sseManager} from '../../utils/server/sse.js';
 import sequelize from '../../config/db.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import User from '../../models/auth/User.js';
@@ -15,9 +15,9 @@ import {
   getDifficulties,
   parseRatingRange,
   calculateRequestedDifficulty
-} from '../../utils/RatingUtils.js';
+} from '../../utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
-import { hasFlag } from '../../utils/permissionUtils.js';
+import { hasFlag } from '../../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../config/constants.js';
 const router: Router = Router();
 

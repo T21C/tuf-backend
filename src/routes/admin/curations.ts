@@ -13,9 +13,9 @@ import Creator from '../../models/credits/Creator.js';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import sequelize from '../../config/db.js';
-import { hasAnyFlag } from '../../utils/permissionUtils.js';
+import { hasAnyFlag } from '../../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../config/constants.js';
-import { canAssignCurationType } from '../../utils/curationTypeUtils.js';
+import { canAssignCurationType } from '../../utils/data/curationTypeUtils.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import Team from '../../models/credits/Team.js';
 

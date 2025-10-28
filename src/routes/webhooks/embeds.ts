@@ -2,7 +2,7 @@ import Difficulty from '../../models/levels/Difficulty.js';
 import Level from '../../models/levels/Level.js';
 import Pass from '../../models/passes/Pass.js';
 import {MessageBuilder} from '../../webhook/index.js';
-import {getVideoDetails} from '../../utils/videoDetailParser.js';
+import {getVideoDetails} from '../../utils/data/videoDetailParser.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import { OAuthProvider } from '../../models/index.js';
 import { clientUrlEnv, ownUrl } from '../../config/app.config.js';

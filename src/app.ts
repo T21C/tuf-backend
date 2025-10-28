@@ -10,7 +10,7 @@ import formRoutes from './routes/misc/form.js';
 import databaseRoutes from './routes/database/index.js';
 import webhookRoutes from './routes/webhooks/index.js';
 import db from './models/index.js';
-import {setIO} from './utils/socket.js';
+import {setIO} from './utils/server/socket.js';
 import {htmlMetaMiddleware} from './middleware/html-meta.js';
 import path from 'path';
 import discordRouter from './routes/misc/discord.js';

@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../config/app.config.js';
-import { hasFlag } from '../utils/permissionUtils.js';
+import { hasFlag } from '../utils/auth/permissionUtils.js';
 import { User } from '../models/index.js';
 import { permissionFlags } from '../config/constants.js';
 import { formatCreatorDisplay } from '../utils/Utility.js';

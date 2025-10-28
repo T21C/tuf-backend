@@ -1,9 +1,9 @@
 import { Op } from 'sequelize';
-import sequelize from '../config/db.js';
-import { curationTypeAbilities } from '../config/constants.js';
-import { permissionFlags } from '../config/constants.js';
+import sequelize from '../../config/db.js';
+import { curationTypeAbilities } from '../../config/constants.js';
+import { permissionFlags } from '../../config/constants.js';
 import { Transaction } from 'sequelize';
-import CurationType from '../models/curations/CurationType.js';
+import CurationType from '../../models/curations/CurationType.js';
 import { Literal } from 'sequelize/lib/utils';
 
 export type CurationTypeInput = bigint | number | CurationType | null | undefined;

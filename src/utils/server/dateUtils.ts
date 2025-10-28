@@ -1,4 +1,4 @@
-import { logger } from "../services/LoggerService.js";
+import { logger } from "../../services/LoggerService.js";
 
 // Define reasonable date bounds (TUF website context)
 const MIN_VALID_DATE = new Date('2020-01-01'); // Earliest reasonable date

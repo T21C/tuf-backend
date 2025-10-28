@@ -12,7 +12,7 @@ import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
 import { User } from '../../../models/index.js';
 import { searchPasses } from './index.js';
 import { ensureString } from '../../../utils/Utility.js';
-import { hasFlag, wherePermission } from '../../../utils/permissionUtils.js';
+import { hasFlag, wherePermission } from '../../../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import Creator from '../../../models/credits/Creator.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';

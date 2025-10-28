@@ -10,7 +10,7 @@ import TeamMember from '../../models/credits/TeamMember.js';
 import User from '../../models/auth/User.js';
 import {
   escapeForMySQL,
-} from '../../utils/searchHelpers.js';
+} from '../../utils/data/searchHelpers.js';
 import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '../../models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '../../models/credits/CreatorAlias.js';

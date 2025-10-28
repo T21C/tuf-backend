@@ -1,9 +1,9 @@
 import { Op } from 'sequelize';
-import sequelize from '../config/db.js';
-import { User } from '../models/index.js';
-import { UserAttributes } from '../models/auth/User.js';
+import sequelize from '../../config/db.js';
+import { User } from '../../models/index.js';
+import { UserAttributes } from '../../models/auth/User.js';
 import { Transaction } from 'sequelize';
-import { permissionFlags } from '../config/constants.js';
+import { permissionFlags } from '../../config/constants.js';
 import { Literal } from 'sequelize/lib/utils';
 
 

@@ -19,9 +19,9 @@ import {
   getLevelAnnouncementConfig,
 } from './channelParser.js';
 import {PassSubmission} from '../../models/submissions/PassSubmission.js';
-import {getVideoDetails} from '../../utils/videoDetailParser.js';
+import {getVideoDetails} from '../../utils/data/videoDetailParser.js';
 import LevelSubmission from '../../models/submissions/LevelSubmission.js';
-import {calcAcc, IJudgements} from '../../utils/CalcAcc.js';
+import {calcAcc, IJudgements} from '../../utils/pass/CalcAcc.js';
 import {Auth} from '../../middleware/auth.js';
 import { logger } from '../../services/LoggerService.js';
 import { clientUrlEnv } from '../../config/app.config.js';

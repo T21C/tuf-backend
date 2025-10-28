@@ -1,6 +1,6 @@
 import {Request, Response} from 'express';
 import OAuthService from '../services/OAuthService.js';
-import {tokenUtils} from '../utils/auth.js';
+import {tokenUtils} from '../utils/auth/auth.js';
 import {OAuthProvider} from '../models/index.js';
 import axios from 'axios';
 import {
@@ -10,7 +10,7 @@ import {
 import dotenv from 'dotenv';
 import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../config/app.config.js';
-import { hasFlag } from '../utils/permissionUtils.js';
+import { hasFlag } from '../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../config/constants.js';
 
 

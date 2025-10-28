@@ -18,7 +18,7 @@ import Player from '../models/players/Player.js';
 import Judgement from '../models/passes/Judgement.js';
 import { CreatorAlias } from '../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../models/credits/TeamAlias.js';
-import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/searchHelpers.js';
+import { prepareSearchTerm, convertToPUA, convertFromPUA } from '../utils/data/searchHelpers.js';
 import sequelize from '../config/db.js';
 import LevelLikes from '../models/levels/LevelLikes.js';
 import Rating from '../models/levels/Rating.js';
@@ -26,7 +26,7 @@ import { formatCreatorDisplay, safeTransactionRollback } from '../utils/Utility.
 import User from '../models/auth/User.js';
 import Curation from '../models/curations/Curation.js';
 import CurationType from '../models/curations/CurationType.js';
-import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '../utils/queryParser.js';
+import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '../utils/data/queryParser.js';
 
 const MAX_BATCH_SIZE = 4000;
 const BATCH_SIZE = 500;

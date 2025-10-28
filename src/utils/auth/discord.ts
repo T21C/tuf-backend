@@ -1,5 +1,5 @@
 import fetch, {Headers as NodeFetchHeaders} from 'node-fetch';
-import { logger } from '../services/LoggerService.js';
+import { logger } from '../../services/LoggerService.js';
 
 interface DiscordUserInfo {
   id: string;

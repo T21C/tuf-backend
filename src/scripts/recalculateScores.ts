@@ -4,14 +4,14 @@ import Pass from '../models/passes/Pass.js';
 import Player from '../models/players/Player.js';
 import { Op } from 'sequelize';
 import { initializeAssociations } from '../models/associations.js';
-import { getScoreV2 } from '../utils/CalcScore.js';
-import type { IJudgements } from '../utils/CalcAcc.js';
+import { getScoreV2 } from '../utils/pass/CalcScore.js';
+import type { IJudgements } from '../utils/pass/CalcAcc.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import Judgement from '../models/passes/Judgement.js';
 import User from '../models/auth/User.js';
 import { logger } from '../services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
-import { wherePermission } from '../utils/permissionUtils.js';
+import { wherePermission } from '../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../config/constants.js';
 
 // Configuration

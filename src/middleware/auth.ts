@@ -1,6 +1,6 @@
 import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider} from '../models/index.js';
-import {tokenUtils} from '../utils/auth.js';
+import {tokenUtils} from '../utils/auth/auth.js';
 import type {UserAttributes} from '../models/auth/User.js';
 import axios from 'axios';
 import Player from '../models/players/Player.js';
@@ -9,7 +9,7 @@ import { AuditLogService } from '../services/AuditLogService.js';
 import PlayerStats from '../models/players/PlayerStats.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import { permissionFlags } from '../config/constants.js';
-import { hasAnyFlag, hasFlag } from '../utils/permissionUtils.js';
+import { hasAnyFlag, hasFlag } from '../utils/auth/permissionUtils.js';
 
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {

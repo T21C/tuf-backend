@@ -4,14 +4,14 @@ import {v4 as uuidv4} from 'uuid';
 import User from '../models/auth/User.js';
 import Player from '../models/players/Player.js';
 import PlayerStats from '../models/players/PlayerStats.js';
-import {emailService} from '../utils/email.js';
-import {passwordUtils, tokenUtils} from '../utils/auth.js';
+import {emailService} from '../utils/auth/email.js';
+import {passwordUtils, tokenUtils} from '../utils/auth/auth.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import { logger } from '../services/LoggerService.js';
 import CaptchaService from '../services/CaptchaService.js';
 import { RateLimiter } from '../decorators/rateLimiter.js';
 import { permissionFlags } from '../config/constants.js';
-import { hasFlag, setUserPermissionAndSave } from '../utils/permissionUtils.js';
+import { hasFlag, setUserPermissionAndSave } from '../utils/auth/permissionUtils.js';
 
 // Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();
