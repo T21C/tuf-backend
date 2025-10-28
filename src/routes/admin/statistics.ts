@@ -11,7 +11,7 @@ import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import { permissionFlags } from '../../config/constants.js';
 import { wherehasFlag} from '../../utils/permissionUtils.js';
-
+import { validateAndClampDate } from '../../utils/dateUtils.js';
 const router: Router = Router();
 
 router.get('/', Auth.rater(), async (req: Request, res: Response) => {
@@ -99,7 +99,9 @@ router.get('/', Auth.rater(), async (req: Request, res: Response) => {
 router.get('/ratings-per-user', async (req: Request, res: Response) => {
   try {
     // Get the date parameters from query string
-    const { startDate, endDate, page = '1', limit = '20' } = req.query;
+    // Support both 'date' and 'startDate' for backwards compatibility
+    const { startDate, endDate, date, page = '1', limit = '20' } = req.query;
+    const startDateParam = (startDate || date) as string | undefined;
 
     // Parse pagination parameters
     const pageNum = parseInt(page as string) || 1;
@@ -108,11 +110,9 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
 
     // Parse the start date
     let selectedStartDate: Date;
-    if (startDate) {
-      selectedStartDate = new Date(startDate as string);
-      if (isNaN(selectedStartDate.getTime())) {
-        return res.status(400).json({error: 'Invalid start date format'});
-      }
+    if (startDateParam) {
+      const defaultStartDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      selectedStartDate = validateAndClampDate(startDateParam, defaultStartDate);
     } else {
       // Default to a week ago if no start date provided
       selectedStartDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -121,12 +121,18 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
     // Parse the end date (optional)
     let selectedEndDate: Date | null = null;
     if (endDate) {
-      selectedEndDate = new Date(endDate as string);
-      if (isNaN(selectedEndDate.getTime())) {
-        return res.status(400).json({error: 'Invalid end date format'});
-      }
+      const defaultEndDate = new Date();
+      selectedEndDate = validateAndClampDate(endDate as string, defaultEndDate);
       // Set end date to end of day
       selectedEndDate.setHours(23, 59, 59, 999);
+    }
+
+    // Ensure start date is not after end date
+    if (selectedEndDate && selectedStartDate > selectedEndDate) {
+      logger.warn(`Start date ${selectedStartDate.toISOString()} is after end date ${selectedEndDate.toISOString()}, swapping dates`);
+      const temp = selectedStartDate;
+      selectedStartDate = selectedEndDate;
+      selectedEndDate = temp;
     }
 
     // Build the where clause for the date filter
