@@ -1128,6 +1128,17 @@ export class PlayerStatsService {
               model: Difficulty,
               as: 'difficulty',
             },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              attributes: ['role'],
+              include: [{
+                model: Creator,
+                as: 'creator',
+                attributes: ['name'],
+                required: false,
+              }],
+            }
           ],
         },
         {
