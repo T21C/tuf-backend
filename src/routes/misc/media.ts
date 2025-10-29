@@ -1028,6 +1028,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
                     font-weight: 700;
                     font-size: ${20*multiplier}px;
                     color: #bbbbbb;
+                  }
                   .footer {
                     position: absolute;
                     bottom: 0;
