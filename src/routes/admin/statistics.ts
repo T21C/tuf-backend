@@ -129,7 +129,7 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
 
     // Ensure start date is not after end date
     if (selectedEndDate && selectedStartDate > selectedEndDate) {
-      logger.warn(`Start date ${selectedStartDate.toISOString()} is after end date ${selectedEndDate.toISOString()}, swapping dates`);
+      logger.debug(`Start date ${selectedStartDate.toISOString()} is after end date ${selectedEndDate.toISOString()}, swapping dates`);
       const temp = selectedStartDate;
       selectedStartDate = selectedEndDate;
       selectedEndDate = temp;
