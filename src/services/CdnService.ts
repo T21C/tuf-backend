@@ -16,6 +16,8 @@ export class CdnError extends Error {
     }
 }
 
+export type LevelMetadataTypes = 'settings' | 'actions' | 'decorations' | 'angles' | 'relativeAngles' | 'accessCount';
+
 class CdnService {
     private static instance: CdnService;
     private client: AxiosInstance;
@@ -452,16 +454,16 @@ class CdnService {
         }
     }
 
-    async getLevelSettings(fileId: string, modes?: string): Promise<any> {
+    async getLevelMetadata(fileId: string, modes?: LevelMetadataTypes[]): Promise<any> {
         try {
-            const response = await this.client.get(`/levels/${fileId}/levelData?modes=${modes}`);
-            logger.debug('Level settings retrieved from CDN:', {
+            const response = await this.client.get(`/levels/${fileId}/levelData?modes=${modes?.join(',')}`);
+            logger.debug('Level metadata retrieved from CDN:', {
                 fileId,
                 metadata: response.data
             });
             return response.data;
         } catch (error) {
-            throw new CdnError('Failed to get level settings', 'GET_LEVEL_SETTINGS_ERROR', {
+            throw new CdnError('Failed to get level metadata', 'GET_LEVEL_METADATA_ERROR', {
                 originalError: error instanceof Error ? error.message : String(error)
             });
         }
