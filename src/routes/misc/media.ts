@@ -819,7 +819,7 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
             throw new Error('Level or difficulty not found');
           }
 
-          const averageDifficulty = level?.ratings?.[0]?.averageDifficultyId ? await Difficulty.findByPk(level.ratings?.[0]?.averageDifficultyId) : undefined;
+          const averageDifficulty = level?.ratings?.[0]?.averageDifficultyId && level.difficulty?.name[0] === "Q" ? await Difficulty.findByPk(level.ratings?.[0]?.averageDifficultyId) : undefined;
 
           const {song, artist, difficulty: diff} = level.dataValues;
           if (!diff) {
