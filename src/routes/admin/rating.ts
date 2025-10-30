@@ -329,9 +329,10 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
 
   try {
     const {id} = req.params;
-    const {rating, comment, isCommunityRating = false} = req.body;
+    const {rating: ratingString, comment: commentString, isCommunityRating = false} = req.body;
     const user = req.user;
-
+    const rating = typeof ratingString === 'string' ? ratingString.slice(0, 254) : '';
+    const comment = typeof commentString === 'string' ? commentString.slice(0, 254) : '';
     // Get user to check permissions
     if (!user) {
       await safeTransactionRollback(transaction);
