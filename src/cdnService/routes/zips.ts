@@ -10,6 +10,7 @@ import LevelDict from 'adofai-lib';
 import sequelize from '../../config/db.js';
 import { Transaction } from 'sequelize';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import { levelCacheService } from '../services/levelCacheService.js';
 
 const router = Router();
 
@@ -145,6 +146,19 @@ router.post('/', (req: Request, res: Response) => {
             storageManager.cleanupFiles(req.file.path);
             logger.debug('Original zip file cleaned up');
 
+            // Populate cache for the uploaded level
+            logger.debug('Populating cache for uploaded level:', { fileId });
+            try {
+                await levelCacheService.ensureCachePopulated(fileId);
+                logger.debug('Cache populated successfully for uploaded level:', { fileId });
+            } catch (cacheError) {
+                // Log error but don't fail the upload
+                logger.warn('Failed to populate cache for uploaded level (non-critical):', {
+                    fileId,
+                    error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+                });
+            }
+
             const response = {
                 success: true,
                 fileId: fileId,
@@ -269,13 +283,15 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
         }
 
         // Update metadata with the actual file path from the zip within transaction
+        // Clear cache since target level has changed (will be repopulated after commit)
         await levelEntry.update({
             metadata: {
                 ...metadata,
                 targetLevel: matchingLevel.path,
                 pathConfirmed: true,
                 targetSafeToParse: false
-            }
+            },
+            cacheData: null
         }, { transaction });
 
         // Commit the transaction
@@ -287,6 +303,21 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             originalTarget: targetLevel,
             timestamp: new Date().toISOString()
         });
+
+        // Repopulate cache for the new target level
+        logger.debug('Repopulating cache for new target level:', { fileId });
+        try {
+            // Reload the file to get the updated metadata
+            await levelEntry.reload();
+            await levelCacheService.ensureCachePopulated(fileId);
+            logger.debug('Cache repopulated successfully for new target level:', { fileId });
+        } catch (cacheError) {
+            // Log error but don't fail the request
+            logger.warn('Failed to repopulate cache for new target level (non-critical):', {
+                fileId,
+                error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+            });
+        }
 
         res.json({
             success: true,

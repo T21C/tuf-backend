@@ -355,9 +355,9 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
       let tilecount;
       let accessCount;
       try {
-      const fileReponse = fileId ? await cdnService.getLevelMetadata(fileId, ['settings','angles','accessCount']) : undefined;
+      const fileReponse = fileId ? await cdnService.getLevelMetadata(fileId, ['settings','tilecount','accessCount']) : undefined;
         bpm = fileReponse?.settings?.bpm;
-        tilecount = fileReponse?.angles?.length;
+        tilecount = fileReponse?.tilecount;
         accessCount = fileReponse?.accessCount || 0;
       } catch (error) {
         logger.debug('Level metadata missing for level:', {levelId: req.params.id});

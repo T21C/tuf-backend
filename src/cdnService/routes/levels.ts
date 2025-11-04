@@ -9,6 +9,7 @@ import { PROTECTED_EVENT_TYPES, transformLevel } from '../services/levelTransfor
 import { repackZipFile } from '../services/zipProcessor.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import LevelDict, { Action } from 'adofai-lib';
+import { levelCacheService } from '../services/levelCacheService.js';
 
 // Repack folder configuration
 const REPACK_FOLDER = path.join(CDN_CONFIG.user_root, 'repack');
@@ -560,16 +561,6 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     if (!fs.existsSync(targetLevel)) {
         throw { error: 'Target level file not found', code: 400 };
     }
-    
-    const safeToParse = metadata.targetSafeToParse || false;
-    let levelData: LevelDict;
-    if (!safeToParse) {
-        levelData = new LevelDict(targetLevel);
-        levelData.writeToFile(targetLevel);
-        await file.update({ metadata: { ...metadata, targetSafeToParse: true } });
-    } else {
-        levelData = LevelDict.fromJSON(fs.readFileSync(targetLevel, 'utf8'));
-    }
 
     let response: {
         settings?: any;
@@ -578,29 +569,98 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         angles?: any;
         relativeAngles?: any;
         accessCount?: number;
+        tilecount?: number;
     } = {};
     
+    // If no modes specified, return full level data (no caching for this case)
     if (!modes || typeof modes !== 'string') {
+        const safeToParse = metadata.targetSafeToParse || false;
+        let levelData: LevelDict;
+        if (!safeToParse) {
+            levelData = new LevelDict(targetLevel);
+            levelData.writeToFile(targetLevel);
+            await file.update({ metadata: { ...metadata, targetSafeToParse: true } });
+        } else {
+            levelData = LevelDict.fromJSON(fs.readFileSync(targetLevel, 'utf8'));
+        }
         return res.json(levelData);
     }
-    if (modes.includes('settings')) {
-        response.settings = levelData.getSettings();
+
+    // Parse requested modes
+    const requestedModes = modes.split(',').map((m: string) => m.trim());
+    
+    // Check cache hits using cache service
+    const cacheData = levelCacheService.parseCacheData(file.cacheData);
+    const cacheHits = levelCacheService.checkCacheHits(cacheData, requestedModes);
+    
+    // Determine if we need to load the level file
+    const needsLevelFile = requestedModes.some(mode => 
+        (mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles') ||
+        (mode === 'settings' && !cacheHits.settings) ||
+        (mode === 'tilecount' && !cacheHits.tilecount)
+    );
+
+    let levelData: LevelDict | null = null;
+
+    if (needsLevelFile) {
+        // Get cache with automatic population if needed
+        const { cacheData: updatedCache } = await levelCacheService.getCacheWithPopulation(
+            file,
+            targetLevel,
+            requestedModes,
+            metadata
+        );
+
+        // Only load level file if we need non-cached data
+        const needsNonCachedData = requestedModes.some(mode => 
+            mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles'
+        );
+
+        if (needsNonCachedData) {
+            const safeToParse = metadata.targetSafeToParse || false;
+            if (!safeToParse) {
+                levelData = new LevelDict(targetLevel);
+                levelData.writeToFile(targetLevel);
+                await file.update({ metadata: { ...metadata, targetSafeToParse: true } });
+            } else {
+                levelData = LevelDict.fromJSON(fs.readFileSync(targetLevel, 'utf8'));
+            }
+        }
+
+        // Build response using updated cache
+        if (requestedModes.includes('settings')) {
+            response.settings = updatedCache.settings;
+        }
+        if (requestedModes.includes('tilecount')) {
+            response.tilecount = updatedCache.tilecount;
+        }
+    } else {
+        // All requested data is in cache, use cached values
+        const cachedResponse = levelCacheService.getCachedDataForModes(file, requestedModes);
+        response = { ...response, ...cachedResponse };
     }
-    if (modes.includes('actions')) {
-        response.actions = levelData.getActions();
-    } 
-    if (modes.includes('decorations')) {
-        response.decorations = levelData.getDecorations();
-    } 
-    if (modes.includes('angles')) {
-        response.angles = levelData.getAngles();
-    } 
-    if (modes.includes('relativeAngles')) {
-        response.relativeAngles = levelData.getAnglesRelative();
-    } 
-    if (modes.includes('accessCount')) {
+
+    // Add non-cached data from levelData if needed
+    if (levelData) {
+        if (requestedModes.includes('actions')) {
+            response.actions = levelData.getActions();
+        } 
+        if (requestedModes.includes('decorations')) {
+            response.decorations = levelData.getDecorations();
+        } 
+        if (requestedModes.includes('angles')) {
+            response.angles = levelData.getAngles();
+        } 
+        if (requestedModes.includes('relativeAngles')) {
+            response.relativeAngles = levelData.getAnglesRelative();
+        }
+    }
+
+    // accessCount is always available from file record
+    if (requestedModes.includes('accessCount')) {
         response.accessCount = file.accessCount || 0;
     }
+    
     return res.json(response);
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {

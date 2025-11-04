@@ -7,6 +7,7 @@ class CdnFile extends Model {
     declare filePath: string;
     declare metadata: object;
     declare accessCount: number;
+    declare cacheData: string | null;
 }
 
 export type ImageFileType = 'PROFILE' | 'ICON' | 'BANNER' | 'THUMBNAIL' | 'CURATION_ICON' | 'LEVEL_THUMBNAIL' | 'PACK_ICON';
@@ -33,6 +34,11 @@ CdnFile.init({
     metadata: {
         type: DataTypes.JSON,
         allowNull: true
+    },
+    cacheData: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+        defaultValue: null
     }
 }, {
     sequelize,
