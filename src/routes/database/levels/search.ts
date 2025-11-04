@@ -23,7 +23,7 @@ import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
 import { getFileIdFromCdnUrl, safeTransactionRollback } from '../../../utils/Utility.js';
 import Curation from '../../../models/curations/Curation.js';
 import CurationType from '../../../models/curations/CurationType.js';
-import { hasFlag } from '../../../utils/auth/permissionUtils.js';
+import { hasFlag, wherePermission } from '../../../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import cdnService from '../../../services/CdnService.js';
 
@@ -229,7 +229,20 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
                 as: 'player',
                 where: {
                   isBanned: false
-                }
+                },
+                include: [
+                  {
+                    model: User,
+                    as: 'user',
+                    required: false,
+                    where: {
+                      [Op.and]: [
+                        wherePermission(permissionFlags.BANNED, false)
+                      ]
+                    },
+                    attributes: ['avatarUrl', 'username'],
+                  },
+                ],
               },
               {
                 model: Judgement,
