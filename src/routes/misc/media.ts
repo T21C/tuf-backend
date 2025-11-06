@@ -1238,7 +1238,23 @@ setInterval(() => {
 
 router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
   try {
-    const videoLink = decodeURIComponent(req.params.videoLink);
+    let videoLink: string;
+    try {
+      videoLink = decodeURIComponent(req.params.videoLink);
+    } catch (error) {
+      if (error instanceof URIError) {
+        logger.debug('Malformed URI in video details request:', {
+          rawLink: req.params.videoLink,
+          error: error.message
+        });
+        return res.status(400).json({
+          error: 'Malformed video link',
+          details: 'The video link contains invalid URI encoding'
+        });
+      }
+      throw error;
+    }
+    
     if (!videoLink) {
       return res.status(400).json({
         error: 'Video link is required'
