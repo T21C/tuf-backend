@@ -91,6 +91,9 @@ const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
     return itemParentId === parentId;
   });
 
+  // CRITICAL: Sort by sortOrder ONLY - no other sorting criteria
+  children.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
   return children.map(item => {
     // Handle both Sequelize model instances and plain objects
     const itemId = item.id;
