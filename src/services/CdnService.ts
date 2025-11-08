@@ -64,12 +64,14 @@ class CdnService {
         } catch (error) {
             if (error instanceof AxiosError && error.response?.data) {
                 const errorData = error.response.data;
-                logger.error('Failed to upload image to CDN:', {
-                    error: errorData.error || 'Failed to upload image',
-                    code: errorData.code || 'UPLOAD_ERROR',
-                    details: errorData.details,
-                    timestamp: new Date().toISOString()
-                });
+                if (errorData.code !== 'VALIDATION_ERROR') {
+                    logger.error('Failed to upload image to CDN:', {
+                        error: errorData.error || 'Failed to upload image',
+                        code: errorData.code || 'UPLOAD_ERROR',
+                        details: errorData.details,
+                        timestamp: new Date().toISOString()
+                    });
+                }
                 throw new CdnError(
                     errorData.error || 'Failed to upload image',
                     errorData.code || 'UPLOAD_ERROR',

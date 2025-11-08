@@ -364,8 +364,6 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
             }
         });
     } catch (error) {
-        logger.error('Error uploading avatar:', error);
-
         if (error instanceof CdnError) {
             return res.status(400).json({
                 error: error.message,
