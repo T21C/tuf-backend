@@ -734,7 +734,7 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Response) => {
+router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const levelId = parseInt(req.params.levelId);

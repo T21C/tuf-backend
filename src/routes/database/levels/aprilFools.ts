@@ -145,7 +145,7 @@ const checkLevelTimeout = (levelId: number): number | null => {
   };
 const router = Router();
 
-router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})/difficulty', Auth.verified(), async (req: Request, res: Response) => {
     if (!ENABLE_ROULETTE) {
       return res.status(727).json({ error: 'April fools over, roulette is disabled' });
     }
@@ -230,7 +230,7 @@ router.put('/:id([0-9]+)/difficulty', Auth.verified(), async (req: Request, res:
   });
 
   // Add new endpoint for level timeouts
-  router.put('/:id([0-9]+)/timeout', Auth.verified(), async (req: Request, res: Response) => {
+  router.put('/:id([0-9]{1,20})/timeout', Auth.verified(), async (req: Request, res: Response) => {
     if (!ENABLE_ROULETTE) {
       return res.status(727).json({ error: 'April fools over, roulette is disabled' });
     }

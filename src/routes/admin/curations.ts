@@ -222,7 +222,7 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update curation type
-router.put('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
+router.put('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const {id} = req.params;
     const {name, icon, color, abilities} = req.body;
@@ -279,7 +279,7 @@ router.put('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => 
 });
 
 // Delete curation type
-router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -325,7 +325,7 @@ router.delete('/types/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
 });
 
 // Upload curation icon
-router.post('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), upload.single('icon'), async (req, res) => {
+router.post('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), upload.single('icon'), async (req, res) => {
   try {
     const {id} = req.params;
 
@@ -359,7 +359,7 @@ router.post('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), upload.single(
 });
 
 // Delete curation icon
-router.delete('/types/:id([0-9]+)/icon', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -726,7 +726,7 @@ router.get('/', async (req, res) => {
 });
 
 // Update curation
-router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
@@ -798,7 +798,7 @@ router.put('/:id([0-9]+)', requireCurationManagementPermission, async (req: Requ
 });
 
 // Get single curation
-router.get('/:id([0-9]+)', async (req, res) => {
+router.get('/:id([0-9]{1,20})', async (req, res) => {
   try {
     const {id} = req.params;
 
@@ -854,7 +854,7 @@ router.get('/:id([0-9]+)', async (req, res) => {
 });
 
 // Delete curation
-router.delete('/:id([0-9]+)', requireCurationManagementPermission, async (req: Request, res: Response) => {
+router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1102,7 +1102,7 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
 });
 
 // Update curation schedule
-router.put('/schedules/:id', Auth.headCurator(), async (req, res) => {
+router.put('/schedules/:id([0-9]{1,20})', Auth.headCurator(), async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
@@ -1124,7 +1124,7 @@ router.put('/schedules/:id', Auth.headCurator(), async (req, res) => {
 });
 
 // Delete curation schedule
-router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
+router.delete('/schedules/:id([0-9]{1,20})', Auth.headCurator(), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1142,7 +1142,7 @@ router.delete('/schedules/:id', Auth.headCurator(), async (req, res) => {
 });
 
 // Upload level thumbnail
-router.post('/:id([0-9]+)/thumbnail', [requireCurationManagementPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
+router.post('/:id([0-9]{1,20})/thumbnail', [requireCurationManagementPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
 
@@ -1194,7 +1194,7 @@ router.post('/:id([0-9]+)/thumbnail', [requireCurationManagementPermission, uplo
 });
 
 // Delete level thumbnail
-router.delete('/:id([0-9]+)/thumbnail', requireCurationManagementPermission, async (req: Request, res: Response) => {
+router.delete('/:id([0-9]{1,20})/thumbnail', requireCurationManagementPermission, async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {

@@ -111,7 +111,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   }
 });
 
-router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
 
@@ -175,7 +175,7 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
 });
 
 // Add HEAD endpoint for byId permission check
-router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.head('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
 
@@ -204,7 +204,7 @@ router.head('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, r
   }
 });
 
-router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const includeRatings = req.query.includeRatings === 'true';
     // Use a READ COMMITTED transaction to avoid locks from updates

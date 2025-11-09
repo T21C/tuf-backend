@@ -22,7 +22,7 @@ const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
 
 
-router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
     const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId) || passId <= 0) {
@@ -103,7 +103,7 @@ router.get('/byId/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, re
   },
 );
 
-router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId)) {
@@ -126,7 +126,7 @@ router.get('/:id([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Re
     }
   });
 
-router.get('/level/:levelId([0-9]+)', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const {levelId} = req.params;
       const level = await Level.findByPk(levelId);

@@ -103,7 +103,7 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id([0-9]+)', async (req: Request, res: Response) => {
+router.get('/:id([0-9]{1,20})', async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
 
@@ -599,7 +599,7 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
 );
 */
 
-router.put('/:id([0-9]+)/name', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})/name', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
@@ -649,7 +649,7 @@ router.put('/:id([0-9]+)/name', Auth.superAdmin(), async (req: Request, res: Res
   },
 );
 
-router.put('/:id([0-9]+)/country', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})/country', Auth.superAdmin(), async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {country} = req.body;
@@ -708,7 +708,7 @@ async function updateAffectedLevelsWorldsFirst(
 }
 
 // Update the ban/unban endpoint
-router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id([0-9]{1,20})/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -757,7 +757,7 @@ router.patch('/:id([0-9]+)/ban', Auth.superAdmin(), async (req: Request, res: Re
 );
 
 // Add this new endpoint after the ban endpoint
-router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id([0-9]{1,20})/pause-submissions', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -794,7 +794,7 @@ router.patch('/:id([0-9]+)/pause-submissions', Auth.superAdmin(), async (req: Re
   },
 );
 
-router.post('/:id([0-9]+)/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -1032,7 +1032,7 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
   }
 });
 
-router.get('/:playerId([0-9]+)/modifiers', Auth.addUserToRequest(), async (req, res) => {
+router.get('/:playerId([0-9]{1,20})/modifiers', Auth.addUserToRequest(), async (req, res) => {
   try {
     if (!modifierService) {
       return res.status(727).json({ error: 'April fools over, modifiers are disabled' });

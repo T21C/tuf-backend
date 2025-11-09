@@ -165,7 +165,7 @@ router.post('/channels', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update a channel
-router.put('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
+router.put('/channels/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const channelId = req.params.id;
     const { webhookUrl, label } = req.body;
@@ -198,7 +198,7 @@ router.put('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) 
 });
 
 // Delete a channel
-router.delete('/channels/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/channels/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const channelId = req.params.id;
 
@@ -260,7 +260,7 @@ router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update a role
-router.put('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
+router.put('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const roleId = req.params.id;
     const { roleId: newRoleId, label } = req.body;
@@ -293,7 +293,7 @@ router.put('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => 
 });
 
 // Delete a role
-router.delete('/roles/:id([0-9]+)', Auth.superAdminPassword(), async (req, res) => {
+router.delete('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const roleId = req.params.id;
 
@@ -397,7 +397,7 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
 );
 
 // Update difficulty
-router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const diffId = parseInt(req.params.id);
@@ -594,7 +594,7 @@ router.put('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: 
 );
 
 // Delete difficulty with fallback
-router.delete('/:id([0-9]+)', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
     try {
       const diffId = parseInt(req.params.id);
       const fallbackDiffId = parseInt(req.query.fallbackId as string);
@@ -700,7 +700,7 @@ interface DirectiveInput {
 }
 
 // Get announcement directives for a difficulty
-router.get('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.get('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   try {
     const diffId = parseInt(req.params.id);
 
@@ -742,7 +742,7 @@ router.get('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req: Req
 });
 
 // Configure announcement directives for a difficulty
-router.post('/:id([0-9]+)/directives', Auth.superAdminPassword(), async (req, res) => {
+router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const id = parseInt(req.params.id);
