@@ -827,13 +827,10 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           }
           const fileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : undefined;
           const [details, metadata] = await Promise.all([
-          axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
-          .then(res => res.data),
+          level.videoLink ? axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
+          .then(res => res.data) : undefined,
           fileId ? CdnService.getLevelMetadata(fileId, ['settings','angles','accessCount']) : undefined
           ])
-          if (!details || !details.image) {
-            throw new Error('Video details not found');
-          }
 
           // Generate the HTML and PNG for LARGE size
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
@@ -842,12 +839,23 @@ router.get('/thumbnail/level/:levelId([0-9]+)', async (req: Request, res: Respon
           // Download background image with retry logic
           let backgroundBuffer: Buffer;
           try {
+            if (!details?.image) {
+              throw new Error('Video details not found');
+            }
             backgroundBuffer = await downloadImageWithRetry(details.image);
           } catch (error: unknown) {
-            if (error)
             logWithCondition(`Failed to download background image after all retries for level ${levelId}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
             // Create a black background
-            backgroundBuffer = Buffer.alloc(width * height * 4, 0);
+            backgroundBuffer = await sharp({
+              create: {
+                width,
+                height,
+                channels: 4,
+                background: {r: 0, g: 0, b: 0, alpha: 1},
+              },
+            })
+              .png()
+              .toBuffer();
           }
 
           // Download difficulty icon with retry logic

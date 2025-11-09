@@ -572,7 +572,15 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       const mergedAliases = [
         ...new Set([...targetAliases, ...sourceAliases, sourceCreator.name]),
       ];
-
+      const aliasMap = new Map<string, string>();
+      for (const alias of mergedAliases) {
+        const trimmed = alias?.trim();
+        if (!trimmed) continue;
+        const key = trimmed.toLowerCase();
+        if (!aliasMap.has(key)) {
+          aliasMap.set(key, trimmed);
+        }
+      }
       // Delete existing target aliases
       await CreatorAlias.destroy({
         where: { creatorId: targetId },
@@ -580,8 +588,9 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       });
 
       // Create new merged aliases
-      if (mergedAliases.length > 0) {
-        const aliasRecords = mergedAliases.map(alias => ({
+      const uniqueAliases = Array.from(aliasMap.values());
+      if (uniqueAliases.length > 0) {
+        const aliasRecords = uniqueAliases.map(alias => ({
           creatorId: targetId,
           name: alias,
         }));
@@ -958,10 +967,9 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
           }
         } else {
           // Create new team
-          const [upsertedTeam] = await Team.upsert(
+          const upsertedTeam = await Team.create(
             {
               name,
-              aliases: [],
             },
             {transaction},
           );
