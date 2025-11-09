@@ -97,7 +97,7 @@ export function formatString(str: string): string {
   return str.replace(/\n/g, ' ');
 }
 
-const placeHolder = ownUrl + '/v2/media/image/soggycat.png';
+const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
 
 export async function createRerateEmbed(
   levelInfo: Level | null,

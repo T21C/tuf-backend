@@ -33,7 +33,7 @@ import Team from '../../models/credits/Team.js';
 
 const router: Router = express.Router();
 
-const placeHolder = clientUrlEnv + '/v2/media/image/soggycat.png';
+const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
 
 // Add logging helper at the top
 function logWebhookEvent(type: string, details: Record<string, any>) {

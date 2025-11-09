@@ -188,11 +188,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
           <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
-          <meta property="og:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
+          <meta property="og:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
+          <meta property="twitter:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
@@ -248,11 +248,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="Player ${id}" />
           <meta property="og:description" content="View player details" />
-          <meta property="og:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
+          <meta property="og:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="${ownUrl}/v2/media/image/soggycat.webp" />
+          <meta property="twitter:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
