@@ -253,7 +253,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   logger.debug("found discord id", discordId);
   const embed = new MessageBuilder()
     .setColor('#000000')
-    .setAuthor('New level submission', submitter?.avatarUrl || placeHolder, '')
+    .setAuthor('New level submission', submitter?.avatarUrl || '', '')
     .setTitle(`${song || 'Unknown Song'} — ${artist || 'Unknown Artist'}`)
     .addField('', `${discordId ? `<@${discordId}>` : `@${submitter?.nickname}`} #${submitter?.playerId}`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
