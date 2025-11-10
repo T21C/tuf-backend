@@ -34,7 +34,7 @@ import Team from '../../models/credits/Team.js';
 const router: Router = express.Router();
 
 const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
-
+const botAvatar = process.env.BOT_AVATAR_LINK || placeHolder;
 // Add logging helper at the top
 function logWebhookEvent(type: string, details: Record<string, any>) {
   if (process.env.NODE_ENV === 'development') {
@@ -165,7 +165,7 @@ async function collectAndSortMessages(groups: WebhookGroup[]): Promise<ChannelMe
 async function sendSortedMessages(channel: ChannelMessages): Promise<void> {
   const hook = new Webhook(channel.webhookUrl);
   hook.setUsername('TUF Announcer');
-  hook.setAvatar(placeHolder);
+  hook.setAvatar(botAvatar);
 
   for (const message of channel.messages) {
     // Split embeds into batches of 8
@@ -224,7 +224,7 @@ function groupByWebhook(items: (Pass | Level)[], configs: Map<number, Announceme
 export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const hook = new Webhook(process.env.LEVEL_SUBMISSION_HOOK);
   hook.setUsername('TUF Level Submission Hook');
-  hook.setAvatar(placeHolder);
+  hook.setAvatar(botAvatar);
 
   if (!levelSubmission)
     return new MessageBuilder().setDescription('No level info available');
@@ -289,7 +289,7 @@ export async function passSubmissionHook(
 ) {
   const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
   hook.setUsername('TUF Pass Submission Hook');
-  hook.setAvatar(placeHolder);
+  hook.setAvatar(botAvatar);
   if (!pass)
     return new MessageBuilder().setDescription('No pass info available');
   const level = pass.level;
