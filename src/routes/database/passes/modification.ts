@@ -27,7 +27,7 @@ const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 const router = Router();
 
-router.put('/:id([0-9]{1,2})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
