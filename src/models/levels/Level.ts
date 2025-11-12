@@ -94,12 +94,12 @@ Level.init(
       },
     },
     baseScore: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DOUBLE,
       allowNull: true,
       defaultValue: null,
     },
     previousBaseScore: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DOUBLE,
       allowNull: true,
       defaultValue: null,
     },
