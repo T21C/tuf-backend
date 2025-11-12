@@ -272,7 +272,7 @@ async function addLevelFromUrl(node: PackDownloadNode, folderPath: string, conte
         context.successCount += 1;
         return { folderName: targetFolder, success: true };
     } catch (error) {
-        logger.error('Failed to download external level for pack generation', {
+        logger.debug('Failed to download external level for pack generation', {
             sourceUrl: node.sourceUrl,
             error: error instanceof Error ? error.message : String(error)
         });
