@@ -68,6 +68,18 @@ function encodeContentDisposition(filename: string): string {
     return `attachment; filename*=UTF-8''${encoded}`;
 }
 
+function buildLevelFolderName(node: PackDownloadNode, baseName: string): string {
+    let sanitizedBase = sanitizePathSegment(baseName || 'Level');
+    const idPrefixPattern = /^#\d+\s+/;
+    if (idPrefixPattern.test(sanitizedBase)) {
+        sanitizedBase = sanitizePathSegment(sanitizedBase.replace(idPrefixPattern, '').trim() || 'Level');
+    }
+    const withId = node.levelId != null
+        ? `#${node.levelId} ${sanitizedBase}`
+        : sanitizedBase;
+    return sanitizePathSegment(withId);
+}
+
 function addDirectoryToZip(zip: AdmZip, directoryPath: string, folderSet: Set<string>) {
     const normalized = directoryPath.replace(/\\/g, '/').replace(/^\/+/, '');
     if (!normalized) {
@@ -173,9 +185,9 @@ async function addZipEntriesToPack(sourceZip: AdmZip, targetFolder: string, cont
     }
 }
 
-async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
+async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
     if (!node.fileId) {
-        return { folderName: folderPath, success: false };
+        return { folderName: parentPath, success: false };
     }
 
     try {
@@ -184,7 +196,7 @@ async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, conte
             logger.warn('CDN file missing or invalid for pack download', {
                 fileId: node.fileId
             });
-            return { folderName: folderPath, success: false };
+            return { folderName: parentPath, success: false };
         }
 
         const metadata = cdnFile.metadata as any;
@@ -193,7 +205,7 @@ async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, conte
             logger.warn('Original zip metadata missing for pack download', {
                 fileId: node.fileId
             });
-            return { folderName: folderPath, success: false };
+            return { folderName: parentPath, success: false };
         }
 
         const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.LOCAL;
@@ -203,7 +215,7 @@ async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, conte
                 fileId: node.fileId,
                 path: originalZip.path
             });
-            return { folderName: folderPath, success: false };
+            return { folderName: parentPath, success: false };
         }
 
         let sourceZip: AdmZip;
@@ -215,12 +227,13 @@ async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, conte
         }
 
         const derivedName = originalZip.originalFilename || originalZip.name;
-        const folderName = derivedName
-            ? sanitizePathSegment(path.parse(derivedName).name)
-            : folderPath;
-        const targetFolder = folderPath
-            ? path.posix.join(folderPath, folderName)
-            : folderName;
+        const baseFolderName = derivedName
+            ? path.parse(derivedName).name
+            : node.name || `Level-${node.levelId ?? 'unknown'}`;
+        const finalFolderName = buildLevelFolderName(node, baseFolderName);
+        const targetFolder = parentPath
+            ? path.posix.join(parentPath, finalFolderName)
+            : finalFolderName;
 
         await addZipEntriesToPack(sourceZip, targetFolder, context);
         context.successCount += 1;
@@ -230,13 +243,13 @@ async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, conte
             fileId: node.fileId,
             error: error instanceof Error ? error.message : String(error)
         });
-        return { folderName: folderPath, success: false };
+        return { folderName: parentPath, success: false };
     }
 }
 
-async function addLevelFromUrl(node: PackDownloadNode, folderPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
+async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
     if (!node.sourceUrl) {
-        return { folderName: folderPath, success: false };
+        return { folderName: parentPath, success: false };
     }
 
     try {
@@ -247,7 +260,7 @@ async function addLevelFromUrl(node: PackDownloadNode, folderPath: string, conte
 
         const buffer = Buffer.from(response.data);
         const sourceZip = new AdmZip(buffer);
-        let folderName = folderPath || sanitizePathSegment(node.name || 'Level');
+        const defaultName = node.name || `Level-${node.levelId ?? 'unknown'}`;
 
         const dispositionFilename = getFilenameFromDisposition(response.headers['content-disposition']);
         const urlFilename = (() => {
@@ -259,14 +272,12 @@ async function addLevelFromUrl(node: PackDownloadNode, folderPath: string, conte
             }
         })();
 
-        const finalName = dispositionFilename || urlFilename;
-        if (finalName) {
-            folderName = sanitizePathSegment(path.parse(finalName).name);
-        }
-
-        const targetFolder = folderPath
-            ? path.posix.join(folderPath, folderName)
-            : folderName;
+        const rawName = dispositionFilename || urlFilename || defaultName;
+        const baseFolderName = path.parse(rawName).name || rawName;
+        const finalFolderName = buildLevelFolderName(node, baseFolderName);
+        const targetFolder = parentPath
+            ? path.posix.join(parentPath, finalFolderName)
+            : finalFolderName;
 
         await addZipEntriesToPack(sourceZip, targetFolder, context);
         context.successCount += 1;
@@ -276,7 +287,7 @@ async function addLevelFromUrl(node: PackDownloadNode, folderPath: string, conte
             sourceUrl: node.sourceUrl,
             error: error instanceof Error ? error.message : String(error)
         });
-        return { folderName: folderPath, success: false };
+        return { folderName: parentPath, success: false };
     }
 }
 
@@ -308,7 +319,7 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
     }
 
     if (!successResult.success) {
-        const failedName = sanitizePathSegment(`${baseName} (FAILED)`);
+        const failedName = sanitizePathSegment(`[FAILED] ${baseName}`);
         const failedPath = parentPath
             ? path.posix.join(parentPath, failedName)
             : failedName;
