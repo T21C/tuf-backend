@@ -69,9 +69,6 @@ const searchEndpoints: EndpointDefinition[] = [
       path: {
         id: 'integer (required) - Level ID'
       },
-      query: {
-        includeRatings: 'boolean (optional) - Include rating details in response'
-      }
     },
     responses: {
       '200': 'Level found with detailed information including passes, ratings, curation data, and user-specific data',

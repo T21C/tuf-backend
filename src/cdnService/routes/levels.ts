@@ -95,6 +95,31 @@ function encodeContentDisposition(filename: string): string {
   return `attachment; filename*=UTF-8''${encoded}`;
 };
 
+function extractLevelMetadata(metadata: any) {
+    return {
+        songFiles: Object.values(metadata.songFiles).map((songFile: any) => {
+            return {
+                name: songFile.name,
+                size: songFile.size,
+                type: songFile.type
+            };
+        }),
+        allLevelFiles: Object.values(metadata.allLevelFiles).map((levelFile: any) => {
+            return {
+                name: levelFile.name,
+                size: levelFile.size,
+                songFilename: levelFile.songFilename,
+                hasYouTubeStream: levelFile.hasYouTubeStream
+            };
+        }),
+        originalZip: {
+            name: metadata.originalZip.name,
+            size: metadata.originalZip.size,
+            originalFilename: metadata.originalZip.originalFilename
+        }
+    };
+}
+
 const router = Router();
 
 // Function to extract unique event types and filters from a level file
@@ -530,6 +555,35 @@ router.get('/transform-options', async (req: Request, res: Response) => {
     return
 });
 
+router.post('/bulk-metadata', async (req: Request, res: Response) => {
+    try {
+        const fileIds = req.body.fileIds as string[];
+        if (!fileIds || fileIds.length === 0) {
+            logger.error('No file IDs provided', fileIds);
+            throw { error: 'File IDs are required', code: 400 };
+        }
+        const files = await CdnFile.findAll({ where: { id: fileIds } });
+        const levels = fileIds.map(fileId => {
+            const metadata = files.find(file => file.id === fileId)?.metadata as any
+            if (!metadata) {
+                return null;
+            }
+            return {
+                fileId: fileId,
+                metadata: extractLevelMetadata(metadata)
+            };
+            
+        });
+        return res.json(levels);
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('Unexpected error getting bulk metadata for ' + req.body.fileIds + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting bulk metadata' });
+    }
+});
 
 router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     try {

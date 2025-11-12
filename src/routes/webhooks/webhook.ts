@@ -223,7 +223,7 @@ function groupByWebhook(items: (Pass | Level)[], configs: Map<number, Announceme
 
 export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const hook = new Webhook(process.env.LEVEL_SUBMISSION_HOOK);
-  hook.setUsername('TUF Level Submission Hook');
+  hook.setUsername('TUF Level Submissions');
   hook.setAvatar(botAvatar);
 
   if (!levelSubmission)
@@ -288,7 +288,7 @@ export async function passSubmissionHook(
   sanitizedJudgements: IJudgements,
 ) {
   const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
-  hook.setUsername('TUF Pass Submission Hook');
+  hook.setUsername('TUF Pass Submissions');
   hook.setAvatar(botAvatar);
   if (!pass)
     return new MessageBuilder().setDescription('No pass info available');

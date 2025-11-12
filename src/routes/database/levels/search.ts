@@ -206,7 +206,6 @@ router.head('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reque
 
 router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
-    const includeRatings = req.query.includeRatings === 'true';
     // Use a READ COMMITTED transaction to avoid locks from updates
     if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
       return res.status(400).json({ error: 'Invalid level ID' });
@@ -305,6 +304,9 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         ],
         transaction,
       });
+      if (!level) {
+        return res.status(404).json({ error: 'Level not found' });
+      }
 
       const ratings = await Rating.findOne({
         where: {
@@ -368,13 +370,14 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       let tilecount;
       let accessCount;
       try {
-      const fileReponse = fileId ? await cdnService.getLevelMetadata(fileId, ['settings','tilecount','accessCount']) : undefined;
+      const fileReponse = fileId ? await cdnService.getLevelData(fileId, ['settings','tilecount','accessCount']) : undefined;
         bpm = fileReponse?.settings?.bpm;
         tilecount = fileReponse?.tilecount;
         accessCount = fileReponse?.accessCount || 0;
       } catch (error) {
         logger.debug('Level metadata missing for level:', {levelId: req.params.id});
       }
+      const metadata = (await cdnService.getLevelMetadata(level))?.metadata || undefined;
       await transaction.commit();
 
       if (!level) {
@@ -389,7 +392,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
 
       return res.json({
         level,
-        ratings: includeRatings ? ratings : undefined,
+        ratings,
         votes: req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN) ? votes : undefined,
         rerateHistory,
         totalVotes,
@@ -398,6 +401,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         bpm,
         tilecount,
         accessCount,
+        metadata,
       });
     } catch (error) {
       await safeTransactionRollback(transaction);

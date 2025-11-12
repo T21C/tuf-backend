@@ -829,7 +829,7 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
           const [details, metadata] = await Promise.all([
           level.videoLink ? axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
           .then(res => res.data) : undefined,
-          fileId ? CdnService.getLevelMetadata(fileId, ['settings','angles','accessCount']) : undefined
+          fileId ? CdnService.getLevelData(fileId, ['settings','angles','accessCount']) : undefined
           ])
 
           // Generate the HTML and PNG for LARGE size

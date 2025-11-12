@@ -2,6 +2,8 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import { logger } from './LoggerService.js';
 import { ImageFileType } from '../models/cdn/CdnFile.js';
+import Level from '../models/levels/Level.js';
+import { getFileIdFromCdnUrl } from '../utils/Utility.js';
 
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
@@ -435,6 +437,17 @@ class CdnService {
         });
     }
 
+    async getFileMetadata(fileId: string): Promise<any> {
+        try {
+            const response = await this.client.get(`/${fileId}/metadata`);
+            return response.data;
+        } catch (error) {
+            throw new CdnError('Failed to get file metadata', 'GET_FILE_METADATA_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
     async getLevelFiles(fileId: string): Promise<Array<{
         name: string;
         size: number;
@@ -456,7 +469,7 @@ class CdnService {
         }
     }
 
-    async getLevelMetadata(fileId: string, modes?: LevelMetadataTypes[]): Promise<any> {
+    async getLevelData(fileId: string, modes?: LevelMetadataTypes[]): Promise<any> {
         try {
             const response = await this.client.get(`/levels/${fileId}/levelData?modes=${modes?.join(',')}`);
             logger.debug('Level metadata retrieved from CDN:', {
@@ -483,6 +496,25 @@ class CdnService {
             return response.data;
         } catch (error) {
             throw new CdnError('Failed to set target level', 'SET_TARGET_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
+    async getLevelMetadata(level: Level): Promise<any> {
+        return (await this.getBulkLevelMetadata([level]))[0];
+    }
+
+    async getBulkLevelMetadata(levels: Level[]): Promise<{fileId: string, metadata: any}[]> {
+        try {
+            const fileIds = levels.map(level => level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null);
+            const response = await this.client.post('/levels/bulk-metadata', {
+                fileIds
+            });
+
+            return response.data;
+        } catch (error) {
+            throw new CdnError('Failed to add level metadata', 'ADD_LEVEL_METADATA_ERROR', {
                 originalError: error instanceof Error ? error.message : String(error)
             });
         }
