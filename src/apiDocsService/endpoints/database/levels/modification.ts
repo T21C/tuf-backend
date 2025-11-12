@@ -37,7 +37,7 @@ const modificationEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Level updated successfully',
+      '200': 'Returns { message, level, rerateHistory } with updated level data',
       '400': 'Invalid level ID',
       '401': 'Unauthorized',
       '403': 'Forbidden - cannot modify CDN-managed download link',
@@ -79,8 +79,7 @@ const modificationEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Level soft deleted successfully',
-      '204': 'Level deleted successfully',
+      '200': 'Returns { level: { id, isDeleted: true, isHidden: true } } after a successful soft delete',
       '400': 'Invalid level ID',
       '401': 'Unauthorized',
       '403': 'Forbidden - requires super admin',
@@ -101,7 +100,7 @@ const modificationEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Level restored successfully',
+      '200': 'Returns { level: { id, isDeleted: false, isHidden: false } } after restoring the level',
       '401': 'Unauthorized',
       '403': 'Forbidden - requires super admin',
       '404': 'Level not found',
@@ -121,7 +120,7 @@ const modificationEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Hidden status toggled successfully',
+      '200': 'Returns { level: { id, isHidden: boolean } } with the updated hidden state',
       '401': 'Unauthorized',
       '403': 'Forbidden - requires super admin',
       '404': 'Level not found',

@@ -45,6 +45,27 @@ const packsEndpoints: EndpointDefinition[] = [
   },
   {
     method: 'POST',
+    path: '/v2/database/levels/packs/:id/download-link',
+    description: 'Generate a temporary CDN download link for the entire pack or a specific folder within it.',
+    category: 'PACKS',
+    parameters: {
+      path: {
+        id: 'string (required) - Pack linkCode'
+      },
+      body: {
+        folderId: 'number (optional) - Folder ID to download instead of the whole pack'
+      }
+    },
+    responses: {
+      '200': 'Returns { downloadId, url, expiresAt, zipName, cacheKey } when the archive is ready',
+      '400': 'Invalid request or no downloadable content',
+      '403': 'Access denied',
+      '404': 'Pack or folder not found',
+      '500': 'Failed to generate pack download link'
+    }
+  },
+  {
+    method: 'POST',
     path: '/v2/database/levels/packs',
     description: 'Create new pack. Non-admins can only create private (2) or link-only (1) packs. Link code is auto-generated.',
     category: 'PACKS',

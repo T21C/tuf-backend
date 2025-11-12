@@ -22,7 +22,7 @@ const searchEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Search results with pagination information including level data, difficulty, curation info, and user statistics',
+      '200': 'Returns { results, hasMore, total } with matching levels and their indexed metadata',
       '500': 'Internal server error'
     }
   },
@@ -37,7 +37,7 @@ const searchEndpoints: EndpointDefinition[] = [
       }
     },
     responses: {
-      '200': 'Level found with basic information',
+      '200': 'Returns a level record including difficulty, passes, aliases, credits, and team info',
       '400': 'Invalid level ID',
       '404': 'Level not found',
       '500': 'Failed to fetch level by ID'
@@ -71,7 +71,7 @@ const searchEndpoints: EndpointDefinition[] = [
       },
     },
     responses: {
-      '200': 'Level found with detailed information including passes, ratings, curation data, and user-specific data',
+      '200': 'Returns { level, ratings, votes?, rerateHistory, totalVotes, isLiked, isCleared, bpm, tilecount, accessCount, metadata }',
       '400': 'Invalid level ID',
       '404': 'Level not found',
       '500': 'Failed to fetch level'
