@@ -15,6 +15,7 @@ import { Transaction } from 'sequelize';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
+import { spacesStorage } from '../services/spacesStorage.js';
 
 const router = Router();
 
@@ -22,6 +23,7 @@ const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.user_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const PACK_DOWNLOAD_SPACES_PREFIX = 'pack-downloads';
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -42,10 +44,11 @@ type PackDownloadResponse = {
 };
 
 interface PackDownloadEntry {
-    filePath: string;
+    filePath?: string | null;
     expiresAt: number;
     zipName: string;
     cacheKey: string;
+    spacesKey?: string | null;
 }
 
 const packDownloadEntries = new Map<string, PackDownloadEntry>();
@@ -112,12 +115,33 @@ async function ensurePackDownloadDirs(): Promise<void> {
     await fs.promises.mkdir(PACK_DOWNLOAD_TEMP_DIR, { recursive: true });
 }
 
+async function cleanupPackDownloadSpaces(): Promise<void> {
+    try {
+        const files = await spacesStorage.listFiles(`${PACK_DOWNLOAD_SPACES_PREFIX}/`, 1000);
+        const keysToDelete = files
+            .filter(file => file.key.endsWith('.zip'))
+            .filter(file => file.key.split('/').length === 2)
+            .map(file => file.key);
+
+        if (keysToDelete.length > 0) {
+            await spacesStorage.deleteFiles(keysToDelete);
+            logger.debug('Cleaned up pack download files in Spaces', {
+                deleted: keysToDelete.length
+            });
+        }
+    } catch (error) {
+        logger.error('Failed to cleanup pack download files in Spaces', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+    }
+}
+
 async function cleanupExpiredDownloads(): Promise<void> {
     const now = Date.now();
     for (const [downloadId, entry] of packDownloadEntries.entries()) {
         if (entry.expiresAt <= now) {
             try {
-                if (fs.existsSync(entry.filePath)) {
+                if (entry.filePath && fs.existsSync(entry.filePath)) {
                     await fs.promises.rm(entry.filePath, { force: true });
                 }
             } catch (error) {
@@ -126,6 +150,17 @@ async function cleanupExpiredDownloads(): Promise<void> {
                     filePath: entry.filePath,
                     error: error instanceof Error ? error.message : String(error)
                 });
+            }
+            if (entry.spacesKey) {
+                try {
+                    await spacesStorage.deleteFile(entry.spacesKey);
+                } catch (error) {
+                    logger.warn('Failed to remove expired pack download file from Spaces', {
+                        downloadId,
+                        spacesKey: entry.spacesKey,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                }
             }
             packDownloadEntries.delete(downloadId);
             if (packCacheIndex.get(entry.cacheKey) === downloadId) {
@@ -141,6 +176,7 @@ async function initializePackDownloadStorage(): Promise<void> {
 }
 
 await initializePackDownloadStorage();
+await cleanupPackDownloadSpaces();
 setInterval(() => {
     cleanupExpiredDownloads().catch(error => {
         logger.error('Failed to cleanup expired pack downloads:', {
@@ -352,20 +388,61 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
         const targetPath = path.join(PACK_DOWNLOAD_DIR, zipFilename);
         packZip.writeZip(targetPath);
 
+        let spacesKey: string | null = null;
+        let responseUrl: string;
+        try {
+            const remoteKey = `${PACK_DOWNLOAD_SPACES_PREFIX}/${zipFilename}`;
+            await spacesStorage.uploadFile(targetPath, remoteKey, 'application/zip', {
+                cacheKey,
+                generatedAt: new Date().toISOString(),
+                successLevels: context.successCount.toString(),
+                totalLevels: context.totalLevels.toString()
+            });
+            spacesKey = remoteKey;
+        } catch (error) {
+            logger.error('Failed to upload pack download to Spaces', {
+                error: error instanceof Error ? error.message : String(error),
+                zipFilename,
+                cacheKey
+            });
+        }
+
+        if (spacesKey) {
+            const presignedUrl = await spacesStorage.getPresignedUrl(
+                spacesKey,
+                Math.max(60, Math.floor(PACK_DOWNLOAD_TTL_MS / 1000))
+            );
+            responseUrl = presignedUrl;
+        } else {
+            responseUrl = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${downloadId}`;
+        }
+
+        if (spacesKey) {
+            try {
+                await fs.promises.rm(targetPath, { force: true });
+            } catch (error) {
+                logger.warn('Failed to delete local pack download after Spaces upload', {
+                    error: error instanceof Error ? error.message : String(error),
+                    targetPath
+                });
+            }
+        }
+
         const expiresAt = Date.now() + PACK_DOWNLOAD_TTL_MS;
         const response: PackDownloadResponse = {
             downloadId,
-            url: `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${downloadId}`,
+            url: responseUrl,
             expiresAt: new Date(expiresAt).toISOString(),
             zipName,
             cacheKey
         };
 
         packDownloadEntries.set(downloadId, {
-            filePath: targetPath,
+            filePath: spacesKey ? undefined : targetPath,
             expiresAt,
             zipName,
-            cacheKey
+            cacheKey,
+            spacesKey
         });
         packCacheIndex.set(cacheKey, downloadId);
 
@@ -376,7 +453,8 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
             successLevels: context.successCount,
             totalLevels: context.totalLevels,
             expiresAt: response.expiresAt,
-            filePath: targetPath
+            filePath: spacesKey ? undefined : targetPath,
+            spacesKey
         });
 
         return response;
@@ -527,16 +605,52 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         const existingDownloadId = packCacheIndex.get(normalizedCacheKey);
         if (existingDownloadId) {
             const entry = packDownloadEntries.get(existingDownloadId);
-            if (entry && entry.expiresAt > Date.now() && fs.existsSync(entry.filePath)) {
-                return res.json({
-                    downloadId: existingDownloadId,
-                    url: `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`,
-                    expiresAt: new Date(entry.expiresAt).toISOString(),
-                    zipName: entry.zipName,
-                    cacheKey: entry.cacheKey
-                });
+            if (entry && entry.expiresAt > Date.now()) {
+                try {
+                    let url: string | null = null;
+                    if (entry.spacesKey) {
+                        const secondsRemaining = Math.max(
+                            60,
+                            Math.floor((entry.expiresAt - Date.now()) / 1000)
+                        );
+                        url = await spacesStorage.getPresignedUrl(entry.spacesKey, secondsRemaining);
+                    } else if (entry.filePath && fs.existsSync(entry.filePath)) {
+                        url = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`;
+                    }
+
+                    if (url) {
+                        return res.json({
+                            downloadId: existingDownloadId,
+                            url,
+                            expiresAt: new Date(entry.expiresAt).toISOString(),
+                            zipName: entry.zipName,
+                            cacheKey: entry.cacheKey
+                        });
+                    }
+                } catch (error) {
+                    logger.error('Failed to reuse existing pack download cache entry:', {
+                        cacheKey: normalizedCacheKey,
+                        downloadId: existingDownloadId,
+                        error: error instanceof Error ? error.message : String(error)
+                    });
+                }
             }
             packCacheIndex.delete(normalizedCacheKey);
+            const staleEntry = packDownloadEntries.get(existingDownloadId);
+            if (staleEntry) {
+                if (staleEntry.spacesKey) {
+                    spacesStorage.deleteFile(staleEntry.spacesKey).catch((error) => {
+                        logger.warn('Failed to delete stale pack download from Spaces', {
+                            downloadId: existingDownloadId,
+                            spacesKey: staleEntry.spacesKey,
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                    });
+                }
+                if (staleEntry.filePath && fs.existsSync(staleEntry.filePath)) {
+                    fs.promises.rm(staleEntry.filePath, { force: true }).catch(() => undefined);
+                }
+            }
             packDownloadEntries.delete(existingDownloadId);
         }
 
@@ -577,7 +691,7 @@ router.get('/packs/downloads/:id', async (req: Request, res: Response) => {
         }
 
         if (entry.expiresAt <= Date.now()) {
-            if (fs.existsSync(entry.filePath)) {
+            if (entry.filePath && fs.existsSync(entry.filePath)) {
                 await fs.promises.rm(entry.filePath, { force: true });
             }
             packDownloadEntries.delete(id);
@@ -587,7 +701,25 @@ router.get('/packs/downloads/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Download expired' });
         }
 
-        if (!fs.existsSync(entry.filePath)) {
+        if (entry.spacesKey) {
+            try {
+                const secondsRemaining = Math.max(
+                    60,
+                    Math.floor((entry.expiresAt - Date.now()) / 1000)
+                );
+                const presignedUrl = await spacesStorage.getPresignedUrl(entry.spacesKey, secondsRemaining);
+                return res.redirect(presignedUrl);
+            } catch (error) {
+                logger.error('Failed to get pack download presigned URL', {
+                    downloadId: id,
+                    spacesKey: entry.spacesKey,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+                return res.status(500).json({ error: 'Failed to serve download' });
+            }
+        }
+
+        if (!entry.filePath || !fs.existsSync(entry.filePath)) {
             packDownloadEntries.delete(id);
             if (packCacheIndex.get(entry.cacheKey) === id) {
                 packCacheIndex.delete(entry.cacheKey);
