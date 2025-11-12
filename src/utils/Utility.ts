@@ -148,7 +148,7 @@ export const safeTransactionRollback = async (transaction: any, logger?: any): P
 
 // Helper function to check if a URL is from our CDN
 export const isCdnUrl = (url: string): boolean => {
-  return url.startsWith(CDN_CONFIG.baseUrl);
+  return url.startsWith(CDN_CONFIG.baseUrl) || url.startsWith("https://api.tuforums.com/cdn/");
 };
 
 // Helper function to extract file ID from CDN URL

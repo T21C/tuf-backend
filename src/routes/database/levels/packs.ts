@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { createHash } from 'crypto';
 import { Auth } from '../../../middleware/auth.js';
 import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes } from '../../../models/packs/index.js';
 import Level from '../../../models/levels/Level.js';
@@ -544,6 +545,41 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       order: [['sortOrder', 'ASC']]
     });
 
+    const levelMetadataByLevelId = new Map<number, {
+      fileId: string;
+      size?: number;
+      originalFilename?: string;
+    }>();
+
+    try {
+      const referencedLevels = levels.map(level => level.referencedLevel);
+      if (referencedLevels) {
+        console.log('referencedLevels', referencedLevels);
+        const metadataResponses = await cdnService.getBulkLevelMetadata(referencedLevels as Level[]);
+        console.log('metadataResponses', metadataResponses);
+        const levelIds = referencedLevels.map(level => level?.id);
+        if (levelIds) {
+          for (let i = 0; i < levelIds.length; i++) {
+            const levelId = levelIds[i];
+            const metadata = metadataResponses[i]?.metadata;
+            if (levelId && metadata) {
+              levelMetadataByLevelId.set(levelId, {
+                fileId: metadataResponses[i]?.fileId,
+                size: metadata.originalZip.size,
+                originalFilename: metadata.originalZip.originalFilename || metadata.originalZip.name
+              });
+            }
+          }
+        }
+        console.log('levelMetadataByLevelId', levelMetadataByLevelId);
+      }
+    } catch (error) {
+      logger.error('Error fetching CDN metadata for pack levels:', {
+        error: error instanceof Error ? error.message : String(error),
+        packId: pack?.id
+      });
+    }
+
     let clearedLevelIds: number[] = [];
     if (req.user) {
     clearedLevelIds = await Pass.findAll({
@@ -556,10 +592,28 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
 
     let items = [...folders, ...levels];
 
-    items = items.map((item: any) => ({
-      ...item.dataValues,
-      isCleared: clearedLevelIds.includes(item.levelId || 0)
-    }));
+    items = items.map((item: any) => {
+      const baseItem = {
+        ...item.dataValues,
+        isCleared: clearedLevelIds.includes(item.levelId || 0)
+      };
+
+      if (baseItem.type === 'level' && baseItem.levelId) {
+        const metadata = levelMetadataByLevelId.get(baseItem.levelId);
+        if (metadata) {
+          baseItem.downloadSizeBytes = metadata.size ?? null;
+          baseItem.cdnDownload = {
+            fileId: metadata.fileId,
+            size: metadata.size ?? null,
+            originalFilename: metadata.originalFilename || null
+          };
+        } else {
+          baseItem.downloadSizeBytes = null;
+        }
+      }
+
+      return baseItem;
+    });
 
 
 
@@ -579,6 +633,147 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
   } catch (error) {
     logger.error('Error fetching pack:', error);
     return res.status(500).json({ error: 'Failed to fetch pack' });
+  }
+});
+
+router.post('/:id/download-link', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const param = req.params.id;
+    const { folderId } = req.body ?? {};
+
+    const resolvedPackId = await resolvePackId(param);
+    if (!resolvedPackId) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    const pack = await LevelPack.findByPk(resolvedPackId, {
+      include: [{
+        model: User,
+        as: 'packOwner',
+        attributes: ['id']
+      }]
+    });
+
+    if (!pack) {
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    if (!canViewPack(pack, req.user)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const packItems = await LevelPackItem.findAll({
+      where: { packId: pack.id },
+      include: [{
+        model: Level,
+        as: 'referencedLevel',
+        required: false
+      }],
+      order: [['sortOrder', 'ASC']]
+    });
+
+    const targetFolderId = folderId !== undefined ? Number(folderId) : null;
+    let targetFolder: LevelPackItem | null = null;
+    if (targetFolderId !== null) {
+      targetFolder = packItems.find(item => item.id === targetFolderId && item.type === 'folder') || null;
+      if (!targetFolder) {
+        return res.status(404).json({ error: 'Folder not found in pack' });
+      }
+    }
+
+    const itemsByParent = new Map<number | null, LevelPackItem[]>();
+    for (const item of packItems) {
+      const parentKey = item.parentId ?? null;
+      if (!itemsByParent.has(parentKey)) {
+        itemsByParent.set(parentKey, []);
+      }
+      itemsByParent.get(parentKey)!.push(item);
+    }
+
+    // Ensure deterministic ordering by sortOrder then id
+    itemsByParent.forEach(children => {
+      children.sort((a, b) => {
+        const sortA = a.sortOrder ?? 0;
+        const sortB = b.sortOrder ?? 0;
+        if (sortA !== sortB) return sortA - sortB;
+        return (a.id ?? 0) - (b.id ?? 0);
+      });
+    });
+
+    type DownloadTreeNode = {
+      type: 'folder' | 'level';
+      name: string;
+      children?: DownloadTreeNode[];
+      fileId?: string | null;
+      sourceUrl?: string | null;
+      levelId?: number | null;
+      packItemId?: number;
+    };
+
+    const buildDownloadTree = (parentId: number | null): DownloadTreeNode[] => {
+      const children = itemsByParent.get(parentId) ?? [];
+
+      return children.map(child => {
+        if (child.type === 'folder') {
+          return {
+            type: 'folder',
+            name: child.name || `Folder ${child.id}`,
+            children: buildDownloadTree(child.id),
+            packItemId: child.id
+          };
+        }
+
+        const level: any = child.referencedLevel;
+        if (!level) {
+          return null;
+        }
+
+        const cdnFileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
+        const songNamePart = level.song ? ` ${level.song}` : '';
+        const displayName = `#${level.id}${songNamePart}`;
+
+        return {
+          type: 'level',
+          name: displayName,
+          fileId: cdnFileId,
+          sourceUrl: cdnFileId ? null : (level.dlLink || null),
+          levelId: level.id ?? null,
+          packItemId: child.id
+        };
+      }).filter((node) => node !== null) as DownloadTreeNode[];
+    };
+
+    const rootChildren = buildDownloadTree(targetFolder ? targetFolder.id : null);
+
+    if (rootChildren.length === 0) {
+      return res.status(400).json({ error: 'No levels available for download in the selected scope' });
+    }
+
+    const zipDisplayName = targetFolder ? targetFolder.name : pack.name;
+    const treePayload = {
+      type: 'folder',
+      name: zipDisplayName,
+      children: rootChildren
+    };
+
+    const cacheKey = createHash('sha256').update(JSON.stringify(treePayload)).digest('hex');
+
+    const cdnResponse = await cdnService.generatePackDownload({
+      zipName: zipDisplayName || 'Missing pack name',
+      packId: pack.id,
+      folderId: targetFolder ? targetFolder.id : null,
+      cacheKey,
+      tree: treePayload
+    });
+
+    return res.json(cdnResponse);
+  } catch (error) {
+    logger.error('Error generating pack download link:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      packParam: req.params.id
+    });
+    return res.status(500).json({ error: 'Failed to generate download link' });
   }
 });
 

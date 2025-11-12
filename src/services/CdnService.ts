@@ -505,6 +505,49 @@ class CdnService {
         return (await this.getBulkLevelMetadata([level]))[0];
     }
 
+    async generatePackDownload(request: {
+        zipName: string;
+        packId: number;
+        folderId?: number | null;
+        cacheKey: string;
+        tree: any;
+    }): Promise<{
+        downloadId: string;
+        url: string;
+        expiresAt: string;
+        zipName: string;
+    }> {
+        try {
+            const response = await this.client.post('/zips/packs/generate', request);
+            return response.data;
+        } catch (error) {
+            if (error instanceof AxiosError && error.response?.data) {
+                const errorData = error.response.data;
+                logger.error('Failed to generate pack download from CDN:', {
+                    error: errorData.error || 'Failed to generate pack download',
+                    code: errorData.code || 'PACK_DOWNLOAD_ERROR',
+                    details: errorData.details,
+                    timestamp: new Date().toISOString()
+                });
+                throw new CdnError(
+                    errorData.error || 'Failed to generate pack download',
+                    errorData.code || 'PACK_DOWNLOAD_ERROR',
+                    errorData.details
+                );
+            }
+
+            logger.error('Failed to generate pack download from CDN:', {
+                error: error instanceof Error ? error.message : String(error),
+                timestamp: new Date().toISOString()
+            });
+            throw new CdnError(
+                'Failed to generate pack download',
+                'PACK_DOWNLOAD_ERROR',
+                { originalError: error instanceof Error ? error.message : String(error) }
+            );
+        }
+    }
+
     async getBulkLevelMetadata(levels: Level[]): Promise<{fileId: string, metadata: any}[]> {
         try {
             const fileIds = levels.map(level => level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null);

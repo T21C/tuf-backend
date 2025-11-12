@@ -1,4 +1,7 @@
 import path from 'path';
+import fs from 'fs';
+import AdmZip from 'adm-zip';
+import axios from 'axios';
 import { logger } from '../../services/LoggerService.js';
 import { storageManager } from '../services/storageManager.js';
 import { CDN_CONFIG } from '../config.js';
@@ -11,8 +14,399 @@ import sequelize from '../../config/db.js';
 import { Transaction } from 'sequelize';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
+import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 
 const router = Router();
+
+const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.user_root, 'pack-downloads');
+const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
+const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
+const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
+type PackDownloadNode = {
+    type: 'folder' | 'level';
+    name: string;
+    children?: PackDownloadNode[];
+    fileId?: string | null;
+    sourceUrl?: string | null;
+    levelId?: number | null;
+    packItemId?: number | null;
+};
+
+type PackDownloadResponse = {
+    downloadId: string;
+    url: string;
+    expiresAt: string;
+    zipName: string;
+    cacheKey: string;
+};
+
+interface PackDownloadEntry {
+    filePath: string;
+    expiresAt: number;
+    zipName: string;
+    cacheKey: string;
+}
+
+const packDownloadEntries = new Map<string, PackDownloadEntry>();
+const packCacheIndex = new Map<string, string>();
+const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
+
+function sanitizePathSegment(name: string): string {
+    const sanitized = (name || 'Item')
+        .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (sanitized.length === 0) {
+        return 'Item';
+    }
+    return sanitized.slice(0, 120);
+}
+
+function encodeContentDisposition(filename: string): string {
+    const encoded = encodeURIComponent(filename);
+    return `attachment; filename*=UTF-8''${encoded}`;
+}
+
+function addDirectoryToZip(zip: AdmZip, directoryPath: string, folderSet: Set<string>) {
+    const normalized = directoryPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized) {
+        return;
+    }
+    const folderPath = normalized.endsWith('/') ? normalized : `${normalized}/`;
+    if (folderSet.has(folderPath)) {
+        return;
+    }
+    zip.addFile(folderPath, Buffer.alloc(0));
+    folderSet.add(folderPath);
+}
+
+function getFilenameFromDisposition(disposition?: string): string | null {
+    if (!disposition) return null;
+    const filenameStarMatch = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+    if (filenameStarMatch) {
+        try {
+            return decodeURIComponent(filenameStarMatch[1].replace(/"/g, ''));
+        } catch {
+            return filenameStarMatch[1].replace(/"/g, '');
+        }
+    }
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+    return filenameMatch ? filenameMatch[1] : null;
+}
+
+async function ensurePackDownloadDirs(): Promise<void> {
+    await fs.promises.mkdir(PACK_DOWNLOAD_DIR, { recursive: true });
+    await fs.promises.mkdir(PACK_DOWNLOAD_TEMP_DIR, { recursive: true });
+}
+
+async function cleanupExpiredDownloads(): Promise<void> {
+    const now = Date.now();
+    for (const [downloadId, entry] of packDownloadEntries.entries()) {
+        if (entry.expiresAt <= now) {
+            try {
+                if (fs.existsSync(entry.filePath)) {
+                    await fs.promises.rm(entry.filePath, { force: true });
+                }
+            } catch (error) {
+                logger.warn('Failed to remove expired pack download file', {
+                    downloadId,
+                    filePath: entry.filePath,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+            packDownloadEntries.delete(downloadId);
+            if (packCacheIndex.get(entry.cacheKey) === downloadId) {
+                packCacheIndex.delete(entry.cacheKey);
+            }
+        }
+    }
+}
+
+async function initializePackDownloadStorage(): Promise<void> {
+    await ensurePackDownloadDirs();
+    await cleanupExpiredDownloads();
+}
+
+await initializePackDownloadStorage();
+setInterval(() => {
+    cleanupExpiredDownloads().catch(error => {
+        logger.error('Failed to cleanup expired pack downloads:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+    });
+}, PACK_DOWNLOAD_CLEANUP_INTERVAL_MS);
+
+interface PackGenerationContext {
+    tempDir: string;
+    targetZip: AdmZip;
+    folderSet: Set<string>;
+    successCount: number;
+    totalLevels: number;
+}
+
+async function addZipEntriesToPack(sourceZip: AdmZip, targetFolder: string, context: PackGenerationContext) {
+    const entries = sourceZip.getEntries();
+    addDirectoryToZip(context.targetZip, targetFolder, context.folderSet);
+
+    for (const entry of entries) {
+        const rawEntryName = entry.entryName.replace(/\\/g, '/');
+        if (!rawEntryName || rawEntryName.includes('..')) {
+            continue;
+        }
+        const normalizedEntryName = rawEntryName.startsWith('/') ? rawEntryName.slice(1) : rawEntryName;
+        const targetPath = targetFolder
+            ? path.posix.join(targetFolder, normalizedEntryName)
+            : normalizedEntryName;
+
+        if (entry.isDirectory) {
+            addDirectoryToZip(context.targetZip, targetPath, context.folderSet);
+            continue;
+        }
+
+        const directoryName = path.posix.dirname(targetPath);
+        if (directoryName && directoryName !== '.') {
+            addDirectoryToZip(context.targetZip, directoryName, context.folderSet);
+        }
+
+        context.targetZip.addFile(targetPath, entry.getData());
+    }
+}
+
+async function addLevelFromCdn(node: PackDownloadNode, folderPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
+    if (!node.fileId) {
+        return { folderName: folderPath, success: false };
+    }
+
+    try {
+        const cdnFile = await CdnFile.findByPk(node.fileId);
+        if (!cdnFile || cdnFile.type !== 'LEVELZIP' || !cdnFile.metadata) {
+            logger.warn('CDN file missing or invalid for pack download', {
+                fileId: node.fileId
+            });
+            return { folderName: folderPath, success: false };
+        }
+
+        const metadata = cdnFile.metadata as any;
+        const originalZip = metadata.originalZip;
+        if (!originalZip?.path) {
+            logger.warn('Original zip metadata missing for pack download', {
+                fileId: node.fileId
+            });
+            return { folderName: folderPath, success: false };
+        }
+
+        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.LOCAL;
+        const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
+        if (!existence.exists) {
+            logger.warn('Original zip not found in storage for pack download', {
+                fileId: node.fileId,
+                path: originalZip.path
+            });
+            return { folderName: folderPath, success: false };
+        }
+
+        let sourceZip: AdmZip;
+        if (existence.storageType === StorageType.SPACES) {
+            const buffer = await hybridStorageManager.downloadFile(originalZip.path, StorageType.SPACES);
+            sourceZip = new AdmZip(buffer);
+        } else {
+            sourceZip = new AdmZip(existence.actualPath);
+        }
+
+        const derivedName = originalZip.originalFilename || originalZip.name;
+        const folderName = derivedName
+            ? sanitizePathSegment(path.parse(derivedName).name)
+            : folderPath;
+        const targetFolder = folderPath
+            ? path.posix.join(folderPath, folderName)
+            : folderName;
+
+        await addZipEntriesToPack(sourceZip, targetFolder, context);
+        context.successCount += 1;
+        return { folderName: targetFolder, success: true };
+    } catch (error) {
+        logger.error('Failed to add CDN level to pack download', {
+            fileId: node.fileId,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return { folderName: folderPath, success: false };
+    }
+}
+
+async function addLevelFromUrl(node: PackDownloadNode, folderPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
+    if (!node.sourceUrl) {
+        return { folderName: folderPath, success: false };
+    }
+
+    try {
+        const response = await axios.get(node.sourceUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10_000
+        });
+
+        const buffer = Buffer.from(response.data);
+        const sourceZip = new AdmZip(buffer);
+        let folderName = folderPath || sanitizePathSegment(node.name || 'Level');
+
+        const dispositionFilename = getFilenameFromDisposition(response.headers['content-disposition']);
+        const urlFilename = (() => {
+            try {
+                const url = new URL(node.sourceUrl!);
+                return decodeURIComponent(path.basename(url.pathname));
+            } catch {
+                return null;
+            }
+        })();
+
+        const finalName = dispositionFilename || urlFilename;
+        if (finalName) {
+            folderName = sanitizePathSegment(path.parse(finalName).name);
+        }
+
+        const targetFolder = folderPath
+            ? path.posix.join(folderPath, folderName)
+            : folderName;
+
+        await addZipEntriesToPack(sourceZip, targetFolder, context);
+        context.successCount += 1;
+        return { folderName: targetFolder, success: true };
+    } catch (error) {
+        logger.error('Failed to download external level for pack generation', {
+            sourceUrl: node.sourceUrl,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return { folderName: folderPath, success: false };
+    }
+}
+
+async function processPackNode(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<void> {
+    if (node.type === 'folder') {
+        const folderName = sanitizePathSegment(node.name || 'Folder');
+        const folderPath = parentPath
+            ? path.posix.join(parentPath, folderName)
+            : folderName;
+
+        addDirectoryToZip(context.targetZip, folderPath, context.folderSet);
+
+        if (Array.isArray(node.children) && node.children.length > 0) {
+            const children = node.children as PackDownloadNode[];
+            await Promise.all(children.map(child => processPackNode(child, folderPath, context)));
+        }
+        return;
+    }
+
+    context.totalLevels += 1;
+    const baseName = sanitizePathSegment(node.name || `Level-${node.levelId ?? 'unknown'}`);
+    const targetBasePath = parentPath ? path.posix.join(parentPath, baseName) : baseName;
+
+    let successResult: { folderName: string; success: boolean; } = { folderName: targetBasePath, success: false };
+    if (node.fileId) {
+        successResult = await addLevelFromCdn(node, parentPath, context);
+    } else if (node.sourceUrl) {
+        successResult = await addLevelFromUrl(node, parentPath, context);
+    }
+
+    if (!successResult.success) {
+        const failedName = sanitizePathSegment(`${baseName} (FAILED)`);
+        const failedPath = parentPath
+            ? path.posix.join(parentPath, failedName)
+            : failedName;
+        addDirectoryToZip(context.targetZip, failedPath, context.folderSet);
+    }
+}
+
+async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, cacheKey: string): Promise<PackDownloadResponse> {
+    await ensurePackDownloadDirs();
+    await cleanupExpiredDownloads();
+
+    const packZip = new AdmZip();
+    const folderSet = new Set<string>();
+    const tempDir = path.join(PACK_DOWNLOAD_TEMP_DIR, crypto.randomUUID());
+    await fs.promises.mkdir(tempDir, { recursive: true });
+
+    const context: PackGenerationContext = {
+        tempDir,
+        targetZip: packZip,
+        folderSet,
+        successCount: 0,
+        totalLevels: 0
+    };
+
+    try {
+        await processPackNode(tree, '', context);
+
+        const downloadId = crypto.randomUUID();
+        const zipFilename = `${downloadId}.zip`;
+        const targetPath = path.join(PACK_DOWNLOAD_DIR, zipFilename);
+        packZip.writeZip(targetPath);
+
+        const expiresAt = Date.now() + PACK_DOWNLOAD_TTL_MS;
+        const response: PackDownloadResponse = {
+            downloadId,
+            url: `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${downloadId}`,
+            expiresAt: new Date(expiresAt).toISOString(),
+            zipName,
+            cacheKey
+        };
+
+        packDownloadEntries.set(downloadId, {
+            filePath: targetPath,
+            expiresAt,
+            zipName,
+            cacheKey
+        });
+        packCacheIndex.set(cacheKey, downloadId);
+
+        logger.debug('Generated pack download zip', {
+            downloadId,
+            zipName,
+            cacheKey,
+            successLevels: context.successCount,
+            totalLevels: context.totalLevels,
+            expiresAt: response.expiresAt,
+            filePath: targetPath
+        });
+
+        return response;
+    } finally {
+        try {
+            if (fs.existsSync(tempDir)) {
+                await fs.promises.rm(tempDir, { recursive: true, force: true });
+            }
+        } catch (error) {
+            logger.warn('Failed to cleanup temporary directory for pack download', {
+                tempDir,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+}
+
+function isPackDownloadNode(node: any): node is PackDownloadNode {
+    if (!node || typeof node !== 'object') {
+        return false;
+    }
+
+    if (node.type === 'folder') {
+        if (typeof node.name !== 'string') {
+            return false;
+        }
+        if (node.children === undefined) {
+            return true;
+        }
+        if (!Array.isArray(node.children)) {
+            return false;
+        }
+        return (node.children as PackDownloadNode[]).every((child: PackDownloadNode) => isPackDownloadNode(child));
+    }
+
+    if (node.type === 'level') {
+        return typeof node.name === 'string';
+    }
+
+    return false;
+}
 
 // Get level files in a zip
 router.get('/:fileId/levels', async (req: Request, res: Response) => {
@@ -102,6 +496,155 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Failed to get level files' });
     }
     return;
+});
+
+router.post('/packs/generate', async (req: Request, res: Response) => {
+    try {
+        const { zipName, tree, cacheKey } = req.body ?? {};
+
+        if (!zipName || typeof zipName !== 'string') {
+            return res.status(400).json({ error: 'zipName is required' });
+        }
+        if (!tree || !isPackDownloadNode(tree)) {
+            return res.status(400).json({ error: 'Valid download tree is required' });
+        }
+
+        const normalizedCacheKey = typeof cacheKey === 'string' && cacheKey.length > 0
+            ? cacheKey
+            : crypto.createHash('sha256').update(JSON.stringify({ zipName, tree })).digest('hex');
+
+        const existingDownloadId = packCacheIndex.get(normalizedCacheKey);
+        if (existingDownloadId) {
+            const entry = packDownloadEntries.get(existingDownloadId);
+            if (entry && entry.expiresAt > Date.now() && fs.existsSync(entry.filePath)) {
+                return res.json({
+                    downloadId: existingDownloadId,
+                    url: `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`,
+                    expiresAt: new Date(entry.expiresAt).toISOString(),
+                    zipName: entry.zipName,
+                    cacheKey: entry.cacheKey
+                });
+            }
+            packCacheIndex.delete(normalizedCacheKey);
+            packDownloadEntries.delete(existingDownloadId);
+        }
+
+        if (!packGenerationPromises.has(normalizedCacheKey)) {
+            const sanitizedZipName = sanitizePathSegment(zipName);
+            const generationPromise = (async () => {
+                try {
+                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey);
+                } finally {
+                    packGenerationPromises.delete(normalizedCacheKey);
+                }
+            })();
+
+            packGenerationPromises.set(normalizedCacheKey, generationPromise);
+        }
+
+        const responsePayload = await packGenerationPromises.get(normalizedCacheKey)!;
+        return res.json(responsePayload);
+    } catch (error) {
+        logger.error('Failed to generate pack download zip', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return res.status(500).json({
+            error: 'Failed to generate pack download',
+            code: 'PACK_DOWNLOAD_ERROR'
+        });
+    }
+});
+
+router.get('/packs/downloads/:id', async (req: Request, res: Response) => {
+    try {
+        await cleanupExpiredDownloads();
+
+        const { id } = req.params;
+        const entry = packDownloadEntries.get(id);
+        if (!entry) {
+            return res.status(404).json({ error: 'Download not found' });
+        }
+
+        if (entry.expiresAt <= Date.now()) {
+            if (fs.existsSync(entry.filePath)) {
+                await fs.promises.rm(entry.filePath, { force: true });
+            }
+            packDownloadEntries.delete(id);
+            if (packCacheIndex.get(entry.cacheKey) === id) {
+                packCacheIndex.delete(entry.cacheKey);
+            }
+            return res.status(404).json({ error: 'Download expired' });
+        }
+
+        if (!fs.existsSync(entry.filePath)) {
+            packDownloadEntries.delete(id);
+            if (packCacheIndex.get(entry.cacheKey) === id) {
+                packCacheIndex.delete(entry.cacheKey);
+            }
+            return res.status(404).json({ error: 'Download not found' });
+        }
+
+        const stat = await fs.promises.stat(entry.filePath);
+        const range = req.headers.range;
+        const zipBaseName = sanitizePathSegment(entry.zipName || 'pack-download');
+        const filename = zipBaseName.endsWith('.zip') ? zipBaseName : `${zipBaseName}.zip`;
+
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Disposition', encodeContentDisposition(filename));
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Expires', new Date(entry.expiresAt).toUTCString());
+
+        if (range) {
+            const match = /bytes=(\d*)-(\d*)/.exec(range);
+            if (!match) {
+                res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
+                return res.end();
+            }
+            const start = match[1] ? parseInt(match[1], 10) : 0;
+            const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+
+            if (isNaN(start) || isNaN(end) || start > end || end >= stat.size) {
+                res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
+                return res.end();
+            }
+
+            const chunkSize = end - start + 1;
+            res.status(206);
+            res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+            res.setHeader('Content-Length', chunkSize.toString());
+
+            const stream = fs.createReadStream(entry.filePath, { start, end });
+            stream.on('error', (error) => {
+                logger.error('Error streaming pack download (range)', {
+                    downloadId: id,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+                res.destroy(error as Error);
+            });
+            stream.pipe(res);
+            return;
+        }
+
+        res.status(200);
+        res.setHeader('Content-Length', stat.size.toString());
+        const stream = fs.createReadStream(entry.filePath);
+        stream.on('error', (error) => {
+            logger.error('Error streaming pack download', {
+                downloadId: id,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            res.destroy(error as Error);
+        });
+        stream.pipe(res);
+        return;
+    } catch (error) {
+        logger.error('Failed to serve pack download zip', {
+            downloadId: req.params.id,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return res.status(500).json({ error: 'Failed to serve download' });
+    }
 });
 
 // Level zip upload endpoint
