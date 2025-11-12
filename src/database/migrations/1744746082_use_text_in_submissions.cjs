@@ -146,12 +146,5 @@ module.exports = {
   },
 
   async down(queryInterface, Sequelize) {
-    // Revert baseScore back to INTEGER
-    await queryInterface.changeColumn('levels', 'baseScore', {
-      type: Sequelize.INTEGER,
-
-    });
-
-
   }
 }; 
