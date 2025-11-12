@@ -554,9 +554,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     try {
       const referencedLevels = levels.map(level => level.referencedLevel);
       if (referencedLevels) {
-        console.log('referencedLevels', referencedLevels);
         const metadataResponses = await cdnService.getBulkLevelMetadata(referencedLevels as Level[]);
-        console.log('metadataResponses', metadataResponses);
         const levelIds = referencedLevels.map(level => level?.id);
         if (levelIds) {
           for (let i = 0; i < levelIds.length; i++) {
@@ -571,7 +569,6 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
             }
           }
         }
-        console.log('levelMetadataByLevelId', levelMetadataByLevelId);
       }
     } catch (error) {
       logger.error('Error fetching CDN metadata for pack levels:', {
