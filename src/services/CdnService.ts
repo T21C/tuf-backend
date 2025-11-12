@@ -469,17 +469,18 @@ class CdnService {
         }
     }
 
-    async getLevelData(fileId: string, modes?: LevelMetadataTypes[]): Promise<any> {
+    async getLevelData(level: Level, modes?: LevelMetadataTypes[]): Promise<any> {
         try {
+            const fileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
+            if (!fileId) {
+                return null;
+            }
             const response = await this.client.get(`/levels/${fileId}/levelData?modes=${modes?.join(',')}`);
-            logger.debug('Level metadata retrieved from CDN:', {
-                fileId,
-                metadata: response.data
-            });
             return response.data;
         } catch (error) {
-            throw new CdnError('Failed to get level metadata', 'GET_LEVEL_METADATA_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
+            throw new CdnError('Failed to get level data', 'GET_LEVEL_DATA_ERROR', {
+                originalError: error instanceof Error ? error.message : String(error),
+                modes: modes?.join(',')
             });
         }
     }

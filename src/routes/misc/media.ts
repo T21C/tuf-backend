@@ -825,11 +825,10 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
           if (!diff) {
             throw new Error('Difficulty not found');
           }
-          const fileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : undefined;
           const [details, metadata] = await Promise.all([
-          level.videoLink ? axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
-          .then(res => res.data) : undefined,
-          fileId ? CdnService.getLevelData(fileId, ['settings','angles','accessCount']) : undefined
+          axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
+          .then(res => res.data).catch(() => undefined),
+          CdnService.getLevelData(level, ['settings','angles','accessCount']).catch(() => undefined)
           ])
 
           // Generate the HTML and PNG for LARGE size

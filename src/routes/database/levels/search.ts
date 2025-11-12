@@ -365,19 +365,23 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         where: { levelId: parseInt(req.params.id) },
         order: [['createdAt', 'DESC']],
       });
-      const fileId = level?.dlLink ? getFileIdFromCdnUrl(level.dlLink) : undefined;
       let bpm;
       let tilecount;
       let accessCount;
       try {
-      const fileReponse = fileId ? await cdnService.getLevelData(fileId, ['settings','tilecount','accessCount']) : undefined;
+      const fileReponse = level.dlLink ? await cdnService.getLevelData(level, ['settings','tilecount','accessCount']) : undefined;
         bpm = fileReponse?.settings?.bpm;
         tilecount = fileReponse?.tilecount;
         accessCount = fileReponse?.accessCount || 0;
       } catch (error) {
-        logger.debug('Level metadata missing for level:', {levelId: req.params.id});
+        logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
       }
-      const metadata = (await cdnService.getLevelMetadata(level))?.metadata || undefined;
+      let metadata;
+      try {
+        metadata = (await cdnService.getLevelMetadata(level))?.metadata || undefined;
+      } catch (error) {
+        logger.debug('Level file metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
+      }
       await transaction.commit();
 
       if (!level) {
