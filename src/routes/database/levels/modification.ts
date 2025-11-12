@@ -620,7 +620,7 @@ router.delete(
       }
 
       await Level.update(
-        {isDeleted: true},
+        {isDeleted: true, isHidden: true},
         {
           where: {id: levelId.toString()},
           transaction,
@@ -629,12 +629,13 @@ router.delete(
 
       await transaction.commit();
 
-      // Send response immediately after commit
-      const response = {
-        message: 'Level soft deleted successfully',
-        level: level,
-      };
-      res.json(response);
+      res.json({
+        level: {
+          id: levelId,
+          isDeleted: true,
+          isHidden: true,
+        },
+      });
 
       // Handle cache updates and broadcasts asynchronously
       (async () => {
@@ -674,7 +675,7 @@ router.delete(
           return;
         });
 
-      return res.status(204).end();
+      return;
     } catch (error) {
       await safeTransactionRollback(transaction);
       logger.error('Error soft deleting level:', error);
@@ -733,16 +734,22 @@ router.patch(
 
       await transaction.commit();
 
-      // Broadcast updates
-      sseManager.broadcast({type: 'levelUpdate'});
-      sseManager.broadcast({type: 'ratingUpdate'});
-
-      // Reload stats for new level
-      await playerStatsService.reloadAllStats();
+      (async () => {
+        try {
+          sseManager.broadcast({type: 'levelUpdate'});
+          sseManager.broadcast({type: 'ratingUpdate'});
+          await playerStatsService.reloadAllStats();
+        } catch (error) {
+          logger.error('Error in async operations after level restore:', error);
+        }
+      })();
 
       return res.json({
-        message: 'Level restored successfully',
-        level: level,
+        level: {
+          id: level.id,
+          isDeleted: false,
+          isHidden: false,
+        },
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -783,12 +790,19 @@ router.patch(
 
       await transaction.commit();
 
-      // Broadcast updates
-      sseManager.broadcast({type: 'levelUpdate'});
+      (async () => {
+        try {
+          sseManager.broadcast({type: 'levelUpdate'});
+        } catch (error) {
+          logger.error('Error in async operations after toggle hidden:', error);
+        }
+      })();
 
       return res.json({
-        message: `Level ${level.isHidden ? 'unhidden' : 'hidden'} successfully`,
-        isHidden: !level.isHidden,
+        level: {
+          id: level.id,
+          isHidden: !level.isHidden,
+        },
       });
     } catch (error) {
       await safeTransactionRollback(transaction);
