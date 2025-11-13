@@ -1,6 +1,7 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import User from './User.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('auth');
 
 export interface UsernameChangeAttributes {
   id?: number;

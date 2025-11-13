@@ -1,10 +1,11 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import {ICreator} from '../../interfaces/models/index.js';
 import User from '../auth/User.js';
 import LevelCredit from '../levels/LevelCredit.js';
 import {CreatorAlias} from './CreatorAlias.js';
 import Team from './Team.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('credits');
 
 class Creator extends Model implements ICreator {
   declare id: number;

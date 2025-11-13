@@ -1,6 +1,7 @@
 import { Model, DataTypes } from 'sequelize';
-import sequelize from '../../config/db.js';
 import Level from '../levels/Level.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('announcements');
 
 class DirectiveConditionHistory extends Model {
   declare id: number;

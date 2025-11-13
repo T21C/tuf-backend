@@ -1,6 +1,7 @@
 import {Model, DataTypes} from 'sequelize';
 import Creator from './Creator.js';
-import sequelize from '../../config/db.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('credits');
 
 export class CreatorAlias extends Model {
   declare id: number;

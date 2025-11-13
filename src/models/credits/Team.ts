@@ -1,9 +1,10 @@
 import {DataTypes, Model} from 'sequelize';
-import sequelize from '../../config/db.js';
 import {ITeam} from '../../interfaces/models/index.js';
 import { TeamAlias } from './TeamAlias.js';
 import Creator from './Creator.js';
 import TeamMember from './TeamMember.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('credits');
 
 class Team extends Model implements ITeam {
   declare id: number;

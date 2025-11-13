@@ -1,8 +1,9 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import Player from '../players/Player.js';
 import OAuthProvider from './OAuthProvider.js';
 import Creator from '../credits/Creator.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('auth');
 
 export interface UserAttributes {
   id: string;

@@ -1,9 +1,10 @@
 import {DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import BaseModel from '../BaseModel.js';
 import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
 import User from '../auth/User.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('submissions');
 
 class LevelSubmission extends BaseModel {
   declare artist: string;

@@ -1,6 +1,7 @@
 import { Model, DataTypes } from 'sequelize';
-import sequelize from '../../config/db.js';
 import CdnFile from './CdnFile.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('cdn');
 
 class FileAccessLog extends Model {
     declare id: number;

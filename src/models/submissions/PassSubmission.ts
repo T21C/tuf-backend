@@ -1,10 +1,12 @@
 import {DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import BaseModel from '../BaseModel.js';
 import Player from '../players/Player.js';
 import Level from '../levels/Level.js';
 import { calcAcc } from '../../utils/pass/CalcAcc.js';
 import User from '../auth/User.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('submissions');
+
 class PassSubmission extends BaseModel {
   declare passer: string;
   declare passerId: number | null;

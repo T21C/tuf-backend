@@ -5,11 +5,12 @@ import {
   HasManyGetAssociationsMixin,
   HasOneGetAssociationMixin,
 } from 'sequelize';
-import sequelize from '../../config/db.js';
 import {IPass, IPlayer} from '../../interfaces/models/index.js';
 import Pass from '../passes/Pass.js';
 import User from '../auth/User.js';
 import PlayerStats from '../players/PlayerStats.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('players');
 
 type PlayerCreationAttributes = Optional<
   IPlayer,

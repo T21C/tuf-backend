@@ -1,7 +1,8 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import Level from './Level.js';
 import Creator from '../credits/Creator.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
 export enum CreditRole {
   CREATOR = 'creator',

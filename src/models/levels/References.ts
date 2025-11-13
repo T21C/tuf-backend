@@ -1,5 +1,6 @@
 import {DataTypes, Model} from 'sequelize';
-import sequelize from '../../config/db.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
 interface IReference {
   id?: number;

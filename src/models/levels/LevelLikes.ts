@@ -6,9 +6,10 @@ import {
     CreationOptional,
     ForeignKey,
   } from 'sequelize';
-  import sequelize from '../../config/db.js';
-  import Level from './Level.js';
+import Level from './Level.js';
 import User from '../auth/User.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
   class LevelLikes extends Model<
     InferAttributes<LevelLikes>,

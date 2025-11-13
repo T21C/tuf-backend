@@ -1,8 +1,9 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import { now } from 'sequelize/lib/utils';
 import { IAnnouncementDirective, DirectiveCondition } from '../../interfaces/models/index.js';
 import DirectiveAction from './DirectiveAction.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('announcements');
 
 class AnnouncementDirective extends Model<IAnnouncementDirective> implements IAnnouncementDirective {
   declare id: number;

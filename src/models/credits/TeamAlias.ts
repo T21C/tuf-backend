@@ -1,6 +1,7 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import Team from './Team.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('credits');
 
 export class TeamAlias extends Model {
   public id!: number;

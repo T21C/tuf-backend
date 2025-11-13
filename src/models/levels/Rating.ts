@@ -1,8 +1,9 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import sequelize from '../../config/db.js';
 import Level from './Level.js';
 import Difficulty from './Difficulty.js';
 import RatingDetail from './RatingDetail.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
 interface RatingAttributes {
   id: number;

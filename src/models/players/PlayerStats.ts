@@ -1,7 +1,8 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import Player from './Player.js';
 import Difficulty from '../levels/Difficulty.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('players');
 
 class PlayerStats extends Model {
   declare id: number;

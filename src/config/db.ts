@@ -1,40 +1,15 @@
 import {Sequelize} from 'sequelize';
 import dotenv from 'dotenv';
 import { logger } from '../services/LoggerService.js';
+import { getPoolManager, initializePools, PoolManager } from './PoolManager.js';
 
 dotenv.config();
 
 const MAX_CONNECTIONS = 50;
-const sequelize = new Sequelize({
-  dialect: 'mysql',
-  host: process.env.DB_HOST,
-  username: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database:
-    process.env.NODE_ENV === 'staging'
-      ? process.env.DB_STAGING_DATABASE
-      : process.env.DB_DATABASE,
-  logging: false,
-  pool: {
-    max: MAX_CONNECTIONS,
-    min: 2,
-    acquire: 60000,
-    idle: 10000,
-    validate: (connection: any) => {
-      return connection.query('SELECT 1');
-    },
-    evict: 30000,
-  },
-  dialectOptions: {
-    connectTimeout: 60000,
-    timezone: '+00:00', // Force UTC timezone
-  },
-  retry: {
-    max: 3,
-    backoffBase: 1000,
-    backoffExponent: 1.5,
-  },
-});
+
+// Initialize PoolManager and get default pool (backward compatibility)
+const poolManager = getPoolManager();
+const sequelize = poolManager.getDefaultPool();
 
 // Connection monitoring configuration
 const CONNECTION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -267,11 +242,54 @@ export const gracefulShutdown = async (): Promise<void> => {
     stopConnectionMonitoring();
 
     logger.info('Closing database connections...');
-    await sequelize.close();
+    await poolManager.closeAllPools();
     logger.info('Database connections closed');
   } catch (error) {
     logger.error('Error during graceful shutdown:', error);
   }
+};
+
+/**
+ * @param modelGroup - The model group name (e.g., 'levels', 'auth', 'submissions')
+ * @returns Sequelize instance for the model group (falls back to default if not mapped)
+ */
+export const getSequelizeForModelGroup = (modelGroup: string): Sequelize => {
+  return poolManager.getPoolForModelGroup(modelGroup);
+};
+
+export const getPoolManagerInstance = (): PoolManager => {
+  return poolManager;
+};
+
+/**
+ * Initialize pools with configuration.
+ * Call this during application startup before models are initialized.
+ * 
+ * @example
+ * initializeDatabasePools({
+ *   pools: [
+ *     { name: 'levels', maxConnections: 15 },
+ *     { name: 'submissions', maxConnections: 10 },
+ *     { name: 'auth', maxConnections: 5 }
+ *   ],
+ *   modelMappings: {
+ *     'levels': 'levels',
+ *     'submissions': 'submissions',
+ *     'auth': 'auth'
+ *   }
+ * });
+ */
+export const initializeDatabasePools = (config?: {
+  pools?: Array<{
+    name: string;
+    maxConnections: number;
+    minConnections?: number;
+    acquireTimeout?: number;
+    idleTimeout?: number;
+  }>;
+  modelMappings?: Record<string, string>;
+}): void => {
+  initializePools(config);
 };
 
 export default sequelize;

@@ -1,8 +1,9 @@
 import { Model, DataTypes } from 'sequelize';
-import sequelize from '../../config/db.js';
 import Level from './Level.js';
 import Difficulty from './Difficulty.js';
 import User from '../auth/User.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
 class LevelRerateHistory extends Model {
   declare id: number;

@@ -24,6 +24,9 @@ import { logger } from './services/LoggerService.js';
 import ElasticsearchService from './services/ElasticsearchService.js';
 import { clientUrlEnv, port, ownUrl, corsOptions } from './config/app.config.js';
 import { startConnectionMonitoring } from './config/db.js';
+import { initializeDefaultPools } from './config/poolConfig.js';
+initializeDefaultPools();
+
 // Add these at the very top of the file, before any other imports
 process.on('uncaughtException', (error) => {
   logger.error('UNCAUGHT EXCEPTION! Shutting down...');

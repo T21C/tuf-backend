@@ -1,7 +1,8 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import sequelize from '../../config/db.js';
 import LevelPack from './LevelPack.js';
 import Level from '../levels/Level.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('packs');
 
 export interface ILevelPackItem {
   id: number;

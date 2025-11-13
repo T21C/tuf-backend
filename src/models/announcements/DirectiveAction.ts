@@ -1,8 +1,9 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import { now } from 'sequelize/lib/utils';
 import AnnouncementChannel from './AnnouncementChannel.js';
 import AnnouncementRole from './AnnouncementRole.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('announcements');
 
 export interface IDirectiveAction {
   id?: number;

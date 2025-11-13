@@ -1,6 +1,7 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import {IDifficulty, ILevel} from '../../interfaces/models/index.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
 class Difficulty extends Model<IDifficulty> implements IDifficulty {
   declare id: number;

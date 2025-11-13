@@ -1,9 +1,10 @@
 import {DataTypes, Model, Optional} from 'sequelize';
-import sequelize from '../../config/db.js';
 import {IPass} from '../../interfaces/models/index.js';
 import Level from '../levels/Level.js';
 import Player from '../players/Player.js';
 import Judgement from './Judgement.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('passes');
 
 type PassAttributes = IPass;
 type PassCreationAttributes = Optional<

@@ -1,5 +1,4 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import sequelize from '../../config/db.js';
 import {
   ILevel,
   IPass,
@@ -11,6 +10,8 @@ import LevelAlias from './LevelAlias.js';
 import Team from '../credits/Team.js';
 import Curation from '../curations/Curation.js';
 import Rating from './Rating.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('levels');
 
 type LevelAttributes = ILevel;
 type LevelCreationAttributes = Optional<

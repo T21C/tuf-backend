@@ -1,7 +1,8 @@
 import {Model, DataTypes} from 'sequelize';
-import sequelize from '../../config/db.js';
 import {IAnnouncementChannel} from '../../interfaces/models/index.js';
 import { now } from 'sequelize/lib/utils';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('announcements');
 
 class AnnouncementChannel extends Model<IAnnouncementChannel> implements IAnnouncementChannel {
   declare id: number;

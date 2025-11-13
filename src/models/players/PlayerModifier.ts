@@ -1,6 +1,7 @@
 import { Model, DataTypes } from 'sequelize';
-import sequelize from '../../config/db.js';
 import Player from './Player.js';
+import { getSequelizeForModelGroup } from '../../config/db.js';
+const sequelize = getSequelizeForModelGroup('players');
 
 export enum ModifierType {
   RANKED_ADD = 'ranked_add',           // Adds to ranked score
