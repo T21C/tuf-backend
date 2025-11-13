@@ -40,21 +40,21 @@ const defaultPoolConfig: PoolConfiguration = {
     // High-traffic pools
     {
       name: 'levels',
-      maxConnections: 15,
+      maxConnections: 100,
       minConnections: 2,
       acquireTimeout: 60000,
       idleTimeout: 10000,
     },
     {
       name: 'players',
-      maxConnections: 8,
+      maxConnections: 20,
       minConnections: 1,
       acquireTimeout: 60000,
       idleTimeout: 10000,
     },
     {
       name: 'passes',
-      maxConnections: 8,
+      maxConnections: 20,
       minConnections: 2,
       acquireTimeout: 60000,
       idleTimeout: 10000,
@@ -110,7 +110,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'cdn',
-      maxConnections: 10,
+      maxConnections: 100,
       minConnections: 1,
       acquireTimeout: 60000,
       idleTimeout: 10000,
