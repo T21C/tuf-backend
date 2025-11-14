@@ -246,16 +246,17 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         // 7z: -mcu=on forces UTF-8 encoding for filenames
         cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y -mcu=on`;
     } else {
-        // unzip: -O cp936 or use LANG=C.UTF-8 environment variable for UTF-8
-        // Try UTF-8 first, fallback to auto-detect
-        cmd = `LANG=C.UTF-8 unzip -o "${zipPath}" -d "${extractTo}"`;
+        // unzip: Use LC_ALL=C.UTF-8 to force UTF-8 locale (see https://ianwwagner.com/unzip-utf-8-docker-and-c-locales.html)
+        // unzip checks locale via setlocale(LC_CTYPE, "") and needs explicit UTF-8 locale
+        cmd = `unzip -o "${zipPath}" -d "${extractTo}"`;
     }
     
     try {
         await execAsync(cmd, {
             shell: isWindows ? 'cmd.exe' : '/bin/bash',
             maxBuffer: 1024 * 1024 * 100, // 100MB buffer for stdout/stderr
-            env: isWindows ? undefined : { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }
+            // Set LC_ALL to force UTF-8 locale for unzip (overrides all locale categories)
+            env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
         });
     } catch (error) {
         logger.error('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
@@ -518,15 +519,16 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
             cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r -mcu=on "${targetPath}" *`;
         } else {
             // Linux: zip command with -r (recursive) and -0 (store only, no compression)
-            // Use UTF-8 encoding for filenames
-            cmd = `cd "${extractRoot}" && LANG=C.UTF-8 zip -r -0 "${targetPath}" .`;
+            // Use LC_ALL=C.UTF-8 to ensure UTF-8 encoding for filenames
+            cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
         }
 
         try {
             await execAsync(cmd, {
                 shell: isWindows ? 'cmd.exe' : '/bin/bash',
                 maxBuffer: 1024 * 1024 * 100, // 100MB buffer
-                env: isWindows ? undefined : { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }
+                // Set LC_ALL to force UTF-8 locale (overrides all locale categories)
+                env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
             });
         } catch (error) {
             logger.error('Failed to create zip using 7z/zip, falling back to AdmZip', {
