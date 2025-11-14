@@ -563,7 +563,6 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
             logger.error('No file IDs provided', fileIds);
             throw { error: 'File IDs are required', code: 400 };
         }
-        let start = Date.now();
         const files = await CdnFile.findAll({ where: { id: fileIds, metadata: { [Op.not]: null } } });
         const levels = fileIds.map(fileId => {
             const metadata = files.find(file => file.id === fileId)?.metadata as any
@@ -577,8 +576,6 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
             
         });
         
-        let end = Date.now();
-        logger.info(`Time taken to find files: ${end - start}ms`);
         return res.json(levels);
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {

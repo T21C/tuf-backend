@@ -477,7 +477,6 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
   try {
     const param = req.params.id;
     const { tree = 'true' } = req.query;
-    let start = Date.now();
     const resolvedPackId = await resolvePackId(param);
     if (!resolvedPackId) {
       return res.status(404).json({ error: 'Pack not found' });
