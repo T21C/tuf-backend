@@ -16,8 +16,13 @@ import { safeTransactionRollback } from '../../utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
 const router = Router();
+
+const execAsync = promisify(exec);
+const isWindows = process.platform === 'win32';
 
 const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.user_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
@@ -118,9 +123,15 @@ async function ensurePackDownloadDirs(): Promise<void> {
 async function cleanupPackDownloadSpaces(): Promise<void> {
     try {
         const files = await spacesStorage.listFiles(`${PACK_DOWNLOAD_SPACES_PREFIX}/`, 1000);
+        // Handle both old format (pack-downloads/{uuid}.zip) and new format (pack-downloads/{uuid}/{name}.zip)
         const keysToDelete = files
             .filter(file => file.key.endsWith('.zip'))
-            .filter(file => file.key.split('/').length === 2)
+            .filter(file => {
+                const parts = file.key.split('/');
+                // Old format: 2 parts (pack-downloads, uuid.zip)
+                // New format: 3 parts (pack-downloads, uuid, name.zip)
+                return parts.length === 2 || parts.length === 3;
+            })
             .map(file => file.key);
 
         if (keysToDelete.length > 0) {
@@ -187,37 +198,87 @@ setInterval(() => {
 
 interface PackGenerationContext {
     tempDir: string;
-    targetZip: AdmZip;
-    folderSet: Set<string>;
+    extractRoot: string;
     successCount: number;
     totalLevels: number;
 }
 
-async function addZipEntriesToPack(sourceZip: AdmZip, targetFolder: string, context: PackGenerationContext) {
-    const entries = sourceZip.getEntries();
-    addDirectoryToZip(context.targetZip, targetFolder, context.folderSet);
+async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Promise<void> {
+    // Use S3's createReadStream directly to avoid loading into memory
+    // Access the S3 client and config through spacesStorage
+    const s3 = (spacesStorage as any).s3;
+    const bucket = (spacesStorage as any).config?.bucket;
+    
+    if (!s3 || !bucket) {
+        throw new Error('Failed to access Spaces storage configuration');
+    }
+    
+    const params = {
+        Bucket: bucket,
+        Key: spacesKey
+    };
+    
+    // Create a true stream from S3 (not using .promise() which loads into memory)
+    const stream = s3.getObject(params).createReadStream();
+    const writeStream = fs.createWriteStream(targetPath);
+    
+    return new Promise<void>((resolve, reject) => {
+        stream.pipe(writeStream);
+        writeStream.on('finish', resolve);
+        writeStream.on('error', (error: Error) => {
+            stream.destroy();
+            reject(error);
+        });
+        stream.on('error', (error: Error) => {
+            writeStream.destroy();
+            reject(error);
+        });
+    });
+}
 
+async function extractZipToFolder(zipPath: string, extractTo: string): Promise<void> {
+    await fs.promises.mkdir(extractTo, { recursive: true });
+    
+    const sevenZipPath = '7z';
+    let cmd: string;
+    
+    if (isWindows) {
+        cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y`;
+    } else {
+        cmd = `unzip -o "${zipPath}" -d "${extractTo}"`;
+    }
+    
+    try {
+        await execAsync(cmd, {
+            shell: isWindows ? 'cmd.exe' : '/bin/bash',
+            maxBuffer: 1024 * 1024 * 100 // 100MB buffer for stdout/stderr
+        });
+    } catch (error) {
+        logger.error('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
+            zipPath,
+            extractTo,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        // Fallback to AdmZip if 7z/unzip fails
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(extractTo, true);
+    }
+}
+
+async function addDirectoryToZipRecursive(zip: AdmZip, dirPath: string, zipPath: string): Promise<void> {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    
     for (const entry of entries) {
-        const rawEntryName = entry.entryName.replace(/\\/g, '/');
-        if (!rawEntryName || rawEntryName.includes('..')) {
-            continue;
+        const fullPath = path.join(dirPath, entry.name);
+        const entryZipPath = zipPath ? path.posix.join(zipPath, entry.name) : entry.name;
+        
+        if (entry.isDirectory()) {
+            zip.addFile(entryZipPath + '/', Buffer.alloc(0));
+            await addDirectoryToZipRecursive(zip, fullPath, entryZipPath);
+        } else {
+            const fileBuffer = await fs.promises.readFile(fullPath);
+            zip.addFile(entryZipPath, fileBuffer);
         }
-        const normalizedEntryName = rawEntryName.startsWith('/') ? rawEntryName.slice(1) : rawEntryName;
-        const targetPath = targetFolder
-            ? path.posix.join(targetFolder, normalizedEntryName)
-            : normalizedEntryName;
-
-        if (entry.isDirectory) {
-            addDirectoryToZip(context.targetZip, targetPath, context.folderSet);
-            continue;
-        }
-
-        const directoryName = path.posix.dirname(targetPath);
-        if (directoryName && directoryName !== '.') {
-            addDirectoryToZip(context.targetZip, directoryName, context.folderSet);
-        }
-
-        context.targetZip.addFile(targetPath, entry.getData());
     }
 }
 
@@ -254,12 +315,15 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             return { folderName: parentPath, success: false };
         }
 
-        let sourceZip: AdmZip;
+        // Stream zip to temp file if from Spaces, otherwise use local path
+        let zipPath: string;
         if (existence.storageType === StorageType.SPACES) {
-            const buffer = await hybridStorageManager.downloadFile(originalZip.path, StorageType.SPACES);
-            sourceZip = new AdmZip(buffer);
+            const tempZipPath = path.join(context.tempDir, `level-${node.fileId}-${crypto.randomUUID()}.zip`);
+            // Stream directly from Spaces to disk without loading into memory
+            await streamSpacesFileToDisk(originalZip.path, tempZipPath);
+            zipPath = tempZipPath;
         } else {
-            sourceZip = new AdmZip(existence.actualPath);
+            zipPath = existence.actualPath;
         }
 
         const derivedName = originalZip.originalFilename || originalZip.name;
@@ -268,12 +332,29 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             : node.name || `Level-${node.levelId ?? 'unknown'}`;
         const finalFolderName = buildLevelFolderName(node, baseFolderName);
         const targetFolder = parentPath
+            ? path.join(context.extractRoot, parentPath, finalFolderName)
+            : path.join(context.extractRoot, finalFolderName);
+
+        // Extract zip to target folder on disk
+        await extractZipToFolder(zipPath, targetFolder);
+
+        // Clean up temp zip file if we created one
+        if (existence.storageType === StorageType.SPACES && zipPath !== existence.actualPath) {
+            try {
+                await fs.promises.unlink(zipPath);
+            } catch (cleanupError) {
+                logger.warn('Failed to cleanup temp zip file', {
+                    zipPath,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                });
+            }
+        }
+
+        context.successCount += 1;
+        const relativeFolderName = parentPath
             ? path.posix.join(parentPath, finalFolderName)
             : finalFolderName;
-
-        await addZipEntriesToPack(sourceZip, targetFolder, context);
-        context.successCount += 1;
-        return { folderName: targetFolder, success: true };
+        return { folderName: relativeFolderName, success: true };
     } catch (error) {
         logger.error('Failed to add CDN level to pack download', {
             fileId: node.fileId,
@@ -289,15 +370,22 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
     }
 
     try {
+        // Download zip to temp file
+        const tempZipPath = path.join(context.tempDir, `url-level-${crypto.randomUUID()}.zip`);
         const response = await axios.get(node.sourceUrl, {
-            responseType: 'arraybuffer',
-            timeout: 10_000
+            responseType: 'stream',
+            timeout: 30_000 // Increased timeout for large files
         });
 
-        const buffer = Buffer.from(response.data);
-        const sourceZip = new AdmZip(buffer);
-        const defaultName = node.name || `Level-${node.levelId ?? 'unknown'}`;
+        const writeStream = fs.createWriteStream(tempZipPath);
+        await new Promise<void>((resolve, reject) => {
+            response.data.pipe(writeStream);
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+            response.data.on('error', reject);
+        });
 
+        const defaultName = node.name || `Level-${node.levelId ?? 'unknown'}`;
         const dispositionFilename = getFilenameFromDisposition(response.headers['content-disposition']);
         const urlFilename = (() => {
             try {
@@ -312,12 +400,27 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         const baseFolderName = path.parse(rawName).name || rawName;
         const finalFolderName = buildLevelFolderName(node, baseFolderName);
         const targetFolder = parentPath
+            ? path.join(context.extractRoot, parentPath, finalFolderName)
+            : path.join(context.extractRoot, finalFolderName);
+
+        // Extract zip to target folder on disk
+        await extractZipToFolder(tempZipPath, targetFolder);
+
+        // Clean up temp zip file
+        try {
+            await fs.promises.unlink(tempZipPath);
+        } catch (cleanupError) {
+            logger.warn('Failed to cleanup temp zip file from URL', {
+                tempZipPath,
+                error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            });
+        }
+
+        context.successCount += 1;
+        const relativeFolderName = parentPath
             ? path.posix.join(parentPath, finalFolderName)
             : finalFolderName;
-
-        await addZipEntriesToPack(sourceZip, targetFolder, context);
-        context.successCount += 1;
-        return { folderName: targetFolder, success: true };
+        return { folderName: relativeFolderName, success: true };
     } catch (error) {
         logger.debug('Failed to download external level for pack generation', {
             sourceUrl: node.sourceUrl,
@@ -333,11 +436,14 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
         const folderPath = parentPath
             ? path.posix.join(parentPath, folderName)
             : folderName;
-
-        addDirectoryToZip(context.targetZip, folderPath, context.folderSet);
+        
+        // Create folder on disk
+        const diskFolderPath = path.join(context.extractRoot, folderPath);
+        await fs.promises.mkdir(diskFolderPath, { recursive: true });
 
         if (Array.isArray(node.children) && node.children.length > 0) {
             const children = node.children as PackDownloadNode[];
+            // Process concurrently since we're streaming to disk (no memory pressure)
             await Promise.all(children.map(child => processPackNode(child, folderPath, context)));
         }
         return;
@@ -359,7 +465,9 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
         const failedPath = parentPath
             ? path.posix.join(parentPath, failedName)
             : failedName;
-        addDirectoryToZip(context.targetZip, failedPath, context.folderSet);
+        // Create failed folder on disk
+        const diskFailedPath = path.join(context.extractRoot, failedPath);
+        await fs.promises.mkdir(diskFailedPath, { recursive: true });
     }
 }
 
@@ -367,42 +475,76 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
     await ensurePackDownloadDirs();
     await cleanupExpiredDownloads();
 
-    const packZip = new AdmZip();
-    const folderSet = new Set<string>();
     const tempDir = path.join(PACK_DOWNLOAD_TEMP_DIR, crypto.randomUUID());
-    await fs.promises.mkdir(tempDir, { recursive: true });
+    const extractRoot = path.join(tempDir, 'extract');
+    await fs.promises.mkdir(extractRoot, { recursive: true });
 
     const context: PackGenerationContext = {
         tempDir,
-        targetZip: packZip,
-        folderSet,
+        extractRoot,
         successCount: 0,
         totalLevels: 0
     };
 
     try {
+        // Process all nodes and extract to disk
         await processPackNode(tree, '', context);
 
         const downloadId = crypto.randomUUID();
-        const zipFilename = `${downloadId}.zip`;
-        const targetPath = path.join(PACK_DOWNLOAD_DIR, zipFilename);
-        packZip.writeZip(targetPath);
+        // Use UUID for local file to avoid conflicts
+        const localZipFilename = `${downloadId}.zip`;
+        const targetPath = path.join(PACK_DOWNLOAD_DIR, localZipFilename);
+        
+        // Create sanitized filename for Spaces: UUID folder with formatted zip name
+        const sanitizedZipNameForSpaces = sanitizePathSegment(zipName);
+        const spacesZipFilename = `${sanitizedZipNameForSpaces}.zip`;
+        const spacesKeyFilename = `${PACK_DOWNLOAD_SPACES_PREFIX}/${downloadId}/${spacesZipFilename}`;
+
+        // Use 7z to create final zip from extracted folders
+        const sevenZipPath = '7z';
+        let cmd: string;
+        
+        if (isWindows) {
+            // Windows: 7z a (add) command
+            // -tzip: force zip format, -mx=0: no compression (faster), -mm=Copy: store only
+            // -r: recurse subdirectories, *: match all files and folders
+            cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r "${targetPath}" *`;
+        } else {
+            // Linux: zip command with -r (recursive) and -0 (store only, no compression)
+            cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
+        }
+
+        try {
+            await execAsync(cmd, {
+                shell: isWindows ? 'cmd.exe' : '/bin/bash',
+                maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+            });
+        } catch (error) {
+            logger.error('Failed to create zip using 7z/zip, falling back to AdmZip', {
+                error: error instanceof Error ? error.message : String(error),
+                extractRoot,
+                targetPath
+            });
+            // Fallback to AdmZip if 7z/zip fails
+            const packZip = new AdmZip();
+            await addDirectoryToZipRecursive(packZip, extractRoot, '');
+            packZip.writeZip(targetPath);
+        }
 
         let spacesKey: string | null = null;
         let responseUrl: string;
         try {
-            const remoteKey = `${PACK_DOWNLOAD_SPACES_PREFIX}/${zipFilename}`;
-            await spacesStorage.uploadFile(targetPath, remoteKey, 'application/zip', {
+            await spacesStorage.uploadFile(targetPath, spacesKeyFilename, 'application/zip', {
                 cacheKey,
                 generatedAt: new Date().toISOString(),
                 successLevels: context.successCount.toString(),
                 totalLevels: context.totalLevels.toString()
             });
-            spacesKey = remoteKey;
+            spacesKey = spacesKeyFilename;
         } catch (error) {
             logger.error('Failed to upload pack download to Spaces', {
                 error: error instanceof Error ? error.message : String(error),
-                zipFilename,
+                spacesKeyFilename,
                 cacheKey
             });
         }
@@ -459,9 +601,11 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
 
         return response;
     } finally {
+        // Clean up temp directory with extracted files
         try {
             if (fs.existsSync(tempDir)) {
                 await fs.promises.rm(tempDir, { recursive: true, force: true });
+                logger.debug('Cleaned up temp directory for pack download', { tempDir });
             }
         } catch (error) {
             logger.warn('Failed to cleanup temporary directory for pack download', {
@@ -589,7 +733,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
 
 router.post('/packs/generate', async (req: Request, res: Response) => {
     try {
-        const { zipName, tree, cacheKey } = req.body ?? {};
+        const { zipName, tree, cacheKey, packCode } = req.body ?? {};
 
         if (!zipName || typeof zipName !== 'string') {
             return res.status(400).json({ error: 'zipName is required' });
@@ -598,9 +742,18 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Valid download tree is required' });
         }
 
+        // Format zip name with pack code if provided
+        let finalZipName = zipName;
+        if (packCode && typeof packCode === 'string' && packCode.trim().length > 0) {
+            // Check if pack code is already in the name (to avoid duplication)
+            if (!zipName.includes(` - ${packCode}`)) {
+                finalZipName = `${zipName} - ${packCode}`;
+            }
+        }
+
         const normalizedCacheKey = typeof cacheKey === 'string' && cacheKey.length > 0
             ? cacheKey
-            : crypto.createHash('sha256').update(JSON.stringify({ zipName, tree })).digest('hex');
+            : crypto.createHash('sha256').update(JSON.stringify({ zipName: finalZipName, tree })).digest('hex');
 
         const existingDownloadId = packCacheIndex.get(normalizedCacheKey);
         if (existingDownloadId) {
@@ -655,7 +808,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         }
 
         if (!packGenerationPromises.has(normalizedCacheKey)) {
-            const sanitizedZipName = sanitizePathSegment(zipName);
+            const sanitizedZipName = sanitizePathSegment(finalZipName);
             const generationPromise = (async () => {
                 try {
                     return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey);

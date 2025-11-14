@@ -509,6 +509,7 @@ class CdnService {
     async generatePackDownload(request: {
         zipName: string;
         packId: number;
+        packCode?: string | null;
         folderId?: number | null;
         cacheKey: string;
         tree: any;

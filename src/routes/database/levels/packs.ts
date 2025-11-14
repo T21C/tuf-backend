@@ -782,7 +782,12 @@ router.post('/:id/download-link', Auth.addUserToRequest(), async (req: Request, 
       return res.status(400).json({ error: 'No levels available for download in the selected scope' });
     }
 
-    const zipDisplayName = targetFolder ? targetFolder.name : pack.name;
+    const folderOrPackName = targetFolder ? targetFolder.name : pack.name;
+    const packCode = pack.linkCode;
+    const zipDisplayName = packCode 
+      ? `${folderOrPackName} - ${packCode}`
+      : folderOrPackName;
+    
     const treePayload = {
       type: 'folder',
       name: zipDisplayName,
@@ -794,6 +799,7 @@ router.post('/:id/download-link', Auth.addUserToRequest(), async (req: Request, 
     const cdnResponse = await cdnService.generatePackDownload({
       zipName: zipDisplayName || 'Missing pack name',
       packId: pack.id,
+      packCode: packCode,
       folderId: targetFolder ? targetFolder.id : null,
       cacheKey,
       tree: treePayload
