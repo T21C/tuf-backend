@@ -93,21 +93,23 @@ export class SpacesStorageManager {
         metadata?: Record<string, string>
     ): Promise<UploadResult> {
         try {
-            const fileBuffer = await fs.promises.readFile(filePath);
             const fileStats = await fs.promises.stat(filePath);
 
             logger.debug('file upload stats', fileStats)
 
+            // Use file stream instead of loading entire file into memory
+            const fileStream = fs.createReadStream(filePath);
+
             const uploadParams: AWS.S3.PutObjectRequest = {
                 Bucket: this.config.bucket,
                 Key: key,
-                Body: fileBuffer,
+                Body: fileStream,
                 ContentType: contentType || this.getContentType(key),
                 Metadata: metadata || {},
                 ACL: 'private' // Keep files private by default
             };
 
-            logger.debug('Uploading file to Spaces', {
+            logger.debug('Uploading file to Spaces (streaming)', {
                 key,
                 size: fileStats.size,
                 contentType: uploadParams.ContentType,

@@ -243,15 +243,19 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
     let cmd: string;
     
     if (isWindows) {
-        cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y`;
+        // 7z: -mcu=on forces UTF-8 encoding for filenames
+        cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y -mcu=on`;
     } else {
-        cmd = `unzip -o "${zipPath}" -d "${extractTo}"`;
+        // unzip: -O cp936 or use LANG=C.UTF-8 environment variable for UTF-8
+        // Try UTF-8 first, fallback to auto-detect
+        cmd = `LANG=C.UTF-8 unzip -o "${zipPath}" -d "${extractTo}"`;
     }
     
     try {
         await execAsync(cmd, {
             shell: isWindows ? 'cmd.exe' : '/bin/bash',
-            maxBuffer: 1024 * 1024 * 100 // 100MB buffer for stdout/stderr
+            maxBuffer: 1024 * 1024 * 100, // 100MB buffer for stdout/stderr
+            env: isWindows ? undefined : { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }
         });
     } catch (error) {
         logger.error('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
@@ -260,7 +264,9 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
             error: error instanceof Error ? error.message : String(error)
         });
         // Fallback to AdmZip if 7z/unzip fails
+        // AdmZip reads zip entries directly and should preserve encoding
         const zip = new AdmZip(zipPath);
+        // extractAllTo with overwrite=true should preserve UTF-8 filenames
         zip.extractAllTo(extractTo, true);
     }
 }
@@ -508,16 +514,19 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
             // Windows: 7z a (add) command
             // -tzip: force zip format, -mx=0: no compression (faster), -mm=Copy: store only
             // -r: recurse subdirectories, *: match all files and folders
-            cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r "${targetPath}" *`;
+            // -mcu=on: force UTF-8 encoding for filenames
+            cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r -mcu=on "${targetPath}" *`;
         } else {
             // Linux: zip command with -r (recursive) and -0 (store only, no compression)
-            cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
+            // Use UTF-8 encoding for filenames
+            cmd = `cd "${extractRoot}" && LANG=C.UTF-8 zip -r -0 "${targetPath}" .`;
         }
 
         try {
             await execAsync(cmd, {
                 shell: isWindows ? 'cmd.exe' : '/bin/bash',
-                maxBuffer: 1024 * 1024 * 100 // 100MB buffer
+                maxBuffer: 1024 * 1024 * 100, // 100MB buffer
+                env: isWindows ? undefined : { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' }
             });
         } catch (error) {
             logger.error('Failed to create zip using 7z/zip, falling back to AdmZip', {
@@ -526,8 +535,10 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
                 targetPath
             });
             // Fallback to AdmZip if 7z/zip fails
+            // AdmZip should handle UTF-8 filenames correctly
             const packZip = new AdmZip();
             await addDirectoryToZipRecursive(packZip, extractRoot, '');
+            // writeZip should preserve UTF-8 encoding in filenames
             packZip.writeZip(targetPath);
         }
 
