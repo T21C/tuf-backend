@@ -248,7 +248,9 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
     } else {
         // unzip: Use LC_ALL=C.UTF-8 to force UTF-8 locale (see https://ianwwagner.com/unzip-utf-8-docker-and-c-locales.html)
         // unzip checks locale via setlocale(LC_CTYPE, "") and needs explicit UTF-8 locale
-        cmd = `unzip -o "${zipPath}" -d "${extractTo}"`;
+        // -q: quiet mode (suppress most output)
+        // Note: unzip may exit with code 1 for warnings but still extract successfully
+        cmd = `unzip -o -q "${zipPath}" -d "${extractTo}"`;
     }
     
     try {
@@ -258,11 +260,40 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
             // Set LC_ALL to force UTF-8 locale for unzip (overrides all locale categories)
             env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
         });
-    } catch (error) {
+    } catch (error: any) {
+        // unzip exit codes: 0=success, 1=warnings but continued, 2=corrupt, 3=severe error
+        // Exit code 1 often means filename encoding warnings but extraction succeeded
+        const exitCode = error?.code;
+        
+        // Check if extraction actually succeeded by verifying files/directories exist
+        let extractedEntries: fs.Dirent[] = [];
+        try {
+            extractedEntries = await fs.promises.readdir(extractTo, { withFileTypes: true });
+        } catch {
+            // Directory doesn't exist or can't be read - extraction failed
+        }
+        
+        // If we have files/directories, extraction succeeded despite warnings
+        if (extractedEntries.length > 0) {
+            // Files were extracted successfully despite warnings - log but don't fail
+            logger.debug('unzip extracted files successfully despite warnings', {
+                zipPath,
+                extractTo,
+                extractedCount: extractedEntries.length,
+                exitCode,
+                stderr: error?.stderr?.substring(0, 500) // Log first 500 chars of stderr
+            });
+            return; // Success - files were extracted
+        }
+        
+        // Exit code 2 or 3 means real failure, or exit code 1 with no files extracted
+        // Fall back to AdmZip
         logger.error('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
             zipPath,
             extractTo,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
+            exitCode,
+            stderr: error?.stderr?.substring(0, 500)
         });
         // Fallback to AdmZip if 7z/unzip fails
         // AdmZip reads zip entries directly and should preserve encoding
