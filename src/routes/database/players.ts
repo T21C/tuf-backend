@@ -190,18 +190,14 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       where: {
         name: {
           [Op.like]: `%${escapedName}%`,
-        }
+        },
+        isBanned: false
       },
       include: [
         {
           model: User,
           as: 'user',
           required: false,
-          where: {
-            [Op.and]: [
-              wherePermission(permissionFlags.BANNED, false)
-            ]
-          }
         },
       ],
     });
@@ -211,15 +207,15 @@ router.get('/search/:name', async (req: Request, res: Response) => {
         username: {
           [Op.like]: `%${escapedName}%`,
         },
-        [Op.and]: [
-          wherePermission(permissionFlags.BANNED, false)
-        ]
       },
       include: [
         {
           model: Player,
           as: 'player',
-          required: true
+          required: true,
+          where: {
+            isBanned: false
+          }
         },
       ],
     });

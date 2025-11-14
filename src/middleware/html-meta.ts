@@ -241,7 +241,7 @@ export const htmlMetaMiddleware = async (
         include: [{model: Level, as: 'levels'}, {model: User, as: 'user'}],
       });
 
-      if (player && !hasFlag(player.user, permissionFlags.BANNED)) {
+      if (player && !player.isBanned) {
         metaTags = `
           <meta name="description" content="View player details" />
           <meta property="og:site_name" content="The Universal Forum" />

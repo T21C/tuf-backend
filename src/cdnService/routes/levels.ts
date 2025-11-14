@@ -10,6 +10,7 @@ import { repackZipFile } from '../services/zipProcessor.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import LevelDict, { Action } from 'adofai-lib';
 import { levelCacheService } from '../services/levelCacheService.js';
+import { Op } from 'sequelize';
 
 // Repack folder configuration
 const REPACK_FOLDER = path.join(CDN_CONFIG.user_root, 'repack');
@@ -562,7 +563,8 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
             logger.error('No file IDs provided', fileIds);
             throw { error: 'File IDs are required', code: 400 };
         }
-        const files = await CdnFile.findAll({ where: { id: fileIds } });
+        let start = Date.now();
+        const files = await CdnFile.findAll({ where: { id: fileIds, metadata: { [Op.not]: null } } });
         const levels = fileIds.map(fileId => {
             const metadata = files.find(file => file.id === fileId)?.metadata as any
             if (!metadata) {
@@ -574,6 +576,9 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
             };
             
         });
+        
+        let end = Date.now();
+        logger.info(`Time taken to find files: ${end - start}ms`);
         return res.json(levels);
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {

@@ -27,16 +27,14 @@ export async function updateWorldsFirstStatus(
         model: Player,
         as: 'player',
         required: true,
+        where: {
+          isBanned: false
+        },
         include: [
           {
             model: User,
             as: 'user',
             required: false,
-            where: {
-              [Op.and]: [
-                wherePermission(permissionFlags.BANNED, false)
-              ]
-            }
           }
         ]
       },

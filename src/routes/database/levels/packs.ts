@@ -477,7 +477,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
   try {
     const param = req.params.id;
     const { tree = 'true' } = req.query;
-
+    let start = Date.now();
     const resolvedPackId = await resolvePackId(param);
     if (!resolvedPackId) {
       return res.status(404).json({ error: 'Pack not found' });
@@ -487,63 +487,109 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         model: User,
         as: 'packOwner',
         attributes: ['id', 'nickname', 'username', 'avatarUrl']
-      }]
+      },
+      {
+        model: LevelPackItem,
+        as: 'packItems',
+        required: true
+      }
+    ]
     });
-
 
     if (!canViewPack(pack!, req.user)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Fetch all items in the pack
-
-    const folders = await LevelPackItem.findAll({
-      where: { packId: pack!.id,
-        type: 'folder'
-       },
+    // Fetch all items in the pack (without complex includes for performance)
+    const allItems = pack!.packItems!;
+    // Separate items by type
+    const folders = allItems.filter(item => item.type === 'folder');
+    const levelItems = allItems.filter(item => item.type === 'level' && item.levelId !== null);
+    const fetchedLevels = await Level.findAll({
+      where: { id: { [Op.in]: levelItems.map(item => item.levelId!) } }
     });
 
-    const levels = await LevelPackItem.findAll({
-      where: { packId: pack!.id,
-        type: 'level'
-       },
-      include: [{
-        model: Level,
-        as: 'referencedLevel',
-        required: true,
-        where: {
-          isDeleted: false,
-          isHidden: false
-        },
+    // Get unique level IDs
+    const levelIds = [...new Set(levelItems.map(item => item.levelId!).filter(id => id !== null))];
+
+    // Fetch all related data concurrently
+    const [curations, levelCredits, fetchedTeams, metadataResponses, clearedLevelIds] = await Promise.all([
+      // Fetch curations with their types
+      levelIds.length > 0 ? Curation.findAll({
+        where: { levelId: { [Op.in]: levelIds } },
         include: [{
-          model: Curation,
-          as: 'curation',
-          include: [{
-            model: CurationType,
-            as: 'type',
-            required: false
-          }],
+          model: CurationType,
+          as: 'type',
           required: false
-        },
-        {
-          model: LevelCredit,
-          as: 'levelCredits',
-          required: false,
-          include: [{
-            model: Creator,
-            as: 'creator',
-            required: false
-          }],
-        },
-        {
-          model: Team,
-          as: 'teamObject'
-        },
+        }]
+      }) : Promise.resolve([]),
+      // Fetch level credits with creators
+      levelIds.length > 0 ? LevelCredit.findAll({
+        where: { levelId: { [Op.in]: levelIds } },
+        include: [{
+          model: Creator,
+          as: 'creator',
+          required: false
+        }]
+      }) : Promise.resolve([]),
+      // Fetch teams if needed
+      fetchedLevels.length > 0 ? Team.findAll({
+        where: { id: { [Op.in]: fetchedLevels.map(level => level.teamId) } }
+      }) : Promise.resolve([]),
+      levelIds.length > 0 ? cdnService.getBulkLevelMetadata(fetchedLevels) : Promise.resolve([]),
+      req.user ? Pass.findAll({
+        where: { playerId: req.user.playerId, isDeleted: false },
+        attributes: ['levelId']
+      }).then(passes => passes.map(pass => pass.levelId)) : Promise.resolve([])
+    ]);
+    // Build maps for efficient lookup
+    const levelsMap = new Map(fetchedLevels.map(level => [level.id, level]));
+    const curationsMap = new Map(curations.map(curation => [curation.levelId, curation]));
+    const levelCreditsMap = new Map<number, LevelCredit[]>();
+    const teamsMap = new Map(fetchedTeams.map(team => [team.id, team]));
 
-      ]
-      }],
-      order: [['sortOrder', 'ASC']]
+    // Group level credits by levelId
+    levelCredits.forEach(credit => {
+      if (!levelCreditsMap.has(credit.levelId)) {
+        levelCreditsMap.set(credit.levelId, []);
+      }
+      levelCreditsMap.get(credit.levelId)!.push(credit);
     });
+
+    // Attach related data to level items
+    const levels = levelItems.map(item => {
+      const level = levelsMap.get(item.levelId!);
+      if (!level) {
+        return null; // Skip items with deleted/hidden levels
+      }
+
+      const levelData: any = level.toJSON();
+      
+      // Attach curation if exists
+      const curation = curationsMap.get(level.id);
+      if (curation) {
+        levelData.curation = curation.toJSON();
+      }
+
+      // Attach level credits if exist
+      const credits = levelCreditsMap.get(level.id);
+      if (credits) {
+        levelData.levelCredits = credits.map(credit => credit.toJSON());
+      }
+
+      // Attach team if exists
+      if (level.teamId) {
+        const team = teamsMap.get(level.teamId);
+        if (team) {
+          levelData.teamObject = team.toJSON();
+        }
+      }
+
+      return {
+        ...item.toJSON(),
+        referencedLevel: levelData
+      };
+    }).filter(item => item !== null);
 
     const levelMetadataByLevelId = new Map<number, {
       fileId: string;
@@ -552,21 +598,17 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     }>();
 
     try {
-      const referencedLevels = levels.map(level => level.referencedLevel);
-      if (referencedLevels) {
-        const metadataResponses = await cdnService.getBulkLevelMetadata(referencedLevels as Level[]);
-        const levelIds = referencedLevels.map(level => level?.id);
-        if (levelIds) {
-          for (let i = 0; i < levelIds.length; i++) {
-            const levelId = levelIds[i];
-            const metadata = metadataResponses[i]?.metadata;
-            if (levelId && metadata) {
-              levelMetadataByLevelId.set(levelId, {
-                fileId: metadataResponses[i]?.fileId,
-                size: metadata.originalZip.size,
-                originalFilename: metadata.originalZip.originalFilename || metadata.originalZip.name
-              });
-            }
+      // Use fetchedLevels (Level model instances) for CDN metadata
+      if (fetchedLevels.length > 0) {
+        for (let i = 0; i < fetchedLevels.length; i++) {
+          const level = fetchedLevels[i];
+          const metadata = metadataResponses[i]?.metadata;
+          if (level.id && metadata) {
+            levelMetadataByLevelId.set(level.id, {
+              fileId: metadataResponses[i]?.fileId,
+              size: metadata.originalZip.size,
+              originalFilename: metadata.originalZip.originalFilename || metadata.originalZip.name
+            });
           }
         }
       }
@@ -577,21 +619,15 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       });
     }
 
-    let clearedLevelIds: number[] = [];
-    if (req.user) {
-    clearedLevelIds = await Pass.findAll({
-      where: { playerId: req.user.playerId, isDeleted: false },
-      attributes: ['levelId']
-    }).then(levels => levels.map(level => level.levelId));
-  }
-
     const packData: any = pack!.toJSON();
 
-    let items = [...folders, ...levels];
+    // Convert folders to plain objects for consistency
+    const foldersPlain = folders.map(folder => folder.toJSON());
+    let items = [...foldersPlain, ...levels];
 
     items = items.map((item: any) => {
       const baseItem = {
-        ...item.dataValues,
+        ...item,
         isCleared: clearedLevelIds.includes(item.levelId || 0)
       };
 

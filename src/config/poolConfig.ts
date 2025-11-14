@@ -27,6 +27,7 @@ export interface PoolConfiguration {
     minConnections?: number;
     acquireTimeout?: number;
     idleTimeout?: number;
+    evict?: number;
   }>;
   modelMappings: Record<string, string>;
 }
@@ -40,80 +41,90 @@ const defaultPoolConfig: PoolConfiguration = {
     // High-traffic pools
     {
       name: 'levels',
-      maxConnections: 100,
+      maxConnections: 10,
       minConnections: 2,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'players',
       maxConnections: 20,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
     },
     {
       name: 'passes',
       maxConnections: 20,
       minConnections: 2,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'auth',
       maxConnections: 10,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'admin',
       maxConnections: 10,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'curations',
       maxConnections: 20,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'packs',
-      maxConnections: 20,
+      maxConnections: 5,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'credits',
       maxConnections: 10,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'announcements',
       maxConnections: 10,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'submissions',
       maxConnections: 10,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'cdn',
       maxConnections: 100,
       minConnections: 1,
-      acquireTimeout: 60000,
+      acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
   ],
   modelMappings: {

@@ -35,7 +35,6 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
                 model: User,
                 as: 'user',
                 required: false,
-                where: wherePermission(permissionFlags.BANNED, false)
               }
             ]
           },

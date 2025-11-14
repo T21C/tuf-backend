@@ -210,107 +210,159 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
     if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
       return res.status(400).json({ error: 'Invalid level ID' });
     }
+    const levelId = parseInt(req.params.id);
     const transaction = await sequelize.transaction({
       isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
     });
 
     try {
-      const level = await Level.findOne({
-        where: { id: parseInt(req.params.id) },
+      // Base level query (minimal data)
+      const levelPromise = Level.findOne({
+        where: { id: levelId },
+        transaction,
+      });
+
+      // Difficulty query (needs level's diffId)
+      const difficultyPromise = levelPromise.then(async (level) => {
+        if (!level?.diffId) return null;
+        return Difficulty.findOne({
+          where: { id: level.diffId },
+          transaction,
+        });
+      });
+
+      // Passes query with nested Player, User, and Judgement
+      const passesPromise = Pass.findAll({
+        where: {
+          levelId: levelId,
+          isDeleted: false,
+          isHidden: false
+        },
+        transaction,
+      }).then(async (passes) => {
+        if (passes.length === 0) return [];
+        
+        const playerIds = passes.map(p => p.playerId).filter(Boolean);
+        const playersPromise = Player.findAll({
+          where: {
+            id: { [Op.in]: playerIds },
+            isBanned: false
+          },
+          include: [
+            {
+              model: User,
+              as: 'user',
+              required: false,
+              attributes: ['avatarUrl', 'username'],
+            },
+          ],
+          transaction,
+        });
+
+        const judgementsPromise = Judgement.findAll({
+          where: {
+            id: { [Op.in]: passes.map(p => p.id) }
+          },
+          transaction,
+        });
+
+        const [players, judgements] = await Promise.all([playersPromise, judgementsPromise]);
+
+        // Map judgements by id (Judgement.id = Pass.id, one-to-one relationship)
+        const judgementsByPassId = judgements.reduce((acc, j) => {
+          acc[j.id] = j;
+          return acc;
+        }, {} as Record<number, typeof judgements[0]>);
+
+        // Group players by id
+        const playersById = players.reduce((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {} as Record<number, typeof players[0]>);
+
+        // Assemble passes with nested data and filter out passes with null players (banned players or missing playerId)
+        return passes
+          .map(pass => {
+            const player = pass.playerId ? playersById[pass.playerId] : null;
+            return {
+              ...pass.toJSON(),
+              player: player || null,
+              judgements: judgementsByPassId[pass.id] || null
+            };
+          })
+          .filter(pass => pass.player !== null); // Exclude passes where player is null (banned or missing playerId)
+      });
+
+      // LevelAlias query
+      const aliasesPromise = LevelAlias.findAll({
+        where: { levelId: levelId },
+        transaction,
+      });
+
+      // LevelCredit query with nested Creator and CreatorAlias
+      const levelCreditsPromise = LevelCredit.findAll({
+        where: { levelId: levelId },
+        transaction,
+      }).then(async (credits) => {
+        if (credits.length === 0) return [];
+        
+        const creatorIds = credits.map(c => c.creatorId).filter(Boolean);
+        const creatorsPromise = Creator.findAll({
+          where: {
+            id: { [Op.in]: creatorIds }
+          },
+          include: [
+            {
+              model: CreatorAlias,
+              as: 'creatorAliases',
+              attributes: ['name'],
+            },
+          ],
+          transaction,
+        });
+
+        const creators = await creatorsPromise;
+        const creatorsById = creators.reduce((acc, c) => {
+          acc[c.id] = c;
+          return acc;
+        }, {} as Record<number, typeof creators[0]>);
+
+        return credits.map(credit => ({
+          ...credit.toJSON(),
+          creator: creatorsById[credit.creatorId] || null
+        }));
+      });
+
+      // Team query
+      const teamPromise = levelPromise.then(async (level) => {
+        if (!level?.teamId) return null;
+        return Team.findOne({
+          where: { id: level.teamId },
+          transaction,
+        });
+      });
+
+      // Curation query with nested CurationType and User
+      const curationPromise = Curation.findOne({
+        where: { levelId: levelId },
         include: [
           {
-            model: Pass,
-            as: 'passes',
-            required: false,
-            include: [
-              {
-                model: Player,
-                as: 'player',
-                where: {
-                  isBanned: false
-                },
-                include: [
-                  {
-                    model: User,
-                    as: 'user',
-                    required: false,
-                    where: {
-                      [Op.and]: [
-                        wherePermission(permissionFlags.BANNED, false)
-                      ]
-                    },
-                    attributes: ['avatarUrl', 'username'],
-                  },
-                ],
-              },
-              {
-                model: Judgement,
-                as: 'judgements',
-              },
-            ],
-            where: {
-              isDeleted: false,
-              isHidden: false
-            }
+            model: CurationType,
+            as: 'type',
           },
           {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-          {
-            model: LevelAlias,
-            as: 'aliases',
-            required: false,
-          },
-          {
-            model: LevelCredit,
-            as: 'levelCredits',
-            required: false,
-            include: [
-              {
-                model: Creator,
-                as: 'creator',
-                include: [
-                  {
-                    model: CreatorAlias,
-                    as: 'creatorAliases',
-                    attributes: ['name'],
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            model: Team,
-            as: 'teamObject',
-            required: false,
-          },
-          {
-            model: Curation,
-            as: 'curation',
-            required: false,
-            include: [
-              {
-                model: CurationType,
-                as: 'type',
-              },
-              {
-                model: User,
-                as: 'assignedByUser',
-                attributes: ['nickname','username', 'avatarUrl'],
-              },
-            ],
+            model: User,
+            as: 'assignedByUser',
+            attributes: ['nickname','username', 'avatarUrl'],
           },
         ],
         transaction,
       });
-      if (!level) {
-        return res.status(404).json({ error: 'Level not found' });
-      }
 
-      const ratings = await Rating.findOne({
+      // Rating query
+      const ratingsPromise = Rating.findOne({
         where: {
-          levelId: parseInt(req.params.id),
+          levelId: levelId,
           [Op.not]: {confirmedAt: null}
         },
         include: [
@@ -330,58 +382,103 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         transaction,
       });
 
-      const votes = await RatingAccuracyVote.findAll({
-        where: {
-          levelId: parseInt(req.params.id),
-          diffId: level?.difficulty?.id || 0
-        },
-        include: [
-          {
-            model: User,
-            as: 'user',
-            attributes: ['username', 'avatarUrl'],
-            include: [
-              {
-                model: Player,
-                as: 'player',
-                attributes: ['name'],
-              },
-            ],
+      // RatingAccuracyVote query (needs difficulty ID)
+      const votesPromise = Promise.all([levelPromise, difficultyPromise]).then(async ([level, difficulty]) => {
+        return RatingAccuracyVote.findAll({
+          where: {
+            levelId: levelId,
+            diffId: difficulty?.id || 0
           },
-        ],
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['username', 'avatarUrl']
+            },
+          ],
+          transaction,
+        });
       });
 
-      const totalVotes = votes.length;
+      // LevelLikes query
+      const isLikedPromise = req.user ? LevelLikes.findOne({
+        where: { levelId: levelId, userId: req.user?.id },
+        transaction,
+      }).then(like => !!like) : Promise.resolve(false);
 
-      const isLiked = req.user ? !!(await LevelLikes.findOne({
-        where: { levelId: parseInt(req.params.id), userId: req.user?.id },
-      })) : false;
+      // Pass query for isCleared
+      const isClearedPromise = req.user?.playerId ? Pass.findOne({
+        where: { levelId: levelId, playerId: req.user?.playerId },
+        transaction,
+      }).then(pass => !!pass) : Promise.resolve(false);
 
-      const isCleared = req.user?.playerId ? !!(await Pass.findOne({
-        where: { levelId: parseInt(req.params.id), playerId: req.user?.playerId },
-      })) : false;
-
-      const rerateHistory = await LevelRerateHistory.findAll({
-        where: { levelId: parseInt(req.params.id) },
+      // LevelRerateHistory query
+      const rerateHistoryPromise = LevelRerateHistory.findAll({
+        where: { levelId: levelId },
         order: [['createdAt', 'DESC']],
+        transaction,
       });
-      let bpm;
-      let tilecount;
-      let accessCount;
-      try {
-      const fileReponse = level.dlLink ? await cdnService.getLevelData(level, ['settings','tilecount','accessCount']) : undefined;
-        bpm = fileReponse?.settings?.bpm;
-        tilecount = fileReponse?.tilecount;
-        accessCount = fileReponse?.accessCount || 0;
-      } catch (error) {
-        logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
-      }
-      let metadata;
-      try {
-        metadata = (await cdnService.getLevelMetadata(level))?.metadata || undefined;
-      } catch (error) {
-        logger.debug('Level file metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
-      }
+
+      // CDN service calls (need level data)
+      const cdnDataPromise = levelPromise.then(async (level) => {
+        if (!level?.dlLink) return { bpm: undefined, tilecount: undefined, accessCount: 0 };
+        
+        try {
+          const fileResponse = await cdnService.getLevelData(level, ['settings','tilecount','accessCount']);
+          return {
+            bpm: fileResponse?.settings?.bpm,
+            tilecount: fileResponse?.tilecount,
+            accessCount: fileResponse?.accessCount || 0
+          };
+        } catch (error) {
+          logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
+          return { bpm: undefined, tilecount: undefined, accessCount: 0 };
+        }
+      });
+
+      const metadataPromise = levelPromise.then(async (level) => {
+        if (!level) return undefined;
+        try {
+          return (await cdnService.getLevelMetadata(level))?.metadata || undefined;
+        } catch (error) {
+          logger.debug('Level file metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
+          return undefined;
+        }
+      });
+
+      // Execute all queries concurrently
+      const [
+        level,
+        difficulty,
+        passes,
+        aliases,
+        levelCredits,
+        teamObject,
+        curation,
+        ratings,
+        votes,
+        isLiked,
+        isCleared,
+        rerateHistory,
+        cdnData,
+        metadata
+      ] = await Promise.all([
+        levelPromise,
+        difficultyPromise,
+        passesPromise,
+        aliasesPromise,
+        levelCreditsPromise,
+        teamPromise,
+        curationPromise,
+        ratingsPromise,
+        votesPromise,
+        isLikedPromise,
+        isClearedPromise,
+        rerateHistoryPromise,
+        cdnDataPromise,
+        metadataPromise
+      ]);
+
       await transaction.commit();
 
       if (!level) {
@@ -393,18 +490,28 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         return res.status(404).json({ error: 'Level not found' });
       }
 
+      // Assemble the level object with all related data
+      const assembledLevel = {
+        ...level.toJSON(),
+        difficulty,
+        passes,
+        aliases,
+        levelCredits,
+        teamObject,
+        curation
+      };
 
       return res.json({
-        level,
+        level: assembledLevel,
         ratings,
         votes: req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN) ? votes : undefined,
         rerateHistory,
-        totalVotes,
+        totalVotes: votes.length,
         isLiked,
         isCleared,
-        bpm,
-        tilecount,
-        accessCount,
+        bpm: cdnData.bpm,
+        tilecount: cdnData.tilecount,
+        accessCount: cdnData.accessCount,
         metadata,
       });
     } catch (error) {

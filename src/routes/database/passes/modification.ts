@@ -248,19 +248,17 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
           },
           include: [
             {
-                          model: Player,
+            model: Player,
             as: 'player',
             required: true,
+            where: {
+              isBanned: false
+            },
             include: [
               {
                 model: User,
                 as: 'user',
                 required: false,
-                where: {
-                  [Op.and]: [
-                    wherePermission(permissionFlags.BANNED, false)
-                  ]
-                }
               }
             ]
             },

@@ -30,71 +30,101 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
       }
       const user = req.user;
 
-
-      const pass = await Pass.findOne({
+      // Base pass query
+      const passPromise = Pass.findOne({
         where: user && hasFlag(user, permissionFlags.SUPER_ADMIN) ? {
           id: passId,
         } : {
           id: passId,
           isDeleted: false,
         },
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            attributes: ['name', 'country'],
-            required: true,
-            include: [
-              {
-                model: User,
-                as: 'user',
-                required: false,
-                where: {
-                  [Op.and]: [
-                    wherePermission(permissionFlags.BANNED, false)
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            model: Level,
-            as: 'level',
-            required: true,
-            attributes: ['song', 'artist', 'baseScore'],
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-                required: true,
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-              {
-                model: Team,
-                as: 'teamObject',
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-            required: false,
-          },
-        ],
       });
 
+      const pass = await passPromise;
       if (!pass) {
         return res.json({count: 0, results: []});
       }
 
-      return res.json({count: 1, results: [pass]});
+      // Fetch related data concurrently
+      const [player, level, judgement] = await Promise.all([
+        // Player query
+        Player.findOne({
+          where: { id: pass.playerId, isBanned: false },
+          attributes: ['name', 'country'],
+          include: [{
+            model: User,
+            as: 'user',
+            required: false,
+            where: {
+              [Op.and]: [
+                wherePermission(permissionFlags.BANNED, false)
+              ]
+            }
+          }]
+        }),
+        // Level query
+        Level.findOne({
+          where: { id: pass.levelId },
+          attributes: ['song', 'artist', 'baseScore', 'diffId', 'teamId'],
+        }).then(async (level) => {
+          if (!level) return null;
+
+          const [difficulty, levelCredits, team] = await Promise.all([
+            Difficulty.findOne({
+              where: { id: level.diffId },
+            }),
+            LevelCredit.findAll({
+              where: { levelId: level.id },
+            }).then(async (credits) => {
+              if (credits.length === 0) return [];
+              
+              const creatorIds = [...new Set(credits.map(c => c.creatorId).filter((id): id is number => Boolean(id)))];
+              if (creatorIds.length === 0) return credits.map(c => ({ ...c.toJSON(), creator: null }));
+
+              const creators = await Creator.findAll({
+                where: { id: { [Op.in]: creatorIds } },
+              });
+
+              const creatorsById = creators.reduce((acc, c) => {
+                acc[c.id] = c;
+                return acc;
+              }, {} as Record<number, typeof creators[0]>);
+
+              return credits.map(credit => ({
+                ...credit.toJSON(),
+                creator: creatorsById[credit.creatorId] || null
+              }));
+            }),
+            level.teamId ? Team.findOne({
+              where: { id: level.teamId },
+            }) : Promise.resolve(null)
+          ]);
+
+          return {
+            ...level.toJSON(),
+            difficulty,
+            levelCredits,
+            teamObject: team
+          };
+        }),
+        // Judgement query
+        Judgement.findOne({
+          where: { id: passId },
+        })
+      ]);
+
+      if (!player || !level) {
+        return res.json({count: 0, results: []});
+      }
+
+      const assembledPass = {
+        ...pass.toJSON(),
+        player,
+        level,
+        judgements: judgement || null
+      };
+
+      return res.json({count: 1, results: [assembledPass]});
     }
     catch (error) {
       logger.error('Error fetching pass by ID:', error);
@@ -133,41 +163,70 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
       if (!level || (level.isDeleted || level.isHidden) && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
         return res.status(404).json({error: 'Level not found'});
       }
-      const passes = await Pass.findAll({
+      
+      const parsedLevelId = parseInt(levelId);
+      
+      // Fetch passes
+      const passesPromise = Pass.findAll({
         where: {
-          levelId: parseInt(levelId),
+          levelId: parsedLevelId,
           isDeleted: false,
-          [Op.and]: [
-            { '$player->user.id$': null },
-            wherePermission(permissionFlags.BANNED, false)
-          ]
         },
-        include: [
-          {
-            model: Player,
-            as: 'player',
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: [
-                  'id',
-                  'username',
-                  'nickname',
-                  'avatarUrl',
-                  'isSuperAdmin',
-                  'isRater',
-                ],
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-            required: true,
-          },
-        ],
+      }).then(async (passes) => {
+        if (passes.length === 0) return [];
+
+        const playerIds = [...new Set(passes.map(p => p.playerId).filter((id): id is number => Boolean(id)))];
+        const passIds = passes.map(p => p.id);
+
+        // Fetch players and judgements concurrently
+        const [players, judgements] = await Promise.all([
+          playerIds.length > 0 ? Player.findAll({
+            where: {
+              id: { [Op.in]: playerIds },
+              isBanned: false
+            },
+            include: [{
+              model: User,
+              as: 'user',
+              attributes: [
+                'id',
+                'username',
+                'nickname',
+                'avatarUrl',
+                'isSuperAdmin',
+                'isRater',
+              ],
+            }],
+          }) : Promise.resolve([]),
+          passIds.length > 0 ? Judgement.findAll({
+            where: { id: { [Op.in]: passIds } },
+          }) : Promise.resolve([])
+        ]);
+
+        const playersById = players.reduce((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {} as Record<number, typeof players[0]>);
+
+        const judgementsByPassId = judgements.reduce((acc, j) => {
+          acc[j.id] = j;
+          return acc;
+        }, {} as Record<number, typeof judgements[0]>);
+
+        // Assemble passes with nested data and filter out passes with null players
+        return passes
+          .map(pass => {
+            const player = pass.playerId ? playersById[pass.playerId] : null;
+            return {
+              ...pass.toJSON(),
+              player: player || null,
+              judgements: judgementsByPassId[pass.id] || null
+            };
+          })
+          .filter(pass => pass.player !== null && pass.judgements !== null);
       });
+
+      const passes = await passesPromise;
 
       return res.json(passes);
     } catch (error) {
