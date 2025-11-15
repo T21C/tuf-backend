@@ -7,9 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../config/app.config.js';
-import { hasFlag } from '../utils/auth/permissionUtils.js';
 import { User } from '../models/index.js';
-import { permissionFlags } from '../config/constants.js';
 import { formatCreatorDisplay } from '../utils/Utility.js';
 import LevelCredit from '../models/levels/LevelCredit.js';
 import Creator from '../models/credits/Creator.js';
@@ -188,11 +186,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="${playerName}'s Clear of ${songName}" />
           <meta property="og:description" content="Pass ${pass.id} • ${difficultyName} • Score: ${pass.scoreV2}" />
-          <meta property="og:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
+          <meta property="og:image" content="${ownUrl}/v2/media/thumbnail/pass/${id}" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
+          <meta property="twitter:image" content="${ownUrl}/v2/media/thumbnail/pass/${id}" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
@@ -248,11 +246,11 @@ export const htmlMetaMiddleware = async (
           <meta property="og:type" content="website" />
           <meta property="og:title" content="Player ${id}" />
           <meta property="og:description" content="View player details" />
-          <meta property="og:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
+          <meta property="og:image" content="${ownUrl}/v2/media/thumbnail/player/${id}" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
           <meta property="twitter:card" content="summary_large_image" />
-          <meta property="twitter:image" content="https://soggy.cat/static/ssoggycat/main/images/soggycat.webp" />
+          <meta property="twitter:image" content="${ownUrl}/v2/media/thumbnail/player/${id}" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}${req.path}" />`;
       }
