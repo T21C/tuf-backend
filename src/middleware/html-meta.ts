@@ -236,7 +236,7 @@ export const htmlMetaMiddleware = async (
     }
     else if (req.path.startsWith('/player/')) {
       const player = await Player.findByPk(id, {
-        include: [{model: Level, as: 'levels'}, {model: User, as: 'user'}],
+        include: [{model: User, as: 'user'}],
       });
 
       if (player && !player.isBanned) {
