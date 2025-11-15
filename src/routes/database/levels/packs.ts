@@ -490,7 +490,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       {
         model: LevelPackItem,
         as: 'packItems',
-        required: true
+        required: false
       }
     ]
     });
