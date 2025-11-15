@@ -29,6 +29,7 @@ const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const PACK_DOWNLOAD_SPACES_PREFIX = 'pack-downloads';
+const PACK_DOWNLOAD_MAX_SIZE_BYTES = 25 * 1024 * 1024 * 1024; // 25GB hard limit
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -288,7 +289,7 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         
         // Exit code 2 or 3 means real failure, or exit code 1 with no files extracted
         // Fall back to AdmZip
-        logger.error('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
+        logger.debug('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
             zipPath,
             extractTo,
             error: error instanceof Error ? error.message : String(error),
@@ -394,7 +395,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             : finalFolderName;
         return { folderName: relativeFolderName, success: true };
     } catch (error) {
-        logger.error('Failed to add CDN level to pack download', {
+        logger.debug('Failed to add CDN level to pack download', {
             fileId: node.fileId,
             error: error instanceof Error ? error.message : String(error)
         });
@@ -685,6 +686,136 @@ function isPackDownloadNode(node: any): node is PackDownloadNode {
     return false;
 }
 
+async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
+    try {
+        const cdnFile = await CdnFile.findByPk(fileId);
+        if (!cdnFile || cdnFile.type !== 'LEVELZIP' || !cdnFile.metadata) {
+            return null;
+        }
+
+        const metadata = cdnFile.metadata as any;
+        const originalZip = metadata.originalZip;
+        if (!originalZip?.path) {
+            return null;
+        }
+
+        // Try to get size from metadata first
+        if (typeof originalZip.size === 'number' && originalZip.size > 0) {
+            return originalZip.size;
+        }
+
+        // If not in metadata, try to get from file system/storage
+        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.LOCAL;
+        const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
+        
+        if (!existence.exists) {
+            return null;
+        }
+
+        // Try to get file size from local file system
+        if (existence.storageType === StorageType.LOCAL && existence.actualPath) {
+            try {
+                const stats = await fs.promises.stat(existence.actualPath);
+                return stats.size;
+            } catch {
+                return null;
+            }
+        }
+
+        // For Spaces, try to get size from S3 metadata
+        if (existence.storageType === StorageType.SPACES) {
+            try {
+                const s3 = (spacesStorage as any).s3;
+                const bucket = (spacesStorage as any).config?.bucket;
+                if (s3 && bucket) {
+                    const headResult = await s3.headObject({
+                        Bucket: bucket,
+                        Key: originalZip.path
+                    }).promise();
+                    if (headResult.ContentLength) {
+                        return headResult.ContentLength;
+                    }
+                }
+            } catch {
+                // If we can't get size from Spaces, return null
+                return null;
+            }
+        }
+
+        return null;
+    } catch (error) {
+        logger.debug('Failed to get file size from CDN', {
+            fileId,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+    }
+}
+
+async function getFileSizeFromUrl(sourceUrl: string): Promise<number | null> {
+    try {
+        const response = await axios.head(sourceUrl, {
+            timeout: 10000,
+            maxRedirects: 5,
+            validateStatus: (status) => status >= 200 && status < 400
+        });
+        
+        const contentLength = response.headers['content-length'];
+        if (contentLength) {
+            const size = parseInt(contentLength, 10);
+            if (!isNaN(size) && size > 0) {
+                return size;
+            }
+        }
+        return null;
+    } catch (error) {
+        logger.debug('Failed to get file size from URL', {
+            sourceUrl,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+    }
+}
+
+async function estimateTotalZipSize(tree: PackDownloadNode): Promise<{ totalSize: number; estimatedCount: number; failedCount: number }> {
+    let totalSize = 0;
+    let estimatedCount = 0;
+    let failedCount = 0;
+
+    async function traverseNode(node: PackDownloadNode): Promise<void> {
+        if (node.type === 'folder') {
+            if (Array.isArray(node.children)) {
+                await Promise.all(node.children.map(child => traverseNode(child)));
+            }
+            return;
+        }
+
+        // For level nodes, estimate size
+        if (node.type === 'level') {
+            estimatedCount++;
+            let size: number | null = null;
+
+            if (node.fileId) {
+                size = await getFileSizeFromCdn(node.fileId);
+            } else if (node.sourceUrl) {
+                size = await getFileSizeFromUrl(node.sourceUrl);
+            }
+
+            if (size !== null && size > 0) {
+                totalSize += size;
+            } else {
+                failedCount++;
+                // If we can't determine size, use a conservative estimate of 50MB per level
+                // This ensures we don't allow unlimited growth if size detection fails
+                totalSize += 50 * 1024 * 1024; // 50MB estimate
+            }
+        }
+    }
+
+    await traverseNode(tree);
+    return { totalSize, estimatedCount, failedCount };
+}
+
 // Get level files in a zip
 router.get('/:fileId/levels', async (req: Request, res: Response) => {
     const { fileId } = req.params;
@@ -785,6 +916,36 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         if (!tree || !isPackDownloadNode(tree)) {
             return res.status(400).json({ error: 'Valid download tree is required' });
         }
+
+        // Estimate total zip size before generation
+        logger.debug('Estimating total zip size for pack download', { zipName });
+        const sizeEstimate = await estimateTotalZipSize(tree);
+        
+        if (sizeEstimate.totalSize > PACK_DOWNLOAD_MAX_SIZE_BYTES) {
+            const sizeGB = (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2);
+            const maxGB = (PACK_DOWNLOAD_MAX_SIZE_BYTES / (1024 * 1024 * 1024)).toFixed(0);
+            logger.warn('Pack download size exceeds limit', {
+                estimatedSize: sizeEstimate.totalSize,
+                estimatedSizeGB: sizeGB,
+                maxSizeGB: maxGB,
+                estimatedCount: sizeEstimate.estimatedCount,
+                failedCount: sizeEstimate.failedCount
+            });
+            return res.status(400).json({
+                error: `Pack download size exceeds maximum limit of ${maxGB}GB`,
+                estimatedSize: sizeEstimate.totalSize,
+                estimatedSizeGB: sizeGB,
+                maxSizeGB: maxGB,
+                code: 'PACK_SIZE_LIMIT_EXCEEDED'
+            });
+        }
+
+        logger.debug('Pack download size estimate within limits', {
+            estimatedSize: sizeEstimate.totalSize,
+            estimatedSizeGB: (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2),
+            estimatedCount: sizeEstimate.estimatedCount,
+            failedCount: sizeEstimate.failedCount
+        });
 
         // Format zip name with pack code if provided
         let finalZipName = zipName;
