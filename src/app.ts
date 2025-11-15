@@ -163,7 +163,7 @@ export async function startServer() {
     app.use('/health', healthRouter);
     app.use('/v2/chunked-upload', chunkedUploadRouter);
     // HTML meta tags middleware for specific routes BEFORE static files
-    app.get(['/passes/:id', '/levels/:id', '/player/:id'], htmlMetaMiddleware);
+    app.get(['/passes/:id', '/levels/:id', '/profile/:id'], htmlMetaMiddleware);
 
     // Handle static files and SPA routing
     const clientBuildPath =

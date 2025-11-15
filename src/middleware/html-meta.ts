@@ -234,7 +234,7 @@ export const htmlMetaMiddleware = async (
         metaTags = notFoundTags.replace('Not found', 'Level not found');
       }
     }
-    else if (req.path.startsWith('/player/')) {
+    else if (req.path.startsWith('/profile/')) {
       const player = await Player.findByPk(id, {
         include: [{model: User, as: 'user'}],
       });
