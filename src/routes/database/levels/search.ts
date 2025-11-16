@@ -206,7 +206,6 @@ router.head('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reque
 
 router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
-    // Use a READ COMMITTED transaction to avoid locks from updates
     if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
       return res.status(400).json({ error: 'Invalid level ID' });
     }
@@ -224,7 +223,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
 
       // Difficulty query (needs level's diffId)
       const difficultyPromise = levelPromise.then(async (level) => {
-        if (!level?.diffId) return null;
+        if (!level) return null;
         return Difficulty.findOne({
           where: { id: level.diffId },
           transaction,
