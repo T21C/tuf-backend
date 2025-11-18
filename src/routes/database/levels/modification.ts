@@ -1090,19 +1090,34 @@ router.post(
           `${fileId}.zip`,
         )
 
-
         // Check if file exists before attempting to read
-        try {
-          await fs.promises.access(assembledFilePath);
-        } catch (accessError) {
-          throw new Error(
-            'Assembled file not found. The upload may be incomplete or expired.',
-          );
+        // Retry logic in case file is still being assembled
+        let fileExists = false;
+        let retries = 5;
+        while (!fileExists && retries > 0) {
+          try {
+            await fs.promises.access(assembledFilePath);
+            fileExists = true;
+          } catch (accessError) {
+            retries--;
+            if (retries === 0) {
+              throw new Error(
+                'Assembled file not found. The upload may be incomplete or expired.',
+              );
+            }
+            // Wait a bit before retrying (file might still be assembling)
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         }
 
         const fileBuffer = await fs.promises.readFile(assembledFilePath);
 
-      const uploadResult = await cdnService.uploadLevelZip(
+        // Check if client disconnected before proceeding with upload
+        if (req.destroyed || req.aborted) {
+          throw new Error('Client disconnected before upload could complete');
+        }
+
+        const uploadResult = await cdnService.uploadLevelZip(
           fileBuffer,
           fileName,
         );
@@ -1158,8 +1173,9 @@ router.post(
         }
 
         // Clean up all user uploads after successful processing
+        // Exclude the current fileId in case it's still being processed elsewhere
         try {
-          await cleanupUserUploads(req.user!.id);
+          await cleanupUserUploads(req.user!.id, fileId);
         } catch (cleanupError) {
           // Log cleanup error but don't fail the request
           logger.warn(

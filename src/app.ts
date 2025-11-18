@@ -28,14 +28,37 @@ import { initializeDefaultPools } from './config/poolConfig.js';
 initializeDefaultPools();
 
 // Add these at the very top of the file, before any other imports
-process.on('uncaughtException', (error) => {
-  logger.error('UNCAUGHT EXCEPTION! Shutting down...');
-  logger.error(error.message);
+process.on('uncaughtException', (error: any) => {
+  // Handle connection reset errors gracefully - these are common when clients disconnect
+  if (error.code === 'ECONNRESET' || error.code === 'EPIPE') {
+    logger.warn('Client disconnected during operation:', {
+      code: error.code,
+      message: error.message,
+      syscall: error.syscall
+    });
+    // Don't shut down for client disconnects - these are expected
+    return;
+  }
+  
+  // For other uncaught exceptions, log and continue (don't shut down)
+  logger.error('UNCAUGHT EXCEPTION:', {
+    message: error.message,
+    code: error.code,
+    syscall: error.syscall,
+    stack: error.stack
+  });
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('UNHANDLED REJECTION! Logging error but continuing...');
-  logger.error('Reason:', reason);
+process.on('unhandledRejection', (reason: any, promise) => {
+  // Handle connection reset errors gracefully
+  if (reason && (reason.code === 'ECONNRESET' || reason.code === 'EPIPE')) {
+    logger.warn('Client disconnected (unhandled rejection):', {
+      code: reason.code,
+      message: reason.message,
+      syscall: reason.syscall
+    });
+    return; // Don't treat client disconnects as critical errors
+  }
 
   // Check if it's a transaction rollback error and handle it gracefully
   if (reason instanceof Error && reason.message.includes('Transaction cannot be rolled back')) {
@@ -44,6 +67,8 @@ process.on('unhandledRejection', (reason, promise) => {
   }
 
   // For other unhandled rejections, log but don't shut down
+  logger.error('UNHANDLED REJECTION! Logging error but continuing...');
+  logger.error('Reason:', reason);
   logger.error('Promise:', promise);
   logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
 });
@@ -194,7 +219,24 @@ export async function startServer() {
 
     // Global error handling middleware - must be last
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+      // Handle connection reset errors gracefully
+      if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+        // Client disconnected - don't send response if headers already sent
+        if (!res.headersSent) {
+          return res.status(499).json({
+            error: 'Client disconnected'
+          });
+        }
+        // Headers already sent, just log and return
+        logger.warn('Client disconnected during response:', {
+          code: err.code,
+          path: req.path,
+          method: req.method
+        });
+        return;
+      }
+
       // Handle URI decoding errors specifically
       if (err instanceof URIError) {
         logger.warn('URI decoding error:', {
@@ -213,16 +255,21 @@ export async function startServer() {
       // Handle other Express errors
       logger.error('Express error:', {
         error: err.message,
+        code: err.code,
         stack: err.stack,
         path: req.path,
         method: req.method,
         ip: req.ip
       });
 
-      return res.status(500).json({
-        error: 'Internal server error',
-        message: process.env.NODE_ENV === 'development' ? err.message : undefined
-      });
+      // Only send error response if headers haven't been sent
+      if (!res.headersSent) {
+        return res.status(500).json({
+          error: 'Internal server error',
+          message: process.env.NODE_ENV === 'development' ? err.message : undefined
+        });
+      }
+      return
     });
 
     // Start the server

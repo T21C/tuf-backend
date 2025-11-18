@@ -49,6 +49,9 @@ const upload = multer({
 // Store upload metadata with user information
 const uploadMetadata = new Map();
 
+// Track files that are currently being processed to prevent premature cleanup
+const filesInUse = new Set<string>();
+
 // Clean up old uploads periodically
 setInterval(() => {
   const now = Date.now();
@@ -107,33 +110,96 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
       const outputPath = path.join(assembledDir, `${fileId}.zip`);
 
       const writeStream = fs.createWriteStream(outputPath);
+      
+      // Mark file as in use
+      filesInUse.add(fileId);
 
-      // Read and write chunks in order
-      for (let i = 0; i < metadata.totalChunks; i++) {
-        const chunkPath = path.join('uploads', 'chunks', userId, `${fileId}_${i}`);
+      try {
+        // Handle client disconnect
+        req.on('close', () => {
+          if (!res.headersSent) {
+            writeStream.destroy();
+            filesInUse.delete(fileId);
+          }
+        });
 
-        const chunkBuffer = fs.readFileSync(chunkPath);
-        writeStream.write(chunkBuffer);
-        // Remove chunk after writing
-        fs.unlinkSync(chunkPath);
+        // Read and write chunks in order with proper error handling
+        for (let i = 0; i < metadata.totalChunks; i++) {
+          const chunkPath = path.join('uploads', 'chunks', userId, `${fileId}_${i}`);
+
+          // Check if chunk exists before reading
+          if (!fs.existsSync(chunkPath)) {
+            throw new Error(`Chunk ${i} not found for file ${fileId}`);
+          }
+
+          const chunkBuffer = fs.readFileSync(chunkPath);
+          
+          // Handle backpressure and errors during write
+          const writeSuccess = writeStream.write(chunkBuffer);
+          if (!writeSuccess) {
+            // Wait for drain event if buffer is full
+            await new Promise<void>((resolve) => {
+              writeStream.once('drain', resolve);
+            });
+          }
+          
+          // Remove chunk after writing
+          fs.unlinkSync(chunkPath);
+        }
+
+        writeStream.end();
+
+        // Wait for write to complete
+        await new Promise<void>((resolve, reject) => {
+          writeStream.on('finish', () => {
+            filesInUse.delete(fileId);
+            resolve();
+          });
+          writeStream.on('error', (err: NodeJS.ErrnoException) => {
+            filesInUse.delete(fileId);
+            // Don't reject ECONNRESET errors - they're client disconnects
+            if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+              logger.warn('Client disconnected during file assembly:', {
+                fileId,
+                error: err.message
+              });
+              resolve(); // Resolve instead of reject to prevent crash
+            } else {
+              reject(err);
+            }
+          });
+        });
+
+        // Clean up metadata
+        uploadMetadata.delete(fileId);
+
+        // Check if response was already sent (client might have disconnected)
+        if (!res.headersSent) {
+          return res.json({
+            message: 'File assembled successfully',
+            fileId,
+            path: outputPath
+          });
+        }
+      } catch (error: any) {
+        filesInUse.delete(fileId);
+        // Clean up partial file on error
+        try {
+          if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(outputPath);
+          }
+        } catch (cleanupError) {
+          logger.warn('Failed to clean up partial assembled file:', cleanupError);
+        }
+        
+        // Only send error if response hasn't been sent
+        if (!res.headersSent) {
+          throw error;
+        } else {
+          // Client disconnected, just log the error
+          logger.warn('Error during file assembly after client disconnect:', error);
+        }
       }
-
-      writeStream.end();
-
-      // Wait for write to complete
-      await new Promise<void>((resolve, reject) => {
-        writeStream.on('finish', () => resolve());
-        writeStream.on('error', (err) => reject(err));
-      });
-
-      // Clean up metadata
-      uploadMetadata.delete(fileId);
-
-      return res.json({
-        message: 'File assembled successfully',
-        fileId,
-        path: outputPath
-      });
     }
 
     res.json({
@@ -211,7 +277,7 @@ router.post('/validate', Auth.superAdmin(), async (req: Request, res: Response) 
 });
 
 // Add cleanup function
-const cleanupUserUploads = async (userId: string) => {
+const cleanupUserUploads = async (userId: string, excludeFileId?: string) => {
   try {
     // Clean up chunks directory
     const chunksDir = path.join('uploads', 'chunks', userId);
@@ -219,20 +285,56 @@ const cleanupUserUploads = async (userId: string) => {
       await fs.promises.rm(chunksDir, { recursive: true, force: true });
     }
 
-    // Clean up assembled directory
+    // Clean up assembled directory, but skip files that are in use or excluded
     const assembledDir = path.join('uploads', 'assembled', userId);
     if (fs.existsSync(assembledDir)) {
-      await fs.promises.rm(assembledDir, { recursive: true, force: true });
+      const files = await fs.promises.readdir(assembledDir);
+      for (const file of files) {
+        // Extract fileId from filename (format: fileId.zip)
+        const fileId = file.replace('.zip', '');
+        
+        // Skip if file is currently in use or is the excluded file
+        if (filesInUse.has(fileId) || (excludeFileId && fileId === excludeFileId)) {
+          logger.debug(`Skipping cleanup of file in use: ${fileId}`);
+          continue;
+        }
+        
+        try {
+          await fs.promises.unlink(path.join(assembledDir, file));
+        } catch (unlinkError: any) {
+          // Ignore ENOENT errors - file might have been deleted already
+          if (unlinkError.code !== 'ENOENT') {
+            logger.warn(`Failed to delete assembled file ${file}:`, unlinkError);
+          }
+        }
+      }
+      
+      // Remove directory if empty
+      try {
+        const remainingFiles = await fs.promises.readdir(assembledDir);
+        if (remainingFiles.length === 0) {
+          await fs.promises.rmdir(assembledDir);
+        }
+      } catch (rmdirError) {
+        // Directory might not be empty or might have been removed
+        logger.debug('Could not remove assembled directory:', rmdirError);
+      }
     }
 
-    // Clean up metadata
+    // Clean up metadata (but keep entries for files in use)
     for (const [fileId, metadata] of uploadMetadata.entries()) {
-      if (metadata.userId === userId) {
+      if (metadata.userId === userId && !filesInUse.has(fileId)) {
         uploadMetadata.delete(fileId);
       }
     }
 
-    logger.debug(`Cleaned up all uploads for user ${userId}`);
+    logger.debug(`Cleaned up uploads for user ${userId}`, {
+      excludedFiles: excludeFileId ? [excludeFileId] : [],
+      filesInUse: Array.from(filesInUse).filter(id => {
+        const meta = uploadMetadata.get(id);
+        return meta && meta.userId === userId;
+      })
+    });
   } catch (error) {
     logger.error('Failed to clean up user uploads:', error);
     throw error;

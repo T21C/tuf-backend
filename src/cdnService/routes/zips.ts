@@ -224,16 +224,27 @@ async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Pr
     const writeStream = fs.createWriteStream(targetPath);
     
     return new Promise<void>((resolve, reject) => {
+        const cleanupOnError = async (error: Error) => {
+            stream.destroy();
+            writeStream.destroy();
+            // Clean up partial file on error
+            try {
+                if (fs.existsSync(targetPath)) {
+                    await fs.promises.unlink(targetPath);
+                }
+            } catch (cleanupError) {
+                logger.warn('Failed to cleanup partial file after stream error', {
+                    targetPath,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                });
+            }
+            reject(error);
+        };
+
         stream.pipe(writeStream);
         writeStream.on('finish', resolve);
-        writeStream.on('error', (error: Error) => {
-            stream.destroy();
-            reject(error);
-        });
-        stream.on('error', (error: Error) => {
-            writeStream.destroy();
-            reject(error);
-        });
+        writeStream.on('error', cleanupOnError);
+        stream.on('error', cleanupOnError);
     });
 }
 
@@ -356,44 +367,51 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
 
         // Stream zip to temp file if from Spaces, otherwise use local path
         let zipPath: string;
-        if (existence.storageType === StorageType.SPACES) {
-            const tempZipPath = path.join(context.tempDir, `level-${node.fileId}-${crypto.randomUUID()}.zip`);
-            // Stream directly from Spaces to disk without loading into memory
-            await streamSpacesFileToDisk(originalZip.path, tempZipPath);
-            zipPath = tempZipPath;
-        } else {
-            zipPath = existence.actualPath;
-        }
+        let tempZipPath: string | null = null;
+        let finalFolderName: string;
+        
+        try {
+            if (existence.storageType === StorageType.SPACES) {
+                tempZipPath = path.join(context.tempDir, `level-${node.fileId}-${crypto.randomUUID()}.zip`);
+                // Stream directly from Spaces to disk without loading into memory
+                await streamSpacesFileToDisk(originalZip.path, tempZipPath);
+                zipPath = tempZipPath;
+            } else {
+                zipPath = existence.actualPath;
+            }
 
-        const derivedName = originalZip.originalFilename || originalZip.name;
-        const baseFolderName = derivedName
-            ? path.parse(derivedName).name
-            : node.name || `Level-${node.levelId ?? 'unknown'}`;
-        const finalFolderName = buildLevelFolderName(node, baseFolderName);
-        const targetFolder = parentPath
-            ? path.join(context.extractRoot, parentPath, finalFolderName)
-            : path.join(context.extractRoot, finalFolderName);
+            const derivedName = originalZip.originalFilename || originalZip.name;
+            const baseFolderName = derivedName
+                ? path.parse(derivedName).name
+                : node.name || `Level-${node.levelId ?? 'unknown'}`;
+            finalFolderName = buildLevelFolderName(node, baseFolderName);
+            const targetFolder = parentPath
+                ? path.join(context.extractRoot, parentPath, finalFolderName)
+                : path.join(context.extractRoot, finalFolderName);
 
-        // Extract zip to target folder on disk
-        await extractZipToFolder(zipPath, targetFolder);
+            // Extract zip to target folder on disk
+            await extractZipToFolder(zipPath, targetFolder);
 
-        // Clean up temp zip file if we created one
-        if (existence.storageType === StorageType.SPACES && zipPath !== existence.actualPath) {
-            try {
-                await fs.promises.unlink(zipPath);
-            } catch (cleanupError) {
-                logger.warn('Failed to cleanup temp zip file', {
-                    zipPath,
-                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-                });
+            context.successCount += 1;
+            const relativeFolderName = parentPath
+                ? path.posix.join(parentPath, finalFolderName)
+                : finalFolderName;
+            return { folderName: relativeFolderName, success: true };
+        } finally {
+            // Clean up temp zip file if we created one (always, even on error)
+            if (tempZipPath && tempZipPath !== existence.actualPath) {
+                try {
+                    if (fs.existsSync(tempZipPath)) {
+                        await fs.promises.unlink(tempZipPath);
+                    }
+                } catch (cleanupError) {
+                    logger.warn('Failed to cleanup temp zip file', {
+                        zipPath: tempZipPath,
+                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                    });
+                }
             }
         }
-
-        context.successCount += 1;
-        const relativeFolderName = parentPath
-            ? path.posix.join(parentPath, finalFolderName)
-            : finalFolderName;
-        return { folderName: relativeFolderName, success: true };
     } catch (error) {
         logger.debug('Failed to add CDN level to pack download', {
             fileId: node.fileId,
@@ -408,9 +426,10 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         return { folderName: parentPath, success: false };
     }
 
+    let tempZipPath: string | null = null;
     try {
         // Download zip to temp file
-        const tempZipPath = path.join(context.tempDir, `url-level-${crypto.randomUUID()}.zip`);
+        tempZipPath = path.join(context.tempDir, `url-level-${crypto.randomUUID()}.zip`);
         const response = await axios.get(node.sourceUrl, {
             responseType: 'stream',
             timeout: 30_000 // Increased timeout for large files
@@ -418,10 +437,26 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
 
         const writeStream = fs.createWriteStream(tempZipPath);
         await new Promise<void>((resolve, reject) => {
+            const cleanupOnError = async (error: Error) => {
+                writeStream.destroy();
+                // Clean up partial file on error
+                try {
+                    if (tempZipPath && fs.existsSync(tempZipPath)) {
+                        await fs.promises.unlink(tempZipPath);
+                    }
+                } catch (cleanupError) {
+                    logger.warn('Failed to cleanup partial download file', {
+                        tempZipPath,
+                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                    });
+                }
+                reject(error);
+            };
+
             response.data.pipe(writeStream);
             writeStream.on('finish', resolve);
-            writeStream.on('error', reject);
-            response.data.on('error', reject);
+            writeStream.on('error', cleanupOnError);
+            response.data.on('error', cleanupOnError);
         });
 
         const defaultName = node.name || `Level-${node.levelId ?? 'unknown'}`;
@@ -445,16 +480,6 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         // Extract zip to target folder on disk
         await extractZipToFolder(tempZipPath, targetFolder);
 
-        // Clean up temp zip file
-        try {
-            await fs.promises.unlink(tempZipPath);
-        } catch (cleanupError) {
-            logger.warn('Failed to cleanup temp zip file from URL', {
-                tempZipPath,
-                error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-            });
-        }
-
         context.successCount += 1;
         const relativeFolderName = parentPath
             ? path.posix.join(parentPath, finalFolderName)
@@ -466,6 +491,20 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             error: error instanceof Error ? error.message : String(error)
         });
         return { folderName: parentPath, success: false };
+    } finally {
+        // Clean up temp zip file (always, even on error)
+        if (tempZipPath) {
+            try {
+                if (fs.existsSync(tempZipPath)) {
+                    await fs.promises.unlink(tempZipPath);
+                }
+            } catch (cleanupError) {
+                logger.warn('Failed to cleanup temp zip file from URL', {
+                    tempZipPath,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                });
+            }
+        }
     }
 }
 
@@ -525,14 +564,17 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
         totalLevels: 0
     };
 
+    let targetPath: string | null = null;
+    let downloadId: string | null = null;
+
     try {
         // Process all nodes and extract to disk
         await processPackNode(tree, '', context);
 
-        const downloadId = crypto.randomUUID();
+        downloadId = crypto.randomUUID();
         // Use UUID for local file to avoid conflicts
         const localZipFilename = `${downloadId}.zip`;
-        const targetPath = path.join(PACK_DOWNLOAD_DIR, localZipFilename);
+        targetPath = path.join(PACK_DOWNLOAD_DIR, localZipFilename);
         
         // Create sanitized filename for Spaces: UUID folder with formatted zip name
         const sanitizedZipNameForSpaces = sanitizePathSegment(zipName);
@@ -645,8 +687,22 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
         });
 
         return response;
+    } catch (error) {
+        // Clean up targetPath if it was created but upload failed
+        if (targetPath && fs.existsSync(targetPath)) {
+            try {
+                await fs.promises.rm(targetPath, { force: true });
+                logger.debug('Cleaned up failed pack download zip file', { targetPath });
+            } catch (cleanupError) {
+                logger.warn('Failed to cleanup failed pack download zip file', {
+                    targetPath,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                });
+            }
+        }
+        throw error;
     } finally {
-        // Clean up temp directory with extracted files
+        // Clean up temp directory with extracted files (always)
         try {
             if (fs.existsSync(tempDir)) {
                 await fs.promises.rm(tempDir, { recursive: true, force: true });
