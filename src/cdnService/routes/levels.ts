@@ -348,27 +348,61 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             // Find the song file referenced in the level
             const songFilename = transformedLevel.getSetting('songFilename');
             const requiresYSMod = transformedLevel.getSetting('requiredMods')?.includes('YouTubeStream');
-            if (!requiresYSMod && (!songFilename || !metadata.songFiles[songFilename])) {
-                throw { error: 'Song file not found in level', code: 400 };
-            }
-
+            
             // Handle song file download if needed using fallback logic
             let songFilePath: string | undefined;
-            if (!requiresYSMod && songFilename && metadata.songFiles[songFilename]) {
-                const songFile = metadata.songFiles[songFilename];
+            let selectedSongFile: { name: string; path: string; size: number; type: string } | undefined;
+            
+            if (!requiresYSMod) {
+                // First, try to find the song file specified in the level
+                if (songFilename && metadata.songFiles[songFilename]) {
+                    selectedSongFile = metadata.songFiles[songFilename];
+                } else {
+                    // If not found, search for any .ogg or .wav file
+                    logger.debug('Song file not found by name, searching for .ogg or .wav files', {
+                        fileId,
+                        requestedSongFilename: songFilename,
+                        availableSongFiles: Object.keys(metadata.songFiles)
+                    });
+                    
+                    // Search through all song files for .ogg or .wav extensions
+                    const audioExtensions = ['.ogg', '.wav'];
+                    for (const [key, songFile] of Object.entries(metadata.songFiles)) {
+                        const fileExtension = path.extname(songFile.name).toLowerCase();
+                        if (audioExtensions.includes(fileExtension)) {
+                            selectedSongFile = songFile;
+                            logger.debug('Found fallback song file', {
+                                fileId,
+                                selectedSongFile: songFile.name,
+                                extension: fileExtension
+                            });
+                            break;
+                        }
+                    }
+                    
+                    if (!selectedSongFile) {
+                        logger.error('No song file found (neither specified nor .ogg/.wav fallback)', {
+                            fileId,
+                            requestedSongFilename: songFilename,
+                            availableSongFiles: Object.keys(metadata.songFiles)
+                        });
+                        throw { error: 'Song file not found in level', code: 400 };
+                    }
+                }
+
                 const preferredSongStorageType = metadata.songStorageType || metadata.storageType;
 
                 // Use fallback logic to find the song file
                 const songCheck = await hybridStorageManager.fileExistsWithFallback(
-                    songFile.path,
+                    selectedSongFile.path,
                     preferredSongStorageType
                 );
 
                 if (!songCheck.exists) {
                     logger.error('Song file not found in any storage:', {
                         fileId,
-                        songFilename,
-                        songPath: songFile.path,
+                        songFilename: selectedSongFile.name,
+                        songPath: selectedSongFile.path,
                         preferredStorageType: preferredSongStorageType
                     });
                     throw { error: 'Song file not found in storage', code: 400 };
@@ -376,8 +410,8 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                 if (songCheck.storageType === StorageType.SPACES) {
                     // Download song file from Spaces to temporary location
-                    const tempSongPath = path.join(tempDir, `song_${Date.now()}_${songFilename}`);
-                    await hybridStorageManager.downloadFile(songFile.path, StorageType.SPACES, tempSongPath);
+                    const tempSongPath = path.join(tempDir, `song_${Date.now()}_${selectedSongFile.name}`);
+                    await hybridStorageManager.downloadFile(selectedSongFile.path, StorageType.SPACES, tempSongPath);
                     songFilePath = tempSongPath;
                 } else {
                     // Use the actual path found in local storage
@@ -392,11 +426,11 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     path: tempLevelPath,
                     size: (await fs.promises.stat(tempLevelPath)).size
                 },
-                songFile: !requiresYSMod && songFilename && metadata.songFiles[songFilename] && songFilePath ? {
-                    name: songFilename,
+                songFile: !requiresYSMod && selectedSongFile && songFilePath ? {
+                    name: selectedSongFile.name,
                     path: songFilePath,
-                    size: metadata.songFiles[songFilename].size,
-                    type: metadata.songFiles[songFilename].type
+                    size: selectedSongFile.size,
+                    type: selectedSongFile.type
                 } : undefined
             };
 
