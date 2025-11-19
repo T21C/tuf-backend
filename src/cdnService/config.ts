@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import path from 'path';
 dotenv.config();
 
 if (!process.env.USER_CDN_ROOT || !process.env.CDN_URL || !process.env.LOCAL_CDN_URL) {
@@ -7,6 +8,7 @@ if (!process.env.USER_CDN_ROOT || !process.env.CDN_URL || !process.env.LOCAL_CDN
 
 export const CDN_CONFIG = {
     user_root: process.env.USER_CDN_ROOT,
+    pack_root: process.env.PACK_CDN_ROOT || path.join(process.env.USER_CDN_ROOT, 'packs'),
     maxFileSize: 4000 * 1024 * 1024, // 4GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
     cacheControl: 'public, max-age=604800', // 1 week
