@@ -73,7 +73,7 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
             Difficulty.findOne({
               where: { id: level.diffId },
             }),
-            LevelCredit.findAll({
+            level.id ? LevelCredit.findAll({
               where: { levelId: level.id },
             }).then(async (credits) => {
               if (credits.length === 0) return [];
@@ -94,7 +94,7 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
                 ...credit.toJSON(),
                 creator: creatorsById[credit.creatorId] || null
               }));
-            }),
+            }) : Promise.resolve([]),
             level.teamId ? Team.findOne({
               where: { id: level.teamId },
             }) : Promise.resolve(null)
