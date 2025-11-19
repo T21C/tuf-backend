@@ -1112,11 +1112,6 @@ router.post(
 
         const fileBuffer = await fs.promises.readFile(assembledFilePath);
 
-        // Check if client disconnected before proceeding with upload
-        if (req.destroyed || req.aborted) {
-          throw new Error('Client disconnected before upload could complete');
-        }
-
         const uploadResult = await cdnService.uploadLevelZip(
           fileBuffer,
           fileName,
@@ -1184,14 +1179,40 @@ router.post(
           );
         }
 
-        return res.json({
-          success: true,
-          level: {
-            ...level,
-            dlLink: level.dlLink,
-          },
-          levelFiles,
-        });
+        // Try to send response - if client truly disconnected, Express will handle it
+        // Check if response can still be written to avoid errors
+        if (res.headersSent || res.writableEnded) {
+          logger.warn('Response already sent or ended. Upload succeeded but response not sent.', {
+            levelId,
+            fileId: uploadResult.fileId,
+            userId: req.user?.id,
+          });
+          return;
+        }
+
+        try {
+          return res.json({
+            success: true,
+            level: {
+              ...level,
+              dlLink: level.dlLink,
+            },
+            levelFiles,
+          });
+        } catch (writeError: any) {
+          // Handle write errors gracefully - client might have disconnected
+          if (writeError.code === 'ECONNRESET' || writeError.code === 'EPIPE' || writeError.message?.includes('write after end')) {
+            logger.warn('Failed to send response - client may have disconnected. Upload succeeded.', {
+              levelId,
+              fileId: uploadResult.fileId,
+              userId: req.user?.id,
+              error: writeError.message,
+            });
+            return;
+          }
+          // Re-throw other errors
+          throw writeError;
+        }
       } catch (error) {
         // Clean up the assembled file in case of error
         try {
@@ -1212,11 +1233,38 @@ router.post(
       }
     } catch (error) {
       await safeTransactionRollback(transaction);
+      
+      // Handle client disconnection gracefully - this is expected behavior
+      if (error instanceof Error && error.message.includes('Client disconnected')) {
+        logger.warn('Client disconnected during level file upload:', {
+          levelId: req.params.id,
+          fileId: req.body.fileId,
+          userId: req.user?.id,
+        });
+        // Don't send response if headers already sent
+        if (!res.headersSent && !res.writableEnded) {
+          try {
+            return res.status(499).json({
+              error: 'Client disconnected during upload',
+            });
+          } catch (writeError: any) {
+            // Ignore write errors if client truly disconnected
+            if (writeError.code !== 'ECONNRESET' && writeError.code !== 'EPIPE') {
+              logger.warn('Error sending disconnect response:', writeError);
+            }
+          }
+        }
+        return;
+      }
+      
       logger.error('Error uploading level file:', error);
-      return res.status(500).json({
-        error: 'Failed to upload level file',
-        details: error instanceof Error ? error.message : String(error),
-      });
+      if (!res.headersSent) {
+        return res.status(500).json({
+          error: 'Failed to upload level file',
+          details: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
     }
   },
 );
