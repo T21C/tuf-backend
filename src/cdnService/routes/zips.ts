@@ -605,17 +605,12 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
                 env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
             });
         } catch (error) {
-            logger.error('Failed to create zip using 7z/zip, falling back to AdmZip', {
+            logger.error('Failed to create zip using 7z/zip', {
                 error: error instanceof Error ? error.message : String(error),
                 extractRoot,
                 targetPath
             });
-            // Fallback to AdmZip if 7z/zip fails
-            // AdmZip should handle UTF-8 filenames correctly
-            const packZip = new AdmZip();
-            await addDirectoryToZipRecursive(packZip, extractRoot, '');
-            // writeZip should preserve UTF-8 encoding in filenames
-            packZip.writeZip(targetPath);
+            throw error;
         }
 
         let spacesKey: string | null = null;
