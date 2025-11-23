@@ -30,6 +30,7 @@ const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const PACK_DOWNLOAD_SPACES_PREFIX = 'pack-downloads';
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 25 * 1024 * 1024 * 1024; // 25GB hard limit
+const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 30 * 1024 * 1024 * 1024; // 30GB total concurrent limit
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -60,6 +61,127 @@ interface PackDownloadEntry {
 const packDownloadEntries = new Map<string, PackDownloadEntry>();
 const packCacheIndex = new Map<string, string>();
 const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
+
+// Queue system for managing concurrent pack generations
+interface ActiveGeneration {
+    cacheKey: string;
+    estimatedSize: number;
+}
+
+interface QueuedGeneration {
+    cacheKey: string;
+    estimatedSize: number;
+    resolve: () => void;
+    reject: (error: Error) => void;
+}
+
+const activeGenerations = new Map<string, ActiveGeneration>();
+const generationQueue: QueuedGeneration[] = [];
+
+function getTotalActiveSize(): number {
+    let total = 0;
+    for (const gen of activeGenerations.values()) {
+        total += gen.estimatedSize;
+    }
+    return total;
+}
+
+async function waitForSpace(estimatedSize: number, cacheKey: string): Promise<void> {
+    // If already registered (e.g., another request for same cacheKey is already active), skip
+    if (activeGenerations.has(cacheKey)) {
+        return;
+    }
+    
+    const currentTotal = getTotalActiveSize();
+    
+    // If adding this request would exceed the limit, queue it
+    if (currentTotal + estimatedSize > PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
+        logger.debug('Pack generation queued due to size limit', {
+            cacheKey,
+            estimatedSize,
+            estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
+            currentTotal,
+            currentTotalGB: (currentTotal / (1024 * 1024 * 1024)).toFixed(2),
+            queueLength: generationQueue.length
+        });
+        
+        // Wait in queue until space is available
+        return new Promise<void>((resolve, reject) => {
+            generationQueue.push({
+                cacheKey,
+                estimatedSize,
+                resolve,
+                reject
+            });
+        });
+    }
+    
+    // Space available, register immediately
+    activeGenerations.set(cacheKey, {
+        cacheKey,
+        estimatedSize
+    });
+    
+    logger.debug('Pack generation started immediately', {
+        cacheKey,
+        estimatedSize,
+        estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
+        currentTotal: currentTotal + estimatedSize,
+        currentTotalGB: ((currentTotal + estimatedSize) / (1024 * 1024 * 1024)).toFixed(2)
+    });
+}
+
+function unregisterGeneration(cacheKey: string): void {
+    const removed = activeGenerations.delete(cacheKey);
+    if (!removed) {
+        return;
+    }
+    
+    logger.debug('Pack generation completed, processing queue', {
+        cacheKey,
+        currentTotal: getTotalActiveSize(),
+        currentTotalGB: (getTotalActiveSize() / (1024 * 1024 * 1024)).toFixed(2),
+        queueLength: generationQueue.length
+    });
+    
+    // Process queue - try to start queued generations that can fit
+    while (generationQueue.length > 0) {
+        const queued = generationQueue[0];
+        
+        // Skip if this cacheKey is already registered (e.g., another request already started)
+        if (activeGenerations.has(queued.cacheKey)) {
+            generationQueue.shift(); // Remove from queue
+            queued.resolve(); // Still resolve to unblock the waiting request
+            continue;
+        }
+        
+        // Recalculate current total (may have changed from previous iterations)
+        const currentTotal = getTotalActiveSize();
+        
+        // Check if this queued item can fit now
+        if (currentTotal + queued.estimatedSize <= PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
+            generationQueue.shift(); // Remove from queue
+            activeGenerations.set(queued.cacheKey, {
+                cacheKey: queued.cacheKey,
+                estimatedSize: queued.estimatedSize
+            });
+            
+            logger.debug('Pack generation dequeued and started', {
+                cacheKey: queued.cacheKey,
+                estimatedSize: queued.estimatedSize,
+                estimatedSizeGB: (queued.estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
+                newTotal: currentTotal + queued.estimatedSize,
+                newTotalGB: ((currentTotal + queued.estimatedSize) / (1024 * 1024 * 1024)).toFixed(2),
+                remainingQueueLength: generationQueue.length
+            });
+            
+            queued.resolve();
+        } else {
+            // Can't fit this one yet, stop processing queue
+            break;
+        }
+    }
+}
 
 function sanitizePathSegment(name: string): string {
     const sanitized = (name || 'Item')
@@ -1072,16 +1194,28 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         }
 
         if (!packGenerationPromises.has(normalizedCacheKey)) {
+            // Wait for space in the queue system before starting generation
+            // This will register the generation if space is available, or queue it if not
+            await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
+            
             const sanitizedZipName = sanitizePathSegment(finalZipName);
             const generationPromise = (async () => {
                 try {
                     return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey);
+                } catch (error) {
+                    // If generation fails, still unregister to free up space
+                    throw error;
                 } finally {
+                    // Unregister from active generations and process queue
+                    unregisterGeneration(normalizedCacheKey);
                     packGenerationPromises.delete(normalizedCacheKey);
                 }
             })();
 
             packGenerationPromises.set(normalizedCacheKey, generationPromise);
+        } else {
+            // Generation already in progress for this cacheKey
+            // It's already registered, so we just await the existing promise
         }
 
         const responsePayload = await packGenerationPromises.get(normalizedCacheKey)!;
