@@ -89,19 +89,6 @@ function buildLevelFolderName(node: PackDownloadNode, baseName: string): string 
     return sanitizePathSegment(withId);
 }
 
-function addDirectoryToZip(zip: AdmZip, directoryPath: string, folderSet: Set<string>) {
-    const normalized = directoryPath.replace(/\\/g, '/').replace(/^\/+/, '');
-    if (!normalized) {
-        return;
-    }
-    const folderPath = normalized.endsWith('/') ? normalized : `${normalized}/`;
-    if (folderSet.has(folderPath)) {
-        return;
-    }
-    zip.addFile(folderPath, Buffer.alloc(0));
-    folderSet.add(folderPath);
-}
-
 function getFilenameFromDisposition(disposition?: string): string | null {
     if (!disposition) return null;
     const filenameStarMatch = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
@@ -392,20 +379,30 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             // Extract zip to target folder on disk
             await extractZipToFolder(zipPath, targetFolder);
 
+            // Delete temp zip file immediately after successful extraction to free up space
+            if (tempZipPath && tempZipPath !== existence.actualPath && fs.existsSync(tempZipPath)) {
+                try {
+                    await fs.promises.unlink(tempZipPath);
+                } catch (cleanupError) {
+                    logger.warn('Failed to cleanup temp zip file after extraction', {
+                        zipPath: tempZipPath,
+                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                    });
+                }
+            }
+
             context.successCount += 1;
             const relativeFolderName = parentPath
                 ? path.posix.join(parentPath, finalFolderName)
                 : finalFolderName;
             return { folderName: relativeFolderName, success: true };
         } finally {
-            // Clean up temp zip file if we created one (always, even on error)
-            if (tempZipPath && tempZipPath !== existence.actualPath) {
+            // Clean up temp zip file if extraction failed (fallback cleanup)
+            if (tempZipPath && tempZipPath !== existence.actualPath && fs.existsSync(tempZipPath)) {
                 try {
-                    if (fs.existsSync(tempZipPath)) {
-                        await fs.promises.unlink(tempZipPath);
-                    }
+                    await fs.promises.unlink(tempZipPath);
                 } catch (cleanupError) {
-                    logger.warn('Failed to cleanup temp zip file', {
+                    logger.warn('Failed to cleanup temp zip file in finally block', {
                         zipPath: tempZipPath,
                         error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
                     });
@@ -480,6 +477,19 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         // Extract zip to target folder on disk
         await extractZipToFolder(tempZipPath, targetFolder);
 
+        // Delete temp zip file immediately after successful extraction to free up space
+        if (tempZipPath && fs.existsSync(tempZipPath)) {
+            try {
+                await fs.promises.unlink(tempZipPath);
+                tempZipPath = null; // Mark as cleaned up to avoid double deletion
+            } catch (cleanupError) {
+                logger.warn('Failed to cleanup temp zip file after extraction', {
+                    tempZipPath,
+                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                });
+            }
+        }
+
         context.successCount += 1;
         const relativeFolderName = parentPath
             ? path.posix.join(parentPath, finalFolderName)
@@ -492,14 +502,12 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         });
         return { folderName: parentPath, success: false };
     } finally {
-        // Clean up temp zip file (always, even on error)
-        if (tempZipPath) {
+        // Clean up temp zip file if extraction failed (fallback cleanup)
+        if (tempZipPath && fs.existsSync(tempZipPath)) {
             try {
-                if (fs.existsSync(tempZipPath)) {
-                    await fs.promises.unlink(tempZipPath);
-                }
+                await fs.promises.unlink(tempZipPath);
             } catch (cleanupError) {
-                logger.warn('Failed to cleanup temp zip file from URL', {
+                logger.warn('Failed to cleanup temp zip file from URL in finally block', {
                     tempZipPath,
                     error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
                 });
