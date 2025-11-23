@@ -29,8 +29,8 @@ const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const PACK_DOWNLOAD_SPACES_PREFIX = 'pack-downloads';
-const PACK_DOWNLOAD_MAX_SIZE_BYTES = 25 * 1024 * 1024 * 1024; // 25GB hard limit
-const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 30 * 1024 * 1024 * 1024; // 30GB total concurrent limit
+const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 25GB hard limit
+const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 30GB total concurrent limit
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
