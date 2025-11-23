@@ -101,15 +101,6 @@ DirectiveAction.init(
   },
 );
 
-// Set up associations
-DirectiveAction.belongsTo(AnnouncementChannel, {
-  foreignKey: 'channelId',
-  as: 'channel',
-});
-
-DirectiveAction.belongsTo(AnnouncementRole, {
-  foreignKey: 'roleId',
-  as: 'role',
-});
+// Associations are defined in associations.ts
 
 export default DirectiveAction;

@@ -63,6 +63,32 @@ export default class Webhook {
       };
     }
 
+    // Filter out empty embeds (embeds with only empty fields array and no other properties)
+    if (endPayload.embeds && Array.isArray(endPayload.embeds)) {
+      endPayload.embeds = endPayload.embeds.filter((embed: any) => {
+        // Check if embed has any meaningful content
+        const hasContent = 
+          embed.title ||
+          embed.description ||
+          embed.author ||
+          embed.footer ||
+          embed.image ||
+          embed.thumbnail ||
+          embed.timestamp ||
+          embed.color ||
+          (embed.fields && embed.fields.length > 0) ||
+          embed.url;
+        return hasContent;
+      });
+
+      // Remove embeds array if it's empty after filtering
+      if (endPayload.embeds.length === 0) {
+        endPayload.embeds = undefined;
+      }
+    } else if (endPayload.embeds && endPayload.embeds.length === 0) {
+      endPayload.embeds = undefined;
+    }
+
     try {
       const res = await sendWebhook(this.hookURL, endPayload);
 
@@ -72,6 +98,8 @@ export default class Webhook {
 
         setTimeout(() => sendWebhook(this.hookURL, endPayload), waitUntil);
       } else if (res.status !== 204) {
+        console.log(endPayload);
+        console.log(res);
         throw new Error(
           `Error sending webhook: ${res.status} status code. Response: ${await res.text()}`,
         );

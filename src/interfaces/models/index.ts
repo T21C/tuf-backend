@@ -234,6 +234,7 @@ export interface IAnnouncementRole {
   id?: number;
   roleId: string;
   label: string;
+  messageFormat?: string;
   isActive: boolean;
   createdAt?: Date;
   updatedAt?: Date;
@@ -272,9 +273,10 @@ export interface IAnnouncementDirective {
   triggerType: 'PASS' | 'LEVEL';
   condition: DirectiveCondition;
   isActive: boolean;
+  firstOfKind: boolean;
+  sortOrder: number;
   createdAt?: Date;
   updatedAt?: Date;
   actions?: DirectiveAction[];
-  firstOfKind: boolean;
 }
 

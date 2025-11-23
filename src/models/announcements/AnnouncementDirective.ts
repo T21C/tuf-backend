@@ -15,6 +15,7 @@ class AnnouncementDirective extends Model<IAnnouncementDirective> implements IAn
   declare condition: DirectiveCondition;
   declare isActive: boolean;
   declare firstOfKind: boolean;
+  declare sortOrder: number;
   declare createdAt: Date;
   declare updatedAt: Date;
   declare actions?: DirectiveAction[];
@@ -67,6 +68,11 @@ AnnouncementDirective.init(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
+    },
+    sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
     createdAt: {
       type: DataTypes.DATE,

@@ -333,16 +333,14 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       await transaction.commit();
 
       // Update player stats
-      if (updatedPass?.player) {
-        try {
-          await playerStatsService.updatePlayerStats([updatedPass.player.id]);
-        } catch (error) {
-          logger.error(`[Passes PUT] Error updating player stats for player ID: ${updatedPass.player.id}:`, error);
-        }
+      if (updatedPass?.player?.id) {
+        playerStatsService.updatePlayerStats([updatedPass.player.id]).catch(error => {
+          logger.error(`[Passes PUT] Error updating player stats for player ID: ${updatedPass?.player?.id}:`, error);
+        });
       }
 
       if (oldPass.levelId !== updatedPass?.levelId) {
-        await elasticsearchService.indexLevel(oldPass.levelId);
+        elasticsearchService.indexLevel(oldPass.levelId);
       }
 
       // Get player's new stats

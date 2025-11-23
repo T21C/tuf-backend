@@ -9,6 +9,7 @@ class AnnouncementRole extends Model<IAnnouncementRole> implements IAnnouncement
   declare id?: number;
   declare roleId: string;
   declare label: string;
+  declare messageFormat?: string;
   declare isActive: boolean;
   declare createdAt?: Date;
   declare updatedAt?: Date;
@@ -29,6 +30,10 @@ AnnouncementRole.init(
     label: {
       type: DataTypes.STRING,
       allowNull: false,
+    },
+    messageFormat: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
     },
     isActive: {
       type: DataTypes.BOOLEAN,

@@ -16,14 +16,15 @@ export function initializeAnnouncementsAssociations() {
     as: 'difficulty',
   });
 
-  // DirectiveAction associations
+  // DirectiveAction associations (aliases match DirectiveAction.ts definitions)
   DirectiveAction.belongsTo(AnnouncementChannel, {
     foreignKey: 'channelId',
-    as: 'announcementChannel',
+    as: 'channel',
   });
 
   DirectiveAction.belongsTo(AnnouncementRole, {
     foreignKey: 'roleId',
-    as: 'announcementRole',
+    as: 'role',
   });
+
 }

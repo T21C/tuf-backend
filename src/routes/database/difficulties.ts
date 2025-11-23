@@ -240,15 +240,31 @@ router.get('/roles', Auth.superAdminPassword(), async (req, res) => {
 // Create a new role
 router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
   try {
-    const { roleId, label } = req.body;
+    const { roleId, label, messageFormat } = req.body;
 
     if (!roleId || !label) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Validate messageFormat if provided
+    if (messageFormat) {
+      if (messageFormat.length > 500) {
+        return res.status(400).json({ error: 'Message format cannot exceed 500 characters' });
+      }
+      // Validate format contains at least one valid variable
+      const validVariables = ['{count}', '{difficultyName}', '{ping}', '{groupName}'];
+      const hasRequiredVariable = validVariables.some(v => messageFormat.includes(v));
+      if (!hasRequiredVariable) {
+        return res.status(400).json({ 
+          error: `Message format must contain at least one of: ${validVariables.join(', ')}` 
+        });
+      }
+    }
+
     const role = await AnnouncementRole.create({
       roleId,
       label,
+      messageFormat: messageFormat || null,
       isActive: true,
     });
 
@@ -263,7 +279,7 @@ router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
 router.put('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const roleId = req.params.id;
-    const { roleId: newRoleId, label } = req.body;
+    const { roleId: newRoleId, label, messageFormat } = req.body;
 
     if (!newRoleId || !label) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -280,9 +296,27 @@ router.put('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res
       return res.status(404).json({ error: 'Role not found' });
     }
 
+    // Validate messageFormat if provided
+    if (messageFormat !== undefined) {
+      if (messageFormat && messageFormat.length > 500) {
+        return res.status(400).json({ error: 'Message format cannot exceed 500 characters' });
+      }
+      if (messageFormat) {
+        // Validate format contains at least one valid variable
+        const validVariables = ['{count}', '{difficultyName}', '{ping}', '{groupName}'];
+        const hasRequiredVariable = validVariables.some(v => messageFormat.includes(v));
+        if (!hasRequiredVariable) {
+          return res.status(400).json({ 
+            error: `Message format must contain at least one of: ${validVariables.join(', ')}` 
+          });
+        }
+      }
+    }
+
     await role.update({
       roleId: newRoleId,
       label,
+      messageFormat: messageFormat !== undefined ? (messageFormat || null) : role.messageFormat,
     });
 
     return res.json({ message: 'Role updated successfully', role });
@@ -697,6 +731,7 @@ interface DirectiveInput {
   }[];
   isActive: boolean;
   firstOfKind: boolean;
+  sortOrder?: number;
 }
 
 // Get announcement directives for a difficulty
@@ -710,12 +745,13 @@ router.get('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req
       return res.status(404).json({ error: 'Difficulty not found' });
     }
 
-    // Get all active directives for this difficulty with related data
+    // Get all active directives for this difficulty with related data, ordered by sortOrder
     const directives = await AnnouncementDirective.findAll({
       where: {
         difficultyId: diffId,
         isActive: true,
       },
+      order: [['sortOrder', 'ASC'], ['id', 'ASC']],
       include: [{
         model: DirectiveAction,
         as: 'actions',
@@ -728,7 +764,7 @@ router.get('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req
           {
             model: AnnouncementRole,
             as: 'role',
-            attributes: ['id', 'roleId', 'label']
+            attributes: ['id', 'roleId', 'label', 'messageFormat']
           }
         ]
       }]
@@ -838,7 +874,7 @@ router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (re
 
     // Create new directives with their actions
     const createdDirectives = await Promise.all(
-      directives.map(async (directive) => {
+      directives.map(async (directive, index) => {
         const createdDirective = await AnnouncementDirective.create({
           difficultyId: id,
           name: directive.name,
@@ -848,14 +884,15 @@ router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (re
           condition: directive.condition as DirectiveCondition,
           isActive: directive.isActive,
           firstOfKind: directive.firstOfKind,
+          sortOrder: directive.sortOrder !== undefined ? directive.sortOrder : index,
           createdAt: new Date(),
           updatedAt: new Date(),
         }, { transaction });
 
         // Create actions for this directive
         await Promise.all(
-          directive.actions.map(action =>
-            DirectiveAction.create({
+          directive.actions.map(async (action) => {
+            const createdAction = await DirectiveAction.create({
               directiveId: createdDirective.id,
               channelId: action.channelId,
               pingType: action.pingType,
@@ -863,8 +900,10 @@ router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (re
               isActive: true,
               createdAt: new Date(),
               updatedAt: new Date(),
-            }, { transaction })
-          )
+            }, { transaction });
+
+            return createdAction;
+          })
         );
 
         return createdDirective;
@@ -890,7 +929,7 @@ router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (re
           {
             model: AnnouncementRole,
             as: 'role',
-            attributes: ['id', 'roleId', 'label']
+            attributes: ['id', 'roleId', 'label', 'messageFormat']
           }
         ]
       }]
