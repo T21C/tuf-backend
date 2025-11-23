@@ -21,22 +21,17 @@ export interface MessageFormatConfig {
   directiveSortOrder: number; // Added to track directive priority
 }
 
-interface AnnouncementConfig {
-  webhooks: {
-    [key: string]: string; // channel label -> webhook URL
-  };
-  pings: {
-    [key: string]: string; // channel label -> ping content (for backwards compatibility, default ping)
-  };
-  directiveIds?: {
-    [key: string]: number[]; // channel label -> array of directive ids (changed to array)
-  };
-  actionIds?: {
-    [key: string]: number[]; // channel label -> array of action ids (changed to array)
-  };
-  messageFormats?: {
-    [key: string]: MessageFormatConfig[]; // channel label -> array of message format configs
-  };
+export interface AnnouncementChannelConfig {
+  label: string;
+  webhookUrl: string;
+  ping?: string; // ping content (for backwards compatibility, default ping)
+  directiveIds?: number[]; // array of directive ids
+  actionIds?: number[]; // array of action ids
+  messageFormats?: MessageFormatConfig[]; // array of message format configs
+}
+
+export interface AnnouncementConfig {
+  channels: AnnouncementChannelConfig[];
 }
 
 
@@ -219,7 +214,6 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
       // If no pass/level provided, include first directive with actions
       if (directive.actions && directive.actions.length > 0) {
         matchingDirectives.push(directive);
-        logger.debug(`[Directive Match] Pass/Level not provided, using first directive: ${directive.id} (sortOrder: ${directive.sortOrder})`);
         break; // Only return first when no pass/level
       }
       continue;
@@ -231,7 +225,6 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
     if (directive.firstOfKind) {
       const conditionMet = await hasConditionBeenMetBefore(level, pass, directive.condition);
       if (conditionMet) {
-        logger.debug(`[Directive Match] Directive ${directive.id} (firstOfKind) skipped - condition met before for level ${level.id}`);
         continue; // Skip this directive if the condition was met before for this level
       }
 
@@ -241,24 +234,16 @@ async function getAnnouncementDirectives(difficultyId: number, triggerType: 'PAS
         await recordConditionMet(level.id, directive.condition);
       }
       matches = isMet;
-      if (matches) {
-        logger.debug(`[Directive Match] Directive ${directive.id} (firstOfKind) MATCHED for pass ${pass.id}, level ${level.id}`);
-      }
     } else {
       matches = evaluateCondition(directive.condition, pass, level);
-      if (matches) {
-        logger.debug(`[Directive Match] Directive ${directive.id} (sortOrder: ${directive.sortOrder}) MATCHED for pass ${pass.id}, level ${level.id}`);
-      }
     }
 
     // Add matching directive if it has actions
     if (matches && directive.actions && directive.actions.length > 0) {
       matchingDirectives.push(directive);
-      logger.debug(`[Directive Match] Added directive ${directive.id} with ${directive.actions.length} action(s)`);
     }
   }
 
-  logger.debug(`[Directive Match] Total matching directives for pass ${pass?.id || 'N/A'}, level ${level?.id || 'N/A'}: ${matchingDirectives.length}`);
   return matchingDirectives;
 }
 
@@ -267,14 +252,11 @@ export async function getLevelAnnouncementConfig(
 ): Promise<AnnouncementConfig> {
   const difficulty = level?.difficulty;
   if (!difficulty) {
-    return {webhooks: {}, pings: {}};
+    return {channels: []};
   }
 
   const directives = await getAnnouncementDirectives(difficulty.id, 'LEVEL', undefined, level);
-  const config: AnnouncementConfig = {
-    webhooks: {},
-    pings: {},
-  };
+  const channels: AnnouncementChannelConfig[] = [];
 
   // Track channels that have been processed
   const processedChannels = new Set<string>();
@@ -294,76 +276,65 @@ export async function getLevelAnnouncementConfig(
       // Mark this channel as processed
       processedChannels.add(channelLabel);
 
-      config.webhooks[channelLabel] = action.channel.webhookUrl;
+      const channelConfig: AnnouncementChannelConfig = {
+        label: channelLabel,
+        webhookUrl: action.channel.webhookUrl,
+      };
 
       if (action.pingType === 'EVERYONE') {
-        config.pings[channelLabel] = '@everyone';
+        channelConfig.ping = '@everyone';
       } else if (action.pingType === 'ROLE' && action.role?.roleId) {
-        config.pings[channelLabel] = `<@&${action.role.roleId}>`;
+        channelConfig.ping = `<@&${action.role.roleId}>`;
       }
+
+      channels.push(channelConfig);
     }
   }
 
-  return config;
+  return {channels};
 }
 
 
 export async function getPassAnnouncementConfig(pass: Pass): Promise<AnnouncementConfig> {
   const difficulty = pass.level?.difficulty;
   if (!difficulty) {
-    return {webhooks: {}, pings: {}};
+    return {channels: []};
   }
 
   const directives = await getAnnouncementDirectives(difficulty.id, 'PASS', pass, pass.level);
-  const config: AnnouncementConfig = {
-    webhooks: {},
-    pings: {},
-    directiveIds: {},
-    actionIds: {},
-    messageFormats: {},
-  };
-
-  // Track channels that have been processed (for non-formatted messages)
-  const processedChannels = new Set<string>();
+  const channelsMap = new Map<string, AnnouncementChannelConfig>();
 
   // Process ALL matching directives in order of priority (sortOrder)
   // Multiple directives can match the same pass (e.g., PP directive + U9 directive)
-  logger.debug(`[Config Build] Processing ${directives.length} matching directive(s) for pass ${pass.id}`);
-  
   for (const directive of directives) {
     if (!directive.actions) {
-      logger.debug(`[Config Build] Directive ${directive.id} has no actions, skipping`);
       continue;
     }
-
-    logger.debug(`[Config Build] Processing directive ${directive.id} (sortOrder: ${directive.sortOrder}) with ${directive.actions.length} action(s)`);
 
     for (const action of directive.actions) {
       if (!action.channel) continue;
 
       const channelLabel = action.channel.label;
 
-      // Set webhook URL
-      config.webhooks[channelLabel] = action.channel.webhookUrl;
+      // Get or create channel config
+      let channelConfig = channelsMap.get(channelLabel);
+      if (!channelConfig) {
+        channelConfig = {
+          label: channelLabel,
+          webhookUrl: action.channel.webhookUrl,
+          directiveIds: [],
+          actionIds: [],
+          messageFormats: [],
+        };
+        channelsMap.set(channelLabel, channelConfig);
+      }
 
-      // Store directive ID and action ID as arrays (multiple directives per channel)
-      if (!config.directiveIds) {
-        config.directiveIds = {};
+      // Store directive ID and action ID
+      if (directive.id && !channelConfig.directiveIds!.includes(directive.id)) {
+        channelConfig.directiveIds!.push(directive.id);
       }
-      if (!config.actionIds) {
-        config.actionIds = {};
-      }
-      if (!config.directiveIds[channelLabel]) {
-        config.directiveIds[channelLabel] = [];
-      }
-      if (!config.actionIds[channelLabel]) {
-        config.actionIds[channelLabel] = [];
-      }
-      if (directive.id && !config.directiveIds[channelLabel].includes(directive.id)) {
-        config.directiveIds[channelLabel].push(directive.id);
-      }
-      if (action.id && !config.actionIds[channelLabel].includes(action.id)) {
-        config.actionIds[channelLabel].push(action.id);
+      if (action.id && !channelConfig.actionIds!.includes(action.id)) {
+        channelConfig.actionIds!.push(action.id);
       }
 
       // Check if action has ROLE ping type - use messageFormat or default
@@ -371,16 +342,9 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
         // Use role's messageFormat or default format (note: count is lowercase in template but uppercase in render)
         const messageFormat = action.role.messageFormat || '{count} New {difficultyName} clears {ping}';
         
-        if (!config.messageFormats) {
-          config.messageFormats = {};
-        }
-        if (!config.messageFormats[channelLabel]) {
-          config.messageFormats[channelLabel] = [];
-        }
-
         const ping = action.role.roleId ? `<@&${action.role.roleId}>` : '';
 
-        config.messageFormats[channelLabel].push({
+        channelConfig.messageFormats!.push({
           messageFormat,
           ping,
           roleId: action.role.id!,
@@ -389,28 +353,18 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
           directiveSortOrder: directive.sortOrder || 0,
         });
 
-        logger.debug(`[Config Build] Added ROLE message format for channel "${channelLabel}": "${messageFormat}" with ping ${ping} (directive ${directive.id}, role ${action.role.id})`);
       } else if (action.pingType === 'EVERYONE') {
-        // EVERYONE ping - use legacy ping system
-        if (!processedChannels.has(channelLabel)) {
-          processedChannels.add(channelLabel);
-          config.pings[channelLabel] = '@everyone';
-          logger.debug(`[Config Build] Added EVERYONE ping for channel "${channelLabel}" (directive ${directive.id})`);
+        // EVERYONE ping - set ping if not already set
+        if (!channelConfig.ping) {
+          channelConfig.ping = '@everyone';
         }
       } else {
         // No ping or NONE ping type - no action needed
-        logger.debug(`[Config Build] Action ${action.id} has pingType "${action.pingType}", no ping added`);
       }
     }
   }
 
-  logger.debug(`[Config Build] Final config for pass ${pass.id}: ${Object.keys(config.webhooks).length} channel(s), ${Object.keys(config.messageFormats || {}).length} channel(s) with message formats`);
-  return config;
+  const channels = Array.from(channelsMap.values());
+  return {channels};
 }
 
-// Helper function to format pings for Discord
-export function formatPings(config: AnnouncementConfig): {
-  [key: string]: string;
-} {
-  return config.pings;
-}
