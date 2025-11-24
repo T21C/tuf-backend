@@ -341,7 +341,7 @@ async function sendMessages(channel: ChannelMessages, message?: string): Promise
       if (textMessage) {
         const plainTextMessage = new MessageBuilder().setText(textMessage);
         await hook.send(plainTextMessage);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     } else if (msg.type === 'embeds' && msg.embeds && msg.embeds.length > 0) {
       // Send embed batch
@@ -354,7 +354,7 @@ async function sendMessages(channel: ChannelMessages, message?: string): Promise
       }
       
       await hook.send(combinedEmbed);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 }
