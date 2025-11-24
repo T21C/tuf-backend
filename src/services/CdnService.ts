@@ -7,6 +7,8 @@ import { getFileIdFromCdnUrl } from '../utils/Utility.js';
 
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
+const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR'];
+
 export class CdnError extends Error {
     constructor(
         message: string,
@@ -64,31 +66,12 @@ class CdnService {
 
             return response.data;
         } catch (error) {
-            if (error instanceof AxiosError && error.response?.data) {
-                const errorData = error.response.data;
-                if (errorData.code !== 'VALIDATION_ERROR') {
-                    logger.error('Failed to upload image to CDN:', {
-                        error: errorData.error || 'Failed to upload image',
-                        code: errorData.code || 'UPLOAD_ERROR',
-                        details: errorData.details,
-                        timestamp: new Date().toISOString()
-                    });
-                }
-                throw new CdnError(
-                    errorData.error || 'Failed to upload image',
-                    errorData.code || 'UPLOAD_ERROR',
-                    errorData.details
-                );
-            }
-
-            logger.error('Failed to upload image to CDN:', {
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date().toISOString()
-            });
-            throw new CdnError(
+            this.handleCdnError(
+                error,
+                `upload ${type.toLowerCase()} image to CDN`,
                 `Failed to upload ${type.toLowerCase()} image`,
                 'UPLOAD_ERROR',
-                { originalError: error instanceof Error ? error.message : String(error) }
+                ['VALIDATION_ERROR']
             );
         }
     }
@@ -118,29 +101,11 @@ class CdnService {
 
             return response.data;
         } catch (error) {
-            if (error instanceof AxiosError && error.response?.data) {
-                const errorData = error.response.data;
-                logger.error('Failed to upload curation icon to CDN:', {
-                    error: errorData.error || 'Failed to upload curation icon',
-                    code: errorData.code || 'UPLOAD_ERROR',
-                    details: errorData.details,
-                    timestamp: new Date().toISOString()
-                });
-                throw new CdnError(
-                    errorData.error || 'Failed to upload curation icon',
-                    errorData.code || 'UPLOAD_ERROR',
-                    errorData.details
-                );
-            }
-
-            logger.error('Failed to upload curation icon to CDN:', {
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date().toISOString()
-            });
-            throw new CdnError(
+            this.handleCdnError(
+                error,
+                'upload curation icon to CDN',
                 'Failed to upload curation icon',
-                'UPLOAD_ERROR',
-                { originalError: error instanceof Error ? error.message : String(error) }
+                'UPLOAD_ERROR'
             );
         }
     }
@@ -170,29 +135,11 @@ class CdnService {
 
             return response.data;
         } catch (error) {
-            if (error instanceof AxiosError && error.response?.data) {
-                const errorData = error.response.data;
-                logger.error('Failed to upload level thumbnail to CDN:', {
-                    error: errorData.error || 'Failed to upload level thumbnail',
-                    code: errorData.code || 'UPLOAD_ERROR',
-                    details: errorData.details,
-                    timestamp: new Date().toISOString()
-                });
-                throw new CdnError(
-                    errorData.error || 'Failed to upload level thumbnail',
-                    errorData.code || 'UPLOAD_ERROR',
-                    errorData.details
-                );
-            }
-
-            logger.error('Failed to upload level thumbnail to CDN:', {
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date().toISOString()
-            });
-            throw new CdnError(
+            this.handleCdnError(
+                error,
+                'upload level thumbnail to CDN',
                 'Failed to upload level thumbnail',
-                'UPLOAD_ERROR',
-                { originalError: error instanceof Error ? error.message : String(error) }
+                'UPLOAD_ERROR'
             );
         }
     }
@@ -222,29 +169,11 @@ class CdnService {
 
             return response.data;
         } catch (error) {
-            if (error instanceof AxiosError && error.response?.data) {
-                const errorData = error.response.data;
-                logger.error('Failed to upload pack icon to CDN:', {
-                    error: errorData.error || 'Failed to upload pack icon',
-                    code: errorData.code || 'UPLOAD_ERROR',
-                    details: errorData.details,
-                    timestamp: new Date().toISOString()
-                });
-                throw new CdnError(
-                    errorData.error || 'Failed to upload pack icon',
-                    errorData.code || 'UPLOAD_ERROR',
-                    errorData.details
-                );
-            }
-
-            logger.error('Failed to upload pack icon to CDN:', {
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date().toISOString()
-            });
-            throw new CdnError(
+            this.handleCdnError(
+                error,
+                'upload pack icon to CDN',
                 'Failed to upload pack icon',
-                'UPLOAD_ERROR',
-                { originalError: error instanceof Error ? error.message : String(error) }
+                'UPLOAD_ERROR'
             );
         }
     }
@@ -295,27 +224,11 @@ class CdnService {
                 metadata: response.data.metadata
             };
         } catch (error) {
-            if (error instanceof AxiosError && error.response?.data) {
-                const errorData = error.response.data;
-                throw new CdnError(
-                    errorData.error || 'Failed to upload level zip',
-                    errorData.code || 'UPLOAD_ERROR',
-                    {
-                        ...errorData.details,
-                        originalError: errorData.error,
-                        status: error.response.status,
-                        responseData: errorData
-                    }
-                );
-            }
-
-            throw new CdnError(
+            this.handleCdnError(
+                error,
+                'upload level zip to CDN',
                 'Failed to upload level zip',
-                'UPLOAD_ERROR',
-                {
-                    originalError: error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : undefined
-                }
+                'UPLOAD_ERROR'
             );
         }
     }
@@ -341,9 +254,12 @@ class CdnService {
             });
             return Buffer.from(response.data);
         } catch (error) {
-            throw new CdnError('Failed to get file', 'GET_FILE_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
-            });
+            this.handleCdnError(
+                error,
+                'get file from CDN',
+                'Failed to get file',
+                'GET_FILE_ERROR'
+            );
         }
     }
 
@@ -442,9 +358,12 @@ class CdnService {
             const response = await this.client.get(`/${fileId}/metadata`);
             return response.data;
         } catch (error) {
-            throw new CdnError('Failed to get file metadata', 'GET_FILE_METADATA_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
-            });
+            this.handleCdnError(
+                error,
+                'get file metadata from CDN',
+                'Failed to get file metadata',
+                'GET_FILE_METADATA_ERROR'
+            );
         }
     }
 
@@ -463,9 +382,12 @@ class CdnService {
             const response = await this.client.get(`/zips/${fileId}/levels`);
             return response.data.levels;
         } catch (error) {
-            throw new CdnError('Failed to get level files', 'GET_FILES_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
-            });
+            this.handleCdnError(
+                error,
+                'get level files from CDN',
+                'Failed to get level files',
+                'GET_FILES_ERROR'
+            );
         }
     }
 
@@ -478,10 +400,14 @@ class CdnService {
             const response = await this.client.get(`/levels/${fileId}/levelData?modes=${modes?.join(',')}`);
             return response.data;
         } catch (error) {
-            throw new CdnError('Failed to get level data', 'GET_LEVEL_DATA_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error),
-                modes: modes?.join(',')
-            });
+            this.handleCdnError(
+                error,
+                'get level data from CDN',
+                'Failed to get level data',
+                'GET_LEVEL_DATA_ERROR',
+                [],
+                { modes: modes?.join(',') }
+            );
         }
     }
 
@@ -496,9 +422,12 @@ class CdnService {
             });
             return response.data;
         } catch (error) {
-            throw new CdnError('Failed to set target level', 'SET_TARGET_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
-            });
+            this.handleCdnError(
+                error,
+                'set target level in CDN',
+                'Failed to set target level',
+                'SET_TARGET_ERROR'
+            );
         }
     }
 
@@ -523,29 +452,11 @@ class CdnService {
             const response = await this.client.post('/zips/packs/generate', request);
             return response.data;
         } catch (error) {
-            if (error instanceof AxiosError && error.response?.data) {
-                const errorData = error.response.data;
-                logger.error('Failed to generate pack download from CDN:', {
-                    error: errorData.error || 'Failed to generate pack download',
-                    code: errorData.code || 'PACK_DOWNLOAD_ERROR',
-                    details: errorData.details,
-                    timestamp: new Date().toISOString()
-                });
-                throw new CdnError(
-                    errorData.error || 'Failed to generate pack download',
-                    errorData.code || 'PACK_DOWNLOAD_ERROR',
-                    errorData.details
-                );
-            }
-
-            logger.error('Failed to generate pack download from CDN:', {
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date().toISOString()
-            });
-            throw new CdnError(
+            this.handleCdnError(
+                error,
+                'generate pack download from CDN',
                 'Failed to generate pack download',
-                'PACK_DOWNLOAD_ERROR',
-                { originalError: error instanceof Error ? error.message : String(error) }
+                'PACK_DOWNLOAD_ERROR'
             );
         }
     }
@@ -559,10 +470,79 @@ class CdnService {
 
             return response.data;
         } catch (error) {
-            throw new CdnError('Failed to add level metadata', 'ADD_LEVEL_METADATA_ERROR', {
-                originalError: error instanceof Error ? error.message : String(error)
-            });
+            this.handleCdnError(
+                error,
+                'get bulk level metadata from CDN',
+                'Failed to add level metadata',
+                'ADD_LEVEL_METADATA_ERROR'
+            );
         }
+    }
+
+    /**
+     * Unified error handler for CDN service errors.
+     * Converts Axios errors to CdnError and handles ignored error codes.
+     * 
+     * @param error - The error to handle
+     * @param operation - Name of the operation (for logging)
+     * @param defaultMessage - Default error message if error data is not available
+     * @param defaultCode - Default error code if error data is not available
+     * @param additionalIgnoredCodes - Additional error codes to ignore (beyond IGNORED_ERROR_CODES)
+     * @param customDetails - Additional details to include in the error
+     * @throws CdnError - Always throws a CdnError
+     */
+    private handleCdnError(
+        error: unknown,
+        operation: string,
+        defaultMessage: string,
+        defaultCode: string = 'CDN_ERROR',
+        additionalIgnoredCodes: string[] = [],
+        customDetails?: any
+    ): never {
+        const allIgnoredCodes = [...IGNORED_ERROR_CODES, ...additionalIgnoredCodes];
+
+        if (error instanceof AxiosError && error.response?.data) {
+            const errorData = error.response.data;
+            const errorCode = errorData.code || defaultCode;
+            const errorMessage = errorData.error || defaultMessage;
+            const shouldLog = !allIgnoredCodes.includes(errorCode);
+
+            if (shouldLog) {
+                logger.error(`Failed to ${operation}:`, {
+                    error: errorMessage,
+                    code: errorCode,
+                    details: errorData.details,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            throw new CdnError(
+                errorMessage,
+                errorCode,
+                {
+                    ...errorData.details,
+                    ...customDetails,
+                    status: error.response.status,
+                    responseData: errorData
+                }
+            );
+        }
+
+        // Handle non-Axios errors or Axios errors without response data
+        logger.error(`Failed to ${operation}:`, {
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString()
+        });
+
+        throw new CdnError(
+            defaultMessage,
+            defaultCode,
+            {
+                originalError: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                ...customDetails
+            }
+        );
     }
 
     private getContentType(filename: string): string {

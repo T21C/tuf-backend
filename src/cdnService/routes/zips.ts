@@ -1208,7 +1208,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         if (sizeEstimate.totalSize > PACK_DOWNLOAD_MAX_SIZE_BYTES) {
             const sizeGB = (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2);
             const maxGB = (PACK_DOWNLOAD_MAX_SIZE_BYTES / (1024 * 1024 * 1024)).toFixed(0);
-            logger.warn('Pack download size exceeds limit', {
+            logger.debug('Pack download size exceeds limit', {
                 estimatedSize: sizeEstimate.totalSize,
                 estimatedSizeGB: sizeGB,
                 maxSizeGB: maxGB,
