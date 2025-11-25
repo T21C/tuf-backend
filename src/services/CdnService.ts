@@ -405,7 +405,7 @@ class CdnService {
                 'get level data from CDN, level id: ' + level?.id || 'unknown' + ' ',
                 'Failed to get level data',
                 'GET_LEVEL_DATA_ERROR',
-                ['File not found'],
+                [],
                 { modes: modes?.join(',') }
             );
         }
@@ -475,7 +475,7 @@ class CdnService {
                 'get bulk level metadata from CDN, levels: ' + levels.map(level => level.id).join(',') + ' ',
                 'Failed to get bulk level metadata',
                 'GET_BULK_LEVEL_METADATA_ERROR',
-                ['File not found'],
+                [],
                 { levels: levels.map(level => level.id).join(',') }
             );
         }
