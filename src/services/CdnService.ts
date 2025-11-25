@@ -31,6 +31,58 @@ class CdnService {
             baseURL: CDN_BASE_URL,
             timeout: 300000, // 30 seconds timeout for file uploads
         });
+
+        // Add retry interceptor for connection errors (ECONNRESET, etc.)
+        this.client.interceptors.response.use(
+            (response) => response,
+            async (error: AxiosError) => {
+                const config = error.config as any;
+                
+                // Check if this is a retryable connection error
+                const isRetryableError = 
+                    error.code === 'ECONNRESET' ||
+                    error.code === 'ECONNREFUSED' ||
+                    error.code === 'ETIMEDOUT' ||
+                    error.code === 'ENOTFOUND' ||
+                    error.message?.includes('ECONNRESET');
+
+                if (!isRetryableError || !config) {
+                    return Promise.reject(error);
+                }
+
+                // Initialize retry count
+                config.__retryCount = config.__retryCount || 0;
+                const maxRetries = 3;
+
+                if (config.__retryCount >= maxRetries) {
+                    logger.error('Max retries reached for connection error', {
+                        url: config.url,
+                        method: config.method,
+                        errorCode: error.code,
+                        totalAttempts: maxRetries
+                    });
+                    return Promise.reject(error);
+                }
+
+                config.__retryCount += 1;
+
+                // Exponential backoff: 1s, 2s, 4s
+                const delay = Math.pow(2, config.__retryCount - 1) * 1000;
+
+                logger.warn('Connection error, retrying request', {
+                    url: config.url,
+                    method: config.method,
+                    errorCode: error.code,
+                    attempt: config.__retryCount,
+                    maxRetries,
+                    delayMs: delay
+                });
+
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+                return this.client.request(config);
+            }
+        );
     }
 
     public static getInstance(): CdnService {

@@ -256,41 +256,69 @@ export async function getLevelAnnouncementConfig(
   }
 
   const directives = await getAnnouncementDirectives(difficulty.id, 'LEVEL', undefined, level);
-  const channels: AnnouncementChannelConfig[] = [];
+  const channelsMap = new Map<string, AnnouncementChannelConfig>();
 
-  // Track channels that have been processed
-  const processedChannels = new Set<string>();
-
-  // Process directives in order of priority (sortOrder)
+  // Process ALL matching directives in order of priority (sortOrder)
+  // Multiple directives can match the same level
   for (const directive of directives) {
-    if (!directive.actions) continue;
+    if (!directive.actions) {
+      continue;
+    }
 
     for (const action of directive.actions) {
       if (!action.channel) continue;
 
       const channelLabel = action.channel.label;
 
-      // Skip if this channel has already been processed
-      if (processedChannels.has(channelLabel)) continue;
-
-      // Mark this channel as processed
-      processedChannels.add(channelLabel);
-
-      const channelConfig: AnnouncementChannelConfig = {
-        label: channelLabel,
-        webhookUrl: action.channel.webhookUrl,
-      };
-
-      if (action.pingType === 'EVERYONE') {
-        channelConfig.ping = '@everyone';
-      } else if (action.pingType === 'ROLE' && action.role?.roleId) {
-        channelConfig.ping = `<@&${action.role.roleId}>`;
+      // Get or create channel config
+      let channelConfig = channelsMap.get(channelLabel);
+      if (!channelConfig) {
+        channelConfig = {
+          label: channelLabel,
+          webhookUrl: action.channel.webhookUrl,
+          directiveIds: [],
+          actionIds: [],
+          messageFormats: [],
+        };
+        channelsMap.set(channelLabel, channelConfig);
       }
 
-      channels.push(channelConfig);
+      // Store directive ID and action ID
+      if (directive.id && !channelConfig.directiveIds!.includes(directive.id)) {
+        channelConfig.directiveIds!.push(directive.id);
+      }
+      if (action.id && !channelConfig.actionIds!.includes(action.id)) {
+        channelConfig.actionIds!.push(action.id);
+      }
+
+      // Check if action has ROLE ping type - use messageFormat or default
+      if (action.pingType === 'ROLE' && action.role) {
+        // Use role's messageFormat or default format (note: count is lowercase in template but uppercase in render)
+        const messageFormat = action.role.messageFormat || '{count} New levels {ping}';
+        
+        const ping = action.role.roleId ? `<@&${action.role.roleId}>` : '';
+
+        channelConfig.messageFormats!.push({
+          messageFormat,
+          ping,
+          roleId: action.role.id!,
+          actionId: action.id!,
+          directiveId: directive.id!,
+          directiveSortOrder: directive.sortOrder || 0,
+        });
+
+      } else if (action.pingType === 'EVERYONE') {
+        // EVERYONE ping - set ping if not already set
+        if (!channelConfig.ping) {
+          channelConfig.ping = '@everyone';
+        }
+      } else {
+        // No ping or NONE ping type - no action needed
+      }
     }
   }
 
+  const channels = Array.from(channelsMap.values());
   return {channels};
 }
 

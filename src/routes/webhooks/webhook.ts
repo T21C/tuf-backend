@@ -39,7 +39,7 @@ const router: Router = express.Router();
 const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
 const botAvatar = process.env.BOT_AVATAR_URL || placeHolder;
 
-const UPDATE_PASSES_AFTER_ANNOUNCEMENT = env.NODE_ENV === 'production';
+const UPDATE_AFTER_ANNOUNCEMENT = env.NODE_ENV === 'production';
 
 // Interface for individual messages in a channel
 interface ChannelMessage {
@@ -579,7 +579,7 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
       }
 
       // Mark passes as announced after successful webhook sending
-      if (UPDATE_PASSES_AFTER_ANNOUNCEMENT) {
+      if (UPDATE_AFTER_ANNOUNCEMENT) {
         await Pass.update(
           { isAnnounced: true },
           { where: { id: { [Op.in]: passIds } } }
@@ -638,10 +638,12 @@ router.post('/levels', Auth.superAdmin(), async (req: Request, res: Response) =>
       }
 
       // Mark levels as announced after successful webhook sending
-      await Level.update(
-        { isAnnounced: true },
-        { where: { id: { [Op.in]: levelIds } } }
-      );
+      if (UPDATE_AFTER_ANNOUNCEMENT) {
+        await Level.update(
+          { isAnnounced: true },
+          { where: { id: { [Op.in]: levelIds } } }
+        );
+      }
 
       return res.json({success: true, message: 'Webhooks sent successfully'});
     } catch (error) {
@@ -724,10 +726,12 @@ router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) =
       await sendMessages(rerateChannel, ping);
 
       // Mark levels as announced after successful webhook sending
-      await Level.update(
-        { isAnnounced: true },
-        { where: { id: { [Op.in]: levelIds } } }
-      );
+      if (UPDATE_AFTER_ANNOUNCEMENT) {
+        await Level.update(
+          { isAnnounced: true },
+          { where: { id: { [Op.in]: levelIds } } }
+        );
+      }
 
       return res.json({success: true, message: 'Webhooks sent successfully'});
     } catch (error) {
