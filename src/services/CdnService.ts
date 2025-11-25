@@ -7,7 +7,7 @@ import { getFileIdFromCdnUrl } from '../utils/Utility.js';
 
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
-const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR'];
+const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR', 'read ECONNRESET'];
 
 export class CdnError extends Error {
     constructor(
@@ -360,7 +360,7 @@ class CdnService {
         } catch (error) {
             this.handleCdnError(
                 error,
-                'get file metadata from CDN',
+                'get file metadata from CDN, file id: ' + fileId + ' ',
                 'Failed to get file metadata',
                 'GET_FILE_METADATA_ERROR'
             );
@@ -402,10 +402,10 @@ class CdnService {
         } catch (error) {
             this.handleCdnError(
                 error,
-                'get level data from CDN',
+                'get level data from CDN, level id: ' + level?.id || 'unknown' + ' ',
                 'Failed to get level data',
                 'GET_LEVEL_DATA_ERROR',
-                [],
+                ['File not found'],
                 { modes: modes?.join(',') }
             );
         }
@@ -472,9 +472,11 @@ class CdnService {
         } catch (error) {
             this.handleCdnError(
                 error,
-                'get bulk level metadata from CDN',
-                'Failed to add level metadata',
-                'ADD_LEVEL_METADATA_ERROR'
+                'get bulk level metadata from CDN, levels: ' + levels.map(level => level.id).join(',') + ' ',
+                'Failed to get bulk level metadata',
+                'GET_BULK_LEVEL_METADATA_ERROR',
+                ['File not found'],
+                { levels: levels.map(level => level.id).join(',') }
             );
         }
     }
@@ -505,7 +507,7 @@ class CdnService {
             const errorData = error.response.data;
             const errorCode = errorData.code || defaultCode;
             const errorMessage = errorData.error || defaultMessage;
-            const shouldLog = !allIgnoredCodes.includes(errorCode);
+            const shouldLog = !allIgnoredCodes.includes(errorCode) && !allIgnoredCodes.includes(errorMessage);
 
             if (shouldLog) {
                 logger.error(`Failed to ${operation}:`, {
