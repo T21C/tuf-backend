@@ -69,7 +69,7 @@ class CdnService {
                 // Exponential backoff: 1s, 2s, 4s
                 const delay = Math.pow(2, config.__retryCount - 1) * 1000;
 
-                logger.warn('Connection error, retrying request', {
+                logger.debug('Connection error, retrying request', {
                     url: config.url,
                     method: config.method,
                     errorCode: error.code,

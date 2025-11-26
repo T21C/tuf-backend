@@ -211,7 +211,7 @@ router.get('/players', async (req, res) => {
         attributes: [
           'name',
           'country',
-          [fn('COUNT', literal('passes.id')), 'passCount'],
+          [fn('COUNT', col('passes.id')), 'passCount'],
         ],
         include: [
           {
