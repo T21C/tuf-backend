@@ -25,6 +25,7 @@ import crypto from 'crypto';
 import { logger } from '../../services/LoggerService.js';
 import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
+import CurationType from '../../models/curations/CurationType.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
@@ -36,13 +37,17 @@ async function calculateDifficultiesHash(): Promise<string> {
   try {
     const diffs = await Difficulty.findAll();
     const diffsList = diffs.map(diff => diff.toJSON());
+    const curationTypes = await CurationType.findAll();
+    const curationTypesList = curationTypes.map(type => type.toJSON());
 
     // Create a string representation of the difficulties
     const diffsString = JSON.stringify(diffsList);
+    const curationTypesString = JSON.stringify(curationTypesList);
 
     // Calculate hash
     const hash = crypto.createHash('sha256').update(diffsString).digest('hex');
-    return hash;
+    const curationTypesHash = crypto.createHash('sha256').update(curationTypesString).digest('hex');
+    return `${hash}-${curationTypesHash}` + (process.env.NODE_ENV==='development' ? `-${Date.now()}` : '');
   } catch (error) {
     logger.error('Error calculating difficulties hash:', error);
     return '';
