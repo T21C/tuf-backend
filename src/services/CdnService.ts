@@ -501,7 +501,7 @@ class CdnService {
         zipName: string;
     }> {
         try {
-            const response = await this.client.post('/zips/packs/generate', request);
+            const response = await this.client.post('/zips/packs/generate', request, {timeout: 600000}); // 10 minutes timeout
             return response.data;
         } catch (error) {
             this.handleCdnError(
