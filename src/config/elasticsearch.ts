@@ -225,6 +225,7 @@ export const levelMapping = {
               id: { type: 'integer' as const },
               name: {
                 type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
                 fields: {
                   keyword: {
                     type: 'keyword' as const,
@@ -239,6 +240,7 @@ export const levelMapping = {
                   creatorId: { type: 'long' as const },
                   name: {
                     type: 'text' as const,
+                    analyzer: 'custom_text_analyzer',
                     fields: {
                       keyword: {
                         type: 'keyword' as const,
@@ -255,12 +257,18 @@ export const levelMapping = {
         type: 'nested' as const,
         properties: {
           id: { type: 'integer' as const },
-          name: { type: 'text' as const },
+          name: { 
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer', 
+          },
           aliases: {
             type: 'nested' as const,
             properties: {
               id: { type: 'integer' as const },
-              name: { type: 'text' as const }
+              name: { 
+                type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
+              }
             }
           }
         }
@@ -315,8 +323,8 @@ export const passMapping = {
       isWorldsFirst: { type: 'boolean' as const },
       player: {
         properties: {
-          name: { type: 'text' as const },
-          username: { type: 'text' as const },
+          name: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
+          username: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
           country: { type: 'keyword' as const },
           isBanned: { type: 'boolean' as const },
           avatarUrl: { type: 'text' as const }
@@ -324,14 +332,14 @@ export const passMapping = {
       },
       level: {
         properties: {
-          song: { type: 'text' as const },
-          artist: { type: 'text' as const },
+          song: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
+          artist: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
           baseScore: { type: 'float' as const },
           diffId: { type: 'integer' as const },
           difficulty: {
             properties: {
               id: { type: 'integer' as const },
-              name: { type: 'keyword' as const },
+              name: { type: 'keyword' as const, analyzer: 'custom_text_analyzer' },
               type: { type: 'keyword' as const },
               sortOrder: { type: 'integer' as const }
             }

@@ -487,7 +487,7 @@ class ElasticsearchService {
         aliases: level.aliases?.map(alias => ({
           alias: convertToPUA(alias.alias)
         })),
-        creator: formatCreatorDisplay(level),
+        creator: convertToPUA(formatCreatorDisplay(level)),
         levelCredits: level.levelCredits?.map(credit => ({
           ...credit.get({ plain: true }),
           creator: credit.creator ? {
