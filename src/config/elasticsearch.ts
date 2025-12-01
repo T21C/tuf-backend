@@ -339,7 +339,7 @@ export const passMapping = {
           difficulty: {
             properties: {
               id: { type: 'integer' as const },
-              name: { type: 'keyword' as const, analyzer: 'custom_text_analyzer' },
+              name: { type: 'keyword' as const },
               type: { type: 'keyword' as const },
               sortOrder: { type: 'integer' as const }
             }
