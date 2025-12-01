@@ -239,6 +239,19 @@ const handleScoreRecalculations = async (
 
 // Update a level
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+  // Validate numerical fields before starting transaction
+  const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore'];
+  for (const field of numericFields) {
+    if (req.body[field] !== undefined && req.body[field] !== null) {
+      const parsed = Number(req.body[field]);
+      if (isNaN(parsed) || !isFinite(parsed)) {
+        return res.status(400).json({
+          error: `Invalid value for ${field}: must be a valid number`,
+        });
+      }
+    }
+  }
+
   const transaction = await sequelize.transaction({
     isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ,
   });
