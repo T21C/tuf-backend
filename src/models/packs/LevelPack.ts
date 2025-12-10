@@ -55,9 +55,8 @@ LevelPack.init(
       autoIncrement: true,
     },
     ownerId: {
-      type: DataTypes.STRING,
+      type: DataTypes.UUID,
       allowNull: false,
-      comment: 'Discord ID of the pack owner',
     },
     name: {
       type: DataTypes.STRING,

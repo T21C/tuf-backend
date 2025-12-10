@@ -141,7 +141,9 @@ export async function startServer() {
     // First, verify database connection
     await db.sequelize.authenticate();
 
+    logger.info('INIT_DB:', process.env.INIT_DB);
     if (process.env.INIT_DB === 'true'){
+      logger.info('Initializing database...');
       await db.sequelize.sync({force: true});
     }
     startConnectionMonitoring();
@@ -273,10 +275,11 @@ export async function startServer() {
     });
 
     // Start the server
+    const bindAddress = process.env.BIND_ADDRESS || '127.0.0.1';
     await new Promise<void>(resolve => {
-      httpServer.listen(Number(port), '127.0.0.1', () => {
+      httpServer.listen(Number(port), bindAddress, () => {
         logger.info(
-          `Server running on ${ownUrl} (${process.env.NODE_ENV} environment)`,
+          `Server running on ${bindAddress}:${port} (${process.env.NODE_ENV} environment)`,
         );
         resolve();
       });

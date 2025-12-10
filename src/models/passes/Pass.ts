@@ -169,7 +169,6 @@ Pass.init(
       {fields: ['isDuplicate']},
       {fields: ['isDeleted']},
       {fields: ['scoreV2']},
-      {fields: ['levelId']},
       {fields: ['accuracy']},
       //{fields: ['isHidden']},
     ],

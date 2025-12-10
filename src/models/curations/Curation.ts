@@ -92,9 +92,8 @@ Curation.init(
       allowNull: true,
     },
     assignedBy: {
-      type: DataTypes.STRING,
+      type: DataTypes.UUID,
       allowNull: false,
-      comment: 'Discord ID of the person who assigned this curation',
     },
     createdAt: {
       type: DataTypes.DATE,

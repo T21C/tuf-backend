@@ -57,7 +57,7 @@ class PassSubmissionFlags extends BaseModel {
 PassSubmission.init(
   {
     passer: {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
     passerId: {
@@ -74,7 +74,7 @@ PassSubmission.init(
       defaultValue: false,
     },
     videoLink: {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
     status: {

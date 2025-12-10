@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+jspm_packages/
+
+# Build outputs
+# dist/ - NOT ignored, we copy pre-built dist
+build/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime data
+uploads/
+cache/
+backups/
+temp/
+profiles/
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__/
+coverage/
+
+# Documentation
+*.md
+LICENSE
+
+# Local config
+nodemon.json
+.eslintrc.json
+.prettierrc.cjs
+.editorconfig
+.sequelizerc
+
+# Data files
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
+# Misc
+.DS_Store
+Thumbs.db
+*.sh
+__pycache__/
+.tsimp/

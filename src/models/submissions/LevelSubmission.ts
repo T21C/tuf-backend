@@ -35,11 +35,11 @@ class LevelSubmission extends BaseModel {
 LevelSubmission.init(
   {
     artist: {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
     charter: {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
     diff: {

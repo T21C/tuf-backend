@@ -267,7 +267,6 @@ Level.init(
     indexes: [
       {fields: [{name: 'song', length: 255}]},
       {fields: [{name: 'artist', length: 255}]},
-      {fields: [{name: 'charter', length: 255}]},
     ],
   },
 );

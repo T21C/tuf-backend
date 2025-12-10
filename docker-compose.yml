@@ -1,0 +1,187 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tuf-server
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3002}:3002"
+    environment:
+      # Environment
+      - NODE_ENV=${NODE_ENV:-production}
+      
+      # URLs and Ports - Development
+      - CLIENT_URL=${CLIENT_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - DEV_URL=http://0.0.0.0:3002
+      - BIND_ADDRESS=0.0.0.0
+      - PORT=3002
+      
+      # URLs and Ports - Staging
+      - STAGING_CLIENT_URL=${STAGING_CLIENT_URL}
+      - STAGING_API_URL=${STAGING_API_URL}
+      - STAGING_PORT=${STAGING_PORT:-3002}
+      
+      # URLs and Ports - Production
+      - PROD_CLIENT_URL=${PROD_CLIENT_URL}
+      - PROD_API_URL=${PROD_API_URL}
+      - PROD_PORT=${PROD_PORT:-3000}
+      
+      # Database Configuration
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_DATABASE=${DB_DATABASE:-tuf_website}
+      - DB_STAGING_DATABASE=${DB_STAGING_DATABASE:-tuf_website}
+      
+      # Discord Configuration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
+      - DISCORD_REDIRECT_URI=${DISCORD_REDIRECT_URI}
+      
+      # Google Configuration
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLOUD_PROJECT_ID=${GOOGLE_CLOUD_PROJECT_ID}
+      
+      # Webhook URLs
+      - RERATE_ANNOUNCEMENT_HOOK=${RERATE_ANNOUNCEMENT_HOOK}
+      - PLANETARY_LEVEL_ANNOUNCEMENT_HOOK=${PLANETARY_LEVEL_ANNOUNCEMENT_HOOK}
+      - GALACTIC_LEVEL_ANNOUNCEMENT_HOOK=${GALACTIC_LEVEL_ANNOUNCEMENT_HOOK}
+      - UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK=${UNIVERSAL_LEVEL_ANNOUNCEMENT_HOOK}
+      - CENSORED_LEVEL_ANNOUNCEMENT_HOOK=${CENSORED_LEVEL_ANNOUNCEMENT_HOOK}
+      - UNIVERSAL_CLEAR_ANNOUNCEMENT_HOOK=${UNIVERSAL_CLEAR_ANNOUNCEMENT_HOOK}
+      - PP_CLEAR_ANNOUNCEMENT_HOOK=${PP_CLEAR_ANNOUNCEMENT_HOOK}
+      - WF_CLEAR_ANNOUNCEMENT_HOOK=${WF_CLEAR_ANNOUNCEMENT_HOOK}
+      - LEVEL_SUBMISSION_HOOK=${LEVEL_SUBMISSION_HOOK}
+      - PASS_SUBMISSION_HOOK=${PASS_SUBMISSION_HOOK}
+      
+      # Role IDs
+      - UNIVERSAL_PING_ROLE_ID=${UNIVERSAL_PING_ROLE_ID}
+      - GALACTIC_PING_ROLE_ID=${GALACTIC_PING_ROLE_ID}
+      - PLANETARY_PING_ROLE_ID=${PLANETARY_PING_ROLE_ID}
+      - RERATE_PING_ROLE_ID=${RERATE_PING_ROLE_ID}
+      
+      # API Keys and Secrets
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - SUPER_ADMIN_KEY=${SUPER_ADMIN_KEY}
+      - RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY}
+      
+      # API Endpoints
+      - IMAGE_API=${IMAGE_API:-/v2/media/image-proxy}
+      - ICON_IMAGE_API=${ICON_IMAGE_API:-/v2/media/image}
+      - BILIBILI_API=${BILIBILI_API:-/v2/media/bilibili}
+      
+      # Placeholder Configuration
+      - PLACEHOLDER_PREFIX=${PLACEHOLDER_PREFIX}
+      - PLACEHOLDER_BODY=${PLACEHOLDER_BODY}
+      - PLACEHOLDER_POSTFIX=${PLACEHOLDER_POSTFIX}
+      
+      # Database Initialization
+      - APRIL_FOOLS=${APRIL_FOOLS:-false}
+      - INIT_DB="${INIT_DB:-false}"
+      - UPDATE_DB=${UPDATE_DB:-false}
+      
+      # Email Configuration
+      - MAILERSEND_API_TOKEN=${MAILERSEND_API_TOKEN}
+      
+      # API Docs
+      - API_DOCS_PORT=${API_DOCS_PORT:-3089}
+      - API_DOCS_URL=${API_DOCS_URL:-http://localhost:3089}
+      
+      # Paths (Docker container paths)
+      - THUMBNAILS_CACHE_PATH=/app/cache/thumbnails
+      - MYSQL_BACKUP_PATH=/app/backups/mysql
+      - FILES_BACKUP_PATH=/app/backups/files
+      - LOG_PATH=/app/logs
+      - TRANSLATIONS_PATH=/app/translations
+      
+      # Elasticsearch
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_NODE=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME:-elastic}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      
+      # CDN Configuration
+      - LOCAL_CDN_URL=${LOCAL_CDN_URL:-http://localhost:3001}
+      - CDN_URL=${CDN_URL:-http://localhost:3001}
+      - USER_CDN_ROOT=/app/cdn
+      - REPACK_CDN_ROOT=/app/cdn/repack
+      - STORAGE_DRIVES=/app/cdn
+      - STORAGE_THRESHOLD=${STORAGE_THRESHOLD:-99}
+      
+      # Digital Ocean Spaces
+      - DIGITAL_OCEAN_KEY=${DIGITAL_OCEAN_KEY}
+      - DIGITAL_OCEAN_SECRET=${DIGITAL_OCEAN_SECRET}
+      - DIGITAL_OCEAN_BUCKET=${DIGITAL_OCEAN_BUCKET}
+      - USE_SPACES_FOR_ZIPS=${USE_SPACES_FOR_ZIPS:-true}
+      - USE_SPACES_FOR_LEVELS=${USE_SPACES_FOR_LEVELS:-false}
+      
+      # Misc
+      - BOT_AVATAR_URL=${BOT_AVATAR_URL}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./cache:/app/cache
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+      - ./cdn:/app/cdn
+      - ./translations:/app/translations
+      - ./mapping-hash.json:/app/mapping-hash.json
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - tuf-network
+
+  mysql:
+    image: mysql:8.0
+    container_name: tuf-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=${DB_DATABASE:-tuf_website}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - tuf-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.1
+    container_name: tuf-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - tuf-network
+
+volumes:
+  mysql-data:
+  elasticsearch-data:
+
+networks:
+  tuf-network:
+    driver: bridge
