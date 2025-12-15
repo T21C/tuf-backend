@@ -132,7 +132,7 @@ setIO(io);
 // Socket connection handler
 io.on('connection', socket => {
   socket.on('disconnect', reason => {
-    logger.info('Socket disconnected:', reason);
+    logger.debug('Socket disconnected:', reason);
   });
 });
 
@@ -142,7 +142,6 @@ export async function startServer() {
     // First, verify database connection
     await db.sequelize.authenticate();
 
-    logger.info('INIT_DB:', process.env.INIT_DB);
     if (process.env.INIT_DB === 'true'){
       logger.info('Initializing database...');
       await db.sequelize.sync({force: true});
