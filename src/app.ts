@@ -17,6 +17,7 @@ import discordRouter from './routes/misc/discord.js';
 import eventsRouter from './routes/misc/events.js';
 import utilsRouter from './routes/misc/utils.js';
 import chunkedUploadRouter from './routes/misc/chunkedUpload.js';
+import cdnProgressRouter from './routes/misc/cdnProgress.js';
 import {PlayerStatsService} from './services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import healthRouter from './routes/misc/health.js';
@@ -189,6 +190,7 @@ export async function startServer() {
     app.use('/v2/utils', utilsRouter);
     app.use('/health', healthRouter);
     app.use('/v2/chunked-upload', chunkedUploadRouter);
+    app.use('/v2/cdn', cdnProgressRouter);
     // HTML meta tags middleware for specific routes BEFORE static files
     app.get(['/passes/:id', '/levels/:id', '/profile/:id'], htmlMetaMiddleware);
 

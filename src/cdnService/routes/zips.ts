@@ -28,7 +28,7 @@ const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.pack_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
-const PACK_DOWNLOAD_SPACES_PREFIX = 'pack-downloads';
+const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 25GB hard limit
 const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 30GB total concurrent limit
 
@@ -61,6 +61,21 @@ interface PackDownloadEntry {
 const packDownloadEntries = new Map<string, PackDownloadEntry>();
 const packCacheIndex = new Map<string, string>();
 const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
+
+// Progress tracking
+interface PackDownloadProgress {
+    downloadId: string;
+    cacheKey: string;
+    status: 'pending' | 'processing' | 'zipping' | 'uploading' | 'completed' | 'failed';
+    totalLevels: number;
+    processedLevels: number;
+    currentLevel?: string;
+    startedAt: number;
+    lastUpdated: number;
+    error?: string;
+}
+
+const packDownloadProgress = new Map<string, PackDownloadProgress>();
 
 // Queue system for managing concurrent pack generations
 interface ActiveGeneration {
@@ -180,6 +195,71 @@ function unregisterGeneration(cacheKey: string): void {
             // Can't fit this one yet, stop processing queue
             break;
         }
+    }
+}
+
+// Get main server URL for progress callbacks
+function getMainServerUrl(): string {
+    if (process.env.NODE_ENV === 'production') {
+        return process.env.PROD_API_URL || 'http://localhost:3000';
+    } else if (process.env.NODE_ENV === 'staging') {
+        return process.env.STAGING_API_URL || 'http://localhost:3000';
+    } else {
+        return process.env.DEV_URL || 'http://localhost:3002';
+    }
+}
+
+// Update progress and send to main server
+async function updateProgress(
+    downloadId: string,
+    cacheKey: string,
+    updates: Partial<Omit<PackDownloadProgress, 'downloadId' | 'cacheKey' | 'startedAt' | 'lastUpdated'>>
+): Promise<void> {
+    const existing = packDownloadProgress.get(downloadId);
+    if (!existing) {
+        return; // Progress not initialized yet
+    }
+
+    const updated: PackDownloadProgress = {
+        ...existing,
+        ...updates,
+        lastUpdated: Date.now()
+    };
+
+    packDownloadProgress.set(downloadId, updated);
+
+    // Send update to main server
+    await sendProgressUpdate(updated);
+}
+
+// Send progress update to main server
+async function sendProgressUpdate(progress: PackDownloadProgress): Promise<void> {
+    const mainServerUrl = getMainServerUrl();
+    const progressPercent = progress.totalLevels > 0
+        ? Math.round((progress.processedLevels / progress.totalLevels) * 100)
+        : 0;
+
+    const payload = {
+        downloadId: progress.downloadId,
+        cacheKey: progress.cacheKey,
+        status: progress.status,
+        totalLevels: progress.totalLevels,
+        processedLevels: progress.processedLevels,
+        currentLevel: progress.currentLevel,
+        progressPercent,
+        error: progress.error
+    };
+
+    try {
+        await axios.post(`${mainServerUrl}/v2/cdn/pack-progress`, payload, {
+            timeout: 5000 // 5 second timeout for progress updates
+        });
+    } catch (error) {
+        // Log error but don't fail the generation - progress is best-effort
+        logger.debug('Failed to send progress update to main server', {
+            downloadId: progress.downloadId,
+            error: error instanceof Error ? error.message : String(error)
+        });
     }
 }
 
@@ -311,6 +391,8 @@ interface PackGenerationContext {
     extractRoot: string;
     successCount: number;
     totalLevels: number;
+    downloadId: string;
+    cacheKey: string;
 }
 
 async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Promise<void> {
@@ -553,6 +635,13 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             const relativeFolderName = parentPath
                 ? path.posix.join(parentPath, finalFolderName)
                 : finalFolderName;
+            
+            // Update progress after successful level extraction
+            await updateProgress(context.downloadId, context.cacheKey, {
+                processedLevels: context.successCount,
+                currentLevel: finalFolderName
+            });
+            
             return { folderName: relativeFolderName, success: true };
         } finally {
             // Clean up temp zip file if extraction failed (fallback cleanup)
@@ -704,6 +793,13 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         const relativeFolderName = parentPath
             ? path.posix.join(parentPath, finalFolderName)
             : finalFolderName;
+        
+        // Update progress after successful level extraction
+        await updateProgress(context.downloadId, context.cacheKey, {
+            processedLevels: context.successCount,
+            currentLevel: finalFolderName
+        });
+        
         return { folderName: relativeFolderName, success: true };
     } catch (error) {
         logger.debug('Failed to download external level for pack generation', {
@@ -739,6 +835,17 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             }
         }
     }
+}
+
+// Count total levels in tree
+function countTotalLevels(node: PackDownloadNode): number {
+    if (node.type === 'folder') {
+        if (!Array.isArray(node.children)) {
+            return 0;
+        }
+        return node.children.reduce((total, child) => total + countTotalLevels(child), 0);
+    }
+    return 1; // Level node
 }
 
 async function processPackNode(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<void> {
@@ -790,21 +897,44 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
     const extractRoot = path.join(tempDir, 'extract');
     await fs.promises.mkdir(extractRoot, { recursive: true });
 
+    // Generate downloadId early for progress tracking
+    const downloadId = crypto.randomUUID();
+    
+    // Count total levels before processing
+    const totalLevels = countTotalLevels(tree);
+
     const context: PackGenerationContext = {
         tempDir,
         extractRoot,
         successCount: 0,
-        totalLevels: 0
+        totalLevels: 0, // Will be incremented during processing
+        downloadId,
+        cacheKey
     };
 
+    // Initialize progress tracking
+    const initialProgress: PackDownloadProgress = {
+        downloadId,
+        cacheKey,
+        status: 'processing',
+        totalLevels,
+        processedLevels: 0,
+        startedAt: Date.now(),
+        lastUpdated: Date.now()
+    };
+    packDownloadProgress.set(downloadId, initialProgress);
+    await sendProgressUpdate(initialProgress);
+
     let targetPath: string | null = null;
-    let downloadId: string | null = null;
 
     try {
         // Process all nodes and extract to disk
         await processPackNode(tree, '', context);
 
-        downloadId = crypto.randomUUID();
+        // Update progress: processing complete, now zipping
+        await updateProgress(downloadId, cacheKey, {
+            status: 'zipping'
+        });
         // Use UUID for local file to avoid conflicts
         const localZipFilename = `${downloadId}.zip`;
         targetPath = path.join(PACK_DOWNLOAD_DIR, localZipFilename);
@@ -848,6 +978,14 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
 
         let spacesKey: string | null = null;
         let responseUrl: string;
+        
+        // Update progress: uploading if using Spaces
+        if (spacesKeyFilename) {
+            await updateProgress(downloadId, cacheKey, {
+                status: 'uploading'
+            });
+        }
+        
         try {
             await spacesStorage.uploadFile(targetPath, spacesKeyFilename, 'application/zip', {
                 cacheKey,
@@ -903,6 +1041,12 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
         });
         packCacheIndex.set(cacheKey, downloadId);
 
+        // Update progress: completed
+        await updateProgress(downloadId, cacheKey, {
+            status: 'completed',
+            processedLevels: context.successCount
+        });
+
         logger.debug('Generated pack download zip', {
             downloadId,
             zipName,
@@ -916,6 +1060,14 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
 
         return response;
     } catch (error) {
+        // Update progress: failed
+        if (downloadId) {
+            await updateProgress(downloadId, cacheKey, {
+                status: 'failed',
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+        
         // Clean up targetPath if it was created but upload failed
         if (targetPath && fs.existsSync(targetPath)) {
             try {
@@ -1261,6 +1413,25 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                     }
 
                     if (url) {
+                        // Send completed progress event for cached download
+                        // This ensures frontend receives the completion status via WebSocket
+                        const cachedProgress: PackDownloadProgress = {
+                            downloadId: existingDownloadId,
+                            cacheKey: entry.cacheKey,
+                            status: 'completed',
+                            totalLevels: 0, // Unknown for cached, but status is what matters
+                            processedLevels: 0,
+                            startedAt: Date.now() - (entry.expiresAt - Date.now()), // Approximate
+                            lastUpdated: Date.now()
+                        };
+                        // Send progress update asynchronously (don't wait)
+                        sendProgressUpdate(cachedProgress).catch(error => {
+                            logger.debug('Failed to send cached download progress update', {
+                                downloadId: existingDownloadId,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                        });
+                        
                         return res.json({
                             downloadId: existingDownloadId,
                             url,
