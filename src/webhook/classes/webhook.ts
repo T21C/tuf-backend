@@ -98,8 +98,6 @@ export default class Webhook {
 
         setTimeout(() => sendWebhook(this.hookURL, endPayload), waitUntil);
       } else if (res.status !== 204) {
-        console.log(endPayload);
-        console.log(res);
         throw new Error(
           `Error sending webhook: ${res.status} status code. Response: ${await res.text()}`,
         );
