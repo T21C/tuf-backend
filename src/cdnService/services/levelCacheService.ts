@@ -3,7 +3,6 @@ import CdnFile from '../../models/cdn/CdnFile.js';
 import LevelDict, { analysisUtils, constants } from 'adofai-lib';
 import fs from 'fs';
 import dotenv from 'dotenv';
-import path from 'path';
 
 dotenv.config();
 
@@ -13,6 +12,7 @@ export interface LevelCacheData {
     settings?: any;
     analysis?: {
         containsDLC?: boolean;
+        dlcEvents?: string[];
         canDecorationsKill?: boolean;
         isJudgementLimited?: boolean;
         levelLengthInMs?: number;
@@ -71,7 +71,8 @@ class LevelCacheService {
             accessCount: true // accessCount is always available from file record
         };
 
-        if (!cacheData) {
+        // In development, always treat cache as empty
+        if (!cacheData || process.env.NODE_ENV === 'development') {
             return hits;
         }
 
@@ -156,6 +157,7 @@ class LevelCacheService {
             if (needsAnalysis) {
                 cacheData.analysis = {
                     containsDLC: analysisUtils.containsDLC(parsedLevelData),
+                    dlcEvents: analysisUtils.getDLCEvents(parsedLevelData),
                     canDecorationsKill: analysisUtils.canDecorationsKill(parsedLevelData),
                     isJudgementLimited: analysisUtils.isJudgementLimited(parsedLevelData),
                     levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),
@@ -163,6 +165,7 @@ class LevelCacheService {
                     requiredMods: analysisUtils.getRequiredMods(parsedLevelData)
                 };
             }
+            logger.debug('dlc events', {dlcEvents: analysisUtils.getDLCEvents(parsedLevelData)});
 
             // Update cache in database
             await file.update({ cacheData: JSON.stringify(cacheData) });
@@ -229,7 +232,7 @@ class LevelCacheService {
             (mode === 'analysis' && !cacheHits.analysis)
         );
 
-        if (needsPopulation || !cacheData) {
+        if (needsPopulation || !cacheData || process.env.NODE_ENV === 'development') {
             // Populate cache
             cacheData = await this.populateCache(file, levelPath, metadata, requestedModes, levelData);
             return { cacheData, wasPopulated: true };
@@ -277,6 +280,11 @@ class LevelCacheService {
             if (!fs.existsSync(targetLevel)) {
                 logger.error('Target level file not found:', { fileId, targetLevel });
                 return null;
+            }
+
+            // In development, always repopulate cache
+            if (process.env.NODE_ENV === 'development') {
+                return await this.populateCache(file, targetLevel, metadata);
             }
 
             // Check if cache needs population
@@ -332,6 +340,15 @@ class LevelCacheService {
             };
             accessCount: number;
         }> = {};
+
+        // In development, always return empty cache to force recalculation
+        if (process.env.NODE_ENV === 'development') {
+            // Only return accessCount as it's not cached
+            if (requestedModes.includes('accessCount')) {
+                response.accessCount = file.accessCount || 0;
+            }
+            return response;
+        }
 
         const cacheData = this.parseCacheData(file.cacheData);
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
