@@ -497,10 +497,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-router.delete(
-  '/:id',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const levelId = parseInt(req.params.id);
@@ -595,10 +592,7 @@ router.delete(
   },
 );
 
-router.patch(
-  '/:id/restore',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -679,10 +673,7 @@ router.patch(
 );
 
 // Toggle hidden status
-router.patch(
-  '/:id/toggle-hidden',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -734,10 +725,7 @@ router.patch(
   },
 );
 
-router.put(
-  '/:id/like',
-  Auth.verified(),
-  async (req: Request, res: Response) => {
+router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     if (!req.user) {
       await safeTransactionRollback(transaction);
@@ -823,10 +811,7 @@ router.put(
   },
 );
 
-router.put(
-  '/:id/rating-accuracy-vote',
-  Auth.verified(),
-  async (req: Request, res: Response) => {
+router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -961,10 +946,7 @@ router.put(
 );
 
 // Upload management endpoints
-router.post(
-  '/:id/upload',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1188,10 +1170,7 @@ router.post(
   },
 );
 
-router.post(
-  '/:id/select-level',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1239,10 +1218,7 @@ router.post(
   },
 );
 
-router.delete(
-  '/:id/upload',
-  Auth.superAdmin(),
-  async (req: Request, res: Response) => {
+router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
 
