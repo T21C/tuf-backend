@@ -20,7 +20,7 @@ export class CdnError extends Error {
     }
 }
 
-export type LevelMetadataTypes = 'settings' | 'actions' | 'decorations' | 'angles' | 'relativeAngles' | 'accessCount' | 'tilecount';
+export type LevelMetadataTypes = 'settings' | 'actions' | 'decorations' | 'angles' | 'relativeAngles' | 'accessCount' | 'tilecount' | 'analysis';
 
 class CdnService {
     private static instance: CdnService;

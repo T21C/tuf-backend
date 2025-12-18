@@ -35,8 +35,6 @@ export const corsOptions = {
     'http://localhost:5173',
     'https://tuforums.com',
     'https://api.tuforums.com',
-    'https://4p437dcj-5173.eun1.devtunnels.ms',
-    'https://4p437dcj-3002.eun1.devtunnels.ms',
   ],
   methods: [
     'GET',

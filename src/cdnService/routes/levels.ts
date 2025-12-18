@@ -11,6 +11,7 @@ import { hybridStorageManager, StorageType } from '../services/hybridStorageMana
 import LevelDict, { Action } from 'adofai-lib';
 import { levelCacheService } from '../services/levelCacheService.js';
 import { Op } from 'sequelize';
+import { constants } from 'adofai-lib';
 
 // Repack folder configuration
 const REPACK_FOLDER = path.join(CDN_CONFIG.user_root, 'repack');
@@ -660,6 +661,14 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         relativeAngles?: any;
         accessCount?: number;
         tilecount?: number;
+        analysis?: {
+            containsDLC?: boolean;
+            canDecorationsKill?: boolean;
+            isJudgementLimited?: boolean;
+            levelLengthInMs?: number;
+            vfxTier?: constants.VfxTier;
+            requiredMods?: string[];
+        };
     } = {};
     
     // If no modes specified, return full level data (no caching for this case)
@@ -684,29 +693,27 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     const cacheHits = levelCacheService.checkCacheHits(cacheData, requestedModes);
     
     // Determine if we need to load the level file
+    // Analysis requires the level file if not cached, but we can compute it during cache population
     const needsLevelFile = requestedModes.some(mode => 
         (mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles') ||
         (mode === 'settings' && !cacheHits.settings) ||
-        (mode === 'tilecount' && !cacheHits.tilecount)
+        (mode === 'tilecount' && !cacheHits.tilecount) ||
+        (mode === 'analysis' && !cacheHits.analysis)
     );
 
     let levelData: LevelDict | null = null;
 
     if (needsLevelFile) {
-        // Get cache with automatic population if needed
-        const { cacheData: updatedCache } = await levelCacheService.getCacheWithPopulation(
-            file,
-            targetLevel,
-            requestedModes,
-            metadata
-        );
-
-        // Only load level file if we need non-cached data
+        // Determine if we need non-cached data that requires level file loading
         const needsNonCachedData = requestedModes.some(mode => 
             mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles'
         );
+        
+        // If we need analysis but don't have it cached, we need to load the level file for cache population
+        const needsAnalysisAndNotCached = requestedModes.includes('analysis') && !cacheHits.analysis;
 
-        if (needsNonCachedData) {
+        // Load level file if needed for non-cached data or analysis
+        if (needsNonCachedData || needsAnalysisAndNotCached) {
             const safeToParse = metadata.targetSafeToParse || false;
             if (!safeToParse) {
                 levelData = new LevelDict(targetLevel);
@@ -717,12 +724,24 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
             }
         }
 
+        // Get cache with automatic population if needed (pass levelData to avoid re-parsing)
+        const { cacheData: updatedCache } = await levelCacheService.getCacheWithPopulation(
+            file,
+            targetLevel,
+            requestedModes,
+            metadata,
+            levelData || undefined
+        );
+
         // Build response using updated cache
         if (requestedModes.includes('settings')) {
             response.settings = updatedCache.settings;
         }
         if (requestedModes.includes('tilecount')) {
             response.tilecount = updatedCache.tilecount;
+        }
+        if (requestedModes.includes('analysis') && updatedCache.analysis) {
+            response.analysis = updatedCache.analysis;
         }
     } else {
         // All requested data is in cache, use cached values
