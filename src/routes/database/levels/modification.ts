@@ -29,6 +29,8 @@ import fs from 'fs';
 import path from 'path';
 import {cleanupUserUploads} from '../../misc/chunkedUpload.js';
 import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
+import LevelTag from '../../../models/levels/LevelTag.js';
+import {Op} from 'sequelize';
 import {permissionFlags} from '../../../config/constants.js';
 import {hasFlag} from '../../../utils/auth/permissionUtils.js';
 
@@ -383,6 +385,14 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
           as: 'difficulty',
           required: false,
         },
+        {
+          model: LevelTag,
+          as: 'tags',
+          required: false,
+          through: {
+            attributes: []
+          }
+        }
       ],
       transaction,
     });
@@ -741,6 +751,14 @@ router.patch(
             required: false,
             attributes: ['id'],
           },
+          {
+            model: LevelTag,
+            as: 'tags',
+            required: false,
+            through: {
+              attributes: []
+            }
+          }
         ],
         transaction,
       });

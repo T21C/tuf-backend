@@ -11,6 +11,8 @@ import Curation from '../curations/Curation.js';
 import { PassSubmission } from '../submissions/PassSubmission.js';
 import LevelPackItem from '../packs/LevelPackItem.js';
 import LevelPack from '../packs/LevelPack.js';
+import LevelTag from './LevelTag.js';
+import LevelTagAssignment from './LevelTagAssignment.js';
 
 export function initializeLevelsAssociations() {
   // Level <-> Difficulty associations
@@ -226,5 +228,53 @@ export function initializeLevelsAssociations() {
   Curation.belongsTo(Level, {
     foreignKey: 'levelId',
     as: 'level',
+  });
+
+  // Level <-> LevelTag associations (many-to-many through LevelTagAssignment)
+  Level.belongsToMany(LevelTag, {
+    through: LevelTagAssignment,
+    foreignKey: 'levelId',
+    otherKey: 'tagId',
+    as: 'tags',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTag.belongsToMany(Level, {
+    through: LevelTagAssignment,
+    foreignKey: 'tagId',
+    otherKey: 'levelId',
+    as: 'levels',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  // LevelTagAssignment associations
+  LevelTagAssignment.belongsTo(Level, {
+    foreignKey: 'levelId',
+    as: 'level',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTagAssignment.belongsTo(LevelTag, {
+    foreignKey: 'tagId',
+    as: 'tag',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  Level.hasMany(LevelTagAssignment, {
+    foreignKey: 'levelId',
+    as: 'tagAssignments',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  });
+
+  LevelTag.hasMany(LevelTagAssignment, {
+    foreignKey: 'tagId',
+    as: 'levelAssignments',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
   });
 }

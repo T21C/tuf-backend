@@ -295,6 +295,27 @@ export const levelMapping = {
               }
             }
         }
+      },
+      tags: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const }
+            }
+          },
+          icon: { type: 'text' as const },
+          color: { type: 'keyword' as const },
+          group: {
+            type: 'text' as const,
+            fields: {
+              keyword: { type: 'keyword' as const, ignore_above: 256 }
+            }
+          }
+        }
       }
     }
   }

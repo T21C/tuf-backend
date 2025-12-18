@@ -71,6 +71,7 @@ export interface ILevel extends IBaseModel {
   firstPass?: IPass | null;
   ratingAccuracy?: number;
   totalRatingAccuracyVotes?: number;
+  tags?: ILevelTag[];
 }
 
 // Pass interface
@@ -278,5 +279,13 @@ export interface IAnnouncementDirective {
   createdAt?: Date;
   updatedAt?: Date;
   actions?: DirectiveAction[];
+}
+
+// LevelTag interface
+export interface ILevelTag extends IBaseModel {
+  name: string;
+  icon: string | null; // Full CDN URL for icon
+  color: string; // Hex color code (e.g., "#FF5733")
+  group: string | null; // Optional group name for organizing tags
 }
 

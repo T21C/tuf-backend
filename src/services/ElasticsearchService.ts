@@ -11,6 +11,7 @@ import Level from '../models/levels/Level.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import LevelAlias from '../models/levels/LevelAlias.js';
 import LevelCredit from '../models/levels/LevelCredit.js';
+import LevelTag from '../models/levels/LevelTag.js';
 import Creator from '../models/credits/Creator.js';
 import Team from '../models/credits/Team.js';
 import Pass from '../models/passes/Pass.js';
@@ -27,6 +28,7 @@ import User from '../models/auth/User.js';
 import Curation from '../models/curations/Curation.js';
 import CurationType from '../models/curations/CurationType.js';
 import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '../utils/data/queryParser.js';
+import LevelTagAssignment from '../models/levels/LevelTagAssignment.js';
 
 const MAX_BATCH_SIZE = 4000;
 const BATCH_SIZE = 500;
@@ -112,6 +114,11 @@ class ElasticsearchService {
     Pass.removeHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate');
     Pass.removeHook('afterBulkCreate', 'elasticsearchPassBulkCreate');
     Level.removeHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate');
+    LevelTag.removeHook('afterBulkUpdate', 'elasticsearchLevelTagBulkUpdate');
+    LevelTagAssignment.removeHook('afterBulkCreate', 'elasticsearchLevelTagAssignmentBulkCreate');
+    LevelTagAssignment.removeHook('afterBulkDestroy', 'elasticsearchLevelTagAssignmentBulkDelete');
+    Curation.removeHook('beforeSave', 'elasticsearchCurationUpdate');
+    Curation.removeHook('afterBulkUpdate', 'elasticsearchCurationBulkUpdate');
 
     // Add hooks with unique names
     Pass.addHook('beforeSave', 'elasticsearchPassUpdate', async (pass: Pass, options: any) => {
@@ -263,8 +270,6 @@ class ElasticsearchService {
     });
 
     // Add hooks for Curation model
-    Curation.removeHook('beforeSave', 'elasticsearchCurationUpdate');
-    Curation.removeHook('afterBulkUpdate', 'elasticsearchCurationBulkUpdate');
 
     Curation.addHook('beforeSave', 'elasticsearchCurationUpdate', async (curation: Curation, options: any) => {
       logger.debug(`Curation saved hook triggered for curation ${curation.id} (level ${curation.levelId})`);
@@ -319,7 +324,40 @@ class ElasticsearchService {
         logger.error('Error in curation afterBulkUpdate hook:', error);
       }
     });
+
+    LevelTagAssignment.addHook('afterBulkCreate', 'elasticsearchLevelTagAssignmentBulkCreate', async (options: any) => {
+      logger.debug(`LevelTagAssignment bulk create hook triggered`, options[0].levelId);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            await this.reindexLevels([options[0].levelId]);
+          });
+        } else {
+          await this.reindexLevels([options[0].levelId]);
+        }
+      }
+      catch (error) {
+        logger.error('Error in level tag assignment afterBulkCreate hook:', error);
+      }
+    });
+
+    LevelTagAssignment.addHook('afterBulkDestroy', 'elasticsearchLevelTagAssignmentDestroy', async (options: any) => {
+      logger.debug(`LevelTagAssignment destroy hook triggered`, options.where.levelId);
+      try {
+        if (options.transaction) {
+          await options.transaction.afterCommit(async () => {
+            await this.reindexLevels([options.where.levelId]);
+          });
+        } else {
+          await this.reindexLevels([options.where.levelId]);
+        }
+      }
+      catch (error) {
+        logger.error('Error in level tag assignment afterDestroy hook:', error);
+      }
+    });
   }
+  
 
 
 
@@ -381,6 +419,14 @@ class ElasticsearchService {
         required: false,
         order: [['confirmedAt', 'DESC']] as any,
         attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
+      },
+      {
+        model: LevelTag,
+        as: 'tags',
+        required: false,
+        through: {
+          attributes: []
+        }
       }
     ];
 
@@ -436,6 +482,14 @@ class ElasticsearchService {
         model: LevelAlias,
         as: 'aliases',
         attributes: ['alias']
+      },
+      {
+        model: LevelTag,
+        as: 'tags',
+        required: false,
+        through: {
+          attributes: []
+        }
       }
     ]
   },
@@ -514,6 +568,13 @@ class ElasticsearchService {
           ...level.curation.get({ plain: true }),
         } : null,
         isCurated: !!level.curation,
+        tags: ((level as any).tags as LevelTag[] | undefined)?.map((tag: LevelTag) => ({
+          id: tag.id,
+          name: tag.name,
+          icon: tag.icon,
+          color: tag.color,
+          group: tag.group
+        })) || []
 
     };
   }
@@ -597,7 +658,6 @@ class ElasticsearchService {
   public async bulkIndexLevels(levels: Level[]): Promise<void> {
     try {
       const totalBatches = Math.ceil(levels.length / BATCH_SIZE);
-      logger.debug(`first level aliases`, levels[0].aliases);
       // Process in batches for Elasticsearch
       for (let i = 0; i < levels.length; i += BATCH_SIZE) {
         const batch = levels.slice(i, i + BATCH_SIZE);
@@ -894,6 +954,24 @@ class ElasticsearchService {
       return curationTypes.map(t => t.id);
     } catch (error) {
       logger.error('Error resolving curation types:', error);
+      return [];
+    }
+  }
+
+  private async resolveTags(tagNames?: string[]): Promise<number[]> {
+    try {
+      if (!tagNames?.length) return [];
+
+      const tags = await LevelTag.findAll({
+        where: {
+          name: { [Op.in]: tagNames },
+        },
+        attributes: ['id'],
+      });
+
+      return tags.map(t => t.id);
+    } catch (error) {
+      logger.error('Error resolving tags:', error);
       return [];
     }
   }
@@ -1297,6 +1375,34 @@ class ElasticsearchService {
                     minimum_should_match: 1
                   }
                 }
+              }
+            });
+          }
+        }
+      }
+
+      // Handle tags filter
+      if (filters.tagsFilter && filters.tagsFilter !== 'show') {
+        // Handle specific tag names (comma-separated)
+        const tagNames = filters.tagsFilter.split(',').map((name: string) => name.trim());
+        if (tagNames.length > 0) {
+          const tagIds = await this.resolveTags(tagNames);
+          if (tagIds.length > 0) {
+            // Require ALL selected tags to match (AND logic)
+            // Each tag requires a separate nested query since a single nested document can only have one tag ID
+            const tagQueries = tagIds.map(tagId => ({
+              nested: {
+                path: 'tags',
+                query: {
+                  term: { 'tags.id': tagId }
+                }
+              }
+            }));
+            
+            // All tag queries must match
+            must.push({
+              bool: {
+                must: tagQueries
               }
             });
           }

@@ -24,10 +24,30 @@ import { DirectiveParser } from '../../utils/data/directiveParser.js';
 import crypto from 'crypto';
 import { logger } from '../../services/LoggerService.js';
 import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
-import { safeTransactionRollback } from '../../utils/Utility.js';
+import { safeTransactionRollback, getFileIdFromCdnUrl, isCdnUrl } from '../../utils/Utility.js';
 import CurationType from '../../models/curations/CurationType.js';
+import LevelTag from '../../models/levels/LevelTag.js';
+import LevelTagAssignment from '../../models/levels/LevelTagAssignment.js';
+import cdnService, { CdnError } from '../../services/CdnService.js';
+import multer from 'multer';
 
 const playerStatsService = PlayerStatsService.getInstance();
+
+// Configure multer for tag icon uploads (memory storage)
+const tagIconUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit (matching TAG_ICON config)
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
 
 // Store the current hash of difficulties
 let difficultiesHash = '';
@@ -39,15 +59,18 @@ async function calculateDifficultiesHash(): Promise<string> {
     const diffsList = diffs.map(diff => diff.toJSON());
     const curationTypes = await CurationType.findAll();
     const curationTypesList = curationTypes.map(type => type.toJSON());
+    const tags = await LevelTag.findAll();
+    const tagsList = tags.map(tag => tag.toJSON());
 
     // Create a string representation of the difficulties
     const diffsString = JSON.stringify(diffsList);
     const curationTypesString = JSON.stringify(curationTypesList);
-
+    const tagsString = JSON.stringify(tagsList);
     // Calculate hash
     const hash = crypto.createHash('sha256').update(diffsString).digest('hex');
     const curationTypesHash = crypto.createHash('sha256').update(curationTypesString).digest('hex');
-    return `${hash}-${curationTypesHash}` + (process.env.NODE_ENV==='development' ? `-${Date.now()}` : '');
+    const tagsHash = crypto.createHash('sha256').update(tagsString).digest('hex');
+    return `${hash}-${curationTypesHash}-${tagsHash}` + (process.env.NODE_ENV==='development' ? `-${Date.now()}` : '');
   } catch (error) {
     logger.error('Error calculating difficulties hash:', error);
     return '';
@@ -1006,6 +1029,416 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
       error: 'Failed to update sort orders',
       details: error instanceof Error ? error.message : String(error)
     });
+  }
+});
+
+// ==================== TAG MANAGEMENT ENDPOINTS ====================
+
+// Get all tags
+router.get('/tags', async (req: Request, res: Response) => {
+  try {
+    const tags = await LevelTag.findAll({
+      order: [['name', 'ASC']],
+    });
+    res.json(tags);
+  } catch (error) {
+    logger.error('Error fetching tags:', error);
+    res.status(500).json({ error: 'Failed to fetch tags' });
+  }
+});
+
+// Create new tag
+router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { name, color, icon, group } = req.body;
+    const iconFile = req.file;
+
+    if (!name || !color) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Missing required fields: name and color are required' });
+    }
+
+    // Validate accent color format
+    if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid color format. Must be a hex color (e.g., #FF5733)' });
+    }
+
+    // Check for duplicate name
+    const existingTag = await LevelTag.findOne({ where: { name } });
+    if (existingTag) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'A tag with this name already exists' });
+    }
+
+    // Handle icon upload: Priority 1 - file attached -> upload to CDN
+    let finalIconUrl: string | null = null;
+    if (iconFile) {
+      try {
+        const uploadResult = await cdnService.uploadTagIcon(
+          iconFile.buffer,
+          iconFile.originalname
+        );
+        finalIconUrl = uploadResult.urls.original;
+      } catch (uploadError) {
+        await safeTransactionRollback(transaction);
+        
+        // Handle CdnError with validation details
+        if (uploadError instanceof CdnError) {
+          const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
+          const errorResponse: any = {
+            error: uploadError.message,
+            code: uploadError.code
+          };
+          
+          // Include validation error details if available
+          if (uploadError.details) {
+            if (uploadError.details.errors) {
+              errorResponse.errors = uploadError.details.errors;
+            }
+            if (uploadError.details.warnings) {
+              errorResponse.warnings = uploadError.details.warnings;
+            }
+            if (uploadError.details.metadata) {
+              errorResponse.metadata = uploadError.details.metadata;
+            }
+          }
+          
+          logger.error('Error uploading tag icon to CDN:', uploadError);
+          return res.status(statusCode).json(errorResponse);
+        }
+        
+        // Generic error handling
+        logger.error('Error uploading tag icon to CDN:', uploadError);
+        return res.status(500).json({ 
+          error: 'Failed to upload icon to CDN',
+          details: uploadError instanceof Error ? uploadError.message : String(uploadError)
+        });
+      }
+    } else if (icon === 'null' || icon === null) {
+      // Priority 2 - null explicitly passed -> no icon
+      finalIconUrl = null;
+    } else if (icon) {
+      // If icon is provided as a string (existing URL), use it
+      finalIconUrl = icon;
+    }
+
+    const tag = await LevelTag.create({
+      name,
+      icon: finalIconUrl,
+      color,
+      group: group || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }, { transaction });
+
+    await transaction.commit();
+    return res.status(201).json(tag);
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error creating tag:', error);
+    return res.status(500).json({ error: 'Failed to create tag' });
+  }
+});
+
+// Update tag
+router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.single('icon'), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const tagId = parseInt(req.params.id);
+    const { name, color, icon, group } = req.body;
+    const iconFile = req.file;
+
+    const tag = await LevelTag.findByPk(tagId);
+    if (!tag) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    // Validate accent color format if provided
+    if (color && !/^#[0-9A-Fa-f]{6}$/.test(color)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid accent color format. Must be a hex color (e.g., #FF5733)' });
+    }
+
+    // Check for name duplication if name is being changed
+    if (name && name !== tag.name) {
+      const existingTag = await LevelTag.findOne({ where: { name } });
+      if (existingTag) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'A tag with this name already exists' });
+      }
+    }
+
+    // Handle icon update with priority logic:
+    // Priority 1: file attached -> update icon
+    // Priority 2: null as link -> remove icon if exists
+    // Otherwise: no change
+    let finalIconUrl: string | null | undefined = undefined;
+    let oldFileId: string | null = null;
+
+    if (iconFile) {
+      // Priority 1: File attached -> upload new icon
+      try {
+        // Extract old file ID for cleanup if exists
+        if (tag.icon && isCdnUrl(tag.icon)) {
+          oldFileId = getFileIdFromCdnUrl(tag.icon);
+        }
+
+        const uploadResult = await cdnService.uploadTagIcon(
+          iconFile.buffer,
+          iconFile.originalname
+        );
+        finalIconUrl = uploadResult.urls.original;
+      } catch (uploadError) {
+        await safeTransactionRollback(transaction);
+        
+        // Handle CdnError with validation details
+        if (uploadError instanceof CdnError) {
+          const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
+          const errorResponse: any = {
+            error: uploadError.message,
+            code: uploadError.code
+          };
+          
+          // Include validation error details if available
+          if (uploadError.details) {
+            if (uploadError.details.errors) {
+              errorResponse.errors = uploadError.details.errors;
+            }
+            if (uploadError.details.warnings) {
+              errorResponse.warnings = uploadError.details.warnings;
+            }
+            if (uploadError.details.metadata) {
+              errorResponse.metadata = uploadError.details.metadata;
+            }
+          }
+          
+          logger.error('Error uploading tag icon to CDN:', uploadError);
+          return res.status(statusCode).json(errorResponse);
+        }
+        
+        // Generic error handling
+        logger.error('Error uploading tag icon to CDN:', uploadError);
+        return res.status(500).json({ 
+          error: 'Failed to upload icon to CDN',
+          details: uploadError instanceof Error ? uploadError.message : String(uploadError)
+        });
+      }
+    } else if (icon === 'null' || icon === null) {
+      // Priority 2: null explicitly passed -> remove icon
+      if (tag.icon && isCdnUrl(tag.icon)) {
+        oldFileId = getFileIdFromCdnUrl(tag.icon);
+      }
+      finalIconUrl = null;
+    }
+    // Otherwise: finalIconUrl remains undefined, which means no change
+
+    // Update the tag
+    await tag.update({
+      name: name ?? tag.name,
+      icon: finalIconUrl !== undefined ? finalIconUrl : tag.icon,
+      color: color ?? tag.color,
+      group: group !== undefined ? (group || null) : tag.group,
+      updatedAt: new Date(),
+    }, { transaction });
+
+    await transaction.commit();
+
+    // Clean up old icon file from CDN after successful update
+    // Do this after transaction commit so CDN cleanup failure doesn't prevent tag update
+    // Only cleanup if we have an old file ID and the icon was actually changed (new icon uploaded or removed)
+    if (oldFileId && (finalIconUrl !== undefined)) {
+      try {
+        logger.debug('Cleaning up old tag icon from CDN after tag update', {
+          tagId,
+          oldFileId,
+          newIconUrl: finalIconUrl,
+        });
+        await cdnService.deleteFile(oldFileId);
+        logger.debug('Successfully cleaned up old tag icon from CDN', {
+          tagId,
+          oldFileId,
+        });
+      } catch (cleanupError) {
+        // Log cleanup error but don't fail the request since the tag was already updated
+        logger.error('Failed to clean up old tag icon from CDN after tag update:', {
+          tagId,
+          oldFileId,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      }
+    }
+
+    return res.json(tag);
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating tag:', error);
+    return res.status(500).json({ error: 'Failed to update tag' });
+  }
+});
+
+// Delete tag
+router.delete('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const tagId = parseInt(req.params.id);
+
+    const tag = await LevelTag.findByPk(tagId);
+    if (!tag) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+
+    // Check for assignments
+    const assignments = await LevelTagAssignment.findAll({
+      where: { tagId },
+      transaction,
+    });
+
+    assignments.forEach(async (assignment) => {
+      await assignment.destroy({ transaction });
+    });
+
+    // Extract file ID for cleanup if icon exists
+    let fileId: string | null = null;
+    if (tag.icon && isCdnUrl(tag.icon)) {
+      fileId = getFileIdFromCdnUrl(tag.icon);
+    }
+
+    // Delete the tag
+    await tag.destroy({ transaction });
+
+    await transaction.commit();
+
+    // Clean up icon file from CDN after successful deletion
+    // Do this after transaction commit so CDN cleanup failure doesn't prevent tag deletion
+    if (fileId) {
+      try {
+        logger.debug('Cleaning up tag icon from CDN after tag deletion', {
+          tagId,
+          fileId,
+        });
+        await cdnService.deleteFile(fileId);
+        logger.debug('Successfully cleaned up tag icon from CDN', {
+          tagId,
+          fileId,
+        });
+      } catch (cleanupError) {
+        // Log cleanup error but don't fail the request since the tag was already deleted
+        logger.error('Failed to clean up tag icon from CDN after tag deletion:', {
+          tagId,
+          fileId,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        });
+      }
+    }
+
+    return res.json({ message: 'Tag deleted successfully' });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error deleting tag:', error);
+    return res.status(500).json({ error: 'Failed to delete tag' });
+  }
+});
+
+// Get tags for a level
+router.get('/levels/:levelId([0-9]{1,20})/tags', async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.levelId);
+
+    const level = await Level.findByPk(levelId);
+    if (!level) {
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    // Query tags through the join table
+    const assignments = await LevelTagAssignment.findAll({
+      where: { levelId },
+    });
+
+    const assignmentTagIds = assignments.map(a => a.tagId);
+    const tags = await LevelTag.findAll({
+      where: { id: { [Op.in]: assignmentTagIds } },
+      order: [['name', 'ASC']],
+    });
+
+    return res.json(tags);
+  } catch (error) {
+    logger.error('Error fetching level tags:', error);
+    return res.status(500).json({ error: 'Failed to fetch level tags' });
+  }
+});
+
+// Assign tags to level
+router.post('/levels/:levelId([0-9]{1,20})/tags', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const levelId = parseInt(req.params.levelId);
+    const { tagIds } = req.body;
+
+    if (!Array.isArray(tagIds)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'tagIds must be an array' });
+    }
+
+    const level = await Level.findByPk(levelId, { transaction });
+    if (!level) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    // Validate all tag IDs exist
+    if (tagIds.length > 0) {
+      const tags = await LevelTag.findAll({
+        where: { id: { [Op.in]: tagIds } },
+        transaction,
+      });
+
+      if (tags.length !== tagIds.length) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'One or more tag IDs are invalid' });
+      }
+    }
+
+    // Remove all existing assignments
+    await LevelTagAssignment.destroy({
+      where: { levelId },
+      transaction,
+    });
+
+    // Create new assignments
+    if (tagIds.length > 0) {
+      await LevelTagAssignment.bulkCreate(
+        tagIds.map((tagId: number) => ({
+          levelId,
+          tagId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })),
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    // Fetch updated tags
+    const assignments = await LevelTagAssignment.findAll({
+      where: { levelId },
+    });
+
+    const assignmentTagIds = assignments.map(a => a.tagId);
+    const updatedTags = await LevelTag.findAll({
+      where: { id: { [Op.in]: assignmentTagIds } },
+      order: [['name', 'ASC']],
+    });
+
+    return res.json(updatedTags);
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error assigning tags to level:', error);
+    return res.status(500).json({ error: 'Failed to assign tags to level' });
   }
 });
 

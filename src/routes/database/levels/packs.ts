@@ -4,7 +4,7 @@ import { Auth } from '../../../middleware/auth.js';
 import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes } from '../../../models/packs/index.js';
 import Level from '../../../models/levels/Level.js';
 import { User } from '../../../models/index.js';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import sequelize from '../../../config/db.js';
 import { logger } from '../../../services/LoggerService.js';
 import { hasFlag } from '../../../utils/auth/permissionUtils.js';
@@ -19,6 +19,7 @@ import Pass from '../../../models/passes/Pass.js';
 import Curation from '../../../models/curations/Curation.js';
 import CurationType from '../../../models/curations/CurationType.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
+import LevelTag from '../../../models/levels/LevelTag.js';
 import Creator from '../../../models/credits/Creator.js';
 import Team from '../../../models/credits/Team.js';
 
@@ -512,7 +513,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     const levelIds = [...new Set(levelItems.map(item => item.levelId!).filter(id => id !== null))];
 
     // Fetch all related data concurrently
-    const [curations, levelCredits, fetchedTeams, metadataResponses, clearedLevelIds] = await Promise.all([
+    const [curations, levelCredits, fetchedTeams, tags, metadataResponses, clearedLevelIds] = await Promise.all([
       // Fetch curations with their types
       levelIds.length > 0 ? Curation.findAll({
         where: { levelId: { [Op.in]: levelIds } },
@@ -535,6 +536,43 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
       fetchedLevels.length > 0 ? Team.findAll({
         where: { id: { [Op.in]: fetchedLevels.map(level => level.teamId) } }
       }) : Promise.resolve([]),
+      // Fetch tags for all levels
+      levelIds.length > 0 ? (async () => {
+        // Get all tag assignments for these levels
+        const assignments = await sequelize.query(
+          `SELECT levelId, tagId FROM level_tag_assignments WHERE levelId IN (${levelIds.join(',')})`,
+          { type: QueryTypes.SELECT }
+        ) as Array<{ levelId: number; tagId: number }>;
+        
+        if (assignments.length === 0) {
+          return new Map<number, LevelTag[]>();
+        }
+        
+        // Get unique tag IDs
+        const tagIds = [...new Set(assignments.map(a => a.tagId))];
+        
+        // Fetch all tags
+        const allTags = await LevelTag.findAll({
+          where: { id: { [Op.in]: tagIds } },
+          order: [['name', 'ASC']]
+        });
+        
+        // Map tags to levels
+        const tagsByLevelId = new Map<number, LevelTag[]>();
+        const tagsById = new Map(allTags.map((tag: LevelTag) => [tag.id, tag]));
+        
+        assignments.forEach(assignment => {
+          const tag = tagsById.get(assignment.tagId);
+          if (tag) {
+            if (!tagsByLevelId.has(assignment.levelId)) {
+              tagsByLevelId.set(assignment.levelId, []);
+            }
+            tagsByLevelId.get(assignment.levelId)!.push(tag);
+          }
+        });
+        
+        return tagsByLevelId;
+      })() : Promise.resolve(new Map<number, LevelTag[]>()),
       levelIds.length > 0 ? cdnService.getBulkLevelMetadata(fetchedLevels) : Promise.resolve([]),
       req.user ? Pass.findAll({
         where: { playerId: req.user.playerId, isDeleted: false },
@@ -582,6 +620,14 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
         if (team) {
           levelData.teamObject = team.toJSON();
         }
+      }
+
+      // Attach tags if exist
+      const levelTags = tags.get(level.id);
+      if (levelTags) {
+        levelData.tags = levelTags.map(tag => tag.toJSON());
+      } else {
+        levelData.tags = [];
       }
 
       return {

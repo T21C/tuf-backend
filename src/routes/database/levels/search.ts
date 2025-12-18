@@ -23,6 +23,7 @@ import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
 import { getFileIdFromCdnUrl, safeTransactionRollback } from '../../../utils/Utility.js';
 import Curation from '../../../models/curations/Curation.js';
 import CurationType from '../../../models/curations/CurationType.js';
+import LevelTag from '../../../models/levels/LevelTag.js';
 import { hasFlag, wherePermission } from '../../../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import cdnService from '../../../services/CdnService.js';
@@ -46,6 +47,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       clearedFilter,
       availableDlFilter,
       curatedTypesFilter,
+      tagsFilter,
       onlyMyLikes,
     } = req.query;
 
@@ -88,6 +90,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         clearedFilter: clearedFilter as string,
         availableDlFilter: availableDlFilter as string,
         curatedTypesFilter: curatedTypesFilter as string,
+        tagsFilter: tagsFilter as string,
         userId: req.user?.id,
         offset: normalizedOffset,
         limit: normalizedLimit,
@@ -154,6 +157,14 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
         model: Team,
         as: 'teamObject',
         required: false,
+      },
+      {
+        model: LevelTag,
+        as: 'tags',
+        required: false,
+        through: {
+          attributes: []
+        }
       }
     ],
   });
@@ -418,6 +429,19 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         transaction,
       });
 
+      // Tags query
+      const tagsPromise = LevelTag.findAll({
+        where: {
+          id: {
+            [Op.in]: sequelize.literal(`(
+              SELECT tagId FROM level_tag_assignments WHERE levelId = ${levelId}
+            )`)
+          }
+        },
+        order: [['name', 'ASC']],
+        transaction,
+      });
+
       // CDN service calls (need level data)
       const cdnDataPromise = levelPromise.then(async (level) => {
         if (!level?.dlLink) return { bpm: undefined, tilecount: undefined, accessCount: 0 };
@@ -459,6 +483,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         isLiked,
         isCleared,
         rerateHistory,
+        tags,
         cdnData,
         metadata
       ] = await Promise.all([
@@ -474,6 +499,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         isLikedPromise,
         isClearedPromise,
         rerateHistoryPromise,
+        tagsPromise,
         cdnDataPromise,
         metadataPromise
       ]);
@@ -497,7 +523,8 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         aliases,
         levelCredits,
         teamObject,
-        curation
+        curation,
+        tags: tags || []
       };
 
       return res.json({

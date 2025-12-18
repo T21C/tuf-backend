@@ -82,6 +82,16 @@ export const IMAGE_TYPES = {
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 5 * 1024 * 1024 // 5MB
+    },
+    TAG_ICON: {
+        name: 'tag_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
+        maxSize: 5 * 1024 * 1024 // 5MB
     }
 } as const;
 
@@ -92,6 +102,7 @@ export const MIME_TYPES = {
     'CURATION_ICON': 'image/png',
     'LEVEL_THUMBNAIL': 'image/png',
     'PACK_ICON': 'image/png',
+    'TAG_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
     'GENERAL': 'application/octet-stream'
 } as const;
