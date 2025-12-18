@@ -46,27 +46,6 @@ const modificationEndpoints: EndpointDefinition[] = [
     }
   },
   {
-    method: 'PUT',
-    path: '/v2/database/levels/:id/toRate',
-    description: 'Toggle whether a level is marked for rating',
-    category: 'LEVELS',
-    requiresAuth: true,
-    requiresAdmin: true,
-    parameters: {
-      path: {
-        id: 'integer (required) - Level ID'
-      }
-    },
-    responses: {
-      '200': 'Rating status toggled successfully',
-      '400': 'Invalid level ID',
-      '401': 'Unauthorized',
-      '403': 'Forbidden - requires super admin',
-      '404': 'Level not found',
-      '500': 'Failed to toggle rating status'
-    }
-  },
-  {
     method: 'DELETE',
     path: '/v2/database/levels/:id',
     description: 'Soft delete a level (mark as deleted)',
