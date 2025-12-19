@@ -45,7 +45,7 @@
     "@types/socket.io": "^3.0.2",
     "@types/uuid": "^10.0.0",
     "adm-zip": "^0.5.16",
-    "adofai-lib": "^1.0.7",
+    "adofai-lib": "^1.2.4",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.7.7",
     "bcrypt": "^5.1.1",
