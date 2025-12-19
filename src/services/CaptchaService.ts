@@ -9,12 +9,37 @@ const __dirname = path.dirname(__filename);
 const keyPath = path.join(__dirname, '../config/recaptcha-service-key.json')
 const key = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
 
+// gRPC error codes that are retryable (transient errors)
+const RETRYABLE_ERROR_CODES = [
+  '13', // INTERNAL
+  '14', // UNAVAILABLE
+  '4',  // DEADLINE_EXCEEDED
+];
+
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 500;
+
 export default class CaptchaService {
   private recaptchaClient: RecaptchaEnterpriseServiceClient | null;
 
   constructor() {
     this.recaptchaClient = null;
     this.getInstance();
+  }
+
+  /**
+   * Check if an error is retryable based on gRPC error code
+   */
+  private isRetryableError(error: any): boolean {
+    const errorMessage = error?.message || '';
+    return RETRYABLE_ERROR_CODES.some(code => errorMessage.startsWith(`${code} `));
+  }
+
+  /**
+   * Sleep for a given number of milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
 /**
@@ -38,68 +63,76 @@ export default class CaptchaService {
  * @returns A promise that resolves to the risk score (0.0 to 1.0) or null if verification failed
  */
 public verifyCaptcha = async (token: string): Promise<number | null> => {
-    try {
-        // Check if required environment variables are set
-        // logger.debug('Verifying reCAPTCHA token', { token, action });
-        if (!process.env.GOOGLE_CLOUD_PROJECT_ID) {
-            logger.error('GOOGLE_CLOUD_PROJECT_ID is not set in environment variables');
-            return null;
-        }
-
-        if (!process.env.RECAPTCHA_SITE_KEY) {
-            logger.error('RECAPTCHA_SITE_KEY is not set in environment variables');
-            return null;
-        }
-
-        const projectID = process.env.GOOGLE_CLOUD_PROJECT_ID;
-        const recaptchaKey = process.env.RECAPTCHA_SITE_KEY;
-
-        // Get the reCAPTCHA client
-        const client = this.getInstance();
-        const projectPath = client.projectPath(projectID);
-
-        // Build the assessment request
-        const request = {
-            assessment: {
-                event: {
-                    token: token,
-                    siteKey: recaptchaKey,
-                },
-            },
-            parent: projectPath,
-        };
-
-        // Create the assessment
-        const [response] = await client.createAssessment(request);
-        // logger.debug('reCAPTCHA assessment created', {
-        //     action,
-        //     response: JSON.stringify(response),
-        //     valid: response?.tokenProperties?.valid
-        // });
-
-        // Check if the token is valid
-        if (!response?.tokenProperties?.valid) {
-            return null;
-        }
-        // Get the risk score
-        const score = response?.riskAnalysis?.score;
-
-        // Log the risk score and reasons
-        // logger.debug('reCAPTCHA verification successful', {
-        //     action,
-        //     score,
-        //     reasons: response?.riskAnalysis?.reasons
-        // });
-
-        return score || null;
-
-    } catch (error: any) {
-        logger.error('reCAPTCHA verification failed', {
-            error: error.message,
-            stack: error.stack
-        });
+    // Check if required environment variables are set
+    if (!process.env.GOOGLE_CLOUD_PROJECT_ID) {
+        logger.error('GOOGLE_CLOUD_PROJECT_ID is not set in environment variables');
         return null;
     }
+
+    if (!process.env.RECAPTCHA_SITE_KEY) {
+        logger.error('RECAPTCHA_SITE_KEY is not set in environment variables');
+        return null;
+    }
+
+    const projectID = process.env.GOOGLE_CLOUD_PROJECT_ID;
+    const recaptchaKey = process.env.RECAPTCHA_SITE_KEY;
+
+    // Get the reCAPTCHA client
+    const client = this.getInstance();
+    const projectPath = client.projectPath(projectID);
+
+    // Build the assessment request
+    const request = {
+        assessment: {
+            event: {
+                token: token,
+                siteKey: recaptchaKey,
+            },
+        },
+        parent: projectPath,
+    };
+
+    let lastError: any = null;
+
+    // Retry loop with exponential backoff
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Create the assessment
+            const [response] = await client.createAssessment(request);
+
+            // Check if the token is valid
+            if (!response?.tokenProperties?.valid) {
+                return null;
+            }
+            // Get the risk score
+            const score = response?.riskAnalysis?.score;
+
+            return score || null;
+
+        } catch (error: any) {
+            lastError = error;
+
+            // Check if this is a retryable error and we have retries left
+            if (this.isRetryableError(error) && attempt < MAX_RETRIES) {
+                const delay = INITIAL_DELAY_MS * Math.pow(2, attempt);
+                logger.warn(`reCAPTCHA verification failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms`, {
+                    error: error.message
+                });
+                await this.sleep(delay);
+                continue;
+            }
+
+            // Non-retryable error or no retries left
+            break;
+        }
+    }
+
+    // All retries exhausted or non-retryable error
+    logger.error('reCAPTCHA verification failed', {
+        error: lastError?.message,
+        stack: lastError?.stack
+    });
+    return null;
 };
 
 
