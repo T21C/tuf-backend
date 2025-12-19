@@ -9,6 +9,7 @@ const lengthTagsMinutes = {
     0: "Tiny",
     0.5: "30s",
     1: "1+ Minute",
+    2: "2+ Minutes",
     3: "3+ Minutes",
     5: "5+ Minutes",
     7: "7+ Minutes",
@@ -34,9 +35,9 @@ const miscTagsMap = {
     containsDLC: "DLC",
     YouTubeStream: "Youtube Stream",
     KeyLimiter: "Key Limiter",
-    hold: "Hold",
-    multiPlanet: "Multi Planet",
-    freeRoam: "Free Roam",
+    Hold: "Hold",
+    MultiPlanet: "Multi Planet",
+    FreeRoam: "Free Roam",
     isJudgementLimited: "Judgement Limit",
 }
 
@@ -186,6 +187,24 @@ function determineTagsToAssign(analysis: any, settings: any): string[] {
         tagsToAssign.push(miscTagsMap.isJudgementLimited);
     }
     
+    if (analysis?.requiredMods) {
+        for (const mod of analysis.requiredMods as string[]) {
+            if (miscTagsMap[mod as keyof typeof miscTagsMap]) {
+                tagsToAssign.push(miscTagsMap[mod as keyof typeof miscTagsMap]);
+            }
+        }
+    }
+
+    if (analysis?.dlcEvents) {
+        for (const event of analysis.dlcEvents as string[]) {
+            if (miscTagsMap[event as keyof typeof miscTagsMap]) {
+                tagsToAssign.push(miscTagsMap[event as keyof typeof miscTagsMap]);
+            }
+        }
+    }
+
+
+
     // Can Decorations Kill tag (if needed - not in miscTagsMap currently)
     // if (analysis?.canDecorationsKill) {
     //     tagsToAssign.push("Decorations Kill");
