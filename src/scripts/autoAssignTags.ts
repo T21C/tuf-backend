@@ -5,8 +5,14 @@ import LevelTag from '../models/levels/LevelTag.js';
 import LevelTagAssignment from '../models/levels/LevelTagAssignment.js';
 import { logger } from '../services/LoggerService.js';
 import dotenv from 'dotenv';
+import elasticsearchService from '../services/ElasticsearchService.js';
+import { initializeAssociations } from '../models/associations.js';
 dotenv.config();
 
+// Initialize model associations before using them
+initializeAssociations();
+
+const elasticsearch = elasticsearchService.getInstance();
 // Tag mapping configurations
 const lengthTagsMinutes = {
     0: "Tiny",
@@ -289,6 +295,7 @@ async function autoAssignTags(levelId: string): Promise<void> {
     } else {
         logger.info(`  ✗ No tags assigned to level ${levelId}`);
     }
+    await elasticsearch.reindexLevels([level.id]);
 }
 
 const program = new Command();
