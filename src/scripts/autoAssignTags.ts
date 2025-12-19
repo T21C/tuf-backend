@@ -3,6 +3,7 @@ import cdnService from '../services/CdnService.js';
 import Level from '../models/levels/Level.js';
 import LevelTag from '../models/levels/LevelTag.js';
 import LevelTagAssignment from '../models/levels/LevelTagAssignment.js';
+import { logger } from '../services/LoggerService.js';
 
 // Tag mapping configurations
 const lengthTagsMinutes = {
@@ -89,7 +90,7 @@ async function getOrCreateTag(tagName: string): Promise<LevelTag> {
     if (!tag) {
         // Tag doesn't exist, create it with a random color
         const randomColor = generateRandomColor();
-        console.log(`  Creating new tag "${tagName}" with color ${randomColor}`);
+        logger.debug(`  Creating new tag "${tagName}" with color ${randomColor}`);
         tag = await LevelTag.create({
             name: tagName,
             color: randomColor
@@ -116,7 +117,7 @@ async function assignTagToLevel(levelId: number, tagName: string): Promise<boole
     
     const alreadyAssigned = await isTagAssigned(levelId, tag.id);
     if (alreadyAssigned) {
-        console.log(`  Tag "${tagName}" already assigned, skipping`);
+        logger.debug(`  Tag "${tagName}" already assigned, skipping`);
         return false;
     }
     
@@ -124,7 +125,7 @@ async function assignTagToLevel(levelId: number, tagName: string): Promise<boole
         levelId,
         tagId: tag.id
     });
-    console.log(`  ✓ Assigned tag: "${tagName}"`);
+    logger.debug(`  ✓ Assigned tag: "${tagName}"`);
     return true;
 }
 
@@ -134,11 +135,11 @@ async function assignTagToLevel(levelId: number, tagName: string): Promise<boole
 async function getLevelData(levelId: string) {
     const level = await Level.findByPk(levelId);
     if (!level) {
-        console.error('Level not found');
+        logger.error('Level not found');
         return null;
     }
     if (!level.dlLink) {
-        console.error('Level does not have a dlLink');
+        logger.error('Level does not have a dlLink');
         return null;
     }
     const levelData = await cdnService.getLevelData(level, ['settings', 'analysis']);
@@ -217,7 +218,7 @@ function determineTagsToAssign(analysis: any, settings: any): string[] {
  * Auto-assign tags to a level based on its analysis data
  */
 async function autoAssignTags(levelId: string): Promise<void> {
-    console.log(`\nAuto-assigning tags for level ${levelId}...`);
+    logger.debug(`\nAuto-assigning tags for level ${levelId}...`);
     
     const result = await getLevelData(levelId);
     if (!result) {
@@ -228,22 +229,22 @@ async function autoAssignTags(levelId: string): Promise<void> {
     const { analysis, settings } = levelData;
     
     if (!analysis) {
-        console.error('No analysis data available for this level');
+        logger.error('No analysis data available for this level');
         return;
     }
     
-    console.log('Analysis data:', JSON.stringify(analysis, null, 2));
+    logger.debug('Analysis data:', JSON.stringify(analysis, null, 2));
     
     // Determine which tags should be assigned
     const tagsToAssign = determineTagsToAssign(analysis, settings);
     
     if (tagsToAssign.length === 0) {
-        console.log('No tags to assign based on current analysis data');
+        logger.debug('No tags to assign based on current analysis data');
         return;
     }
     
-    console.log(`\nTags to assign: ${tagsToAssign.join(', ')}`);
-    console.log('\nAssigning tags:');
+    logger.debug(`\nTags to assign: ${tagsToAssign.join(', ')}`);
+    logger.debug('\nAssigning tags:');
     
     // Assign each tag
     let assignedCount = 0;
@@ -254,26 +255,53 @@ async function autoAssignTags(levelId: string): Promise<void> {
                 assignedCount++;
             }
         } catch (error) {
-            console.error(`  ✗ Failed to assign tag "${tagName}":`, error instanceof Error ? error.message : error);
+            logger.error(`  ✗ Failed to assign tag "${tagName}":`, error instanceof Error ? error.message : error);
         }
     }
     
-    console.log(`\n✓ Successfully assigned ${assignedCount} tag(s)`);
+    if (assignedCount > 0) {
+        logger.info(`\n✓ Successfully assigned ${assignedCount} tag(s) to level ${levelId}`);
+    } else {
+        logger.info(`\n✗ No tags assigned to level ${levelId}`);
+    }
 }
 
 const program = new Command();
 
-program.command('autoAssignTags')
+program.command('testAssign')
   .description('Auto assign tags to levels based on analysis data')
   .option('-l, --levelId <levelId>', 'Level ID to assign tags to', '1')
   .action(async (options) => {
     try {
       await autoAssignTags(options.levelId);
     } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
+      logger.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
     process.exit(0);
+  });
+
+program.command('autoAssignTags')
+  .description('Auto assign tags to levels based on analysis data')
+  .option('-o, --offset <offset>', 'Offset to start from', '0')
+  .option('-l, --limit <limit>', 'Limit to process', '100')
+  .option('-b, --batch-size <batchSize>', 'Batch size to process', '50')
+  .action(async (options) => {
+    try {
+        for (let i = parseInt(options.offset) || 0; i < parseInt(options.offset) + parseInt(options.limit); i += parseInt(options.batchSize)) {
+            const levelIds = await Level.findAll({
+                attributes: ['id'],
+                offset: i,
+                limit: parseInt(options.batchSize)
+            });
+            const promises = levelIds.map(level => autoAssignTags(level.id.toString()));
+            await Promise.all(promises);
+            logger.info(`Processed batch ${i / parseInt(options.batchSize) + 1} of ${parseInt(options.limit) / parseInt(options.batchSize)}`);
+        }
+    } catch (error) {
+      logger.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
   });
 
 program.parse(process.argv);
