@@ -259,10 +259,32 @@ class LevelCacheService {
     }
 
     /**
-     * Parse cache data from string
+     * Parse cache data from string, with optional version validation.
+     * Returns null if:
+     * - cacheDataString is null/empty
+     * - JSON parsing fails
+     * - metadata is provided and version doesn't match (cache invalidation)
+     * - running in development mode
+     * 
+     * @param cacheDataString - The cached JSON string
+     * @param metadata - Optional metadata to check version against
      */
-    parseCacheData(cacheDataString: string | null): LevelCacheData | null {
+    parseCacheData(cacheDataString: string | null, metadata?: any): LevelCacheData | null {
+        // In development, always invalidate cache
+        if (process.env.NODE_ENV === 'development') {
+            return null;
+        }
+
         if (!cacheDataString) {
+            return null;
+        }
+
+        // If metadata provided, check version - return null if outdated
+        if (metadata !== undefined && !this.isVersionCurrent(metadata)) {
+            logger.debug('Cache invalidated due to version mismatch', {
+                storedVersion: metadata?.targetSafeToParseVersion,
+                currentVersion: SAFE_TO_PARSE_VERSION
+            });
             return null;
         }
 
@@ -275,7 +297,8 @@ class LevelCacheService {
     }
 
     /**
-     * Check which requested modes are available in cache
+     * Check which requested modes are available in cache.
+     * Note: parseCacheData should be called first with metadata to handle version/dev checks.
      */
     checkCacheHits(cacheData: LevelCacheData | null, requestedModes: string[]): CacheHitResult {
         const hits: CacheHitResult = {
@@ -285,8 +308,7 @@ class LevelCacheService {
             accessCount: true // accessCount is always available from file record
         };
 
-        // In development, always treat cache as empty
-        if (!cacheData || process.env.NODE_ENV === 'development') {
+        if (!cacheData) {
             return hits;
         }
 
@@ -325,21 +347,9 @@ class LevelCacheService {
             logger.debug('Populating cache for file:', { fileId: file.id, levelPath, requestedModes });
 
             const fileMetadata = metadata || file.metadata as any;
-            const versionCurrent = this.isVersionCurrent(fileMetadata);
 
-            // Parse existing cache to preserve any existing data
-            // BUT invalidate cache if version is outdated (cached data may be incorrect)
-            let existingCache = this.parseCacheData(file.cacheData);
-            if (process.env.NODE_ENV === 'development' || !versionCurrent) {
-                existingCache = null;
-                if (!versionCurrent && file.cacheData) {
-                    logger.debug('Invalidating cached data due to version mismatch', {
-                        fileId: file.id,
-                        storedVersion: fileMetadata?.targetSafeToParseVersion,
-                        currentVersion: SAFE_TO_PARSE_VERSION
-                    });
-                }
-            }
+            // Parse existing cache - will return null if version mismatch or dev mode
+            const existingCache = this.parseCacheData(file.cacheData, fileMetadata);
             
             // Check if file exists
             if (!fs.existsSync(levelPath)) {
@@ -431,12 +441,10 @@ class LevelCacheService {
         metadata?: any,
         levelData?: LevelDict
     ): Promise<{ cacheData: LevelCacheData; wasPopulated: boolean }> {
-        // Parse existing cache
-        let cacheData = this.parseCacheData(file.cacheData);
-        
-        // Check version - if outdated, we need to repopulate
         const fileMetadata = metadata || file.metadata as any;
-        const versionCurrent = this.isVersionCurrent(fileMetadata);
+        
+        // Parse existing cache - returns null if version mismatch or dev mode
+        let cacheData = this.parseCacheData(file.cacheData, fileMetadata);
         
         // Check if cache needs population
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
@@ -446,7 +454,7 @@ class LevelCacheService {
             (mode === 'analysis' && !cacheHits.analysis)
         );
 
-        if (needsPopulation || !cacheData || !versionCurrent || process.env.NODE_ENV === 'development') {
+        if (needsPopulation || !cacheData) {
             // Populate cache (will also handle version update and cache invalidation)
             cacheData = await this.populateCache(file, levelPath, metadata, requestedModes, levelData);
             return { cacheData, wasPopulated: true };
@@ -496,16 +504,10 @@ class LevelCacheService {
                 return null;
             }
 
-            // In development, always repopulate cache
-            if (process.env.NODE_ENV === 'development') {
-                return await this.populateCache(file, targetLevel, metadata);
-            }
-
-            // Check if cache needs population or version is outdated
-            const cacheData = this.parseCacheData(file.cacheData);
-            const versionCurrent = this.isVersionCurrent(metadata);
+            // Parse cache - returns null if version mismatch or dev mode
+            const cacheData = this.parseCacheData(file.cacheData, metadata);
             
-            if (!cacheData || cacheData.tilecount === undefined || cacheData.settings === undefined || !versionCurrent) {
+            if (!cacheData || cacheData.tilecount === undefined || cacheData.settings === undefined) {
                 // Populate cache (will also update version if outdated)
                 return await this.populateCache(file, targetLevel, metadata);
             }
@@ -528,7 +530,8 @@ class LevelCacheService {
      */
     getCachedDataForModes(
         file: CdnFile,
-        requestedModes: string[]
+        requestedModes: string[],
+        metadata?: any
     ): Partial<{
         tilecount: number;
         settings: any;
@@ -556,16 +559,19 @@ class LevelCacheService {
             accessCount: number;
         }> = {};
 
-        // In development, always return empty cache to force recalculation
-        if (process.env.NODE_ENV === 'development') {
-            // Only return accessCount as it's not cached
+        const fileMetadata = metadata || file.metadata as any;
+        
+        // Parse cache - returns null if version mismatch or dev mode
+        const cacheData = this.parseCacheData(file.cacheData, fileMetadata);
+        
+        // If cache is null (version mismatch, dev mode, or empty), only return accessCount
+        if (!cacheData) {
             if (requestedModes.includes('accessCount')) {
                 response.accessCount = file.accessCount || 0;
             }
             return response;
         }
 
-        const cacheData = this.parseCacheData(file.cacheData);
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
 
         if (requestedModes.includes('tilecount') && cacheHits.tilecount && cacheData) {

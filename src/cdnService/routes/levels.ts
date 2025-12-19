@@ -680,10 +680,9 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     // Parse requested modes
     const requestedModes = modes.split(',').map((m: string) => m.trim());
     
-    // Check cache hits using cache service
-    const cacheData = levelCacheService.parseCacheData(file.cacheData);
+    // Check cache hits using cache service (parseCacheData handles version validation)
+    const cacheData = levelCacheService.parseCacheData(file.cacheData, metadata);
     const cacheHits = levelCacheService.checkCacheHits(cacheData, requestedModes);
-    
     // Determine if we need to load the level file
     // Analysis requires the level file if not cached, but we can compute it during cache population
     const needsLevelFile = requestedModes.some(mode => 
@@ -731,7 +730,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         }
     } else {
         // All requested data is in cache, use cached values
-        const cachedResponse = levelCacheService.getCachedDataForModes(file, requestedModes);
+        const cachedResponse = levelCacheService.getCachedDataForModes(file, requestedModes, metadata);
         response = { ...response, ...cachedResponse };
     }
 
