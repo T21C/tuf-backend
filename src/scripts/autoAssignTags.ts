@@ -32,14 +32,28 @@ const vfxTierTags = {
     3: "Full VFX",
 }
 
-const miscTagsMap = {
+const dlcTagsMap = {
     containsDLC: "DLC",
-    YouTubeStream: "Youtube Stream",
-    KeyLimiter: "Key Limiter",
     Hold: "Hold",
     MultiPlanet: "Multi Planet",
     FreeRoam: "Free Roam",
+}
+
+const requiredModsTagsMap = {
+    YouTubeStream: "Youtube Stream",
+    KeyLimiter: "Key Limiter",
+}
+
+const miscTagsMap = {
     isJudgementLimited: "Judgement Limit",
+}
+
+const groupNameMap = {
+    dlc: "DLC",
+    requiredMods: "Required Mods",
+    misc: "Misc",
+    length: "Length",
+    vfxTier: "VFX Tier"
 }
 
 /**
@@ -82,18 +96,24 @@ function generateRandomColor(): string {
     return `#${[r, g, b].map(x => x.toString(16).padStart(2, '0')).join('')}`;
 }
 
+interface TagInfo {
+    tagName: string;
+    groupName: string;
+}
+
 /**
  * Get or create a tag by name
  */
-async function getOrCreateTag(tagName: string): Promise<LevelTag> {
+async function getOrCreateTag(tagName: string, groupName?: string): Promise<LevelTag> {
     let tag = await LevelTag.findOne({ where: { name: tagName } });
     if (!tag) {
-        // Tag doesn't exist, create it with a random color
+        // Tag doesn't exist, create it with a random color and group
         const randomColor = generateRandomColor();
-        logger.debug(`  Creating new tag "${tagName}" with color ${randomColor}`);
+        logger.debug(`  Creating new tag "${tagName}" with color ${randomColor}${groupName ? ` in group "${groupName}"` : ''}`);
         tag = await LevelTag.create({
             name: tagName,
-            color: randomColor
+            color: randomColor,
+            group: groupName
         });
     }
     return tag;
@@ -112,8 +132,9 @@ async function isTagAssigned(levelId: number, tagId: number): Promise<boolean> {
 /**
  * Assign a tag to a level if not already assigned
  */
-async function assignTagToLevel(levelId: number, tagName: string): Promise<boolean> {
-    const tag = await getOrCreateTag(tagName);
+async function assignTagToLevel(levelId: number, tagInfo: TagInfo): Promise<boolean> {
+    const { tagName, groupName } = tagInfo;
+    const tag = await getOrCreateTag(tagName, groupName);
     
     const alreadyAssigned = await isTagAssigned(levelId, tag.id);
     if (alreadyAssigned) {
@@ -150,19 +171,19 @@ async function getLevelData(levelId: string) {
  * Determine tags to assign based on analysis data
  * This function can be extended with more complex conditionals
  */
-function determineTagsToAssign(analysis: any, settings: any): string[] {
-    const tagsToAssign: string[] = [];
+function determineTagsToAssign(analysis: any, settings: any): TagInfo[] {
+    const tagsToAssign: TagInfo[] = [];
     
-    // DLC tag
+    // DLC tag (from dlcTagsMap)
     if (analysis?.containsDLC) {
-        tagsToAssign.push(miscTagsMap.containsDLC);
+        tagsToAssign.push({ tagName: dlcTagsMap.containsDLC, groupName: groupNameMap.dlc });
     }
     
     // VFX tier tags
     if (analysis?.vfxTier !== undefined) {
         const vfxTier = analysis.vfxTier as keyof typeof vfxTierTags;
         if (vfxTierTags[vfxTier]) {
-            tagsToAssign.push(vfxTierTags[vfxTier]);
+            tagsToAssign.push({ tagName: vfxTierTags[vfxTier], groupName: groupNameMap.vfxTier });
         }
     }
     
@@ -177,29 +198,31 @@ function determineTagsToAssign(analysis: any, settings: any): string[] {
         for (const threshold of lengthThresholds) {
             if (lengthInMinutes >= threshold) {
                 const tagKey = threshold as keyof typeof lengthTagsMinutes;
-                tagsToAssign.push(lengthTagsMinutes[tagKey]);
+                tagsToAssign.push({ tagName: lengthTagsMinutes[tagKey], groupName: groupNameMap.length });
                 break;
             }
         }
     }
     
-    // Judgement Limit tag
+    // Judgement Limit tag (from miscTagsMap)
     if (analysis?.isJudgementLimited) {
-        tagsToAssign.push(miscTagsMap.isJudgementLimited);
+        tagsToAssign.push({ tagName: miscTagsMap.isJudgementLimited, groupName: groupNameMap.misc });
     }
     
+    // Required mods tags
     if (analysis?.requiredMods) {
         for (const mod of analysis.requiredMods as string[]) {
-            if (miscTagsMap[mod as keyof typeof miscTagsMap]) {
-                tagsToAssign.push(miscTagsMap[mod as keyof typeof miscTagsMap]);
+            if (requiredModsTagsMap[mod as keyof typeof requiredModsTagsMap]) {
+                tagsToAssign.push({ tagName: requiredModsTagsMap[mod as keyof typeof requiredModsTagsMap], groupName: groupNameMap.requiredMods });
             }
         }
     }
 
+    // DLC events tags (from dlcTagsMap)
     if (analysis?.dlcEvents) {
         for (const event of analysis.dlcEvents as string[]) {
-            if (miscTagsMap[event as keyof typeof miscTagsMap]) {
-                tagsToAssign.push(miscTagsMap[event as keyof typeof miscTagsMap]);
+            if (dlcTagsMap[event as keyof typeof dlcTagsMap]) {
+                tagsToAssign.push({ tagName: dlcTagsMap[event as keyof typeof dlcTagsMap], groupName: groupNameMap.dlc });
             }
         }
     }
@@ -208,7 +231,7 @@ function determineTagsToAssign(analysis: any, settings: any): string[] {
 
     // Can Decorations Kill tag (if needed - not in miscTagsMap currently)
     // if (analysis?.canDecorationsKill) {
-    //     tagsToAssign.push("Decorations Kill");
+    //     tagsToAssign.push({ tagName: "Decorations Kill", groupName: groupNameMap.misc });
     // }
     
     return tagsToAssign;
@@ -243,19 +266,19 @@ async function autoAssignTags(levelId: string): Promise<void> {
         return;
     }
     
-    logger.debug(`\nTags to assign: ${tagsToAssign.join(', ')}`);
+    logger.debug(`\nTags to assign: ${tagsToAssign.map(t => `${t.tagName} (${t.groupName})`).join(', ')}`);
     logger.debug('\nAssigning tags:');
     
     // Assign each tag
     let assignedCount = 0;
-    for (const tagName of tagsToAssign) {
+    for (const tagInfo of tagsToAssign) {
         try {
-            const assigned = await assignTagToLevel(level.id, tagName);
+            const assigned = await assignTagToLevel(level.id, tagInfo);
             if (assigned) {
                 assignedCount++;
             }
         } catch (error) {
-            logger.error(`  ✗ Failed to assign tag "${tagName}":`, error instanceof Error ? error.message : error);
+            logger.error(`  ✗ Failed to assign tag "${tagInfo.tagName}":`, error instanceof Error ? error.message : error);
         }
     }
     
