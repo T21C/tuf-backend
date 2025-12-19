@@ -333,7 +333,12 @@ program.command('autoAssignTags')
                 offset: i,
                 limit: Math.min(batchSize, offset + limit - i)
             });
-            const promises = levelIds.map(level => autoAssignTags(level.id.toString()));
+            const promises = levelIds.map(level => autoAssignTags(level.id.toString()).catch(error => {
+                if (!error.message.includes("Cannot destructure property")) {
+                    logger.error(`Error assigning tags to level ${level.id}:`, error instanceof Error ? error.message : error);
+                }
+                return null;
+            }));
             await Promise.all(promises);
             logger.info(`Processed batch ${batchNumber} of ${totalBatches}`);
         }
