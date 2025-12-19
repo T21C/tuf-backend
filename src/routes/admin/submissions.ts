@@ -33,6 +33,7 @@ import { CDN_CONFIG } from '../../cdnService/config.js';
 import cdnService from '../../services/CdnService.js';
 import { safeTransactionRollback } from '../../utils/Utility.js';
 import {TeamAlias} from '../../models/credits/TeamAlias.js';
+import {tagAssignmentService} from '../../services/TagAssignmentService.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -469,6 +470,25 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Index the level in Elasticsearch after transaction is committed
         await elasticsearchService.indexLevel(newLevel);
+
+        // Auto-assign tags based on level analysis
+        try {
+          const tagResult = await tagAssignmentService.assignAutoTags(newLevel.id);
+          if (tagResult.assignedTags.length > 0) {
+            logger.info('Auto tags assigned to new level', {
+              levelId: newLevel.id,
+              assignedTags: tagResult.assignedTags,
+            });
+            // Reindex level to include new tags
+            await elasticsearchService.reindexLevels([newLevel.id]);
+          }
+        } catch (tagError) {
+          // Log error but don't fail the approval
+          logger.warn('Failed to assign auto tags to new level:', {
+            levelId: newLevel.id,
+            error: tagError instanceof Error ? tagError.message : String(tagError),
+          });
+        }
 
         return res.json({
           message: 'Submission approved, level and rating created successfully',

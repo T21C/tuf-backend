@@ -33,6 +33,7 @@ import LevelTag from '../../../models/levels/LevelTag.js';
 import {Op} from 'sequelize';
 import {permissionFlags} from '../../../config/constants.js';
 import {hasFlag} from '../../../utils/auth/permissionUtils.js';
+import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -1080,6 +1081,26 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
           );
         }
 
+        // Refresh auto-assigned tags based on the new level analysis
+        try {
+          const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
+          if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
+            logger.info('Auto tags refreshed after level upload', {
+              levelId,
+              assignedTags: tagResult.assignedTags,
+              removedTags: tagResult.removedTags,
+            });
+            // Reindex level in Elasticsearch to reflect tag changes
+            await elasticsearchService.reindexLevels([levelId]);
+          }
+        } catch (tagError) {
+          // Log error but don't fail the upload
+          logger.warn('Failed to refresh auto tags after level upload:', {
+            levelId,
+            error: tagError instanceof Error ? tagError.message : String(tagError),
+          });
+        }
+
         // Try to send response - if client truly disconnected, Express will handle it
         // Check if response can still be written to avoid errors
         if (res.headersSent || res.writableEnded) {
@@ -1277,5 +1298,43 @@ router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Respon
     }
   },
 );
+
+// Refresh auto-assigned tags for a level
+router.post('/:id/refresh-tags', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+
+    if (isNaN(levelId)) {
+      return res.status(400).json({error: 'Invalid level ID'});
+    }
+
+    const level = await Level.findByPk(levelId);
+    if (!level) {
+      return res.status(404).json({error: 'Level not found'});
+    }
+
+    // Refresh auto-assigned tags
+    const result = await tagAssignmentService.refreshAutoTags(levelId);
+
+    // Reindex level in Elasticsearch if tags changed
+    if (result.assignedTags.length > 0 || result.removedTags.length > 0) {
+      await elasticsearchService.reindexLevels([levelId]);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Auto-assigned tags refreshed successfully',
+      removedTags: result.removedTags,
+      assignedTags: result.assignedTags,
+      errors: result.errors,
+    });
+  } catch (error) {
+    logger.error('Error refreshing auto tags:', error);
+    return res.status(500).json({
+      error: 'Failed to refresh auto tags',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
 export default router;
