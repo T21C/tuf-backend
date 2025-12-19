@@ -2,9 +2,19 @@ import { logger } from '../../services/LoggerService.js';
 import CdnFile from '../../models/cdn/CdnFile.js';
 import LevelDict, { analysisUtils, constants } from 'adofai-lib';
 import fs from 'fs';
+import path from 'path';
+import AdmZip from 'adm-zip';
 import dotenv from 'dotenv';
+import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
 
 dotenv.config();
+
+/**
+ * Version number for the safe-to-parse flag.
+ * Increment this when breaking changes are made to the level parsing logic
+ * to force re-parsing of all cached levels.
+ */
+export const SAFE_TO_PARSE_VERSION = 1;
 
 // Cache data structure
 export interface LevelCacheData {
@@ -42,6 +52,210 @@ class LevelCacheService {
             LevelCacheService.instance = new LevelCacheService();
         }
         return LevelCacheService.instance;
+    }
+
+    /**
+     * Check if the safeToParse version is current
+     */
+    private isVersionCurrent(metadata: any): boolean {
+        const storedVersion = metadata?.targetSafeToParseVersion;
+        return storedVersion === SAFE_TO_PARSE_VERSION;
+    }
+
+    /**
+     * Get the source.copy path for a target level file
+     */
+    private getSourceCopyPath(targetLevelPath: string): string {
+        const dir = path.dirname(targetLevelPath);
+        return path.join(dir, 'source.copy');
+    }
+
+    /**
+     * Extract the original .adofai file from the zip and save as source.copy
+     * This preserves the untouched original before LevelDict modifies it
+     */
+    private async extractSourceCopy(
+        file: CdnFile,
+        targetLevelPath: string,
+        metadata: any
+    ): Promise<string | null> {
+        try {
+            const sourceCopyPath = this.getSourceCopyPath(targetLevelPath);
+
+            // Get the original zip info from metadata
+            const originalZip = metadata?.originalZip;
+            if (!originalZip?.path) {
+                logger.warn('No original zip path in metadata, cannot extract source copy', {
+                    fileId: file.id
+                });
+                return null;
+            }
+
+            // Determine storage type for the zip
+            const zipStorageType = (originalZip.storageType as StorageType) || 
+                                   (metadata.storageInfo?.zip as StorageType) || 
+                                   StorageType.LOCAL;
+
+            // Download the zip to a temporary location
+            const tempDir = path.dirname(targetLevelPath);
+            const tempZipPath = path.join(tempDir, `temp_${file.id}.zip`);
+
+            logger.debug('Downloading zip for source copy extraction', {
+                fileId: file.id,
+                zipPath: originalZip.path,
+                storageType: zipStorageType,
+                tempZipPath
+            });
+
+            await hybridStorageManager.downloadFile(originalZip.path, zipStorageType, tempZipPath);
+
+            // Find the target level file name in the zip
+            // The targetLevelPath might be a Spaces key or local path, we need the original filename
+            const allLevelFiles = metadata?.allLevelFiles || [];
+            let targetLevelName: string | null = null;
+
+            for (const levelFile of allLevelFiles) {
+                if (levelFile.path === targetLevelPath) {
+                    targetLevelName = levelFile.name;
+                    break;
+                }
+            }
+
+            if (!targetLevelName) {
+                // Fallback: try to extract basename from path
+                targetLevelName = path.basename(targetLevelPath);
+                logger.debug('Using basename as target level name fallback', {
+                    targetLevelName,
+                    targetLevelPath
+                });
+            }
+
+            // Open the zip and find the target .adofai file
+            const zip = new AdmZip(tempZipPath);
+            const entries = zip.getEntries();
+
+            let foundEntry: AdmZip.IZipEntry | null = null;
+            for (const entry of entries) {
+                if (entry.name === targetLevelName || entry.entryName.endsWith(targetLevelName)) {
+                    foundEntry = entry;
+                    break;
+                }
+            }
+
+            if (!foundEntry) {
+                logger.warn('Target level file not found in zip', {
+                    fileId: file.id,
+                    targetLevelName,
+                    availableEntries: entries.map(e => e.name)
+                });
+                // Clean up temp zip
+                await fs.promises.unlink(tempZipPath).catch(() => {});
+                return null;
+            }
+
+            // Extract the original content and save as source.copy
+            const originalContent = foundEntry.getData();
+            await fs.promises.mkdir(path.dirname(sourceCopyPath), { recursive: true });
+            await fs.promises.writeFile(sourceCopyPath, originalContent);
+
+            logger.debug('Source copy extracted successfully', {
+                fileId: file.id,
+                sourceCopyPath,
+                size: originalContent.length
+            });
+
+            // Clean up temp zip
+            await fs.promises.unlink(tempZipPath).catch(() => {});
+
+            return sourceCopyPath;
+        } catch (error) {
+            logger.error('Failed to extract source copy', {
+                fileId: file.id,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+        }
+    }
+
+    /**
+     * Load level data with proper version checking and cache management.
+     * This is the SINGLE entry point for loading level files - use this instead of 
+     * manually checking safeToParse.
+     * 
+     * @param file - CdnFile instance
+     * @param levelPath - Path to the level file
+     * @param metadata - Optional metadata object (will use file.metadata if not provided)
+     * @returns Object containing the parsed LevelDict and whether it was reparsed
+     */
+    async loadLevelData(
+        file: CdnFile,
+        levelPath: string,
+        metadata?: any
+    ): Promise<{ levelData: LevelDict; wasReparsed: boolean }> {
+        const fileMetadata = metadata || file.metadata as any;
+        const safeToParse = fileMetadata?.targetSafeToParse || false;
+        const versionCurrent = this.isVersionCurrent(fileMetadata);
+        
+        // Determine if we need to re-parse from original source
+        const needsReparse = !safeToParse || !versionCurrent;
+
+        if (needsReparse) {
+            let sourceToUse = levelPath;
+
+            // If version is outdated, we need to use the original source
+            if (safeToParse && !versionCurrent) {
+                logger.info('SafeToParse version outdated, extracting original source', {
+                    fileId: file.id,
+                    storedVersion: fileMetadata?.targetSafeToParseVersion,
+                    currentVersion: SAFE_TO_PARSE_VERSION
+                });
+
+                // Check if source.copy already exists
+                const sourceCopyPath = this.getSourceCopyPath(levelPath);
+                if (fs.existsSync(sourceCopyPath)) {
+                    sourceToUse = sourceCopyPath;
+                    logger.debug('Using existing source.copy', { sourceCopyPath });
+                } else {
+                    // Extract source.copy from the original zip
+                    const extractedPath = await this.extractSourceCopy(file, levelPath, fileMetadata);
+                    if (extractedPath) {
+                        sourceToUse = extractedPath;
+                    } else {
+                        // Fallback: use the existing (potentially modified) level file
+                        logger.warn('Could not extract source.copy, using existing level file', {
+                            fileId: file.id
+                        });
+                    }
+                }
+            }
+
+            // Parse from the source file
+            const levelData = new LevelDict(sourceToUse);
+            
+            // Write the processed version back to the target level path
+            levelData.writeToFile(levelPath);
+            
+            // Update targetSafeToParse flag AND version in metadata
+            await file.update({ 
+                metadata: { 
+                    ...fileMetadata, 
+                    targetSafeToParse: true,
+                    targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
+                } 
+            });
+
+            logger.debug('Level file loaded and version updated', {
+                fileId: file.id,
+                version: SAFE_TO_PARSE_VERSION,
+                sourceUsed: sourceToUse
+            });
+
+            return { levelData, wasReparsed: true };
+        } else {
+            // Safe to parse and version is current - use the cached processed file
+            const levelData = LevelDict.fromJSON(fs.readFileSync(levelPath, 'utf8'));
+            return { levelData, wasReparsed: false };
+        }
     }
 
     /**
@@ -110,39 +324,35 @@ class LevelCacheService {
         try {
             logger.debug('Populating cache for file:', { fileId: file.id, levelPath, requestedModes });
 
+            const fileMetadata = metadata || file.metadata as any;
+            const versionCurrent = this.isVersionCurrent(fileMetadata);
+
             // Parse existing cache to preserve any existing data
+            // BUT invalidate cache if version is outdated (cached data may be incorrect)
             let existingCache = this.parseCacheData(file.cacheData);
-            if (process.env.NODE_ENV === 'development') {
+            if (process.env.NODE_ENV === 'development' || !versionCurrent) {
                 existingCache = null;
+                if (!versionCurrent && file.cacheData) {
+                    logger.debug('Invalidating cached data due to version mismatch', {
+                        fileId: file.id,
+                        storedVersion: fileMetadata?.targetSafeToParseVersion,
+                        currentVersion: SAFE_TO_PARSE_VERSION
+                    });
+                }
             }
             
             // Check if file exists
             if (!fs.existsSync(levelPath)) {
                 throw new Error(`Level file not found at path: ${levelPath}`);
             }
-
-            // Parse the level file if not provided
-            const fileMetadata = metadata || file.metadata as any;
-            const safeToParse = fileMetadata?.targetSafeToParse || false;
+            
+            // Use provided levelData or load it using the unified method
             let parsedLevelData: LevelDict;
-
             if (levelData) {
                 parsedLevelData = levelData;
             } else {
-                if (!safeToParse) {
-                    parsedLevelData = new LevelDict(levelPath);
-                    parsedLevelData.writeToFile(levelPath);
-                    
-                    // Update targetSafeToParse flag in metadata
-                    await file.update({ 
-                        metadata: { 
-                            ...fileMetadata, 
-                            targetSafeToParse: true 
-                        } 
-                    });
-                } else {
-                    parsedLevelData = LevelDict.fromJSON(fs.readFileSync(levelPath, 'utf8'));
-                }
+                const result = await this.loadLevelData(file, levelPath, metadata);
+                parsedLevelData = result.levelData;
             }
 
             // Build cache data, preserving existing values
@@ -224,6 +434,10 @@ class LevelCacheService {
         // Parse existing cache
         let cacheData = this.parseCacheData(file.cacheData);
         
+        // Check version - if outdated, we need to repopulate
+        const fileMetadata = metadata || file.metadata as any;
+        const versionCurrent = this.isVersionCurrent(fileMetadata);
+        
         // Check if cache needs population
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
         const needsPopulation = requestedModes.some(mode => 
@@ -232,8 +446,8 @@ class LevelCacheService {
             (mode === 'analysis' && !cacheHits.analysis)
         );
 
-        if (needsPopulation || !cacheData || process.env.NODE_ENV === 'development') {
-            // Populate cache
+        if (needsPopulation || !cacheData || !versionCurrent || process.env.NODE_ENV === 'development') {
+            // Populate cache (will also handle version update and cache invalidation)
             cacheData = await this.populateCache(file, levelPath, metadata, requestedModes, levelData);
             return { cacheData, wasPopulated: true };
         }
@@ -287,11 +501,12 @@ class LevelCacheService {
                 return await this.populateCache(file, targetLevel, metadata);
             }
 
-            // Check if cache needs population
+            // Check if cache needs population or version is outdated
             const cacheData = this.parseCacheData(file.cacheData);
+            const versionCurrent = this.isVersionCurrent(metadata);
             
-            if (!cacheData || cacheData.tilecount === undefined || cacheData.settings === undefined) {
-                // Populate cache
+            if (!cacheData || cacheData.tilecount === undefined || cacheData.settings === undefined || !versionCurrent) {
+                // Populate cache (will also update version if outdated)
                 return await this.populateCache(file, targetLevel, metadata);
             }
 

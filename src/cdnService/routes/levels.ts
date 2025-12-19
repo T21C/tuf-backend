@@ -673,15 +673,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     
     // If no modes specified, return full level data (no caching for this case)
     if (!modes || typeof modes !== 'string') {
-        const safeToParse = metadata.targetSafeToParse || false;
-        let levelData: LevelDict;
-        if (!safeToParse) {
-            levelData = new LevelDict(targetLevel);
-            levelData.writeToFile(targetLevel);
-            await file.update({ metadata: { ...metadata, targetSafeToParse: true } });
-        } else {
-            levelData = LevelDict.fromJSON(fs.readFileSync(targetLevel, 'utf8'));
-        }
+        const { levelData } = await levelCacheService.loadLevelData(file, targetLevel, metadata);
         return res.json(levelData);
     }
 
@@ -714,14 +706,8 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
 
         // Load level file if needed for non-cached data or analysis
         if (needsNonCachedData || needsAnalysisAndNotCached) {
-            const safeToParse = metadata.targetSafeToParse || false;
-            if (!safeToParse) {
-                levelData = new LevelDict(targetLevel);
-                levelData.writeToFile(targetLevel);
-                await file.update({ metadata: { ...metadata, targetSafeToParse: true } });
-            } else {
-                levelData = LevelDict.fromJSON(fs.readFileSync(targetLevel, 'utf8'));
-            }
+            const result = await levelCacheService.loadLevelData(file, targetLevel, metadata);
+            levelData = result.levelData;
         }
 
         // Get cache with automatic population if needed (pass levelData to avoid re-parsing)
