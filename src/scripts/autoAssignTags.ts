@@ -4,6 +4,8 @@ import Level from '../models/levels/Level.js';
 import LevelTag from '../models/levels/LevelTag.js';
 import LevelTagAssignment from '../models/levels/LevelTagAssignment.js';
 import { logger } from '../services/LoggerService.js';
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Tag mapping configurations
 const lengthTagsMinutes = {
@@ -241,7 +243,7 @@ function determineTagsToAssign(analysis: any, settings: any): TagInfo[] {
  * Auto-assign tags to a level based on its analysis data
  */
 async function autoAssignTags(levelId: string): Promise<void> {
-    logger.debug(`\nAuto-assigning tags for level ${levelId}...`);
+    logger.debug(`Auto-assigning tags for level ${levelId}...`);
     
     const result = await getLevelData(levelId);
     if (!result) {
@@ -266,8 +268,8 @@ async function autoAssignTags(levelId: string): Promise<void> {
         return;
     }
     
-    logger.debug(`\nTags to assign: ${tagsToAssign.map(t => `${t.tagName} (${t.groupName})`).join(', ')}`);
-    logger.debug('\nAssigning tags:');
+    logger.debug(`Tags to assign: ${tagsToAssign.map(t => `${t.tagName} (${t.groupName})`).join(', ')}`);
+    logger.debug('Assigning tags:');
     
     // Assign each tag
     let assignedCount = 0;
@@ -283,9 +285,9 @@ async function autoAssignTags(levelId: string): Promise<void> {
     }
     
     if (assignedCount > 0) {
-        logger.info(`\n✓ Successfully assigned ${assignedCount} tag(s) to level ${levelId}`);
+        logger.info(`  ✓ Successfully assigned ${assignedCount} tag(s) to level ${levelId}`);
     } else {
-        logger.info(`\n✗ No tags assigned to level ${levelId}`);
+        logger.info(`  ✗ No tags assigned to level ${levelId}`);
     }
 }
 
@@ -311,19 +313,28 @@ program.command('autoAssignTags')
   .option('-b, --batch-size <batchSize>', 'Batch size to process', '50')
   .action(async (options) => {
     try {
-        for (let i = parseInt(options.offset) || 0; i < parseInt(options.offset) + parseInt(options.limit); i += parseInt(options.batchSize)) {
+        const offset = parseInt(options.offset) || 0;
+        const limit = parseInt(options.limit) || 100;
+        const batchSize = parseInt(options.batchSize) || 50;
+        const totalBatches = Math.ceil(limit / batchSize);
+        let batchNumber = 0;
+
+        for (let i = offset; i < offset + limit; i += batchSize) {
+            batchNumber++;
             const levelIds = await Level.findAll({
                 attributes: ['id'],
                 offset: i,
-                limit: parseInt(options.batchSize)
+                limit: Math.min(batchSize, offset + limit - i)
             });
             const promises = levelIds.map(level => autoAssignTags(level.id.toString()));
             await Promise.all(promises);
-            logger.info(`Processed batch ${i / parseInt(options.batchSize) + 1} of ${parseInt(options.limit) / parseInt(options.batchSize)}`);
+            logger.info(`Processed batch ${batchNumber} of ${totalBatches}`);
         }
     } catch (error) {
       logger.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
+    } finally {
+      process.exit(0);
     }
   });
 

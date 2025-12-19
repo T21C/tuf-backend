@@ -2,6 +2,8 @@ import winston from 'winston';
 import 'winston-daily-rotate-file';
 import fs from 'fs';
 import path from 'path';
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Define log directory
 const logDir = process.env.LOG_PATH || path.resolve('../logs');
@@ -180,7 +182,7 @@ class LoggerService {
 
     // Create logger instance
     this.logger = winston.createLogger({
-      level: process.env.NODE_ENV === 'production' && process.env.MODE !== 'debug' ? 'info' : 'debug',
+      level: process.env.MODE !== 'debug' ? 'info' : 'debug',
       transports: [
         fileRotateTransport,
         consoleTransport
