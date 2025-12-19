@@ -1085,7 +1085,7 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
         try {
           const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
           if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
-            logger.info('Auto tags refreshed after level upload', {
+            logger.debug('Auto tags refreshed after level upload', {
               levelId,
               assignedTags: tagResult.assignedTags,
               removedTags: tagResult.removedTags,

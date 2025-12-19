@@ -370,7 +370,7 @@ class TagAssignmentService {
         }
         
         if (result.assignedTags.length > 0) {
-            logger.info(`Assigned ${result.assignedTags.length} tag(s) to level ${levelId}: ${result.assignedTags.join(', ')}`);
+            logger.debug(`Assigned ${result.assignedTags.length} tag(s) to level ${levelId}: ${result.assignedTags.join(', ')}`);
         }
         
         return result;
@@ -490,7 +490,7 @@ class TagAssignmentService {
             }
             
             if (result.removedTags.length > 0 || result.assignedTags.length > 0) {
-                logger.info(`Refreshed auto tags for level ${levelId}: removed [${result.removedTags.join(', ')}], added [${result.assignedTags.join(', ')}]`);
+                logger.debug(`Refreshed auto tags for level ${levelId}: removed [${result.removedTags.join(', ')}], added [${result.assignedTags.join(', ')}]`);
             } else {
                 logger.debug(`No auto tag changes needed for level ${levelId}`);
             }
