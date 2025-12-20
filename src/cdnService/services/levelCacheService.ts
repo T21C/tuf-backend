@@ -25,7 +25,7 @@ export const SAFE_TO_PARSE_VERSION = 1;
  * 
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
-export const ANALYSIS_FORMAT_VERSION = 2;
+export const ANALYSIS_FORMAT_VERSION = 3;
 
 // Analysis data structure
 export interface AnalysisCacheData {
@@ -36,7 +36,8 @@ export interface AnalysisCacheData {
     canDecorationsKill?: boolean;
     isJudgementLimited?: boolean;
     levelLengthInMs?: number;
-    vfxTier?: constants.VfxTier;
+    vfxEventCounts?: { [key: string]: number, total: number };
+    decoEventCounts?: { [key: string]: number, total: number };
     requiredMods?: string[];
 }
 
@@ -411,7 +412,8 @@ class LevelCacheService {
                     canDecorationsKill: analysisUtils.canDecorationsKill(parsedLevelData),
                     isJudgementLimited: analysisUtils.isJudgementLimited(parsedLevelData),
                     levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),
-                    vfxTier: analysisUtils.getVfxTier(parsedLevelData),
+                    vfxEventCounts: analysisUtils.getVfxEventCounts(parsedLevelData),
+                    decoEventCounts: analysisUtils.getDecoEventCounts(parsedLevelData),
                     requiredMods: analysisUtils.getRequiredMods(parsedLevelData)
                 };
             }

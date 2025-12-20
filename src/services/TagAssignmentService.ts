@@ -5,10 +5,22 @@ import LevelTagAssignment from '../models/levels/LevelTagAssignment.js';
 import { logger } from './LoggerService.js';
 import { Op } from 'sequelize';
 
+const FILTER_THRESHOLD = 20;
+const DECO_THRESHOLD = 15;
+
+enum VFX_TIERS {
+    None,
+    Low,
+    Camera,
+    Filter,
+    Deco,
+    Full
+}
+
 // Tag mapping configurations
 const lengthTagsMinutes: Record<number, string> = {
     0: "Tiny",
-    0.5: "30s",
+    0.5: "30+ Seconds",
     1: "1+ Minute",
     2: "2+ Minutes",
     3: "3+ Minutes",
@@ -26,10 +38,12 @@ const lengthTagsMinutes: Record<number, string> = {
 };
 
 const vfxTierTags: Record<number, string> = {
-    0: "Non-VFX",
-    1: "Filters",
-    2: "Decorations",
-    3: "Full VFX",
+    [VFX_TIERS.None]: "Non-VFX",
+    [VFX_TIERS.Low]: "Low VFX",
+    [VFX_TIERS.Camera]: "Camera",
+    [VFX_TIERS.Filter]: "Filters",
+    [VFX_TIERS.Deco]: "Decorations",
+    [VFX_TIERS.Full]: "Full VFX",
 };
 
 const dlcTagsMap: Record<string, string> = {
@@ -227,10 +241,28 @@ class TagAssignmentService {
         }
         
         // VFX tier tags
-        if (analysis?.vfxTier !== undefined) {
-            const vfxTier = analysis.vfxTier as number;
-            if (vfxTierTags[vfxTier]) {
-                tagsToAssign.push({ tagName: vfxTierTags[vfxTier], groupName: groupNameMap.vfxTier });
+        if (analysis?.vfxEventCounts !== undefined && analysis?.decoEventCounts) {
+            const highVfx = analysis.vfxEventCounts.total > FILTER_THRESHOLD;
+            const highDeco = analysis.decoEventCounts.total > DECO_THRESHOLD;
+            const highCamera = analysis.vfxEventCounts.total - (analysis.vfxEventCounts['MoveCamera'] || 0) < 15;
+
+            if (highVfx && highDeco) {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Full], groupName: groupNameMap.vfxTier });
+            }
+            else if (highCamera) {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Camera], groupName: groupNameMap.vfxTier });
+            }
+            else if (highVfx) {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Filter], groupName: groupNameMap.vfxTier });
+            }
+            else if (highDeco) {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Deco], groupName: groupNameMap.vfxTier });
+            }
+            else if (analysis.vfxEventCounts.total > 0 && analysis.decoEventCounts.total > 0) {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Low], groupName: groupNameMap.vfxTier });
+            }
+            else {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.None], groupName: groupNameMap.vfxTier });
             }
         }
         
@@ -430,6 +462,7 @@ class TagAssignmentService {
         
         try {
             const level = await Level.findByPk(levelId);
+            logger.debug('refreshing auto tags for level', { levelId });
             if (!level) {
                 result.errors.push(`Level ${levelId} not found`);
                 return result;
