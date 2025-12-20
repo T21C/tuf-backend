@@ -1034,11 +1034,127 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
 
 // ==================== TAG MANAGEMENT ENDPOINTS ====================
 
+// Update tag sort orders in bulk
+router.put('/tags/sort-orders', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { sortOrders } = req.body;
+
+    if (!Array.isArray(sortOrders)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid sort orders format' });
+    }
+
+    // Update each tag's sort order
+    await Promise.all(
+      sortOrders.map(async (item) => {
+        const { id, sortOrder } = item;
+        if (id === undefined || sortOrder === undefined) {
+          throw new Error('Missing id or sortOrder in sort orders array');
+        }
+
+        const tag = await LevelTag.findByPk(id);
+        if (!tag) {
+          throw new Error(`Tag with ID ${id} not found`);
+        }
+
+        await tag.update({ sortOrder }, { transaction });
+      })
+    );
+
+    await transaction.commit();
+
+    // Update the hash after updating sort orders
+    difficultiesHash = await calculateDifficultiesHash();
+
+    // Emit events for frontend updates
+    const io = getIO();
+    io.emit('tagsReordered');
+
+    sseManager.broadcast({
+      type: 'tagsReordered',
+      data: {
+        action: 'reorder',
+        count: sortOrders.length
+      }
+    });
+
+    return res.json({ message: 'Tag sort orders updated successfully' });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating tag sort orders:', error);
+    return res.status(500).json({
+      error: 'Failed to update tag sort orders',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Update group sort orders in bulk
+router.put('/tags/group-sort-orders', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { groups } = req.body;
+
+    if (!Array.isArray(groups)) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid groups format' });
+    }
+
+    // Update groupSortOrder for all tags in each group
+    await Promise.all(
+      groups.map(async (item) => {
+        const { name, sortOrder } = item;
+        if (name === undefined || sortOrder === undefined) {
+          throw new Error('Missing name or sortOrder in groups array');
+        }
+
+        // Update all tags with matching group name
+        // Use empty string check for "Ungrouped" which has null/empty group
+        const whereClause = name === '' || name === null 
+          ? { [Op.or]: [{ group: null }, { group: '' }] }
+          : { group: name };
+
+        await LevelTag.update(
+          { groupSortOrder: sortOrder },
+          { where: whereClause, transaction }
+        );
+      })
+    );
+
+    await transaction.commit();
+
+    // Update the hash after updating group sort orders
+    difficultiesHash = await calculateDifficultiesHash();
+
+    // Emit events for frontend updates
+    const io = getIO();
+    io.emit('tagsReordered');
+
+    sseManager.broadcast({
+      type: 'tagsReordered',
+      data: {
+        action: 'groupReorder',
+        count: groups.length
+      }
+    });
+
+    return res.json({ message: 'Group sort orders updated successfully' });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating group sort orders:', error);
+    return res.status(500).json({
+      error: 'Failed to update group sort orders',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 // Get all tags
 router.get('/tags', async (req: Request, res: Response) => {
   try {
     const tags = await LevelTag.findAll({
-      order: [['name', 'ASC']],
+      order: [['groupSortOrder', 'ASC'], ['sortOrder', 'ASC'], ['name', 'ASC']],
     });
     res.json(tags);
   } catch (error) {
@@ -1124,11 +1240,45 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
       finalIconUrl = icon;
     }
 
+    // Get the last sort order to append new tag at the end
+    const lastSortOrder = await LevelTag.max('sortOrder') as number || 0;
+
+    // Determine groupSortOrder: use existing group's value or create new one
+    let groupSortOrder = 0;
+    if (group) {
+      // Check if group already exists
+      const existingGroupTag = await LevelTag.findOne({ 
+        where: { group },
+        transaction 
+      });
+      if (existingGroupTag) {
+        groupSortOrder = existingGroupTag.groupSortOrder;
+      } else {
+        // New group - get max groupSortOrder and add 1
+        const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
+        groupSortOrder = maxGroupSortOrder + 1;
+      }
+    } else {
+      // Ungrouped tags - check for existing ungrouped tags
+      const existingUngroupedTag = await LevelTag.findOne({ 
+        where: { [Op.or]: [{ group: null }, { group: '' }] },
+        transaction 
+      });
+      if (existingUngroupedTag) {
+        groupSortOrder = existingUngroupedTag.groupSortOrder;
+      } else {
+        const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
+        groupSortOrder = maxGroupSortOrder + 1;
+      }
+    }
+
     const tag = await LevelTag.create({
       name,
       icon: finalIconUrl,
       color,
       group: group || null,
+      sortOrder: lastSortOrder + 1,
+      groupSortOrder,
       createdAt: new Date(),
       updatedAt: new Date(),
     }, { transaction });

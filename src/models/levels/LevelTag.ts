@@ -17,6 +17,8 @@ class LevelTag extends Model<
   declare icon: CreationOptional<string | null>; // Full CDN URL for icon
   declare color: string; // Hex color code (e.g., "#FF5733")
   declare group: CreationOptional<string | null>; // Optional group name for organizing tags
+  declare sortOrder: CreationOptional<number>; // Sort order for tags display
+  declare groupSortOrder: CreationOptional<number>; // Sort order for tag groups display
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -47,6 +49,18 @@ LevelTag.init(
       type: DataTypes.STRING,
       allowNull: true,
       comment: 'Optional group name for organizing tags',
+    },
+    sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: 'Sort order for tags display',
+    },
+    groupSortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: 'Sort order for tag groups display',
     },
     createdAt: DataTypes.DATE,
     updatedAt: DataTypes.DATE,
