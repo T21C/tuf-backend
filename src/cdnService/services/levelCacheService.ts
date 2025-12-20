@@ -16,19 +16,35 @@ dotenv.config();
  */
 export const SAFE_TO_PARSE_VERSION = 1;
 
+/**
+ * Version number for the analysis cache format.
+ * Increment this when:
+ * - New fields are added to analysis
+ * - Field types or meanings change
+ * - Calculation logic for any analysis field changes
+ * 
+ * This invalidates ONLY the analysis cache, not tilecount/settings.
+ */
+export const ANALYSIS_FORMAT_VERSION = 2;
+
+// Analysis data structure
+export interface AnalysisCacheData {
+    _version: number; // Format version for invalidation
+    containsDLC?: boolean;
+    dlcEvents?: string[];
+    autoTile?: boolean;
+    canDecorationsKill?: boolean;
+    isJudgementLimited?: boolean;
+    levelLengthInMs?: number;
+    vfxTier?: constants.VfxTier;
+    requiredMods?: string[];
+}
+
 // Cache data structure
 export interface LevelCacheData {
     tilecount?: number;
     settings?: any;
-    analysis?: {
-        containsDLC?: boolean;
-        dlcEvents?: string[];
-        canDecorationsKill?: boolean;
-        isJudgementLimited?: boolean;
-        levelLengthInMs?: number;
-        vfxTier?: constants.VfxTier;
-        requiredMods?: string[];
-    };
+    analysis?: AnalysisCacheData;
 }
 
 // Cache hit result for checking what data is available
@@ -297,6 +313,14 @@ class LevelCacheService {
     }
 
     /**
+     * Check if the analysis format version is current
+     */
+    private isAnalysisVersionCurrent(analysis: AnalysisCacheData | undefined): boolean {
+        if (!analysis) return false;
+        return analysis._version === ANALYSIS_FORMAT_VERSION;
+    }
+
+    /**
      * Check which requested modes are available in cache.
      * Note: parseCacheData should be called first with metadata to handle version/dev checks.
      */
@@ -319,7 +343,8 @@ class LevelCacheService {
             if (mode === 'settings' && cacheData.settings !== undefined) {
                 hits.settings = true;
             }
-            if (mode === 'analysis' && cacheData.analysis !== undefined) {
+            // Analysis is only a cache hit if present AND version matches
+            if (mode === 'analysis' && cacheData.analysis !== undefined && this.isAnalysisVersionCurrent(cacheData.analysis)) {
                 hits.analysis = true;
             }
         }
@@ -366,18 +391,23 @@ class LevelCacheService {
             }
 
             // Build cache data, preserving existing values
+            // Only preserve analysis if version matches, otherwise it needs recomputation
+            const existingAnalysisValid = existingCache?.analysis && this.isAnalysisVersionCurrent(existingCache.analysis);
+            
             const cacheData: LevelCacheData = {
                 tilecount: existingCache?.tilecount ?? parsedLevelData.getAngles().length,
                 settings: existingCache?.settings ?? parsedLevelData.getSettings(),
-                analysis: existingCache?.analysis
+                analysis: existingAnalysisValid ? existingCache.analysis : undefined
             };
 
-            // Only compute analysis if explicitly requested in requestedModes and not already cached
+            // Compute analysis if requested and not already cached with current version
             const needsAnalysis = requestedModes?.includes('analysis') && !cacheData.analysis;
             if (needsAnalysis) {
                 cacheData.analysis = {
+                    _version: ANALYSIS_FORMAT_VERSION,
                     containsDLC: analysisUtils.containsDLC(parsedLevelData),
                     dlcEvents: analysisUtils.getDLCEvents(parsedLevelData),
+                    autoTile: parsedLevelData.getTiles().some(tile => tile.actions.some(action => action.eventType === 'AutoPlayTiles')),
                     canDecorationsKill: analysisUtils.canDecorationsKill(parsedLevelData),
                     isJudgementLimited: analysisUtils.isJudgementLimited(parsedLevelData),
                     levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),
@@ -445,6 +475,15 @@ class LevelCacheService {
         
         // Parse existing cache - returns null if version mismatch or dev mode
         let cacheData = this.parseCacheData(file.cacheData, fileMetadata);
+        
+        // Strip outdated analysis from cache before checking hits
+        if (cacheData?.analysis && !this.isAnalysisVersionCurrent(cacheData.analysis)) {
+            logger.debug('Stripping outdated analysis from cache', {
+                storedVersion: cacheData.analysis._version,
+                currentVersion: ANALYSIS_FORMAT_VERSION
+            });
+            cacheData = { ...cacheData, analysis: undefined };
+        }
         
         // Check if cache needs population
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
@@ -572,17 +611,26 @@ class LevelCacheService {
             return response;
         }
 
+        // Check for outdated analysis and log if found
+        if (cacheData.analysis && !this.isAnalysisVersionCurrent(cacheData.analysis)) {
+            logger.debug('Cached analysis has outdated version, will not return it', {
+                storedVersion: cacheData.analysis._version,
+                currentVersion: ANALYSIS_FORMAT_VERSION
+            });
+        }
+
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
 
-        if (requestedModes.includes('tilecount') && cacheHits.tilecount && cacheData) {
+        if (requestedModes.includes('tilecount') && cacheHits.tilecount) {
             response.tilecount = cacheData.tilecount;
         }
 
-        if (requestedModes.includes('settings') && cacheHits.settings && cacheData) {
+        if (requestedModes.includes('settings') && cacheHits.settings) {
             response.settings = cacheData.settings;
         }
 
-        if (requestedModes.includes('analysis') && cacheHits.analysis && cacheData?.analysis) {
+        // Only return analysis if version is current (checked in cacheHits)
+        if (requestedModes.includes('analysis') && cacheHits.analysis && cacheData.analysis) {
             response.analysis = cacheData.analysis;
         }
 

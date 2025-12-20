@@ -46,6 +46,7 @@ const requiredModsTagsMap: Record<string, string> = {
 
 const miscTagsMap: Record<string, string> = {
     isJudgementLimited: "Judgement Limit",
+    autoTile: "Auto Tile",
 };
 
 const groupNameMap = {
@@ -212,11 +213,17 @@ class TagAssignmentService {
      * Determine which tags should be assigned based on analysis data
      */
     public determineTagsFromAnalysis(analysis: any, settings: any): TagInfo[] {
+        logger.debug('analysis', { analysis });
         const tagsToAssign: TagInfo[] = [];
         
         // DLC tag
         if (analysis?.containsDLC) {
             tagsToAssign.push({ tagName: dlcTagsMap.containsDLC, groupName: groupNameMap.dlc });
+        }
+        
+        // Auto Tile tag
+        if (analysis?.autoTile) {
+            tagsToAssign.push({ tagName: miscTagsMap.autoTile, groupName: groupNameMap.misc });
         }
         
         // VFX tier tags

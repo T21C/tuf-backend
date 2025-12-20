@@ -663,6 +663,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         tilecount?: number;
         analysis?: {
             containsDLC?: boolean;
+            autoTile?: boolean;
             canDecorationsKill?: boolean;
             isJudgementLimited?: boolean;
             levelLengthInMs?: number;
