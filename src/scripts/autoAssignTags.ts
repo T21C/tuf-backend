@@ -16,6 +16,7 @@ const elasticsearch = elasticsearchService.getInstance();
  * Auto-assign tags to a level and reindex in Elasticsearch
  */
 async function autoAssignTagsAndReindex(levelId: string): Promise<void> {
+    await tagAssignmentService.removeAutoTags(parseInt(levelId));
     const result = await tagAssignmentService.assignAutoTags(parseInt(levelId));
     
     if (result.errors.length > 0) {
