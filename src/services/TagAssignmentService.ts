@@ -68,7 +68,7 @@ const groupNameMap = {
     requiredMods: "Required Mods",
     misc: "Misc",
     length: "Length",
-    vfxTier: "VFX Tier"
+    vfxTier: "VFX"
 } as const;
 
 export interface TagInfo {
