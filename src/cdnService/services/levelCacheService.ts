@@ -574,27 +574,13 @@ class LevelCacheService {
     ): Partial<{
         tilecount: number;
         settings: any;
-        analysis: {
-            containsDLC?: boolean;
-            canDecorationsKill?: boolean;
-            isJudgementLimited?: boolean;
-            levelLengthInMs?: number;
-            vfxTier?: constants.VfxTier;
-            requiredMods?: string[];
-        };
+        analysis: AnalysisCacheData;
         accessCount: number;
     }> {
         const response: Partial<{
             tilecount: number;
             settings: any;
-            analysis: {
-                containsDLC?: boolean;
-                canDecorationsKill?: boolean;
-                isJudgementLimited?: boolean;
-                levelLengthInMs?: number;
-                vfxTier?: constants.VfxTier;
-                requiredMods?: string[];
-            };
+            analysis: AnalysisCacheData;
             accessCount: number;
         }> = {};
 

@@ -9,7 +9,7 @@ import { PROTECTED_EVENT_TYPES, transformLevel } from '../services/levelTransfor
 import { repackZipFile } from '../services/zipProcessor.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import LevelDict, { Action } from 'adofai-lib';
-import { levelCacheService } from '../services/levelCacheService.js';
+import { AnalysisCacheData, levelCacheService } from '../services/levelCacheService.js';
 import { Op } from 'sequelize';
 import { constants } from 'adofai-lib';
 
@@ -661,15 +661,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         relativeAngles?: any;
         accessCount?: number;
         tilecount?: number;
-        analysis?: {
-            containsDLC?: boolean;
-            autoTile?: boolean;
-            canDecorationsKill?: boolean;
-            isJudgementLimited?: boolean;
-            levelLengthInMs?: number;
-            vfxTier?: constants.VfxTier;
-            requiredMods?: string[];
-        };
+        analysis?: AnalysisCacheData;
     } = {};
     
     // If no modes specified, return full level data (no caching for this case)
