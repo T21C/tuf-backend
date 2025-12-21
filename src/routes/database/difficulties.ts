@@ -1221,7 +1221,7 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
             }
           }
           
-          logger.error('Error uploading tag icon to CDN:', uploadError);
+          logger.debug('Error uploading tag icon to CDN:', uploadError);
           return res.status(statusCode).json(errorResponse);
         }
         
