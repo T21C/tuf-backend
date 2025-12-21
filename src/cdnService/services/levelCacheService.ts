@@ -6,6 +6,7 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import dotenv from 'dotenv';
 import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
+import { PROTECTED_EVENT_TYPES } from './levelTransformer.js';
 
 dotenv.config();
 
@@ -25,7 +26,7 @@ export const SAFE_TO_PARSE_VERSION = 2;
  * 
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
-export const ANALYSIS_FORMAT_VERSION = 3;
+export const ANALYSIS_FORMAT_VERSION = 4;
 
 // Analysis data structure
 export interface AnalysisCacheData {
@@ -36,6 +37,7 @@ export interface AnalysisCacheData {
     canDecorationsKill?: boolean;
     isJudgementLimited?: boolean;
     levelLengthInMs?: number;
+    nonGameplayEventCounts?: { [key: string]: number, total: number };
     vfxEventCounts?: { [key: string]: number, total: number };
     decoEventCounts?: { [key: string]: number, total: number };
     requiredMods?: string[];
@@ -403,6 +405,12 @@ class LevelCacheService {
 
             // Compute analysis if requested and not already cached with current version
             const needsAnalysis = requestedModes?.includes('analysis') && !cacheData.analysis;
+            const eventCounts = analysisUtils.getEventCounts(parsedLevelData);
+            const nonGameplayEventCounts = Object.keys(eventCounts).filter(event => !PROTECTED_EVENT_TYPES.has(event)).reduce((acc: { [key: string]: number, total: number }, event: string) => {
+                acc[event] = eventCounts[event] || 0;
+                return acc;
+            }, { total: 0 });
+            nonGameplayEventCounts.total = Object.values(nonGameplayEventCounts).reduce((acc, count) => acc + count, 0);
             if (needsAnalysis) {
                 cacheData.analysis = {
                     _version: ANALYSIS_FORMAT_VERSION,
@@ -414,7 +422,8 @@ class LevelCacheService {
                     levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),
                     vfxEventCounts: analysisUtils.getVfxEventCounts(parsedLevelData),
                     decoEventCounts: analysisUtils.getDecoEventCounts(parsedLevelData),
-                    requiredMods: analysisUtils.getRequiredMods(parsedLevelData)
+                    requiredMods: analysisUtils.getRequiredMods(parsedLevelData),
+                    nonGameplayEventCounts: nonGameplayEventCounts
                 };
             }
             logger.debug('dlc events', {dlcEvents: analysisUtils.getDLCEvents(parsedLevelData)});

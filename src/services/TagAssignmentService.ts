@@ -34,7 +34,7 @@ const lengthTagsMinutes: Record<number, string> = {
     60: "1+ Hours",
     90: "1.5+ Hours",
     120: "2+ Hours",
-    360: "Desert Bus"
+    360: "Timeless"
 };
 
 const vfxTierTags: Record<number, string> = {
@@ -244,8 +244,10 @@ class TagAssignmentService {
         if (analysis?.vfxEventCounts !== undefined && analysis?.decoEventCounts) {
             const highVfx = analysis.vfxEventCounts.total > FILTER_THRESHOLD;
             const highDeco = analysis.decoEventCounts.total > DECO_THRESHOLD;
-            const highCamera = analysis.vfxEventCounts.total - (analysis.vfxEventCounts['MoveCamera'] || 0) < 15;
-
+            const highCamera = analysis.vfxEventCounts.total > 20 && analysis.vfxEventCounts.total - (analysis.vfxEventCounts['MoveCamera'] || 0) < 15;
+            const defaultVisuals = 
+            (analysis.nonGameplayEventCounts.total - (analysis.nonGameplayEventCounts['PositionTrack'] || 0)) === 0
+            && settings.trackColor === "debb7b";
             if (highVfx && highDeco) {
                 tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Full], groupName: groupNameMap.vfxTier });
             }
@@ -258,12 +260,12 @@ class TagAssignmentService {
             else if (highDeco) {
                 tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Deco], groupName: groupNameMap.vfxTier });
             }
-            else if (analysis.vfxEventCounts.total > 0 && analysis.decoEventCounts.total > 0) {
-                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Low], groupName: groupNameMap.vfxTier });
-            }
-            else {
+            else if (defaultVisuals) { 
                 tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.None], groupName: groupNameMap.vfxTier });
             }
+            else {
+                tagsToAssign.push({ tagName: vfxTierTags[VFX_TIERS.Low], groupName: groupNameMap.vfxTier });
+            }   
         }
         
         // Length tags (based on levelLengthInMs)
