@@ -223,7 +223,7 @@ class LevelCacheService {
 
             // If version is outdated, we need to use the original source
             if (safeToParse && !versionCurrent) {
-                logger.info('SafeToParse version outdated, extracting original source', {
+                logger.debug('SafeToParse version outdated, extracting original source', {
                     fileId: file.id,
                     storedVersion: fileMetadata?.targetSafeToParseVersion,
                     currentVersion: SAFE_TO_PARSE_VERSION

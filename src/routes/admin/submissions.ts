@@ -475,7 +475,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         try {
           const tagResult = await tagAssignmentService.assignAutoTags(newLevel.id);
           if (tagResult.assignedTags.length > 0) {
-            logger.info('Auto tags assigned to new level', {
+            logger.debug('Auto tags assigned to new level', {
               levelId: newLevel.id,
               assignedTags: tagResult.assignedTags,
             });
