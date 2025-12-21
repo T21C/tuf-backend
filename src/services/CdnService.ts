@@ -528,6 +528,7 @@ class CdnService {
         folderId?: number | null;
         cacheKey: string;
         tree: any;
+        downloadId?: string; // Client-provided downloadId for progress tracking
     }): Promise<{
         downloadId: string;
         url: string;
@@ -535,7 +536,7 @@ class CdnService {
         zipName: string;
     }> {
         try {
-            // Increased timeout to 30 minutes - progress is tracked via WebSocket, so long waits are acceptable
+            // Increased timeout to 30 minutes - progress is tracked via SSE, so long waits are acceptable
             const response = await this.client.post('/zips/packs/generate', request, {timeout: 1800000}); // 30 minutes timeout
             return response.data;
         } catch (error) {

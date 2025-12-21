@@ -147,6 +147,48 @@ class SSEManager {
     failedClients.forEach(clientId => this.removeClient(clientId));
   }
 
+  /**
+   * Send event to clients that match a specific source
+   * Useful for targeted updates (e.g., pack download progress to specific downloads)
+   */
+  sendToSource(source: string, event: {type: string; data?: any}) {
+    const failedClients: string[] = [];
+
+    this.clients.forEach((client, clientId) => {
+      if (client.metadata.source === source) {
+        try {
+          client.res.write(`data: ${JSON.stringify(event)}\n\n`);
+          client.lastPing = Date.now();
+        } catch (error) {
+          failedClients.push(clientId);
+        }
+      }
+    });
+
+    failedClients.forEach(clientId => this.removeClient(clientId));
+  }
+
+  /**
+   * Send event to clients whose source starts with a prefix
+   * Useful for matching patterns like 'packDownload:uuid'
+   */
+  sendToSourcePrefix(prefix: string, event: {type: string; data?: any}) {
+    const failedClients: string[] = [];
+
+    this.clients.forEach((client, clientId) => {
+      if (client.metadata.source.startsWith(prefix)) {
+        try {
+          client.res.write(`data: ${JSON.stringify(event)}\n\n`);
+          client.lastPing = Date.now();
+        } catch (error) {
+          failedClients.push(clientId);
+        }
+      }
+    });
+
+    failedClients.forEach(clientId => this.removeClient(clientId));
+  }
+
   getClientCount(source?: string): number {
     return this.getConnectionStats(source).total;
   }

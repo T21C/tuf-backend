@@ -889,7 +889,12 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
     }
 }
 
-async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, cacheKey: string): Promise<PackDownloadResponse> {
+async function generatePackDownloadZip(
+    zipName: string, 
+    tree: PackDownloadNode, 
+    cacheKey: string,
+    clientDownloadId?: string // Client-provided downloadId for progress tracking
+): Promise<PackDownloadResponse> {
     await ensurePackDownloadDirs();
     await cleanupExpiredDownloads();
 
@@ -897,8 +902,8 @@ async function generatePackDownloadZip(zipName: string, tree: PackDownloadNode, 
     const extractRoot = path.join(tempDir, 'extract');
     await fs.promises.mkdir(extractRoot, { recursive: true });
 
-    // Generate downloadId early for progress tracking
-    const downloadId = crypto.randomUUID();
+    // Use client-provided downloadId if available, otherwise generate a new one
+    const downloadId = clientDownloadId || crypto.randomUUID();
     
     // Count total levels before processing
     const totalLevels = countTotalLevels(tree);
@@ -1344,7 +1349,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
 
 router.post('/packs/generate', async (req: Request, res: Response) => {
     try {
-        const { zipName, tree, cacheKey, packCode } = req.body ?? {};
+        const { zipName, tree, cacheKey, packCode, downloadId: clientDownloadId } = req.body ?? {};
 
         if (!zipName || typeof zipName !== 'string') {
             return res.status(400).json({ error: 'zipName is required' });
@@ -1475,7 +1480,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             const sanitizedZipName = sanitizePathSegment(finalZipName);
             const generationPromise = (async () => {
                 try {
-                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey);
+                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId);
                 } catch (error) {
                     // If generation fails, still unregister to free up space
                     throw error;

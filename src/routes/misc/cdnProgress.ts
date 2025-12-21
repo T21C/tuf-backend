@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getIO } from '../../utils/server/socket.js';
+import { sseManager } from '../../utils/server/sse.js';
 import { logger } from '../../services/LoggerService.js';
 
 const router = Router();
@@ -25,11 +25,15 @@ router.post('/pack-progress', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Emit progress via Socket.IO to all connected clients
-        const io = getIO();
-        io.emit('packDownloadProgress', payload);
+        // Send progress to clients subscribed to this specific download
+        const source = `packDownload:${payload.downloadId}`;
+        sseManager.sendToSource(source, {
+            type: 'packDownloadProgress',
+            data: payload
+        });
 
-        logger.debug('Forwarded pack download progress', {
+        logger.debug('Sent pack download progress via SSE to source', {
+            source,
             downloadId: payload.downloadId,
             status: payload.status,
             progressPercent: payload.progressPercent

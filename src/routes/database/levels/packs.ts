@@ -714,10 +714,10 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
   }
 });
 
-router.post('/:id/download-link', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Response) => {
   try {
     const param = req.params.id;
-    const { folderId } = req.body ?? {};
+    const { folderId, downloadId } = req.body ?? {};
 
     const resolvedPackId = await resolvePackId(param);
     if (!resolvedPackId) {
@@ -847,7 +847,8 @@ router.post('/:id/download-link', Auth.addUserToRequest(), async (req: Request, 
       packCode: packCode,
       folderId: targetFolder ? targetFolder.id : null,
       cacheKey,
-      tree: treePayload
+      tree: treePayload,
+      downloadId: downloadId || undefined // Client-provided downloadId for progress tracking
     });
 
     return res.json(cdnResponse);
