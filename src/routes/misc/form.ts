@@ -51,9 +51,22 @@ const upload = multer({
 });
 
 // Enhanced input validation and sanitization
-const sanitizeTextInput = (input: string | null | undefined): string => {
+const sanitizeTextInput = (input: string | null | undefined, maxLength = 1000): string => {
   if (input === null || input === undefined) return '';
-  return input.trim();
+  return input.trim().slice(0, maxLength);
+};
+
+// Validate date input
+const validateDateInput = (input: any): Date | null => {
+  if (!input) return null;
+  const date = new Date(input);
+  // Check for Invalid Date
+  if (isNaN(date.getTime())) return null;
+  // Reject dates too far in the past (before 2020) or future (more than 1 day ahead)
+  const minDate = new Date('2020-01-01');
+  const maxDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  if (date < minDate || date > maxDate) return null;
+  return date;
 };
 
 const validateNumericInput = (input: any, min = 0, max: number = Number.MAX_SAFE_INTEGER): number => {
@@ -245,10 +258,6 @@ router.post(
             }
           });
         }
-
-        const discordProvider = req.user?.providers?.find(
-          (provider: any) => provider.dataValues?.provider === 'discord',
-        );
 
         const existingSubmissions = await LevelSubmission.findAll({
           where: {
@@ -515,9 +524,20 @@ router.post(
         // Validate speed if provided
         const speed = req.body.speed ? validateFloatInput(req.body.speed, 1, 100) : 1;
 
-        const discordProvider = req.user?.providers?.find(
-          (provider: any) => provider.dataValues.provider === 'discord',
-        );
+        // Validate rawTime
+        const rawTime = validateDateInput(req.body.rawTime);
+        if (!rawTime) {
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid or missing rawTime - must be a valid date between 2020 and now',
+          });
+        }
+
+        // Normalize boolean flags (handle both string and boolean inputs)
+        const is12K = req.body.is12K === true || req.body.is12K === 'true';
+        const isNoHoldTap = req.body.isNoHoldTap === true || req.body.isNoHoldTap === 'true';
+        const is16K = req.body.is16K === true || req.body.is16K === 'true';
 
         const level = await Level.findByPk(levelId, {
           include: [
@@ -540,15 +560,18 @@ router.post(
           return res.status(404).json({error: 'Difficulty not found'});
         }
 
+        // Normalize passerRequest early for existing submission check
+        const passerRequestValue = req.body.passerRequest === true || req.body.passerRequest === 'true';
+
         const existingSubmission = await PassSubmission.findOne({
           where: {
             levelId: levelId,
             speed: speed,
             passer: sanitizeTextInput(req.body.passer),
-            passerRequest: req.body.passerRequest === true,
+            passerRequest: passerRequestValue,
             title: sanitizeTextInput(req.body.title),
             videoLink: cleanVideoUrl(req.body.videoLink),
-            rawTime: new Date(req.body.rawTime),
+            rawTime: rawTime,
           },
           transaction
         });
@@ -572,9 +595,9 @@ router.post(
           existingSubmissionFlags = await PassSubmissionFlags.findOne({
             where: {
               passSubmissionId: existingSubmission?.id,
-              is12K: req.body.is12K === true,
-              isNoHoldTap: req.body.isNoHoldTap === true,
-              is16K: req.body.is16K === true,
+              is12K,
+              isNoHoldTap,
+              is16K,
             },
             transaction
           });
@@ -612,9 +635,9 @@ router.post(
             levelId: levelId,
             speed: speed,
             videoLink: cleanVideoUrl(req.body.videoLink),
-            is12K: req.body.is12K === true,
-            isNoHoldTap: req.body.isNoHoldTap === true,
-            is16K: req.body.is16K === true,
+            is12K,
+            isNoHoldTap,
+            is16K,
           },
           transaction
         }) : null;
@@ -643,12 +666,45 @@ router.post(
           {
             speed: speed,
             judgements: sanitizedJudgements,
-            isNoHoldTap: req.body.isNoHoldTap === 'true',
+            isNoHoldTap,
           },
           levelData,
         );
 
+        // Validate that score is a valid number
+        if (!Number.isFinite(score)) {
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid judgement values - could not calculate score',
+            details: { judgements: sanitizedJudgements, speed, levelId }
+          });
+        }
+
         const accuracy = calcAcc(sanitizedJudgements);
+
+        // Validate that accuracy is a valid number
+        if (!Number.isFinite(accuracy)) {
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid judgement values - could not calculate accuracy',
+            details: { judgements: sanitizedJudgements }
+          });
+        }
+
+        // Validate passerId if provided (should be a positive integer or null)
+        let passerId: number | null = null;
+        if (req.body.passerId !== undefined && req.body.passerId !== null && req.body.passerId !== '') {
+          passerId = parseInt(req.body.passerId);
+          if (isNaN(passerId) || passerId <= 0) {
+            await cleanUpFile(req);
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+              error: 'Invalid passerId - must be a positive integer',
+            });
+          }
+        }
 
         // Create the pass submission within transaction
         const submission = await PassSubmission.create({
@@ -657,14 +713,14 @@ router.post(
           scoreV2: score,
           accuracy,
           passer: sanitizeTextInput(req.body.passer),
-          passerId: req.body.passerId,
-          passerRequest: req.body.passerRequest === true,
+          passerId: passerId,
+          passerRequest: passerRequestValue,
           feelingDifficulty: sanitizeTextInput(req.body.feelingDifficulty),
           title: sanitizeTextInput(req.body.title),
           videoLink: cleanVideoUrl(req.body.videoLink),
-          rawTime: new Date(req.body.rawTime),
+          rawTime,
           status: 'pending',
-          assignedPlayerId: req.body.passerRequest === false ? req.body.passerId : null,
+          assignedPlayerId: !passerRequestValue ? passerId : null,
           userId: req.user?.id,
         }, { transaction });
 
@@ -676,9 +732,9 @@ router.post(
         // Create flags with proper validation
         const flags = {
           passSubmissionId: submission.id,
-          is12K: req.body.is12K === true,
-          isNoHoldTap: req.body.isNoHoldTap === true,
-          is16K: req.body.is16K === true,
+          is12K,
+          isNoHoldTap,
+          is16K,
         };
 
         await PassSubmissionFlags.create(flags, { transaction });
@@ -765,12 +821,81 @@ router.post(
       return res.status(400).json({error: 'Invalid form type'});
     } catch (error) {
       // Enhanced error handling with proper cleanup
-      logger.error('Submission error:', {
-        error,
+      const errorDetails: Record<string, any> = {
         formType: req.headers['x-form-type'],
         userId: req.user?.id,
         timestamp: new Date().toISOString()
-      });
+      };
+
+      // Extract full error information
+      if (error instanceof Error) {
+        errorDetails.errorMessage = error.message;
+        errorDetails.errorName = error.name;
+        errorDetails.errorStack = error.stack;
+        
+        // Handle Sequelize-specific error properties
+        const seqError = error as any;
+        if (seqError.sql) errorDetails.sql = seqError.sql;
+        if (seqError.parameters) errorDetails.sqlParameters = seqError.parameters;
+        if (seqError.original) {
+          errorDetails.originalError = {
+            message: seqError.original.message,
+            code: seqError.original.code,
+            errno: seqError.original.errno,
+            sqlState: seqError.original.sqlState,
+            sqlMessage: seqError.original.sqlMessage
+          };
+        }
+        if (seqError.fields) errorDetails.fields = seqError.fields;
+        if (seqError.errors) {
+          errorDetails.validationErrors = seqError.errors.map((e: any) => ({
+            message: e.message,
+            type: e.type,
+            path: e.path,
+            value: e.value
+          }));
+        }
+      } else {
+        errorDetails.error = String(error);
+      }
+
+      // Log submitted values for debugging (sanitized)
+      if (req.headers['x-form-type'] === 'pass') {
+        errorDetails.submittedValues = {
+          levelId: req.body.levelId,
+          speed: req.body.speed,
+          passer: req.body.passer,
+          judgements: {
+            earlyDouble: req.body.earlyDouble,
+            earlySingle: req.body.earlySingle,
+            ePerfect: req.body.ePerfect,
+            perfect: req.body.perfect,
+            lPerfect: req.body.lPerfect,
+            lateSingle: req.body.lateSingle,
+            lateDouble: req.body.lateDouble,
+          },
+          flags: {
+            is12K: req.body.is12K,
+            isNoHoldTap: req.body.isNoHoldTap,
+            is16K: req.body.is16K,
+          },
+          feelingDifficulty: req.body.feelingDifficulty,
+          videoLink: req.body.videoLink,
+          rawTime: req.body.rawTime,
+        };
+      } else if (req.headers['x-form-type'] === 'level') {
+        errorDetails.submittedValues = {
+          artist: req.body.artist,
+          song: req.body.song,
+          diff: req.body.diff,
+          videoLink: req.body.videoLink,
+          directDL: req.body.directDL,
+          hasFile: !!req.file,
+          fileSize: req.file?.size,
+        };
+      }
+
+      logger.error('Submission error:', errorDetails);
 
       if (error instanceof CdnError) {
         return res.status(400).json({
