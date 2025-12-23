@@ -157,7 +157,32 @@ const getBaseHtml = (clientUrl: string) => {
         ${cssLinks}
         ${jsScripts}
       </head>
+            <style>
+        .background {
+          height: 110vh;
+          width: 120vw;
+          z-index: 1;
+          position: fixed;
+          left: -30px;
+          opacity: 0.9;
+          background-image: url("https://images.rawpixel.com/image_social_landscape/cHJpdmF0ZS9sci9pbWFnZXMvd2Vic2l0ZS8yMDIyLTA1L3B4MTM2NjcxMC1pbWFnZS1rd3Z4eGVxcC5qcGc.jpg");
+          background-size:cover;
+          filter: blur(15px);
+          background-color: var(--color-black);
+          will-change: auto;
+          transform: translateZ(0);
+          background-position: center;
+          background-repeat: no-repeat;
+          image-rendering: -webkit-optimize-contrast;
+          -webkit-user-select: none;
+          -khtml-user-select: none;
+          -moz-user-select: none;
+          -ms-user-select: none;
+          user-select: none;
+        }
+      </style>
       <body>
+        <div class="background"></div>
         <div id="root"></div>
       </body>
     </html>
