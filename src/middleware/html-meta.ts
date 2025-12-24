@@ -180,10 +180,14 @@ const getBaseHtml = (clientUrl: string) => {
           -ms-user-select: none;
           user-select: none;
         }
+        .root {
+          z-index: 2;
+          position: relative;
+        }
       </style>
       <body>
         <div class="background"></div>
-        <div id="root"></div>
+        <div class="root" id="root"></div>
       </body>
     </html>
   `;
