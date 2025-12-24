@@ -77,10 +77,11 @@ async function calculateDifficultiesHash(): Promise<string> {
   }
 }
 
-// Initialize the hash
-await (async () => {
+async function updateDifficultiesHash() {
   difficultiesHash = await calculateDifficultiesHash();
-})();
+}
+// Initialize the hash
+await updateDifficultiesHash();
 
 // Fix __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -448,7 +449,7 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
       } as IDifficulty);
 
       // Update the hash after creating a new difficulty
-      difficultiesHash = await calculateDifficultiesHash();
+      await updateDifficultiesHash();
 
       return res.status(201).json(difficulty);
     } catch (error) {
@@ -644,7 +645,7 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, 
       }
 
       // Update the hash after updating a difficulty
-      difficultiesHash = await calculateDifficultiesHash();
+      await updateDifficultiesHash();
 
       return res.json(difficulty);
     } catch (error) {
@@ -722,7 +723,7 @@ router.delete('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Reques
         await transaction.commit();
 
         // Update the hash after deleting a difficulty
-        difficultiesHash = await calculateDifficultiesHash();
+        await updateDifficultiesHash();
 
         return res.json({
           message: 'Difficulty marked as LEGACY',
@@ -1007,7 +1008,7 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
     await transaction.commit();
 
     // Update the hash after updating sort orders
-    difficultiesHash = await calculateDifficultiesHash();
+    await updateDifficultiesHash();
 
     // Emit events for frontend updates
     const io = getIO();
@@ -1065,7 +1066,7 @@ router.put('/tags/sort-orders', Auth.superAdminPassword(), async (req: Request, 
     await transaction.commit();
 
     // Update the hash after updating sort orders
-    difficultiesHash = await calculateDifficultiesHash();
+    await updateDifficultiesHash();
 
     // Emit events for frontend updates
     const io = getIO();
@@ -1125,7 +1126,7 @@ router.put('/tags/group-sort-orders', Auth.superAdminPassword(), async (req: Req
     await transaction.commit();
 
     // Update the hash after updating group sort orders
-    difficultiesHash = await calculateDifficultiesHash();
+    await updateDifficultiesHash();
 
     // Emit events for frontend updates
     const io = getIO();
@@ -1284,6 +1285,9 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
     }, { transaction });
 
     await transaction.commit();
+
+    await updateDifficultiesHash();
+
     return res.status(201).json(tag);
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -1421,6 +1425,8 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
       }
     }
 
+    await updateDifficultiesHash();
+
     return res.json(tag);
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -1484,6 +1490,8 @@ router.delete('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: R
         });
       }
     }
+
+    await updateDifficultiesHash();
 
     return res.json({ message: 'Tag deleted successfully' });
   } catch (error) {
