@@ -182,6 +182,7 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
         // Create properly structured level data for score calculation
         const levelDataForScore = {
           baseScore: levelData.baseScore,
+          ppBaseScore: levelData.ppBaseScore,
           difficulty: levelData.difficulty,
         };
 

@@ -28,6 +28,7 @@ class Level
   declare artist: string;
   declare diffId: number;
   declare baseScore: number | null;
+  declare ppBaseScore: number | null;
   declare previousBaseScore: number | null;
   declare clears: number;
   declare likes: number;
@@ -95,6 +96,11 @@ Level.init(
       },
     },
     baseScore: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    ppBaseScore: {
       type: DataTypes.DOUBLE,
       allowNull: true,
       defaultValue: null,

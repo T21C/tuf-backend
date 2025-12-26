@@ -87,8 +87,10 @@ const getSpeedMtp = (speed: number, isDesBus = false) => {
 const getScore = (passData: PassData, levelData: LevelData) => {
   const speed = passData.speed;
   const inputs = passData.judgements;
-  const base = levelData.baseScore
-    ? levelData.baseScore
+  const accuracy = calcAcc(inputs);
+  const base = 
+    accuracy === 1 && levelData.ppBaseScore ? levelData.ppBaseScore :
+    levelData.baseScore ? levelData.baseScore
     : levelData.difficulty?.baseScore || 0;
   const xaccMtp = getXaccMtp(inputs, base);
 
@@ -96,7 +98,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
   let score = 0;
   if (levelData.difficulty?.name === 'Marathon') {
     speedMtp = getSpeedMtp(speed, true);
-    score = Math.max(base * xaccMtp * speedMtp, 1);
+    score = Math.max(base * xaccMtp * speedMtp, 0);
   } else {
     speedMtp = getSpeedMtp(speed);
     score = base * xaccMtp * speedMtp;
@@ -106,6 +108,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
 
 interface LevelData {
   baseScore: number | null;
+  ppBaseScore: number | null;
   diff?: number;
   difficulty: {
     name: string;

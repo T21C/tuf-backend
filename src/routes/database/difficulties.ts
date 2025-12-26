@@ -571,6 +571,7 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, 
 
           const levelData = {
             baseScore: pass.level.baseScore,
+            ppBaseScore: pass.level.ppBaseScore,
             difficulty: pass.level.difficulty,
           };
 

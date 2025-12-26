@@ -199,6 +199,7 @@ const handleScoreRecalculations = async (
 
     const levelData = {
       baseScore: updateData.baseScore || pass.level?.baseScore || 0,
+      ppBaseScore: updateData.ppBaseScore || pass.level?.ppBaseScore || 0,
       difficulty: {
         name: diffToUse.name,
         baseScore: diffToUse.baseScore || 0,
@@ -214,6 +215,7 @@ const handleScoreRecalculations = async (
       levelData,
     );
 
+    logger.debug(`Pass ${pass.id} scoreV2: ${scoreV2}`);
     passUpdates.push({
       id: pass.id,
       levelId: pass.levelId,
@@ -243,7 +245,7 @@ const handleScoreRecalculations = async (
 // Update a level
 router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
-  const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore'];
+  const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
     if (req.body[field] !== undefined && req.body[field] !== null) {
       const parsed = Number(req.body[field]);
@@ -356,6 +358,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       diffId: Number(req.body.diffId) || 0,
       previousDiffId,
       baseScore,
+      ppBaseScore: Number(req.body.ppBaseScore) || 0,
       previousBaseScore,
       videoLink: sanitizeTextInput(req.body.videoLink),
       dlLink: sanitizeTextInput(req.body.dlLink),
