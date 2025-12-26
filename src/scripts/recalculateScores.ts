@@ -113,6 +113,7 @@ async function recalculateScores() {
 
           const levelData = {
             baseScore: pass.level.baseScore || 0,
+            ppBaseScore: pass.level.ppBaseScore || 0,
             difficulty: {
               name: pass.level.difficulty?.name || '',
               baseScore: pass.level.difficulty?.baseScore || 0

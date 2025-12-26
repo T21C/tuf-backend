@@ -67,6 +67,7 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
 
             const levelData = {
               baseScore: baseScore || 0,
+              ppBaseScore: baseScore || 0,
               difficulty: currentDifficulty,
             };
 

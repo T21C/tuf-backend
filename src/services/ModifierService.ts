@@ -395,6 +395,7 @@ export class ModifierService {
                 },
                 {
                   baseScore: level.baseScore || 0,
+                  ppBaseScore: level.ppBaseScore || 0,
                   difficulty: level.difficulty || { baseScore: 0, name: '' }
                 }
               );

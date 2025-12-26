@@ -694,6 +694,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       // === CALCULATION PHASE ===
       const levelData = {
         baseScore: submission.level.baseScore,
+        ppBaseScore: submission.level.ppBaseScore,
         difficulty: submission.level.difficulty,
       };
 
@@ -1145,6 +1146,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           },
           {
             baseScore: level.baseScore,
+            ppBaseScore: level.ppBaseScore,
             difficulty,
           },
         );
