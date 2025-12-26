@@ -34,22 +34,6 @@ import { permissionFlags } from '../../config/constants.js';
 
 const router: Router = express.Router();
 
-/**
- * Custom error class for form submission errors
- * Thrown and caught in a single block to ensure consistent cleanup
- */
-class FormSubmissionError extends Error {
-  code: number;
-  details?: Record<string, any>;
-
-  constructor(message: string, code: number, details?: Record<string, any>) {
-    super(message);
-    this.name = 'FormSubmissionError';
-    this.code = code;
-    this.details = details;
-  }
-}
-
 // Configure multer for handling file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -225,21 +209,28 @@ router.post(
       // Start a transaction
       transaction = await sequelize.transaction();
 
-      // Enhanced user validation - all validations throw errors caught in single catch block
+      // Enhanced user validation
       if (!req.user) {
-        throw new FormSubmissionError('User not authenticated', 401);
+        await safeTransactionRollback(transaction);
+        return res.status(401).json({error: 'User not authenticated'});
       }
 
       if (hasFlag(req.user, permissionFlags.BANNED)) {
-        throw new FormSubmissionError('You are banned', 403);
+        await cleanUpFile(req);
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: 'You are banned'});
       }
 
       if (hasFlag(req.user, permissionFlags.SUBMISSIONS_PAUSED)) {
-        throw new FormSubmissionError('Your submissions are paused', 403);
+        await cleanUpFile(req);
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: 'Your submissions are paused'});
       }
 
       if (!hasFlag(req.user, permissionFlags.EMAIL_VERIFIED)) {
-        throw new FormSubmissionError('Your email is not verified', 403);
+        await cleanUpFile(req);
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: 'Your email is not verified'});
       }
 
       const formType = req.headers['x-form-type'];
@@ -248,14 +239,23 @@ router.post(
         const requiredFields = ['artist', 'song', 'diff', 'videoLink'];
         for (const field of requiredFields) {
           if (!req.body[field] || typeof req.body[field] !== 'string' || req.body[field].trim().length === 0) {
-            throw new FormSubmissionError(`Missing or invalid required field: ${field}`, 400);
+            await cleanUpFile(req);
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+              error: `Missing or invalid required field: ${field}`,
+            });
           }
         }
 
         // Validate directDL if provided
         if (req.body.directDL && req.body.directDL.startsWith(CDN_CONFIG.baseUrl)) {
-          throw new FormSubmissionError('Direct download cannot point to local CDN', 400, {
-            directDL: req.body.directDL
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Direct download cannot point to local CDN',
+            details: {
+              directDL: req.body.directDL
+            }
           });
         }
 
@@ -271,7 +271,11 @@ router.post(
         });
 
         if (existingSubmissions.length > 0) {
-          throw new FormSubmissionError("You've already submitted this level, please wait for approval.", 400);
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: "You've already submitted this level, please wait for approval.",
+          });
         }
 
         // Handle level zip file if present
@@ -279,30 +283,57 @@ router.post(
         let levelFiles: any[] = [];
 
         if (req.file) {
-          // Validate file size
-          if (req.file.size > 1000 * 1024 * 1024) { // 1GB
-            throw new FormSubmissionError('File size exceeds maximum allowed size (1GB)', 400);
+          try {
+            // Validate file size
+            if (req.file.size > 1000 * 1024 * 1024) { // 1GB
+              await cleanUpFile(req);
+              await safeTransactionRollback(transaction);
+              return res.status(400).json({
+                error: 'File size exceeds maximum allowed size (1GB)',
+              });
+            }
+
+            // Read file from disk instead of using buffer
+            const fileBuffer = await fs.promises.readFile(req.file.path);
+
+            const uploadResult = await cdnService.uploadLevelZip(
+              fileBuffer,
+              req.file.originalname
+            );
+
+            // Store fileId for potential cleanup
+            uploadedFileId = uploadResult.fileId;
+
+            // Clean up the temporary file
+            await fs.promises.unlink(req.file.path);
+
+            // Get the level files from the CDN service
+            levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
+
+            // If only one level file, use it directly
+            directDL = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+          } catch (error) {
+            // Clean up the temporary file in case of error
+            await cleanUpFile(req);
+
+            // Clean up CDN file if it was uploaded
+            if (uploadedFileId) {
+              await cleanUpCdnFile(uploadedFileId);
+            }
+
+            logger.error('Failed to upload zip file to CDN:', {
+              error: error instanceof Error ? {
+                message: error.message,
+                stack: error.stack
+              } : error,
+              filename: req.file.originalname,
+              size: req.file.size,
+              timestamp: new Date().toISOString()
+            });
+
+            await safeTransactionRollback(transaction);
+            throw error;
           }
-
-          // Read file from disk instead of using buffer
-          const fileBuffer = await fs.promises.readFile(req.file.path);
-
-          const uploadResult = await cdnService.uploadLevelZip(
-            fileBuffer,
-            req.file.originalname
-          );
-
-          // Store fileId for potential cleanup (cleanup happens in catch block)
-          uploadedFileId = uploadResult.fileId;
-
-          // Clean up the temporary file
-          await fs.promises.unlink(req.file.path);
-
-          // Get the level files from the CDN service
-          levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
-
-          // If only one level file, use it directly
-          directDL = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
         }
 
         const submission = await LevelSubmission.create({
@@ -461,14 +492,22 @@ router.post(
 
         for (const field of requiredFields) {
           if (!req.body[field] || (typeof req.body[field] === 'string' && req.body[field].trim().length === 0)) {
-            throw new FormSubmissionError(`Missing or invalid required field: ${field}`, 400);
+            await cleanUpFile(req);
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+              error: `Missing or invalid required field: ${field}`,
+            });
           }
         }
 
         // Validate levelId is a valid number
         const levelId = parseInt(req.body.levelId);
         if (isNaN(levelId) || levelId <= 0) {
-          throw new FormSubmissionError('Invalid level ID', 400);
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid level ID',
+          });
         }
 
         // Enhanced judgement validation with proper bounds
@@ -488,7 +527,11 @@ router.post(
         // Validate rawTime
         const rawTime = validateDateInput(req.body.rawTime);
         if (!rawTime) {
-          throw new FormSubmissionError('Invalid or missing rawTime - must be a valid date between 2020 and now', 400);
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid or missing rawTime - must be a valid date between 2020 and now',
+          });
         }
 
         // Normalize boolean flags (handle both string and boolean inputs)
@@ -507,10 +550,14 @@ router.post(
         });
 
         if (!level) {
-          throw new FormSubmissionError('Level not found', 404);
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(404).json({error: 'Level not found'});
         }
         if (!level.difficulty) {
-          throw new FormSubmissionError('Difficulty not found', 404);
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(404).json({error: 'Difficulty not found'});
         }
 
         // Normalize passerRequest early for existing submission check
@@ -557,10 +604,15 @@ router.post(
         }
 
         if (existingSubmissionJudgements && existingSubmissionFlags) {
-          throw new FormSubmissionError('Identical submission already exists', 400, {
-            levelId: levelId,
-            speed: speed,
-            videoLink: cleanVideoUrl(req.body.videoLink),
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Identical submission already exists',
+            details: {
+              levelId: levelId,
+              speed: speed,
+              videoLink: cleanVideoUrl(req.body.videoLink),
+            }
           });
         }
 
@@ -591,11 +643,16 @@ router.post(
         }) : null;
 
         if (existingPass) {
-          throw new FormSubmissionError('A pass with identical video, judgements, and flags already exists for this level and speed', 400, {
-            levelId: levelId,
-            speed: speed,
-            videoLink: cleanVideoUrl(req.body.videoLink),
-            title: sanitizeTextInput(req.body.title),
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'A pass with identical video, judgements, and flags already exists for this level and speed',
+            details: {
+              levelId: levelId,
+              speed: speed,
+              videoLink: cleanVideoUrl(req.body.videoLink),
+              title: sanitizeTextInput(req.body.title),
+            }
           });
         }
 
@@ -617,10 +674,11 @@ router.post(
 
         // Validate that score is a valid number
         if (!Number.isFinite(score)) {
-          throw new FormSubmissionError('Invalid judgement values - could not calculate score', 400, {
-            judgements: sanitizedJudgements,
-            speed,
-            levelId
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid judgement values - could not calculate score',
+            details: { judgements: sanitizedJudgements, speed, levelId }
           });
         }
 
@@ -628,8 +686,11 @@ router.post(
 
         // Validate that accuracy is a valid number
         if (!Number.isFinite(accuracy)) {
-          throw new FormSubmissionError('Invalid judgement values - could not calculate accuracy', 400, {
-            judgements: sanitizedJudgements
+          await cleanUpFile(req);
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: 'Invalid judgement values - could not calculate accuracy',
+            details: { judgements: sanitizedJudgements }
           });
         }
 
@@ -638,7 +699,11 @@ router.post(
         if (req.body.passerId !== undefined && req.body.passerId !== null && req.body.passerId !== '') {
           passerId = parseInt(req.body.passerId);
           if (isNaN(passerId) || passerId <= 0) {
-            throw new FormSubmissionError('Invalid passerId - must be a positive integer', 400);
+            await cleanUpFile(req);
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+              error: 'Invalid passerId - must be a positive integer',
+            });
           }
         }
 
@@ -752,45 +817,11 @@ router.post(
         });
       }
 
-      throw new FormSubmissionError('Invalid form type', 400);
-    } catch (error) {
-      // === CENTRALIZED CLEANUP - All errors flow through here ===
-      
-      // Clean up uploaded CDN file if it was created
-      if (uploadedFileId) {
-        await cleanUpCdnFile(uploadedFileId);
-      }
-
-      // Clean up any temporary uploaded file
       await cleanUpFile(req);
-
-      // Rollback transaction if it exists
-      if (transaction) {
-        try {
-          await safeTransactionRollback(transaction);
-        } catch (rollbackError) {
-          logger.warn('Transaction rollback failed:', rollbackError);
-        }
-      }
-
-      // Handle FormSubmissionError (validation/business logic errors)
-      if (error instanceof FormSubmissionError) {
-        return res.status(error.code).json({
-          error: error.message,
-          ...(error.details && { details: error.details })
-        });
-      }
-
-      // Handle CDN-specific errors
-      if (error instanceof CdnError) {
-        return res.status(400).json({
-          error: error.message,
-          code: error.code,
-          details: error.details
-        });
-      }
-
-      // === UNEXPECTED ERROR - Log with full details ===
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'Invalid form type'});
+    } catch (error) {
+      // Enhanced error handling with proper cleanup
       const errorDetails: Record<string, any> = {
         formType: req.headers['x-form-type'],
         userId: req.user?.id,
@@ -865,7 +896,33 @@ router.post(
         };
       }
 
-      logger.error('Unexpected submission error:', errorDetails);
+      logger.error('Submission error:', errorDetails);
+
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details
+        });
+      }
+
+      // Clean up uploaded CDN file if transaction failed
+      if (uploadedFileId) {
+        await cleanUpCdnFile(uploadedFileId);
+      }
+
+      // Clean up any uploaded file
+      await cleanUpFile(req);
+
+      // Only attempt rollback if transaction exists
+      if (transaction) {
+        try {
+          await safeTransactionRollback(transaction);
+        } catch (rollbackError) {
+          // If rollback fails, it likely means the transaction was already rolled back
+          logger.warn('Transaction rollback failed:', rollbackError);
+        }
+      }
 
       return res.status(500).json({
         error: 'Failed to process submission',

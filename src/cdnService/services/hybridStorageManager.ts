@@ -74,7 +74,7 @@ export class HybridStorageManager {
     }> {
         try {
 
-            if (this.config.useSpacesForSongs && this.config.type !== StorageType.LOCAL) {
+            if (this.config.useSpacesForZips && this.config.type !== StorageType.LOCAL) {
                 try {
                     const keyResult = isZip
                         ? spacesStorage.generateZipKey(fileId, originalFilename)

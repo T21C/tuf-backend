@@ -103,7 +103,6 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             // Use fallback logic to find the file
             fileCheck = await hybridStorageManager.fileExistsWithFallback(
                 originalZip.path,
-                metadata.storageType
             );
 
             if (!fileCheck.exists) {

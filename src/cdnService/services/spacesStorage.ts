@@ -11,6 +11,7 @@ interface SpacesConfig {
     accessKeyId: string;
     secretAccessKey: string;
     endpoint: string;
+    cdnEndpoint: string;
     region: string;
     bucket: string;
 }
@@ -52,15 +53,17 @@ export class SpacesStorageManager {
         const secretAccessKey = process.env.DIGITAL_OCEAN_SECRET;
         const region = process.env.DIGITAL_OCEAN_REGION || 'sgp1';
         const bucket = process.env.DIGITAL_OCEAN_BUCKET;
+        const cdnEndpoint = process.env.DIGITAL_OCEAN_CDN_ENDPOINT;
 
-        if (!accessKeyId || !secretAccessKey || !bucket) {
-            throw new Error('Missing required DigitalOcean Spaces environment variables: DIGITAL_OCEAN_KEY, DIGITAL_OCEAN_SECRET, DIGITAL_OCEAN_BUCKET');
+        if (!accessKeyId || !secretAccessKey || !bucket || !cdnEndpoint) {
+            throw new Error('Missing required DigitalOcean Spaces environment variables: DIGITAL_OCEAN_KEY, DIGITAL_OCEAN_SECRET, DIGITAL_OCEAN_BUCKET, DIGITAL_OCEAN_CDN_ENDPOINT');
         }
 
         return {
             accessKeyId,
             secretAccessKey,
             endpoint: `https://${region}.digitaloceanspaces.com`,
+            cdnEndpoint,
             region,
             bucket
         };
@@ -460,37 +463,23 @@ export class SpacesStorageManager {
     }
 
     /**
-     * Generate a presigned URL for temporary access to a private file
+     * Get a public CDN URL for a file (bucket is public, no signing needed)
+     * @param key - The file key
+     * @param _expiresIn - Deprecated, kept for backwards compatibility
      */
-    public async getPresignedUrl(key: string, expiresIn = 3600): Promise<string> {
-        try {
-            const params: AWS.S3.GetObjectRequest = {
-                Bucket: this.config.bucket,
-                Key: key
-            };
-
-            const url = await this.s3.getSignedUrlPromise('getObject', {
-                ...params,
-                Expires: expiresIn
-            });
-
-            logger.debug('Generated presigned URL for Spaces file', { key, expiresIn });
-
-            return url;
-        } catch (error) {
-            logger.error('Failed to generate presigned URL for Spaces file', {
-                error: error instanceof Error ? error.message : String(error),
-                key
-            });
-            throw error;
-        }
+    public async getPresignedUrl(key: string, _expiresIn = 3600): Promise<string> {
+        // Since the bucket is public, we just return the CDN URL directly
+        // This enables proper CDN caching without query string parameters
+        const url = this.getFileUrl(key);
+        logger.debug('Generated CDN URL for Spaces file', { key });
+        return url;
     }
 
     /**
-     * Get the public URL for a file (if it's public)
+     * Get the public CDN URL for a file
      */
     public getFileUrl(key: string): string {
-        return `${this.config.endpoint}/${this.config.bucket}/${key}`;
+        return `${this.config.cdnEndpoint}/${key}`;
     }
 
 
