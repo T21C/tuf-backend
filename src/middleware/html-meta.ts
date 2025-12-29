@@ -25,19 +25,25 @@ type Manifest = {
 };
 
 // Function to read manifest file
-const readManifest = (): Manifest => {
+const readManifest = async (): Promise<Manifest> => {
   const manifestPath = path.join(process.cwd(), '..', 'client', 'dist', '.vite', 'manifest.json');
-  try {
-    const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
-    return JSON.parse(manifestContent);
-  } catch (error) {
-    logger.error('Error reading manifest file:', error);
-    return {};
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
+        return JSON.parse(manifestContent);
+      } catch (error: any) {
+        if (!error.message.includes("ENOENT")) {
+          throw {code: 500, error: error.message};
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+    throw {code: 500, error: 'Manifest not found after 15 seconds'};
   }
-};
-
 // Helper function to get all required assets
-const getRequiredAssets = (manifest: Manifest) => {
+const getRequiredAssets = async (manifest: Manifest) => {
   const entry = manifest['index.html'];
   if (!entry) return { js: [], css: [], imports: [] };
 
@@ -60,7 +66,7 @@ const escapeMetaText = (text: string): string => {
 };
 
 // Base HTML template with Vite client
-const getBaseHtml = (clientUrl: string) => {
+const getBaseHtml = async (clientUrl: string) => {
   if (process.env.NODE_ENV === 'development') {
     return `
       <!DOCTYPE html>
@@ -115,8 +121,8 @@ const getBaseHtml = (clientUrl: string) => {
   }
 
   // Production mode - use manifest
-  const manifest = readManifest();
-  const { js, css, imports } = getRequiredAssets(manifest);
+  const manifest = await readManifest();
+  const { js, css, imports } = await getRequiredAssets(manifest);
 
   // Get vendor and UI chunks from manifest
   const vendorChunk = Object.entries(manifest).find(([key]) => key.includes('vendor'))?.[1]?.file;
@@ -312,13 +318,13 @@ export const htmlMetaMiddleware = async (
         metaTags = notFoundTags.replace('Not found', 'Player not found');
       }
     }
-    const html = getBaseHtml(clientUrlEnv || '').replace(
-      '<!-- METADATA_PLACEHOLDER -->',
-      metaTags,
-    );
-    res.send(html);
+    const html = await getBaseHtml(clientUrlEnv || '').then(html => html.replace(
+        '<!-- METADATA_PLACEHOLDER -->',
+        metaTags,
+      ));
+    return res.send(html);
   } catch (error) {
     logger.error('Error serving HTML:', error);
-    next(error);
+    return next(error);
   }
 };
