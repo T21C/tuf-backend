@@ -63,7 +63,14 @@ async function extractFile(zipFilePath: string, entry: ZipEntry, targetPath: str
 }
 
 
-export async function processZipFile(zipFilePath: string, zipFileId: string, originalFilename: string): Promise<void> {
+type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
+
+export async function processZipFile(
+    zipFilePath: string, 
+    zipFileId: string, 
+    originalFilename: string,
+    onProgress?: ProgressCallback
+): Promise<void> {
     let transaction: Transaction | undefined;
     let permanentDir: string | null = null;
 
@@ -74,7 +81,14 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         fileSize: (await fs.promises.stat(zipFilePath)).size
     });
 
+    const sendProgress = async (status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed', progressPercent: number, currentStep?: string) => {
+        if (onProgress) {
+            await onProgress(status, progressPercent, currentStep);
+        }
+    };
+
     try {
+        await sendProgress('processing', 10, 'Extracting zip entries');
         const zipEntries = await extractZipEntries(zipFilePath);
         const levelFiles: { [key: string]: any } = {};
         const allLevelFiles: Array<{
@@ -121,69 +135,87 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         });
 
         // First pass: collect all level files
+        await sendProgress('processing', 15, 'Processing level files');
         let totalLevelSize = 0;
-        for (const entry of zipEntries) {
-            if (entry.relativePath.endsWith('.adofai')) {
-                // Extract to temp first for analysis
-                const tempPath = path.join(storageRoot, 'temp', entry.relativePath);
-                await extractFile(zipFilePath, entry, tempPath);
+        const levelEntries = zipEntries.filter(entry => entry.relativePath.endsWith('.adofai'));
+        let processedLevels = 0;
+        for (const entry of levelEntries) {
+            // Extract to temp first for analysis
+            const tempPath = path.join(storageRoot, 'temp', entry.relativePath);
+            await extractFile(zipFilePath, entry, tempPath);
 
-                try {
-                    const levelDict = new LevelDict(tempPath);
+            try {
+                const levelDict = new LevelDict(tempPath);
 
-                    const levelFilename = path.basename(entry.relativePath);
+                const levelFilename = path.basename(entry.relativePath);
 
-                    const levelFile = {
-                        name: levelFilename,
-                        path: tempPath, // Keep temp path for now, will be uploaded later
-                        size: entry.size,
-                        hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
-                        songFilename: levelDict.getSetting('songFilename'),
-                        artist: levelDict.getSetting('artist'),
-                        song: levelDict.getSetting('song'),
-                        author: levelDict.getSetting('author'),
-                        difficulty: levelDict.getSetting('difficulty'),
-                        bpm: levelDict.getSetting('bpm')
-                    };
+                const levelFile = {
+                    name: levelFilename,
+                    path: tempPath, // Keep temp path for now, will be uploaded later
+                    size: entry.size,
+                    hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
+                    songFilename: levelDict.getSetting('songFilename'),
+                    artist: levelDict.getSetting('artist'),
+                    song: levelDict.getSetting('song'),
+                    author: levelDict.getSetting('author'),
+                    difficulty: levelDict.getSetting('difficulty'),
+                    bpm: levelDict.getSetting('bpm')
+                };
 
-                    levelFiles[entry.relativePath] = levelFile;
-                    allLevelFiles.push(levelFile);
-                    totalLevelSize += entry.size;
+                levelFiles[entry.relativePath] = levelFile;
+                allLevelFiles.push(levelFile);
+                totalLevelSize += entry.size;
+                processedLevels++;
 
-                    logger.debug('Processed level file:', {
-                        name: levelFilename,
-                        size: entry.size,
-                        path: tempPath,
-                        hasYouTubeStream: levelFile.hasYouTubeStream
-                    });
-                } catch (error) {
-                    logger.warn('Failed to process level file:', {
-                        entry: entry.relativePath,
-                        error: error instanceof Error ? error.message : String(error)
-                    });
-                    await fs.promises.unlink(tempPath); // Clean up temp file
+                // Update progress: 15-40% for level processing
+                if (levelEntries.length > 0) {
+                    const levelProgress = 15 + Math.round((processedLevels / levelEntries.length) * 25);
+                    await sendProgress('processing', levelProgress, `Processing level files (${processedLevels}/${levelEntries.length})`);
                 }
+
+                logger.debug('Processed level file:', {
+                    name: levelFilename,
+                    size: entry.size,
+                    path: tempPath,
+                    hasYouTubeStream: levelFile.hasYouTubeStream
+                });
+            } catch (error) {
+                logger.warn('Failed to process level file:', {
+                    entry: entry.relativePath,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+                await fs.promises.unlink(tempPath); // Clean up temp file
             }
         }
 
         // Second pass: collect all song files
+        await sendProgress('processing', 40, 'Processing song files');
         let totalSongSize = 0;
         const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'];
-        for (const entry of zipEntries) {
-            if (!entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())) {
-                // Extract song to temp first
-                const songTempPath = path.join(permanentDir, entry.name);
-                await extractFile(zipFilePath, entry, songTempPath);
+        const songEntries = zipEntries.filter(entry => 
+            !entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())
+        );
+        let processedSongs = 0;
+        for (const entry of songEntries) {
+            // Extract song to temp first
+            const songTempPath = path.join(permanentDir, entry.name);
+            await extractFile(zipFilePath, entry, songTempPath);
 
-                const songFilename = path.basename(entry.relativePath);
+            const songFilename = path.basename(entry.relativePath);
 
-                songFiles[songFilename] = {
-                    name: songFilename,
-                    path: songTempPath, // Keep temp path for now, will be uploaded later
-                    size: entry.size,
-                    type: path.extname(entry.relativePath).toLowerCase().slice(1)
-                };
-                totalSongSize += entry.size;
+            songFiles[songFilename] = {
+                name: songFilename,
+                path: songTempPath, // Keep temp path for now, will be uploaded later
+                size: entry.size,
+                type: path.extname(entry.relativePath).toLowerCase().slice(1)
+            };
+            totalSongSize += entry.size;
+            processedSongs++;
+
+            // Update progress: 40-50% for song processing
+            if (songEntries.length > 0) {
+                const songProgress = 40 + Math.round((processedSongs / songEntries.length) * 10);
+                await sendProgress('processing', songProgress, `Processing song files (${processedSongs}/${songEntries.length})`);
             }
         }
 
@@ -195,6 +227,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         });
 
         // Upload level files
+        await sendProgress('uploading', 50, 'Uploading level files');
         const levelUploadResult = await hybridStorageManager.uploadLevelFiles(
             allLevelFiles.map(file => ({
                 sourcePath: file.path,
@@ -203,6 +236,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
             })),
             zipFileId
         );
+        await sendProgress('uploading', 65, 'Level files uploaded');
 
         // Update file paths in metadata
         allLevelFiles.forEach((file, index) => {
@@ -211,6 +245,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         });
 
         // Upload song files using hybrid storage manager
+        await sendProgress('uploading', 65, 'Uploading song files');
         const songUploadResult = await hybridStorageManager.uploadSongFiles(
             Object.values(songFiles).map(songFile => ({
                 sourcePath: songFile.path,
@@ -220,6 +255,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
             })),
             zipFileId
         );
+        await sendProgress('uploading', 80, 'Song files uploaded');
 
         // Update file paths in metadata
         const updatedSongFiles: { [key: string]: any } = {};
@@ -235,12 +271,14 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         });
 
         // Upload original zip file
+        await sendProgress('uploading', 80, 'Uploading original zip file');
         const zipUploadResult = await hybridStorageManager.uploadLevelFile(
             originalZipPath,
             zipFileId,
             finalZipName,
             true // is a zip
         );
+        await sendProgress('uploading', 90, 'Original zip file uploaded');
 
         // Clean up temporary files
         storageManager.cleanupFiles(permanentDir);
@@ -267,6 +305,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
         }
 
         // Start transaction for database operations
+        await sendProgress('processing', 90, 'Creating database entry');
         transaction = await sequelize.transaction();
 
         // Create database entry with comprehensive storage information
@@ -304,6 +343,7 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
 
         // Commit the transaction
         await transaction.commit();
+        await sendProgress('processing', 95, 'Database entry created');
 
         logger.debug('Successfully processed zip file:', {
             fileId: zipFileId,
@@ -356,6 +396,9 @@ export async function processZipFile(zipFilePath: string, zipFileId: string, ori
             zipFileId,
             timestamp: new Date().toISOString()
         });
+        
+        // Send failure progress update
+        await sendProgress('failed', 0, error instanceof Error ? error.message : String(error));
         throw error;
     }
 }

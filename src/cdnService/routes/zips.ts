@@ -1620,6 +1620,40 @@ router.get('/packs/downloads/:id', async (req: Request, res: Response) => {
     }
 });
 
+// Send level upload progress update to main server
+async function sendLevelUploadProgress(
+    uploadId: string | undefined,
+    status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed',
+    progressPercent: number,
+    currentStep?: string,
+    error?: string
+): Promise<void> {
+    if (!uploadId) {
+        return; // No upload ID, skip progress update
+    }
+
+    const mainServerUrl = getMainServerUrl();
+    const payload = {
+        uploadId,
+        status,
+        progressPercent,
+        currentStep,
+        error
+    };
+
+    try {
+        await axios.post(`${mainServerUrl}/v2/cdn/level-upload-progress`, payload, {
+            timeout: 5000 // 5 second timeout for progress updates
+        });
+    } catch (error) {
+        // Log but don't fail the upload if progress update fails
+        logger.debug('Failed to send level upload progress update', {
+            uploadId,
+            error: error instanceof Error ? error.message : String(error)
+        });
+    }
+}
+
 // Level zip upload endpoint
 router.post('/', (req: Request, res: Response) => {
     logger.debug('Received zip upload request');
@@ -1647,14 +1681,30 @@ router.post('/', (req: Request, res: Response) => {
             path: req.file.path
         });
 
+        // Get upload ID from header
+        const uploadId = req.headers['x-upload-id'] as string | undefined;
+
         try {
             // Generate a UUID for the database entry
             const fileId = crypto.randomUUID();
             logger.debug('Generated UUID for database entry:', { fileId });
 
+            // Send initial progress
+            await sendLevelUploadProgress(uploadId, 'uploading', 0, 'Uploading file to server');
+
             // Process zip file first to validate contents
             logger.debug('Starting zip file processing');
-            await processZipFile(req.file.path, fileId, req.file.originalname);
+            
+            // Create progress callback
+            const onProgress = async (
+                status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed',
+                progressPercent: number,
+                currentStep?: string
+            ) => {
+                await sendLevelUploadProgress(uploadId, status, progressPercent, currentStep);
+            };
+
+            await processZipFile(req.file.path, fileId, req.file.originalname, onProgress);
             logger.debug('Successfully processed zip file');
 
             // Clean up the original zip file since we've extracted what we need
@@ -1663,6 +1713,7 @@ router.post('/', (req: Request, res: Response) => {
             logger.debug('Original zip file cleaned up');
 
             // Populate cache for the uploaded level
+            await sendLevelUploadProgress(uploadId, 'caching', 95, 'Populating cache');
             logger.debug('Populating cache for uploaded level:', { fileId });
             try {
                 await levelCacheService.ensureCachePopulated(fileId);
@@ -1674,6 +1725,9 @@ router.post('/', (req: Request, res: Response) => {
                     error: cacheError instanceof Error ? cacheError.message : String(cacheError)
                 });
             }
+
+            // Send completion progress
+            await sendLevelUploadProgress(uploadId, 'completed', 100, 'Upload completed');
 
             const response = {
                 success: true,
@@ -1693,6 +1747,16 @@ router.post('/', (req: Request, res: Response) => {
                     path: req.file.path
                 } : null
             });
+
+            // Send failure progress
+            const uploadId = req.headers['x-upload-id'] as string | undefined;
+            await sendLevelUploadProgress(
+                uploadId,
+                'failed',
+                0,
+                'Upload failed',
+                error instanceof Error ? error.message : String(error)
+            );
 
             storageManager.cleanupFiles(req.file.path);
 

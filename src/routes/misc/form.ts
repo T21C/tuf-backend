@@ -267,13 +267,56 @@ router.post(
               throw {code: 400, error: 'File size exceeds maximum allowed size (1GB)'};
             }
 
+            // Get uploadId from request body for progress tracking
+            const uploadId = req.body.uploadId;
+
+            // Send initial progress update if uploadId is provided
+            if (uploadId) {
+              sseManager.sendToSource(`levelUpload:${uploadId}`, {
+                type: 'levelUploadProgress',
+                data: {
+                  uploadId,
+                  status: 'processing',
+                  progressPercent: 10,
+                  currentStep: 'Uploading file...'
+                }
+              });
+            }
+
             // Read file from disk instead of using buffer
             const fileBuffer = await fs.promises.readFile(req.file.path);
 
+            // Send progress update: processing
+            if (uploadId) {
+              sseManager.sendToSource(`levelUpload:${uploadId}`, {
+                type: 'levelUploadProgress',
+                data: {
+                  uploadId,
+                  status: 'processing',
+                  progressPercent: 50,
+                  currentStep: 'Processing zip file...'
+                }
+              });
+            }
+
             const uploadResult = await cdnService.uploadLevelZip(
               fileBuffer,
-              req.file.originalname
+              req.file.originalname,
+              uploadId
             );
+
+            // Send progress update: caching
+            if (uploadId) {
+              sseManager.sendToSource(`levelUpload:${uploadId}`, {
+                type: 'levelUploadProgress',
+                data: {
+                  uploadId,
+                  status: 'caching',
+                  progressPercent: 90,
+                  currentStep: 'Populating cache...'
+                }
+              });
+            }
 
             // Store fileId for potential cleanup
             uploadedFileId = uploadResult.fileId;
@@ -283,6 +326,19 @@ router.post(
 
             // Get the level files from the CDN service
             levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
+
+            // Send completion progress update if uploadId is provided
+            if (uploadId) {
+              sseManager.sendToSource(`levelUpload:${uploadId}`, {
+                type: 'levelUploadProgress',
+                data: {
+                  uploadId,
+                  status: 'completed',
+                  progressPercent: 100,
+                  currentStep: 'Upload complete!'
+                }
+              });
+            }
 
             // If only one level file, use it directly
             directDL = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;

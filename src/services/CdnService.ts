@@ -266,7 +266,8 @@ class CdnService {
 
     async uploadLevelZip(
         zipBuffer: Buffer,
-        filename: string
+        filename: string,
+        uploadId?: string
     ): Promise<{
         success: boolean;
         fileId: string;
@@ -275,6 +276,7 @@ class CdnService {
         logger.debug('Starting level zip upload to CDN:', {
             filename,
             bufferSize: (zipBuffer.length / 1024 / 1024).toFixed(2) + 'MB',
+            uploadId,
             timestamp: new Date().toISOString()
         });
 
@@ -291,11 +293,17 @@ class CdnService {
                 formDataSize: formData.getLengthSync()
             });
 
+            const headers: Record<string, string> = {
+                ...formData.getHeaders(),
+                'X-File-Type': 'LEVELZIP'
+            };
+            
+            if (uploadId) {
+                headers['X-Upload-Id'] = uploadId;
+            }
+
             const response = await this.client.post('/zips', formData, {
-                headers: {
-                    ...formData.getHeaders(),
-                    'X-File-Type': 'LEVELZIP'
-                }
+                headers
             });
 
             logger.debug('Level zip successfully uploaded to CDN:', {

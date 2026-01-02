@@ -15,6 +15,14 @@ interface PackProgressPayload {
     error?: string;
 }
 
+interface LevelUploadProgressPayload {
+    uploadId: string;
+    status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed';
+    progressPercent: number;
+    currentStep?: string;
+    error?: string;
+}
+
 // POST /v2/cdn/pack-progress - Receive progress updates from CDN service
 router.post('/pack-progress', async (req: Request, res: Response) => {
     try {
@@ -42,6 +50,32 @@ router.post('/pack-progress', async (req: Request, res: Response) => {
         return res.status(200).json({ success: true });
     } catch (error) {
         logger.error('Failed to handle pack progress update', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return res.status(500).json({ error: 'Failed to process progress update' });
+    }
+});
+
+// POST /v2/cdn/level-upload-progress - Receive progress updates from CDN service for level uploads
+router.post('/level-upload-progress', async (req: Request, res: Response) => {
+    try {
+        const payload = req.body as LevelUploadProgressPayload;
+
+        // Validate payload
+        if (!payload.uploadId || !payload.status) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Send progress to clients subscribed to this specific upload
+        const source = `levelUpload:${payload.uploadId}`;
+        sseManager.sendToSource(source, {
+            type: 'levelUploadProgress',
+            data: payload
+        });
+        
+        return res.status(200).json({ success: true });
+    } catch (error) {
+        logger.error('Failed to handle level upload progress update', {
             error: error instanceof Error ? error.message : String(error)
         });
         return res.status(500).json({ error: 'Failed to process progress update' });
