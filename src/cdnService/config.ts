@@ -27,7 +27,7 @@ export const IMAGE_TYPES = {
             thumbnail: { width: 64, height: 64 }
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
-        maxSize: 5 * 1024 * 1024 // 5MB
+        maxSize: 10 * 1024 * 1024 // 5MB
     },
     BANNER: {
         name: 'banner',

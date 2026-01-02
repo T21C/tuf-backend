@@ -79,6 +79,30 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       //logger.info('Liked level IDs:', likedLevelIds);
     }
 
+    // Group tags by their group field if tagsFilter is provided
+    let tagGroups: { [groupKey: string]: number[] } | undefined;
+    if (tagsFilter && tagsFilter !== 'show') {
+      const tagNames = (tagsFilter as string).split(',').map(s => s.trim());
+      if (tagNames.length > 0) {
+        const tags = await LevelTag.findAll({
+          where: {
+            name: { [Op.in]: tagNames }
+          },
+          attributes: ['id', 'name', 'group']
+        });
+
+        // Group tags by their group field (use empty string for null/undefined groups)
+        tagGroups = tags.reduce((groups, tag) => {
+          const groupKey = tag.group || '';
+          if (!groups[groupKey]) {
+            groups[groupKey] = [];
+          }
+          groups[groupKey].push(tag.id);
+          return groups;
+        }, {} as { [groupKey: string]: number[] });
+      }
+    }
+
     // Search using Elasticsearch
     const { hits, total } = await elasticsearchService.searchLevels(
       query as string,
@@ -91,6 +115,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         availableDlFilter: availableDlFilter as string,
         curatedTypesFilter: curatedTypesFilter as string,
         tagsFilter: tagsFilter as string,
+        tagGroups,
         userId: req.user?.id,
         offset: normalizedOffset,
         limit: normalizedLimit,

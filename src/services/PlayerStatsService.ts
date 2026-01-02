@@ -593,11 +593,8 @@ export class PlayerStatsService {
 
     const transaction = await sequelize.transaction();
     try {
-
-      // Initialize rank counter
+      // Update rankedScoreRank
       await sequelize.query('SET @rank = 0', { transaction });
-
-      // Update ranks for verified, non-banned players using MySQL variables
       await sequelize.query(
         `UPDATE player_stats ps 
          INNER JOIN players p ON ps.id = p.id 
@@ -611,11 +608,83 @@ export class PlayerStatsService {
              ORDER BY ps2.rankedScore DESC, ps2.id ASC
            ) ordered
          ) ranked ON ps.id = ranked.id
-         SET ps.rankedScoreRank = ranked.rank_num,
-             ps.generalScoreRank = ranked.rank_num,
-             ps.ppScoreRank = ranked.rank_num,
-             ps.wfScoreRank = ranked.rank_num,
-             ps.score12KRank = ranked.rank_num`,
+         SET ps.rankedScoreRank = ranked.rank_num`,
+        { transaction }
+      );
+
+      // Update generalScoreRank
+      await sequelize.query('SET @rank = 0', { transaction });
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN (
+           SELECT id, (@rank := @rank + 1) as rank_num
+           FROM (
+             SELECT ps2.id
+             FROM player_stats ps2
+             INNER JOIN players p2 ON ps2.id = p2.id
+             WHERE p2.isBanned = false
+             ORDER BY ps2.generalScore DESC, ps2.id ASC
+           ) ordered
+         ) ranked ON ps.id = ranked.id
+         SET ps.generalScoreRank = ranked.rank_num`,
+        { transaction }
+      );
+
+      // Update ppScoreRank
+      await sequelize.query('SET @rank = 0', { transaction });
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN (
+           SELECT id, (@rank := @rank + 1) as rank_num
+           FROM (
+             SELECT ps2.id
+             FROM player_stats ps2
+             INNER JOIN players p2 ON ps2.id = p2.id
+             WHERE p2.isBanned = false
+             ORDER BY ps2.ppScore DESC, ps2.id ASC
+           ) ordered
+         ) ranked ON ps.id = ranked.id
+         SET ps.ppScoreRank = ranked.rank_num`,
+        { transaction }
+      );
+
+      // Update wfScoreRank
+      await sequelize.query('SET @rank = 0', { transaction });
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN (
+           SELECT id, (@rank := @rank + 1) as rank_num
+           FROM (
+             SELECT ps2.id
+             FROM player_stats ps2
+             INNER JOIN players p2 ON ps2.id = p2.id
+             WHERE p2.isBanned = false
+             ORDER BY ps2.wfScore DESC, ps2.id ASC
+           ) ordered
+         ) ranked ON ps.id = ranked.id
+         SET ps.wfScoreRank = ranked.rank_num`,
+        { transaction }
+      );
+
+      // Update score12KRank
+      await sequelize.query('SET @rank = 0', { transaction });
+      await sequelize.query(
+        `UPDATE player_stats ps 
+         INNER JOIN players p ON ps.id = p.id 
+         INNER JOIN (
+           SELECT id, (@rank := @rank + 1) as rank_num
+           FROM (
+             SELECT ps2.id
+             FROM player_stats ps2
+             INNER JOIN players p2 ON ps2.id = p2.id
+             WHERE p2.isBanned = false
+             ORDER BY ps2.score12K DESC, ps2.id ASC
+           ) ordered
+         ) ranked ON ps.id = ranked.id
+         SET ps.score12KRank = ranked.rank_num`,
         { transaction }
       );
 
@@ -804,7 +873,6 @@ export class PlayerStatsService {
 
       // Add country filter if provided
       if (filters?.['country']) {
-        logger.debug(`[PlayerStatsService] Country filter: ${filters['country']}`);
         whereClause['$player.country$'] = filters['country'];
       }
 

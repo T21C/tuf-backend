@@ -1382,8 +1382,46 @@ class ElasticsearchService {
       }
 
       // Handle tags filter
-      if (filters.tagsFilter && filters.tagsFilter !== 'show') {
-        // Handle specific tag names (comma-separated)
+      if (filters.tagGroups && Object.keys(filters.tagGroups).length > 0) {
+        // Use grouped tags: OR within groups, AND between groups
+        const tagGroups = filters.tagGroups as { [groupKey: string]: number[] };
+        const groupQueries = Object.values(tagGroups).map((tagIds: number[]) => {
+          // If only one tag in the group, return a single nested query
+          if (tagIds.length === 1) {
+            return {
+              nested: {
+                path: 'tags',
+                query: {
+                  term: { 'tags.id': tagIds[0] }
+                }
+              }
+            };
+          }
+          
+          // Multiple tags in group: use OR logic (should array)
+          return {
+            nested: {
+              path: 'tags',
+              query: {
+                bool: {
+                  should: tagIds.map(tagId => ({
+                    term: { 'tags.id': tagId }
+                  })),
+                  minimum_should_match: 1
+                }
+              }
+            }
+          };
+        });
+        
+        // All groups must match (AND logic between groups)
+        must.push({
+          bool: {
+            must: groupQueries
+          }
+        });
+      } else if (filters.tagsFilter && filters.tagsFilter !== 'show') {
+        // Fallback to old behavior: handle specific tag names (comma-separated)
         const tagNames = filters.tagsFilter.split(',').map((name: string) => name.trim());
         if (tagNames.length > 0) {
           const tagIds = await this.resolveTags(tagNames);
