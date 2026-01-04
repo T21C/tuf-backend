@@ -873,6 +873,9 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
 
     await transaction.commit();
 
+    // Reindex the level
+    await elasticsearchService.indexLevel(curation.levelId);
+
     logger.info(`Successfully deleted curation ${id} and cleaned up related resources`);
     return res.status(200).json({
       success: true,
