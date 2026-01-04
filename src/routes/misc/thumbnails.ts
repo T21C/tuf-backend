@@ -179,9 +179,9 @@ const router: Router = express.Router();
 
 // Level thumbnail route
 router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: Response) => {
+  const levelId = parseInt(req.params.levelId);
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
-    const levelId = parseInt(req.params.levelId);
     const level = await Level.findByPk(levelId);
     if (!level || level.isDeleted || level.isHidden) {
       return res.status(404).send('Level not found');
@@ -619,6 +619,27 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
       }
     }
 
+    // Validate buffer exists and is valid
+    if (!largeBuffer || largeBuffer.length === 0) {
+      logger.error(`Invalid or empty buffer for level ${levelId}, regenerating...`);
+      // Delete corrupted cache file if it exists
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid buffer');
+    }
+
+    // Validate PNG signature (89 50 4E 47 0D 0A 1A 0A)
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    if (largeBuffer.length < 8 || !largeBuffer.subarray(0, 8).equals(pngSignature)) {
+      logger.error(`Invalid PNG signature for level ${levelId}, regenerating...`);
+      // Delete corrupted cache file
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid PNG format');
+    }
+
     // If LARGE was requested, just pipe the existing file
     if (size === 'LARGE') {
       res.set('Content-Type', 'image/png');
@@ -627,13 +648,24 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
 
     // Resize for other sizes on-the-fly
     const {width, height} = THUMBNAIL_SIZES[size];
-    const resizedBuffer = await sharp(largeBuffer)
-      .resize(width, height, {
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
-      })
-      .png()
-      .toBuffer();
+    let resizedBuffer: Buffer;
+    try {
+      resizedBuffer = await sharp(largeBuffer)
+        .resize(width, height, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 }
+        })
+        .png()
+        .toBuffer();
+    } catch (sharpError) {
+      // If Sharp fails to read the buffer, the cache file is likely corrupted
+      logger.error(`Sharp error processing buffer for level ${levelId}: ${sharpError instanceof Error ? sharpError.message : String(sharpError)}`);
+      // Delete corrupted cache file
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      throw sharpError;
+    }
 
     // Send the response
     res.set('Content-Type', 'image/png');
@@ -649,6 +681,15 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
     if (error instanceof Error && (error.message.startsWith('ProtocolError') || error.message.startsWith('Error: Protocol error'))) {
       logger.error(`Error generating image for level ${req.params.levelId} due to puppeteer protocol error`);
       return res.status(500).send('Generation failed: puppeteer protocol error');
+    }
+    if (error instanceof Error && error.message.includes('pngload_buffer')) {
+      const levelId = parseInt(req.params.levelId);
+      logger.error(`PNG loading error for level ${levelId}, deleting corrupted cache and regenerating...`);
+      const largeCachePath = getThumbnailPath(levelId, 'LARGE');
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: corrupted cache file');
     }
     logger.error(`Error generating image for level ${req.params.levelId}:`, error);
     return res.status(500).send('Error generating image');
@@ -846,19 +887,47 @@ router.get('/thumbnail/player/:id([0-9]{1,20})', async (req: Request, res: Respo
       }
     }
 
+    // Validate buffer exists and is valid
+    if (!largeBuffer || largeBuffer.length === 0) {
+      logger.error(`Invalid or empty buffer for player ${playerId}, regenerating...`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid buffer');
+    }
+
+    // Validate PNG signature
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    if (largeBuffer.length < 8 || !largeBuffer.subarray(0, 8).equals(pngSignature)) {
+      logger.error(`Invalid PNG signature for player ${playerId}, regenerating...`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid PNG format');
+    }
+
     if (size === 'LARGE') {
       res.set('Content-Type', 'image/png');
       return res.send(largeBuffer);
     }
 
     const {width, height} = THUMBNAIL_SIZES[size];
-    const resizedBuffer = await sharp(largeBuffer)
-      .resize(width, height, {
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
-      })
-      .png()
-      .toBuffer();
+    let resizedBuffer: Buffer;
+    try {
+      resizedBuffer = await sharp(largeBuffer)
+        .resize(width, height, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 }
+        })
+        .png()
+        .toBuffer();
+    } catch (sharpError) {
+      logger.error(`Sharp error processing buffer for player ${playerId}: ${sharpError instanceof Error ? sharpError.message : String(sharpError)}`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      throw sharpError;
+    }
 
     res.set('Content-Type', 'image/png');
     res.send(resizedBuffer);
@@ -1074,19 +1143,47 @@ router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Respons
       }
     }
 
+    // Validate buffer exists and is valid
+    if (!largeBuffer || largeBuffer.length === 0) {
+      logger.error(`Invalid or empty buffer for pass ${passId}, regenerating...`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid buffer');
+    }
+
+    // Validate PNG signature
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    if (largeBuffer.length < 8 || !largeBuffer.subarray(0, 8).equals(pngSignature)) {
+      logger.error(`Invalid PNG signature for pass ${passId}, regenerating...`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid PNG format');
+    }
+
     if (size === 'LARGE') {
       res.set('Content-Type', 'image/png');
       return res.send(largeBuffer);
     }
 
     const {width, height} = THUMBNAIL_SIZES[size];
-    const resizedBuffer = await sharp(largeBuffer)
-      .resize(width, height, {
-        fit: 'contain',
-        background: { r: 0, g: 0, b: 0, alpha: 0 }
-      })
-      .png()
-      .toBuffer();
+    let resizedBuffer: Buffer;
+    try {
+      resizedBuffer = await sharp(largeBuffer)
+        .resize(width, height, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 }
+        })
+        .png()
+        .toBuffer();
+    } catch (sharpError) {
+      logger.error(`Sharp error processing buffer for pass ${passId}: ${sharpError instanceof Error ? sharpError.message : String(sharpError)}`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      throw sharpError;
+    }
 
     res.set('Content-Type', 'image/png');
     res.send(resizedBuffer);
