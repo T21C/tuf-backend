@@ -27,6 +27,7 @@ import LevelTag from '../../../models/levels/LevelTag.js';
 import { hasFlag, wherePermission } from '../../../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 import cdnService from '../../../services/CdnService.js';
+import CurationSchedule from '../../../models/curations/CurationSchedule.js';
 
 
 const MAX_LIMIT = 200;
@@ -384,6 +385,12 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
           {
             model: CurationType,
             as: 'type',
+          },
+          {
+            model: CurationSchedule,
+            as: 'curationSchedules',
+            where: { weekStart: { [Op.lte]: new Date() }},
+            required: false,
           },
           {
             model: User,
