@@ -1609,6 +1609,38 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
       }
     }
 
+    // Check for unique constraint violations before updating
+    // The constraint is on (packId, parentId, name) for folders
+    const itemMap = new Map(packItems.map(item => [item.id, item]));
+    for (const update of updates) {
+      const item = itemMap.get(update.id);
+      if (item && item.type === 'folder' && item.name) {
+        // Check if moving this folder to the new parent would create a duplicate name
+        const existingFolder = await LevelPackItem.findOne({
+          where: {
+            packId: resolvedPackId,
+            type: 'folder',
+            parentId: update.parentId,
+            name: item.name,
+            id: { [Op.ne]: update.id } // Exclude the current item
+          },
+          transaction
+        });
+
+        if (existingFolder) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({ 
+            error: `Folder "${item.name}" already exists in the target location`,
+            details: {
+              folderId: update.id,
+              folderName: item.name,
+              targetParentId: update.parentId
+            }
+          });
+        }
+      }
+    }
+
     // Perform all updates
     for (const update of updates) {
       await LevelPackItem.update(
@@ -1859,6 +1891,56 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
     if (!canEditPack(pack, req.user)) {
       await safeTransactionRollback(transaction);
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Validate all items belong to this pack and check for unique constraint violations
+    const itemIds = items.map((item: any) => item.id).filter((id: any) => id !== undefined);
+    const packItems = await LevelPackItem.findAll({
+      where: {
+        packId: resolvedPackId,
+        id: { [Op.in]: itemIds }
+      },
+      transaction
+    });
+
+    if (packItems.length !== itemIds.length) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Some items do not belong to this pack' });
+    }
+
+    const itemMap = new Map(packItems.map(item => [item.id, item]));
+
+    // Check for unique constraint violations before updating
+    // The constraint is on (packId, parentId, name) for folders
+    for (const { id, sortOrder, parentId } of items) {
+      if (id && parentId !== undefined) {
+        const item = itemMap.get(id);
+        if (item && item.type === 'folder' && item.name) {
+          // Check if moving this folder to the new parent would create a duplicate name
+          const existingFolder = await LevelPackItem.findOne({
+            where: {
+              packId: resolvedPackId,
+              type: 'folder',
+              parentId: parentId || null,
+              name: item.name,
+              id: { [Op.ne]: id } // Exclude the current item
+            },
+            transaction
+          });
+
+          if (existingFolder) {
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({ 
+              error: `Folder "${item.name}" already exists in the target location`,
+              details: {
+                folderId: id,
+                folderName: item.name,
+                targetParentId: parentId
+              }
+            });
+          }
+        }
+      }
     }
 
     // Update item sort orders and optionally parent
