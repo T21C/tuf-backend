@@ -1707,6 +1707,103 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
   }
 });
 
+// ==================== PACK OWNERSHIP TRANSFER ====================
+
+// GET /packs/users/search/:query - Search for users by username (admin only)
+router.get('/users/search/:query', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const query = req.params.query;
+    if (!query || query.length < 1) {
+      return res.json([]);
+    }
+
+    const users = await User.findAll({
+      where: {
+        [Op.or]: [
+          { username: { [Op.like]: `%${query}%` } },
+          { nickname: { [Op.like]: `%${query}%` } }
+        ]
+      },
+      attributes: ['id', 'username', 'nickname', 'avatarUrl'],
+      limit: 20,
+      order: [['username', 'ASC']]
+    });
+
+    return res.json(users);
+  } catch (error) {
+    logger.error('Error searching users:', error);
+    return res.status(500).json({ error: 'Failed to search users' });
+  }
+});
+
+// PUT /packs/:id/transfer-ownership - Transfer pack ownership to another user (admin only)
+router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const resolvedPackId = await resolvePackId(req.params.id);
+    if (!resolvedPackId) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+    }
+
+    const { newOwnerId } = req.body;
+
+    if (!newOwnerId) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'newOwnerId is required' });
+    }
+
+    const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
+    if (!pack) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Pack not found' });
+    }
+
+    // Check if new owner exists
+    const newOwner = await User.findByPk(newOwnerId, { transaction });
+    if (!newOwner) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'New owner not found' });
+    }
+
+    // Convert to string to match UUID type
+    const newOwnerIdString = String(newOwnerId);
+
+    // Don't allow transferring to the same owner
+    if (pack.ownerId === newOwnerIdString) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Pack is already owned by this user' });
+    }
+
+    // Transfer ownership
+    await pack.update({ ownerId: newOwnerIdString }, { transaction });
+    await transaction.commit();
+
+    // Fetch updated pack with owner info
+    const updatedPack = await LevelPack.findByPk(resolvedPackId, {
+      include: [{
+        model: User,
+        as: 'packOwner',
+        attributes: ['id', 'nickname', 'username', 'avatarUrl']
+      }]
+    });
+
+    return res.json({
+      success: true,
+      message: 'Pack ownership transferred successfully',
+      pack: {
+        ...updatedPack!.toJSON(),
+        id: updatedPack!.linkCode
+      }
+    });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error transferring pack ownership:', error);
+    return res.status(500).json({ error: 'Failed to transfer pack ownership' });
+  }
+});
+
 // ==================== PACK FAVORITES OPERATIONS ====================
 
 // GET /packs/:id/favorite - Check if pack is favorited by current user
