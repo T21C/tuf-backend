@@ -30,13 +30,71 @@ router.get('/', async (req: Request, res: Response) => {
     const offsetNum = Math.max(0, parseInt(offset as string) || 0);
     const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 30));
 
-    // Parse filters from query params
+    // Parse filters from query params with validation
     let filters: Record<string, [number, number]> | undefined;
     if (filtersParam && typeof filtersParam === 'string') {
       try {
-        filters = JSON.parse(filtersParam);
+        // Replace invalid JSON values before parsing
+        let sanitizedFilters = filtersParam
+          .replace(/Infinity/g, 'null')
+          .replace(/-Infinity/g, 'null')
+          .replace(/NaN/g, 'null')
+          .replace(/undefined/g, 'null');
+        
+        const parsed = JSON.parse(sanitizedFilters);
+        
+        // Validate and sanitize the parsed filters
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const validatedFilters: Record<string, [number, number]> = {};
+          
+          for (const [key, value] of Object.entries(parsed)) {
+            if (Array.isArray(value) && value.length === 2) {
+              const [min, max] = value;
+              
+              // Validate and sanitize min value
+              let validMin: number | null = null;
+              if (typeof min === 'number' && isFinite(min) && !isNaN(min)) {
+                validMin = min;
+              } else if (typeof min === 'string') {
+                const parsedMin = parseFloat(min);
+                if (!isNaN(parsedMin) && isFinite(parsedMin)) {
+                  validMin = parsedMin;
+                }
+              }
+              
+              // Validate and sanitize max value
+              let validMax: number | null = null;
+              if (typeof max === 'number' && isFinite(max) && !isNaN(max)) {
+                validMax = max;
+              } else if (typeof max === 'string') {
+                const parsedMax = parseFloat(max);
+                if (!isNaN(parsedMax) && isFinite(parsedMax)) {
+                  validMax = parsedMax;
+                }
+              }
+              
+              // Only add if at least one value is valid
+              if (validMin !== null || validMax !== null) {
+                validatedFilters[key] = [
+                  validMin ?? -Number.MAX_SAFE_INTEGER,
+                  validMax ?? Number.MAX_SAFE_INTEGER
+                ];
+              }
+            }
+          }
+          
+          // Only use filters if we have at least one valid entry
+          if (Object.keys(validatedFilters).length > 0) {
+            filters = validatedFilters;
+          }
+        }
       } catch (error) {
-        logger.error('Error parsing filters:', error);
+        logger.error('Error parsing filters:', {
+          error: error instanceof Error ? error.message : String(error),
+          filtersParam: filtersParam.substring(0, 200) // Log first 200 chars for debugging
+        });
+        // Continue without filters on parse error
+        filters = undefined;
       }
     }
 
