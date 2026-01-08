@@ -1,5 +1,5 @@
-import { CDN_CONFIG } from '../cdnService/config.js';
-import { ILevel } from '../interfaces/models/index.js';
+import { CDN_CONFIG } from '../externalServices/cdnService/config.js';
+import { ILevel } from '../server/interfaces/models/index.js';
 import LevelCredit from '../models/levels/LevelCredit.js';
 
 export function validateFeelingRating(value: string) {

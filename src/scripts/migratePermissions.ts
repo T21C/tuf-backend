@@ -1,8 +1,8 @@
 #!/usr/bin/env ts-node
 
 import { Command } from 'commander';
-import PermissionMigrationService from '../services/PermissionMigrationService.js';
-import { logger } from '../services/LoggerService.js';
+import PermissionMigrationService from '../server/services/PermissionMigrationService.js';
+import { logger } from '../server/services/LoggerService.js';
 import { User } from '../models/index.js';
 import Player from '../models/players/Player.js';
 import { permissionFlags } from '../config/constants.js';

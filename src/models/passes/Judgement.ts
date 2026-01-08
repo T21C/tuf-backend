@@ -1,5 +1,5 @@
 import {DataTypes, Model} from 'sequelize';
-import {IJudgement} from '../../interfaces/models/index.js';
+import {IJudgement} from '../../server/interfaces/models/index.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
 const sequelize = getSequelizeForModelGroup('passes');
 

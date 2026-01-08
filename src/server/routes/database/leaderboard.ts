@@ -1,0 +1,191 @@
+import {Request, Response, Router} from 'express';
+import {validSortOptions} from '../../../config/constants.js';
+import {PlayerStatsService} from '../../services/PlayerStatsService.js';
+import User from '../../../models/auth/User.js';
+import OAuthProvider from '../../../models/auth/OAuthProvider.js';
+import { logger } from '../../services/LoggerService.js';
+
+const router: Router = Router();
+const playerStatsService = PlayerStatsService.getInstance();
+
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const {
+      sortBy = 'rankedScore',
+      order = 'desc',
+      showBanned = 'show',
+      query,
+      offset = '0',
+      limit = '30',
+      filters: filtersParam
+    } = req.query;
+
+    if (!validSortOptions.includes(sortBy as string)) {
+      return res.status(400).json({
+        error: `Invalid sortBy option. Valid options are: ${validSortOptions.join(', ')}`,
+      });
+    }
+
+    // Parse offset and limit to numbers
+    const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 30));
+
+    // Parse filters from query params with validation
+    let filters: Record<string, [number, number]> | undefined;
+    if (filtersParam && typeof filtersParam === 'string') {
+      try {
+        // Replace invalid JSON values before parsing
+        let sanitizedFilters = filtersParam
+          .replace(/Infinity/g, 'null')
+          .replace(/-Infinity/g, 'null')
+          .replace(/NaN/g, 'null')
+          .replace(/undefined/g, 'null');
+        
+        const parsed = JSON.parse(sanitizedFilters);
+        
+        // Validate and sanitize the parsed filters
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const validatedFilters: Record<string, [number, number]> = {};
+          
+          for (const [key, value] of Object.entries(parsed)) {
+            if (Array.isArray(value) && value.length === 2) {
+              const [min, max] = value;
+              
+              // Validate and sanitize min value
+              let validMin: number | null = null;
+              if (typeof min === 'number' && isFinite(min) && !isNaN(min)) {
+                validMin = min;
+              } else if (typeof min === 'string') {
+                const parsedMin = parseFloat(min);
+                if (!isNaN(parsedMin) && isFinite(parsedMin)) {
+                  validMin = parsedMin;
+                }
+              }
+              
+              // Validate and sanitize max value
+              let validMax: number | null = null;
+              if (typeof max === 'number' && isFinite(max) && !isNaN(max)) {
+                validMax = max;
+              } else if (typeof max === 'string') {
+                const parsedMax = parseFloat(max);
+                if (!isNaN(parsedMax) && isFinite(parsedMax)) {
+                  validMax = parsedMax;
+                }
+              }
+              
+              // Only add if at least one value is valid
+              if (validMin !== null || validMax !== null) {
+                validatedFilters[key] = [
+                  validMin ?? -Number.MAX_SAFE_INTEGER,
+                  validMax ?? Number.MAX_SAFE_INTEGER
+                ];
+              }
+            }
+          }
+          
+          // Only use filters if we have at least one valid entry
+          if (Object.keys(validatedFilters).length > 0) {
+            filters = validatedFilters;
+          }
+        }
+      } catch (error) {
+        logger.error('Error parsing filters:', {
+          error: error instanceof Error ? error.message : String(error),
+          filtersParam: filtersParam.substring(0, 200) // Log first 200 chars for debugging
+        });
+        // Continue without filters on parse error
+        filters = undefined;
+      }
+    }
+
+    // Get max fields for filter limits (cached or fresh)
+    const maxFields = await playerStatsService.getMaxFields();
+
+    // If there's a query and it starts with #, treat it as a Discord ID search
+    if (query && typeof query === 'string' && query.startsWith('#')) {
+      const idQuery = parseInt(query.slice(1)); // Remove the # prefix
+      if (isNaN(idQuery) || idQuery < 1) {
+        return res.json({ count: 0, results: [] });
+      }
+      // Find the user with this Discord OAuth provider
+      const userWithDiscord = await User.findOne({
+        include: [
+          {
+            model: OAuthProvider,
+            as: 'providers',
+            where: {
+              provider: 'discord',
+              providerId: idQuery,
+            },
+          },
+        ],
+      });
+      const lookupId = userWithDiscord?.playerId || idQuery;
+      const { total, players } = await playerStatsService.getLeaderboard(
+        sortBy as string,
+        order as 'asc' | 'desc',
+        showBanned as 'show' | 'hide' | 'only',
+        lookupId,
+        offsetNum,
+        limitNum,
+        undefined,
+        filters
+      );
+      return res.json({ count: total, results: players, maxFields });
+    }
+
+
+    if (query && typeof query === 'string' && query.startsWith('@')) {
+      const idQuery = query.slice(1); // Remove the @ prefix
+
+      // Find the user with this Discord OAuth provider
+      const userWithDiscord = await User.findOne({
+        include: [
+          {
+            model: OAuthProvider,
+            as: 'providers',
+            where: {
+              provider: 'discord',
+              profile: {
+                username: idQuery,
+              },
+            },
+          },
+        ],
+      });
+      const { total, players } = await playerStatsService.getLeaderboard(
+        sortBy as string,
+        order as 'asc' | 'desc',
+        showBanned as 'show' | 'hide' | 'only',
+        userWithDiscord?.playerId || 0,
+        offsetNum,
+        limitNum,
+        undefined,
+        filters
+      );
+      return res.json({ count: total, results: players, maxFields });
+    }
+
+    // Regular leaderboard fetch without Discord ID filter
+    const { total, players } = await playerStatsService.getLeaderboard(
+      sortBy as string,
+      order as 'asc' | 'desc',
+      showBanned as 'show' | 'hide' | 'only',
+      undefined,
+      offsetNum,
+      limitNum,
+      query as string, // Pass the query string for name search
+      filters
+    );
+
+    return res.json({ count: total, results: players, maxFields });
+  } catch (error) {
+    logger.error('Error fetching leaderboard:', error);
+    return res.status(500).json({
+      error: 'Failed to fetch leaderboard',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+export default router;

@@ -1,4 +1,4 @@
-import { logger } from '../../services/LoggerService.js';
+import { logger } from '../../server/services/LoggerService.js';
 
 // Type definitions for query parsing
 export type FieldSearch = {

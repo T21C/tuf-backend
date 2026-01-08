@@ -1,5 +1,5 @@
 import { Client } from '@elastic/elasticsearch';
-import { logger } from '../services/LoggerService.js';
+import { logger } from '../server/services/LoggerService.js';
 import fs from 'fs';
 import hash from 'object-hash';
 import path from 'path';

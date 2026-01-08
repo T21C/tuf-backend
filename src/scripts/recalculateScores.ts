@@ -9,7 +9,7 @@ import type { IJudgements } from '../utils/pass/CalcAcc.js';
 import Difficulty from '../models/levels/Difficulty.js';
 import Judgement from '../models/passes/Judgement.js';
 import User from '../models/auth/User.js';
-import { logger } from '../services/LoggerService.js';
+import { logger } from '../server/services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
 import { wherePermission } from '../utils/auth/permissionUtils.js';
 import { permissionFlags } from '../config/constants.js';

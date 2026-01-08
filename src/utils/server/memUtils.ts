@@ -1,4 +1,4 @@
-import { logger } from '../../services/LoggerService.js';
+import { logger } from '../../server/services/LoggerService.js';
 
 export function checkMemoryUsage(){
     const used = process.memoryUsage();

@@ -20,7 +20,7 @@
     "experimentalDecorators": true,
     "typeRoots": [
       "./node_modules/@types",
-      "./src/interfaces"
+      "src/server/interfaces"
     ]
   },
   "ts-node": {

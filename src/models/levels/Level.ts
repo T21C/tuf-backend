@@ -4,7 +4,7 @@ import {
   IPass,
   IDifficulty,
   ICreator
-} from '../../interfaces/models/index.js';
+} from '../../server/interfaces/models/index.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
 import Team from '../credits/Team.js';

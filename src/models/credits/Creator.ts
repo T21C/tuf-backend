@@ -1,5 +1,5 @@
 import {Model, DataTypes} from 'sequelize';
-import {ICreator} from '../../interfaces/models/index.js';
+import {ICreator} from '../../server/interfaces/models/index.js';
 import User from '../auth/User.js';
 import LevelCredit from '../levels/LevelCredit.js';
 import {CreatorAlias} from './CreatorAlias.js';

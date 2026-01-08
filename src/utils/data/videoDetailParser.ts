@@ -1,6 +1,6 @@
 import twemoji from 'twemoji';
 import axios from 'axios';
-import { logger } from '../../services/LoggerService.js';
+import { logger } from '../../server/services/LoggerService.js';
 
 export interface VideoDetails {
   title: string;

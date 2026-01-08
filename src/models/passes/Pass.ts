@@ -1,5 +1,5 @@
 import {DataTypes, Model, Optional} from 'sequelize';
-import {IPass} from '../../interfaces/models/index.js';
+import {IPass} from '../../server/interfaces/models/index.js';
 import Level from '../levels/Level.js';
 import Player from '../players/Player.js';
 import Judgement from './Judgement.js';

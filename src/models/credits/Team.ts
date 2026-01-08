@@ -1,5 +1,5 @@
 import {DataTypes, Model} from 'sequelize';
-import {ITeam} from '../../interfaces/models/index.js';
+import {ITeam} from '../../server/interfaces/models/index.js';
 import { TeamAlias } from './TeamAlias.js';
 import Creator from './Creator.js';
 import TeamMember from './TeamMember.js';

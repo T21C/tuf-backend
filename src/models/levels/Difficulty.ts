@@ -1,5 +1,5 @@
 import {Model, DataTypes} from 'sequelize';
-import {IDifficulty, ILevel} from '../../interfaces/models/index.js';
+import {IDifficulty, ILevel} from '../../server/interfaces/models/index.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 

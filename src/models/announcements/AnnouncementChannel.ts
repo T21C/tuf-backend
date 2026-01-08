@@ -1,5 +1,5 @@
 import {Model, DataTypes} from 'sequelize';
-import {IAnnouncementChannel} from '../../interfaces/models/index.js';
+import {IAnnouncementChannel} from '../../server/interfaces/models/index.js';
 import { now } from 'sequelize/lib/utils';
 import { getSequelizeForModelGroup } from '../../config/db.js';
 const sequelize = getSequelizeForModelGroup('announcements');

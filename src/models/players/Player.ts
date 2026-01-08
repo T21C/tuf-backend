@@ -5,7 +5,7 @@ import {
   HasManyGetAssociationsMixin,
   HasOneGetAssociationMixin,
 } from 'sequelize';
-import {IPass, IPlayer} from '../../interfaces/models/index.js';
+import {IPass, IPlayer} from '../../server/interfaces/models/index.js';
 import Pass from '../passes/Pass.js';
 import User from '../auth/User.js';
 import PlayerStats from '../players/PlayerStats.js';

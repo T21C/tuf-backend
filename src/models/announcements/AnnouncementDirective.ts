@@ -1,6 +1,6 @@
 import {Model, DataTypes} from 'sequelize';
 import { now } from 'sequelize/lib/utils';
-import { IAnnouncementDirective, DirectiveCondition } from '../../interfaces/models/index.js';
+import { IAnnouncementDirective, DirectiveCondition } from '../../server/interfaces/models/index.js';
 import DirectiveAction from './DirectiveAction.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
 const sequelize = getSequelizeForModelGroup('announcements');
