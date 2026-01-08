@@ -872,6 +872,7 @@ export class PlayerStatsService {
       }
 
       // Add country filter if provided
+      logger.debug(`[PlayerStatsService] Filters: ${JSON.stringify(filters)}`);
       if (filters?.['country']) {
         whereClause['$player.country$'] = filters['country'];
       }

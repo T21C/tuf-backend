@@ -36,66 +36,25 @@ router.get('/', async (req: Request, res: Response) => {
       try {
         // Replace invalid JSON values before parsing
         let sanitizedFilters = filtersParam
-          .replace(/Infinity/g, 'null')
-          .replace(/-Infinity/g, 'null')
-          .replace(/NaN/g, 'null')
-          .replace(/undefined/g, 'null');
-        
-        const parsed = JSON.parse(sanitizedFilters);
-        
-        // Validate and sanitize the parsed filters
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const validatedFilters: Record<string, [number, number]> = {};
-          
-          for (const [key, value] of Object.entries(parsed)) {
-            if (Array.isArray(value) && value.length === 2) {
-              const [min, max] = value;
-              
-              // Validate and sanitize min value
-              let validMin: number | null = null;
-              if (typeof min === 'number' && isFinite(min) && !isNaN(min)) {
-                validMin = min;
-              } else if (typeof min === 'string') {
-                const parsedMin = parseFloat(min);
-                if (!isNaN(parsedMin) && isFinite(parsedMin)) {
-                  validMin = parsedMin;
-                }
-              }
-              
-              // Validate and sanitize max value
-              let validMax: number | null = null;
-              if (typeof max === 'number' && isFinite(max) && !isNaN(max)) {
-                validMax = max;
-              } else if (typeof max === 'string') {
-                const parsedMax = parseFloat(max);
-                if (!isNaN(parsedMax) && isFinite(parsedMax)) {
-                  validMax = parsedMax;
-                }
-              }
-              
-              // Only add if at least one value is valid
-              if (validMin !== null || validMax !== null) {
-                validatedFilters[key] = [
-                  validMin ?? -Number.MAX_SAFE_INTEGER,
-                  validMax ?? Number.MAX_SAFE_INTEGER
-                ];
-              }
-            }
+          .replace(/"Infinity"/g, '"2147483647"')
+          .replace(/"-Infinity"/g, '"-2147483647"')
+          .replace(/"NaN"/g, '"0"');
+
+        const parsed = JSON.parse(sanitizedFilters, (key, value) => {
+          if (typeof value === "number") {
+            return Number.parseFloat(value.toString());
           }
-          
-          // Only use filters if we have at least one valid entry
-          if (Object.keys(validatedFilters).length > 0) {
-            filters = validatedFilters;
-          }
-        }
-      } catch (error) {
-        logger.error('Error parsing filters:', {
-          error: error instanceof Error ? error.message : String(error),
-          filtersParam: filtersParam.substring(0, 200) // Log first 200 chars for debugging
+          return value;
         });
-        // Continue without filters on parse error
-        filters = undefined;
-      }
+        filters = parsed;
+       
+    } catch (error) {
+      logger.error('Error parsing filters:', error);
+      return res.status(400).json({
+        error: 'Invalid filters',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
     }
 
     // Get max fields for filter limits (cached or fresh)
