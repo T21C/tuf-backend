@@ -31,18 +31,27 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
       const user = req.user;
 
       // Base pass query
-      const passPromise = Pass.findOne({
-        where: user && hasFlag(user, permissionFlags.SUPER_ADMIN) ? {
-          id: passId,
-        } : {
-          id: passId,
-          isDeleted: false,
-        },
-      });
+      const whereClause: any = {
+        id: passId,
+      };
 
-      const pass = await passPromise;
+      // For non-super-admins, filter deleted passes
+      if (!user || !hasFlag(user, permissionFlags.SUPER_ADMIN)) {
+        whereClause.isDeleted = false;
+      }
+
+      const pass = await Pass.findOne({ where: whereClause });
+      
       if (!pass) {
         return res.json({count: 0, results: []});
+      }
+
+      // Check if pass is hidden and user is not the owner
+      if (pass.isHidden && (!user || !user.playerId || pass.playerId !== user.playerId)) {
+        // If user is not a super admin and doesn't own the pass, don't show it
+        if (!user || !hasFlag(user, permissionFlags.SUPER_ADMIN)) {
+          return res.json({count: 0, results: []});
+        }
       }
 
       // Fetch related data concurrently
@@ -214,6 +223,9 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
         }, {} as Record<number, typeof judgements[0]>);
 
         // Assemble passes with nested data and filter out passes with null players
+        const userPlayerId = req.user?.playerId;
+        const isSuperAdmin = req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN);
+        
         return passes
           .map(pass => {
             const player = pass.playerId ? playersById[pass.playerId] : null;
@@ -223,7 +235,25 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
               judgements: judgementsByPassId[pass.id] || null
             };
           })
-          .filter(pass => pass.player !== null && pass.judgements !== null);
+          .filter(pass => {
+            // Filter out passes with null players or judgements
+            if (pass.player === null || pass.judgements === null) {
+              return false;
+            }
+            
+            // Filter out hidden passes unless user is the owner or super admin
+            if (pass.isHidden) {
+              if (isSuperAdmin) {
+                return true; // Super admins can see all passes
+              }
+              if (userPlayerId && pass.player?.id === userPlayerId) {
+                return true; // Users can see their own hidden passes
+              }
+              return false; // Hidden passes are not visible to others
+            }
+            
+            return true;
+          });
       });
 
       const passes = await passesPromise;
@@ -236,7 +266,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
   });
 
   // Update the GET endpoint to use the unified search
-  router.get('/', async (req: Request, res: Response) => {
+  router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
     try {
       const {
         deletedFilter,
@@ -252,6 +282,9 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
         sort,
       } = req.query;
 
+      // Get user's playerId if logged in
+      const userPlayerId = req.user?.playerId;
+
       const result = await searchPasses({
         deletedFilter: ensureString(deletedFilter),
         minDiff: ensureString(minDiff),
@@ -264,7 +297,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
         offset,
         limit,
         sort: ensureString(sort)
-      });
+      }, userPlayerId);
 
       return res.json(result);
     } catch (error) {

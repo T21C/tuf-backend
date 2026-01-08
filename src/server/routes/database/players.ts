@@ -103,9 +103,10 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
+    const user = req.user;
 
     // First check if player exists at all
     const playerExists = await Player.findByPk(id, {
@@ -129,9 +130,13 @@ router.get('/:id([0-9]{1,20})', async (req: Request, res: Response) => {
     if (!playerExists) {
       return res.status(404).json({error: 'Player not found'});
     }
+    
+    // Check if user is viewing their own profile
+    const isOwnProfile = user && user.playerId && user.playerId === parseInt(id);
+    
     // Wait for both enriched data and stats in parallel
     const [enrichedPlayer, playerStats] = await Promise.all([
-      playerStatsService.getEnrichedPlayer(parseInt(id)),
+      playerStatsService.getEnrichedPlayer(parseInt(id), isOwnProfile ? user : undefined),
       playerStatsService.getPlayerStats(parseInt(id)).then(stats => stats?.[0]),
     ]);
 

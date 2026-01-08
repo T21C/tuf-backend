@@ -1099,6 +1099,18 @@ export class PlayerStatsService {
       ],
     });
 
+    if (!pass) {
+      return null;
+    }
+
+    // Check if pass is hidden and user is not the owner
+    if (pass.isHidden && (!user || !user.playerId || pass.playerId !== user.playerId)) {
+      // If user is not a super admin and doesn't own the pass, don't show it
+      if (!user || !hasFlag(user, permissionFlags.SUPER_ADMIN)) {
+        return null;
+      }
+    }
+
     const topScores = await sequelize.query(`
       SELECT 
         p.id,
@@ -1114,10 +1126,6 @@ export class PlayerStatsService {
         },
         type: QueryTypes.SELECT,
       }) as {id: number, scoreV2: number}[];
-
-    if (!pass) {
-      return null;
-    }
 
     const currentStats = await sequelize.query(this.statsQuery, {
       replacements: {
@@ -1165,7 +1173,7 @@ export class PlayerStatsService {
     return response;
   }
 
-  public async getEnrichedPlayer(playerId: number): Promise<EnrichedPlayer | null> {
+  public async getEnrichedPlayer(playerId: number, user?: any): Promise<EnrichedPlayer | null> {
 
     const player = await Player.findByPk(playerId, {
       include: [
@@ -1178,12 +1186,23 @@ export class PlayerStatsService {
 
     if (!player) return null;
 
+    // Determine if we should include hidden passes (only for own profile)
+    const includeHiddenPasses = user && user.playerId && user.playerId === playerId;
+    
+    // Build where clause for passes
+    const passWhereClause: any = {
+      playerId: playerId,
+      isDeleted: false,
+    };
+    
+    // If not own profile, exclude hidden passes
+    if (!includeHiddenPasses) {
+      passWhereClause.isHidden = false;
+    }
+
     // Load all passes for these players in one query
     const allPasses = await Pass.findAll({
-      where: {
-        playerId: playerId,
-        isDeleted: false,
-      },
+      where: passWhereClause,
       include: [
         {
           model: Level,
@@ -1283,7 +1302,7 @@ export class PlayerStatsService {
         }
 
         const topScores = Array.from(uniquePasses.values())
-          .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate && isLevelAvailable(pass.level))
+          .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate && isLevelAvailable(pass.level) && !pass.isHidden)
           .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
           .slice(0, 20)
           .map((pass, index) => ({
@@ -1292,7 +1311,7 @@ export class PlayerStatsService {
           }));
 
         const potentialTopScores = Array.from(uniquePasses.values())
-          .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate)
+          .filter((pass: any) => !pass.isDeleted && !pass.isDuplicate && !pass.isHidden)
           .sort((a, b) => (b.scoreV2 || 0) - (a.scoreV2 || 0))
           .slice(0, 20)
           .map((pass, index) => ({

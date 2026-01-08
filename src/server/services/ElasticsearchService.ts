@@ -1828,7 +1828,7 @@ class ElasticsearchService {
     }
   }
 
-  public async searchPasses(query: string, filters: any = {}): Promise<{ hits: any[], total: number }> {
+  public async searchPasses(query: string, filters: any = {}, userPlayerId?: number): Promise<{ hits: any[], total: number }> {
     try {
       const must: any[] = [];
       const should: any[] = [];
@@ -1860,6 +1860,30 @@ class ElasticsearchService {
         must.push({ term: { 'level.isHidden': false } });
         must.push({ term: { 'level.isDeleted': false } });
         must.push({ term: { 'player.isBanned': false } });
+        
+        // Filter out hidden passes unless the user is the owner
+        if (userPlayerId !== undefined) {
+          // User is logged in - show their hidden passes but hide others' hidden passes
+          must.push({
+            bool: {
+              should: [
+                { term: { isHidden: false } },
+                { 
+                  bool: {
+                    must: [
+                      { term: { isHidden: true } },
+                      { term: { 'player.id': userPlayerId } }
+                    ]
+                  }
+                }
+              ],
+              minimum_should_match: 1
+            }
+          });
+        } else {
+          // User is not logged in - hide all hidden passes
+          must.push({ term: { isHidden: false } });
+        }
       } else if (filters.deletedFilter === 'only') {
         must.push({
           bool: {

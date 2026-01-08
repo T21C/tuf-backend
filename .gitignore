@@ -146,8 +146,8 @@ temp/
 cache/
 backups/
 profiles/
-src/database/generate_meta_inserts.bat
-src/database/meta_inserts.sql
+generate_meta_inserts.bat
+meta_inserts.sql
 *.sh
 __pycache__/
 
@@ -155,7 +155,7 @@ __pycache__/
 build/
 
 # google cloud
-src/config/recaptcha-service-key.json
+recaptcha-service-key.json
 
 # tsimp
 .tsimp/

@@ -604,4 +604,66 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     },
   );
 
+  // Toggle isHidden flag for own passes only
+  router.patch('/:id([0-9]{1,20})/toggle-hidden', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const id = parseInt(req.params.id);
+      const user = req.user;
+
+      if (!user || !user.playerId) {
+        await safeTransactionRollback(transaction);
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      // Find the pass
+      const pass = await Pass.findOne({
+        where: { id },
+        include: [
+          {
+            model: Player,
+            as: 'player',
+            attributes: ['id'],
+          },
+        ],
+        transaction,
+      });
+
+      if (!pass) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Pass not found' });
+      }
+
+      // Check if user owns this pass
+      if (pass.playerId !== user.playerId) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({ error: 'You can only hide your own passes' });
+      }
+
+      // Toggle isHidden
+      const newIsHidden = !pass.isHidden;
+      await pass.update(
+        { isHidden: newIsHidden },
+        { transaction }
+      );
+
+      await transaction.commit();
+
+      // Reindex the pass in Elasticsearch
+      await elasticsearchService.indexPass(pass.id);
+
+      return res.json({
+        message: `Pass ${newIsHidden ? 'hidden' : 'unhidden'} successfully`,
+        pass: {
+          ...pass.toJSON(),
+          isHidden: newIsHidden,
+        },
+      });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error toggling pass hidden status:', error);
+      return res.status(500).json({ error: 'Failed to toggle pass hidden status' });
+    }
+  });
+
   export default router;

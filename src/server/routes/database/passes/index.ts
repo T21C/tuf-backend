@@ -73,7 +73,7 @@ export async function updateWorldsFirstStatus(
   }
 }
 
-export async function searchPasses(query: any) {
+export async function searchPasses(query: any, userPlayerId?: number) {
   try {
       const startTime = Date.now();
       const { hits, total } = await elasticsearchService.searchPasses(query.query, {
@@ -85,7 +85,7 @@ export async function searchPasses(query: any) {
         sort: query.sort,
         offset: query.offset,
         limit: query.limit
-      });
+      }, userPlayerId);
 
       const duration = Date.now() - startTime;
       if (duration > 1000) {

@@ -6,7 +6,7 @@ import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const keyPath = path.join(__dirname, '../config/recaptcha-service-key.json')
+const keyPath = path.join(__dirname, '../../config/recaptcha-service-key.json')
 const key = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
 
 // gRPC error codes that are retryable (transient errors)
