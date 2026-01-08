@@ -315,6 +315,154 @@ const difficultiesEndpoints: EndpointDefinition[] = [
       '400': 'Invalid sort orders format or validation failed',
       '500': 'Failed to update sort orders due to database error'
     }
+  },
+  {
+    path: '/v2/database/difficulties/tags/sort-orders',
+    method: 'PUT',
+    category: 'DIFFICULTIES',
+    description: 'Update tag sort orders in bulk for reordering tags within groups',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      body: {
+        sortOrders: 'Array of objects with id and sortOrder (required) - Each object contains tag ID and new sort order'
+      }
+    },
+    responses: {
+      '200': 'Tag sort orders updated successfully',
+      '400': 'Invalid sort orders format or missing id/sortOrder',
+      '500': 'Failed to update tag sort orders'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/tags/group-sort-orders',
+    method: 'PUT',
+    category: 'DIFFICULTIES',
+    description: 'Update group sort orders in bulk for reordering tag groups. Empty string or null represents ungrouped tags.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      body: {
+        groups: 'Array of objects with name and sortOrder (required) - Each object contains group name (empty string for ungrouped) and new group sort order'
+      }
+    },
+    responses: {
+      '200': 'Group sort orders updated successfully',
+      '400': 'Invalid groups format or missing name/sortOrder',
+      '500': 'Failed to update group sort orders'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/tags',
+    method: 'GET',
+    category: 'DIFFICULTIES',
+    description: 'Get all level tags ordered by group, sort order, and name',
+    responses: {
+      '200': 'Array of all tags with complete configuration including name, icon, color, group, sortOrder, and groupSortOrder',
+      '500': 'Failed to fetch tags'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/tags',
+    method: 'POST',
+    category: 'DIFFICULTIES',
+    description: 'Create a new level tag. Icon can be uploaded as a file or provided as a URL. If icon is null, tag will have no icon.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      body: {
+        name: 'string (required) - Tag name (must be unique)',
+        color: 'string (required) - Hex color code (e.g., "#FF5733")',
+        icon: 'string | file (optional) - Icon URL or file upload. Pass "null" to create tag without icon',
+        group: 'string (optional) - Group name for organizing tags. If not provided, tag will be ungrouped'
+      }
+    },
+    responses: {
+      '201': 'Tag created successfully with complete configuration',
+      '400': 'Missing required fields, invalid color format, duplicate tag name, or icon upload failed',
+      '500': 'Failed to create tag'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/tags/:id',
+    method: 'PUT',
+    category: 'DIFFICULTIES',
+    description: 'Update a level tag. Icon can be updated by uploading a file, set to null to remove, or left unchanged. All fields are optional.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        id: 'Tag ID (number, 1-20 digits) - Unique identifier of the tag to update'
+      },
+      body: {
+        name: 'string (optional) - New tag name (must be unique if changed)',
+        color: 'string (optional) - New hex color code (e.g., "#FF5733")',
+        icon: 'string | file | null (optional) - New icon URL, file upload, or "null" to remove icon',
+        group: 'string | null (optional) - New group name or null for ungrouped'
+      }
+    },
+    responses: {
+      '200': 'Tag updated successfully with new configuration',
+      '400': 'Invalid color format, duplicate tag name, or icon upload failed',
+      '404': 'Tag not found',
+      '500': 'Failed to update tag'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/tags/:id',
+    method: 'DELETE',
+    category: 'DIFFICULTIES',
+    description: 'Delete a level tag. Removes all tag assignments from levels and deletes the icon from CDN if present.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        id: 'Tag ID (number, 1-20 digits) - Unique identifier of the tag to delete'
+      }
+    },
+    responses: {
+      '200': 'Tag deleted successfully with all assignments removed',
+      '404': 'Tag not found',
+      '500': 'Failed to delete tag'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/levels/:levelId/tags',
+    method: 'GET',
+    category: 'DIFFICULTIES',
+    description: 'Get all tags assigned to a specific level',
+    parameters: {
+      path: {
+        levelId: 'Level ID (number, 1-20 digits) - Unique identifier of the level'
+      }
+    },
+    responses: {
+      '200': 'Array of tags assigned to the level, ordered by name',
+      '404': 'Level not found',
+      '500': 'Failed to fetch level tags'
+    }
+  },
+  {
+    path: '/v2/database/difficulties/levels/:levelId/tags',
+    method: 'POST',
+    category: 'DIFFICULTIES',
+    description: 'Assign tags to a level. Replaces all existing tag assignments with the provided tag IDs. Empty array removes all tags.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        levelId: 'Level ID (number, 1-20 digits) - Unique identifier of the level'
+      },
+      body: {
+        tagIds: 'Array of numbers (required) - Array of tag IDs to assign. Empty array removes all tags'
+      }
+    },
+    responses: {
+      '200': 'Tags assigned successfully. Returns array of updated tags assigned to the level',
+      '400': 'tagIds must be an array or one or more tag IDs are invalid',
+      '404': 'Level not found',
+      '500': 'Failed to assign tags to level'
+    }
   }
 ];
 

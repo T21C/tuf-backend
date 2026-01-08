@@ -72,6 +72,25 @@ const modificationEndpoints: EndpointDefinition[] = [
       '404': 'Pass not found',
       '500': 'Failed to restore pass'
     }
+  },
+  {
+    path: '/v2/database/passes/:id/toggle-hidden',
+    method: 'PATCH',
+    category: 'PASSES',
+    description: 'Toggle the hidden status of a pass. Only the pass owner can hide/unhide their own passes.',
+    requiresAuth: true,
+    parameters: {
+      path: {
+        id: 'Pass ID (number, 1-20 digits)'
+      }
+    },
+    responses: {
+      '200': 'Returns { pass: { id, isHidden: boolean } } with the updated hidden state',
+      '401': 'Authentication required',
+      '403': 'Forbidden - only the pass owner can toggle hidden status',
+      '404': 'Pass not found',
+      '500': 'Failed to toggle pass hidden status'
+    }
   }
 ];
 

@@ -387,6 +387,45 @@ const creatorsEndpoints: EndpointDefinition[] = [
       '200': 'Array of matching teams with members and aliases',
       '500': 'Failed to search teams'
     }
+  },
+  {
+    path: '/v2/database/creators/assign-creator-to-user/:userOrPlayerId/:creatorId',
+    method: 'PUT',
+    category: 'CREATORS',
+    description: 'Assign a creator to a user. Supports both UUID (user ID) and player ID. If creator is already assigned to another user, returns error.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        userOrPlayerId: 'User UUID or Player ID (number) - Can be either format',
+        creatorId: 'Creator ID (number) - Unique identifier of the creator'
+      }
+    },
+    responses: {
+      '200': 'Creator assigned successfully with updated user and creator objects',
+      '400': 'Invalid user or player ID format, or creator already assigned to another user',
+      '404': 'User or creator not found',
+      '500': 'Failed to assign creator to user'
+    }
+  },
+  {
+    path: '/v2/database/creators/remove-creator-from-user/:userOrPlayerId',
+    method: 'DELETE',
+    category: 'CREATORS',
+    description: 'Remove creator assignment from a user. Supports both UUID (user ID) and player ID. Removes bidirectional relationship.',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        userOrPlayerId: 'User UUID or Player ID (number) - Can be either format'
+      }
+    },
+    responses: {
+      '200': 'Creator removed successfully with updated user and creator objects',
+      '400': 'Invalid user or player ID format',
+      '404': 'User not found',
+      '500': 'Failed to remove creator from user'
+    }
   }
 ];
 

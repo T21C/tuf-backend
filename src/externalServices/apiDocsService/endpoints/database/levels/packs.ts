@@ -347,6 +347,49 @@ const packsEndpoints: EndpointDefinition[] = [
       '404': 'Pack not found',
       '500': 'Failed to reorder pack items'
     }
+  },
+  {
+    method: 'GET',
+    path: '/v2/database/levels/packs/users/search/:query',
+    description: 'Search for users by username or nickname. Returns up to 20 matching users. Used for pack ownership transfer.',
+    category: 'PACKS',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        query: 'string (required) - Search query (minimum 1 character)'
+      }
+    },
+    responses: {
+      '200': 'Returns array of user objects with { id, username, nickname, avatarUrl }',
+      '401': 'Authentication required',
+      '403': 'Forbidden - requires super admin',
+      '500': 'Failed to search users'
+    }
+  },
+  {
+    method: 'PUT',
+    path: '/v2/database/levels/packs/:id/transfer-ownership',
+    description: 'Transfer pack ownership to another user. Only super admins can transfer ownership.',
+    category: 'PACKS',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        id: 'string (required) - Pack linkCode'
+      },
+      body: {
+        newOwnerId: 'string (required) - UUID of the new owner'
+      }
+    },
+    responses: {
+      '200': 'Returns { success: true, message: string, pack: object } with updated pack data including new owner',
+      '400': 'Invalid pack ID/link code, newOwnerId required, or pack already owned by this user',
+      '401': 'Authentication required',
+      '403': 'Forbidden - requires super admin',
+      '404': 'Pack not found or new owner not found',
+      '500': 'Failed to transfer pack ownership'
+    }
   }
 ];
 

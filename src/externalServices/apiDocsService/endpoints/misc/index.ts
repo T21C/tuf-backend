@@ -6,6 +6,8 @@ import { eventsEndpoints } from './events.js';
 import { discordEndpoints } from './discord.js';
 import { chunkedUploadEndpoints } from './chunkedUpload.js';
 import { healthEndpoints } from './health.js';
+import { cdnProgressEndpoints } from './cdnProgress.js';
+import { thumbnailsEndpoints } from './thumbnails.js';
 
 const miscEndpoints: EndpointDefinition[] = [
   ...utilsEndpoints,
@@ -14,7 +16,9 @@ const miscEndpoints: EndpointDefinition[] = [
   ...eventsEndpoints,
   ...discordEndpoints,
   ...chunkedUploadEndpoints,
-  ...healthEndpoints
+  ...healthEndpoints,
+  ...cdnProgressEndpoints,
+  ...thumbnailsEndpoints
 ];
 
 export default miscEndpoints;

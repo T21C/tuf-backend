@@ -221,6 +221,27 @@ const modificationEndpoints: EndpointDefinition[] = [
       '404': 'Level not found',
       '500': 'Failed to delete level file'
     }
+  },
+  {
+    method: 'POST',
+    path: '/v2/database/levels/:id/refresh-tags',
+    description: 'Refresh auto-assigned tags for a level. Re-evaluates tag assignment rules and updates tags accordingly.',
+    category: 'LEVELS',
+    requiresAuth: true,
+    requiresAdmin: true,
+    parameters: {
+      path: {
+        id: 'integer (required) - Level ID'
+      }
+    },
+    responses: {
+      '200': 'Returns { success: true, message: string, removedTags: array, assignedTags: array, errors: array }',
+      '400': 'Invalid level ID',
+      '401': 'Unauthorized',
+      '403': 'Forbidden - requires super admin',
+      '404': 'Level not found',
+      '500': 'Failed to refresh auto tags'
+    }
   }
 ];
 
