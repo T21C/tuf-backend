@@ -1,10 +1,10 @@
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import sequelize from '../config/db.js';
-import LevelRerateHistory from '../models/levels/LevelRerateHistory.js';
-import Difficulty from '../models/levels/Difficulty.js';
-import Level from '../models/levels/Level.js';
+import sequelize from '../../config/db.js';
+import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import Level from '../../models/levels/Level.js';
 
 interface LegacyRerate {
   date: string;

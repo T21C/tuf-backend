@@ -1,10 +1,10 @@
 import { Command } from 'commander';
-import Level from '../models/levels/Level.js';
-import { logger } from '../server/services/LoggerService.js';
+import Level from '../../models/levels/Level.js';
+import { logger } from '../../server/services/LoggerService.js';
 import dotenv from 'dotenv';
-import elasticsearchService from '../server/services/ElasticsearchService.js';
-import { initializeAssociations } from '../models/associations.js';
-import { tagAssignmentService } from '../server/services/TagAssignmentService.js';
+import elasticsearchService from '../../server/services/ElasticsearchService.js';
+import { initializeAssociations } from '../../models/associations.js';
+import { tagAssignmentService } from '../../server/services/TagAssignmentService.js';
 dotenv.config();
 
 // Initialize model associations before using them

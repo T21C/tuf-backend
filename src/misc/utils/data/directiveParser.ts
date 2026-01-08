@@ -1,6 +1,6 @@
-import { IPass } from '../../server/interfaces/models/index.js';
-import Level from '../../models/levels/Level.js';
-import { logger } from '../../server/services/LoggerService.js';
+import { IPass } from '../../../server/interfaces/models/index.js';
+import Level from '../../../models/levels/Level.js';
+import { logger } from '../../../server/services/LoggerService.js';
 
 // Define the available operators and their corresponding JavaScript operators
 const OPERATORS = {

@@ -1,6 +1,6 @@
-import { CDN_CONFIG } from '../externalServices/cdnService/config.js';
-import { ILevel } from '../server/interfaces/models/index.js';
-import LevelCredit from '../models/levels/LevelCredit.js';
+import { CDN_CONFIG } from '../../externalServices/cdnService/config.js';
+import { ILevel } from '../../server/interfaces/models/index.js';
+import LevelCredit from '../../models/levels/LevelCredit.js';
 
 export function validateFeelingRating(value: string) {
   const exprPattern1 = '[PGUpgu][1-9]'; // Handles single letters followed by 1-9

@@ -8,7 +8,7 @@ import { storageManager } from './storageManager.js';
 import CdnFile from '../../../models/cdn/CdnFile.js';
 import sequelize from '../../../config/db.js';
 import { Transaction } from 'sequelize';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 
 
 export interface ImageUploadResult {

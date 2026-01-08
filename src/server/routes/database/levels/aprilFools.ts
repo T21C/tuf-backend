@@ -3,16 +3,16 @@ import sequelize from '../../../../config/db.js';
 import Level from '../../../../models/levels/Level.js';
 import Difficulty from '../../../../models/levels/Difficulty.js';
 import { Auth } from '../../../middleware/auth.js';
-import { sanitizeTextInput } from '../../../../utils/Utility.js';
-import { getRandomSeed, seededShuffle } from '../../../../utils/server/random.js';
+import { sanitizeTextInput } from '../../../../misc/utils/Utility.js';
+import { getRandomSeed, seededShuffle } from '../../../../misc/utils/server/random.js';
 import { Op, Transaction } from 'sequelize';
 import { logger } from '../../../services/LoggerService.js';
-import { sseManager } from '../../../../utils/server/sse.js';
+import { sseManager } from '../../../../misc/utils/server/sse.js';
 import Pass from '../../../../models/passes/Pass.js';
 import Judgement from '../../../../models/passes/Judgement.js';
 import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
-import { calcAcc } from '../../../../utils/pass/CalcAcc.js';
-import { getScoreV2 } from '../../../../utils/pass/CalcScore.js';
+import { calcAcc } from '../../../../misc/utils/pass/CalcAcc.js';
+import { getScoreV2 } from '../../../../misc/utils/pass/CalcScore.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 

@@ -1,10 +1,10 @@
 import {Router} from 'express';
-import {sseManager} from '../../../utils/server/sse.js';
+import {sseManager} from '../../../misc/utils/server/sse.js';
 import {Request, Response} from 'express';
 import User from '../../../models/auth/User.js';
 import { clientUrlEnv } from '../../../config/app.config.js';
 import { permissionFlags } from '../../../config/constants.js';
-import { hasAnyFlag } from '../../../utils/auth/permissionUtils.js';
+import { hasAnyFlag } from '../../../misc/utils/auth/permissionUtils.js';
 
 const router: Router = Router();
 

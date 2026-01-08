@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { sseManager } from '../../../utils/server/sse.js';
+import { sseManager } from '../../../misc/utils/server/sse.js';
 import { logger } from '../../services/LoggerService.js';
 
 const router = Router();

@@ -1,11 +1,11 @@
 #!/usr/bin/env ts-node
 
 import { Command } from 'commander';
-import PermissionMigrationService from '../server/services/PermissionMigrationService.js';
-import { logger } from '../server/services/LoggerService.js';
-import { User } from '../models/index.js';
-import Player from '../models/players/Player.js';
-import { permissionFlags } from '../config/constants.js';
+import PermissionMigrationService from '../../server/services/PermissionMigrationService.js';
+import { logger } from '../../server/services/LoggerService.js';
+import { User } from '../../models/index.js';
+import Player from '../../models/players/Player.js';
+import { permissionFlags } from '../../config/constants.js';
 
 const program = new Command();
 

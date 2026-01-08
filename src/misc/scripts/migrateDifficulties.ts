@@ -2,10 +2,10 @@
 import process from 'process';
 
 // Load DB and models
-import sequelize from '../config/db.js';
-import Level from '../models/levels/Level.js';
-import Difficulty from '../models/levels/Difficulty.js';
-import LevelRerateHistory from '../models/levels/LevelRerateHistory.js';
+import sequelize from '../../config/db.js';
+import Level from '../../models/levels/Level.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import LevelRerateHistory from '../../models/levels/LevelRerateHistory.js';
 
 async function main() {
   // Parse positional arguments

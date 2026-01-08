@@ -1,18 +1,18 @@
-import sequelize from '../config/db.js';
-import Level from '../models/levels/Level.js';
-import Pass from '../models/passes/Pass.js';
-import Player from '../models/players/Player.js';
+import sequelize from '../../config/db.js';
+import Level from '../../models/levels/Level.js';
+import Pass from '../../models/passes/Pass.js';
+import Player from '../../models/players/Player.js';
 import { Op } from 'sequelize';
-import { initializeAssociations } from '../models/associations.js';
+import { initializeAssociations } from '../../models/associations.js';
 import { getScoreV2 } from '../utils/pass/CalcScore.js';
 import type { IJudgements } from '../utils/pass/CalcAcc.js';
-import Difficulty from '../models/levels/Difficulty.js';
-import Judgement from '../models/passes/Judgement.js';
-import User from '../models/auth/User.js';
-import { logger } from '../server/services/LoggerService.js';
+import Difficulty from '../../models/levels/Difficulty.js';
+import Judgement from '../../models/passes/Judgement.js';
+import User from '../../models/auth/User.js';
+import { logger } from '../../server/services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
 import { wherePermission } from '../utils/auth/permissionUtils.js';
-import { permissionFlags } from '../config/constants.js';
+import { permissionFlags } from '../../config/constants.js';
 
 // Configuration
 const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues

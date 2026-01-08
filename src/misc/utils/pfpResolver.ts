@@ -1,7 +1,7 @@
 // videoDetails.js
 import dotenv from 'dotenv';
 import axios from 'axios';
-import { logger } from '../server/services/LoggerService.js';
+import { logger } from '../../server/services/LoggerService.js';
 dotenv.config();
 
 const MAX_RETRIES = 3;

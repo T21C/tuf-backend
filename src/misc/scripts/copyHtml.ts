@@ -7,8 +7,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Define source and destination directories
-const srcDir = path.join(__dirname, '..', '..', 'src');
-const distDir = path.join(__dirname, '..', '..', 'dist');
+const srcDir = path.join(__dirname, '..', '..', '..', 'src');
+const distDir = path.join(__dirname, '..', '..', '..', 'dist');
 
 // Function to copy HTML files
 function copyHtmlFiles() {

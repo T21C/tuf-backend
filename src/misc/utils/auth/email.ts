@@ -1,7 +1,7 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
-import { logger } from '../../server/services/LoggerService.js';
-import { clientUrlEnv } from '../../config/app.config.js';
+import { logger } from '../../../server/services/LoggerService.js';
+import { clientUrlEnv } from '../../../config/app.config.js';
 
 dotenv.config();
 

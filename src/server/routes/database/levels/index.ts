@@ -7,7 +7,7 @@ import announcements from './announcements.js';
 import search from './search.js';
 import packs from './packs.js';
 import Level from '../../../../models/levels/Level.js';
-import { hasFlag } from '../../../../utils/auth/permissionUtils.js';
+import { hasFlag } from '../../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../../config/constants.js';
 
 const router: Router = Router();

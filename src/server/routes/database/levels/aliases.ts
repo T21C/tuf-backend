@@ -5,7 +5,7 @@ import Level from '../../../../models/levels/Level.js';
 import { Auth } from '../../../middleware/auth.js';
 import { Op } from 'sequelize';
 import { logger } from '../../../services/LoggerService.js';
-import { safeTransactionRollback, sanitizeTextInput } from '../../../../utils/Utility.js';
+import { safeTransactionRollback, sanitizeTextInput } from '../../../../misc/utils/Utility.js';
 
 const router = Router();
 

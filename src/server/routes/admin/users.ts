@@ -2,11 +2,11 @@ import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {User, OAuthProvider} from '../../../models/index.js';
 import Player from '../../../models/players/Player.js';
-import {fetchDiscordUserInfo} from '../../../utils/auth/discord.js';
+import {fetchDiscordUserInfo} from '../../../misc/utils/auth/discord.js';
 import {Op} from 'sequelize';
-import {tokenUtils} from '../../../utils/auth/auth.js';
+import {tokenUtils} from '../../../misc/utils/auth/auth.js';
 import { logger } from '../../services/LoggerService.js';
-import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '../../../utils/auth/permissionUtils.js';
+import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 
 const router: Router = Router();

@@ -5,7 +5,7 @@ import User from '../../../../models/auth/User.js';
 import {Router} from 'express';
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
-import { wherePermission } from '../../../../utils/auth/permissionUtils.js';
+import { wherePermission } from '../../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../../config/constants.js';
 import { Op } from 'sequelize';
 

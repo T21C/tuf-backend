@@ -20,7 +20,7 @@ import PlayerStats from '../../../models/players/PlayerStats.js';
 import { port } from '../../../config/app.config.js';
 import CdnService from '../../services/CdnService.js';
 import { logger } from '../../services/LoggerService.js';
-import { formatCredits } from '../../../utils/Utility.js';
+import { formatCredits } from '../../../misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '../webhooks/embeds.js';
 

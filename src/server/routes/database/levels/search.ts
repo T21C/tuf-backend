@@ -20,11 +20,11 @@ import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js'
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import LevelRerateHistory from '../../../../models/levels/LevelRerateHistory.js';
-import { getFileIdFromCdnUrl, safeTransactionRollback } from '../../../../utils/Utility.js';
+import { getFileIdFromCdnUrl, safeTransactionRollback } from '../../../../misc/utils/Utility.js';
 import Curation from '../../../../models/curations/Curation.js';
 import CurationType from '../../../../models/curations/CurationType.js';
 import LevelTag from '../../../../models/levels/LevelTag.js';
-import { hasFlag, wherePermission } from '../../../../utils/auth/permissionUtils.js';
+import { hasFlag, wherePermission } from '../../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../../config/constants.js';
 import cdnService from '../../../services/CdnService.js';
 import CurationSchedule from '../../../../models/curations/CurationSchedule.js';

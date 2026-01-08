@@ -8,7 +8,7 @@ import path from 'path';
 import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../../config/app.config.js';
 import { User } from '../../models/index.js';
-import { formatCreatorDisplay } from '../../utils/Utility.js';
+import { formatCreatorDisplay } from '../../misc/utils/Utility.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import Creator from '../../models/credits/Creator.js';
 

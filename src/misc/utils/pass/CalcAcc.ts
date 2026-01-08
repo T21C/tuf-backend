@@ -1,4 +1,4 @@
-import {PassSubmissionJudgements} from '../../models/submissions/PassSubmission.js';
+import {PassSubmissionJudgements} from '../../../models/submissions/PassSubmission.js';
 
 export interface IJudgements {
   earlyDouble: number;

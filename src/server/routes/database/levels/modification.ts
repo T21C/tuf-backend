@@ -7,10 +7,10 @@ import {Transaction} from 'sequelize';
 import Rating from '../../../../models/levels/Rating.js';
 import Pass from '../../../../models/passes/Pass.js';
 import Judgement from '../../../../models/passes/Judgement.js';
-import {calcAcc} from '../../../../utils/pass/CalcAcc.js';
-import {getScoreV2} from '../../../../utils/pass/CalcScore.js';
+import {calcAcc} from '../../../../misc/utils/pass/CalcAcc.js';
+import {getScoreV2} from '../../../../misc/utils/pass/CalcScore.js';
 import {PlayerStatsService} from '../../../services/PlayerStatsService.js';
-import {sseManager} from '../../../../utils/server/sse.js';
+import {sseManager} from '../../../../misc/utils/server/sse.js';
 import LevelLikes from '../../../../models/levels/LevelLikes.js';
 import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js';
 import User from '../../../../models/auth/User.js';
@@ -22,7 +22,7 @@ import {
   getFileIdFromCdnUrl,
   safeTransactionRollback,
   sanitizeTextInput,
-} from '../../../../utils/Utility.js';
+} from '../../../../misc/utils/Utility.js';
 import cdnService from '../../../services/CdnService.js';
 import {CDN_CONFIG} from '../../../../externalServices/cdnService/config.js';
 import fs from 'fs';
@@ -32,7 +32,7 @@ import LevelRerateHistory from '../../../../models/levels/LevelRerateHistory.js'
 import LevelTag from '../../../../models/levels/LevelTag.js';
 import {Op} from 'sequelize';
 import {permissionFlags} from '../../../../config/constants.js';
-import {hasFlag} from '../../../../utils/auth/permissionUtils.js';
+import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
 
 const playerStatsService = PlayerStatsService.getInstance();

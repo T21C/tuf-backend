@@ -6,7 +6,7 @@ import {ConditionOperator, DirectiveCondition, DirectiveConditionType} from '../
 import AnnouncementChannel from '../../../models/announcements/AnnouncementChannel.js';
 import AnnouncementRole from '../../../models/announcements/AnnouncementRole.js';
 import DirectiveAction from '../../../models/announcements/DirectiveAction.js';
-import { evaluateDirectiveCondition } from '../../../utils/data/directiveParser.js';
+import { evaluateDirectiveCondition } from '../../../misc/utils/data/directiveParser.js';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
 import Judgement from '../../../models/passes/Judgement.js';

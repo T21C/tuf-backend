@@ -10,14 +10,14 @@ import TeamMember from '../../../models/credits/TeamMember.js';
 import User from '../../../models/auth/User.js';
 import {
   escapeForMySQL,
-} from '../../../utils/data/searchHelpers.js';
+} from '../../../misc/utils/data/searchHelpers.js';
 import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '../../../models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '../../../models/credits/CreatorAlias.js';
 import { TeamAlias } from '../../../models/credits/TeamAlias.js';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();

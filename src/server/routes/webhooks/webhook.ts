@@ -2,7 +2,7 @@ import express, {Request, Response, Router} from 'express';
 import Pass from '../../../models/passes/Pass.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
 import Level from '../../../models/levels/Level.js';
-import {Webhook, MessageBuilder} from '../../../webhook/index.js';
+import {Webhook, MessageBuilder} from '../../../misc/webhook/index.js';
 import Player from '../../../models/players/Player.js';
 import {Op} from 'sequelize';
 import {
@@ -21,14 +21,14 @@ import {
   AnnouncementChannelConfig,
 } from './channelParser.js';
 import {PassSubmission} from '../../../models/submissions/PassSubmission.js';
-import {getVideoDetails} from '../../../utils/data/videoDetailParser.js';
+import {getVideoDetails} from '../../../misc/utils/data/videoDetailParser.js';
 import LevelSubmission from '../../../models/submissions/LevelSubmission.js';
-import {calcAcc, IJudgements} from '../../../utils/pass/CalcAcc.js';
+import {calcAcc, IJudgements} from '../../../misc/utils/pass/CalcAcc.js';
 import {Auth} from '../../middleware/auth.js';
 import { logger } from '../../services/LoggerService.js';
 import { clientUrlEnv } from '../../../config/app.config.js';
 import { User } from '../../../models/index.js';
-import { formatCredits } from '../../../utils/Utility.js';
+import { formatCredits } from '../../../misc/utils/Utility.js';
 import Creator from '../../../models/credits/Creator.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import Team from '../../../models/credits/Team.js';

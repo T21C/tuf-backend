@@ -9,12 +9,12 @@ import User from '../../models/auth/User.js';
 import Judgement from '../../models/passes/Judgement.js';
 import sequelize from '../../config/db.js';
 import Difficulty from '../../models/levels/Difficulty.js';
-import { calcAcc } from '../../utils/pass/CalcAcc.js';
-import { getScoreV2 } from '../../utils/pass/CalcScore.js';
+import { calcAcc } from '../../misc/utils/pass/CalcAcc.js';
+import { getScoreV2 } from '../../misc/utils/pass/CalcScore.js';
 import { env } from 'process';
 import { logger } from './LoggerService.js';
 import { permissionFlags } from '../../config/constants.js';
-import { hasFlag } from '../../utils/auth/permissionUtils.js';
+import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === 'true';
 

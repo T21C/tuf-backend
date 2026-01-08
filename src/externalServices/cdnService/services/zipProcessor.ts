@@ -8,7 +8,7 @@ import { hybridStorageManager } from './hybridStorageManager.js';
 import LevelDict from 'adofai-lib';
 import sequelize from '../../../config/db.js';
 import { Transaction } from 'sequelize';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { decodeFilename } from '../misc/utils.js';
 
 

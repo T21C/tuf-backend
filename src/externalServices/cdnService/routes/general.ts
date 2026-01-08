@@ -10,7 +10,7 @@ import { hybridStorageManager, StorageType } from '../services/hybridStorageMana
 import { Op } from 'sequelize';
 import sequelize from '../../../config/db.js';
 import { Transaction } from 'sequelize';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 
 const router = Router();

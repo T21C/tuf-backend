@@ -1,7 +1,7 @@
 import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '../../middleware/auth.js';
 import {Op} from 'sequelize';
-import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '../../../utils/Utility.js';
+import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import multer from 'multer';
 import CdnService from '../../services/CdnService.js';
 import Curation from '../../../models/curations/Curation.js';
@@ -13,9 +13,9 @@ import Creator from '../../../models/credits/Creator.js';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import sequelize from '../../../config/db.js';
-import { hasAnyFlag } from '../../../utils/auth/permissionUtils.js';
+import { hasAnyFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
-import { canAssignCurationType } from '../../../utils/data/curationTypeUtils.js';
+import { canAssignCurationType } from '../../../misc/utils/data/curationTypeUtils.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import Team from '../../../models/credits/Team.js';
 

@@ -12,9 +12,9 @@ import cdnService from '../../services/CdnService.js';
 import { CdnError } from '../../services/CdnService.js';
 import PlayerStats from '../../../models/players/PlayerStats.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
-import { hasFlag } from '../../../utils/auth/permissionUtils.js';
+import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 
 const router: Router = Router();

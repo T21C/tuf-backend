@@ -9,7 +9,7 @@ import { spacesStorage } from '../services/spacesStorage.js';
 import { processZipFile } from '../services/zipProcessor.js';
 import sequelize from '../../../config/db.js';
 import { Transaction, Op } from 'sequelize';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import fs from 'fs';
 import path from 'path';
 

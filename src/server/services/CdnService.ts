@@ -3,7 +3,7 @@ import FormData from 'form-data';
 import { logger } from './LoggerService.js';
 import { ImageFileType } from '../../models/cdn/CdnFile.js';
 import Level from '../../models/levels/Level.js';
-import { getFileIdFromCdnUrl } from '../../utils/Utility.js';
+import { getFileIdFromCdnUrl } from '../../misc/utils/Utility.js';
 
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 

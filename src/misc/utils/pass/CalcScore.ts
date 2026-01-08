@@ -1,4 +1,4 @@
-import {IPassSubmission} from '../../server/interfaces/models/index.js';
+import {IPassSubmission} from '../../../server/interfaces/models/index.js';
 import {calcAcc, IJudgements, tilecount} from './CalcAcc.js';
 
 const gmConst = 315;

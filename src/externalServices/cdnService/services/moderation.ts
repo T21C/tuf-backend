@@ -6,7 +6,7 @@ import { logger } from '../../../server/services/LoggerService.js';
 import { storageManager } from './storageManager.js';
 import sequelize from '../../../config/db.js';
 import { Transaction } from 'sequelize';
-import { safeTransactionRollback } from '../../../utils/Utility.js';
+import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 
 export interface ImageValidationResult {
     isValid: boolean;

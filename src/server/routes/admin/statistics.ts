@@ -10,8 +10,8 @@ import sequelize from '../../../config/db.js';
 import { Op } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import { permissionFlags } from '../../../config/constants.js';
-import { wherehasFlag} from '../../../utils/auth/permissionUtils.js';
-import { validateAndClampDate } from '../../../utils/server/dateUtils.js';
+import { wherehasFlag} from '../../../misc/utils/auth/permissionUtils.js';
+import { validateAndClampDate } from '../../../misc/utils/server/dateUtils.js';
 const router: Router = Router();
 
 router.get('/', Auth.rater(), async (req: Request, res: Response) => {
