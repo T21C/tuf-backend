@@ -117,22 +117,27 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       // Default to a week ago if no start date provided
       selectedStartDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     }
+    // Set start date to start of day (00:00:00.000)
+    selectedStartDate.setHours(0, 0, 0, 0);
 
     // Parse the end date (optional)
     let selectedEndDate: Date | null = null;
     if (endDate) {
       const defaultEndDate = new Date();
       selectedEndDate = validateAndClampDate(endDate as string, defaultEndDate);
-      // Set end date to end of day
+      // Set end date to end of day (23:59:59.999)
       selectedEndDate.setHours(23, 59, 59, 999);
     }
 
-    // Ensure start date is not after end date
+    // Ensure start date is not after end date (swap if needed)
     if (selectedEndDate && selectedStartDate > selectedEndDate) {
       logger.debug(`Start date ${selectedStartDate.toISOString()} is after end date ${selectedEndDate.toISOString()}, swapping dates`);
       const temp = selectedStartDate;
       selectedStartDate = selectedEndDate;
       selectedEndDate = temp;
+      // After swapping, ensure start is at start of day and end is at end of day
+      selectedStartDate.setHours(0, 0, 0, 0);
+      selectedEndDate.setHours(23, 59, 59, 999);
     }
 
     // Build the where clause for the date filter
@@ -179,14 +184,19 @@ router.get('/ratings-per-user', async (req: Request, res: Response) => {
       order: [['username', 'ASC']] // Sort inactive raters alphabetically
     });
 
-    // Calculate days since selected date
+    // Calculate days in the range (inclusive of both start and end dates)
     let daysDiff: number;
     if (selectedEndDate) {
-      // If end date is provided, calculate days between start and end date
-      daysDiff = Math.ceil((selectedEndDate.getTime() - selectedStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      // If end date is provided, calculate days between start and end date (inclusive)
+      // Since start is at 00:00:00 and end is at 23:59:59, we need to add 1 to include both days
+      const millisecondsDiff = selectedEndDate.getTime() - selectedStartDate.getTime();
+      daysDiff = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24)) + 1;
     } else {
-      // If no end date, calculate days from start date to now
-      daysDiff = Math.ceil((new Date().getTime() - selectedStartDate.getTime()) / (1000 * 60 * 60 * 24));
+      // If no end date, calculate days from start date to now (inclusive of start date)
+      const now = new Date();
+      now.setHours(23, 59, 59, 999); // Set to end of today for consistent calculation
+      const millisecondsDiff = now.getTime() - selectedStartDate.getTime();
+      daysDiff = Math.floor(millisecondsDiff / (1000 * 60 * 60 * 24)) + 1;
     }
 
     // Get total ratings count for the entire timespan
