@@ -49,6 +49,23 @@ const tagIconUpload = multer({
   },
 });
 
+// Configure multer for difficulty icon uploads (memory storage)
+const difficultyIconUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow image files
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and SVG files are allowed.'));
+    }
+  },
+});
+
 // Store the current hash of difficulties
 let difficultiesHash = '';
 
@@ -85,10 +102,10 @@ await updateDifficultiesHash();
 
 // Fix __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Cache directory path
-const ICON_CACHE_DIR = path.join(__dirname, '../../../cache/icons');
+const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
+const ICON_CACHE_DIR = path.join(CACHE_PATH, 'icons');
 const ICON_IMAGE_API = process.env.ICON_IMAGE_API || '/api/images';
 const ownUrlEnv =
   process.env.NODE_ENV === 'production'
@@ -99,7 +116,7 @@ const ownUrlEnv =
         ? process.env.DEV_URL
         : 'http://localhost:3002';
 
-// Helper function to download and cache icons
+// Helper function to download and cache icons from URL (legacy support)
 async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
   try {
     await fs.mkdir(ICON_CACHE_DIR, {recursive: true});
@@ -123,6 +140,27 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
   } catch (error) {
     logger.error(`Failed to process icon for ${diffName}:`, error);
     return iconUrl; // Return original URL as fallback
+  }
+}
+
+// Helper function to save uploaded icon file to local cache
+async function saveIconToCache(iconBuffer: Buffer, diffName: string, originalFilename: string, isLegacy: boolean = false): Promise<string> {
+  try {
+    await fs.mkdir(ICON_CACHE_DIR, {recursive: true});
+    
+    // Get file extension from original filename or default to png
+    const ext = path.extname(originalFilename).toLowerCase() || '.png';
+    const prefix = isLegacy ? 'legacy_' : '';
+    const fileName = `${prefix}${diffName.replace(/[^a-zA-Z0-9]/g, '_')}${ext}`;
+    const filePath = path.join(ICON_CACHE_DIR, fileName);
+    const newUrl = `${ownUrlEnv}${ICON_IMAGE_API}/icon/${fileName}`;
+
+    await fs.writeFile(filePath, iconBuffer);
+    
+    return newUrl;
+  } catch (error) {
+    logger.error(`Failed to save icon to cache for ${diffName}:`, error);
+    throw error;
   }
 }
 
@@ -393,8 +431,107 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Upload difficulty icon
+router.post('/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), difficultyIconUpload.single('icon'), async (req: Request, res: Response) => {
+  try {
+    const diffId = parseInt(req.params.id);
+
+    if (!req.file) {
+      return res.status(400).json({error: 'No icon file uploaded'});
+    }
+
+    const difficulty = await Difficulty.findByPk(diffId);
+    if (!difficulty) {
+      return res.status(404).json({error: 'Difficulty not found'});
+    }
+
+    // Save to local cache
+    const cachedIconUrl = await saveIconToCache(
+      req.file.buffer,
+      difficulty.name,
+      req.file.originalname,
+      false
+    );
+
+    // Update difficulty with cached icon URL
+    await difficulty.update({
+      icon: cachedIconUrl
+    });
+
+    await updateDifficultiesHash();
+
+    return res.json({
+      success: true,
+      icon: difficulty.icon
+    });
+  } catch (error) {
+    logger.error('Error uploading difficulty icon:', error);
+    return res.status(500).json({error: 'Failed to upload icon'});
+  }
+});
+
+// Upload difficulty legacy icon
+router.post('/:id([0-9]{1,20})/legacy-icon', Auth.superAdminPassword(), difficultyIconUpload.single('icon'), async (req: Request, res: Response) => {
+  try {
+    const diffId = parseInt(req.params.id);
+
+    if (!req.file) {
+      return res.status(400).json({error: 'No icon file uploaded'});
+    }
+
+    const difficulty = await Difficulty.findByPk(diffId);
+    if (!difficulty) {
+      return res.status(404).json({error: 'Difficulty not found'});
+    }
+
+    // Save to local cache
+    const cachedIconUrl = await saveIconToCache(
+      req.file.buffer,
+      difficulty.name,
+      req.file.originalname,
+      true
+    );
+
+    // Update difficulty with cached legacy icon URL
+    await difficulty.update({
+      legacyIcon: cachedIconUrl
+    });
+
+    await updateDifficultiesHash();
+
+    return res.json({
+      success: true,
+      legacyIcon: difficulty.legacyIcon
+    });
+  } catch (error) {
+    logger.error('Error uploading difficulty legacy icon:', error);
+    return res.status(500).json({error: 'Failed to upload legacy icon'});
+  }
+});
+
+// Helper function to find the smallest unoccupied ID
+async function findSmallestUnoccupiedId(): Promise<number> {
+  const allDifficulties = await Difficulty.findAll({
+    attributes: ['id'],
+    order: [['id', 'ASC']]
+  });
+  
+  const existingIds = new Set(allDifficulties.map(d => d.id));
+  
+  // Start from 1 and find the first gap
+  let candidateId = 1;
+  while (existingIds.has(candidateId)) {
+    candidateId++;
+  }
+  
+  return candidateId;
+}
+
 // Create new difficulty
-router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.post('/', Auth.superAdminPassword(), difficultyIconUpload.fields([
+  { name: 'icon', maxCount: 1 },
+  { name: 'legacyIcon', maxCount: 1 }
+]), async (req: Request, res: Response) => {
     try {
       const {
         id,
@@ -409,12 +546,20 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
         legacyEmoji,
       } = req.body;
 
-      // Check for duplicate ID
-      const existingDiffId = await Difficulty.findByPk(id);
-      if (existingDiffId) {
-        return res
-          .status(400)
-          .json({error: 'A difficulty with this ID already exists'});
+      // Determine the ID to use - only if explicitly provided
+      let difficultyId: number;
+      if (id !== undefined && id !== null && id !== '') {
+        // ID provided - check for duplicate
+        const existingDiffId = await Difficulty.findByPk(parseInt(id));
+        if (existingDiffId) {
+          return res
+            .status(400)
+            .json({error: 'A difficulty with this ID already exists'});
+        }
+        difficultyId = parseInt(id);
+      } else {
+        // ID not provided - find smallest unoccupied ID at database level
+        difficultyId = await findSmallestUnoccupiedId();
       }
 
       // Check for duplicate name
@@ -425,23 +570,58 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
           .json({error: 'A difficulty with this name already exists'});
       }
 
-      // Cache icons
-      const cachedIcon = await cacheIcon(icon, name);
-      const cachedLegacyIcon = legacyIcon
-        ? await cacheIcon(legacyIcon, `legacy_${name}`)
-        : null;
+      // Handle icon uploads: Priority 1 - file attached -> save to cache
+      // Priority 2 - URL provided -> cache from URL
+      // Otherwise - null
+      let finalIcon: string | null = null;
+      const iconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['icon']?.[0];
+      const legacyIconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['legacyIcon']?.[0];
+
+      if (iconFile) {
+        // Priority 1: File uploaded
+        finalIcon = await saveIconToCache(iconFile.buffer, name, iconFile.originalname, false);
+      } else if (icon && typeof icon === 'string') {
+        if (icon.startsWith('http://') || icon.startsWith('https://')) {
+          // Priority 2: URL provided - cache it
+          finalIcon = await cacheIcon(icon, name);
+        } else if (icon === 'null' || icon === null) {
+          // Explicitly null
+          finalIcon = null;
+        } else {
+          // Assume it's already a cached URL
+          finalIcon = icon;
+        }
+      }
+
+      let finalLegacyIcon: string | null = null;
+      if (legacyIconFile) {
+        // Priority 1: File uploaded
+        finalLegacyIcon = await saveIconToCache(legacyIconFile.buffer, name, legacyIconFile.originalname, true);
+      } else if (legacyIcon && typeof legacyIcon === 'string') {
+        if (legacyIcon.startsWith('http://') || legacyIcon.startsWith('https://')) {
+          // Priority 2: URL provided - cache it
+          finalLegacyIcon = await cacheIcon(legacyIcon, `legacy_${name}`);
+        } else if (legacyIcon === 'null' || legacyIcon === null) {
+          // Explicitly null
+          finalLegacyIcon = null;
+        } else {
+          // Assume it's already a cached URL
+          finalLegacyIcon = legacyIcon;
+        }
+      }
+      
       const lastSortOrder = await Difficulty.max('sortOrder') as number;
 
       const difficulty = await Difficulty.create({
-        id,
+        id: difficultyId,
         name,
         type,
-        icon: cachedIcon,
+        icon: finalIcon,
         emoji,
         color,
         baseScore,
         legacy,
-        legacyIcon: cachedLegacyIcon,
+        legacyIcon: finalLegacyIcon,
         legacyEmoji,
         sortOrder: lastSortOrder + 1,
         createdAt: new Date(),
@@ -460,7 +640,10 @@ router.post('/', Auth.superAdminPassword(), async (req: Request, res: Response) 
 );
 
 // Update difficulty
-router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), difficultyIconUpload.fields([
+  { name: 'icon', maxCount: 1 },
+  { name: 'legacyIcon', maxCount: 1 }
+]), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const diffId = parseInt(req.params.id);
@@ -494,37 +677,76 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, 
         }
       }
 
-      // Cache new icons if provided
-      const cachedIcon =
-        icon && icon !== difficulty.icon
-          ? await cacheIcon(icon, name || difficulty.name)
-          : difficulty.icon;
-      const cachedLegacyIcon =
-        legacyIcon && legacyIcon !== difficulty.legacyIcon
-          ? await cacheIcon(legacyIcon, `legacy_${name || difficulty.name}`)
-          : difficulty.legacyIcon;
+      // Handle icon updates with priority logic (similar to tags):
+      // Priority 1: file attached -> update icon
+      // Priority 2: null explicitly passed -> remove icon
+      // Priority 3: URL provided -> cache from URL
+      // Otherwise: no change
+      const iconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['icon']?.[0];
+      const legacyIconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['legacyIcon']?.[0];
+
+      let finalIcon: string | null | undefined = undefined;
+      if (iconFile) {
+        // Priority 1: File attached -> update icon
+        finalIcon = await saveIconToCache(iconFile.buffer, name || difficulty.name, iconFile.originalname, false);
+      } else if (icon === 'null' || icon === null) {
+        // Priority 2: null explicitly passed -> remove icon
+        finalIcon = null;
+      } else if (icon && icon !== difficulty.icon) {
+        // Priority 3: URL or existing URL provided
+        if (typeof icon === 'string' && (icon.startsWith('http://') || icon.startsWith('https://'))) {
+          finalIcon = await cacheIcon(icon, name || difficulty.name);
+        } else {
+          // Assume it's already a cached URL
+          finalIcon = icon;
+        }
+      }
+      // Otherwise: finalIcon remains undefined, which means no change
+
+      let finalLegacyIcon: string | null | undefined = undefined;
+      if (legacyIconFile) {
+        // Priority 1: File attached -> update legacy icon
+        finalLegacyIcon = await saveIconToCache(legacyIconFile.buffer, name || difficulty.name, legacyIconFile.originalname, true);
+      } else if (legacyIcon === 'null' || legacyIcon === null) {
+        // Priority 2: null explicitly passed -> remove legacy icon
+        finalLegacyIcon = null;
+      } else if (legacyIcon && legacyIcon !== difficulty.legacyIcon) {
+        // Priority 3: URL or existing URL provided
+        if (typeof legacyIcon === 'string' && (legacyIcon.startsWith('http://') || legacyIcon.startsWith('https://'))) {
+          finalLegacyIcon = await cacheIcon(legacyIcon, `legacy_${name || difficulty.name}`);
+        } else {
+          // Assume it's already a cached URL
+          finalLegacyIcon = legacyIcon;
+        }
+      }
+      // Otherwise: finalLegacyIcon remains undefined, which means no change
 
       // Check if base score is being changed
       const isBaseScoreChanged =
         baseScore !== undefined && baseScore !== difficulty.baseScore;
 
       // Update the difficulty with nullish coalescing
-      await difficulty.update(
-        {
-          name: name ?? difficulty.name,
-          type: type ?? difficulty.type,
-          icon: cachedIcon,
-          emoji: emoji ?? difficulty.emoji,
-          color: color ?? difficulty.color,
-          baseScore: baseScore ?? difficulty.baseScore,
-          sortOrder: sortOrder ?? difficulty.sortOrder,
-          legacy: legacy ?? difficulty.legacy,
-          legacyIcon: cachedLegacyIcon,
-          legacyEmoji: legacyEmoji ?? difficulty.legacyEmoji,
-          updatedAt: new Date(),
-        },
-        {transaction},
-      );
+      // Only update icon fields if they were explicitly changed
+      const updateData: Partial<IDifficulty> = {
+        name: name ?? difficulty.name,
+        type: type ?? difficulty.type,
+        emoji: emoji ?? difficulty.emoji,
+        color: color ?? difficulty.color,
+        baseScore: baseScore ?? difficulty.baseScore,
+        sortOrder: sortOrder ?? difficulty.sortOrder,
+        legacy: legacy ?? difficulty.legacy,
+        legacyEmoji: legacyEmoji ?? difficulty.legacyEmoji,
+        updatedAt: new Date(),
+      };
+      
+      if (finalIcon !== undefined) {
+        updateData.icon = finalIcon as any;
+      }
+      if (finalLegacyIcon !== undefined) {
+        updateData.legacyIcon = finalLegacyIcon as any;
+      }
+      
+      await difficulty.update(updateData, {transaction});
 
       // If base score changed, recalculate scores for all affected passes
       let affectedPasses: Pass[] = [];

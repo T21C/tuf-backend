@@ -15,6 +15,10 @@ import { logger } from '../../../server/services/LoggerService.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import thumbnailsRouter from './thumbnails.js';
+import dotenv from 'dotenv';
+dotenv.config();
+
+const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
 
 const execAsync = promisify(exec);
 
@@ -476,7 +480,7 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
     }
 
     // Create cache directory if it doesn't exist
-    const cacheDir = path.join(process.cwd(), 'cache', 'avatars');
+    const cacheDir = path.join(CACHE_PATH, 'avatars');
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, {recursive: true});
     }
@@ -536,9 +540,9 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
 
     let basePath;
     if (type === 'icon') {
-      basePath = path.join(process.cwd(), 'cache', 'icons');
+      basePath = path.join(CACHE_PATH, 'icons');
     } else {
-      basePath = path.join(process.cwd(), 'cache');
+      basePath = CACHE_PATH;
     }
 
     const fullPath = path.join(basePath, sanitizedPath);

@@ -23,6 +23,11 @@ import { logger } from '../../services/LoggerService.js';
 import { formatCredits } from '../../../misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '../webhooks/embeds.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
 
 // Promise map for tracking ongoing thumbnail generation
 const thumbnailGenerationPromises = new Map<string, Promise<Buffer>>();
@@ -35,7 +40,7 @@ const THUMBNAIL_SIZES = {
 } as const;
 
 // Cache directories
-const THUMBNAILS_CACHE_DIR = process.env.THUMBNAILS_CACHE_PATH || path.join(process.cwd(), 'cache', 'thumbnails');
+const THUMBNAILS_CACHE_DIR = process.env.THUMBNAILS_CACHE_PATH || path.join(CACHE_PATH, 'thumbnails');
 
 // Ensure cache directories exist
 [THUMBNAILS_CACHE_DIR].forEach(dir => {
@@ -136,7 +141,7 @@ function getThumbnailPathForEntity(entityId: number, entityType: 'player' | 'pas
 
 // Function to export HTML to file for review
 async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass', entityId: number): Promise<void> {
-  const htmlExportDir = path.join(process.cwd(), 'cache', 'thumbnail-html-exports');
+  const htmlExportDir = path.join(CACHE_PATH, 'thumbnail-html-exports');
   if (!fs.existsSync(htmlExportDir)) {
     fs.mkdirSync(htmlExportDir, { recursive: true });
   }
@@ -318,7 +323,7 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
               .replace(/^(\.\.(\/|\\|$))+/, '');
 
             // Construct the full path to the icon in the cache
-            const basePath = path.join(process.cwd(), 'cache', 'icons');
+            const basePath = path.join(CACHE_PATH, 'icons');
             const fullPath = path.join(basePath, sanitizedPath);
 
             // Verify the path is within the allowed directory
