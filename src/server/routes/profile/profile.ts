@@ -131,7 +131,8 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
         where: {
           name: req.body.nickname,
           id: { [Op.ne]: user.playerId } // Exclude current player
-        }
+        },
+        transaction
       });
       const existingUser = await User.findOne({
         where: {nickname: req.body.nickname},
@@ -167,7 +168,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + (24 * 60 * 60 * 1000));
 
-          throw ({
+          throw {
             error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
             nextAvailableChange,
             timeRemaining: {
@@ -177,7 +178,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
               formatted: timeString
             },
             code: 429
-          });
+          };
         }
       }
 
@@ -251,7 +252,13 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
 
     await transaction.commit();
 
-    await elasticsearchService.updatePlayerPasses(user.playerId!);
+    // Update Elasticsearch after successful commit (don't fail request if this fails)
+    try {
+      await elasticsearchService.updatePlayerPasses(user.playerId!);
+    } catch (elasticsearchError) {
+      // Log but don't fail the request - the database update was successful
+      logger.error('Error updating Elasticsearch after profile update:', elasticsearchError);
+    }
 
     return res.json({
       message: 'Profile updated successfully',
