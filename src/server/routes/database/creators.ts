@@ -598,6 +598,32 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
         await CreatorAlias.bulkCreate(aliasRecords, { transaction });
       }
 
+      // Handle users that reference the source creator
+      // Check if target creator is already assigned to a user
+      const targetCreatorUser = await User.findOne({
+        where: { creatorId: targetId },
+        transaction
+      });
+
+      // Update users that have source creator assigned
+      if (targetCreatorUser) {
+        // Target creator is already assigned to a user, so set source creator references to null
+        await User.update(
+          { creatorId: null },
+          { where: { creatorId: sourceId }, transaction }
+        );
+      } else {
+        // Target creator is not assigned, transfer source creator references to target
+        await User.update(
+          { creatorId: targetId },
+          { where: { creatorId: sourceId }, transaction }
+        );
+        // Also update creator.userId if source creator was linked to a user
+        if (sourceCreator.userId) {
+          await targetCreator.update({ userId: sourceCreator.userId }, { transaction });
+        }
+      }
+
       // Delete the source creator
       await sourceCreator.destroy({transaction});
 

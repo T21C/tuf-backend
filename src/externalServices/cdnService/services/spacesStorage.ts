@@ -479,7 +479,7 @@ export class SpacesStorageManager {
      * Get the public CDN URL for a file
      */
     public getFileUrl(key: string): string {
-        return `${this.config.cdnEndpoint}/${key}`;
+        return `${this.config.cdnEndpoint}/${encodeURIComponent(key)}`;
     }
 
 

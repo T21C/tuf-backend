@@ -1216,33 +1216,28 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
   try {
     const resolvedPackId = await resolvePackId(req.params.id);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const { type, name, levelIds, parentId, sortOrder } = req.body;
 
     if (!type || (type !== 'folder' && type !== 'level')) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Type must be "folder" or "level"' });
+      throw { error: 'Type must be "folder" or "level"', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     if (!canEditPack(pack, req.user)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Access denied' });
+      throw { error: 'Access denied', code: 403 };
     }
 
     // Validate based on type
     if (type === 'folder') {
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Folder name is required' });
+        throw { error: 'Folder name is required', code: 400 };
       }
 
       // Check for duplicate folder name in same parent
@@ -1257,9 +1252,53 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       });
 
       if (existingFolder) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Folder with this name already exists in this location' });
+        throw { error: 'Folder with this name already exists in this location', code: 400 };
       }
+
+      // Validate parent if provided
+      if (parentId) {
+        const parent = await LevelPackItem.findOne({
+          where: { id: parentId, packId: resolvedPackId, type: 'folder' },
+          transaction
+        });
+
+        if (!parent) {
+          throw { error: 'Invalid parent folder', code: 400 };
+        }
+      }
+
+      // Check item limit
+      const itemCount = await LevelPackItem.count({
+        where: { packId: resolvedPackId },
+        transaction
+      });
+
+      if (itemCount >= MAX_ITEMS_PER_PACK && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+        throw { error: `Maximum ${MAX_ITEMS_PER_PACK} items allowed per pack`, code: 400 };
+      }
+
+      // Determine sort order
+      let finalSortOrder = sortOrder;
+      if (finalSortOrder === undefined || finalSortOrder === null) {
+        const maxSortOrder = await LevelPackItem.max('sortOrder', {
+          where: { packId: resolvedPackId, parentId: parentId || null },
+          transaction
+        });
+        finalSortOrder = (maxSortOrder as number || 0) + 1;
+      }
+
+      const item = await LevelPackItem.create({
+        packId: resolvedPackId,
+        type: 'folder',
+        parentId: parentId || null,
+        name: name.trim(),
+        levelId: null,
+        sortOrder: finalSortOrder
+      }, { transaction });
+
+      await transaction.commit();
+
+      return res.status(201).json(item);
     } else {
       // type === 'level'
       let levelIdsToAdd: number[] = [];
@@ -1280,8 +1319,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       }
 
       if (levelIdsToAdd.length === 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Valid level ID(s) are required' });
+        throw { error: 'Valid level ID(s) are required', code: 400 };
       }
 
       // Validate parent if provided
@@ -1292,8 +1330,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         });
 
         if (!parent) {
-          await safeTransactionRollback(transaction);
-          return res.status(400).json({ error: 'Invalid parent folder' });
+          throw { error: 'Invalid parent folder', code: 400 };
         }
       }
 
@@ -1304,8 +1341,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       });
 
       if (levels.length !== levelIdsToAdd.length) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({ error: 'One or more levels not found' });
+        throw { error: 'One or more levels not found', code: 404 };
       }
 
       // Check which levels are already in pack
@@ -1322,8 +1358,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       const newLevelIds = levelIdsToAdd.filter(id => !existingLevelIds.includes(id));
 
       if (newLevelIds.length === 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'All specified levels are already in pack' });
+        throw { error: 'All specified levels are already in pack', code: 400 };
       }
 
       // Check item limit
@@ -1333,15 +1368,15 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       });
 
       if (currentItemCount + newLevelIds.length > MAX_ITEMS_PER_PACK) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({
+        throw {
           error: `Adding ${newLevelIds.length} items would exceed the maximum ${MAX_ITEMS_PER_PACK} items per pack`,
+          code: 400,
           details: {
             currentCount: currentItemCount,
             tryingToAdd: newLevelIds.length,
             maxAllowed: MAX_ITEMS_PER_PACK
           }
-        });
+        };
       }
 
       // Add all new levels
@@ -1389,62 +1424,15 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       return res.status(201).json(result);
     }
 
-    // Handle folder creation (single folder)
-    if (type === 'folder') {
-      // Validate parent if provided
-      if (parentId) {
-        const parent = await LevelPackItem.findOne({
-          where: { id: parentId, packId: resolvedPackId, type: 'folder' },
-          transaction
-        });
-
-        if (!parent) {
-          await safeTransactionRollback(transaction);
-          return res.status(400).json({ error: 'Invalid parent folder' });
-        }
-      }
-
-      // Check item limit
-      const itemCount = await LevelPackItem.count({
-        where: { packId: resolvedPackId },
-        transaction
-      });
-
-      if (itemCount >= MAX_ITEMS_PER_PACK && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: `Maximum ${MAX_ITEMS_PER_PACK} items allowed per pack` });
-      }
-
-      // Determine sort order
-      let finalSortOrder = sortOrder;
-      if (finalSortOrder === undefined || finalSortOrder === null) {
-        const maxSortOrder = await LevelPackItem.max('sortOrder', {
-          where: { packId: resolvedPackId, parentId: parentId || null },
-          transaction
-        });
-        finalSortOrder = (maxSortOrder as number || 0) + 1;
-      }
-
-      const item = await LevelPackItem.create({
-        packId: resolvedPackId,
-        type: 'folder',
-        parentId: parentId || null,
-        name: name.trim(),
-        levelId: null,
-        sortOrder: finalSortOrder
-      }, { transaction })
-
-      await transaction.commit();
-
-      return res.status(201).json(item);
-    }
-
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      logger.error('Error adding item to pack:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error adding item to pack:', error);
     return res.status(500).json({ error: 'Failed to add item to pack' });
   }
-  return res.status(500).json({ error: 'Failed to add item to pack' });
 });
 
 // PUT /packs/:id/items/:itemId - Update item
