@@ -1475,28 +1475,56 @@ class ElasticsearchService {
 
       // Handle hideVerified filter
       if (filters.creatorId && !isSuperAdmin) {
-        should.push({
-          bool: {
-            should: [
-              {
-                nested: {
-                  path: 'levelCredits',
-                  query: {
-                    bool: {
-                      should: [
-                        { term: { 'levelCredits.creatorId': filters.creatorId } }
-                      ]
+        if (filters.deletedFilter === 'show') {
+            should.push({
+              bool: {
+                should: [
+                  {
+                    nested: {
+                      path: 'levelCredits',
+                      query: {
+                        bool: {
+                          should: [
+                            { term: { 'levelCredits.creatorId': filters.creatorId } }
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  {
+                    term: { 'isHidden': false }
+                  }
+                ],
+                minimum_should_match: 1
+              }
+            });
+          }
+        else if (filters.deletedFilter === 'only') {
+          should.push({
+            bool: {
+              must: [
+                {
+                  nested: {
+                    path: 'levelCredits',
+                    query: {
+                      bool: {
+                        should: [
+                          { term: { 'levelCredits.creatorId': filters.creatorId } }
+                        ]
+                      }
                     }
                   }
+                },
+                {
+                  term: { 'isHidden': true }
                 }
-              },
-              {
-                term: { 'isHidden': false }
-              }
-            ],
-            minimum_should_match: 1
-          }
-        });
+              ]
+            }
+          });
+        }
+        else {
+          must.push({ term: { isHidden: false } });
+        }
       }
       else if (isSuperAdmin) {
         if (filters.deletedFilter === 'hide') {
