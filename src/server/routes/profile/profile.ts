@@ -103,15 +103,15 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const username = ''; //req.body;
+    const username = req.body.username;
     const user = req.user;
 
     if (!user) {
       throw {'error': 'User not authenticated', 'code': 401};
     }
 
-    if (req.body.username && req.body.username.length > 60) {
-      throw {'error': 'Username must be less than 60 characters', 'code': 400};
+    if (req.body.username && req.body.username.length > 30) {
+      throw {'error': 'Username must be less than 30 characters', 'code': 400};
     }
 
     if (req.body.username && req.body.username.length < 3) {
@@ -170,11 +170,12 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
 
           throw {
             error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
-            nextAvailableChange,
+            nextAvailableChange: nextAvailableChange.toISOString(),
             timeRemaining: {
               hours,
               minutes,
               seconds,
+              milliseconds: msRemaining,
               formatted: timeString
             },
             code: 429
