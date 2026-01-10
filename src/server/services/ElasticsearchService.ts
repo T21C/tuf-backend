@@ -1231,7 +1231,7 @@ class ElasticsearchService {
     return isNot ? { bool: { must_not: [query] } } : query;
   }
 
-  public async searchLevels(query: string, filters: any = {}): Promise<{ hits: any[], total: number }> {
+  public async searchLevels(query: string, filters: any = {}, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
     try {
       const must: any[] = [];
       const should: any[] = [];
@@ -1260,9 +1260,13 @@ class ElasticsearchService {
       // Handle filters
       if (!filters.deletedFilter || filters.deletedFilter === 'hide') {
         must.push({ term: { isDeleted: false } });
-        must.push({ term: { isHidden: false } });
-      } else if (filters.deletedFilter === 'only') {
-        must.push({ bool: { should: [{ term: { isDeleted: true } }, { term: { isHidden: true } }] } });
+      } else if (filters.deletedFilter === 'only' && isSuperAdmin) {
+        must.push({ bool: { should: [
+          { term: { isDeleted: true } }, 
+          { term: { isHidden: true } }
+        ] } });
+      } else if (!isSuperAdmin) {
+        must.push({ term: { isDeleted: false } })
       }
 
       if (filters.clearedFilter === 'hide') {
@@ -1467,6 +1471,40 @@ class ElasticsearchService {
             ]
           }
         });
+      }
+
+      // Handle hideVerified filter
+      if (filters.creatorId && !isSuperAdmin) {
+        should.push({
+          bool: {
+            should: [
+              {
+                nested: {
+                  path: 'levelCredits',
+                  query: {
+                    bool: {
+                      should: [
+                        { term: { 'levelCredits.creatorId': filters.creatorId } }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                term: { 'isHidden': false }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        });
+      }
+      else if (isSuperAdmin) {
+        if (filters.deletedFilter === 'hide') {
+          must.push({ term: { isHidden: false } });
+        }
+      }
+      else {
+        must.push({ term: { isHidden: false } });
       }
 
       // Handle liked levels filter
@@ -1828,7 +1866,7 @@ class ElasticsearchService {
     }
   }
 
-  public async searchPasses(query: string, filters: any = {}, userPlayerId?: number): Promise<{ hits: any[], total: number }> {
+  public async searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
     try {
       const must: any[] = [];
       const should: any[] = [];
@@ -1884,7 +1922,7 @@ class ElasticsearchService {
           // User is not logged in - hide all hidden passes
           must.push({ term: { isHidden: false } });
         }
-      } else if (filters.deletedFilter === 'only') {
+      } else if (filters.deletedFilter === 'only' && isSuperAdmin) {
         must.push({
           bool: {
             should: [

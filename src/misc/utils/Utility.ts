@@ -154,10 +154,11 @@ export const isCdnUrl = (url: string): boolean => {
 // Helper function to extract file ID from CDN URL
 export const getFileIdFromCdnUrl = (url: string): string | null => {
   if (!isCdnUrl(url)) return null;
-
-  const regex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/;
-  const match = url.match(regex);
-  return match ? match[1] : null;
+  
+  const regex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/g;
+  const matches = [...url.matchAll(regex)];
+  if (matches.length !== 1) return null; // Only allow a single UUID occurrence
+  return matches[0][1];
 };
 
 

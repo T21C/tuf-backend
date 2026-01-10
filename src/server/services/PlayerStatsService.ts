@@ -893,7 +893,9 @@ export class PlayerStatsService {
           )
         ];
       }
-      whereClause['totalPasses'] = { [Op.gt]: 0 };
+      if (!nameQuery) {
+        whereClause['totalPasses'] = { [Op.gt]: 0 };
+      }
 
       // Apply filters if provided
       if (filters) {

@@ -20,11 +20,11 @@ import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js'
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import LevelRerateHistory from '../../../../models/levels/LevelRerateHistory.js';
-import { getFileIdFromCdnUrl, safeTransactionRollback } from '../../../../misc/utils/Utility.js';
+import { safeTransactionRollback } from '../../../../misc/utils/Utility.js';
 import Curation from '../../../../models/curations/Curation.js';
 import CurationType from '../../../../models/curations/CurationType.js';
 import LevelTag from '../../../../models/levels/LevelTag.js';
-import { hasFlag, wherePermission } from '../../../../misc/utils/auth/permissionUtils.js';
+import { hasFlag } from '../../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../../config/constants.js';
 import cdnService from '../../../services/CdnService.js';
 import CurationSchedule from '../../../../models/curations/CurationSchedule.js';
@@ -118,10 +118,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         tagsFilter: tagsFilter as string,
         tagGroups,
         userId: req.user?.id,
+        creatorId: req.user?.creatorId,
         offset: normalizedOffset,
         limit: normalizedLimit,
         likedLevelIds
-      }
+      },
+      hasFlag(req.user, permissionFlags.SUPER_ADMIN)
     );
 
     const duration = Date.now() - startTime;
@@ -347,6 +349,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
           where: {
             id: { [Op.in]: creatorIds }
           },
+          attributes: ['id', 'name', 'userId', 'isVerified'],
           include: [
             {
               model: CreatorAlias,

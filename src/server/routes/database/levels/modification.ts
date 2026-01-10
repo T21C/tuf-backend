@@ -34,11 +34,57 @@ import {Op} from 'sequelize';
 import {permissionFlags} from '../../../../config/constants.js';
 import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
+import Creator from '../../../../models/credits/Creator.js';
+import LevelCredit from '../../../../models/levels/LevelCredit.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
 const router = Router();
+
+// Shared function to check if user has permission to modify a level
+interface OwnershipCheckResult {
+  isSuperAdmin: boolean;
+  isCreator: boolean;
+  charterCount: number;
+}
+
+const checkLevelOwnership = async (
+  levelId: number,
+  user: any,
+  transaction: Transaction,
+): Promise<OwnershipCheckResult> => {
+  const isSuperAdmin = user && hasFlag(user, permissionFlags.SUPER_ADMIN);
+  let isCreator = false;
+  let charterCount = 0;
+
+  if (!isSuperAdmin && user?.id) {
+    // Check if user is a creator of this level
+    const levelCredits = await LevelCredit.findAll({
+      where: {levelId},
+      include: [
+        {
+          model: Creator,
+          as: 'creator',
+          required: true,
+        },
+      ],
+      transaction,
+    });
+
+    // Count CHARTER roles
+    charterCount = levelCredits.filter(
+      credit => credit.role?.toLowerCase() === 'charter'
+    ).length;
+
+    // Check if user is one of the creators
+    isCreator = levelCredits.some(
+      credit => credit.creator?.userId === user.id
+    );
+  }
+
+  return {isSuperAdmin: !!isSuperAdmin, isCreator, charterCount};
+};
 
 // Helper functions for level updates
 const handleRatingChanges = async (
@@ -243,7 +289,7 @@ const handleScoreRecalculations = async (
 };
 
 // Update a level
-router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
   const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
@@ -284,6 +330,30 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Level not found'});
     }
+
+    // Check if user is super admin or creator
+    const {isSuperAdmin, isCreator, charterCount} = await checkLevelOwnership(
+      levelId,
+      req.user,
+      transaction,
+    );
+
+    if (!isSuperAdmin && req.user) {
+      // If user is not a creator, deny access
+      if (!isCreator) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: 'You are not authorized to edit this level'});
+      }
+
+      // If more than 2 CHARTERS, deny access (admins must handle this)
+      if (charterCount > 2) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({
+          error: 'Contact admins to change this level due to it having more than 2 charters assigned',
+        });
+      }
+    }
+
 
     if (
       req.body.dlLink &&
@@ -348,32 +418,40 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       );
     }
 
-    const updateData = {
-      song: sanitizeTextInput(req.body.song),
-      artist: sanitizeTextInput(req.body.artist),
-      //creator: sanitizeTextInput(req.body.creator),
-      //charter: sanitizeTextInput(req.body.charter),
-      //vfxer: sanitizeTextInput(req.body.vfxer),
-      //team: sanitizeTextInput(req.body.team),
-      diffId: Number(req.body.diffId) || 0,
-      previousDiffId,
-      baseScore,
-      ppBaseScore: Number(req.body.ppBaseScore) || 0,
-      previousBaseScore,
-      videoLink: sanitizeTextInput(req.body.videoLink),
-      dlLink: sanitizeTextInput(req.body.dlLink),
-      workshopLink: sanitizeTextInput(req.body.workshopLink),
-      publicComments: sanitizeTextInput(req.body.publicComments),
-      rerateNum: sanitizeTextInput(req.body.rerateNum),
-      toRate: req.body.toRate ?? level.toRate,
-      rerateReason: sanitizeTextInput(req.body.rerateReason),
-      isDeleted,
-      isHidden,
-      isAnnounced,
-      isExternallyAvailable:
-        req.body.isExternallyAvailable ?? level.isExternallyAvailable,
+    // Build update data
+    const updateData: any = {
       updatedAt: new Date(),
     };
+
+    // For non-admin creators, only include allowed fields
+    if (!isSuperAdmin && isCreator) {
+      // Only allow specific fields for creators
+      if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
+      if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
+      if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
+      if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
+      if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
+    } else {
+      // Super admin has access to all fields
+      updateData.song = sanitizeTextInput(req.body.song);
+      updateData.artist = sanitizeTextInput(req.body.artist);
+      updateData.diffId = Number(req.body.diffId) || 0;
+      updateData.previousDiffId = previousDiffId;
+      updateData.baseScore = baseScore;
+      updateData.ppBaseScore = Number(req.body.ppBaseScore) || 0;
+      updateData.previousBaseScore = previousBaseScore;
+      updateData.videoLink = sanitizeTextInput(req.body.videoLink);
+      updateData.dlLink = sanitizeTextInput(req.body.dlLink);
+      updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
+      updateData.publicComments = sanitizeTextInput(req.body.publicComments);
+      updateData.rerateNum = sanitizeTextInput(req.body.rerateNum);
+      updateData.toRate = req.body.toRate ?? level.toRate;
+      updateData.rerateReason = sanitizeTextInput(req.body.rerateReason);
+      updateData.isDeleted = isDeleted;
+      updateData.isHidden = isHidden;
+      updateData.isAnnounced = isAnnounced;
+      updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
+    }
 
     await Level.update(updateData, {
       where: {id: levelId},
@@ -677,14 +755,20 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 );
 
 // Toggle hidden status
-router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id/toggle-hidden', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const {id} = req.params;
+      const levelId = parseInt(id);
+
+      if (isNaN(levelId)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({error: 'Invalid level ID'});
+      }
 
       const level = await Level.findOne({
-        where: {id: parseInt(id)},
+        where: {id: levelId},
         transaction,
       });
 
@@ -693,11 +777,24 @@ router.patch('/:id/toggle-hidden', Auth.superAdmin(), async (req: Request, res: 
         return res.status(404).json({error: 'Level not found'});
       }
 
+      // Check if user is super admin or creator
+      const {isSuperAdmin, isCreator} = await checkLevelOwnership(
+        levelId,
+        req.user,
+        transaction,
+      );
+
+      // Allow super admin or creator (no charter count restriction for hiding)
+      if (!isSuperAdmin && !isCreator) {
+        await safeTransactionRollback(transaction);
+        return res.status(403).json({error: 'You are not authorized to hide/unhide this level'});
+      }
+
       // Toggle the hidden status
       await Level.update(
         {isHidden: !level.isHidden},
         {
-          where: {id: parseInt(id)},
+          where: {id: levelId},
           transaction,
         },
       );

@@ -297,7 +297,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
         offset,
         limit,
         sort: ensureString(sort)
-      }, userPlayerId);
+      }, userPlayerId, hasFlag(req.user, permissionFlags.SUPER_ADMIN));
 
       return res.json(result);
     } catch (error) {
