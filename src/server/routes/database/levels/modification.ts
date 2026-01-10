@@ -203,7 +203,7 @@ const handleScoreRecalculations = async (
   levelId: number,
   updateData: any,
   transaction: Transaction,
-) => {
+): Promise<number[]> => {
   const passes = await Pass.findAll({
     where: {levelId},
     include: [
@@ -525,7 +525,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
           isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
         });
 
-        if (req.body.baseScore !== undefined || req.body.diffId !== undefined) {
+        if (updateData.baseScore !== undefined || updateData.diffId !== undefined) {
           const affectedPlayerIds = await handleScoreRecalculations(
             levelId,
             updateData,
