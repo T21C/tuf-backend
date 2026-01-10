@@ -869,13 +869,11 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
   try {
     const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Forced private packs are not allowed to be created' });
+      throw { error: 'Forced private packs are not allowed to be created', code: 400 };
     }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Pack name is required' });
+      throw { error: 'Pack name is required', code: 400 };
     }
 
     const queriedUser = await User.findOne({
@@ -890,8 +888,7 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
     });
 
     if (userPackCount >= MAX_PACKS_PER_USER && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: `Maximum ${MAX_PACKS_PER_USER} packs allowed per user` });
+      throw { error: `Maximum ${MAX_PACKS_PER_USER} packs allowed per user`, code: 400 };
     }
 
     // Only allow admins to create public packs or set pin status
@@ -905,14 +902,12 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
     } else {
       // Non-admins can only create private or link-only packs, never public
       if (viewMode === LevelPackViewModes.PUBLIC) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({ error: 'Only administrators can create public packs' });
+        throw { error: 'Only administrators can create public packs', code: 403 };
       }
       finalViewMode = viewMode || LevelPackViewModes.PRIVATE;
       // Non-admins cannot set pin status
       if (isPinned) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({ error: 'Only administrators can set pack pin status' });
+        throw { error: 'Only administrators can set pack pin status', code: 403 };
       }
     }
 
@@ -972,8 +967,12 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
       id: pack.linkCode,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error creating pack:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error creating pack:', error);
     return res.status(500).json({ error: 'Failed to create pack' });
   }
@@ -1038,8 +1037,7 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
 
       // Additional check for forced private packs
       if (pack.viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({ error: 'Cannot modify view mode of admin-locked pack' });
+        throw { error: 'Cannot modify view mode of admin-locked pack', code: 403 };
       }
 
       updateData.viewMode = viewMode;
@@ -1053,8 +1051,12 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
       id: pack.linkCode,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error updating pack:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error updating pack:', error);
     return res.status(500).json({ error: 'Failed to update pack' });
   }
@@ -1067,19 +1069,16 @@ router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
   try {
     const resolvedPackId = await resolvePackId(req.params.id);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     if (!canEditPack(pack, req.user)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Access denied' });
+      throw { error: 'Access denied', code: 403 };
     }
 
     await pack.destroy({ transaction });
@@ -1087,8 +1086,12 @@ router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
 
     return res.status(204).end();
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error deleting pack:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error deleting pack:', error);
     return res.status(500).json({ error: 'Failed to delete pack' });
   }
@@ -1427,7 +1430,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     if (error.code) {
-      logger.error('Error adding item to pack:', error);
+      if (error.code === 500) logger.error('Error adding item to pack:', error);      
       return res.status(error.code).json(error);
     }
     logger.error('Error adding item to pack:', error);
@@ -1442,26 +1445,22 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
   try {
     const resolvedPackId = await resolvePackId(req.params.id);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const itemId = parseInt(req.params.itemId);
 
     if (isNaN(itemId)) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid item ID' });
+      throw { error: 'Invalid item ID', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     if (!canEditPack(pack, req.user)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Access denied' });
+      throw { error: 'Access denied', code: 403 };
     }
 
     const item = await LevelPackItem.findOne({
@@ -1470,16 +1469,14 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
     });
 
     if (!item) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Item not found in pack' });
+      throw { error: 'Item not found in pack', code: 404 };
     }
 
     const { name } = req.body;
 
     if (item.type === 'folder' && name !== undefined) {
       if (typeof name !== 'string' || name.trim().length === 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Folder name cannot be empty' });
+        throw { error: 'Folder name cannot be empty', code: 400 };
       }
 
       // Check for duplicate folder name in same parent
@@ -1495,8 +1492,7 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
       });
 
       if (existingFolder) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Folder with this name already exists in this location' });
+        throw { error: 'Folder with this name already exists in this location', code: 400 };
       }
 
       await item.update({ name: name.trim() }, { transaction });
@@ -1506,8 +1502,12 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
 
     return res.json(item);
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error updating pack item:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error updating pack item:', error);
     return res.status(500).json({ error: 'Failed to update pack item' });
   }
@@ -1571,8 +1571,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     });
 
     if (packItems.length !== itemIds.length) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Some items do not belong to this pack' });
+      throw { error: 'Some items do not belong to this pack', code: 400 };
     }
 
     // Check for circular references in folders
@@ -1588,8 +1587,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
         while (currentParentId) {
           if (visited.has(currentParentId)) {
-            await safeTransactionRollback(transaction);
-            return res.status(400).json({ error: 'Circular reference detected in folder structure' });
+            throw { error: 'Circular reference detected in folder structure', code: 400 };
           }
           visited.add(currentParentId);
           currentParentId = folderMap.get(currentParentId);
@@ -1616,15 +1614,15 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
         });
 
         if (existingFolder) {
-          await safeTransactionRollback(transaction);
-          return res.status(400).json({ 
+          throw { 
             error: `Folder "${item.name}" already exists in the target location`,
+            code: 400,
             details: {
               folderId: update.id,
               folderName: item.name,
               targetParentId: update.parentId
             }
-          });
+          };
         }
       }
     }
@@ -1688,8 +1686,12 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
     return res.json({ items: updatedTree });
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error updating pack tree:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error updating pack tree:', error);
     return res.status(500).json({ error: 'Failed to update pack tree' });
   }
@@ -1731,28 +1733,24 @@ router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, re
   try {
     const resolvedPackId = await resolvePackId(req.params.id);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const { newOwnerId } = req.body;
 
     if (!newOwnerId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'newOwnerId is required' });
+      throw { error: 'newOwnerId is required', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     // Check if new owner exists
     const newOwner = await User.findByPk(newOwnerId, { transaction });
     if (!newOwner) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'New owner not found' });
+      throw { error: 'New owner not found', code: 404 };
     }
 
     // Convert to string to match UUID type
@@ -1760,8 +1758,7 @@ router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, re
 
     // Don't allow transferring to the same owner
     if (pack.ownerId === newOwnerIdString) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Pack is already owned by this user' });
+      throw { error: 'Pack is already owned by this user', code: 400 };
     }
 
     // Transfer ownership
@@ -1785,8 +1782,12 @@ router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, re
         id: updatedPack!.linkCode
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error transferring pack ownership:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error transferring pack ownership:', error);
     return res.status(500).json({ error: 'Failed to transfer pack ownership' });
   }

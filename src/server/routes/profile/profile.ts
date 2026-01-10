@@ -20,6 +20,8 @@ import { permissionFlags } from '../../../config/constants.js';
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
 
+const usernameChangeCooldown = 3 * 24 * 60 * 60 * 1000; // 3 days
+
 // Configure multer for memory storage
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -158,18 +160,18 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       // Check rate limit if user has changed username before
       if (user.lastUsernameChange) {
         const msSinceLastChange = Date.now() - new Date(user.lastUsernameChange).getTime();
-        const msRemaining = (24 * 60 * 60 * 1000) - msSinceLastChange;
+        const msRemaining = usernameChangeCooldown - msSinceLastChange;
 
         if (msRemaining > 0) {
           const hours = Math.floor(msRemaining / (60 * 60 * 1000));
           const minutes = Math.floor((msRemaining % (60 * 60 * 1000)) / (60 * 1000));
           const seconds = Math.floor((msRemaining % (60 * 1000)) / 1000);
-
+          
           const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-          const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + (24 * 60 * 60 * 1000));
+          const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + usernameChangeCooldown);
 
           throw {
-            error: `Username can only be changed once every 24 hours. Time remaining: ${timeString}`,
+            error: `Username can only be changed once every ${usernameChangeCooldown / (24 * 60 * 60 * 1000)} days. Time remaining: ${timeString}`,
             nextAvailableChange: nextAvailableChange.toISOString(),
             timeRemaining: {
               hours,

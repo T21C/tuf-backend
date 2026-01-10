@@ -14,6 +14,9 @@ import {sseManager} from '../../../../misc/utils/server/sse.js';
 import LevelLikes from '../../../../models/levels/LevelLikes.js';
 import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js';
 import User from '../../../../models/auth/User.js';
+
+// Type assertion helper for req.user to User model
+const getUserModel = (user: any): User => user as User;
 import Player from '../../../../models/players/Player.js';
 import {logger} from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
@@ -36,6 +39,12 @@ import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
 import Creator from '../../../../models/credits/Creator.js';
 import LevelCredit from '../../../../models/levels/LevelCredit.js';
+import {
+  logLevelFileUploadHook,
+  logLevelFileUpdateHook,
+  logLevelFileDeleteHook,
+  logLevelTargetUpdateHook,
+} from '../../webhooks/misc.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -1047,7 +1056,7 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
 );
 
 // Upload management endpoints
-router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1055,26 +1064,36 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
       const levelId = parseInt(req.params.id);
 
       if (isNaN(levelId)) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'Invalid level ID'});
+        throw {error: 'Invalid level ID', code: 400};
       }
 
       if (!fileId || !fileName || !fileSize) {
-        await safeTransactionRollback(transaction);
-        return res
-          .status(400)
-          .json({error: 'Missing required file information'});
+        throw {error: 'Missing required file information', code: 400};
       }
 
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
+        throw {error: 'Level not found', code: 404};
+      }
+
+      // Check ownership
+      const ownership = await checkLevelOwnership(levelId, req.user, transaction);
+      const isSuperAdmin = ownership.isSuperAdmin;
+
+      // Allow super admin or creators with ≤2 CHARTERS
+      if (!isSuperAdmin) {
+        if (!ownership.isCreator || ownership.charterCount > 2) {
+          throw {
+            error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
+            code: 403,
+          };
+        }
       }
 
       try {
         // Store the old file ID for cleanup if it exists
         let oldFileId: string | null = null;
+        const oldDlLink = level.dlLink;
         if (level.dlLink && isCdnUrl(level.dlLink)) {
           oldFileId = getFileIdFromCdnUrl(level.dlLink);
           logger.debug('Found existing CDN file to clean up after upload', {
@@ -1138,6 +1157,30 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
 
         // Commit the transaction
         await transaction.commit();
+
+        // Log webhook for non-admin creators
+        if (!isSuperAdmin && req.user) {
+
+          try {
+            logger.debug('Logging webhook for level file upload', {
+              levelId,
+              oldDlLink,
+              newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
+            });
+            const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+            if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) { // likely a valid link
+              await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
+            }
+            else {
+              await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
+            }
+            
+
+          } catch (webhookError) {
+            // Log webhook error but don't fail the request
+            logger.warn('Failed to send webhook for level file upload:', webhookError);
+          }
+        }
 
         // Clean up old CDN file after successful upload and database update
         if (oldFileId) {
@@ -1253,7 +1296,7 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
         }
         throw error;
       }
-    } catch (error) {
+    } catch (error: any) {
       await safeTransactionRollback(transaction);
       
       // Handle client disconnection gracefully - this is expected behavior
@@ -1278,6 +1321,11 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
         }
         return;
       }
+
+      if (error.code) {
+        logger.error('Error uploading level file:', error);
+        return res.status(error.code).json(error);
+      }
       
       logger.error('Error uploading level file:', error);
       if (!res.headersSent) {
@@ -1291,45 +1339,67 @@ router.post('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response
   },
 );
 
-router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const {selectedLevel} = req.body;
       const levelId = parseInt(req.params.id);
       if (isNaN(levelId) || !selectedLevel) {
-        await safeTransactionRollback(transaction);
-        return res
-          .status(400)
-          .json({error: 'Invalid level ID or missing selected level'});
+        throw {error: 'Invalid level ID or missing selected level', code: 400};
       }
 
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
+        throw {error: 'Level not found', code: 404};
+      }
+
+      // Check ownership
+      const ownership = await checkLevelOwnership(levelId, req.user, transaction);
+      const isSuperAdmin = ownership.isSuperAdmin;
+
+      // Allow super admin or creators with ≤2 CHARTERS
+      if (!isSuperAdmin) {
+        if (!ownership.isCreator || ownership.charterCount > 2) {
+          throw {
+            error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
+            code: 403,
+          };
+        }
       }
 
       const fileId = getFileIdFromCdnUrl(level.dlLink);
       if (!fileId) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'File ID is required'});
+        throw {error: 'File ID is required', code: 400};
       }
 
       const file = await cdnService.setTargetLevel(fileId, selectedLevel);
       if (!file) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'File not found'});
+        throw {error: 'File not found', code: 404};
       }
 
       await transaction.commit();
+
+      // Log webhook for non-admin creators
+      if (!isSuperAdmin && req.user) {
+        try {
+          await logLevelTargetUpdateHook(selectedLevel.toString(), levelId, getUserModel(req.user));
+        } catch (webhookError) {
+          // Log webhook error but don't fail the request
+          logger.warn('Failed to send webhook for level target update:', webhookError);
+        }
+      }
 
       return res.json({
         success: true,
         message: 'Level file selected successfully',
       });
-    } catch (error) {
+    } catch (error: any) {
       await safeTransactionRollback(transaction);
+      if (error.code) {
+        logger.error('Error selecting level file:', error);
+        return res.status(error.code).json(error);
+      }
       logger.error('Error selecting level file:', error);
       return res.status(500).json({
         error: 'Failed to select level file',
@@ -1339,30 +1409,38 @@ router.post('/:id/select-level', Auth.superAdmin(), async (req: Request, res: Re
   },
 );
 
-router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/:id/upload', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
-
-  try {
+    try {
       const levelId = parseInt(req.params.id);
       if (isNaN(levelId)) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'Invalid level ID'});
+        throw {error: 'Invalid level ID', code: 400};
       }
 
       // Get current level
       const level = await Level.findByPk(levelId, {transaction});
       if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
+        throw {error: 'Level not found', code: 404};
+      }
+
+      // Check ownership
+      const ownership = await checkLevelOwnership(levelId, req.user, transaction);
+      const isSuperAdmin = ownership.isSuperAdmin;
+
+      // Allow super admin or creators with ≤2 CHARTERS
+      if (!isSuperAdmin) {
+        if (!ownership.isCreator || ownership.charterCount > 2) {
+          throw {
+            error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
+            code: 403,
+          };
+        }
       }
 
       // Check if level has a CDN-managed file
       if (!level.dlLink || !isCdnUrl(level.dlLink)) {
-        await safeTransactionRollback(transaction);
-        return res
-          .status(400)
-          .json({error: 'Level does not have a CDN-managed file'});
+        throw {error: 'Level does not have a CDN-managed file', code: 400};
       }
 
       // Delete file from CDN
@@ -1383,13 +1461,27 @@ router.delete('/:id/upload', Auth.superAdmin(), async (req: Request, res: Respon
 
       await transaction.commit();
 
+      // Log webhook for non-admin creators
+      if (!isSuperAdmin && req.user) {
+        try {
+          await logLevelFileDeleteHook(levelId, getUserModel(req.user));
+        } catch (webhookError) {
+          // Log webhook error but don't fail the request
+          logger.warn('Failed to send webhook for level file delete:', webhookError);
+        }
+      }
+
       return res.json({
         success: true,
         dlLink: 'removed',
         message: 'Level file deleted successfully',
       });
-    } catch (error) {
+    } catch (error: any) {
       await safeTransactionRollback(transaction);
+      if (error.code) {
+        if (error.code === 500) logger.error('Error deleting level file:', error);
+        return res.status(error.code).json(error);
+      }
       logger.error('Error deleting level file:', error);
       return res.status(500).json({
         error: 'Failed to delete level file',

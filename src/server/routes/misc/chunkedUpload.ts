@@ -6,8 +6,63 @@ import path from 'path';
 import { logger } from '../../services/LoggerService.js';
 import cors from 'cors';
 import { corsOptions } from '../../../config/app.config.js';
+import sequelize from '../../../config/db.js';
+import { Transaction } from 'sequelize';
+import Level from '../../../models/levels/Level.js';
+import Creator from '../../../models/credits/Creator.js';
+import LevelCredit from '../../../models/levels/LevelCredit.js';
+import { permissionFlags } from '../../../config/constants.js';
+import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 
 const router: Router = express.Router();
+
+// Shared function to check if user has permission to modify a level
+interface OwnershipCheckResult {
+  isSuperAdmin: boolean;
+  isCreator: boolean;
+  charterCount: number;
+}
+
+const checkLevelOwnership = async (
+  levelId: number,
+  user: any,
+  transaction?: Transaction,
+): Promise<OwnershipCheckResult> => {
+  const isSuperAdmin = user && hasFlag(user, permissionFlags.SUPER_ADMIN);
+  let isCreator = false;
+  let charterCount = 0;
+
+  if (!isSuperAdmin && user?.id) {
+    // Check if user is a creator of this level
+    const findOptions: any = {
+      where: { levelId },
+      include: [
+        {
+          model: Creator,
+          as: 'creator',
+          required: true,
+        },
+      ],
+    };
+    if (transaction) {
+      findOptions.transaction = transaction;
+    }
+
+    const levelCredits = await LevelCredit.findAll(findOptions);
+
+    // Count CHARTER roles
+    charterCount = levelCredits.filter(
+      credit => credit.role?.toLowerCase() === 'charter'
+    ).length;
+
+    // Check if user is one of the creators
+    isCreator = levelCredits.some(
+      credit => credit.creator?.userId === user.id
+    );
+  }
+
+  return { isSuperAdmin: !!isSuperAdmin, isCreator, charterCount };
+};
 
 // Update multer storage to use headers
 const storage = multer.diskStorage({
@@ -65,7 +120,7 @@ setInterval(() => {
 }, 60 * 60 * 1000); // Check every hour
 
 // Add authentication to all routes
-router.use(Auth.superAdmin());
+router.use(Auth.verified());
 
 // Apply CORS with the shared options
 router.use(cors(corsOptions));
@@ -75,16 +130,51 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 // Update the upload endpoint
-router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Request, res: Response) => {
+router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Request, res: Response) => {
   try {
     const fileId = req.headers['x-file-id'] as string;
     const chunkIndex = parseInt(req.headers['x-chunk-index'] as string);
     const totalChunks = parseInt(req.headers['x-total-chunks'] as string);
+    const levelIdHeader = req.headers['x-level-id'] as string;
     const userId = req.user?.id;
 
     if (!fileId || isNaN(chunkIndex) || isNaN(totalChunks) || !userId) {
       logger.error('Missing required parameters in headers:', { headers: req.headers });
       return res.status(400).json({ error: 'Missing required parameters in headers' });
+    }
+
+    // If levelId is provided, check ownership
+    if (levelIdHeader) {
+      const levelId = parseInt(levelIdHeader);
+      if (!isNaN(levelId)) {
+        const transaction = await sequelize.transaction();
+        try {
+          const level = await Level.findByPk(levelId, { transaction });
+          if (!level) {
+            await transaction.rollback();
+            return res.status(404).json({ error: 'Level not found' });
+          }
+
+          const ownership = await checkLevelOwnership(levelId, req.user, transaction);
+          const isSuperAdmin = ownership.isSuperAdmin;
+
+          // Allow super admin or creators with ≤2 CHARTERS
+          if (!isSuperAdmin) {
+            if (!ownership.isCreator || ownership.charterCount > 2) {
+              await transaction.rollback();
+              return res.status(403).json({
+                error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
+              });
+            }
+          }
+
+          await transaction.commit();
+        } catch (error) {
+          await transaction.rollback();
+          logger.error('Error checking level ownership:', error);
+          return res.status(500).json({ error: 'Failed to verify level access' });
+        }
+      }
     }
 
     // Store metadata
@@ -216,12 +306,46 @@ router.post('/chunk', Auth.superAdmin(), upload.single('chunk'), async (req: Req
 });
 
 // Validate upload status
-router.post('/validate', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/validate', Auth.verified(), async (req: Request, res: Response) => {
   try {
-    const { fileId } = req.body;
+    const { fileId, levelId } = req.body;
 
     if (!fileId) {
       return res.status(400).json({ error: 'Missing fileId' });
+    }
+
+    // If levelId is provided, check ownership
+    if (levelId) {
+      const parsedLevelId = parseInt(levelId);
+      if (!isNaN(parsedLevelId)) {
+        const transaction = await sequelize.transaction();
+        try {
+          const level = await Level.findByPk(parsedLevelId, { transaction });
+          if (!level) {
+            await transaction.rollback();
+            return res.status(404).json({ error: 'Level not found' });
+          }
+
+          const ownership = await checkLevelOwnership(parsedLevelId, req.user, transaction);
+          const isSuperAdmin = ownership.isSuperAdmin;
+
+          // Allow super admin or creators with ≤2 CHARTERS
+          if (!isSuperAdmin) {
+            if (!ownership.isCreator || ownership.charterCount > 2) {
+              await transaction.rollback();
+              return res.status(403).json({
+                error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
+              });
+            }
+          }
+
+          await transaction.commit();
+        } catch (error) {
+          await transaction.rollback();
+          logger.error('Error checking level ownership:', error);
+          return res.status(500).json({ error: 'Failed to verify level access' });
+        }
+      }
     }
 
     const metadata = uploadMetadata.get(fileId);
@@ -342,7 +466,7 @@ const cleanupUserUploads = async (userId: string, excludeFileId?: string) => {
 };
 
 // Add cleanup endpoint
-router.post('/cleanup', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/cleanup', Auth.verified(), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
