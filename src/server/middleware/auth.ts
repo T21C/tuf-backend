@@ -338,8 +338,7 @@ export const Auth = {
       requirePermission(
         (user) => hasFlag(user, permissionFlags.EMAIL_VERIFIED),
         'Email verification required'
-      ),
-      auditLogMiddleware
+      )
     ),
 
   /**
