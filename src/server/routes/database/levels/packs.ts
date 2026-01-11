@@ -49,7 +49,6 @@ const MAX_LIMIT = 100;
 
 // Helper function to check if user can view pack
 const canViewPack = (pack: LevelPack, user: any): boolean => {
-  console.log('Pack view mode:', pack.viewMode);
   if (!pack) return false;
 
   // Owner can always view their own packs
@@ -479,7 +478,6 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     const param = req.params.id;
     const { tree = 'true' } = req.query;
     const resolvedPackId = await resolvePackId(param);
-    logger.info('Resolved pack ID:', resolvedPackId);
     if (!resolvedPackId) {
       return res.status(404).json({ error: 'Pack not found' });
     }
