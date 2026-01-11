@@ -14,6 +14,7 @@ export enum CreditRole {
 class LevelCredit extends Model {
   declare id: number;
   declare levelId: number;
+  declare isOwner: boolean;
   declare creatorId: number;
   declare role: CreditRole;
   declare isVerified: boolean;
@@ -36,6 +37,11 @@ LevelCredit.init(
         model: 'levels',
         key: 'id',
       },
+    },
+    isOwner: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     },
     creatorId: {
       type: DataTypes.INTEGER,

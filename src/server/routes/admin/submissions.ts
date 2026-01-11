@@ -419,6 +419,8 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         // Create level credits for each creator request
         for (const request of submission.creatorRequests || []) {
           if (request.creatorId) {
+            // Submitting user is the owner
+            const isOwner = request.id === req.user?.creatorId;
             // For existing creators
             // Check if credit already exists
             const existingCredit = await LevelCredit.findOne({
@@ -435,12 +437,14 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                 levelId: newLevel.id,
                 creatorId: request.creatorId,
                 role: request.role,
+                isOwner: isOwner,
                 isVerified: existingCreators.find((c: Creator) => c.id === request.creatorId)?.isVerified || false
               }, {
                 transaction
               });
             }
-          } else if (request.isNewRequest) {
+          } 
+          else if (request.isNewRequest) {
             // For new creators
             const [creator] = await Creator.findOrCreate({
               where: { name: request.creatorName.trim() },

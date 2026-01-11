@@ -38,7 +38,7 @@ import {permissionFlags} from '../../../../config/constants.js';
 import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
 import Creator from '../../../../models/credits/Creator.js';
-import LevelCredit from '../../../../models/levels/LevelCredit.js';
+import LevelCredit, { CreditRole } from '../../../../models/levels/LevelCredit.js';
 import {
   logLevelFileUploadHook,
   logLevelFileUpdateHook,
@@ -52,13 +52,12 @@ const elasticsearchService = ElasticsearchService.getInstance();
 const router = Router();
 
 // Shared function to check if user has permission to modify a level
-interface OwnershipCheckResult {
-  isSuperAdmin: boolean;
-  isCreator: boolean;
-  charterCount: number;
+export interface OwnershipCheckResult {
+  canEdit: boolean;
+  errorMessage?: string;
 }
 
-const checkLevelOwnership = async (
+export const checkLevelOwnership = async (
   levelId: number,
   user: any,
   transaction: Transaction,
@@ -66,6 +65,7 @@ const checkLevelOwnership = async (
   const isSuperAdmin = user && hasFlag(user, permissionFlags.SUPER_ADMIN);
   let isCreator = false;
   let charterCount = 0;
+  let isOwner = false;
 
   if (!isSuperAdmin && user?.id) {
     // Check if user is a creator of this level
@@ -83,16 +83,35 @@ const checkLevelOwnership = async (
 
     // Count CHARTER roles
     charterCount = levelCredits.filter(
-      credit => credit.role?.toLowerCase() === 'charter'
+      credit => credit.role?.toLowerCase() === CreditRole.CHARTER
     ).length;
 
     // Check if user is one of the creators
     isCreator = levelCredits.some(
-      credit => credit.creator?.userId === user.id
+      credit => credit.creator?.userId === user.id && 
+      credit.role?.toLowerCase() === CreditRole.CHARTER
+    );
+
+    isOwner = levelCredits.some(
+      credit => credit.creator?.userId === user.id && credit.isOwner
     );
   }
 
-  return {isSuperAdmin: !!isSuperAdmin, isCreator, charterCount};
+
+  let canEdit = false;
+  let errorMessage: string | undefined;
+  if (isSuperAdmin || isOwner) {
+    canEdit = true;
+  } else if (isCreator && charterCount <= 2) {
+    canEdit = true;
+  } else if (isCreator && charterCount > 2) {
+    canEdit = false;
+    errorMessage = '(>2 CHARTERS) You must be the owner of this level to edit it. Contact admins if you believe that you should be the owner.';
+  } else {
+    canEdit = false;
+    errorMessage = 'You are not authorized to edit this level';
+  }
+  return {canEdit, errorMessage};
 };
 
 // Helper functions for level updates
@@ -341,26 +360,15 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     }
 
     // Check if user is super admin or creator
-    const {isSuperAdmin, isCreator, charterCount} = await checkLevelOwnership(
+    const {canEdit, errorMessage} = await checkLevelOwnership(
       levelId,
       req.user,
       transaction,
     );
 
-    if (!isSuperAdmin && req.user) {
-      // If user is not a creator, deny access
-      if (!isCreator) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({error: 'You are not authorized to edit this level'});
-      }
-
-      // If more than 2 CHARTERS, deny access (admins must handle this)
-      if (charterCount > 2) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({
-          error: 'Contact admins to change this level due to it having more than 2 charters assigned',
-        });
-      }
+    if (!canEdit && req.user) {
+      await safeTransactionRollback(transaction);
+      return res.status(403).json({error: errorMessage});
     }
 
 
@@ -433,7 +441,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     };
 
     // For non-admin creators, only include allowed fields
-    if (!isSuperAdmin && isCreator) {
+    if (!canEdit) {
       // Only allow specific fields for creators
       if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
       if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
@@ -787,16 +795,16 @@ router.patch('/:id/toggle-hidden', Auth.verified(), async (req: Request, res: Re
       }
 
       // Check if user is super admin or creator
-      const {isSuperAdmin, isCreator} = await checkLevelOwnership(
+      const {canEdit, errorMessage} = await checkLevelOwnership(
         levelId,
         req.user,
         transaction,
       );
 
       // Allow super admin or creator (no charter count restriction for hiding)
-      if (!isSuperAdmin && !isCreator) {
+      if (!canEdit) {
         await safeTransactionRollback(transaction);
-        return res.status(403).json({error: 'You are not authorized to hide/unhide this level'});
+        return res.status(403).json({error: errorMessage});
       }
 
       // Toggle the hidden status
@@ -1077,17 +1085,11 @@ router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) 
       }
 
       // Check ownership
-      const ownership = await checkLevelOwnership(levelId, req.user, transaction);
-      const isSuperAdmin = ownership.isSuperAdmin;
+      const {canEdit, errorMessage} = await checkLevelOwnership(levelId, req.user, transaction);
 
       // Allow super admin or creators with ≤2 CHARTERS
-      if (!isSuperAdmin) {
-        if (!ownership.isCreator || ownership.charterCount > 2) {
-          throw {
-            error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
-            code: 403,
-          };
-        }
+      if (!canEdit) {
+        throw {error: errorMessage, code: 403};
       }
 
       try {
@@ -1352,17 +1354,11 @@ router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Resp
       }
 
       // Check ownership
-      const ownership = await checkLevelOwnership(levelId, req.user, transaction);
-      const isSuperAdmin = ownership.isSuperAdmin;
+      const {canEdit, errorMessage} = await checkLevelOwnership(levelId, req.user, transaction);
 
       // Allow super admin or creators with ≤2 CHARTERS
-      if (!isSuperAdmin) {
-        if (!ownership.isCreator || ownership.charterCount > 2) {
-          throw {
-            error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
-            code: 403,
-          };
-        }
+      if (!canEdit) {
+        throw {error: errorMessage, code: 403};
       }
 
       const fileId = getFileIdFromCdnUrl(level.dlLink);
@@ -1420,17 +1416,11 @@ router.delete('/:id/upload', Auth.verified(), async (req: Request, res: Response
       }
 
       // Check ownership
-      const ownership = await checkLevelOwnership(levelId, req.user, transaction);
-      const isSuperAdmin = ownership.isSuperAdmin;
+      const {canEdit, errorMessage} = await checkLevelOwnership(levelId, req.user, transaction);
 
       // Allow super admin or creators with ≤2 CHARTERS
-      if (!isSuperAdmin) {
-        if (!ownership.isCreator || ownership.charterCount > 2) {
-          throw {
-            error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
-            code: 403,
-          };
-        }
+      if (!canEdit) {
+        throw {error: errorMessage, code: 403};
       }
 
       // Check if level has a CDN-managed file

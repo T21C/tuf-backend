@@ -13,56 +13,9 @@ import Creator from '../../../models/credits/Creator.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import { permissionFlags } from '../../../config/constants.js';
 import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
+import { checkLevelOwnership } from '../database/levels/modification.js';
 
 const router: Router = express.Router();
-
-// Shared function to check if user has permission to modify a level
-interface OwnershipCheckResult {
-  isSuperAdmin: boolean;
-  isCreator: boolean;
-  charterCount: number;
-}
-
-const checkLevelOwnership = async (
-  levelId: number,
-  user: any,
-  transaction?: Transaction,
-): Promise<OwnershipCheckResult> => {
-  const isSuperAdmin = user && hasFlag(user, permissionFlags.SUPER_ADMIN);
-  let isCreator = false;
-  let charterCount = 0;
-
-  if (!isSuperAdmin && user?.id) {
-    // Check if user is a creator of this level
-    const findOptions: any = {
-      where: { levelId },
-      include: [
-        {
-          model: Creator,
-          as: 'creator',
-          required: true,
-        },
-      ],
-    };
-    if (transaction) {
-      findOptions.transaction = transaction;
-    }
-
-    const levelCredits = await LevelCredit.findAll(findOptions);
-
-    // Count CHARTER roles
-    charterCount = levelCredits.filter(
-      credit => credit.role?.toLowerCase() === 'charter'
-    ).length;
-
-    // Check if user is one of the creators
-    isCreator = levelCredits.some(
-      credit => credit.creator?.userId === user.id
-    );
-  }
-
-  return { isSuperAdmin: !!isSuperAdmin, isCreator, charterCount };
-};
 
 // Update multer storage to use headers
 const storage = multer.diskStorage({
@@ -155,19 +108,13 @@ router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Reque
             return res.status(404).json({ error: 'Level not found' });
           }
 
-          const ownership = await checkLevelOwnership(levelId, req.user, transaction);
-          const isSuperAdmin = ownership.isSuperAdmin;
-
-          // Allow super admin or creators with ≤2 CHARTERS
-          if (!isSuperAdmin) {
-            if (!ownership.isCreator || ownership.charterCount > 2) {
+          const {canEdit, errorMessage} = await checkLevelOwnership(levelId, req.user, transaction);
+          if (!canEdit) {
               await transaction.rollback();
               return res.status(403).json({
-                error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
+                error: errorMessage,
               });
             }
-          }
-
           await transaction.commit();
         } catch (error) {
           await transaction.rollback();
@@ -326,19 +273,13 @@ router.post('/validate', Auth.verified(), async (req: Request, res: Response) =>
             return res.status(404).json({ error: 'Level not found' });
           }
 
-          const ownership = await checkLevelOwnership(parsedLevelId, req.user, transaction);
-          const isSuperAdmin = ownership.isSuperAdmin;
-
-          // Allow super admin or creators with ≤2 CHARTERS
-          if (!isSuperAdmin) {
-            if (!ownership.isCreator || ownership.charterCount > 2) {
-              await transaction.rollback();
-              return res.status(403).json({
-                error: 'Access denied. Only level creators with 2 or fewer charters can manage uploads.',
-              });
-            }
+          const {canEdit, errorMessage} = await checkLevelOwnership(parsedLevelId, req.user, transaction);
+          if (!canEdit) {
+            await transaction.rollback();
+            return res.status(403).json({
+              error: errorMessage,
+            });
           }
-
           await transaction.commit();
         } catch (error) {
           await transaction.rollback();

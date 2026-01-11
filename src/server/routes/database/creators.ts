@@ -395,9 +395,10 @@ router.put('/level/:levelId([0-9]{1,20})', Auth.superAdmin(), async (req: Reques
       // Add new credits
       if (creators && creators.length > 0) {
         await LevelCredit.bulkCreate(
-          creators.map((c: {id: number; role: CreditRole}) => ({
+          creators.map((c: {id: number; role: CreditRole; isOwner: boolean}) => ({
             levelId,
             creatorId: c.id,
+            isOwner: c.isOwner,
             role: c.role,
           })),
           {transaction},
