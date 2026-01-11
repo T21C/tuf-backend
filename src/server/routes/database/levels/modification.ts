@@ -1158,28 +1158,25 @@ router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) 
         // Commit the transaction
         await transaction.commit();
 
-        // Log webhook for non-admin creators
-        if (!isSuperAdmin && req.user) {
-
-          try {
-            logger.debug('Logging webhook for level file upload', {
-              levelId,
-              oldDlLink,
-              newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
-            });
-            const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-            if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) { // likely a valid link
-              await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
-            }
-            else {
-              await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
-            }
-            
-
-          } catch (webhookError) {
-            // Log webhook error but don't fail the request
-            logger.warn('Failed to send webhook for level file upload:', webhookError);
+        // Log webhook
+        try {
+          logger.debug('Logging webhook for level file upload', {
+            levelId,
+            oldDlLink,
+            newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
+          });
+          const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+          if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) { // likely a valid link
+            await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
           }
+          else {
+            await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
+          }
+          
+
+        } catch (webhookError) {
+          // Log webhook error but don't fail the request
+          logger.warn('Failed to send webhook for level file upload:', webhookError);
         }
 
         // Clean up old CDN file after successful upload and database update
@@ -1381,14 +1378,12 @@ router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Resp
       await transaction.commit();
 
       // Log webhook for non-admin creators
-      if (!isSuperAdmin && req.user) {
-        try {
-          await logLevelTargetUpdateHook(selectedLevel.toString(), levelId, getUserModel(req.user));
-        } catch (webhookError) {
-          // Log webhook error but don't fail the request
-          logger.warn('Failed to send webhook for level target update:', webhookError);
-        }
+      try {
+        await logLevelTargetUpdateHook(selectedLevel.toString(), levelId, getUserModel(req.user));
+      } catch (webhookError) {
+        logger.warn('Failed to send webhook for level target update:', webhookError);
       }
+      
 
       return res.json({
         success: true,
@@ -1461,14 +1456,12 @@ router.delete('/:id/upload', Auth.verified(), async (req: Request, res: Response
 
       await transaction.commit();
 
-      // Log webhook for non-admin creators
-      if (!isSuperAdmin && req.user) {
-        try {
-          await logLevelFileDeleteHook(levelId, getUserModel(req.user));
-        } catch (webhookError) {
-          // Log webhook error but don't fail the request
-          logger.warn('Failed to send webhook for level file delete:', webhookError);
-        }
+      // Log webhook
+      try {
+        await logLevelFileDeleteHook(levelId, getUserModel(req.user));
+      } catch (webhookError) {
+        // Log webhook error but don't fail the request
+        logger.warn('Failed to send webhook for level file delete:', webhookError);
       }
 
       return res.json({
