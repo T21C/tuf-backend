@@ -109,12 +109,19 @@ const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
 };
 
 // Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
-const resolvePackId = async (param: string): Promise<number | null> => {
-  // Check if parameter looks like a linkCode (alphanumeric)
-  if (/^[A-Za-z0-9]+$/.test(param)) {
-    // Try to find by linkCode first
+const resolvePackId = async (param: string, transaction?: any): Promise<number | null> => {
+  // Check if parameter is a numeric ID
+  const numericId = parseInt(param, 10);
+  if (!isNaN(numericId) && numericId > 0) {
+    return numericId;
+  }
+
+  // Check if parameter looks like a linkCode (alphanumeric, but not pure numeric)
+  if (/^[A-Za-z0-9]+$/.test(param) && isNaN(numericId)) {
+    // Try to find by linkCode
     const pack = await LevelPack.findOne({
-      where: { linkCode: param }
+      where: { linkCode: param },
+      transaction
     });
 
     if (pack) {
@@ -853,6 +860,12 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
 
     return res.json(cdnResponse);
   } catch (error) {
+    if (error instanceof CdnError) {
+      if (error.code === 'PACK_SIZE_LIMIT_EXCEEDED') {
+        return res.status(400).json({ error: error.message, code: error.code });
+      }
+      return res.status(500).json({ error: error.message, code: error.code });
+    }
     logger.error('Error generating pack download link:', {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
@@ -983,35 +996,30 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     if (!canEditPack(pack, req.user)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Access denied' });
+      throw { error: 'Access denied', code: 403 };
     }
 
     const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
     const updateData: any = {};
 
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Only administrators can force private packs' });
+      throw { error: 'Only administrators can force private packs', code: 403 };
     }
 
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length === 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'Pack name cannot be empty' });
+        throw { error: 'Pack name cannot be empty', code: 400 };
       }
       updateData.name = name.trim();
     }
@@ -1031,8 +1039,7 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
         pack.viewMode === LevelPackViewModes.PUBLIC;
 
       if (isChangingToOrFromPublic && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        await safeTransactionRollback(transaction);
-        return res.status(403).json({ error: 'Only administrators can modify pack visibility to/from public' });
+        throw { error: 'Only administrators can modify pack visibility to/from public', code: 403 };
       }
 
       // Additional check for forced private packs
@@ -1067,7 +1074,7 @@ router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
     }
@@ -1217,7 +1224,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
     }
@@ -1383,21 +1390,19 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       }
 
       // Add all new levels
+      let baseSortOrder = sortOrder;
+      if (baseSortOrder === undefined || baseSortOrder === null) {
+        const maxSortOrder = await LevelPackItem.max('sortOrder', {
+          where: { packId: resolvedPackId, parentId: parentId || null },
+          transaction
+        });
+        baseSortOrder = (maxSortOrder as number || 0) + 1;
+      }
+
       const createdItems = [];
       for (let i = 0; i < newLevelIds.length; i++) {
         const levelIdToAdd = newLevelIds[i];
-
-        // Determine sort order for this item
-        let finalSortOrder = sortOrder;
-        if (finalSortOrder === undefined || finalSortOrder === null) {
-          const maxSortOrder = await LevelPackItem.max('sortOrder', {
-            where: { packId: resolvedPackId, parentId: parentId || null },
-            transaction
-          });
-          finalSortOrder = (maxSortOrder as number || 0) + 1 + i;
-        } else {
-          finalSortOrder = finalSortOrder + i;
-        }
+        const finalSortOrder = baseSortOrder + i;
 
         const item = await LevelPackItem.create({
           packId: resolvedPackId,
@@ -1443,7 +1448,7 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
     }
@@ -1518,10 +1523,9 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const { items } = req.body;
@@ -1731,7 +1735,7 @@ router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, re
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
     }
@@ -1826,30 +1830,26 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
   }
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const { favorited } = req.body;
 
     if (typeof favorited !== 'boolean') {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'favorited must be a boolean value' });
+      throw { error: 'favorited must be a boolean value', code: 400 };
     }
 
     // Check if pack exists
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     // Check if pack is admin-locked
     if (pack.viewMode === 4) { // FORCED_PRIVATE
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Cannot favorite admin-locked pack' });
+      throw { error: 'Cannot favorite admin-locked pack', code: 403 };
     }
 
     // Use upsert to handle race conditions and ensure desired state
@@ -1891,8 +1891,12 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
       favorited: favorited,
       favorites: favoriteCount
     });
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error setting pack favorite status:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error setting pack favorite status:', error);
     return res.status(500).json({ error: 'Failed to set pack favorite status' });
   }
@@ -1903,28 +1907,24 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const itemId = parseInt(req.params.itemId);
 
     if (isNaN(itemId)) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid item ID' });
+      throw { error: 'Invalid item ID', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     if (!canEditPack(pack, req.user)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Access denied' });
+      throw { error: 'Access denied', code: 403 };
     }
 
     const item = await LevelPackItem.findOne({
@@ -1933,8 +1933,7 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
     });
 
     if (!item) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Item not found in pack' });
+      throw { error: 'Item not found in pack', code: 404 };
     }
 
 
@@ -1943,8 +1942,12 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
 
     return res.status(204).end();
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error deleting pack item:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error deleting pack item:', error);
     return res.status(500).json({ error: 'Failed to delete pack item' });
   }
@@ -1955,28 +1958,24 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
   const transaction = await sequelize.transaction();
 
   try {
-    const resolvedPackId = await resolvePackId(req.params.id);
+    const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Invalid pack ID or link code' });
+      throw { error: 'Invalid pack ID or link code', code: 400 };
     }
 
     const { items } = req.body;
 
     if (!Array.isArray(items)) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'items must be an array' });
+      throw { error: 'items must be an array', code: 400 };
     }
 
     const pack = await LevelPack.findByPk(resolvedPackId, { transaction });
     if (!pack) {
-      await safeTransactionRollback(transaction);
-      return res.status(404).json({ error: 'Pack not found' });
+      throw { error: 'Pack not found', code: 404 };
     }
 
     if (!canEditPack(pack, req.user)) {
-      await safeTransactionRollback(transaction);
-      return res.status(403).json({ error: 'Access denied' });
+      throw { error: 'Access denied', code: 403 };
     }
 
     // Validate all items belong to this pack and check for unique constraint violations
@@ -1990,8 +1989,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
     });
 
     if (packItems.length !== itemIds.length) {
-      await safeTransactionRollback(transaction);
-      return res.status(400).json({ error: 'Some items do not belong to this pack' });
+      throw { error: 'Some items do not belong to this pack', code: 400 };
     }
 
     const itemMap = new Map(packItems.map(item => [item.id, item]));
@@ -2015,15 +2013,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
           });
 
           if (existingFolder) {
-            await safeTransactionRollback(transaction);
-            return res.status(400).json({ 
-              error: `Folder "${item.name}" already exists in the target location`,
-              details: {
-                folderId: id,
-                folderName: item.name,
-                targetParentId: parentId
-              }
-            });
+            throw { error: `Folder "${item.name}" already exists in the target location`, code: 400 };
           }
         }
       }
@@ -2051,8 +2041,12 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
 
     return res.json({ success: true });
 
-  } catch (error) {
+  } catch (error: any) {
     await safeTransactionRollback(transaction);
+    if (error.code) {
+      if (error.code === 500) logger.error('Error reordering pack items:', error);
+      return res.status(error.code).json(error);
+    }
     logger.error('Error reordering pack items:', error);
     return res.status(500).json({ error: 'Failed to reorder pack items' });
   }
