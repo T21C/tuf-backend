@@ -111,10 +111,7 @@ const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
 
 // Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
 const resolvePackId = async (param: string, transaction?: any): Promise<number | null> => {
-
-  // Check if parameter looks like a linkCode (alphanumeric, but not pure numeric)
   if (/^[A-Za-z0-9]+$/.test(param)) {
-    // Try to find by linkCode
     const pack = await LevelPack.findOne({
       where: { linkCode: param },
       transaction
