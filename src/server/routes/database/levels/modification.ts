@@ -452,8 +452,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
         where: {id: levelId},
         transaction,
       });
-      const updatedLevel = await Level.findOne({
-        where: {id: levelId},
+      const updatedLevel = await Level.findByPk(levelId, {
         include: [
           {
             model: Difficulty,
@@ -471,6 +470,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
         ],
         transaction,
       });
+      transaction.commit();
       if (updatedLevel) {
         await elasticsearchService.indexLevel(updatedLevel);
       }
