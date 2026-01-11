@@ -316,8 +316,67 @@ const handleScoreRecalculations = async (
   return passes.map(pass => pass.playerId);
 };
 
-// Update a level
-router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/own/:id', Auth.verified(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const levelId = parseInt(req.params.id);
+    if (isNaN(levelId)) {
+      return res.status(400).json({error: 'Invalid level ID'});
+    }
+    const {canEdit, errorMessage} = await checkLevelOwnership(
+      levelId,
+      req.user,
+      transaction,
+    );
+    if (!canEdit && req.user) {
+      await safeTransactionRollback(transaction);
+      return res.status(403).json({error: errorMessage});
+    }
+    const updateData: any = {};
+    if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
+    if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
+    if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
+    if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
+    if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
+    await Level.update(updateData, {
+      where: {id: levelId},
+      transaction,
+    });
+    const updatedLevel = await Level.findByPk(levelId, {
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+        {
+          model: LevelTag,
+          as: 'tags',
+          required: false,
+          through: {
+            attributes: []
+          }
+        }
+      ],
+      transaction,
+    });
+    transaction.commit();
+    if (updatedLevel) {
+      await elasticsearchService.indexLevel(updatedLevel);
+    }
+    const response = {
+      message: 'Level updated successfully',
+      level: updatedLevel,
+    };
+    return res.status(200).json(response);
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating level:', error);
+    return res.status(500).json({error: 'Failed to update level'});
+  }
+});
+
+router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
   const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
@@ -441,67 +500,27 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     };
 
     // For non-admin creators, only include allowed fields
-    if (canEdit && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-      // Only allow specific fields for creators
-      if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
-      if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
-      if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
-      if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
-      if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
-      await Level.update(updateData, {
-        where: {id: levelId},
-        transaction,
-      });
-      const updatedLevel = await Level.findByPk(levelId, {
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-            required: false,
-          },
-          {
-            model: LevelTag,
-            as: 'tags',
-            required: false,
-            through: {
-              attributes: []
-            }
-          }
-        ],
-        transaction,
-      });
-      transaction.commit();
-      if (updatedLevel) {
-        await elasticsearchService.indexLevel(updatedLevel);
-      }
-      const response = {
-        message: 'Level updated successfully',
-        level: updatedLevel,
-      };
-      return res.status(200).json(response);
-    } else if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+   
       // Super admin has access to all fields
-      updateData.song = sanitizeTextInput(req.body.song);
-      updateData.artist = sanitizeTextInput(req.body.artist);
-      updateData.diffId = Number(req.body.diffId) || 0;
-      updateData.previousDiffId = previousDiffId;
-      updateData.baseScore = baseScore;
-      updateData.ppBaseScore = Number(req.body.ppBaseScore) || 0;
-      updateData.previousBaseScore = previousBaseScore;
-      updateData.videoLink = sanitizeTextInput(req.body.videoLink);
-      updateData.dlLink = sanitizeTextInput(req.body.dlLink);
-      updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
-      updateData.publicComments = sanitizeTextInput(req.body.publicComments);
-      updateData.rerateNum = sanitizeTextInput(req.body.rerateNum);
-      updateData.toRate = req.body.toRate ?? level.toRate;
-      updateData.rerateReason = sanitizeTextInput(req.body.rerateReason);
-      updateData.isDeleted = isDeleted;
-      updateData.isHidden = isHidden;
-      updateData.isAnnounced = isAnnounced;
-      updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
-    } else {
-      return res.status(403).json({error: 'You are not authorized to update this level'});
-    }
+    updateData.song = sanitizeTextInput(req.body.song);
+    updateData.artist = sanitizeTextInput(req.body.artist);
+    updateData.diffId = Number(req.body.diffId) || 0;
+    updateData.previousDiffId = previousDiffId;
+    updateData.baseScore = baseScore;
+    updateData.ppBaseScore = Number(req.body.ppBaseScore) || 0;
+    updateData.previousBaseScore = previousBaseScore;
+    updateData.videoLink = sanitizeTextInput(req.body.videoLink);
+    updateData.dlLink = sanitizeTextInput(req.body.dlLink);
+    updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
+    updateData.publicComments = sanitizeTextInput(req.body.publicComments);
+    updateData.rerateNum = sanitizeTextInput(req.body.rerateNum);
+    updateData.toRate = req.body.toRate ?? level.toRate;
+    updateData.rerateReason = sanitizeTextInput(req.body.rerateReason);
+    updateData.isDeleted = isDeleted;
+    updateData.isHidden = isHidden;
+    updateData.isAnnounced = isAnnounced;
+    updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
+
 
     await Level.update(updateData, {
       where: {id: levelId},
