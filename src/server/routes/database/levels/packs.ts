@@ -49,6 +49,7 @@ const MAX_LIMIT = 100;
 
 // Helper function to check if user can view pack
 const canViewPack = (pack: LevelPack, user: any): boolean => {
+  console.log('Pack view mode:', pack.viewMode);
   if (!pack) return false;
 
   // Owner can always view their own packs
@@ -110,14 +111,9 @@ const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
 
 // Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
 const resolvePackId = async (param: string, transaction?: any): Promise<number | null> => {
-  // Check if parameter is a numeric ID
-  const numericId = parseInt(param, 10);
-  if (!isNaN(numericId) && numericId > 0) {
-    return numericId;
-  }
 
   // Check if parameter looks like a linkCode (alphanumeric, but not pure numeric)
-  if (/^[A-Za-z0-9]+$/.test(param) && isNaN(numericId)) {
+  if (/^[A-Za-z0-9]+$/.test(param)) {
     // Try to find by linkCode
     const pack = await LevelPack.findOne({
       where: { linkCode: param },
@@ -486,6 +482,7 @@ router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) 
     const param = req.params.id;
     const { tree = 'true' } = req.query;
     const resolvedPackId = await resolvePackId(param);
+    logger.info('Resolved pack ID:', resolvedPackId);
     if (!resolvedPackId) {
       return res.status(404).json({ error: 'Pack not found' });
     }

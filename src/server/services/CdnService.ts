@@ -8,6 +8,7 @@ import { getFileIdFromCdnUrl } from '../../misc/utils/Utility.js';
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
 const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR', 'read ECONNRESET'];
+const MAX_PACK_GENERATION_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
 export class CdnError extends Error {
     constructor(
@@ -541,9 +542,12 @@ class CdnService {
     }> {
         try {
             // Increased timeout to 30 minutes - progress is tracked via SSE, so long waits are acceptable
-            const response = await this.client.post('/zips/packs/generate', request, {timeout: 1800000}); // 30 minutes timeout
+            const response = await this.client.post('/zips/packs/generate', request, {timeout: MAX_PACK_GENERATION_TIMEOUT_MS}); // 60 hours timeout
             return response.data;
-        } catch (error) {
+        } catch (error: any) {
+            if (error.error.includes('timeout') || error.message.includes('timeout')) {
+                //just ignore idc
+            }
             this.handleCdnError(
                 error,
                 'generate pack download from CDN',
