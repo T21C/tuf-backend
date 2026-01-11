@@ -448,6 +448,37 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
       if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
       if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
+      await Level.update(updateData, {
+        where: {id: levelId},
+        transaction,
+      });
+      const updatedLevel = await Level.findOne({
+        where: {id: levelId},
+        include: [
+          {
+            model: Difficulty,
+            as: 'difficulty',
+            required: false,
+          },
+          {
+            model: LevelTag,
+            as: 'tags',
+            required: false,
+            through: {
+              attributes: []
+            }
+          }
+        ],
+        transaction,
+      });
+      if (updatedLevel) {
+        await elasticsearchService.indexLevel(updatedLevel);
+      }
+      const response = {
+        message: 'Level updated successfully',
+        level: updatedLevel,
+      };
+      return res.status(200).json(response);
     } else if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       // Super admin has access to all fields
       updateData.song = sanitizeTextInput(req.body.song);
