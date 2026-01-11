@@ -441,14 +441,14 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     };
 
     // For non-admin creators, only include allowed fields
-    if (!canEdit) {
+    if (canEdit && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       // Only allow specific fields for creators
       if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
       if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
       if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
       if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
       if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
-    } else {
+    } else if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
       // Super admin has access to all fields
       updateData.song = sanitizeTextInput(req.body.song);
       updateData.artist = sanitizeTextInput(req.body.artist);
@@ -468,6 +468,8 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       updateData.isHidden = isHidden;
       updateData.isAnnounced = isAnnounced;
       updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
+    } else {
+      return res.status(403).json({error: 'You are not authorized to update this level'});
     }
 
     await Level.update(updateData, {
