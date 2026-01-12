@@ -8,7 +8,7 @@ const botAvatar = process.env.BOT_AVATAR_URL || '';
 
 async function logLevelFileUpdateHook(originalPath: string, newPath: string, levelId: number, user: User): Promise<void> {
     const hook = new Webhook(process.env.LEVEL_FILE_UPDATE_HOOK);
-    hook.setUsername('TUF Level File Updated');
+    hook.setUsername('Level Updates');
     hook.setAvatar(botAvatar);
 
     const level = await Level.findByPk(levelId, { include: {model: Difficulty, as: 'difficulty'} });
@@ -21,17 +21,18 @@ async function logLevelFileUpdateHook(originalPath: string, newPath: string, lev
     .setAuthor(user.username, user.avatarUrl || '', `${clientUrlEnv}/profile/${user.playerId}`)
     .setTitle('Level File Update')
     .setThumbnail(level.difficulty?.icon || '')
-    .addField(`Level #${levelId}`, `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`, true)
-    .addField('Original Path', originalPath, true)
-    .addField('New Path', newPath, true)
+    .addField(`Level #${levelId}`, `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`, false)
+    .addField('Original Path', originalPath, false)
+    .addField('New Path', newPath, false)
+    .setURL(`${clientUrlEnv}/levels/${levelId}`)
     .setColor('#99ff00')
     .setTimestamp();
     await hook.send(embed);
   }
 
-  async function logLevelFileDeleteHook(levelId: number, user: User): Promise<void> {
+async function logLevelFileDeleteHook(levelId: number, user: User): Promise<void> {
     const hook = new Webhook(process.env.LEVEL_FILE_UPDATE_HOOK);
-    hook.setUsername('TUF Level File Deleted');
+    hook.setUsername('Level Updates');
     hook.setAvatar(botAvatar);
 
     const level = await Level.findByPk(levelId, { include: {model: Difficulty, as: 'difficulty'} });
@@ -46,13 +47,14 @@ async function logLevelFileUpdateHook(originalPath: string, newPath: string, lev
     .setThumbnail(level.difficulty?.icon || '')
     .addField(`Level #${levelId}`, `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`, true)
     .setTimestamp()
+    .setURL(`${clientUrlEnv}/levels/${levelId}`)
     .setColor('#990000');
     await hook.send(embed);
   }
 
-  async function logLevelFileUploadHook(filePath: string, levelId: number, user: User): Promise<void> {
+async function logLevelFileUploadHook(filePath: string, levelId: number, user: User): Promise<void> {
     const hook = new Webhook(process.env.LEVEL_FILE_UPDATE_HOOK);
-    hook.setUsername('TUF Level File Uploaded');
+    hook.setUsername('Level Updates');
     hook.setAvatar(botAvatar);
     const level = await Level.findByPk(levelId, { include: {model: Difficulty, as: 'difficulty'} });
     if (!level) {
@@ -65,14 +67,15 @@ async function logLevelFileUpdateHook(originalPath: string, newPath: string, lev
     .setThumbnail(level.difficulty?.icon || '')
     .addField(`Level #${levelId}`, `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`, true)
     .addField('File Path', filePath, false)
+    .setURL(`${clientUrlEnv}/levels/${levelId}`)
     .setTimestamp()
     .setColor('#00cc00');
     await hook.send(embed);
   }
 
-  async function logLevelTargetUpdateHook(target: string, levelId: number, user: User): Promise<void> {
+async function logLevelTargetUpdateHook(target: string, levelId: number, user: User): Promise<void> {
     const hook = new Webhook(process.env.LEVEL_FILE_UPDATE_HOOK);
-    hook.setUsername('TUF Level Target Updated');
+    hook.setUsername('Level Updates');
     hook.setAvatar(botAvatar);
 
     const level = await Level.findByPk(levelId, { include: {model: Difficulty, as: 'difficulty'} });
@@ -83,14 +86,84 @@ async function logLevelFileUpdateHook(originalPath: string, newPath: string, lev
     const embed = new MessageBuilder()
     .addEmbed()
     .setAuthor(user.username, user.avatarUrl || '', `${clientUrlEnv}/profile/${user.playerId}`)
-    .setTitle('Level Target Updated')
+    .setTitle(`Level #${levelId} - Target Updated`)
     .setThumbnail(level.difficulty?.icon || '')
     .addField(`Level #${levelId}`, `${level.song || 'Unknown Song'} — ${level.artist || 'Unknown Artist'}`, true)
     .addField('Target', target, false)
+    .setURL(`${clientUrlEnv}/levels/${levelId}`)
     .setTimestamp()
-    .setColor('#777777');
+    .setColor('#5555ff');
     await hook.send(embed);
   }
 
   
-  export { logLevelFileUpdateHook, logLevelFileDeleteHook, logLevelFileUploadHook, logLevelTargetUpdateHook };
+function getLevelMetadata(level: Level): {song: string | null, artist: string | null, videoLink: string | null, dlLink: string | null, workshopLink: string | null} {
+    return {
+      song: level.song || null,
+      artist: level.artist || null,
+      videoLink: level.videoLink || null,
+      dlLink: level.dlLink || null,
+      workshopLink: level.workshopLink || null,
+    };
+}
+
+function formatValue(value: string | null): string {
+    return value || '(empty)';
+}
+
+async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user: User): Promise<void> {
+    const hook = new Webhook(process.env.LEVEL_FILE_UPDATE_HOOK);
+    hook.setUsername('Level Updates');
+    hook.setAvatar(botAvatar);
+    
+    const oldMetadata = getLevelMetadata(oldLevel);
+    const newMetadata = getLevelMetadata(newLevel);
+
+    const embed = new MessageBuilder()
+    .addEmbed()
+    .setTitle(`Level #${newLevel.id} - Info Changed`)
+    .setAuthor(user.username, user.avatarUrl || '', `${clientUrlEnv}/profile/${user.playerId}`)
+    .setThumbnail(newLevel.difficulty?.icon || '')
+    .setTimestamp()
+    .setColor('#aaaaaa')
+    .setURL(`${clientUrlEnv}/levels/${newLevel.id}`)
+
+    // Compare each field and add changed fields
+    const fieldLabels: Record<string, string> = {
+        song: 'Song',
+        artist: 'Artist',
+        videoLink: 'Video Link',
+        dlLink: 'Download Link',
+        workshopLink: 'Workshop Link'
+    };
+
+    let hasChanges = false;
+    for (const [key, label] of Object.entries(fieldLabels)) {
+        const oldValue = oldMetadata[key as keyof typeof oldMetadata];
+        const newValue = newMetadata[key as keyof typeof newMetadata];
+        
+        // Compare values (treat null/undefined/empty as equal)
+        const oldVal = oldValue || '';
+        const newVal = newValue || '';
+        
+        if (oldVal !== newVal) {
+            hasChanges = true;
+            const changeText = `${formatValue(oldVal as string)} ➔ ${formatValue(newVal as string)}`;
+            embed.addField(label, changeText, false);
+        }
+    }
+
+    // Only send if there are actual changes
+    if (hasChanges) {
+        await hook.send(embed);
+    }
+}
+
+  
+export { 
+  logLevelFileUpdateHook, 
+  logLevelFileDeleteHook, 
+  logLevelFileUploadHook, 
+  logLevelTargetUpdateHook, 
+  logLevelMetadataUpdateHook 
+};

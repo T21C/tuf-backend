@@ -44,6 +44,7 @@ import {
   logLevelFileUpdateHook,
   logLevelFileDeleteHook,
   logLevelTargetUpdateHook,
+  logLevelMetadataUpdateHook,
 } from '../../webhooks/misc.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
@@ -338,37 +339,17 @@ router.put('/own/:id', Auth.verified(), async (req: Request, res: Response) => {
     if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
     if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
     if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
-    await Level.update(updateData, {
-      where: {id: levelId},
-      transaction,
-    });
-    const updatedLevel = await Level.findByPk(levelId, {
-      include: [
-        {
-          model: Difficulty,
-          as: 'difficulty',
-          required: false,
-        },
-        {
-          model: LevelTag,
-          as: 'tags',
-          required: false,
-          through: {
-            attributes: []
-          }
-        }
-      ],
-      transaction,
-    });
-    transaction.commit();
-    if (updatedLevel) {
-      await elasticsearchService.indexLevel(updatedLevel);
+    const level = await Level.findByPk(levelId, {transaction});
+    if (!level) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({error: 'Level not found'});
     }
-    const response = {
-      message: 'Level updated successfully',
-      level: updatedLevel,
-    };
-    return res.status(200).json(response);
+    const oldLevel = {...level.dataValues} as Level;
+    await level.update(updateData, {transaction});
+    await transaction.commit();
+    await elasticsearchService.indexLevel(level);
+    await logLevelMetadataUpdateHook(oldLevel, level, req.user as User);
+    return res.status(200).json({message: 'Level updated successfully', level: level});
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error updating level:', error);
