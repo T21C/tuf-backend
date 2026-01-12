@@ -627,15 +627,6 @@ router.get('/', async (req, res) => {
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // Check for existing curation for this level
-    const existingCuration = await Curation.findOne({
-      where: { levelId }
-    });
-
-    if (existingCuration) {
-      return res.status(409).json({error: 'This level is already curated'});
-    }
-
     // First look for a curation type named "T1"
     let assignableType = await CurationType.findOne({
       where: {
@@ -669,6 +660,18 @@ router.get('/', async (req, res) => {
       if (!assignableType) {
         return res.status(403).json({error: 'You do not have permission to assign any curation types'});
       }
+    }
+
+    // Check for existing curation with the same levelId and typeId combination
+    const existingCuration = await Curation.findOne({
+      where: { 
+        levelId,
+        typeId: assignableType.id
+      }
+    });
+
+    if (existingCuration) {
+      return res.status(409).json({error: `This level already has a curation of type "${assignableType.name}"`});
     }
 
     const curation = await Curation.create({
