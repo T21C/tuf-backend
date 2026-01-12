@@ -662,6 +662,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         accessCount?: number;
         tilecount?: number;
         analysis?: AnalysisCacheData;
+        durations?: number[];
     } = {};
     
     // If no modes specified, return full level data (no caching for this case)
@@ -679,7 +680,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     // Determine if we need to load the level file
     // Analysis requires the level file if not cached, but we can compute it during cache population
     const needsLevelFile = requestedModes.some(mode => 
-        (mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles') ||
+        (mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles' || mode === 'durations') ||
         (mode === 'settings' && !cacheHits.settings) ||
         (mode === 'tilecount' && !cacheHits.tilecount) ||
         (mode === 'analysis' && !cacheHits.analysis)
@@ -690,7 +691,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     if (needsLevelFile) {
         // Determine if we need non-cached data that requires level file loading
         const needsNonCachedData = requestedModes.some(mode => 
-            mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles'
+            mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles' || mode === 'durations'
         );
         
         // If we need analysis but don't have it cached, we need to load the level file for cache population
@@ -741,6 +742,11 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         if (requestedModes.includes('relativeAngles')) {
             response.relativeAngles = levelData.getAnglesRelative();
         }
+        // Durations are always extracted on-demand from levelData (not cached)
+        if (requestedModes.includes('durations')) {
+            const durations = levelData.getDurations();
+            response.durations = durations.filter((d): d is number => d !== undefined);
+        }
     }
 
     // accessCount is always available from file record
@@ -756,6 +762,27 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         }
         logger.error('Unexpected error getting level data for ' + req.params.fileId + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting level data' });
+    }
+});
+
+// Get durations from an existing CDN file
+router.get('/:fileId/durations', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        
+        const durations = await levelCacheService.getDurationsFromCdnFile(fileId);
+        
+        if (durations === null) {
+            return res.status(404).json({ error: 'File not found or could not extract durations' });
+        }
+        
+        return res.json({ durations });
+    } catch (error) {
+        logger.error('Error getting durations from CDN file:', error);
+        return res.status(500).json({ 
+            error: 'Failed to get durations',
+            details: error instanceof Error ? error.message : String(error)
+        });
     }
 });
 

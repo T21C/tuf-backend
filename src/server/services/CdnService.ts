@@ -578,6 +578,28 @@ class CdnService {
     }
 
     /**
+     * Get durations from an existing CDN file
+     * Returns null if file doesn't exist or can't be parsed
+     */
+    async getDurationsFromFile(fileId: string): Promise<number[] | null> {
+        try {
+            const response = await this.client.get(`/levels/${fileId}/durations`);
+            return response.data.durations;
+        } catch (error) {
+            // Handle 404 as a valid case (file doesn't exist)
+            if (error instanceof AxiosError && error.response?.status === 404) {
+                return null;
+            }
+            this.handleCdnError(
+                error,
+                'get durations from CDN file',
+                'Failed to get durations from file',
+                'GET_DURATIONS_ERROR'
+            );
+        }
+    }
+
+    /**
      * Unified error handler for CDN service errors.
      * Converts Axios errors to CdnError and handles ignored error codes.
      * 

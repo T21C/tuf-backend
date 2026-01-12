@@ -46,9 +46,105 @@ import {
   logLevelTargetUpdateHook,
   logLevelMetadataUpdateHook,
 } from '../../webhooks/misc.js';
-
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
+
+/**
+ * Compare two duration arrays with a tolerance of ~0.5ms
+ * Returns mismatch information including indices and ranges
+ */
+interface DurationMismatchResult {
+  matches: boolean;
+  mismatches: number[];
+  ranges: Array<{ start: number; end: number }>;
+}
+
+function compareDurations(originalDurations: number[], newDurations: number[]): DurationMismatchResult {
+  const result: DurationMismatchResult = {
+    matches: true,
+    mismatches: [],
+    ranges: []
+  };
+
+  if (originalDurations.length !== newDurations.length) {
+    result.matches = false;
+    return result;
+  }
+  
+  const tolerance = 0.5; // ms
+  
+  // Find all mismatches
+  for (let i = 0; i < originalDurations.length; i++) {
+    const diff = Math.abs(originalDurations[i] - newDurations[i]);
+    if (diff > tolerance) {
+      result.matches = false;
+      result.mismatches.push(i);
+    }
+  }
+  
+  // Group consecutive mismatches into ranges
+  if (result.mismatches.length > 0) {
+    let rangeStart = result.mismatches[0];
+    let rangeEnd = result.mismatches[0];
+    
+    for (let i = 1; i < result.mismatches.length; i++) {
+      if (result.mismatches[i] === rangeEnd + 1) {
+        // Consecutive, extend range
+        rangeEnd = result.mismatches[i];
+      } else {
+        // Gap found, save current range and start new one
+        result.ranges.push({ start: rangeStart, end: rangeEnd });
+        rangeStart = result.mismatches[i];
+        rangeEnd = result.mismatches[i];
+      }
+    }
+    // Add the last range
+    result.ranges.push({ start: rangeStart, end: rangeEnd });
+  }
+  
+  return result;
+}
+
+/**
+ * Format duration mismatch message for user feedback
+ */
+function formatDurationMismatchMessage(mismatchResult: DurationMismatchResult): string {
+  if (mismatchResult.matches) {
+    return '';
+  }
+
+  const { mismatches, ranges } = mismatchResult;
+  
+  // If there are less than 5 singular mismatches (no consecutive ranges), list them directly
+  if (mismatches.length < 5 && ranges.length === mismatches.length) {
+    // All mismatches are singular (no consecutive tiles)
+    const tileNumbers = mismatches.map(index => index + 1).join(', '); // Convert to 1-based tile numbers
+    return `Tiles ${tileNumbers} have different timing than original`;
+  }
+  
+  // If there are ranges, format up to 3 ranges
+  const displayRanges = ranges.slice(0, 3);
+  const remainingRanges = ranges.length - 3;
+  const remainingMismatches = remainingRanges > 0 
+    ? ranges.slice(3).reduce((sum, range) => sum + (range.end - range.start + 1), 0)
+    : 0;
+  
+  const rangeStrings = displayRanges.map(range => {
+    if (range.start === range.end) {
+      return `Tile ${range.start + 1}`; // Single tile, convert to 1-based
+    } else {
+      return `Tiles ${range.start + 1}-${range.end + 1}`; // Range, convert to 1-based
+    }
+  });
+  
+  let message = rangeStrings.join(', ');
+  
+  if (remainingRanges > 0) {
+    message += `, and ${remainingMismatches} more tile${remainingMismatches !== 1 ? 's' : ''}`;
+  }
+  
+  return `${message} have different timing than original`;
+}
 
 const router = Router();
 
@@ -345,6 +441,17 @@ router.put('/own/:id', Auth.verified(), async (req: Request, res: Response) => {
       return res.status(404).json({error: 'Level not found'});
     }
     const oldLevel = {...level.dataValues} as Level;
+    if (
+      canEdit
+      && level.clears > 0
+      && level.dlLink
+      && !isCdnUrl(level.dlLink)
+      || isCdnUrl(req.body.dlLink)
+      ) {
+        updateData.dlLink = undefined;
+      }
+
+
     await level.update(updateData, {transaction});
     await transaction.commit();
     await elasticsearchService.indexLevel(level);
@@ -1125,6 +1232,20 @@ router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) 
         throw {error: errorMessage, code: 403};
       }
 
+
+      if (
+        !hasFlag(req.user, permissionFlags.SUPER_ADMIN) 
+        && canEdit
+        && level.clears > 0
+        && level.dlLink
+        && !isCdnUrl(level.dlLink)
+        ) {
+        throw {
+          error: 'You cannot change the download link if the level has existing clears',
+          code: 400,
+        };
+      }
+
       try {
         // Store the old file ID for cleanup if it exists
         let oldFileId: string | null = null;
@@ -1168,10 +1289,112 @@ router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) 
 
         const fileBuffer = await fs.promises.readFile(assembledFilePath);
 
+        // Upload the file first
         const uploadResult = await cdnService.uploadLevelZip(
           fileBuffer,
           fileName,
         );
+
+        // Validate that chart gameplay hasn't changed by comparing durations
+        if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN) && canEdit && level.clears > 0) {
+        try {
+          // Get original durations from CDN if file exists
+          let originalDurations: number[] | null = null;
+          if (level.dlLink && isCdnUrl(level.dlLink)) {
+            const originalFileId = getFileIdFromCdnUrl(level.dlLink);
+            if (originalFileId) {
+              originalDurations = await cdnService.getDurationsFromFile(originalFileId);
+            }
+          }
+          
+          // If original file exists, validate durations match
+          if (originalDurations) {
+            // Extract durations from the newly uploaded file using CDN service
+            const newDurations = await cdnService.getDurationsFromFile(uploadResult.fileId);
+            
+            if (!newDurations) {
+              // Failed to extract durations from new file, delete it and throw error
+              try {
+                await cdnService.deleteFile(uploadResult.fileId);
+              } catch (deleteError) {
+                logger.error('Failed to delete uploaded file after duration extraction failure:', deleteError);
+              }
+              throw {
+                error: 'Failed to extract durations from uploaded file',
+                code: 500,
+              };
+            }
+            
+            logger.debug('Comparing durations - Original:', originalDurations.length, 'New:', newDurations.length);
+            
+            // First check if the tile counts match
+            if (originalDurations.length !== newDurations.length) {
+              // Delete the uploaded file since tile count doesn't match
+              try {
+                await cdnService.deleteFile(uploadResult.fileId);
+                logger.debug('Deleted uploaded file due to tile count mismatch', {
+                  fileId: uploadResult.fileId,
+                  levelId,
+                  originalTileCount: originalDurations.length,
+                  newTileCount: newDurations.length
+                });
+              } catch (deleteError) {
+                logger.error('Failed to delete uploaded file after tile count mismatch:', deleteError);
+              }
+              
+              throw {
+                error: `Chart tile count mismatch. Original chart has ${originalDurations.length} tiles, uploaded chart has ${newDurations.length} tiles.`,
+                code: 400,
+              };
+            }
+            
+            // Compare durations - if they don't match, delete the uploaded file and reject
+            const mismatchResult = compareDurations(originalDurations, newDurations);
+            if (!mismatchResult.matches) {
+              // Delete the uploaded file since validation failed
+              try {
+                await cdnService.deleteFile(uploadResult.fileId);
+                logger.debug('Deleted uploaded file due to duration mismatch', {
+                  fileId: uploadResult.fileId,
+                  levelId,
+                  mismatchCount: mismatchResult.mismatches.length,
+                  rangeCount: mismatchResult.ranges.length
+                });
+              } catch (deleteError) {
+                logger.error('Failed to delete uploaded file after validation failure:', deleteError);
+              }
+              
+              // Format detailed error message
+              const detailedMessage = formatDurationMismatchMessage(mismatchResult);
+              
+              throw {
+                error: detailedMessage || 'Chart gameplay has changed. The timing/delays between inputs do not match the original chart.',
+                code: 400,
+              };
+            }
+          }
+        } catch (validationError: any) {
+          // Clean up the assembled file
+          try {
+            await fs.promises.unlink(assembledFilePath);
+          } catch (unlinkError: any) {
+            if (unlinkError.code !== 'ENOENT') {
+              logger.warn('Failed to clean up assembled file after validation failure:', unlinkError);
+            }
+          }
+          
+          // If it's our validation error, re-throw it
+          if (validationError.code === 400 || validationError.code === 500) {
+            throw validationError;
+          }
+          // If it's an error getting original durations (e.g., no original file), log and continue
+          logger.warn('Could not validate durations (original file may not exist):', {
+            levelId,
+            error: validationError instanceof Error ? validationError.message : String(validationError),
+          });
+          // Continue with upload if we can't validate (e.g., first upload)
+        }
+        }
 
         // Clean up the assembled file
         try {
@@ -1355,7 +1578,7 @@ router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) 
       }
 
       if (error.code) {
-        logger.error('Error uploading level file:', error);
+        if (error.code === 500) logger.error('Error uploading level file:', error);
         return res.status(error.code).json(error);
       }
       
@@ -1421,7 +1644,7 @@ router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Resp
     } catch (error: any) {
       await safeTransactionRollback(transaction);
       if (error.code) {
-        logger.error('Error selecting level file:', error);
+        if (error.code === 500) logger.error('Error selecting level file:', error);
         return res.status(error.code).json(error);
       }
       logger.error('Error selecting level file:', error);

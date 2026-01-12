@@ -1002,7 +1002,7 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
       throw { error: 'Access denied', code: 403 };
     }
 
-    const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
+    const { name, cssFlags, viewMode, isPinned } = req.body;
     const updateData: any = {};
 
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
@@ -1016,7 +1016,6 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
       updateData.name = name.trim();
     }
 
-    if (iconUrl !== undefined) updateData.iconUrl = iconUrl;
     if (cssFlags !== undefined) updateData.cssFlags = cssFlags;
 
     // Only allow admins to modify pin status

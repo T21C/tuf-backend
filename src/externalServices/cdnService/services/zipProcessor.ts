@@ -288,8 +288,16 @@ export async function processZipFile(
         const pathConfirmed = false;
 
         if (allLevelFiles.length > 0) {
-            // Always select the largest level file as target
-            const largestLevel = allLevelFiles.reduce((largest, current) => {
+            // Filter out backup.adofai files first, prefer any other level file
+            const nonBackupFiles = allLevelFiles.filter(file => 
+                file.name.toLowerCase() !== 'backup.adofai'
+            );
+            
+            // Select target level: prefer non-backup files, fall back to backup if it's the only option
+            const candidateFiles = nonBackupFiles.length > 0 ? nonBackupFiles : allLevelFiles;
+            
+            // Select the largest level file from candidates
+            const largestLevel = candidateFiles.reduce((largest, current) => {
                 return (current.size > largest.size) ? current : largest;
             });
 
@@ -300,6 +308,8 @@ export async function processZipFile(
                 size: largestLevel.size,
                 path: largestLevel.path,
                 totalLevels: allLevelFiles.length,
+                nonBackupCount: nonBackupFiles.length,
+                isBackup: largestLevel.name.toLowerCase() === 'backup.adofai',
                 storageType: levelUploadResult.storageType
             });
         }

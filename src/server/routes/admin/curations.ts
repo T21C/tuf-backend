@@ -179,7 +179,7 @@ router.get('/types', async (req, res) => {
 // Create curation type
 router.post('/types', Auth.superAdminPassword(), async (req, res) => {
   try {
-    const {name, icon, color, abilities} = req.body;
+    const {name, color, abilities} = req.body;
 
     if (!name) {
       return res.status(400).json({error: 'Name is required'});
@@ -200,7 +200,6 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
 
     const type = await CurationType.create({
       name: name.trim(),
-      icon,
       color: color || '#ffffff',
       abilities: abilities ? BigInt(abilities) : 0n,
       sortOrder: 0,
@@ -225,7 +224,7 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
 router.put('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
   try {
     const {id} = req.params;
-    const {name, icon, color, abilities} = req.body;
+    const {name, color, abilities} = req.body;
 
     const type = await CurationType.findByPk(id);
     if (!type) {
@@ -258,7 +257,6 @@ router.put('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res
 
     await type.update({
       name: name ? name.trim() : type.name,
-      icon,
       color,
       abilities: abilities ? BigInt(abilities) : type.abilities,
     });
@@ -733,7 +731,7 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
-    const {shortDescription, description, previewLink, customCSS, customColor, typeId} = req.body;
+    const {shortDescription, description, customCSS, customColor, typeId} = req.body;
 
     const curation = await Curation.findByPk(id, { transaction });
     if (!curation) {
@@ -743,7 +741,6 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     await curation.update({
       shortDescription,
       description,
-      previewLink,
       customCSS,
       customColor,
       typeId: typeId || curation.typeId,

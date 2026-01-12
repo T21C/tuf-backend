@@ -637,6 +637,51 @@ class LevelCacheService {
 
         return response;
     }
+
+    /**
+     * Get durations from an existing CDN file
+     * Returns null if file doesn't exist or can't be parsed
+     */
+    async getDurationsFromCdnFile(fileId: string): Promise<number[] | null> {
+        const cdnFile = await CdnFile.findByPk(fileId);
+        
+        if (!cdnFile) {
+            return null;
+        }
+        
+        try {
+            // Get the level file path from CDN
+            const metadata = cdnFile.metadata as any;
+            if (!metadata?.targetLevel) {
+                return null;
+            }
+            
+            const levelPath = metadata.targetLevel;
+            
+            // Check if file exists
+            const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                levelPath,
+                metadata.levelStorageType || metadata.storageType
+            );
+            
+            if (!fileCheck.exists) {
+                return null;
+            }
+            
+            // Load and parse the level file
+            const { levelData } = await this.loadLevelData(cdnFile, levelPath, metadata);
+            
+            // Get durations and filter out undefined values
+            const durations = levelData.getDurations();
+            return durations.filter((d): d is number => d !== undefined);
+        } catch (error) {
+            logger.error('Failed to get durations from CDN file:', {
+                fileId,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return null;
+        }
+    }
 }
 
 export const levelCacheService = LevelCacheService.getInstance();
