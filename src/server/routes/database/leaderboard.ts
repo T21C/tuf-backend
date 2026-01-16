@@ -4,11 +4,17 @@ import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import User from '../../../models/auth/User.js';
 import OAuthProvider from '../../../models/auth/OAuthProvider.js';
 import { logger } from '../../services/LoggerService.js';
+import { Cache, CacheInvalidation } from '../../middleware/cache.js';
+import PlayerStats from '../../../models/players/PlayerStats.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', Cache({ 
+  ttl: 300,
+  varyByQuery: ['sortBy', 'order', 'showBanned', 'query', 'offset', 'limit', 'filters'],
+  tags: ['leaderboard:all'] // Tag all list queries
+}), async (req: Request, res: Response) => {
   try {
     const {
       sortBy = 'rankedScore',
@@ -143,6 +149,21 @@ router.get('/', async (req: Request, res: Response) => {
     return res.status(500).json({
       error: 'Failed to fetch leaderboard',
       details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// =============== CACHE CONTROL =================
+
+const invalidatePlayerStatsCache = async () => {
+  await CacheInvalidation.invalidateTags(['leaderboard:all']);
+};
+
+
+PlayerStats.afterBulkCreate('cacheInvalidationPlayerStatsBulkCreate', async (instances: any, options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePlayerStatsCache();
     });
   }
 });

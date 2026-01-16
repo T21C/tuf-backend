@@ -9,6 +9,7 @@ import { logger } from '../../services/LoggerService.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import Creator from '../../../models/credits/Creator.js';
 import Team from '../../../models/credits/Team.js';
+import { Cache, CacheInvalidation } from '../../middleware/cache.js';
 
 interface ILevelWithReference extends Level {
   reference?: {
@@ -24,7 +25,10 @@ interface IReferenceUpdate {
 const router: Router = Router();
 
 // Get all references grouped by difficulty
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', Cache({ 
+  ttl: 60*60*24*7, // week
+  tags: ['references:all'] // Tag all list queries
+}), async (req: Request, res: Response) => {
   try {
     // First get all difficulties with their references
     const difficulties = await Difficulty.findAll({
@@ -83,12 +87,14 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Get references for a specific difficulty
-router.get('/difficulty/:difficultyId([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get('/difficulty/:difficultyId([0-9]{1,20})', Cache({ 
+  ttl: 60*60*24*7, // week
+  tags: ['references:difficulty'] // Tag all list queries
+}), async (req: Request, res: Response) => {
   try {
     const {difficultyId} = req.params;
 
-    const difficulty = await Difficulty.findOne({
-      where: {id: difficultyId},
+    const difficulty = await Difficulty.findByPk(parseInt(difficultyId), {
       include: [
         {
           model: Level,
@@ -138,11 +144,14 @@ router.get('/difficulty/:difficultyId([0-9]{1,20})', async (req: Request, res: R
 });
 
 // Get references by level ID
-router.get('/level/:levelId([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get('/level/:levelId([0-9]{1,20})', Cache({ 
+  ttl: 60*60*24*7, // week
+  tags: ['references:level'] // Tag all list queries
+}), async (req: Request, res: Response) => {
   try {
     const {levelId} = req.params;
     const references = await Reference.findAll({
-      where: {levelId},
+      where: {levelId: parseInt(levelId)},
       include: [
         {
           model: Difficulty,
@@ -312,6 +321,39 @@ router.put('/bulk/:difficultyId([0-9]{1,20})', Auth.superAdmin(), async (req: Re
     logger.error('Error bulk updating references:', error);
     return res.status(500).json({ error: 'Failed to bulk update references' });
   }
+});
+
+
+// =============== CACHE CONTROL =================
+
+const invalidateReferencesCache = async () => {
+  await CacheInvalidation.invalidateTags(['references:all']);
+  await CacheInvalidation.invalidateTags(['references:difficulty']);
+  await CacheInvalidation.invalidateTags(['references:level']);
+};
+
+Reference.afterBulkCreate('cacheInvalidationReferenceBulkCreate', async () => {
+  await invalidateReferencesCache();
+}); 
+
+Reference.afterBulkUpdate('cacheInvalidationReferenceBulkUpdate', async () => {
+  await invalidateReferencesCache();
+});
+
+Reference.afterBulkDestroy('cacheInvalidationReferenceBulkDestroy', async () => {
+  await invalidateReferencesCache();
+});
+
+Reference.afterDestroy('cacheInvalidationReferenceDestroy', async () => {
+  await invalidateReferencesCache();
+});
+
+Reference.afterUpdate('cacheInvalidationReferenceUpdate', async () => {
+  await invalidateReferencesCache();
+});
+
+Reference.afterCreate('cacheInvalidationReferenceCreate', async () => {
+  await invalidateReferencesCache();
 });
 
 export default router;
