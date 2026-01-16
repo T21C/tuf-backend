@@ -1,12 +1,14 @@
-import { createClient, RedisClientType } from 'redis';
+import { createClient } from 'redis';
 import { logger } from './LoggerService.js';
 
 /**
  * Redis Service - Singleton for managing Redis connection
+ * Uses explicit any for client to avoid deep type inference from redis package
  */
 class RedisService {
   private static instance: RedisService;
-  private client: RedisClientType | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private client: any = null;
   private isConnecting: boolean = false;
   private connectionPromise: Promise<void> | null = null;
 
@@ -43,7 +45,7 @@ class RedisService {
         this.client = createClient({
           url: redisUrl,
           socket: {
-            reconnectStrategy: (retries) => {
+            reconnectStrategy: (retries: number) => {
               if (retries > 10) {
                 logger.error('Redis: Max reconnection attempts reached');
                 return new Error('Max reconnection attempts reached');
@@ -55,7 +57,7 @@ class RedisService {
           },
         });
 
-        this.client.on('error', (err) => {
+        this.client.on('error', (err: Error) => {
           logger.error('Redis client error:', err);
         });
 
@@ -87,7 +89,8 @@ class RedisService {
   /**
    * Get the Redis client (ensures connection)
    */
-  public async getClient(): Promise<RedisClientType | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public async getClient(): Promise<any> {
     if (!this.client?.isReady) {
       try {
         await this.connect();
