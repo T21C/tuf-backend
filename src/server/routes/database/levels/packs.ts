@@ -260,6 +260,8 @@ const sortableFields = {
 // GET /packs - List all packs
 router.get('/', Auth.addUserToRequest(), Cache({ 
   ttl: 300,
+  varyByUser: true,
+  varyByQuery: ['query', 'viewMode', 'pinned', 'myLikesOnly', 'offset', 'limit', 'sort', 'order'],
   tags: ['packs:all'] // Tag all list queries
 }), async (req: Request, res: Response) => {
   try {
@@ -480,7 +482,9 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
 
 // GET /packs/:id - Get specific pack with its content tree
 router.get('/:id', Auth.addUserToRequest(), Cache({ 
-  ttl: 300,
+  ttl: 60*60*24, // 24 hours
+  varyByUser: true,
+  varyByQuery: ['tree'],
   tags: (req) => {
     // Tag with pack ID - we'll resolve it in the handler
     // For now, tag with the param (could be ID or linkCode)
