@@ -22,6 +22,7 @@ import LevelCredit from '../../../../models/levels/LevelCredit.js';
 import LevelTag from '../../../../models/levels/LevelTag.js';
 import Creator from '../../../../models/credits/Creator.js';
 import Team from '../../../../models/credits/Team.js';
+import { Cache, CacheInvalidation } from '../../../middleware/cache.js';
 
 const router: Router = Router();
 
@@ -124,6 +125,7 @@ const resolvePackId = async (param: string, transaction?: any): Promise<number |
 
   return null;
 };
+
 
 // Helper function to gather pack IDs based on search criteria
 const gatherPackIdsFromSearch = async (searchGroups: SearchGroup[]): Promise<Set<number>> => {
@@ -256,7 +258,10 @@ const sortableFields = {
   'LEVELS': 'levelCount'
 };
 // GET /packs - List all packs
-router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/', Auth.addUserToRequest(), Cache({ 
+  ttl: 300,
+  tags: ['packs:all'] // Tag all list queries
+}), async (req: Request, res: Response) => {
   try {
     const {
       query,
@@ -474,7 +479,14 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
 });
 
 // GET /packs/:id - Get specific pack with its content tree
-router.get('/:id', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/:id', Auth.addUserToRequest(), Cache({ 
+  ttl: 300,
+  tags: (req) => {
+    // Tag with pack ID - we'll resolve it in the handler
+    // For now, tag with the param (could be ID or linkCode)
+    return [`pack:${req.params.id}`, 'packs:all'];
+  }
+}), async (req: Request, res: Response) => {
   try {
     const param = req.params.id;
     const { tree = 'true' } = req.query;
@@ -1632,19 +1644,24 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
       }
     }
 
+    // Enrich updates with item data from packItems for efficient access
+    const itemMap = new Map(packItems.map(item => [item.id, item]));
+    const enrichedUpdates = updates.map(update => ({
+      ...update,
+      item: itemMap.get(update.id)!
+    }));
+
     // Check for unique constraint violations before updating
     // The constraint is on (packId, parentId, name) for folders
-    const itemMap = new Map(packItems.map(item => [item.id, item]));
-    for (const update of updates) {
-      const item = itemMap.get(update.id);
-      if (item && item.type === 'folder' && item.name) {
+    for (const update of enrichedUpdates) {
+      if (update.item?.type === 'folder' && update.item?.name) {
         // Check if moving this folder to the new parent would create a duplicate name
         const existingFolder = await LevelPackItem.findOne({
           where: {
             packId: resolvedPackId,
             type: 'folder',
             parentId: update.parentId,
-            name: item.name,
+            name: update.item.name,
             id: { [Op.ne]: update.id } // Exclude the current item
           },
           transaction
@@ -1652,11 +1669,11 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
         if (existingFolder) {
           throw { 
-            error: `Folder "${item.name}" already exists in the target location`,
+            error: `Folder "${update.item.name}" already exists in the target location`,
             code: 400,
             details: {
               folderId: update.id,
-              folderName: item.name,
+              folderName: update.item.name,
               targetParentId: update.parentId
             }
           };
@@ -1664,18 +1681,31 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
       }
     }
 
-    // Perform all updates
-    for (const update of updates) {
-      await LevelPackItem.update(
-        {
-          parentId: update.parentId,
+    // Perform all updates using bulkCreate with updateOnDuplicate to trigger hooks
+    if (enrichedUpdates.length > 0) {
+      // Prepare bulk create data - only include fields we want to update
+      const bulkData = enrichedUpdates.map(update => {
+        const updateData: any = {
+          id: update.id,
+          packId: resolvedPackId,
           sortOrder: update.sortOrder
-        },
-        {
-          where: { id: update.id, packId: resolvedPackId },
-          transaction
+        };
+        
+        // Only include parentId if it's not null (null means keep existing)
+        if (update.parentId != null) {
+          updateData.parentId = update.parentId;
         }
-      );
+        
+        return updateData;
+      });
+
+      // Use bulkCreate with updateOnDuplicate to update existing records
+      // This triggers afterBulkCreate and afterBulkUpdate hooks
+      await LevelPackItem.bulkCreate(bulkData, {
+        updateOnDuplicate: ['parentId', 'sortOrder'],
+        transaction,
+        individualHooks: false // Use bulk hooks for efficiency
+      });
     }
 
     await transaction.commit();
@@ -2082,6 +2112,252 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
     }
     logger.error('Error reordering pack items:', error);
     return res.status(500).json({ error: 'Failed to reorder pack items' });
+  }
+});
+
+// ==================== CACHE INVALIDATION HOOKS ====================
+// Set up model listeners to automatically invalidate cache on database changes
+
+/**
+ * Helper function to invalidate cache for a pack by ID or linkCode
+ */
+const invalidatePackCacheById = async (packId: number): Promise<void> => {
+  try {
+    const pack = await LevelPack.findByPk(packId);
+    if (!pack) return;
+
+    const tags: string[] = ['packs:all'];
+    tags.push(`pack:${packId}`);
+    if (pack.linkCode) {
+      tags.push(`pack:${pack.linkCode}`);
+    }
+
+    await CacheInvalidation.invalidateTags(tags);
+    logger.debug(`Cache invalidated for pack ${packId} (${pack.linkCode})`);
+  } catch (error) {
+    logger.error('Error invalidating pack cache in hook:', error);
+  }
+};
+
+// LevelPack hooks - invalidate cache when packs are created, updated, or deleted
+LevelPack.addHook('afterCreate', 'cacheInvalidationPackCreate', async (pack: LevelPack, options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(pack.id);
+    });
+  } else {
+    await invalidatePackCacheById(pack.id);
+  }
+});
+
+LevelPack.addHook('afterUpdate', 'cacheInvalidationPackUpdate', async (pack: LevelPack, options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(pack.id);
+    });
+  } else {
+    await invalidatePackCacheById(pack.id);
+  }
+});
+
+LevelPack.addHook('afterDestroy', 'cacheInvalidationPackDestroy', async (pack: LevelPack, options: any) => {
+  const packId = pack.id;
+  const linkCode = pack.linkCode;
+  
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      const tags: string[] = ['packs:all'];
+      if (packId) tags.push(`pack:${packId}`);
+      if (linkCode) tags.push(`pack:${linkCode}`);
+      await CacheInvalidation.invalidateTags(tags);
+      logger.debug(`Cache invalidated for deleted pack ${packId} (${linkCode})`);
+    });
+  } else {
+    const tags: string[] = ['packs:all'];
+    if (packId) tags.push(`pack:${packId}`);
+    if (linkCode) tags.push(`pack:${linkCode}`);
+    await CacheInvalidation.invalidateTags(tags);
+  }
+});
+
+LevelPack.addHook('afterBulkUpdate', 'cacheInvalidationPackBulkUpdate', async (options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      // Get all affected pack IDs
+      const affectedPacks = await LevelPack.findAll({
+        where: options.where,
+        attributes: ['id', 'linkCode']
+      });
+      
+      const tags: string[] = ['packs:all'];
+      affectedPacks.forEach(pack => {
+        tags.push(`pack:${pack.id}`);
+        if (pack.linkCode) {
+          tags.push(`pack:${pack.linkCode}`);
+        }
+      });
+      
+      if (tags.length > 1) {
+        await CacheInvalidation.invalidateTags([...new Set(tags)]);
+        logger.debug(`Cache invalidated for ${affectedPacks.length} packs (bulk update)`);
+      }
+    });
+  }
+});
+
+// LevelPackItem hooks - invalidate cache when pack items are created, updated, or deleted
+LevelPackItem.addHook('afterCreate', 'cacheInvalidationPackItemCreate', async (item: LevelPackItem, options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(item.packId);
+    });
+  } else {
+    await invalidatePackCacheById(item.packId);
+  }
+});
+
+LevelPackItem.addHook('afterUpdate', 'cacheInvalidationPackItemUpdate', async (item: LevelPackItem, options: any) => {
+  logger.debug('cacheInvalidationPackItemUpdate', { item, options });
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(item.packId);
+    });
+  } else {
+    await invalidatePackCacheById(item.packId);
+  }
+});
+
+LevelPackItem.addHook('afterDestroy', 'cacheInvalidationPackItemDestroy', async (item: LevelPackItem, options: any) => {
+  const packId = item.packId;
+  
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(packId);
+    });
+  } else {
+    await invalidatePackCacheById(packId);
+  }
+});
+
+LevelPackItem.addHook('afterBulkCreate', 'cacheInvalidationPackItemBulkCreate', async (instances: LevelPackItem[], options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      // Get unique pack IDs from created items
+      const packIds = [...new Set(instances.map(item => item.packId))];
+      
+      for (const packId of packIds) {
+        await invalidatePackCacheById(packId);
+      }
+      
+      logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item create)`);
+    });
+  }
+});
+
+LevelPackItem.addHook('afterBulkUpdate', 'cacheInvalidationPackItemBulkUpdate', async (options: any) => {
+  logger.debug('cacheInvalidationPackItemBulkUpdate', { options });
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      // Get all affected pack IDs from the update
+      const affectedItems = await LevelPackItem.findAll({
+        where: options.where,
+        attributes: ['packId'],
+        group: ['packId']
+      });
+      
+      const packIds = [...new Set(affectedItems.map(item => item.packId))];
+      
+      for (const packId of packIds) {
+        await invalidatePackCacheById(packId);
+      }
+      
+      if (packIds.length > 0) {
+        logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item update)`);
+      }
+    });
+  }
+});
+
+LevelPackItem.addHook('afterBulkDestroy', 'cacheInvalidationPackItemBulkDestroy', async (options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      // Get pack IDs from destroyed items (before they were deleted)
+      // We need to check the where clause to find affected packs
+      const affectedItems = await LevelPackItem.findAll({
+        where: options.where,
+        attributes: ['packId'],
+        group: ['packId']
+      }).catch(() => {
+        // If items are already deleted, try to infer from where clause
+        if (options.where?.packId) {
+          return [{ packId: options.where.packId }];
+        }
+        return [];
+      });
+      
+      const packIds = [...new Set(affectedItems.map(item => item.packId))];
+      
+      for (const packId of packIds) {
+        await invalidatePackCacheById(packId);
+      }
+      
+      if (packIds.length > 0) {
+        logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item destroy)`);
+      }
+    });
+  }
+});
+
+// PackFavorite hooks - invalidate cache when favorites change (affects favorites count)
+PackFavorite.addHook('afterCreate', 'cacheInvalidationPackFavoriteCreate', async (favorite: PackFavorite, options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(favorite.packId);
+    });
+  } else {
+    await invalidatePackCacheById(favorite.packId);
+  }
+});
+
+PackFavorite.addHook('afterDestroy', 'cacheInvalidationPackFavoriteDestroy', async (favorite: PackFavorite, options: any) => {
+  const packId = favorite.packId;
+  
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      await invalidatePackCacheById(packId);
+    });
+  } else {
+    await invalidatePackCacheById(packId);
+  }
+});
+
+PackFavorite.addHook('afterBulkCreate', 'cacheInvalidationPackFavoriteBulkCreate', async (instances: PackFavorite[], options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      const packIds = [...new Set(instances.map(fav => fav.packId))];
+      
+      for (const packId of packIds) {
+        await invalidatePackCacheById(packId);
+      }
+      
+      logger.debug(`Cache invalidated for ${packIds.length} packs (bulk favorite create)`);
+    });
+  }
+});
+
+PackFavorite.addHook('afterBulkDestroy', 'cacheInvalidationPackFavoriteBulkDestroy', async (options: any) => {
+  if (options.transaction) {
+    await options.transaction.afterCommit(async () => {
+      // Try to get pack IDs from where clause
+      if (options.where?.packId) {
+        await invalidatePackCacheById(options.where.packId);
+      } else if (options.where?.userId) {
+        // If deleting by user, we need to find affected packs
+        // This is less common, so we'll invalidate all packs list
+        await CacheInvalidation.invalidateTag('packs:all');
+        logger.debug('Cache invalidated for all packs (bulk favorite destroy by user)');
+      }
+    });
   }
 });
 

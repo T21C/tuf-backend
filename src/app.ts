@@ -26,6 +26,7 @@ import ElasticsearchService from './server/services/ElasticsearchService.js';
 import { clientUrlEnv, port, ownUrl, corsOptions } from './config/app.config.js';
 import { startConnectionMonitoring } from './config/db.js';
 import { initializeDefaultPools } from './config/poolConfig.js';
+import { redis } from './server/services/RedisService.js';
 initializeDefaultPools();
 
 // Add these at the very top of the file, before any other imports
@@ -88,15 +89,15 @@ process.on('warning', (warning) => {
 });
 
 // Add a handler for SIGTERM and SIGINT
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
-  // Perform cleanup
+  await redis.disconnect();
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   logger.info('SIGINT received. Shutting down gracefully...');
-  // Perform cleanup
+  await redis.disconnect();
   process.exit(0);
 });
 
@@ -149,6 +150,15 @@ export async function startServer() {
     startConnectionMonitoring();
 
     logger.info('Database connection established.');
+
+    // Initialize Redis
+    try {
+      logger.info('Connecting to Redis...');
+      await redis.connect();
+    } catch (error) {
+      logger.error('Error connecting to Redis:', error);
+      logger.warn('Application will continue without Redis caching');
+    }
 
     // Initialize Elasticsearch
     try {
