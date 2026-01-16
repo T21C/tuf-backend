@@ -287,9 +287,9 @@ export async function createClearEmbed(
     .addField(
       'Ranked Score',
       `**${
-        formatNumber(passDetails.scoreInfo.currentRankedScore)
+        formatNumber(passDetails.scoreInfo?.currentRankedScore || 0)
       }** (+${
-        formatNumber(passDetails.scoreInfo.impact)
+        formatNumber(passDetails.scoreInfo?.impact || 0)
         })`,
       true,
     )
