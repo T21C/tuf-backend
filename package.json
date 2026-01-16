@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build-clear": "rimraf dist tsconfig.tsbuildinfo",
-    "build-tsc": "tsc --project tsconfig.json --noEmit false",
+    "build-tsc": "node --max-old-space-size=2048 ./node_modules/.bin/tsc --project tsconfig.json --noEmit false",
     "build-copy-html": "node dist/misc/scripts/copyHtml.js",
     "build": "npm run build-clear && npm run build-tsc && npm run build-copy-html",
     "dev": "cross-env NODE_ENV=development tsx watch --inspect --max-old-space-size=1024 src/app.ts",
@@ -62,7 +62,6 @@
     "nodemon": "^3.1.9",
     "object-hash": "^3.0.0",
     "puppeteer": "^24.7.1",
-    "redis": "^5.10.0",
     "sequelize": "^6.37.5",
     "sequelize-cli": "^6.6.2",
     "sharp": "^0.33.5",

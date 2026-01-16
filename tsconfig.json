@@ -8,6 +8,7 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
+    "incremental": true,
     "rootDir": "src",
     "outDir": "dist",
     "types": ["node", "express"],
