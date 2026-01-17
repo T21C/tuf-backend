@@ -33,7 +33,6 @@ import path from 'path';
 import {cleanupUserUploads} from '../../misc/chunkedUpload.js';
 import LevelRerateHistory from '../../../../models/levels/LevelRerateHistory.js';
 import LevelTag from '../../../../models/levels/LevelTag.js';
-import {Op} from 'sequelize';
 import {permissionFlags} from '../../../../config/constants.js';
 import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
@@ -616,10 +615,12 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     });
 
 
-    let basescoreTag = await LevelTag.findOne({where: {name: 'Basescore Increase'}, transaction});
-    let ppBasescoreTag = await LevelTag.findOne({where: {name: 'Pure Perfect Basescore'}, transaction});
-    if (!basescoreTag) { basescoreTag = await LevelTag.create({name: 'Basescore Increase', color: '#ff0000'}, {transaction}); }
-    if (!ppBasescoreTag) { ppBasescoreTag = await LevelTag.create({name: 'Pure Perfect Basescore', color: '#000000'}, {transaction}); }
+    const basescoreTagName = "Basescore Edit"
+    const ppBasescoreTagName = "Pure Perfect Basescore Increase"
+    let basescoreTag = await LevelTag.findOne({where: {name: basescoreTagName}, transaction});
+    let ppBasescoreTag = await LevelTag.findOne({where: {name: ppBasescoreTagName}, transaction});
+    if (!basescoreTag) { basescoreTag = await LevelTag.create({name: basescoreTagName, color: '#ff0000'}, {transaction}); }
+    if (!ppBasescoreTag) { ppBasescoreTag = await LevelTag.create({name: ppBasescoreTagName, color: '#000000'}, {transaction}); }
     if (updateData.baseScore && updateData.baseScore !== level.difficulty?.baseScore) {
       await LevelTagAssignment.upsert({levelId: levelId, tagId: basescoreTag.id}, {transaction});
     } else {
