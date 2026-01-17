@@ -591,7 +591,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       // Super admin has access to all fields
     updateData.song = sanitizeTextInput(req.body.song);
     updateData.artist = sanitizeTextInput(req.body.artist);
-    updateData.diffId = Number(req.body.diffId) || 0;
+    updateData.diffId = Number(req.body.diffId) || undefined;
     updateData.previousDiffId = previousDiffId;
     updateData.baseScore = baseScore;
     updateData.ppBaseScore = Number(req.body.ppBaseScore) || 0;
@@ -614,7 +614,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       transaction,
     });
 
-
     const basescoreTagName = "Basescore Edit"
     const ppBasescoreTagName = "Pure Perfect Basescore Increase"
     let basescoreTag = await LevelTag.findOne({where: {name: basescoreTagName}, transaction});
@@ -623,14 +622,11 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
     if (!ppBasescoreTag) { ppBasescoreTag = await LevelTag.create({name: ppBasescoreTagName, color: '#000000'}, {transaction}); }
     if (updateData.baseScore && updateData.baseScore !== level.difficulty?.baseScore) {
       await LevelTagAssignment.upsert({levelId: levelId, tagId: basescoreTag.id}, {transaction});
-    } else {
-      await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: basescoreTag.id}, transaction});
-    }
+    } else { 
+      await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: basescoreTag.id}, transaction}); }
     if (updateData.ppBaseScore) {
       await LevelTagAssignment.upsert({levelId: levelId, tagId: ppBasescoreTag.id}, {transaction});
-    } else {
-      await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: ppBasescoreTag.id}, transaction});
-    }
+    } else { await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: ppBasescoreTag.id}, transaction}); }
 
     // Fetch the updated level again to get the latest state
     const updatedLevel = await Level.findOne({
