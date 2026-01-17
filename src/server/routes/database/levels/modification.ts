@@ -469,7 +469,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
   const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
-    if (req.body[field] !== undefined && req.body[field] !== null) {
+    if (req.body[field] !== undefined) {
       const parsed = Number(req.body[field]);
       if (isNaN(parsed) || !isFinite(parsed)) {
         return res.status(400).json({
@@ -546,19 +546,18 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     if (
       req.body.baseScore !== undefined &&
-      req.body.baseScore !== null &&
       !isNaN(Number(req.body.baseScore))
     ) {
-      baseScore = Number(req.body.baseScore);
+      baseScore = Number(req.body.baseScore || 0);
       logger.debug(`Setting baseScore to ${baseScore} for level ${levelId}`);
     }
 
     if (
       req.body.previousDiffId !== undefined &&
-      req.body.previousDiffId !== null &&
-      !req.body.toRate
+      !req.body.toRate &&
+      !isNaN(Number(req.body.previousDiffId))
     ) {
-      previousDiffId = Number(req.body.previousDiffId);
+      previousDiffId = Number(req.body.previousDiffId || 0);
       logger.debug(
         `Setting previousDiffId to ${previousDiffId} for level ${levelId}`,
       );
@@ -566,8 +565,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     if (
       req.body.previousBaseScore !== undefined &&
-      req.body.previousBaseScore !== null &&
-      !req.body.toRate
+      !req.body.toRate &&
+      !isNaN(Number(req.body.previousBaseScore))
     ) {
       previousBaseScore = Number(req.body.previousBaseScore);
       logger.debug(
@@ -616,23 +615,20 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       transaction,
     });
 
-    let ppTag = await LevelTag.findOne({
-      where: {name: 'Pure Perfect Basescore'},
-      transaction,
-    });
-    if (!ppTag) {
-      ppTag = await LevelTag.create({name: 'Pure Perfect Basescore', color: '#000000'}, {transaction});
+
+    let basescoreTag = await LevelTag.findOne({where: {name: 'Basescore Increase'}, transaction});
+    let ppBasescoreTag = await LevelTag.findOne({where: {name: 'Pure Perfect Basescore'}, transaction});
+    if (!basescoreTag) basescoreTag = await LevelTag.create({name: 'Basescore Increase', color: '#ff0000'}, {transaction});
+    if (!ppBasescoreTag) ppBasescoreTag = await LevelTag.create({name: 'Pure Perfect Basescore', color: '#000000'}, {transaction});
+    if (updateData.baseScore && updateData.baseScore !== level.difficulty?.baseScore) {
+      await LevelTagAssignment.upsert({levelId: levelId, tagId: basescoreTag.id}, {transaction});
+    } else {
+      await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: basescoreTag.id}, transaction});
     }
     if (updateData.ppBaseScore) {
-      await LevelTagAssignment.upsert({
-        levelId: levelId,
-        tagId: ppTag.id
-      }, {transaction});
+      await LevelTagAssignment.upsert({levelId: levelId, tagId: ppBasescoreTag.id}, {transaction});
     } else {
-      await LevelTagAssignment.destroy({
-        where: {levelId: levelId, tagId: ppTag.id},
-        transaction,
-      });
+      await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: ppBasescoreTag.id}, transaction});
     }
 
     // Fetch the updated level again to get the latest state
