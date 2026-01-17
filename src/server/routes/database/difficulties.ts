@@ -1612,14 +1612,55 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
     }
     // Otherwise: finalIconUrl remains undefined, which means no change
 
+    // Determine groupSortOrder if group is being changed
+    let groupSortOrder: number | undefined = undefined;
+    const newGroup = group !== undefined ? (group || null) : tag.group;
+    const isGroupChanging = group !== undefined && newGroup !== tag.group;
+
+    if (isGroupChanging) {
+      if (newGroup) {
+        // Check if group already exists
+        const existingGroupTag = await LevelTag.findOne({ 
+          where: { group: newGroup },
+          transaction 
+        });
+        if (existingGroupTag) {
+          groupSortOrder = existingGroupTag.groupSortOrder;
+        } else {
+          // New group - get max groupSortOrder and add 1
+          const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
+          groupSortOrder = maxGroupSortOrder + 1;
+        }
+      } else {
+        // Ungrouped tags - check for existing ungrouped tags
+        const existingUngroupedTag = await LevelTag.findOne({ 
+          where: { [Op.or]: [{ group: null }, { group: '' }] },
+          transaction 
+        });
+        if (existingUngroupedTag) {
+          groupSortOrder = existingUngroupedTag.groupSortOrder;
+        } else {
+          const maxGroupSortOrder = await LevelTag.max('groupSortOrder', { transaction }) as number || 0;
+          groupSortOrder = maxGroupSortOrder + 1;
+        }
+      }
+    }
+
     // Update the tag
-    await tag.update({
+    const updateData: any = {
       name: name ?? tag.name,
       icon: finalIconUrl !== undefined ? finalIconUrl : tag.icon,
       color: color ?? tag.color,
-      group: group !== undefined ? (group || null) : tag.group,
+      group: newGroup,
       updatedAt: new Date(),
-    }, { transaction });
+    };
+
+    // Only update groupSortOrder if group is changing
+    if (groupSortOrder !== undefined) {
+      updateData.groupSortOrder = groupSortOrder;
+    }
+
+    await tag.update(updateData, { transaction });
 
     await transaction.commit();
 

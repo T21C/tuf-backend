@@ -618,8 +618,8 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     let basescoreTag = await LevelTag.findOne({where: {name: 'Basescore Increase'}, transaction});
     let ppBasescoreTag = await LevelTag.findOne({where: {name: 'Pure Perfect Basescore'}, transaction});
-    if (!basescoreTag) basescoreTag = await LevelTag.create({name: 'Basescore Increase', color: '#ff0000'}, {transaction});
-    if (!ppBasescoreTag) ppBasescoreTag = await LevelTag.create({name: 'Pure Perfect Basescore', color: '#000000'}, {transaction});
+    if (!basescoreTag) { basescoreTag = await LevelTag.create({name: 'Basescore Increase', color: '#ff0000'}, {transaction}); }
+    if (!ppBasescoreTag) { ppBasescoreTag = await LevelTag.create({name: 'Pure Perfect Basescore', color: '#000000'}, {transaction}); }
     if (updateData.baseScore && updateData.baseScore !== level.difficulty?.baseScore) {
       await LevelTagAssignment.upsert({levelId: levelId, tagId: basescoreTag.id}, {transaction});
     } else {
