@@ -46,6 +46,7 @@ import {
   logLevelTargetUpdateHook,
   logLevelMetadataUpdateHook,
 } from '../../webhooks/misc.js';
+import LevelTagAssignment from '../../../../models/levels/LevelTagAssignment.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -615,6 +616,25 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       transaction,
     });
 
+    let ppTag = await LevelTag.findOne({
+      where: {name: 'Pure Perfect Basescore'},
+      transaction,
+    });
+    if (!ppTag) {
+      ppTag = await LevelTag.create({name: 'Pure Perfect Basescore', color: '#000000'}, {transaction});
+    }
+    if (updateData.ppBaseScore) {
+      await LevelTagAssignment.upsert({
+        levelId: levelId,
+        tagId: ppTag.id
+      }, {transaction});
+    } else {
+      await LevelTagAssignment.destroy({
+        where: {levelId: levelId, tagId: ppTag.id},
+        transaction,
+      });
+    }
+
     // Fetch the updated level again to get the latest state
     const updatedLevel = await Level.findOne({
       where: {id: levelId},
@@ -725,7 +745,7 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
       });
 
     if (updatedLevel) {
-      await elasticsearchService.indexLevel(updatedLevel);
+      await elasticsearchService.indexLevel(updatedLevel.id);
     }
 
     return;
