@@ -201,7 +201,7 @@ export async function startServer() {
     app.use('/v2/chunked-upload', chunkedUploadRouter);
     app.use('/v2/cdn', cdnProgressRouter);
     // HTML meta tags middleware for specific routes BEFORE static files
-    app.get(['/passes/:id', '/levels/:id', '/profile/:id'], htmlMetaMiddleware);
+    app.get(['/passes/:id', '/levels/:id', '/profile/:id', '/packs/:id'], htmlMetaMiddleware);
 
     // Handle static files and SPA routing
     const clientBuildPath =

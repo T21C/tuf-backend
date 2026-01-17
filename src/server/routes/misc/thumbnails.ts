@@ -17,6 +17,8 @@ import Rating from '../../../models/levels/Rating.js';
 import Player from '../../../models/players/Player.js';
 import Pass from '../../../models/passes/Pass.js';
 import PlayerStats from '../../../models/players/PlayerStats.js';
+import { LevelPack, LevelPackItem } from '../../../models/packs/index.js';
+import { User } from '../../../models/index.js';
 import { port } from '../../../config/app.config.js';
 import CdnService from '../../services/CdnService.js';
 import { logger } from '../../services/LoggerService.js';
@@ -134,13 +136,34 @@ function getThumbnailPath(levelId: number, size: keyof typeof THUMBNAIL_SIZES): 
   return path.join(THUMBNAILS_CACHE_DIR, `${levelId}_${size}.png`);
 }
 
-// Function to get cached thumbnail path for player/pass
-function getThumbnailPathForEntity(entityId: number, entityType: 'player' | 'pass', size: keyof typeof THUMBNAIL_SIZES): string {
+// Function to get cached thumbnail path for player/pass/pack
+function getThumbnailPathForEntity(entityId: number, entityType: 'player' | 'pass' | 'pack', size: keyof typeof THUMBNAIL_SIZES): string {
   return path.join(THUMBNAILS_CACHE_DIR, `${entityType}_${entityId}_${size}.png`);
 }
 
+// Helper function to resolve pack ID from parameter (supports both numerical ID and linkCode)
+async function resolvePackId(param: string): Promise<number | null> {
+  if (/^[A-Za-z0-9]+$/.test(param)) {
+    const pack = await LevelPack.findOne({
+      where: { linkCode: param }
+    });
+
+    if (pack) {
+      return pack.id;
+    }
+  }
+
+  // Try as numeric ID
+  const numericId = parseInt(param);
+  if (!isNaN(numericId)) {
+    return numericId;
+  }
+
+  return null;
+}
+
 // Function to export HTML to file for review
-async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass', entityId: number): Promise<void> {
+async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass' | 'pack', entityId: number): Promise<void> {
   const htmlExportDir = path.join(CACHE_PATH, 'thumbnail-html-exports');
   if (!fs.existsSync(htmlExportDir)) {
     fs.mkdirSync(htmlExportDir, { recursive: true });
@@ -1195,6 +1218,404 @@ router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Respons
     return;
   } catch (error) {
     logger.error(`Error generating image for pass ${req.params.id}:`, error);
+    return res.status(500).send('Error generating image');
+  }
+});
+
+// Pack thumbnail route
+router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Response) => {
+  try {
+    const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
+    const param = req.params.id;
+    const resolvedPackId = await resolvePackId(param);
+    
+    if (!resolvedPackId) {
+      return res.status(404).send('Pack not found');
+    }
+
+    const pack = await LevelPack.findByPk(resolvedPackId, {
+      include: [
+        {
+          model: User,
+          as: 'packOwner',
+          attributes: ['id', 'nickname', 'username', 'avatarUrl']
+        },
+        {
+          model: LevelPackItem,
+          as: 'packItems',
+          attributes: ['levelId', 'sortOrder'],
+          where: {
+            type: 'level'
+          },
+          include: [{
+            model: Level,
+            as: 'referencedLevel',
+            where: {
+              isDeleted: false,
+              isHidden: false
+            },
+            attributes: ['id', 'artist', 'song', 'diffId'],
+            required: true,
+            include: [{
+              model: Difficulty,
+              as: 'difficulty',
+              attributes: ['icon'],
+              required: false
+            }]
+          }],
+          required: false,
+          limit: 3,
+          order: [['sortOrder', 'ASC']]
+        }
+      ]
+    });
+
+    if (!pack) {
+      return res.status(404).send('Pack not found');
+    }
+
+    logWithCondition(`Thumbnail requested for pack ${resolvedPackId} with size ${size}`, 'thumbnail');
+
+    const largeCachePath = getThumbnailPathForEntity(resolvedPackId, 'pack', 'LARGE');
+    const promiseKey = `pack-${resolvedPackId}`;
+
+    cleanExpiredCache(largeCachePath);
+
+    let largeBuffer: Buffer | undefined;
+    if (fs.existsSync(largeCachePath) && !isCacheExpired(largeCachePath)) {
+      logWithCondition(`Using cached LARGE thumbnail for pack ${resolvedPackId}`, 'thumbnail');
+      largeBuffer = await fs.promises.readFile(largeCachePath);
+    } else {
+      if (thumbnailGenerationPromises.has(promiseKey)) {
+        logWithCondition(`Thumbnail generation for pack ${resolvedPackId} already in progress, waiting...`, 'thumbnail');
+        try {
+          largeBuffer = await thumbnailGenerationPromises.get(promiseKey)!;
+          if (!fs.existsSync(largeCachePath)) {
+            logger.warn(`Promise resolved but thumbnail file not found for pack ${resolvedPackId}, regenerating...`);
+            thumbnailGenerationPromises.delete(promiseKey);
+          } else {
+            logWithCondition(`Successfully obtained thumbnail from concurrent generation for pack ${resolvedPackId}`, 'thumbnail');
+          }
+        } catch (error) {
+          logger.warn(`Error while waiting for concurrent thumbnail generation for pack ${resolvedPackId}:`, error);
+          thumbnailGenerationPromises.delete(promiseKey);
+        }
+      }
+
+      if (!largeBuffer) {
+        const generationPromise = (async () => {
+          logWithCondition(`Generating new thumbnail for pack ${resolvedPackId}`, 'thumbnail');
+
+          const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
+          const iconSize = Math.floor(height * 0.3);
+
+          // Get level items (already limited to 3)
+          const levelItems = pack.packItems?.filter(item => item.referencedLevel !== null) || [];
+          const totalLevelCount = pack.levelCount || 0;
+          const remainingCount = Math.max(0, totalLevelCount - 3);
+
+          // Download pack icon with retry logic
+          let iconBuffer: Buffer | null = null;
+          let hasIcon = false;
+          try {
+            if (pack.iconUrl) {
+              iconBuffer = await downloadImageWithRetry(pack.iconUrl);
+              hasIcon = true;
+            } else {
+              throw new Error('No pack icon');
+            }
+          } catch (error: unknown) {
+            logWithCondition(`Failed to download pack icon for pack ${resolvedPackId}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
+            hasIcon = false;
+          }
+
+          // Download owner avatar
+          let ownerAvatarBuffer: Buffer | null = null;
+          const ownerAvatarUrl = (pack as any).packOwner?.avatarUrl;
+          try {
+            if (ownerAvatarUrl) {
+              ownerAvatarBuffer = await downloadImageWithRetry(ownerAvatarUrl);
+            }
+          } catch (error: unknown) {
+            logWithCondition(`Failed to download owner avatar for pack ${resolvedPackId}: ${error instanceof Error ? error.message : String(error)}`, 'thumbnail');
+          }
+
+          // Create background
+          const backgroundBuffer = await sharp({
+            create: {
+              width,
+              height,
+              channels: 4,
+              background: {r: 26, g: 26, b: 26, alpha: 1},
+            },
+          })
+            .png()
+            .toBuffer();
+
+          // Build level list HTML
+          let levelsHtml = '';
+          levelItems.forEach((item, index) => {
+            const level = item.referencedLevel;
+            if (!level) return;
+            
+            const diffIcon = level.difficulty?.icon || '';
+            const songName = level.song || `Level ${level.id}`;
+            levelsHtml += `
+              <div class="level-item">
+                ${diffIcon ? `<img class="level-item-icon" src="${diffIcon}" alt="Difficulty Icon" />` : ''}
+                <span class="level-item-name">${songName}</span>
+              </div>
+            `;
+          });
+
+          if (remainingCount > 0) {
+            levelsHtml += `
+              <div class="level-item level-item-more">
+                <span class="level-item-name">+${remainingCount} more</span>
+              </div>
+            `;
+          }
+
+          const html = `
+            <html>
+              <head>
+                <style>
+                  body { 
+                    margin: 0; 
+                    padding: 0;
+                    width: ${width}px;
+                    height: ${height}px;
+                    position: relative;
+                    overflow: hidden;
+                    font-family: 'NotoSansKR', 'NotoSansJP', 'NotoSansSC', 'NotoSansTC', sans-serif;
+                  }
+                  .background-image {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                    z-index: 1;
+                  }
+                  .content {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 2;
+                    display: flex;
+                    flex-direction: column;
+                    padding: ${20*multiplier}px ${18*multiplier}px;
+                    box-sizing: border-box;
+                  }
+                  .header {
+                    display: flex;
+                    align-items: center;
+                    gap: ${16*multiplier}px;
+                    margin-bottom: ${10*multiplier}px;
+                  }
+                  .pack-icon {
+                    width: ${iconSize}px;
+                    height: ${iconSize}px;
+                    border-radius: ${8*multiplier}px;
+                    object-fit: cover;
+                    flex-shrink: 0;
+                  }
+                  .pack-icon-placeholder {
+                    width: ${iconSize}px;
+                    height: ${iconSize}px;
+                    border-radius: ${8*multiplier}px;
+                    background-color: #2a2a2a;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: ${Math.floor(iconSize * 0.6)}px;
+                    flex-shrink: 0;
+                  }
+                  .pack-info {
+                    flex: 1;
+                    min-width: 0;
+                  }
+                  .pack-title {
+                    font-weight: 800;
+                    font-size: ${40*multiplier}px;
+                    color: white;
+                    margin: 0 0 ${8*multiplier}px 0;
+                    overflow: hidden;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 2;
+                    line-height: 1.2;
+                    -webkit-box-orient: vertical;
+                  }
+                  .pack-owner {
+                    display: flex;
+                    align-items: center;
+                    gap: ${8*multiplier}px;
+                    margin: 0;
+                  }
+                  .pack-owner-avatar {
+                    width: ${40*multiplier}px;
+                    height: ${40*multiplier}px;
+                    border-radius: 50%;
+                    object-fit: cover;
+                    flex-shrink: 0;
+                  }
+                  .pack-owner-name {
+                    font-weight: 600;
+                    font-size: ${32*multiplier}px;
+                    color: #bbbbbb;
+                  }
+                  .levels-section {
+                    display: flex;
+                    flex-direction: column;
+                    gap: ${10*multiplier}px;
+                    margin-top: ${8*multiplier}px;
+                  }
+                  .level-item {
+                    display: flex;
+                    align-items: center;
+                    gap: ${12*multiplier}px;
+                    padding: ${6*multiplier}px ${12*multiplier}px;
+                    background-color: rgba(255, 255, 255, 0.1);
+                    border-radius: ${6*multiplier}px;
+                  }
+                  .level-item-icon {
+                    width: ${32*multiplier}px;
+                    height: ${32*multiplier}px;
+                    flex-shrink: 0;
+                  }
+                  .level-item-name {
+                    font-weight: 600;
+                    font-size: ${32*multiplier}px;
+                    color: white;
+                    overflow: hidden;
+                    display: -webkit-box;
+                    -webkit-line-clamp: 1;
+                    -webkit-box-orient: vertical;
+                  }
+                  .level-item-more {
+                    background-color: rgba(255, 255, 255, 0.05);
+                    justify-content: center;
+                  }
+                  .level-item-more .level-item-name {
+                    font-weight: 700;
+                    color: white;
+                  }
+                </style>
+              </head>
+              <body>
+                <img 
+                  class="background-image"
+                  src="data:image/png;base64,${backgroundBuffer.toString('base64')}" 
+                  alt="Background"
+                />
+                <div class="content">
+                  <div class="header">
+                    ${hasIcon && iconBuffer ? `
+                      <img 
+                        class="pack-icon"
+                        src="data:image/png;base64,${iconBuffer!.toString('base64')}" 
+                        alt="Pack Icon"
+                      />
+                    ` : `
+                      <div class="pack-icon-placeholder">📦</div>
+                    `}
+                    <div class="pack-info">
+                      <div class="pack-title">${pack.name}</div>
+                      <div class="pack-owner">
+                        ${ownerAvatarBuffer ? `
+                          <img 
+                            class="pack-owner-avatar"
+                            src="data:image/png;base64,${ownerAvatarBuffer.toString('base64')}" 
+                            alt="Owner Avatar"
+                          />
+                        ` : ''}
+                        <span class="pack-owner-name">${(pack as any).packOwner?.username || 'Unknown'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  ${levelItems.length > 0 || remainingCount > 0 ? `
+                  <div class="levels-section">
+                    ${levelsHtml}
+                  </div>
+                  ` : ''}
+                </div>
+              </body>
+            </html>
+          `;
+
+          // Export HTML to file for review
+          await exportHtmlToFile(html, 'pack', resolvedPackId);
+
+          const buffer = await htmlToPng(html, width, height);
+          await fs.promises.writeFile(largeCachePath, buffer);
+          logWithCondition(`Saved LARGE thumbnail for pack ${resolvedPackId} to cache`, 'thumbnail');
+
+          return buffer;
+        })();
+
+        thumbnailGenerationPromises.set(promiseKey, generationPromise);
+
+        try {
+          largeBuffer = await generationPromise;
+        } catch (error) {
+          thumbnailGenerationPromises.delete(promiseKey);
+          throw error;
+        }
+
+        thumbnailGenerationPromises.delete(promiseKey);
+      }
+    }
+
+    // Validate buffer exists and is valid
+    if (!largeBuffer || largeBuffer.length === 0) {
+      logger.error(`Invalid or empty buffer for pack ${resolvedPackId}, regenerating...`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid buffer');
+    }
+
+    // Validate PNG signature
+    const pngSignature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    if (largeBuffer.length < 8 || !largeBuffer.subarray(0, 8).equals(pngSignature)) {
+      logger.error(`Invalid PNG signature for pack ${resolvedPackId}, regenerating...`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      return res.status(500).send('Error generating image: invalid PNG format');
+    }
+
+    if (size === 'LARGE') {
+      res.set('Content-Type', 'image/png');
+      return res.send(largeBuffer);
+    }
+
+    const {width, height} = THUMBNAIL_SIZES[size];
+    let resizedBuffer: Buffer;
+    try {
+      resizedBuffer = await sharp(largeBuffer)
+        .resize(width, height, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 }
+        })
+        .png()
+        .toBuffer();
+    } catch (sharpError) {
+      logger.error(`Sharp error processing buffer for pack ${resolvedPackId}: ${sharpError instanceof Error ? sharpError.message : String(sharpError)}`);
+      if (fs.existsSync(largeCachePath)) {
+        await fs.promises.unlink(largeCachePath).catch(() => {});
+      }
+      throw sharpError;
+    }
+
+    res.set('Content-Type', 'image/png');
+    res.send(resizedBuffer);
+    return;
+  } catch (error) {
+    logger.error(`Error generating image for pack ${req.params.id}:`, error);
     return res.status(500).send('Error generating image');
   }
 });

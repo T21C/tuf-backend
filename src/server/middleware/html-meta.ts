@@ -11,6 +11,7 @@ import { User } from '../../models/index.js';
 import { formatCreatorDisplay } from '../../misc/utils/Utility.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import Creator from '../../models/credits/Creator.js';
+import LevelPack from '../../models/packs/LevelPack.js';
 
 // Add type for manifest entries
 type ManifestEntry = {
@@ -316,6 +317,31 @@ export const htmlMetaMiddleware = async (
       }
       else {
         metaTags = notFoundTags.replace('Not found', 'Player not found');
+      }
+    }
+    else if (req.path.startsWith('/packs/')) {
+      const pack = await LevelPack.findOne({where: {linkCode: id}});
+      if (pack) {
+        const packName = escapeMetaText(pack.name);
+        const owner = await User.findByPk(pack.ownerId);
+        const ownerName = escapeMetaText(owner?.nickname || owner?.username || 'Unknown Owner');
+
+        metaTags = `
+          <meta name="description" content="${packName} by ${ownerName}" />
+          <meta property="og:site_name" content="The Universal Forum" />
+          <meta property="og:type" content="website" />
+          <meta property="og:title" content="${packName}" />
+          <meta property="og:description" content="${packName} by ${ownerName}" />
+          <meta property="og:image" content="${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}" />
+          <meta property="og:image:width" content="800" />
+          <meta property="og:image:height" content="420" />
+          <meta property="twitter:card" content="summary" />
+          <meta property="twitter:image" content="${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}" />
+          <meta name="theme-color" content="#090909" />
+          <meta property="og:url" content="${clientUrlEnv}/packs/${pack.linkCode}" />`;
+      }
+      else {
+        metaTags = notFoundTags.replace('Not found', 'Pack not found');
       }
     }
     const html = await getBaseHtml(clientUrlEnv || '').then(html => html.replace(
