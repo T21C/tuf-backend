@@ -420,7 +420,7 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                     top: 0;
                     left: 0;
                     width: 100%;
-                    height: ${(110 + (artistOverflow && songOverflow ? 10 : 0))*multiplier}px;
+                    height: ${(110 + (artistOverflow && songOverflow || level.tags && level.tags.length > 0 ? 10 : 0))*multiplier}px;
                     background-color: rgba(0, 0, 0, 0.8);
                     z-index: 2;
                     display: flex;
@@ -496,7 +496,7 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                   }
                   .level-metadata {
                     display: flex;
-                    margin-top: ${4*multiplier}px;
+                    margin-top: ${6*multiplier}px;
                     gap: ${10*multiplier}px;
                   }
                   .level-metadata.hidden {
@@ -548,6 +548,13 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                     text-align: right;
                     font-size: ${30*multiplier*(secondRow ? 0.9 : 1)}px;
                     color: white;
+                  }
+                  .level-tags {
+                    display: flex;
+                    flex-direction: row;
+                    justify-content: flex-end;
+                    align-items: start;
+                    margin-top: -${2*multiplier}px;
                   }
                   .level-tag-icon {
                     width: ${24*multiplier}px;
