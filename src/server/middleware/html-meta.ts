@@ -205,6 +205,7 @@ export const htmlMetaMiddleware = async (
   res: Response,
   next: NextFunction,
 ) => {
+  logger.debug('HTML Meta Middleware', req.path);
   try {
     const id = req.params.id;
     let metaTags = `
@@ -335,7 +336,7 @@ export const htmlMetaMiddleware = async (
           <meta property="og:image" content="${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}" />
           <meta property="og:image:width" content="800" />
           <meta property="og:image:height" content="420" />
-          <meta property="twitter:card" content="summary" />
+          <meta property="twitter:card" content="summary_large_image" />
           <meta property="twitter:image" content="${ownUrl}/v2/media/thumbnail/pack/${pack.linkCode}" />
           <meta name="theme-color" content="#090909" />
           <meta property="og:url" content="${clientUrlEnv}/packs/${pack.linkCode}" />`;
