@@ -26,6 +26,7 @@ import { formatCredits } from '../../../misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '../webhooks/embeds.js';
 import dotenv from 'dotenv';
+import { env } from 'process';
 
 dotenv.config();
 
@@ -163,7 +164,7 @@ async function resolvePackId(param: string): Promise<number | null> {
 }
 
 // Function to export HTML to file for review
-async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass' | 'pack', entityId: number): Promise<void> {
+async function exportHtmlToFile(html: string, entityType: 'level' | 'player' | 'pass' | 'pack', entityId: number | string): Promise<void> {
   const htmlExportDir = path.join(CACHE_PATH, 'thumbnail-html-exports');
   if (!fs.existsSync(htmlExportDir)) {
     fs.mkdirSync(htmlExportDir, { recursive: true });
@@ -1264,7 +1265,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
             }]
           }],
           required: false,
-          limit: 3,
+          limit: 23,
           order: [['sortOrder', 'ASC']]
         }
       ]
@@ -1309,10 +1310,12 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
           const iconSize = Math.floor(height * 0.3);
 
-          // Get level items (already limited to 3)
-          const levelItems = pack.packItems?.filter(item => item.referencedLevel !== null) || [];
+          // Get level items (first 3 shown individually, next 20 for overlapping icons)
+          const allLevelItems = pack.packItems?.filter(item => item.referencedLevel !== null) || [];
+          const levelItems = allLevelItems.slice(0, 3 + (allLevelItems.length === 4 ? 1 : 0));
+          const moreLevelItems = allLevelItems.slice(3 + (allLevelItems.length === 4 ? 1 : 0), 23); // Up to 20 items for overlapping icons
           const totalLevelCount = pack.levelCount || 0;
-          const remainingCount = Math.max(0, totalLevelCount - 3);
+          const remainingCount = Math.max(0, totalLevelCount - 23); // How many more beyond the 23 we fetched
 
           // Download pack icon with retry logic
           let iconBuffer: Buffer | null = null;
@@ -1353,7 +1356,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
             .toBuffer();
 
           // Build level list HTML
-          let levelsHtml = '';
+          let levelsHtml = `<div class="pack-level-count">${totalLevelCount} level${totalLevelCount === 1 ? '' : 's'}</div>`;
           levelItems.forEach((item, index) => {
             const level = item.referencedLevel;
             if (!level) return;
@@ -1368,10 +1371,40 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
             `;
           });
 
-          if (remainingCount > 0) {
+          // Build overlapping icons HTML for the more section
+          let moreIconsHtml = '';
+          let iconsContainerWidth = 0;
+          if (moreLevelItems.length > 0 || remainingCount > 0) {
+            const validIcons = moreLevelItems.filter(item => item.referencedLevel && item.referencedLevel.difficulty?.icon);
+            validIcons.forEach((item, index) => {
+              const level = item.referencedLevel;
+              if (!level || !level.difficulty?.icon) return;
+              
+              const diffIcon = level.difficulty.icon;
+
+              moreIconsHtml += `
+                <div class="level-more-icon-container">
+                <img 
+                  class="level-more-icon"
+                  src="${diffIcon}" 
+                  alt="Difficulty Icon"
+                  style="z-index: ${100 - index};"
+                />
+                </div>
+              `;
+            });
+            
+            // Calculate container width: icon width (32px) + max offset (2px * (count - 1))
+            if (validIcons.length > 0) {
+              const iconSize = 32 * multiplier;
+              const maxOffset = Math.min(2 * (validIcons.length - 1), 2 * 19) * multiplier;
+              iconsContainerWidth = iconSize + maxOffset;
+            }
+            
             levelsHtml += `
               <div class="level-item level-item-more">
-                <span class="level-item-name">+${remainingCount} more</span>
+                ${moreIconsHtml}
+                ${remainingCount > 0 ? `<span class="level-item-name level-item-more-name">+${remainingCount} more</span>` : ''}
               </div>
             `;
           }
@@ -1467,6 +1500,15 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
                     font-size: ${32*multiplier}px;
                     color: #bbbbbb;
                   }
+                  .pack-level-count {
+                    position: absolute;
+                    transform: translateY(-100%);
+                    right: ${18*multiplier}px;
+                    font-weight: 600;
+                    font-size: ${28*multiplier}px;
+                    color: #999;
+                    z-index: 3;
+                  }
                   .levels-section {
                     display: flex;
                     flex-direction: column;
@@ -1497,11 +1539,42 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
                   }
                   .level-item-more {
                     background-color: rgba(255, 255, 255, 0.05);
-                    justify-content: center;
+                    justify-content: flex-start;
+                    gap: ${12*multiplier}px;
+                    position: relative;
+                    padding-left: ${12*multiplier}px;
+                    padding-right: ${12*multiplier}px;
+                  }
+                  .level-more-icons-container {
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    height: ${32*multiplier}px;
+                    flex-shrink: 0;
+                  }
+                  .level-more-icon-container {
+                    position: relative;
+                    display: inline-block;
+                    max-width: ${32*multiplier}px;
+                    min-width: ${8*multiplier}px;
+                    height: ${32*multiplier}px;
+                    flex-grow: 1;
+                  }
+                  .level-more-icon {
+                    position: absolute;
+                    width: ${32*multiplier}px;
+                    height: ${32*multiplier}px;
+                    border-radius: ${4*multiplier}px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
                   }
                   .level-item-more .level-item-name {
                     font-weight: 700;
+                    font-size: ${32*multiplier}px;
                     color: white;
+                  }
+                  .level-item-more-name {
+                    margin-left: ${12*multiplier}px;
+                    margin-right: ${24*multiplier}px;
                   }
                 </style>
               </head>
@@ -1532,7 +1605,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
                             alt="Owner Avatar"
                           />
                         ` : ''}
-                        <span class="pack-owner-name">${(pack as any).packOwner?.username || 'Unknown'}</span>
+                        <span class="pack-owner-name">${(pack as any).packOwner?.nickname.slice(0, 40) || 'Unknown'}</span>
                       </div>
                     </div>
                   </div>
@@ -1547,7 +1620,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
           `;
 
           // Export HTML to file for review
-          await exportHtmlToFile(html, 'pack', resolvedPackId);
+          await exportHtmlToFile(html, 'pack', pack.linkCode);
 
           const buffer = await htmlToPng(html, width, height);
           await fs.promises.writeFile(largeCachePath, buffer);
