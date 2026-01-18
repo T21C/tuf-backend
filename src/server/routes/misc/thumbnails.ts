@@ -551,6 +551,7 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                   }
                   .level-tags {
                     display: flex;
+                    width: 100%;
                     flex-direction: row;
                     justify-content: flex-end;
                     align-items: start;
