@@ -12,6 +12,8 @@ import { formatCreatorDisplay } from '../../misc/utils/Utility.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import Creator from '../../models/credits/Creator.js';
 import LevelPack from '../../models/packs/LevelPack.js';
+import { LevelPackViewModes } from '../../models/packs/index.js';
+import { Op } from 'sequelize';
 
 // Add type for manifest entries
 type ManifestEntry = {
@@ -321,7 +323,7 @@ export const htmlMetaMiddleware = async (
       }
     }
     else if (req.path.startsWith('/packs/')) {
-      const pack = await LevelPack.findOne({where: {linkCode: id}});
+      const pack = await LevelPack.findOne({where: {linkCode: id, viewMode: {[Op.or]: [LevelPackViewModes.PUBLIC, LevelPackViewModes.LINKONLY]}}});
       if (pack) {
         const packName = escapeMetaText(pack.name);
         const owner = await User.findByPk(pack.ownerId);

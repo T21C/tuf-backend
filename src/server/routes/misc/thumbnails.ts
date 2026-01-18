@@ -1605,7 +1605,9 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
                             alt="Owner Avatar"
                           />
                         ` : ''}
-                        <span class="pack-owner-name">${(pack as any).packOwner?.nickname.slice(0, 40) || 'Unknown'}</span>
+                        <span class="pack-owner-name">${
+                          (pack as any).packOwner?.nickname?.slice(0, 40) ||
+                          (pack as any).packOwner?.username?.slice(0, 40) || 'Unknown'}</span>
                       </div>
                     </div>
                   </div>
