@@ -495,6 +495,8 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                     color: #bbbbbb;
                   }
                   .level-metadata {
+                    width: 100%;
+                    justify-content:flex-end;
                     display: flex;
                     margin-top: ${6*multiplier}px;
                     gap: ${10*multiplier}px;
