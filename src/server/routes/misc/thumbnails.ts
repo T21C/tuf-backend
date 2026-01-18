@@ -27,6 +27,8 @@ import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '../webhooks/embeds.js';
 import dotenv from 'dotenv';
 import { env } from 'process';
+import LevelTagAssignment from '../../../models/levels/LevelTagAssignment.js';
+import LevelTag from '../../../models/levels/LevelTag.js';
 
 dotenv.config();
 
@@ -283,7 +285,8 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                   {model: TeamAlias, as: 'teamAliases', attributes: ['name']}
                 ],
               },
-              {model: Rating, as: 'ratings', attributes: ['averageDifficultyId'], limit: 1, order: [['confirmedAt', 'DESC']]}
+              {model: Rating, as: 'ratings', attributes: ['averageDifficultyId'], limit: 1, order: [['confirmedAt', 'DESC']]},
+              {model: LevelTag, as: 'tags'}
             ],
           });
 
@@ -486,13 +489,14 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                   }
                   .level-id {
                     font-weight: 700;
+                    margin-top: -${4*multiplier}px;
                     align-self: flex-end;
                     font-size: ${40*multiplier}px;
                     color: #bbbbbb;
                   }
                   .level-metadata {
                     display: flex;
-                    margin-top: ${7*multiplier}px;
+                    margin-top: ${4*multiplier}px;
                     gap: ${10*multiplier}px;
                   }
                   .level-metadata.hidden {
@@ -545,6 +549,11 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                     font-size: ${30*multiplier*(secondRow ? 0.9 : 1)}px;
                     color: white;
                   }
+                  .level-tag-icon {
+                    width: ${24*multiplier}px;
+                    height: ${24*multiplier}px;
+                    filter: drop-shadow(0 0 3px rgba(0, 0, 0, 1));
+                  }
                 </style>
               </head>
               <body>
@@ -575,6 +584,7 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                   </div>
                   <div class="header-right">
                     <div class="level-id">#${levelId}</div>
+                    ${level.tags && level.tags.length > 0 ? `<div class="level-tags">${level.tags.map((tag: LevelTag) => `<img src="${tag.icon}" class="level-tag-icon"/>`).join(' ')}</div>` : ''}
                     <div class="level-metadata ${metadata?.angles?.length && metadata?.settings?.bpm ? '' : 'hidden'}">
                       <div class="level-metadata-item">
 

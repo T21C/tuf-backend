@@ -11,6 +11,7 @@ import Team from '../credits/Team.js';
 import Curation from '../curations/Curation.js';
 import Rating from './Rating.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
+import LevelTag from './LevelTag.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 type LevelAttributes = ILevel;
@@ -69,7 +70,7 @@ class Level
   declare team: string;
   declare charters: string[];
   declare vfxers: string[];
-
+  declare tags?: LevelTag[];
 }
 
 Level.init(
