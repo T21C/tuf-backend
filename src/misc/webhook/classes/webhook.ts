@@ -12,7 +12,7 @@ export default class Webhook {
 
     if (typeof options === 'string') {
       this.hookURL = options;
-      this.throwErrors = true;
+      this.throwErrors = false;
       this.retryOnLimit = true;
     } else {
       this.hookURL = options.url;

@@ -242,7 +242,7 @@ export async function startServer() {
           });
         }
         // Headers already sent, just log and return
-        logger.warn('Client disconnected during response:', {
+        logger.debug('Client disconnected during response:', {
           code: err.code,
           path: req.path,
           method: req.method
@@ -252,11 +252,11 @@ export async function startServer() {
 
       // Handle URI decoding errors specifically
       if (err instanceof URIError) {
-        logger.warn('URI decoding error:', {
+        logger.debug('URI decoding error:', {
           error: err.message,
           path: req.path,
           method: req.method,
-          ip: req.ip
+          ip: req.connection.remoteAddress || req.ip
         });
 
         return res.status(400).json({
