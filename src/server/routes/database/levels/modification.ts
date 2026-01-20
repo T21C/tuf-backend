@@ -406,6 +406,7 @@ const handleScoreRecalculations = async (
         transaction,
       },
     );
+    await elasticsearchService.reindexPasses(passUpdates.map(pass => pass.id));
 
     logger.debug(`Bulk updated ${passUpdates.length} passes for level ${levelId}`);
   }
