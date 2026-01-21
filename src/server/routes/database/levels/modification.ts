@@ -414,7 +414,7 @@ const handleScoreRecalculations = async (
   return passes.map(pass => pass.playerId);
 };
 
-router.put('/own/:id[0-9]{1,20}', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const levelId = parseInt(req.params.id);
@@ -462,7 +462,7 @@ router.put('/own/:id[0-9]{1,20}', Auth.verified(), async (req: Request, res: Res
   }
 });
 
-router.put('/:id[0-9]{1,20}', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
   const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
@@ -744,7 +744,7 @@ router.put('/:id[0-9]{1,20}', Auth.superAdmin(), async (req: Request, res: Respo
   }
 });
 
-router.delete('/:id[0-9]{1,20}', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const levelId = parseInt(req.params.id);
@@ -836,7 +836,7 @@ router.delete('/:id[0-9]{1,20}', Auth.superAdmin(), async (req: Request, res: Re
   },
 );
 
-router.patch('/:id[0-9]{1,20}/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id([0-9]{1,20})/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -917,7 +917,7 @@ router.patch('/:id[0-9]{1,20}/restore', Auth.superAdmin(), async (req: Request, 
 );
 
 // Toggle hidden status
-router.patch('/:id[0-9]{1,20}/toggle-hidden', Auth.verified(), async (req: Request, res: Response) => {
+router.patch('/:id([0-9]{1,20})/toggle-hidden', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -983,7 +983,7 @@ router.patch('/:id[0-9]{1,20}/toggle-hidden', Auth.verified(), async (req: Reque
   },
 );
 
-router.put('/:id[0-9]{1,20}/like', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})/like', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     if (!req.user) {
       await safeTransactionRollback(transaction);
@@ -1064,7 +1064,7 @@ router.put('/:id[0-9]{1,20}/like', Auth.verified(), async (req: Request, res: Re
   },
 );
 
-router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/:id([0-9]{1,20})/rating-accuracy-vote', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1199,11 +1199,12 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
 );
 
 // Upload management endpoints
-router.post('/:id[0-9]{1,20}/upload', Auth.verified(), async (req: Request, res: Response) => {
+router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const {fileId, fileName, fileSize} = req.body;
+      logger.info('Upload management endpoint called', {req: req.params.id, fileId, fileName, fileSize});
       const levelId = parseInt(req.params.id);
       if (!fileId || !fileName || !fileSize) {
         throw {error: 'Missing required file information', code: 400};
@@ -1584,14 +1585,14 @@ router.post('/:id[0-9]{1,20}/upload', Auth.verified(), async (req: Request, res:
   },
 );
 
-router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Response) => {
+router.post('/:id([0-9]{1,20})/select-level', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const {selectedLevel} = req.body;
       const levelId = parseInt(req.params.id);
-      if (isNaN(levelId) || !selectedLevel) {
-        throw {error: 'Invalid level ID or missing selected level', code: 400};
+      if (!selectedLevel) {
+        throw {error: 'Missing selected level', code: 400};
       }
 
       const level = await Level.findByPk(levelId, {transaction});
@@ -1646,7 +1647,7 @@ router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Resp
   },
 );
 
-router.delete('/:id[0-9]{1,20}/upload', Auth.verified(), async (req: Request, res: Response) => {
+router.delete('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1718,7 +1719,7 @@ router.delete('/:id[0-9]{1,20}/upload', Auth.verified(), async (req: Request, re
 );
 
 // Refresh auto-assigned tags for a level
-router.post('/:id[0-9]{1,20}/refresh-tags', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/:id([0-9]{1,20})/refresh-tags', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
 
