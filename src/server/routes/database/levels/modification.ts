@@ -1204,7 +1204,6 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
 
     try {
       const {fileId, fileName, fileSize} = req.body;
-      logger.info('Upload management endpoint called', {req: req.params.id, fileId, fileName, fileSize});
       const levelId = parseInt(req.params.id);
       if (!fileId || !fileName || !fileSize) {
         throw {error: 'Missing required file information', code: 400};
