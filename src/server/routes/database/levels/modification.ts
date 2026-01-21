@@ -414,13 +414,10 @@ const handleScoreRecalculations = async (
   return passes.map(pass => pass.playerId);
 };
 
-router.put('/own/:id', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/own/:id[0-9]{1,20}', Auth.verified(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const levelId = parseInt(req.params.id);
-    if (isNaN(levelId)) {
-      return res.status(400).json({error: 'Invalid level ID'});
-    }
     const {canEdit, errorMessage} = await checkLevelOwnership(
       levelId,
       req.user,
@@ -465,7 +462,7 @@ router.put('/own/:id', Auth.verified(), async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/:id[0-9]{1,20}', Auth.superAdmin(), async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
   const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
@@ -485,9 +482,6 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
 
   try {
     const levelId = parseInt(req.params.id);
-    if (isNaN(levelId)) {
-      return res.status(400).json({error: 'Invalid level ID'});
-    }
 
     const level = await Level.findOne({
       where: {id: levelId},
@@ -750,13 +744,10 @@ router.put('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/:id[0-9]{1,20}', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const levelId = parseInt(req.params.id);
-      if (isNaN(levelId)) {
-        return res.status(400).json({error: 'Invalid level ID'});
-      }
 
       const level = await Level.findOne({
         where: {id: levelId.toString()},
@@ -845,7 +836,7 @@ router.delete('/:id', Auth.superAdmin(), async (req: Request, res: Response) => 
   },
 );
 
-router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch('/:id[0-9]{1,20}/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -926,17 +917,12 @@ router.patch('/:id/restore', Auth.superAdmin(), async (req: Request, res: Respon
 );
 
 // Toggle hidden status
-router.patch('/:id/toggle-hidden', Auth.verified(), async (req: Request, res: Response) => {
+router.patch('/:id[0-9]{1,20}/toggle-hidden', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const {id} = req.params;
       const levelId = parseInt(id);
-
-      if (isNaN(levelId)) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'Invalid level ID'});
-      }
 
       const level = await Level.findOne({
         where: {id: levelId},
@@ -997,7 +983,7 @@ router.patch('/:id/toggle-hidden', Auth.verified(), async (req: Request, res: Re
   },
 );
 
-router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => {
+router.put('/:id[0-9]{1,20}/like', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     if (!req.user) {
       await safeTransactionRollback(transaction);
@@ -1006,11 +992,6 @@ router.put('/:id/like', Auth.verified(), async (req: Request, res: Response) => 
     try {
       const levelId = parseInt(req.params.id);
       const {action} = req.body;
-
-      if (isNaN(levelId) || !Number.isInteger(levelId) || levelId <= 0) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({error: 'Invalid level ID'});
-      }
 
       if (!action || !['like', 'unlike'].includes(action)) {
         await safeTransactionRollback(transaction);
@@ -1218,17 +1199,12 @@ router.put('/:id/rating-accuracy-vote', Auth.verified(), async (req: Request, re
 );
 
 // Upload management endpoints
-router.post('/:id/upload', Auth.verified(), async (req: Request, res: Response) => {
+router.post('/:id[0-9]{1,20}/upload', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const {fileId, fileName, fileSize} = req.body;
       const levelId = parseInt(req.params.id);
-
-      if (isNaN(levelId)) {
-        throw {error: 'Invalid level ID', code: 400};
-      }
-
       if (!fileId || !fileName || !fileSize) {
         throw {error: 'Missing required file information', code: 400};
       }
@@ -1670,14 +1646,11 @@ router.post('/:id/select-level', Auth.verified(), async (req: Request, res: Resp
   },
 );
 
-router.delete('/:id/upload', Auth.verified(), async (req: Request, res: Response) => {
+router.delete('/:id[0-9]{1,20}/upload', Auth.verified(), async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
       const levelId = parseInt(req.params.id);
-      if (isNaN(levelId)) {
-        throw {error: 'Invalid level ID', code: 400};
-      }
 
       // Get current level
       const level = await Level.findByPk(levelId, {transaction});
@@ -1745,13 +1718,9 @@ router.delete('/:id/upload', Auth.verified(), async (req: Request, res: Response
 );
 
 // Refresh auto-assigned tags for a level
-router.post('/:id/refresh-tags', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/:id[0-9]{1,20}/refresh-tags', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
-
-    if (isNaN(levelId)) {
-      return res.status(400).json({error: 'Invalid level ID'});
-    }
 
     const level = await Level.findByPk(levelId);
     if (!level) {
