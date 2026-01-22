@@ -303,11 +303,13 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
             name: string;
             creatorAliases?: { name: string }[]
           };
-          role: CreditRole
+          role: CreditRole;
+          isOwner: boolean;
         }) => ({
           id: credit.creator.id,
           name: credit.creator.name,
           role: credit.role,
+          isOwner: credit.isOwner,
           aliases: credit.creator.creatorAliases?.map((alias: { name: string }) => alias.name) || [],
           levelCount: levelCountMap.get(credit.creator.id) || 0,
         })) || [],
