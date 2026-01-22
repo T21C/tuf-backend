@@ -1381,11 +1381,6 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
                 attributes: ['id', 'username']
               },
               {
-                model: Level,
-                as: 'createdLevels',
-                attributes: ['id', 'isVerified']
-              },
-              {
                 model: LevelCredit,
                 as: 'credits',
                 attributes: ['id', 'role']
@@ -1404,12 +1399,6 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
                 model: Creator,
                 as: 'teamCreators',
                 through: { attributes: [] },
-                required: false
-              },
-              {
-                model: Level,
-                as: 'levels',
-                attributes: ['id', 'isVerified'],
                 required: false
               }
             ]
@@ -1639,11 +1628,6 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
                 attributes: ['id', 'username']
               },
               {
-                model: Level,
-                as: 'createdLevels',
-                attributes: ['id', 'isVerified']
-              },
-              {
                 model: LevelCredit,
                 as: 'credits',
                 attributes: ['id', 'role']
@@ -1662,12 +1646,6 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
                 model: Creator,
                 as: 'teamCreators',
                 through: { attributes: [] },
-                required: false
-              },
-              {
-                model: Level,
-                as: 'levels',
-                attributes: ['id', 'isVerified'],
                 required: false
               }
             ]
@@ -1785,11 +1763,6 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
                 attributes: ['id', 'username']
               },
               {
-                model: Level,
-                as: 'createdLevels',
-                attributes: ['id', 'isVerified']
-              },
-              {
                 model: LevelCredit,
                 as: 'credits',
                 attributes: ['id', 'role']
@@ -1808,12 +1781,6 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
                 model: Creator,
                 as: 'teamCreators',
                 through: { attributes: [] },
-                required: false
-              },
-              {
-                model: Level,
-                as: 'levels',
-                attributes: ['id', 'isVerified'],
                 required: false
               }
             ]
