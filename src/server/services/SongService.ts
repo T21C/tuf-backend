@@ -146,6 +146,8 @@ class SongService {
     const target = await Song.findByPk(targetId, {
       include: [
         { model: SongAlias, as: 'aliases' },
+        { model: SongLink, as: 'links' },
+        { model: SongEvidence, as: 'evidences' },
         { model: SongCredit, as: 'credits' }
       ]
     });
@@ -158,24 +160,24 @@ class SongService {
       throw new Error('Cannot merge song into itself');
     }
 
-    // Move aliases from source to target
+    // Move aliases from source to target by updating songId
     const targetAliases = new Set(
       (target.aliases || []).map(a => this.normalizeSongName(a.alias))
     );
     targetAliases.add(this.normalizeSongName(target.name));
 
     const sourceAliases = source.aliases || [];
-    const newAliases = sourceAliases.filter(a => {
+    const sourceAliasesToMove = sourceAliases.filter(a => {
       const normalized = this.normalizeSongName(a.alias);
       return !targetAliases.has(normalized);
     });
 
-    if (newAliases.length > 0) {
-      await SongAlias.bulkCreate(
-        newAliases.map(alias => ({
-          songId: target.id,
-          alias: alias.alias
-        }))
+    // Update songId for non-duplicate aliases (duplicates will be deleted when source is destroyed)
+    if (sourceAliasesToMove.length > 0) {
+      const aliasIds = sourceAliasesToMove.map(a => a.id);
+      await SongAlias.update(
+        { songId: target.id },
+        { where: { id: { [Op.in]: aliasIds } } }
       );
     }
 
@@ -188,26 +190,41 @@ class SongService {
       });
     }
 
-    // Move links from source to target
+    // Merge links from source to target by updating songId
+    const targetLinks = new Set(
+      (target.links || []).map(l => l.link.toLowerCase().trim())
+    );
     const sourceLinks = source.links || [];
-    if (sourceLinks.length > 0) {
-      await SongLink.bulkCreate(
-        sourceLinks.map(link => ({
-          songId: target.id,
-          link: link.link
-        }))
+    const sourceLinksToMove = sourceLinks.filter(link => {
+      const normalizedLink = link.link.toLowerCase().trim();
+      return !targetLinks.has(normalizedLink);
+    });
+
+    // Update songId for non-duplicate links (duplicates will be deleted when source is destroyed)
+    if (sourceLinksToMove.length > 0) {
+      const linkIds = sourceLinksToMove.map(l => l.id);
+      await SongLink.update(
+        { songId: target.id },
+        { where: { id: { [Op.in]: linkIds } } }
       );
     }
 
-    // Move evidences from source to target
+    // Merge evidences from source to target by updating songId
+    const targetEvidences = new Set(
+      (target.evidences || []).map(e => e.link.toLowerCase().trim())
+    );
     const sourceEvidences = source.evidences || [];
-    if (sourceEvidences.length > 0) {
-      await SongEvidence.bulkCreate(
-        sourceEvidences.map(evidence => ({
-          songId: target.id,
-          link: evidence.link,
-          type: evidence.type
-        }))
+    const sourceEvidencesToMove = sourceEvidences.filter(evidence => {
+      const normalizedLink = evidence.link.toLowerCase().trim();
+      return !targetEvidences.has(normalizedLink);
+    });
+
+    // Update songId for non-duplicate evidences (duplicates will be deleted when source is destroyed)
+    if (sourceEvidencesToMove.length > 0) {
+      const evidenceIds = sourceEvidencesToMove.map(e => e.id);
+      await SongEvidence.update(
+        { songId: target.id },
+        { where: { id: { [Op.in]: evidenceIds } } }
       );
     }
 
