@@ -236,6 +236,16 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
     const typeConfig = IMAGE_TYPES[imageType];
     const sizes = typeConfig.sizes.original;
 
+    if (imageType === 'EVIDENCE') {
+        return {
+            minWidth: 100,
+            maxWidth: 4096,
+            minHeight: 100,
+            maxHeight: 4096,
+            maxSize: typeConfig.maxSize,
+        };
+    }
+
     // Very loose validation for level thumbnails
     if (imageType === 'LEVEL_THUMBNAIL') {
         return {

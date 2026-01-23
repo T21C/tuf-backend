@@ -76,6 +76,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           model: ArtistAlias,
           as: 'aliases',
           attributes: ['id', 'alias']
+        },
+        {
+          model: ArtistEvidence,
+          as: 'evidences',
+          attributes: ['id', 'link', 'type']
         }
       ]
     });

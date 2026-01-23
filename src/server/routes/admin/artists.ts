@@ -11,7 +11,7 @@ import Level from '../../../models/levels/Level.js';
 import sequelize from '../../../config/db.js';
 import {escapeForMySQL} from '../../../misc/utils/data/searchHelpers.js';
 import {logger} from '../../services/LoggerService.js';
-import {safeTransactionRollback} from '../../../misc/utils/Utility.js';
+import {safeTransactionRollback, isCdnUrl} from '../../../misc/utils/Utility.js';
 import ArtistService from '../../services/ArtistService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '../../services/CdnService.js';
@@ -97,6 +97,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           model: ArtistAlias,
           as: 'aliases',
           attributes: ['id', 'alias']
+        },
+        {
+          model: ArtistEvidence,
+          as: 'evidences',
+          attributes: ['id', 'link', 'type']
         }
       ]
     });
@@ -172,6 +177,27 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
       return res.status(400).json({error: 'Name is required'});
     }
 
+    const trimmedName = name.trim();
+    const normalizedName = trimmedName.toLowerCase();
+    
+    // Check for case-insensitive duplicate using LOWER() function
+    const existingArtist = await Artist.findOne({
+      where: sequelize.where(
+        sequelize.fn('LOWER', sequelize.col('name')),
+        normalizedName
+      ),
+      transaction
+    });
+
+    if (existingArtist) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({
+        error: `Artist with name "${existingArtist.name}" already exists`,
+        code: 'DUPLICATE_ARTIST',
+        existingArtistId: existingArtist.id
+      });
+    }
+
     const artist = await Artist.create({
       name: name.trim(),
       avatarUrl: avatarUrl || null,
@@ -217,6 +243,15 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       artist.name = name.trim();
     }
     if (avatarUrl !== undefined) {
+      // Prevent editing CDN URLs through update endpoint - they can only be changed via upload/delete endpoints
+      const currentAvatarIsCdn = artist.avatarUrl && isCdnUrl(artist.avatarUrl);
+      if (currentAvatarIsCdn && avatarUrl !== artist.avatarUrl) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: 'CDN-hosted avatar URLs can only be changed via upload/delete endpoints',
+          code: 'CDN_URL_NOT_EDITABLE'
+        });
+      }
       artist.avatarUrl = avatarUrl || null;
     }
     if (verificationState) {

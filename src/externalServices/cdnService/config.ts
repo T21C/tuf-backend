@@ -92,6 +92,17 @@ export const IMAGE_TYPES = {
         },
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 5 * 1024 * 1024 // 5MB
+    },
+    EVIDENCE: {
+        name: 'evidence',
+        sizes: {
+            original: { width: 1920, height: 1080 },
+            large: { width: 1280, height: 720 },
+            medium: { width: 854, height: 480 },
+            small: { width: 640, height: 360 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
+        maxSize: 15 * 1024 * 1024 // 15MB
     }
 } as const;
 
@@ -104,6 +115,7 @@ export const MIME_TYPES = {
     'PACK_ICON': 'image/png',
     'TAG_ICON': 'image/png',
     'LEVELZIP': 'application/zip',
+    'EVIDENCE': 'image/png',
     'GENERAL': 'application/octet-stream'
 } as const;
 

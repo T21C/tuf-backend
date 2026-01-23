@@ -95,6 +95,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           attributes: ['id', 'alias']
         },
         {
+          model: SongEvidence,
+          as: 'evidences',
+          attributes: ['id', 'link', 'type']
+        },
+        {
           model: SongCredit,
           as: 'credits',
           include: [
