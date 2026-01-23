@@ -146,7 +146,9 @@ class ArtistService {
     });
     const target = await Artist.findByPk(targetId, {
       include: [
-        { model: ArtistAlias, as: 'aliases' }
+        { model: ArtistAlias, as: 'aliases' },
+        { model: ArtistLink, as: 'links' },
+        { model: ArtistEvidence, as: 'evidences' }
       ]
     });
 
@@ -158,24 +160,24 @@ class ArtistService {
       throw new Error('Cannot merge artist into itself');
     }
 
-    // Move aliases from source to target
+    // Move aliases from source to target by updating artistId
     const targetAliases = new Set(
       (target.aliases || []).map(a => this.normalizeArtistName(a.alias))
     );
     targetAliases.add(this.normalizeArtistName(target.name));
 
     const sourceAliases = source.aliases || [];
-    const newAliases = sourceAliases.filter(a => {
+    const sourceAliasesToMove = sourceAliases.filter(a => {
       const normalized = this.normalizeArtistName(a.alias);
       return !targetAliases.has(normalized);
     });
 
-    if (newAliases.length > 0) {
-      await ArtistAlias.bulkCreate(
-        newAliases.map(alias => ({
-          artistId: target.id,
-          alias: alias.alias
-        }))
+    // Update artistId for non-duplicate aliases (duplicates will be deleted when source is destroyed)
+    if (sourceAliasesToMove.length > 0) {
+      const aliasIds = sourceAliasesToMove.map(a => a.id);
+      await ArtistAlias.update(
+        { artistId: target.id },
+        { where: { id: { [Op.in]: aliasIds } } }
       );
     }
 
@@ -188,26 +190,41 @@ class ArtistService {
       });
     }
 
-    // Move links from source to target
+    // Merge links from source to target by updating artistId
+    const targetLinks = new Set(
+      (target.links || []).map(l => l.link.toLowerCase().trim())
+    );
     const sourceLinks = source.links || [];
-    if (sourceLinks.length > 0) {
-      await ArtistLink.bulkCreate(
-        sourceLinks.map(link => ({
-          artistId: target.id,
-          link: link.link
-        }))
+    const sourceLinksToMove = sourceLinks.filter(link => {
+      const normalizedLink = link.link.toLowerCase().trim();
+      return !targetLinks.has(normalizedLink);
+    });
+
+    // Update artistId for non-duplicate links (duplicates will be deleted when source is destroyed)
+    if (sourceLinksToMove.length > 0) {
+      const linkIds = sourceLinksToMove.map(l => l.id);
+      await ArtistLink.update(
+        { artistId: target.id },
+        { where: { id: { [Op.in]: linkIds } } }
       );
     }
 
-    // Move evidences from source to target
+    // Merge evidences from source to target by updating artistId
+    const targetEvidences = new Set(
+      (target.evidences || []).map(e => e.link.toLowerCase().trim())
+    );
     const sourceEvidences = source.evidences || [];
-    if (sourceEvidences.length > 0) {
-      await ArtistEvidence.bulkCreate(
-        sourceEvidences.map(evidence => ({
-          artistId: target.id,
-          link: evidence.link,
-          type: evidence.type
-        }))
+    const sourceEvidencesToMove = sourceEvidences.filter(evidence => {
+      const normalizedLink = evidence.link.toLowerCase().trim();
+      return !targetEvidences.has(normalizedLink);
+    });
+
+    // Update artistId for non-duplicate evidences (duplicates will be deleted when source is destroyed)
+    if (sourceEvidencesToMove.length > 0) {
+      const evidenceIds = sourceEvidencesToMove.map(e => e.id);
+      await ArtistEvidence.update(
+        { artistId: target.id },
+        { where: { id: { [Op.in]: evidenceIds } } }
       );
     }
 

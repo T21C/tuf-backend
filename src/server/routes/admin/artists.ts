@@ -11,7 +11,7 @@ import Level from '../../../models/levels/Level.js';
 import sequelize from '../../../config/db.js';
 import {escapeForMySQL} from '../../../misc/utils/data/searchHelpers.js';
 import {logger} from '../../services/LoggerService.js';
-import {safeTransactionRollback, isCdnUrl} from '../../../misc/utils/Utility.js';
+import {safeTransactionRollback, isCdnUrl, getFileIdFromCdnUrl} from '../../../misc/utils/Utility.js';
 import ArtistService from '../../services/ArtistService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '../../services/CdnService.js';
@@ -99,6 +99,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           attributes: ['id', 'alias']
         },
         {
+          model: ArtistLink,
+          as: 'links',
+          attributes: ['id', 'link']
+        },
+        {
           model: ArtistEvidence,
           as: 'evidences',
           attributes: ['id', 'link', 'type']
@@ -167,10 +172,20 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
 });
 
 // Create new artist
-router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {name, avatarUrl, verificationState, aliases} = req.body;
+    let {name, verificationState, aliases} = req.body;
+    
+    // Parse aliases if it's a JSON string (from FormData)
+    if (typeof aliases === 'string') {
+      try {
+        aliases = JSON.parse(aliases);
+      } catch (e) {
+        // If parsing fails, treat as empty array
+        aliases = [];
+      }
+    }
 
     if (!name || typeof name !== 'string') {
       await safeTransactionRollback(transaction);
@@ -180,6 +195,36 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
     const trimmedName = name.trim();
     const normalizedName = trimmedName.toLowerCase();
     
+    // Avatar must be uploaded as a file first (before checking duplicates)
+    let cdnUrl: string | null = null;
+    let uploadedFileId: string | null = null;
+    
+    if (req.file) {
+      try {
+        // Upload avatar to CDN first
+        const uploadResult = await cdnServiceInstance.uploadImage(
+          req.file.buffer,
+          req.file.originalname,
+          'PROFILE'
+        );
+        cdnUrl = uploadResult.urls.original;
+        uploadedFileId = getFileIdFromCdnUrl(cdnUrl);
+      } catch (error: any) {
+        await safeTransactionRollback(transaction);
+        if (error instanceof CdnError) {
+          const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
+          logger.error('Error uploading avatar during creation:', error);
+          return res.status(statusCode).json({
+            error: error.message || 'Failed to upload avatar',
+            code: error.code,
+            details: error.details
+          });
+        }
+        logger.error('Error uploading avatar:', error);
+        return res.status(500).json({error: 'Failed to upload avatar'});
+      }
+    }
+
     // Check for case-insensitive duplicate using LOWER() function
     const existingArtist = await Artist.findOne({
       where: sequelize.where(
@@ -191,6 +236,17 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     if (existingArtist) {
       await safeTransactionRollback(transaction);
+      
+      // If we uploaded a file, delete it from CDN
+      if (uploadedFileId && cdnUrl) {
+        try {
+          await cdnServiceInstance.deleteFile(uploadedFileId);
+          logger.info(`Deleted uploaded avatar file ${uploadedFileId} due to duplicate artist name`);
+        } catch (deleteError) {
+          logger.error(`Failed to delete uploaded avatar file ${uploadedFileId} after duplicate check:`, deleteError);
+        }
+      }
+      
       return res.status(400).json({
         error: `Artist with name "${existingArtist.name}" already exists`,
         code: 'DUPLICATE_ARTIST',
@@ -198,28 +254,68 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
       });
     }
 
-    const artist = await Artist.create({
-      name: name.trim(),
-      avatarUrl: avatarUrl || null,
-      verificationState: verificationState || 'unverified'
-    }, {transaction});
+    try {
+      // Create artist with CDN URL (if uploaded)
+      const artist = await Artist.create({
+        name: name.trim(),
+        avatarUrl: cdnUrl || null,
+        verificationState: verificationState || 'unverified'
+      }, {transaction});
 
-    // Add aliases if provided
-    if (aliases && Array.isArray(aliases) && aliases.length > 0) {
-      const uniqueAliases = [...new Set(aliases.map((a: string) => a.trim()).filter((a: string) => a))];
-      if (uniqueAliases.length > 0) {
-        await ArtistAlias.bulkCreate(
-          uniqueAliases.map(alias => ({
-            artistId: artist.id,
-            alias: alias.trim()
-          })),
-          {transaction}
-        );
+      // Add aliases if provided
+      if (aliases && Array.isArray(aliases) && aliases.length > 0) {
+        const uniqueAliases = [...new Set(aliases.map((a: any) => String(a).trim()).filter((a: string) => a))];
+        if (uniqueAliases.length > 0) {
+          await ArtistAlias.bulkCreate(
+            uniqueAliases.map((alias: string) => ({
+              artistId: artist.id,
+              alias: alias.trim()
+            })),
+            {transaction}
+          );
+        }
       }
-    }
 
-    await transaction.commit();
-    return res.json(artist);
+      await transaction.commit();
+      
+      // Fetch full artist with relations
+      const createdArtist = await Artist.findByPk(artist.id, {
+        include: [
+          {
+            model: ArtistAlias,
+            as: 'aliases',
+            attributes: ['id', 'alias']
+          },
+          {
+            model: ArtistLink,
+            as: 'links',
+            attributes: ['id', 'link']
+          },
+          {
+            model: ArtistEvidence,
+            as: 'evidences',
+            attributes: ['id', 'link', 'type']
+          }
+        ]
+      });
+
+      return res.json(createdArtist);
+    } catch (error: any) {
+      await safeTransactionRollback(transaction);
+      
+      // If artist creation failed and we uploaded a file, delete it from CDN
+      if (uploadedFileId && cdnUrl) {
+        try {
+          await cdnServiceInstance.deleteFile(uploadedFileId);
+          logger.info(`Deleted uploaded avatar file ${uploadedFileId} after failed artist creation`);
+        } catch (deleteError) {
+          logger.error(`Failed to delete uploaded avatar file ${uploadedFileId} after failed artist creation:`, deleteError);
+        }
+      }
+      
+      logger.error('Error creating artist:', error);
+      return res.status(500).json({error: 'Failed to create artist'});
+    }
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error creating artist:', error);
@@ -237,23 +333,12 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       return res.status(404).json({error: 'Artist not found'});
     }
 
-    const {name, avatarUrl, verificationState} = req.body;
+    const {name, verificationState} = req.body;
 
     if (name && typeof name === 'string') {
       artist.name = name.trim();
     }
-    if (avatarUrl !== undefined) {
-      // Prevent editing CDN URLs through update endpoint - they can only be changed via upload/delete endpoints
-      const currentAvatarIsCdn = artist.avatarUrl && isCdnUrl(artist.avatarUrl);
-      if (currentAvatarIsCdn && avatarUrl !== artist.avatarUrl) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({
-          error: 'CDN-hosted avatar URLs can only be changed via upload/delete endpoints',
-          code: 'CDN_URL_NOT_EDITABLE'
-        });
-      }
-      artist.avatarUrl = avatarUrl || null;
-    }
+    // Avatar can only be changed via upload/delete endpoints
     if (verificationState) {
       artist.verificationState = verificationState;
     }
