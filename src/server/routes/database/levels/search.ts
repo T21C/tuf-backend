@@ -28,6 +28,11 @@ import { hasFlag } from '../../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../../config/constants.js';
 import cdnService from '../../../services/CdnService.js';
 import CurationSchedule from '../../../../models/curations/CurationSchedule.js';
+import Song from '../../../../models/songs/Song.js';
+import SongAlias from '../../../../models/songs/SongAlias.js';
+import SongCredit from '../../../../models/songs/SongCredit.js';
+import Artist from '../../../../models/artists/Artist.js';
+import ArtistAlias from '../../../../models/artists/ArtistAlias.js';
 
 
 const MAX_LIMIT = 200;
@@ -254,9 +259,34 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
     });
 
     try {
-      // Base level query (minimal data)
+      // Base level query (minimal data) with normalized song/artist
       const levelPromise = Level.findOne({
         where: { id: levelId },
+        include: [
+          {
+            model: Song,
+            as: 'songObject',
+            include: [
+              {
+                model: SongAlias,
+                as: 'aliases',
+                attributes: ['id', 'alias']
+              },
+              {
+                model: SongCredit,
+                as: 'credits',
+                include: [
+                  {
+                    model: Artist,
+                    as: 'artist',
+                    attributes: ['id', 'name', 'avatarUrl']
+                  }
+                ]
+              }
+            ],
+            required: false
+          },
+        ],
         transaction,
       });
 
@@ -559,7 +589,9 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         levelCredits,
         teamObject,
         curation,
-        tags: tags || []
+        tags: tags || [],
+        song: level.songObject || null,
+        artists: level.songObject?.credits?.map(credit => credit.artist) || null
       };
 
       return res.json({

@@ -29,6 +29,11 @@ import Curation from '../../models/curations/Curation.js';
 import CurationType from '../../models/curations/CurationType.js';
 import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '../../misc/utils/data/queryParser.js';
 import LevelTagAssignment from '../../models/levels/LevelTagAssignment.js';
+import Song from '../../models/songs/Song.js';
+import SongAlias from '../../models/songs/SongAlias.js';
+import SongCredit from '../../models/songs/SongCredit.js';
+import Artist from '../../models/artists/Artist.js';
+import ArtistAlias from '../../models/artists/ArtistAlias.js';
 
 const MAX_BATCH_SIZE = 4000;
 const BATCH_SIZE = 500;
@@ -427,6 +432,35 @@ class ElasticsearchService {
         through: {
           attributes: []
         }
+      },
+      {
+        model: Song,
+        as: 'songObject',
+        required: false,
+        include: [
+          {
+            model: SongAlias,
+            as: 'aliases',
+            attributes: ['alias']
+          },
+          {
+            model: SongCredit,
+            as: 'credits',
+            include: [
+              {
+                model: Artist,
+                as: 'artist',
+                include: [
+                  {
+                    model: ArtistAlias,
+                    as: 'aliases',
+                    attributes: ['alias']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     ];
 
@@ -529,10 +563,39 @@ class ElasticsearchService {
 
 
   private parseFields(level: Level): any {
+    // Get normalized song data
+    const songObject = level.songObject ? {
+      id: level.songObject.id,
+      name: convertToPUA(level.songObject.name),
+      verificationState: level.songObject.verificationState,
+      aliases: level.songObject.aliases?.map(alias => ({
+        alias: convertToPUA(alias.alias)
+      })) || []
+    } : null;
+
+    // Get normalized artists data (from song credits)
+    const artists = level.songObject?.credits?.map(credit => ({
+      id: credit.artist.id,
+      name: convertToPUA(credit.artist.name),
+      avatarUrl: credit.artist.avatarUrl,
+      verificationState: credit.artist.verificationState,
+      role: credit.role,
+      aliases: credit.artist.aliases?.map(alias => ({
+        alias: convertToPUA(alias.alias)
+      })) || []
+    })) || [];
+
+    // Get primary artist (first artist from song credits)
+    const primaryArtist = artists.length > 0 ? artists[0] : null;
+
     return {
         ...level.get({ plain: true }),
-        song: convertToPUA(level.song),
-        artist: convertToPUA(level.artist),
+        song: convertToPUA(level.song), // Keep text field for backward compatibility
+        artist: convertToPUA(level.artist), // Keep text field for backward compatibility
+        songId: level.songId || null,
+        songObject: songObject, // Normalized song object
+        artists: artists, // Normalized artists array
+        primaryArtist: primaryArtist, // Normalized primary artist (first artist from song credits)
         team: convertToPUA(level.teamObject?.name),
         videoLink: level.videoLink ? convertToPUA(level.videoLink) : null,
         dlLink: level.dlLink ? convertToPUA(level.dlLink) : null,
@@ -1117,6 +1180,150 @@ class ElasticsearchService {
         return isNot ? { bool: { must_not: [query] } } : query;
       }
 
+      // Handle song search (prefer normalized, fallback to text)
+      if (field === 'song') {
+        const query = {
+          bool: {
+            should: [
+              // Search normalized song
+              {
+                nested: {
+                  path: 'songObject',
+                  query: {
+                    bool: {
+                      should: [
+                        {
+                          wildcard: {
+                            'songObject.name': {
+                              value: wildcardValue,
+                              case_insensitive: true
+                            }
+                          }
+                        },
+                        ...(excludeAliases ? [] : [{
+                          nested: {
+                            path: 'songObject.aliases',
+                            query: {
+                              wildcard: {
+                                'songObject.aliases.alias': {
+                                  value: wildcardValue,
+                                  case_insensitive: true
+                                }
+                              }
+                            }
+                          }
+                        }])
+                      ],
+                      minimum_should_match: 1
+                    }
+                  }
+                }
+              },
+              // Fallback to text field
+              {
+                wildcard: {
+                  song: {
+                    value: wildcardValue,
+                    case_insensitive: true
+                  }
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
+      // Handle artist search (prefer normalized, fallback to text)
+      if (field === 'artist') {
+        const query = {
+          bool: {
+            should: [
+              // Search normalized primary artist
+              {
+                nested: {
+                  path: 'primaryArtist',
+                  query: {
+                    bool: {
+                      should: [
+                        {
+                          wildcard: {
+                            'primaryArtist.name': {
+                              value: wildcardValue,
+                              case_insensitive: true
+                            }
+                          }
+                        },
+                        ...(excludeAliases ? [] : [{
+                          nested: {
+                            path: 'primaryArtist.aliases',
+                            query: {
+                              wildcard: {
+                                'primaryArtist.aliases.alias': {
+                                  value: wildcardValue,
+                                  case_insensitive: true
+                                }
+                              }
+                            }
+                          }
+                        }])
+                      ],
+                      minimum_should_match: 1
+                    }
+                  }
+                }
+              },
+              // Search normalized artists array
+              {
+                nested: {
+                  path: 'artists',
+                  query: {
+                    bool: {
+                      should: [
+                        {
+                          wildcard: {
+                            'artists.name': {
+                              value: wildcardValue,
+                              case_insensitive: true
+                            }
+                          }
+                        },
+                        ...(excludeAliases ? [] : [{
+                          nested: {
+                            path: 'artists.aliases',
+                            query: {
+                              wildcard: {
+                                'artists.aliases.alias': {
+                                  value: wildcardValue,
+                                  case_insensitive: true
+                                }
+                              }
+                            }
+                          }
+                        }])
+                      ],
+                      minimum_should_match: 1
+                    }
+                  }
+                }
+              },
+              // Fallback to text field
+              {
+                wildcard: {
+                  artist: {
+                    value: wildcardValue,
+                    case_insensitive: true
+                  }
+                }
+              }
+            ],
+            minimum_should_match: 1
+          }
+        };
+        return isNot ? { bool: { must_not: [query] } } : query;
+      }
+
       // Handle other partial matches
       const searchCondition = {
         wildcard: {
@@ -1179,7 +1386,74 @@ class ElasticsearchService {
     const query = {
       bool: {
         should: [
+          // Search normalized song
+          {
+            nested: {
+              path: 'songObject',
+              query: {
+                bool: {
+                  should: [
+                    { wildcard: { 'songObject.name': { value: wildcardValue, case_insensitive: true } } },
+                    ...(excludeAliases ? [] : [{
+                      nested: {
+                        path: 'songObject.aliases',
+                        query: {
+                          wildcard: { 'songObject.aliases.alias': { value: wildcardValue, case_insensitive: true } }
+                        }
+                      }
+                    }])
+                  ],
+                  minimum_should_match: 1
+                }
+              }
+            }
+          },
+          // Fallback to text song field
           { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
+          // Search normalized artists
+          {
+            nested: {
+              path: 'primaryArtist',
+              query: {
+                bool: {
+                  should: [
+                    { wildcard: { 'primaryArtist.name': { value: wildcardValue, case_insensitive: true } } },
+                    ...(excludeAliases ? [] : [{
+                      nested: {
+                        path: 'primaryArtist.aliases',
+                        query: {
+                          wildcard: { 'primaryArtist.aliases.alias': { value: wildcardValue, case_insensitive: true } }
+                        }
+                      }
+                    }])
+                  ],
+                  minimum_should_match: 1
+                }
+              }
+            }
+          },
+          {
+            nested: {
+              path: 'artists',
+              query: {
+                bool: {
+                  should: [
+                    { wildcard: { 'artists.name': { value: wildcardValue, case_insensitive: true } } },
+                    ...(excludeAliases ? [] : [{
+                      nested: {
+                        path: 'artists.aliases',
+                        query: {
+                          wildcard: { 'artists.aliases.alias': { value: wildcardValue, case_insensitive: true } }
+                        }
+                      }
+                    }])
+                  ],
+                  minimum_should_match: 1
+                }
+              }
+            }
+          },
+          // Fallback to text artist field
           { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
           {
             nested: {

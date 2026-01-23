@@ -34,10 +34,23 @@ import cdnService from '../../services/CdnService.js';
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import {TeamAlias} from '../../../models/credits/TeamAlias.js';
 import {tagAssignmentService} from '../../services/TagAssignmentService.js';
+import LevelSubmissionSongRequest from '../../../models/submissions/LevelSubmissionSongRequest.js';
+import LevelSubmissionArtistRequest from '../../../models/submissions/LevelSubmissionArtistRequest.js';
+import LevelSubmissionEvidence from '../../../models/submissions/LevelSubmissionEvidence.js';
+import Song from '../../../models/songs/Song.js';
+import Artist from '../../../models/artists/Artist.js';
+import SongCredit from '../../../models/songs/SongCredit.js';
+import SongService from '../../services/SongService.js';
+import ArtistService from '../../services/ArtistService.js';
+import EvidenceService from '../../services/EvidenceService.js';
+import submissionSongArtistRoutes from './submissions-song-artist.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
+const songService = SongService.getInstance();
+const artistService = ArtistService.getInstance();
+const evidenceService = EvidenceService.getInstance();
 
 enum CreditRole {
   CHARTER = 'charter',
@@ -152,6 +165,38 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
               ]
             }
           ]
+        },
+        {
+          model: LevelSubmissionSongRequest,
+          as: 'songRequest',
+          include: [
+            {
+              model: Song,
+              as: 'song'
+            }
+          ]
+        },
+        {
+          model: LevelSubmissionArtistRequest,
+          as: 'artistRequest',
+          include: [
+            {
+              model: Artist,
+              as: 'artist'
+            }
+          ]
+        },
+        {
+          model: LevelSubmissionEvidence,
+          as: 'evidence'
+        },
+        {
+          model: Song,
+          as: 'songObject'
+        },
+        {
+          model: Artist,
+          as: 'artistObject'
         },
         {
           model: User,
@@ -287,6 +332,26 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             {
               model: LevelSubmissionTeamRequest,
               as: 'teamRequestData'
+            },
+            {
+              model: LevelSubmissionSongRequest,
+              as: 'songRequest'
+            },
+            {
+              model: LevelSubmissionArtistRequest,
+              as: 'artistRequest'
+            },
+            {
+              model: LevelSubmissionEvidence,
+              as: 'evidence'
+            },
+            {
+              model: Song,
+              as: 'songObject'
+            },
+            {
+              model: Artist,
+              as: 'artistObject'
             }
           ],
           transaction,
@@ -372,10 +437,64 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         const allExistingCreatorsVerified = existingCreators.every((c: Creator) => c.isVerified);
 
+        // Handle song request
+        let finalSongId: number | null = null;
+        if (submission.songRequest) {
+          if (submission.songRequest.songId) {
+            // Use existing song
+            finalSongId = submission.songRequest.songId;
+          } else if (submission.songRequest.isNewRequest && submission.songRequest.songName) {
+            // Create new song (service methods don't support transactions yet)
+            const song = await songService.findOrCreateSong(submission.songRequest.songName.trim());
+            finalSongId = song.id;
+          }
+        } else if (submission.songId) {
+          // Use songId directly from submission
+          finalSongId = submission.songId;
+        }
+
+        // Handle artist request
+        let finalArtistId: number | null = null;
+        if (submission.artistRequest) {
+          if (submission.artistRequest.artistId) {
+            // Use existing artist
+            finalArtistId = submission.artistRequest.artistId;
+          } else if (submission.artistRequest.isNewRequest && submission.artistRequest.artistName) {
+            // Create new artist (service methods don't support transactions yet)
+            const artist = await artistService.findOrCreateArtist(submission.artistRequest.artistName.trim());
+            finalArtistId = artist.id;
+          }
+        } else if (submission.artistId) {
+          // Use artistId directly from submission
+          finalArtistId = submission.artistId;
+        }
+
+        // If we have a song and artist, create song credit relationship
+        if (finalSongId && finalArtistId) {
+          // Check if credit already exists
+          const existingCredit = await SongCredit.findOne({
+            where: {
+              songId: finalSongId,
+              artistId: finalArtistId
+            },
+            transaction
+          });
+
+          if (!existingCredit) {
+            await SongCredit.create({
+              songId: finalSongId,
+              artistId: finalArtistId,
+              role: null // Primary artist relationship
+            }, { transaction });
+          }
+        }
+
         const newLevel = await Level.create(
           {
             song: submission.song,
             artist: submission.artist,
+            songId: finalSongId,
+            artistId: finalArtistId,
             charter: firstCharter?.creatorName || '',
             vfxer: firstVfxer?.creatorName || '',
             team: team?.name || '',
@@ -498,6 +617,25 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           },
         });
 
+        // Move evidence from submission to song/artist if approved
+        if (submission.evidence && submission.evidence.length > 0) {
+          for (const evidence of submission.evidence) {
+            if (evidence.type === 'song' && finalSongId) {
+              await evidenceService.addEvidenceToSong(
+                finalSongId,
+                evidence.link,
+                'other'
+              );
+            } else if (evidence.type === 'artist' && finalArtistId) {
+              await evidenceService.addEvidenceToArtist(
+                finalArtistId,
+                evidence.link,
+                'other'
+              );
+            }
+          }
+        }
+
         await transaction.commit();
 
         // Index the level in Elasticsearch after transaction is committed
@@ -542,8 +680,16 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
     try {
       const {id} = req.params;
 
-      // Get the submission to check if it has a level zip
-      const submission = await LevelSubmission.findByPk(id);
+      // Get the submission to check if it has a level zip and evidence
+      const submission = await LevelSubmission.findByPk(id, {
+        include: [
+          {
+            model: LevelSubmissionEvidence,
+            as: 'evidence'
+          }
+        ],
+        transaction
+      });
       if (!submission) {
         rollbackReason = 'Submission not found';
         await safeTransactionRollback(transaction, logger);
@@ -551,11 +697,23 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
       }
 
       // Check if the directDL is a local CDN URL
-      if (submission.directDL && submission.directDL.startsWith(`${CDN_CONFIG.baseUrl}/cdn/levels/`)) {
-        const fileId = submission.directDL.split('/').pop();
+      if (submission.directDL && submission.directDL.includes(CDN_CONFIG.baseUrl)) {
+        // Extract fileId from URL (could be /api/{fileId} or /cdn/levels/{fileId})
+        const urlParts = submission.directDL.split('/');
+        const fileId = urlParts[urlParts.length - 1];
         if (fileId) {
-          await cdnService.deleteFile(fileId);
+          try {
+            await cdnService.deleteFile(fileId);
+          } catch (error) {
+            logger.warn('Failed to delete CDN file on decline:', error);
+          }
         }
+      }
+
+      // Delete all evidence images from CDN
+      const submissionWithEvidence = submission as LevelSubmission & { evidence?: LevelSubmissionEvidence[] };
+      if (submissionWithEvidence.evidence && submissionWithEvidence.evidence.length > 0) {
+        await evidenceService.deleteAllEvidenceForSubmission(parseInt(id));
       }
 
       await LevelSubmission.update(
@@ -1887,5 +2045,8 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
     return res.status(500).json({ error: 'Failed to remove creator request' });
   }
 });
+
+// Mount song/artist management routes
+router.use('/', submissionSongArtistRoutes);
 
 export default router;

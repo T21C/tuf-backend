@@ -6,10 +6,15 @@ import {
 import LevelSubmission from './LevelSubmission.js';
 import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
+import LevelSubmissionSongRequest from './LevelSubmissionSongRequest.js';
+import LevelSubmissionArtistRequest from './LevelSubmissionArtistRequest.js';
+import LevelSubmissionEvidence from './LevelSubmissionEvidence.js';
 import Player from '../players/Player.js';
 import User from '../auth/User.js';
 import Creator from '../credits/Creator.js';
 import Team from '../credits/Team.js';
+import Song from '../songs/Song.js';
+import Artist from '../artists/Artist.js';
 
 export function initializeSubmissionsAssociations() {
   // PassSubmission <-> Player associations
@@ -90,5 +95,66 @@ export function initializeSubmissionsAssociations() {
   LevelSubmission.belongsTo(User, {
     foreignKey: 'userId',
     as: 'levelSubmitter'
+  });
+
+  // LevelSubmission <-> Song associations
+  LevelSubmission.belongsTo(Song, {
+    foreignKey: 'songId',
+    as: 'songObject'
+  });
+
+  // LevelSubmission <-> Artist associations
+  LevelSubmission.belongsTo(Artist, {
+    foreignKey: 'artistId',
+    as: 'artistObject'
+  });
+
+  // LevelSubmission <-> LevelSubmissionSongRequest associations
+  LevelSubmission.hasOne(LevelSubmissionSongRequest, {
+    foreignKey: 'submissionId',
+    as: 'songRequest',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  LevelSubmissionSongRequest.belongsTo(LevelSubmission, {
+    foreignKey: 'submissionId',
+    as: 'submission'
+  });
+
+  LevelSubmissionSongRequest.belongsTo(Song, {
+    foreignKey: 'songId',
+    as: 'song'
+  });
+
+  // LevelSubmission <-> LevelSubmissionArtistRequest associations
+  LevelSubmission.hasOne(LevelSubmissionArtistRequest, {
+    foreignKey: 'submissionId',
+    as: 'artistRequest',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  LevelSubmissionArtistRequest.belongsTo(LevelSubmission, {
+    foreignKey: 'submissionId',
+    as: 'submission'
+  });
+
+  LevelSubmissionArtistRequest.belongsTo(Artist, {
+    foreignKey: 'artistId',
+    as: 'artist'
+  });
+
+  // LevelSubmission <-> LevelSubmissionEvidence associations
+  LevelSubmission.hasMany(LevelSubmissionEvidence, {
+    foreignKey: 'submissionId',
+    as: 'evidence',
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE'
+  });
+
+  LevelSubmissionEvidence.belongsTo(LevelSubmission, {
+    foreignKey: 'submissionId',
+    as: 'submission'
   });
 }

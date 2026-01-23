@@ -7,6 +7,8 @@ import difficultyRoutes from './difficulties.js';
 import referenceRoutes from './references.js';
 import statisticsRoutes from './statistics.js';
 import creatorRoutes from './creators.js';
+import artistsRoutes from './artists.js';
+import songsRoutes from './songs.js';
 
 export default function createDatabaseRouter(): Router {
   const router = Router();
@@ -20,6 +22,8 @@ export default function createDatabaseRouter(): Router {
   router.use('/references', referenceRoutes);
   router.use('/statistics', statisticsRoutes);
   router.use('/creators', creatorRoutes);
+  router.use('/artists', artistsRoutes);
+  router.use('/songs', songsRoutes);
 
   return router;
 }

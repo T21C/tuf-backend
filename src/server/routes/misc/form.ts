@@ -16,7 +16,11 @@ import {getScoreV2} from '../../../misc/utils/pass/CalcScore.js';
 import {calcAcc} from '../../../misc/utils/pass/CalcAcc.js';
 import LevelSubmissionCreatorRequest from '../../../models/submissions/LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from '../../../models/submissions/LevelSubmissionTeamRequest.js';
+import LevelSubmissionSongRequest from '../../../models/submissions/LevelSubmissionSongRequest.js';
+import LevelSubmissionArtistRequest from '../../../models/submissions/LevelSubmissionArtistRequest.js';
+import LevelSubmissionEvidence from '../../../models/submissions/LevelSubmissionEvidence.js';
 import sequelize from '../../../config/db.js';
+import EvidenceService from '../../services/EvidenceService.js';
 import { Transaction } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import Pass from '../../../models/passes/Pass.js';
@@ -33,6 +37,7 @@ import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 
 const router: Router = express.Router();
+const evidenceService = EvidenceService.getInstance();
 
 // Configure multer for handling file uploads
 const storage = multer.diskStorage({
@@ -195,11 +200,29 @@ async function cleanUpCdnFile(fileId: string | null) {
   }
 }
 
+// Configure multer for evidence uploads (in addition to levelZip)
+const uploadWithEvidence = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+      cb(null, file.originalname);
+    }
+  }),
+  limits: {
+    fileSize: 1000 * 1024 * 1024 // 1GB limit for levelZip
+  }
+}).fields([
+  { name: 'levelZip', maxCount: 1 },
+  { name: 'evidence', maxCount: 10 }
+]);
+
 // Form submission endpoint
 router.post(
   '/form-submit',
   Auth.user(),
-  upload.single('levelZip'),
+  uploadWithEvidence,
   express.json(),
   async (req: Request, res: Response) => {
     let transaction: Transaction | undefined;
@@ -259,11 +282,13 @@ router.post(
         // Handle level zip file if present
         let directDL: string | null = null;
         let levelFiles: any[] = [];
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+        const levelZipFile = files?.levelZip?.[0];
 
-        if (req.file) {
+        if (levelZipFile) {
           try {
             // Validate file size
-            if (req.file.size > 1000 * 1024 * 1024) { // 1GB
+            if (levelZipFile.size > 1000 * 1024 * 1024) { // 1GB
               throw {code: 400, error: 'File size exceeds maximum allowed size (1GB)'};
             }
 
@@ -284,7 +309,7 @@ router.post(
             }
 
             // Read file from disk instead of using buffer
-            const fileBuffer = await fs.promises.readFile(req.file.path);
+            const fileBuffer = await fs.promises.readFile(levelZipFile.path);
 
             // Send progress update: processing
             if (uploadId) {
@@ -301,7 +326,7 @@ router.post(
 
             const uploadResult = await cdnService.uploadLevelZip(
               fileBuffer,
-              req.file.originalname,
+              levelZipFile.originalname,
               uploadId
             );
 
@@ -322,7 +347,13 @@ router.post(
             uploadedFileId = uploadResult.fileId;
 
             // Clean up the temporary file
-            await cleanUpFile(req)
+            try {
+              if (levelZipFile.path) {
+                await fs.promises.unlink(levelZipFile.path);
+              }
+            } catch (error) {
+              // Ignore cleanup errors
+            }
 
             // Get the level files from the CDN service
             levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
@@ -350,9 +381,21 @@ router.post(
           }
         }
 
+        // Handle song/artist normalization
+        const songId = req.body.songId ? parseInt(req.body.songId) : null;
+        const artistId = req.body.artistId ? parseInt(req.body.artistId) : null;
+        const songName = sanitizeTextInput(req.body.song);
+        const artistName = sanitizeTextInput(req.body.artist);
+        const isNewSongRequest = req.body.isNewSongRequest === true || req.body.isNewSongRequest === 'true';
+        const isNewArtistRequest = req.body.isNewArtistRequest === true || req.body.isNewArtistRequest === 'true';
+        const requiresSongEvidence = req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true';
+        const requiresArtistEvidence = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
+
         const submission = await LevelSubmission.create({
-          artist: sanitizeTextInput(req.body.artist),
-          song: sanitizeTextInput(req.body.song),
+          artist: artistName,
+          song: songName,
+          songId: songId,
+          artistId: artistId,
           diff: sanitizeTextInput(req.body.diff),
           videoLink: cleanVideoUrl(req.body.videoLink),
           directDL: directDL || sanitizeTextInput(req.body.directDL) || '',
@@ -398,6 +441,71 @@ router.post(
           }, { transaction });
         }
 
+        // Create song request record if needed
+        let songRequestId: number | null = null;
+        if (isNewSongRequest || songId || requiresSongEvidence) {
+          const songRequest = await LevelSubmissionSongRequest.create({
+            submissionId: submission.id,
+            songId: songId,
+            songName: isNewSongRequest ? songName : null,
+            isNewRequest: isNewSongRequest,
+            requiresEvidence: requiresSongEvidence
+          }, { transaction });
+          songRequestId = songRequest.id;
+          await submission.update({ songRequestId: songRequest.id }, { transaction });
+        }
+
+        // Create artist request record if needed
+        let artistRequestId: number | null = null;
+        if (isNewArtistRequest || artistId || requiresArtistEvidence) {
+          const artistRequest = await LevelSubmissionArtistRequest.create({
+            submissionId: submission.id,
+            artistId: artistId,
+            artistName: isNewArtistRequest ? artistName : null,
+            isNewRequest: isNewArtistRequest,
+            requiresEvidence: requiresArtistEvidence
+          }, { transaction });
+          artistRequestId = artistRequest.id;
+          await submission.update({ artistRequestId: artistRequest.id }, { transaction });
+        }
+
+        // Handle evidence image uploads (up to 10 images)
+        const evidenceFiles = files?.evidence || [];
+        
+        if (evidenceFiles.length > 0 && evidenceFiles.length <= 10) {
+          const evidenceType = req.body.evidenceType || 'song'; // 'song' or 'artist'
+          const requestId = evidenceType === 'song' ? songRequestId : artistRequestId;
+
+          // Upload evidence images
+          const evidenceBuffers = await Promise.all(
+            evidenceFiles.map((file: Express.Multer.File) => fs.promises.readFile(file.path))
+          );
+
+          await evidenceService.uploadEvidenceImages(
+            submission.id,
+            evidenceFiles.map((file: Express.Multer.File, idx: number) => ({
+              buffer: evidenceBuffers[idx],
+              originalname: file.originalname,
+              mimetype: file.mimetype,
+              size: file.size,
+              fieldname: file.fieldname
+            } as Express.Multer.File)),
+            evidenceType as 'song' | 'artist',
+            requestId || null
+          );
+
+          // Clean up temporary files
+          for (const file of evidenceFiles) {
+            try {
+              if (file.path) {
+                await fs.promises.unlink(file.path);
+              }
+            } catch (error) {
+              // Ignore cleanup errors
+            }
+          }
+        }
+
         // Fetch the submission with associations before sending to webhook
         const submissionWithAssociations = await LevelSubmission.findByPk(submission.id, {
           include: [
@@ -408,6 +516,18 @@ router.post(
             {
               model: LevelSubmissionTeamRequest,
               as: 'teamRequestData'
+            },
+            {
+              model: LevelSubmissionSongRequest,
+              as: 'songRequest'
+            },
+            {
+              model: LevelSubmissionArtistRequest,
+              as: 'artistRequest'
+            },
+            {
+              model: LevelSubmissionEvidence,
+              as: 'evidence'
             },
             {
               model: User,
@@ -809,8 +929,21 @@ router.post(
         await cleanUpCdnFile(uploadedFileId);
       }
 
-      // Clean up any uploaded file
-      await cleanUpFile(req);
+      // Clean up any uploaded files
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+      if (files) {
+        for (const fileArray of Object.values(files)) {
+          for (const file of fileArray) {
+            try {
+              if (file.path) {
+                await fs.promises.unlink(file.path);
+              }
+            } catch (error) {
+              // Ignore cleanup errors
+            }
+          }
+        }
+      }
 
       // Only attempt rollback if transaction exists
       if (transaction) {
@@ -876,19 +1009,21 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
             });
         }
 
-        if (!submission.directDL.startsWith(CDN_CONFIG.baseUrl)) {
+        if (!submission.directDL || !submission.directDL.includes('/')) {
             return res.status(400).json({
                 success: false,
-                error: 'Download link is not on local CDN',
+                error: 'Invalid directDL URL',
                 directDL: submission.directDL
             });
         }
 
-        const fileId = submission.directDL.split('/').pop() || '';
+        // Extract fileId from CDN URL (could be /api/{fileId} or /cdn/levels/{fileId})
+        const urlParts = submission.directDL.split('/');
+        const fileId = urlParts[urlParts.length - 1] || '';
         if (!fileId) {
             return res.status(400).json({
                 success: false,
-                error: 'Invalid directDL URL',
+                error: 'Invalid directDL URL - could not extract file ID',
                 directDL: submission.directDL
             });
         }

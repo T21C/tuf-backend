@@ -7,6 +7,8 @@ import { initializeSubmissionsAssociations } from './submissions/associations.js
 import { initializeAnnouncementsAssociations } from './announcements/associations.js';
 import { initializeCurationsAssociations } from './curations/associations.js';
 import { initializePacksAssociations } from './packs/associations.js';
+import { initializeArtistsAssociations } from './artists/associations.js';
+import { initializeSongsAssociations } from './songs/associations.js';
 
 export function initializeAssociations() {
   // Initialize all model associations by calling individual association functions
@@ -19,4 +21,6 @@ export function initializeAssociations() {
   initializeAnnouncementsAssociations();
   initializeCurationsAssociations();
   initializePacksAssociations();
+  initializeArtistsAssociations();
+  initializeSongsAssociations();
 }

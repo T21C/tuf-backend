@@ -12,6 +12,9 @@ import Curation from '../curations/Curation.js';
 import Rating from './Rating.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
 import LevelTag from './LevelTag.js';
+import Song from '../songs/Song.js';
+import Artist from '../artists/Artist.js';
+import SongCredit from '../songs/SongCredit.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 type LevelAttributes = ILevel;
@@ -27,6 +30,7 @@ class Level
   declare id: number;
   declare song: string;
   declare artist: string;
+  declare songId: number | null;
   declare diffId: number;
   declare baseScore: number | null;
   declare ppBaseScore: number | null;
@@ -71,6 +75,10 @@ class Level
   declare charters: string[];
   declare vfxers: string[];
   declare tags?: LevelTag[];
+  
+  // Associations for normalized song
+  declare songObject?: Song;
+  declare songCredits?: SongCredit[];
 }
 
 Level.init(
@@ -193,6 +201,16 @@ Level.init(
         key: 'id',
       },
     },
+    songId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'songs',
+        key: 'id',
+      },
+      onDelete: 'SET NULL',
+      onUpdate: 'CASCADE',
+    },
     clears: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -265,6 +283,29 @@ Level.init(
       type: DataTypes.VIRTUAL,
       get() {
         return this.teamObject?.name;
+      },
+    },
+    // Virtual getters that prefer normalized data
+    songName: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        if (this.songObject?.name) {
+          return this.songObject.name;
+        }
+        return this.song || '';
+      },
+    },
+    artistName: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        // Get artist name from song's credits (first artist)
+        if (this.songObject?.credits && this.songObject.credits.length > 0) {
+          const firstCredit = this.songObject.credits[0];
+          if (firstCredit.artist?.name) {
+            return firstCredit.artist.name;
+          }
+        }
+        return this.artist || '';
       },
     }
   },

@@ -13,6 +13,9 @@ import LevelPackItem from '../packs/LevelPackItem.js';
 import LevelPack from '../packs/LevelPack.js';
 import LevelTag from './LevelTag.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
+import Song from '../songs/Song.js';
+import Artist from '../artists/Artist.js';
+import SongCredit from '../songs/SongCredit.js';
 
 export function initializeLevelsAssociations() {
   // Level <-> Difficulty associations
@@ -277,4 +280,8 @@ export function initializeLevelsAssociations() {
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE',
   });
+
+  // Level <-> Song associations (already defined in songs/associations.ts, but adding here for completeness)
+  // Level <-> Artist associations (already defined in artists/associations.ts, but adding here for completeness)
+  // Note: Song and Artist associations are initialized in their respective association files
 }

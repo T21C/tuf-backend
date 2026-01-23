@@ -61,6 +61,7 @@ export interface ILevel extends IBaseModel {
   isVerified?: boolean;
   isExternallyAvailable: boolean;
   teamId?: number | null;
+  songId?: number | null;
   passes?: IPass[];
   aliases?: LevelAlias[] | null;
   levelCredits?: LevelCredit[] | null;
@@ -73,6 +74,8 @@ export interface ILevel extends IBaseModel {
   ratingAccuracy?: number;
   totalRatingAccuracyVotes?: number;
   tags?: ILevelTag[];
+  songName?: string;
+  artistName?: string;
 }
 
 // Pass interface

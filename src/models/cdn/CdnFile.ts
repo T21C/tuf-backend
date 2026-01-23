@@ -4,14 +4,33 @@ const sequelize = getSequelizeForModelGroup('cdn');
 
 class CdnFile extends Model {
     declare id: string;
-    declare type: 'PROFILE' | 'ICON' | 'BANNER' | 'THUMBNAIL' | 'CURATION_ICON' | 'LEVEL_THUMBNAIL' | 'PACK_ICON' | 'TAG_ICON' | 'LEVELZIP' | 'GENERAL';
+    declare type: 'PROFILE' 
+    | 'ICON' 
+    | 'BANNER' 
+    | 'THUMBNAIL' 
+    | 'CURATION_ICON' 
+    | 'LEVEL_THUMBNAIL' 
+    | 'PACK_ICON' 
+    | 'TAG_ICON' 
+    | 'LEVELZIP' 
+    | 'GENERAL' 
+    | 'EVIDENCE';
     declare filePath: string;
     declare metadata: object;
     declare accessCount: number;
     declare cacheData: string | null;
 }
 
-export type ImageFileType = 'PROFILE' | 'ICON' | 'BANNER' | 'THUMBNAIL' | 'CURATION_ICON' | 'LEVEL_THUMBNAIL' | 'PACK_ICON' | 'TAG_ICON';
+export type ImageFileType = 
+'PROFILE' 
+| 'ICON' 
+| 'BANNER' 
+| 'THUMBNAIL' 
+| 'CURATION_ICON' 
+| 'LEVEL_THUMBNAIL' 
+| 'PACK_ICON' 
+| 'TAG_ICON' 
+| 'EVIDENCE';
 
 CdnFile.init({
     id: {
@@ -20,7 +39,7 @@ CdnFile.init({
         primaryKey: true
     },
     type: {
-        type: DataTypes.ENUM('PROFILE', 'ICON', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL', 'PACK_ICON', 'TAG_ICON', 'LEVELZIP', 'GENERAL'),
+        type: DataTypes.ENUM('PROFILE', 'ICON', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL', 'PACK_ICON', 'TAG_ICON', 'LEVELZIP', 'GENERAL', 'EVIDENCE'),
         allowNull: false,
         defaultValue: 'GENERAL'
     },

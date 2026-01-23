@@ -87,6 +87,89 @@ export const levelMapping = {
           }
         }
       },
+      songId: { type: 'integer' as const },
+      artistId: { type: 'integer' as const },
+      songObject: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const }
+            }
+          },
+          verificationState: { type: 'keyword' as const },
+          aliases: {
+            type: 'nested' as const,
+            properties: {
+              alias: {
+                type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
+                fields: {
+                  keyword: { type: 'keyword' as const }
+                }
+              }
+            }
+          }
+        }
+      },
+      artists: {
+        type: 'nested' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const }
+            }
+          },
+          avatarUrl: { type: 'text' as const },
+          verificationState: { type: 'keyword' as const },
+          role: { type: 'keyword' as const },
+          aliases: {
+            type: 'nested' as const,
+            properties: {
+              alias: {
+                type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
+                fields: {
+                  keyword: { type: 'keyword' as const }
+                }
+              }
+            }
+          }
+        }
+      },
+      primaryArtist: {
+        type: 'object' as const,
+        properties: {
+          id: { type: 'integer' as const },
+          name: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const }
+            }
+          },
+          avatarUrl: { type: 'text' as const },
+          verificationState: { type: 'keyword' as const },
+          aliases: {
+            type: 'nested' as const,
+            properties: {
+              alias: {
+                type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
+                fields: {
+                  keyword: { type: 'keyword' as const }
+                }
+              }
+            }
+          }
+        }
+      },
       team: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',

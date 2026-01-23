@@ -30,6 +30,18 @@ import LevelSearchView from './levels/LevelSearchView.js';
 import AuditLog from './admin/AuditLog.js';
 import {CurationType, Curation, CurationSchedule} from './curations/index.js';
 import {LevelPack, LevelPackItem} from './packs/index.js';
+import Artist from './artists/Artist.js';
+import ArtistAlias from './artists/ArtistAlias.js';
+import ArtistLink from './artists/ArtistLink.js';
+import ArtistEvidence from './artists/ArtistEvidence.js';
+import Song from './songs/Song.js';
+import SongCredit from './songs/SongCredit.js';
+import SongAlias from './songs/SongAlias.js';
+import SongLink from './songs/SongLink.js';
+import SongEvidence from './songs/SongEvidence.js';
+import LevelSubmissionSongRequest from './submissions/LevelSubmissionSongRequest.js';
+import LevelSubmissionArtistRequest from './submissions/LevelSubmissionArtistRequest.js';
+import LevelSubmissionEvidence from './submissions/LevelSubmissionEvidence.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -64,7 +76,19 @@ export const db = {
     Curation,
     CurationSchedule,
     LevelPack,
-    LevelPackItem
+    LevelPackItem,
+    Artist,
+    ArtistAlias,
+    ArtistLink,
+    ArtistEvidence,
+    Song,
+    SongCredit,
+    SongAlias,
+    SongLink,
+    SongEvidence,
+    LevelSubmissionSongRequest,
+    LevelSubmissionArtistRequest,
+    LevelSubmissionEvidence
   },
 };
 
