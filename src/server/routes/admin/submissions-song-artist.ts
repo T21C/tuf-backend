@@ -67,12 +67,12 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
         return res.status(404).json({error: 'Song not found'});
       }
     } else if (isNewRequest && songName) {
-      // Create new song request
+      // Create new song request with requiresEvidence from request
       const songRequest = await LevelSubmissionSongRequest.create({
         submissionId: submission.id,
         songName: songName.trim(),
         isNewRequest: true,
-        requiresEvidence: requiresEvidence || false
+        requiresEvidence: requiresEvidence !== undefined ? requiresEvidence : true // Default to true if not specified
       }, {transaction});
       newSongRequestId = songRequest.id;
     }
@@ -115,7 +115,7 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
 router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {artistId, artistRequestId, isNewRequest, artistName, requiresEvidence} = req.body;
+    const {artistId, artistRequestId, isNewRequest, artistName, requiresEvidence, verificationState} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {
       include: [
         {
@@ -162,7 +162,8 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
             artistId: finalArtistId,
             artistName: artist.name,
             isNewRequest: false,
-            requiresEvidence: requiresEvidence || false
+            requiresEvidence: requiresEvidence || false,
+            verificationState: null // Existing artists don't have verification state in request
           }, {transaction});
         } else {
           await safeTransactionRollback(transaction);
@@ -175,7 +176,8 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
           artistId: finalArtistId,
           artistName: artist.name,
           isNewRequest: false,
-          requiresEvidence: requiresEvidence || false
+          requiresEvidence: requiresEvidence || false,
+          verificationState: null // Existing artists don't have verification state in request
         }, {transaction});
       }
     } else if (isNewRequest && artistName) {
@@ -186,7 +188,8 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
           await existingRequest.update({
             artistName: artistName.trim(),
             isNewRequest: true,
-            requiresEvidence: requiresEvidence || false
+            requiresEvidence: requiresEvidence || false,
+            verificationState: verificationState || null
           }, {transaction});
         } else {
           await safeTransactionRollback(transaction);
@@ -198,7 +201,8 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
           submissionId: submission.id,
           artistName: artistName.trim(),
           isNewRequest: true,
-          requiresEvidence: requiresEvidence || false
+          requiresEvidence: requiresEvidence || false,
+          verificationState: verificationState || null
         }, {transaction});
       }
     }
@@ -511,13 +515,14 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
       return res.status(400).json({ error: 'Artist already added to submission' });
     }
 
-    // Add new artist request
+    // Add new artist request (existing artist, no verification state needed)
     await LevelSubmissionArtistRequest.create({
       submissionId: submission.id,
       artistId: artist.id,
       artistName: artist.name,
       isNewRequest: false,
-      requiresEvidence: false
+      requiresEvidence: false,
+      verificationState: null
     }, { transaction });
 
     // Update submission with first artist for backward compatibility
@@ -584,11 +589,12 @@ router.post('/levels/:id/songs', Auth.superAdmin(), async (req: Request, res: Re
     }
 
     // Create or find song
+    // New songs are initially pending and require evidence
     const [song] = await Song.findOrCreate({
       where: { name: name.trim() },
       defaults: {
         name: name.trim(),
-        verificationState: 'unverified'
+        verificationState: 'pending' // New songs are initially pending
       },
       transaction
     });
@@ -740,7 +746,8 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
           artistId: artist.id,
           artistName: artist.name,
           isNewRequest: false,
-          requiresEvidence: false
+          requiresEvidence: false,
+          verificationState: null
         }, { transaction });
       } else {
         await safeTransactionRollback(transaction);
@@ -820,12 +827,14 @@ router.post('/levels/:id/song-requests', Auth.superAdmin(), async (req: Request,
     }
 
     // Create a new song request with placeholder name
+    // Default requiresEvidence to true if not specified
+    const { requiresEvidence } = req.body;
     const placeholderName = submission.song || 'New Song';
     await LevelSubmissionSongRequest.create({
       submissionId: parseInt(id),
       songName: placeholderName,
       isNewRequest: true,
-      requiresEvidence: false
+      requiresEvidence: requiresEvidence !== undefined ? requiresEvidence : true
     }, { transaction });
 
     // Update submission to clear songId
@@ -889,13 +898,32 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
       });
     }
 
-    // Create a new artist request with placeholder name
-    const placeholderName = submission.artist || 'New Artist';
+    // Generate "New Artist N" name based on existing artist requests in this submission
+    const existingArtistNames = (submission.artistRequests || []).map((req: any) => req.artistName || '');
+    
+    let artistNumber = 1;
+    const usedNumbers = new Set<number>();
+    
+    existingArtistNames.forEach((name: string) => {
+      const match = name.match(/^New Artist (\d+)$/);
+      if (match) {
+        usedNumbers.add(parseInt(match[1]));
+      }
+    });
+
+    // Find the first available number
+    while (usedNumbers.has(artistNumber)) {
+      artistNumber++;
+    }
+
+    const placeholderName = `New Artist ${artistNumber}`;
+    const { verificationState } = req.body;
     await LevelSubmissionArtistRequest.create({
       submissionId: parseInt(id),
       artistName: placeholderName,
       isNewRequest: true,
-      requiresEvidence: false
+      requiresEvidence: false,
+      verificationState: verificationState || null
     }, { transaction });
 
     // Update submission to clear artistId if no artists remain

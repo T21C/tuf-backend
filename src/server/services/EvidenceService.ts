@@ -25,7 +25,8 @@ class EvidenceService {
     submissionId: number,
     files: Express.Multer.File[],
     type: 'song' | 'artist',
-    requestId?: number | null
+    requestId?: number | null,
+    transaction?: any
   ): Promise<LevelSubmissionEvidence[]> {
     const evidenceRecords: LevelSubmissionEvidence[] = [];
 
@@ -39,13 +40,13 @@ class EvidenceService {
 
       const cdnUrl = uploadResult.urls.original;
 
-      // Create evidence record
+      // Create evidence record within transaction if provided
       const evidence = await LevelSubmissionEvidence.create({
         submissionId,
         link: cdnUrl,
         type,
         requestId: requestId || null
-      });
+      }, transaction ? { transaction } : {});
 
       evidenceRecords.push(evidence);
     }
@@ -116,13 +117,11 @@ class EvidenceService {
    */
   public async addEvidenceToSong(
     songId: number,
-    link: string,
-    type: 'official' | 'music_platform' | 'video' | 'other' = 'other'
+    link: string
   ): Promise<SongEvidence> {
     return await SongEvidence.create({
       songId,
-      link,
-      type
+      link
     });
   }
 
@@ -131,13 +130,11 @@ class EvidenceService {
    */
   public async addEvidenceToArtist(
     artistId: number,
-    link: string,
-    type: 'official' | 'social' | 'music_platform' | 'other' = 'other'
+    link: string
   ): Promise<ArtistEvidence> {
     return await ArtistEvidence.create({
       artistId,
-      link,
-      type
+      link
     });
   }
 

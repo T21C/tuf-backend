@@ -35,7 +35,8 @@ class ArtistService {
    */
   public async findOrCreateArtist(
     name: string,
-    aliases?: string[]
+    aliases?: string[],
+    verificationState?: 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed'
   ): Promise<Artist> {
     const normalizedName = this.normalizeArtistName(name);
     let artist: Artist | null = null;
@@ -86,7 +87,7 @@ class ArtistService {
     if (!artist) {
       artist = await Artist.create({
         name: name.trim(),
-        verificationState: 'unverified'
+        verificationState: verificationState || 'unverified'
       });
       if (!artist) {
         throw new Error('Failed to create artist');
@@ -480,7 +481,7 @@ class ArtistService {
     // Copy evidences to both artists (only add new ones if using existing artists)
     const sourceEvidences = source.evidences || [];
     if (sourceEvidences.length > 0) {
-      const evidencesForBoth = sourceEvidences.map(e => ({ link: e.link, type: e.type }));
+      const evidencesForBoth = sourceEvidences.map(e => ({ link: e.link }));
 
       // For artist1: add evidences that don't already exist
       if (useExisting1 && existing1) {
@@ -491,8 +492,7 @@ class ArtistService {
           await ArtistEvidence.bulkCreate(
             newEvidences1.map(evidence => ({
               artistId: artist1.id,
-              link: evidence.link,
-              type: evidence.type
+              link: evidence.link
             })),
             { transaction }
           );
@@ -501,8 +501,7 @@ class ArtistService {
         await ArtistEvidence.bulkCreate(
           evidencesForBoth.map(evidence => ({
             artistId: artist1.id,
-            link: evidence.link,
-            type: evidence.type
+            link: evidence.link
           })),
           { transaction }
         );
@@ -517,8 +516,7 @@ class ArtistService {
           await ArtistEvidence.bulkCreate(
             newEvidences2.map(evidence => ({
               artistId: artist2.id,
-              link: evidence.link,
-              type: evidence.type
+              link: evidence.link
             })),
             { transaction }
           );
@@ -527,8 +525,7 @@ class ArtistService {
         await ArtistEvidence.bulkCreate(
           evidencesForBoth.map(evidence => ({
             artistId: artist2.id,
-            link: evidence.link,
-            type: evidence.type
+            link: evidence.link
           })),
           { transaction }
         );

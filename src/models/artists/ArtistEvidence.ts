@@ -7,7 +7,6 @@ type ArtistEvidenceAttributes = {
   id: number;
   artistId: number;
   link: string;
-  type: 'official' | 'social' | 'music_platform' | 'other';
   createdAt: Date;
   updatedAt: Date;
 };
@@ -47,11 +46,6 @@ ArtistEvidence.init(
       type: DataTypes.TEXT,
       allowNull: false,
     },
-    type: {
-      type: DataTypes.ENUM('official', 'social', 'music_platform', 'other'),
-      allowNull: false,
-      defaultValue: 'other',
-    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -66,7 +60,6 @@ ArtistEvidence.init(
     tableName: 'artist_evidences',
     indexes: [
       {fields: ['artistId']},
-      {fields: ['type']},
     ],
   },
 );

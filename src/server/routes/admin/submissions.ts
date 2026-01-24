@@ -477,8 +477,13 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
               // Use existing artist
               finalArtistIds.push(artistRequest.artistId);
             } else if (artistRequest.isNewRequest && artistRequest.artistName) {
-              // Create new artist (service methods don't support transactions yet)
-              const artist = await artistService.findOrCreateArtist(artistRequest.artistName.trim());
+              // Create new artist with verification state from request
+              const verificationState = artistRequest.verificationState || 'unverified';
+              const artist = await artistService.findOrCreateArtist(
+                artistRequest.artistName.trim(),
+                undefined,
+                verificationState as 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed'
+              );
               finalArtistIds.push(artist.id);
             }
           }
@@ -665,15 +670,16 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             if (evidence.type === 'song' && finalSongId) {
               await evidenceService.addEvidenceToSong(
                 finalSongId,
-                evidence.link,
-                'other'
+                evidence.link
               );
-            } else if (evidence.type === 'artist' && finalArtistId) {
-              await evidenceService.addEvidenceToArtist(
-                finalArtistId,
-                evidence.link,
-                'other'
-              );
+            } else if (evidence.type === 'artist' && finalArtistIds.length > 0) {
+              // Add evidence to all artists in the request
+              for (const artistId of finalArtistIds) {
+                await evidenceService.addEvidenceToArtist(
+                  artistId,
+                  evidence.link
+                );
+              }
             }
           }
         }

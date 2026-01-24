@@ -82,10 +82,11 @@ class SongService {
     }
 
     // If still not found, create new song
+    // New songs are initially pending and require evidence
     if (!song) {
       song = await Song.create({
         name: name.trim(),
-        verificationState: 'unverified'
+        verificationState: 'pending' // New songs are initially pending
       });
       if (!song) {
         throw new Error('Failed to create song');

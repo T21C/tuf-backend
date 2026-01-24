@@ -7,7 +7,6 @@ type SongEvidenceAttributes = {
   id: number;
   songId: number;
   link: string;
-  type: 'official' | 'music_platform' | 'video' | 'other';
   createdAt: Date;
   updatedAt: Date;
 };
@@ -18,7 +17,6 @@ class SongEvidence extends Model<SongEvidenceAttributes, SongEvidenceCreationAtt
   declare id: number;
   declare songId: number;
   declare link: string;
-  declare type: 'official' | 'music_platform' | 'video' | 'other';
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -66,7 +64,6 @@ SongEvidence.init(
     tableName: 'song_evidences',
     indexes: [
       {fields: ['songId']},
-      {fields: ['type']},
     ],
   },
 );

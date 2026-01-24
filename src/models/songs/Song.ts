@@ -5,7 +5,7 @@ const sequelize = getSequelizeForModelGroup('levels');
 type SongAttributes = {
   id: number;
   name: string;
-  verificationState: 'unverified' | 'pending' | 'verified';
+  verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed';
   createdAt: Date;
   updatedAt: Date;
 };
@@ -15,7 +15,7 @@ type SongCreationAttributes = Optional<SongAttributes, 'id' | 'createdAt' | 'upd
 class Song extends Model<SongAttributes, SongCreationAttributes> {
   declare id: number;
   declare name: string;
-  declare verificationState: 'unverified' | 'pending' | 'verified';
+  declare verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed';
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -40,9 +40,9 @@ Song.init(
       allowNull: false,
     },
     verificationState: {
-      type: DataTypes.ENUM('unverified', 'pending', 'verified'),
+      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'ysmod_only', 'allowed'),
       allowNull: false,
-      defaultValue: 'unverified',
+      defaultValue: 'pending',
     },
     createdAt: {
       type: DataTypes.DATE,

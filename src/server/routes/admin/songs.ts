@@ -161,7 +161,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         {
           model: SongEvidence,
           as: 'evidences',
-          attributes: ['id', 'link', 'type']
+          attributes: ['id', 'link']
         },
         {
           model: SongCredit,
@@ -236,7 +236,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         {
           model: SongEvidence,
           as: 'evidences',
-          attributes: ['id', 'link', 'type']
+          attributes: ['id', 'link']
         },
         {
           model: SongCredit,
@@ -282,7 +282,7 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
 
     const song = await Song.create({
       name: name.trim(),
-      verificationState: verificationState || 'unverified'
+      verificationState: verificationState || 'pending'
     }, {transaction});
 
     // Add aliases if provided
@@ -489,7 +489,7 @@ router.delete('/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})', Auth.superAdmin(),
 router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {link, type = 'other'} = req.body;
+    const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
@@ -497,8 +497,7 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
 
     const evidence = await evidenceService.addEvidenceToSong(
       parseInt(req.params.id),
-      link.trim(),
-      type
+      link.trim()
     );
 
     await transaction.commit();
@@ -520,7 +519,6 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
       return res.status(400).json({error: 'No files uploaded'});
     }
 
-    const {type = 'other'} = req.body;
     const evidences = [];
 
     for (const file of files) {
@@ -536,8 +534,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
       // Create evidence record
       const evidence = await evidenceService.addEvidenceToSong(
         parseInt(req.params.id),
-        cdnUrl,
-        type as 'official' | 'music_platform' | 'video' | 'other'
+        cdnUrl
       );
       evidences.push(evidence);
     }

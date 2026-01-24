@@ -388,7 +388,8 @@ router.post(
         const artistName = sanitizeTextInput(req.body.artist);
         const isNewSongRequest = req.body.isNewSongRequest === true || req.body.isNewSongRequest === 'true';
         const isNewArtistRequest = req.body.isNewArtistRequest === true || req.body.isNewArtistRequest === 'true';
-        const requiresSongEvidence = req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true';
+        // New songs always require evidence
+        const requiresSongEvidence = isNewSongRequest || (req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true');
         const requiresArtistEvidence = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
         
         // Set songId: null if new request, otherwise validate and use provided ID
@@ -470,6 +471,7 @@ router.post(
         }
 
         // Create song request record if needed
+        // New songs always require evidence and are initially pending
         let songRequestId: number | null = null;
         if (isNewSongRequest || songId || requiresSongEvidence) {
           const songRequest = await LevelSubmissionSongRequest.create({
@@ -477,7 +479,7 @@ router.post(
             songId: songId,
             songName: isNewSongRequest ? songName : null,
             isNewRequest: isNewSongRequest,
-            requiresEvidence: requiresSongEvidence
+            requiresEvidence: isNewSongRequest ? true : requiresSongEvidence // Always true for new songs
           }, { transaction });
           songRequestId = songRequest.id;
           await submission.update({ songRequestId: songRequest.id }, { transaction });
@@ -495,7 +497,8 @@ router.post(
               artistId: request.artistId || null,
               artistName: request.artistName ? sanitizeTextInput(request.artistName) : null,
               isNewRequest: request.isNewRequest || false,
-              requiresEvidence: request.requiresEvidence || false
+              requiresEvidence: request.requiresEvidence || false,
+              verificationState: request.verificationState || null
             }, { transaction });
           }));
           
@@ -510,7 +513,8 @@ router.post(
             artistId: artistId,
             artistName: isNewArtistRequest ? artistName : null,
             isNewRequest: isNewArtistRequest,
-            requiresEvidence: requiresArtistEvidence
+            requiresEvidence: requiresArtistEvidence,
+            verificationState: req.body.verificationState || null
           }, { transaction });
           artistRequestId = artistRequest.id;
         }
@@ -548,7 +552,8 @@ router.post(
               fieldname: file.fieldname
             } as Express.Multer.File)),
             evidenceType as 'song' | 'artist',
-            requestId || null
+            requestId || null,
+            transaction // Pass transaction to avoid lock timeout
           );
 
           // Clean up temporary files
