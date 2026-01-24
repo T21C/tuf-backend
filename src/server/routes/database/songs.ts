@@ -48,40 +48,51 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     }
 
     // Search by name or aliases
-    const songsByName = await Song.findAll({
-      where: {
-        name: {[Op.like]: `%${escapedSearch}%`}
-      },
-      attributes: ['id'],
-    });
+    let searchSongIds: Set<number> | null = null;
+    
+    if (escapedSearch.trim()) {
+      const songsByName = await Song.findAll({
+        where: {
+          name: {[Op.like]: `%${escapedSearch}%`}
+        },
+        attributes: ['id'],
+      });
 
-    const songsByAlias = await SongAlias.findAll({
-      where: {alias: {[Op.like]: `%${escapedSearch}%`}},
-      attributes: ['songId'],
-    });
+      const songsByAlias = await SongAlias.findAll({
+        where: {alias: {[Op.like]: `%${escapedSearch}%`}},
+        attributes: ['songId'],
+      });
 
-    const songIds: Set<number> = new Set(songsByName.map(song => song.id));
-    songsByAlias.forEach(alias => songIds.add(alias.songId));
-
-    const finalWhere: any = songIds.size > 0
-      ? {id: {[Op.in]: Array.from(songIds)}}
-      : {};
+      searchSongIds = new Set(songsByName.map(song => song.id));
+      songsByAlias.forEach(alias => searchSongIds!.add(alias.songId));
+    }
 
     // Filter by artist if provided
+    let artistSongIds: number[] | null = null;
     if (artistId) {
       const credits = await SongCredit.findAll({
         where: {artistId: parseInt(artistId as string)},
         attributes: ['songId']
       });
-      const artistSongIds = credits.map(c => c.songId);
-      if (artistSongIds.length > 0) {
-        finalWhere.id = finalWhere.id
-          ? {[Op.and]: [finalWhere.id, {[Op.in]: artistSongIds}]}
-          : {[Op.in]: artistSongIds};
-      } else {
-        finalWhere.id = {[Op.in]: []}; // No songs found
-      }
+      artistSongIds = credits.map(c => c.songId);
     }
+
+    // Build final where clause
+    const finalWhere: any = {};
+    
+    // Combine search and artist filters
+    if (searchSongIds !== null && artistSongIds !== null) {
+      // Both search and artist filter: intersect the results
+      const intersection = Array.from(searchSongIds).filter(id => artistSongIds!.includes(id));
+      finalWhere.id = {[Op.in]: intersection}; // Empty array if no matches
+    } else if (searchSongIds !== null) {
+      // Only search filter
+      finalWhere.id = {[Op.in]: Array.from(searchSongIds)}; // Empty array if no matches
+    } else if (artistSongIds !== null) {
+      // Only artist filter
+      finalWhere.id = {[Op.in]: artistSongIds}; // Empty array if no matches
+    }
+    // If neither search nor artistId, finalWhere remains {} (return all songs)
 
     const {count, rows} = await Song.findAndCountAll({
       where: finalWhere,

@@ -20,6 +20,8 @@ import LevelSubmissionSongRequest from '../../../models/submissions/LevelSubmiss
 import LevelSubmissionArtistRequest from '../../../models/submissions/LevelSubmissionArtistRequest.js';
 import LevelSubmissionEvidence from '../../../models/submissions/LevelSubmissionEvidence.js';
 import sequelize from '../../../config/db.js';
+import Song from '../../../models/songs/Song.js';
+import Artist from '../../../models/artists/Artist.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import { Transaction } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
@@ -382,14 +384,40 @@ router.post(
         }
 
         // Handle song/artist normalization
-        const songId = req.body.songId ? parseInt(req.body.songId) : null;
-        const artistId = req.body.artistId ? parseInt(req.body.artistId) : null;
         const songName = sanitizeTextInput(req.body.song);
         const artistName = sanitizeTextInput(req.body.artist);
         const isNewSongRequest = req.body.isNewSongRequest === true || req.body.isNewSongRequest === 'true';
         const isNewArtistRequest = req.body.isNewArtistRequest === true || req.body.isNewArtistRequest === 'true';
         const requiresSongEvidence = req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true';
         const requiresArtistEvidence = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
+        
+        // Set songId: null if new request, otherwise validate and use provided ID
+        let songId: number | null = null;
+        if (!isNewSongRequest && req.body.songId) {
+          const parsedSongId = parseInt(req.body.songId);
+          if (!isNaN(parsedSongId) && parsedSongId > 0) {
+            // Validate that the song exists
+            const song = await Song.findByPk(parsedSongId, { transaction });
+            if (!song) {
+              throw {code: 400, error: `Song with ID ${parsedSongId} does not exist`};
+            }
+            songId = parsedSongId;
+          }
+        }
+        
+        // Set artistId: null if new request, otherwise validate and use provided ID
+        let artistId: number | null = null;
+        if (!isNewArtistRequest && req.body.artistId) {
+          const parsedArtistId = parseInt(req.body.artistId);
+          if (!isNaN(parsedArtistId) && parsedArtistId > 0) {
+            // Validate that the artist exists
+            const artist = await Artist.findByPk(parsedArtistId, { transaction });
+            if (!artist) {
+              throw {code: 400, error: `Artist with ID ${parsedArtistId} does not exist`};
+            }
+            artistId = parsedArtistId;
+          }
+        }
 
         const submission = await LevelSubmission.create({
           artist: artistName,
@@ -920,7 +948,7 @@ router.post(
     } catch (error: any) {
       // Enhanced error handling with proper cleanup
 
-      if (error.code === 500) {
+      if (!error.code || error.code === 500 ) {
         logger.error('Submission error:', error);
       }
 
