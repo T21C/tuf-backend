@@ -89,8 +89,15 @@ export const levelMapping = {
       },
       songId: { type: 'integer' as const },
       artistId: { type: 'integer' as const },
+      suffix: {
+        type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
+        fields: {
+          keyword: { type: 'keyword' as const }
+        }
+      },
       songObject: {
-        type: 'object' as const,
+        type: 'nested' as const,
         properties: {
           id: { type: 'integer' as const },
           name: {
@@ -144,7 +151,7 @@ export const levelMapping = {
         }
       },
       primaryArtist: {
-        type: 'object' as const,
+        type: 'nested' as const,
         properties: {
           id: { type: 'integer' as const },
           name: {

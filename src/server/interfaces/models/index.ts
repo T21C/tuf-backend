@@ -62,6 +62,7 @@ export interface ILevel extends IBaseModel {
   isExternallyAvailable: boolean;
   teamId?: number | null;
   songId?: number | null;
+  suffix?: string | null;
   passes?: IPass[];
   aliases?: LevelAlias[] | null;
   levelCredits?: LevelCredit[] | null;

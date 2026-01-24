@@ -146,6 +146,34 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   }
 });
 
+// Get level info (count and suffix distribution) for a song
+// Must be before the general GET /:id route
+router.get('/:id([0-9]{1,20})/levels/info', Auth.superAdmin(), async (req: Request, res: Response) => {
+  try {
+    const songId = parseInt(req.params.id);
+
+    // Verify song exists
+    const song = await Song.findByPk(songId);
+    if (!song) {
+      return res.status(404).json({error: 'Song not found'});
+    }
+
+    // Get all levels with this songId
+    const levels = await Level.findAll({
+      where: { songId },
+      attributes: ['id', 'suffix']
+    });
+
+    return res.json({
+      levels: levels,
+      count: levels.length
+    });
+  } catch (error) {
+    logger.error('Error fetching level info:', error);
+    return res.status(500).json({error: 'Failed to fetch level info'});
+  }
+});
+
 // Get song detail with aliases, links, credits
 router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
@@ -557,6 +585,47 @@ router.delete('/:id([0-9]{1,20})/credits/:creditId([0-9]{1,20})', Auth.superAdmi
   } catch (error) {
     logger.error('Error deleting credit:', error);
     return res.status(500).json({error: 'Failed to delete credit'});
+  }
+});
+
+// Bulk update level suffix for all levels with this song
+router.post('/:id([0-9]{1,20})/levels/suffix', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const songId = parseInt(req.params.id);
+    const { suffix } = req.body;
+
+    // Verify song exists
+    const song = await Song.findByPk(songId, { transaction });
+    if (!song) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({error: 'Song not found'});
+    }
+
+    // Normalize suffix: trim whitespace, set to null if empty string
+    const normalizedSuffix = suffix && typeof suffix === 'string' 
+      ? suffix.trim() || null 
+      : null;
+
+    // Update all levels with this songId
+    const [updatedCount] = await Level.update(
+      { suffix: normalizedSuffix },
+      { 
+        where: { songId },
+        transaction
+      }
+    );
+
+    await transaction.commit();
+    return res.json({ 
+      success: true, 
+      updatedCount,
+      suffix: normalizedSuffix
+    });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating level suffix:', error);
+    return res.status(500).json({error: 'Failed to update level suffix'});
   }
 });
 

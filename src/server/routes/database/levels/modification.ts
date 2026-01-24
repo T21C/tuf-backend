@@ -602,6 +602,13 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     updateData.isHidden = isHidden;
     updateData.isAnnounced = isAnnounced;
     updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
+    
+    // Handle suffix
+    if (req.body.suffix !== undefined) {
+      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string' 
+        ? req.body.suffix.trim() || null 
+        : null;
+    }
 
 
     await Level.update(updateData, {

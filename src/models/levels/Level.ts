@@ -31,6 +31,7 @@ class Level
   declare song: string;
   declare artist: string;
   declare songId: number | null;
+  declare suffix: string | null;
   declare diffId: number;
   declare baseScore: number | null;
   declare ppBaseScore: number | null;
@@ -210,6 +211,11 @@ Level.init(
       },
       onDelete: 'SET NULL',
       onUpdate: 'CASCADE',
+    },
+    suffix: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
     },
     clears: {
       type: DataTypes.INTEGER,

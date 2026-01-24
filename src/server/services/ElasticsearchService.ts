@@ -564,13 +564,14 @@ class ElasticsearchService {
 
   private parseFields(level: Level): any {
     // Get normalized song data
+    // For nested type in Elasticsearch, we need to provide an array
     const songObject = level.songObject ? {
       id: level.songObject.id,
       name: convertToPUA(level.songObject.name),
       verificationState: level.songObject.verificationState,
-      aliases: level.songObject.aliases?.map(alias => ({
+      aliases: (level.songObject.aliases || []).map(alias => ({
         alias: convertToPUA(alias.alias)
-      })) || []
+      }))
     } : null;
 
     // Get normalized artists data (from song credits)
@@ -593,9 +594,12 @@ class ElasticsearchService {
         song: convertToPUA(level.song), // Keep text field for backward compatibility
         artist: convertToPUA(level.artist), // Keep text field for backward compatibility
         songId: level.songId || null,
-        songObject: songObject, // Normalized song object
+        suffix: level.suffix ? convertToPUA(level.suffix) : null,
+        // For nested type, use array format. Omit field if null to avoid empty array issues
+        ...(songObject ? { songObject: [songObject] } : {}),
         artists: artists, // Normalized artists array
-        primaryArtist: primaryArtist, // Normalized primary artist (first artist from song credits)
+        // For nested type, use array format. Omit field if null to avoid empty array issues
+        ...(primaryArtist ? { primaryArtist: [primaryArtist] } : {}),
         team: convertToPUA(level.teamObject?.name),
         videoLink: level.videoLink ? convertToPUA(level.videoLink) : null,
         dlLink: level.dlLink ? convertToPUA(level.dlLink) : null,
@@ -1189,6 +1193,7 @@ class ElasticsearchService {
               {
                 nested: {
                   path: 'songObject',
+                  ignore_unmapped: true,
                   query: {
                     bool: {
                       should: [
@@ -1203,6 +1208,7 @@ class ElasticsearchService {
                         ...(excludeAliases ? [] : [{
                           nested: {
                             path: 'songObject.aliases',
+                            ignore_unmapped: true,
                             query: {
                               wildcard: {
                                 'songObject.aliases.alias': {
@@ -1244,6 +1250,7 @@ class ElasticsearchService {
               {
                 nested: {
                   path: 'primaryArtist',
+                  ignore_unmapped: true,
                   query: {
                     bool: {
                       should: [
@@ -1258,6 +1265,7 @@ class ElasticsearchService {
                         ...(excludeAliases ? [] : [{
                           nested: {
                             path: 'primaryArtist.aliases',
+                            ignore_unmapped: true,
                             query: {
                               wildcard: {
                                 'primaryArtist.aliases.alias': {
@@ -1278,6 +1286,7 @@ class ElasticsearchService {
               {
                 nested: {
                   path: 'artists',
+                  ignore_unmapped: true,
                   query: {
                     bool: {
                       should: [
@@ -1292,6 +1301,7 @@ class ElasticsearchService {
                         ...(excludeAliases ? [] : [{
                           nested: {
                             path: 'artists.aliases',
+                            ignore_unmapped: true,
                             query: {
                               wildcard: {
                                 'artists.aliases.alias': {
@@ -1390,6 +1400,7 @@ class ElasticsearchService {
           {
             nested: {
               path: 'songObject',
+              ignore_unmapped: true,
               query: {
                 bool: {
                   should: [
@@ -1397,6 +1408,7 @@ class ElasticsearchService {
                     ...(excludeAliases ? [] : [{
                       nested: {
                         path: 'songObject.aliases',
+                        ignore_unmapped: true,
                         query: {
                           wildcard: { 'songObject.aliases.alias': { value: wildcardValue, case_insensitive: true } }
                         }
@@ -1414,6 +1426,7 @@ class ElasticsearchService {
           {
             nested: {
               path: 'primaryArtist',
+              ignore_unmapped: true,
               query: {
                 bool: {
                   should: [
@@ -1421,6 +1434,7 @@ class ElasticsearchService {
                     ...(excludeAliases ? [] : [{
                       nested: {
                         path: 'primaryArtist.aliases',
+                        ignore_unmapped: true,
                         query: {
                           wildcard: { 'primaryArtist.aliases.alias': { value: wildcardValue, case_insensitive: true } }
                         }
@@ -1435,6 +1449,7 @@ class ElasticsearchService {
           {
             nested: {
               path: 'artists',
+              ignore_unmapped: true,
               query: {
                 bool: {
                   should: [
@@ -1442,6 +1457,7 @@ class ElasticsearchService {
                     ...(excludeAliases ? [] : [{
                       nested: {
                         path: 'artists.aliases',
+                        ignore_unmapped: true,
                         query: {
                           wildcard: { 'artists.aliases.alias': { value: wildcardValue, case_insensitive: true } }
                         }
@@ -2114,6 +2130,7 @@ class ElasticsearchService {
       ...source,
       song: convertFromPUA(source.song as string),
       artist: convertFromPUA(source.artist as string),
+      suffix: source.suffix ? convertFromPUA(source.suffix as string) : null,
       team: convertFromPUA(source.team as string),
       videoLink: convertFromPUA(source.videoLink as string),
       dlLink: convertFromPUA(source.dlLink as string),
@@ -2123,6 +2140,30 @@ class ElasticsearchService {
         originalValue: convertFromPUA(alias.originalValue as string),
         alias: convertFromPUA(alias.alias as string)
       })),
+      songObject: source.songObject && Array.isArray(source.songObject) && source.songObject.length > 0 ? source.songObject.map((song: Record<string, any>) => ({
+        ...song,
+        name: convertFromPUA(song.name as string),
+        aliases: song.aliases?.map((alias: Record<string, any>) => ({
+          ...alias,
+          alias: convertFromPUA(alias.alias as string)
+        })) || []
+      })) : null,
+      artists: source.artists?.map((artist: Record<string, any>) => ({
+        ...artist,
+        name: convertFromPUA(artist.name as string),
+        aliases: artist.aliases?.map((alias: Record<string, any>) => ({
+          ...alias,
+          alias: convertFromPUA(alias.alias as string)
+        })) || []
+      })),
+      primaryArtist: source.primaryArtist && Array.isArray(source.primaryArtist) && source.primaryArtist.length > 0 ? source.primaryArtist.map((artist: Record<string, any>) => ({
+        ...artist,
+        name: convertFromPUA(artist.name as string),
+        aliases: artist.aliases?.map((alias: Record<string, any>) => ({
+          ...alias,
+          alias: convertFromPUA(alias.alias as string)
+        })) || []
+      })) : null,
       levelCredits: source.levelCredits?.map((credit: Record<string, any>) => ({
         ...credit,
         creator: credit.creator ? {
