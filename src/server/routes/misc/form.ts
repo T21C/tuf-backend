@@ -483,9 +483,28 @@ router.post(
           await submission.update({ songRequestId: songRequest.id }, { transaction });
         }
 
-        // Create artist request record if needed
+        // Create artist request records (multiple artists supported)
+        const parsedArtistRequests = safeParseJSON(req.body.artistRequests);
         let artistRequestId: number | null = null;
-        if (isNewArtistRequest || artistId || requiresArtistEvidence) {
+        
+        if (Array.isArray(parsedArtistRequests) && parsedArtistRequests.length > 0) {
+          // Create multiple artist requests
+          const createdRequests = await Promise.all(parsedArtistRequests.map(async (request: any) => {
+            return LevelSubmissionArtistRequest.create({
+              submissionId: submission.id,
+              artistId: request.artistId || null,
+              artistName: request.artistName ? sanitizeTextInput(request.artistName) : null,
+              isNewRequest: request.isNewRequest || false,
+              requiresEvidence: request.requiresEvidence || false
+            }, { transaction });
+          }));
+          
+          // Use first request ID for backward compatibility
+          if (createdRequests.length > 0) {
+            artistRequestId = createdRequests[0].id;
+          }
+        } else if (isNewArtistRequest || artistId || requiresArtistEvidence) {
+          // Fallback: Create single artist request for backward compatibility
           const artistRequest = await LevelSubmissionArtistRequest.create({
             submissionId: submission.id,
             artistId: artistId,
@@ -494,14 +513,24 @@ router.post(
             requiresEvidence: requiresArtistEvidence
           }, { transaction });
           artistRequestId = artistRequest.id;
-          await submission.update({ artistRequestId: artistRequest.id }, { transaction });
+        }
+        
+        if (artistRequestId) {
+          await submission.update({ artistRequestId: artistRequestId }, { transaction });
         }
 
         // Handle evidence image uploads (up to 10 images)
         const evidenceFiles = files?.evidence || [];
         
+        // Evidence is required when new song/artist requests exist
+        const requiresEvidence = requiresSongEvidence || requiresArtistEvidence;
+        if (requiresEvidence && evidenceFiles.length === 0) {
+          throw {code: 400, error: 'Evidence is required for new song/artist requests'};
+        }
+        
         if (evidenceFiles.length > 0 && evidenceFiles.length <= 10) {
           const evidenceType = req.body.evidenceType || 'song'; // 'song' or 'artist'
+          // For artist evidence, use the first artist request ID if multiple exist
           const requestId = evidenceType === 'song' ? songRequestId : artistRequestId;
 
           // Upload evidence images
@@ -551,7 +580,7 @@ router.post(
             },
             {
               model: LevelSubmissionArtistRequest,
-              as: 'artistRequest'
+              as: 'artistRequests'
             },
             {
               model: LevelSubmissionEvidence,

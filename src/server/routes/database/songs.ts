@@ -67,14 +67,49 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       songsByAlias.forEach(alias => searchSongIds!.add(alias.songId));
     }
 
-    // Filter by artist if provided
+    // Filter by artist(s) if provided - supports comma-separated IDs like "51,76"
     let artistSongIds: number[] | null = null;
     if (artistId) {
-      const credits = await SongCredit.findAll({
-        where: {artistId: parseInt(artistId as string)},
-        attributes: ['songId']
-      });
-      artistSongIds = credits.map(c => c.songId);
+      // Parse comma-separated artist IDs
+      const artistIds = (artistId as string)
+        .split(',')
+        .map(id => parseInt(id.trim()))
+        .filter(id => !isNaN(id) && id > 0);
+      
+      if (artistIds.length > 0) {
+        if (artistIds.length === 1) {
+          // Single artist: simple query
+          const credits = await SongCredit.findAll({
+            where: {artistId: artistIds[0]},
+            attributes: ['songId']
+          });
+          artistSongIds = credits.map(c => c.songId);
+        } else {
+          // Multiple artists: find songs that have ALL specified artists
+          // Get all song IDs that have credits for any of the artists
+          const allCredits = await SongCredit.findAll({
+            where: {artistId: {[Op.in]: artistIds}},
+            attributes: ['songId', 'artistId']
+          });
+          
+          // Group by songId and check if each song has all required artists
+          const songArtistMap = new Map<number, Set<number>>();
+          allCredits.forEach(credit => {
+            if (!songArtistMap.has(credit.songId)) {
+              songArtistMap.set(credit.songId, new Set());
+            }
+            songArtistMap.get(credit.songId)!.add(credit.artistId);
+          });
+          
+          // Filter to only songs that have ALL the specified artists
+          artistSongIds = Array.from(songArtistMap.entries())
+            .filter(([songId, artistSet]) => {
+              // Check if this song has all required artists
+              return artistIds.every(id => artistSet.has(id));
+            })
+            .map(([songId]) => songId);
+        }
+      }
     }
 
     // Build final where clause
