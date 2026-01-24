@@ -23,6 +23,7 @@ import LevelTag from '../../../../models/levels/LevelTag.js';
 import Creator from '../../../../models/credits/Creator.js';
 import Team from '../../../../models/credits/Team.js';
 import { Cache, CacheInvalidation } from '../../../middleware/cache.js';
+import { getSongDisplayName } from '../../../../utils/levelHelpers.js';
 
 const router: Router = Router();
 
@@ -864,8 +865,8 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
         }
 
         const cdnFileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
-        const songNamePart = level.song ? ` ${level.song}` : '';
-        const displayName = `#${level.id}${songNamePart}`;
+        const songNamePart = getSongDisplayName(level);
+        const displayName = `#${level.id} ${songNamePart}`;
 
         return {
           type: 'level',

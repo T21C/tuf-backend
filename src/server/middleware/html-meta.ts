@@ -14,6 +14,7 @@ import Creator from '../../models/credits/Creator.js';
 import LevelPack from '../../models/packs/LevelPack.js';
 import { LevelPackViewModes } from '../../models/packs/index.js';
 import { Op } from 'sequelize';
+import { getArtistDisplayName, getSongDisplayName } from '../../utils/levelHelpers.js';
 
 // Add type for manifest entries
 type ManifestEntry = {
@@ -242,7 +243,7 @@ export const htmlMetaMiddleware = async (
       if (pass && !pass.isDeleted && pass.player && pass.level) {
         const difficultyName = escapeMetaText(pass.level.difficulty?.name || 'Unknown Difficulty');
         const playerName = escapeMetaText(pass.player.name);
-        const songName = escapeMetaText(pass.level.song);
+        const songName = escapeMetaText(getSongDisplayName(pass.level));
 
         metaTags = `
           <meta name="description" content="${difficultyName} • Score: ${pass.scoreV2}" />
@@ -277,8 +278,8 @@ export const htmlMetaMiddleware = async (
       if (level && !level.isDeleted && !level.isHidden) {
         const creators = escapeMetaText(formatCreatorDisplay(level));
 
-        const songName = escapeMetaText(level.song);
-        const artistName = escapeMetaText(level.artist);
+        const songName = escapeMetaText(getSongDisplayName(level));
+        const artistName = escapeMetaText(getArtistDisplayName(level));
 
         metaTags = `
           <meta name="description" content="Created by ${creators}" />

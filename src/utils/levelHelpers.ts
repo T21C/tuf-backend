@@ -5,6 +5,7 @@
  */
 
 import Level from '../models/levels/Level.js';
+import Artist from '../models/artists/Artist.js';
 
 /**
  * Get song name from level with fallback
@@ -13,7 +14,7 @@ import Level from '../models/levels/Level.js';
  */
 export const getSongName = (level: Level | any): string => {
   if (!level) return '';
-  return level.songs?.[0]?.name || level.song || '';
+  return level.songObject?.name || level.song || '';
 };
 
 /**
@@ -33,6 +34,17 @@ export const getArtists = (level: Level | any): any | null => {
   }
   return null;
 };
+
+/**
+ * Get artist name from level with fallback
+ * @param level - Level instance or plain object
+ * @returns Artist name or empty string
+ */
+export const getArtistDisplayName = (level: Level | any): string => {
+  if (!level) return '';
+  return level.artists?.map((artist: Artist) => artist.name).join(' & ') || level.artist || '';
+};
+
 
 /**
  * Get full song display name with suffix if applicable

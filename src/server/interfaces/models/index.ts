@@ -75,8 +75,6 @@ export interface ILevel extends IBaseModel {
   ratingAccuracy?: number;
   totalRatingAccuracyVotes?: number;
   tags?: ILevelTag[];
-  songName?: string;
-  artistName?: string;
 }
 
 // Pass interface

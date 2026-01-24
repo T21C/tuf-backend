@@ -29,6 +29,9 @@ import dotenv from 'dotenv';
 import { env } from 'process';
 import LevelTagAssignment from '../../../models/levels/LevelTagAssignment.js';
 import LevelTag from '../../../models/levels/LevelTag.js';
+import { getSongDisplayName } from '../../../utils/levelHelpers.js';
+import Song from '../../../models/songs/Song.js';
+import Artist from '../../../models/artists/Artist.js';
 
 dotenv.config();
 
@@ -1281,7 +1284,19 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
               model: Difficulty,
               as: 'difficulty',
               attributes: ['icon'],
-              required: false
+              required: false,
+              include: [{
+                model: Song,
+                as: 'songObject',
+                include: [{
+                  model: Artist,
+                  as: 'artist',
+                  attributes: ['name'],
+                  required: false
+                }],
+                attributes: ['name'],
+                required: false
+              }]
             }]
           }],
           required: false,
@@ -1382,7 +1397,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
             if (!level) return;
             
             const diffIcon = level.difficulty?.icon || '';
-            const songName = level.song || `Level ${level.id}`;
+            const songName = getSongDisplayName(level);
             levelsHtml += `
               <div class="level-item">
                 ${diffIcon ? `<img class="level-item-icon" src="${diffIcon}" alt="Difficulty Icon" />` : ''}

@@ -290,29 +290,6 @@ Level.init(
       get() {
         return this.teamObject?.name;
       },
-    },
-    // Virtual getters that prefer normalized data
-    songName: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        if (this.songObject?.name) {
-          return this.songObject.name;
-        }
-        return this.song || '';
-      },
-    },
-    artistName: {
-      type: DataTypes.VIRTUAL,
-      get() {
-        // Get artist name from song's credits (first artist)
-        if (this.songObject?.credits && this.songObject.credits.length > 0) {
-          const firstCredit = this.songObject.credits[0];
-          if (firstCredit.artist?.name) {
-            return firstCredit.artist.name;
-          }
-        }
-        return this.artist || '';
-      },
     }
   },
   {

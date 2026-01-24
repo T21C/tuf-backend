@@ -33,7 +33,7 @@ import SongAlias from '../../../../models/songs/SongAlias.js';
 import SongCredit from '../../../../models/songs/SongCredit.js';
 import Artist from '../../../../models/artists/Artist.js';
 import ArtistAlias from '../../../../models/artists/ArtistAlias.js';
-import { getSongName } from '../../../../utils/levelHelpers.js';
+import { getArtistDisplayName, getSongDisplayName, getSongName } from '../../../../utils/levelHelpers.js';
 
 
 const MAX_LIMIT = 200;
@@ -598,8 +598,8 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         teamObject,
         curation,
         tags: tags || [],
-        song: getSongName(level),
-        artists: level.songObject?.credits?.map(credit => credit.artist) || null
+        song: getSongDisplayName(level),
+        artists: getArtistDisplayName(level)
       };
 
       return res.json({
