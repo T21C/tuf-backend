@@ -128,9 +128,9 @@ export function initializeSubmissionsAssociations() {
   });
 
   // LevelSubmission <-> LevelSubmissionArtistRequest associations
-  LevelSubmission.hasOne(LevelSubmissionArtistRequest, {
+  LevelSubmission.hasMany(LevelSubmissionArtistRequest, {
     foreignKey: 'submissionId',
-    as: 'artistRequest',
+    as: 'artistRequests',
     onDelete: 'CASCADE',
     onUpdate: 'CASCADE'
   });

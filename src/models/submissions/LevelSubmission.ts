@@ -30,13 +30,17 @@ class LevelSubmission extends BaseModel {
   declare teamId: number | null;
   declare teamRequest: boolean;
   declare userId: string | null;
+  declare songId: number | null;
+  declare artistId: number | null;
+  declare songRequestId: number | null;
+  declare artistRequestId: number | null;
 
   // Virtual fields from associations
   declare creatorRequests?: LevelSubmissionCreatorRequest[];
   declare teamRequestData?: LevelSubmissionTeamRequest;
   declare levelSubmitter?: User;
   declare songRequest?: LevelSubmissionSongRequest;
-  declare artistRequest?: LevelSubmissionArtistRequest;
+  declare artistRequests?: LevelSubmissionArtistRequest[];
   declare evidence?: LevelSubmissionEvidence[];
   declare songObject?: Song;
   declare artistObject?: Artist;

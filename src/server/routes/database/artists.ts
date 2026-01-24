@@ -66,7 +66,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       ? {id: {[Op.in]: Array.from(artistIds)}}
       : {};
 
-    const {count, rows} = await Artist.findAndCountAll({
+    const {count, rows} = Object.keys(finalWhere).length > 0 ? await Artist.findAndCountAll({
       where: finalWhere,
       limit: normalizedLimit,
       offset,
@@ -88,7 +88,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           attributes: ['id', 'link', 'type']
         }
       ]
-    });
+    }): {count: 0, rows: []};
 
     return res.json({
       artists: rows,

@@ -178,7 +178,7 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
         },
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest',
+          as: 'artistRequests',
           include: [
             {
               model: Artist,
@@ -192,7 +192,21 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
         },
         {
           model: Song,
-          as: 'songObject'
+          as: 'songObject',
+          include: [
+            {
+              model: SongCredit,
+              as: 'credits',
+              include: [
+                {
+                  model: Artist,
+                  as: 'artist',
+                  attributes: ['id', 'name']
+                }
+              ],
+              required: false
+            }
+          ]
         },
         {
           model: Artist,
@@ -339,7 +353,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             },
             {
               model: LevelSubmissionArtistRequest,
-              as: 'artistRequest'
+              as: 'artistRequests'
             },
             {
               model: LevelSubmissionEvidence,
@@ -453,41 +467,70 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           finalSongId = submission.songId;
         }
 
-        // Handle artist request
-        let finalArtistId: number | null = null;
-        if (submission.artistRequest) {
-          if (submission.artistRequest.artistId) {
-            // Use existing artist
-            finalArtistId = submission.artistRequest.artistId;
-          } else if (submission.artistRequest.isNewRequest && submission.artistRequest.artistName) {
-            // Create new artist (service methods don't support transactions yet)
-            const artist = await artistService.findOrCreateArtist(submission.artistRequest.artistName.trim());
-            finalArtistId = artist.id;
+        // Handle artist requests (multiple artists supported)
+        const finalArtistIds: number[] = [];
+        
+        if (submission.artistRequests && submission.artistRequests.length > 0) {
+          // Process multiple artist requests
+          for (const artistRequest of submission.artistRequests) {
+            if (artistRequest.artistId) {
+              // Use existing artist
+              finalArtistIds.push(artistRequest.artistId);
+            } else if (artistRequest.isNewRequest && artistRequest.artistName) {
+              // Create new artist (service methods don't support transactions yet)
+              const artist = await artistService.findOrCreateArtist(artistRequest.artistName.trim());
+              finalArtistIds.push(artist.id);
+            }
           }
         } else if (submission.artistId) {
-          // Use artistId directly from submission
-          finalArtistId = submission.artistId;
+          // Fallback: Use artistId directly from submission (backward compatibility)
+          finalArtistIds.push(submission.artistId);
         }
 
-        // If we have a song and artist, create song credit relationship
-        if (finalSongId && finalArtistId) {
-          // Check if credit already exists
-          const existingCredit = await SongCredit.findOne({
-            where: {
-              songId: finalSongId,
-              artistId: finalArtistId
-            },
-            transaction
-          });
-
-          if (!existingCredit) {
-            await SongCredit.create({
-              songId: finalSongId,
-              artistId: finalArtistId,
-              role: null // Primary artist relationship
-            }, { transaction });
+        // If we have an existing song, verify all song credits match artist requests
+        if (finalSongId && submission.songObject?.credits) {
+          const songCreditArtistIds = submission.songObject.credits
+            .map((credit: any) => credit.artist?.id)
+            .filter((id: number | undefined): id is number => id !== undefined)
+            .sort();
+          
+          const requestArtistIds = [...finalArtistIds].sort();
+          
+          // Verify that all song credits are represented in artist requests
+          if (songCreditArtistIds.length !== requestArtistIds.length ||
+              !songCreditArtistIds.every((id: number, idx: number) => id === requestArtistIds[idx])) {
+            rollbackReason = 'Artist requests must match all song credits when an existing song is selected';
+            await safeTransactionRollback(transaction, logger);
+            return res.status(400).json({
+              error: 'Artist requests must match all song credits when an existing song is selected'
+            });
           }
         }
+
+        // Create song credit relationships for all artists
+        if (finalSongId && finalArtistIds.length > 0) {
+          for (const artistId of finalArtistIds) {
+            // Check if credit already exists
+            const existingCredit = await SongCredit.findOne({
+              where: {
+                songId: finalSongId,
+                artistId: artistId
+              },
+              transaction
+            });
+
+            if (!existingCredit) {
+              await SongCredit.create({
+                songId: finalSongId,
+                artistId: artistId,
+                role: null // Primary artist relationship
+              }, { transaction });
+            }
+          }
+        }
+        
+        // Use first artist for backward compatibility with artistId field
+        const finalArtistId = finalArtistIds.length > 0 ? finalArtistIds[0] : null;
 
         const newLevel = await Level.create(
           {

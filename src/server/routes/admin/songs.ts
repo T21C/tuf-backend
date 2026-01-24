@@ -112,7 +112,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     }
     // If neither filter is applied, finalWhere remains as is (empty or with verificationState)
 
-    const {count, rows} = await Song.findAndCountAll({
+    const {count, rows} = Object.keys(finalWhere).length > 0 ? await Song.findAndCountAll({
       where: finalWhere,
       limit: normalizedLimit,
       offset,
@@ -140,7 +140,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           ]
         }
       ]
-    });
+    }): {count: 0, rows: []};
 
     return res.json({
       songs: rows,

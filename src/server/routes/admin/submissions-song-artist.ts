@@ -16,6 +16,7 @@ import EvidenceService from '../../services/EvidenceService.js';
 import multer from 'multer';
 import SongAlias from '../../../models/songs/SongAlias.js';
 import ArtistAlias from '../../../models/artists/ArtistAlias.js';
+import SongCredit from '../../../models/songs/SongCredit.js';
 
 const router: Router = Router();
 const songService = SongService.getInstance();
@@ -110,16 +111,20 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
   }
 });
 
-// Change artist selection
+// Change artist selection (updates a specific artist request by ID, or adds new one)
 router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {artistId, isNewRequest, artistName, requiresEvidence} = req.body;
+    const {artistId, artistRequestId, isNewRequest, artistName, requiresEvidence} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest'
+          as: 'artistRequests'
+        },
+        {
+          model: Song,
+          as: 'songObject'
         }
       ],
       transaction
@@ -130,12 +135,14 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
       return res.status(404).json({error: 'Submission not found'});
     }
 
-    // Delete existing artist request if exists
-    if (submission.artistRequest) {
-      await submission.artistRequest.destroy({transaction});
+    // If an existing song is selected, artists are locked
+    if (submission.songId && submission.songObject) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ 
+        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.' 
+      });
     }
 
-    let newArtistRequestId: number | null = null;
     let finalArtistId: number | null = null;
 
     if (artistId) {
@@ -146,23 +153,64 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
         await safeTransactionRollback(transaction);
         return res.status(404).json({error: 'Artist not found'});
       }
+
+      // Update existing request if artistRequestId provided
+      if (artistRequestId && submission.artistRequests) {
+        const existingRequest = submission.artistRequests.find((req: any) => req.id === artistRequestId);
+        if (existingRequest) {
+          await existingRequest.update({
+            artistId: finalArtistId,
+            artistName: artist.name,
+            isNewRequest: false,
+            requiresEvidence: requiresEvidence || false
+          }, {transaction});
+        } else {
+          await safeTransactionRollback(transaction);
+          return res.status(404).json({error: 'Artist request not found'});
+        }
+      } else {
+        // Add new artist request
+        await LevelSubmissionArtistRequest.create({
+          submissionId: submission.id,
+          artistId: finalArtistId,
+          artistName: artist.name,
+          isNewRequest: false,
+          requiresEvidence: requiresEvidence || false
+        }, {transaction});
+      }
     } else if (isNewRequest && artistName) {
-      // Create new artist request
-      const artistRequest = await LevelSubmissionArtistRequest.create({
-        submissionId: submission.id,
-        artistName: artistName.trim(),
-        isNewRequest: true,
-        requiresEvidence: requiresEvidence || false
-      }, {transaction});
-      newArtistRequestId = artistRequest.id;
+      // Update existing request if artistRequestId provided
+      if (artistRequestId && submission.artistRequests) {
+        const existingRequest = submission.artistRequests.find((req: any) => req.id === artistRequestId);
+        if (existingRequest) {
+          await existingRequest.update({
+            artistName: artistName.trim(),
+            isNewRequest: true,
+            requiresEvidence: requiresEvidence || false
+          }, {transaction});
+        } else {
+          await safeTransactionRollback(transaction);
+          return res.status(404).json({error: 'Artist request not found'});
+        }
+      } else {
+        // Create new artist request
+        await LevelSubmissionArtistRequest.create({
+          submissionId: submission.id,
+          artistName: artistName.trim(),
+          isNewRequest: true,
+          requiresEvidence: requiresEvidence || false
+        }, {transaction});
+      }
     }
 
-    // Update submission
-    await submission.update({
-      artistId: finalArtistId,
-      artistRequestId: newArtistRequestId,
-      artist: artistId ? (await Artist.findByPk(artistId, {transaction}))?.name : artistName
-    }, {transaction});
+    // Update submission with first artist for backward compatibility
+    const firstRequest = submission.artistRequests?.[0];
+    if (firstRequest && firstRequest.artistId) {
+      await submission.update({
+        artistId: firstRequest.artistId,
+        artist: firstRequest.artistName || submission.artist
+      }, {transaction});
+    }
 
     await transaction.commit();
 
@@ -171,7 +219,7 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest',
+          as: 'artistRequests',
           include: [
             {
               model: Artist,
@@ -269,7 +317,24 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    const song = await Song.findByPk(songId, { transaction });
+    const song = await Song.findByPk(songId, {
+      include: [
+        {
+          model: SongCredit,
+          as: 'credits',
+          include: [
+            {
+              model: Artist,
+              as: 'artist',
+              attributes: ['id', 'name']
+            }
+          ],
+          required: false
+        }
+      ],
+      transaction
+    });
+    
     if (!song) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Song not found' });
@@ -293,6 +358,27 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
       }, { transaction });
     }
 
+    // Delete existing artist requests
+    await LevelSubmissionArtistRequest.destroy({
+      where: { submissionId: submission.id },
+      transaction
+    });
+
+    // Auto-populate artist requests from song credits
+    if (song.credits && song.credits.length > 0) {
+      const artistRequests = song.credits.map((credit: any) => ({
+        submissionId: submission.id,
+        artistId: credit.artist?.id || null,
+        artistName: credit.artist?.name || null,
+        isNewRequest: false,
+        requiresEvidence: false
+      })).filter((req: any) => req.artistId !== null);
+      
+      if (artistRequests.length > 0) {
+        await LevelSubmissionArtistRequest.bulkCreate(artistRequests, { transaction });
+      }
+    }
+
     // Update submission
     await submission.update({
       songId: song.id,
@@ -300,7 +386,54 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
     }, { transaction });
 
     await transaction.commit();
-    return res.json({ success: true });
+    
+    // Fetch updated submission with all associations
+    const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
+      include: [
+        {
+          model: LevelSubmissionSongRequest,
+          as: 'songRequest',
+          include: [
+            {
+              model: Song,
+              as: 'song',
+              attributes: ['id', 'name', 'verificationState']
+            }
+          ]
+        },
+        {
+          model: LevelSubmissionArtistRequest,
+          as: 'artistRequests',
+          include: [
+            {
+              model: Artist,
+              as: 'artist',
+              attributes: ['id', 'name']
+            }
+          ]
+        },
+        {
+          model: Song,
+          as: 'songObject',
+          include: [
+            {
+              model: SongCredit,
+              as: 'credits',
+              include: [
+                {
+                  model: Artist,
+                  as: 'artist',
+                  attributes: ['id', 'name']
+                }
+              ],
+              required: false
+            }
+          ]
+        }
+      ]
+    });
+
+    return res.json(updatedSubmission);
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error assigning song:', error);
@@ -308,7 +441,7 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
   }
 });
 
-// Assign existing artist to submission request
+// Assign existing artist to submission request (adds to array)
 router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
@@ -325,7 +458,25 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest'
+          as: 'artistRequests'
+        },
+        {
+          model: Song,
+          as: 'songObject',
+          include: [
+            {
+              model: SongCredit,
+              as: 'credits',
+              include: [
+                {
+                  model: Artist,
+                  as: 'artist',
+                  attributes: ['id', 'name']
+                }
+              ],
+              required: false
+            }
+          ]
         }
       ],
       transaction
@@ -336,38 +487,67 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
       return res.status(404).json({ error: 'Submission not found' });
     }
 
+    // If an existing song is selected, artists are locked and must match song credits
+    if (submission.songId && submission.songObject) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ 
+        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.' 
+      });
+    }
+
     const artist = await Artist.findByPk(artistId, { transaction });
     if (!artist) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Artist not found' });
     }
 
-    // Update or create artist request
-    if (submission.artistRequest) {
-      await submission.artistRequest.update({
+    // Check if artist already exists in requests
+    const existingRequest = submission.artistRequests?.find(
+      (req: any) => req.artistId === artist.id
+    );
+
+    if (existingRequest) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'Artist already added to submission' });
+    }
+
+    // Add new artist request
+    await LevelSubmissionArtistRequest.create({
+      submissionId: submission.id,
+      artistId: artist.id,
+      artistName: artist.name,
+      isNewRequest: false,
+      requiresEvidence: false
+    }, { transaction });
+
+    // Update submission with first artist for backward compatibility
+    if (!submission.artistId) {
+      await submission.update({
         artistId: artist.id,
-        artistName: artist.name,
-        isNewRequest: false,
-        requiresEvidence: false
-      }, { transaction });
-    } else {
-      await LevelSubmissionArtistRequest.create({
-        submissionId: submission.id,
-        artistId: artist.id,
-        artistName: artist.name,
-        isNewRequest: false,
-        requiresEvidence: false
+        artist: artist.name
       }, { transaction });
     }
 
-    // Update submission
-    await submission.update({
-      artistId: artist.id,
-      artist: artist.name
-    }, { transaction });
-
     await transaction.commit();
-    return res.json({ success: true });
+    
+    // Fetch updated submission
+    const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
+      include: [
+        {
+          model: LevelSubmissionArtistRequest,
+          as: 'artistRequests',
+          include: [
+            {
+              model: Artist,
+              as: 'artist',
+              attributes: ['id', 'name']
+            }
+          ]
+        }
+      ]
+    });
+
+    return res.json(updatedSubmission);
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error assigning artist:', error);
@@ -485,7 +665,7 @@ router.post('/levels/:id/songs', Auth.superAdmin(), async (req: Request, res: Re
   }
 });
 
-// Create and assign artist in one step
+// Create and assign artist in one step (adds to array)
 router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
@@ -502,7 +682,11 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest'
+          as: 'artistRequests'
+        },
+        {
+          model: Song,
+          as: 'songObject'
         }
       ],
       transaction
@@ -511,6 +695,14 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
     if (!submission) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // If an existing song is selected, artists are locked
+    if (submission.songId && submission.songObject) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ 
+        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.' 
+      });
     }
 
     // Create or find artist
@@ -536,16 +728,26 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
       });
     }
 
-    // Update artist request if exists
-    if (artistRequestId && submission.artistRequest) {
-      await submission.artistRequest.update({
-        artistId: artist.id,
-        artistName: artist.name,
-        isNewRequest: false,
-        requiresEvidence: false
-      }, { transaction });
-    } else if (!submission.artistRequest) {
-      // Create new artist request if doesn't exist
+    // Check if artist already exists in requests
+    const existingRequest = submission.artistRequests?.find(
+      (req: any) => req.artistId === artist.id
+    );
+
+    if (existingRequest) {
+      // Update existing request if artistRequestId matches
+      if (artistRequestId && existingRequest.id === artistRequestId) {
+        await existingRequest.update({
+          artistId: artist.id,
+          artistName: artist.name,
+          isNewRequest: false,
+          requiresEvidence: false
+        }, { transaction });
+      } else {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Artist already added to submission' });
+      }
+    } else {
+      // Create new artist request
       await LevelSubmissionArtistRequest.create({
         submissionId: submission.id,
         artistId: artist.id,
@@ -555,32 +757,27 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
       }, { transaction });
     }
 
-    // Update submission
-    await submission.update({
-      artistId: artist.id,
-      artist: artist.name
-    }, { transaction });
+    // Update submission with first artist for backward compatibility
+    if (!submission.artistId) {
+      await submission.update({
+        artistId: artist.id,
+        artist: artist.name
+      }, { transaction });
+    }
 
     await transaction.commit();
 
     // Fetch updated submission
-    const updatedSubmission = await LevelSubmission.findOne({
-      where: { id },
+    const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest',
+          as: 'artistRequests',
           include: [
             {
               model: Artist,
               as: 'artist',
-              include: [
-                {
-                  model: ArtistAlias,
-                  as: 'aliases',
-                  attributes: ['id', 'alias']
-                }
-              ]
+              attributes: ['id', 'name']
             }
           ]
         }
@@ -669,7 +866,11 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest'
+          as: 'artistRequests'
+        },
+        {
+          model: Song,
+          as: 'songObject'
         }
       ],
       transaction
@@ -680,9 +881,12 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
       return res.status(404).json({ error: 'Submission not found' });
     }
 
-    // Delete existing artist request if exists
-    if (submission.artistRequest) {
-      await submission.artistRequest.destroy({ transaction });
+    // If an existing song is selected, artists are locked
+    if (submission.songId && submission.songObject) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ 
+        error: 'Cannot add artist requests when an existing song is selected. Artists are automatically set from song credits.' 
+      });
     }
 
     // Create a new artist request with placeholder name
@@ -694,21 +898,21 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
       requiresEvidence: false
     }, { transaction });
 
-    // Update submission to clear artistId
-    await submission.update({
-      artistId: null,
-      artistRequestId: null
-    }, { transaction });
+    // Update submission to clear artistId if no artists remain
+    if (!submission.artistRequests || submission.artistRequests.length === 0) {
+      await submission.update({
+        artistId: null
+      }, { transaction });
+    }
 
     await transaction.commit();
 
     // Fetch updated submission
-    const updatedSubmission = await LevelSubmission.findOne({
-      where: { id },
+    const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
       include: [
         {
           model: LevelSubmissionArtistRequest,
-          as: 'artistRequest'
+          as: 'artistRequests'
         }
       ]
     });
@@ -718,6 +922,99 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
     await safeTransactionRollback(transaction);
     logger.error('Error creating artist request:', error);
     return res.status(500).json({ error: 'Failed to create artist request' });
+  }
+});
+
+// Delete an artist request
+router.delete('/levels/:id/artist-requests/:requestId', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id, requestId } = req.params;
+
+    const submission = await LevelSubmission.findOne({
+      where: { id },
+      include: [
+        {
+          model: Song,
+          as: 'songObject'
+        }
+      ],
+      transaction
+    });
+
+    if (!submission) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Submission not found' });
+    }
+
+    // If an existing song is selected, artists are locked
+    if (submission.songId && submission.songObject) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ 
+        error: 'Cannot remove artist requests when an existing song is selected. Artists are automatically set from song credits.' 
+      });
+    }
+
+    const artistRequest = await LevelSubmissionArtistRequest.findOne({
+      where: {
+        id: requestId,
+        submissionId: id
+      },
+      transaction
+    });
+
+    if (!artistRequest) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({ error: 'Artist request not found' });
+    }
+
+    await artistRequest.destroy({ transaction });
+
+    // Update submission artistId if this was the first artist
+    const remainingRequests = await LevelSubmissionArtistRequest.findAll({
+      where: { submissionId: id },
+      transaction
+    });
+
+    if (remainingRequests.length === 0) {
+      await submission.update({
+        artistId: null
+      }, { transaction });
+    } else if (submission.artistId === artistRequest.artistId) {
+      // Update to first remaining artist
+      const firstRequest = remainingRequests[0];
+      if (firstRequest.artistId) {
+        await submission.update({
+          artistId: firstRequest.artistId,
+          artist: firstRequest.artistName || submission.artist
+        }, { transaction });
+      }
+    }
+
+    await transaction.commit();
+
+    // Fetch updated submission
+    const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
+      include: [
+        {
+          model: LevelSubmissionArtistRequest,
+          as: 'artistRequests',
+          include: [
+            {
+              model: Artist,
+              as: 'artist',
+              attributes: ['id', 'name']
+            }
+          ]
+        }
+      ]
+    });
+
+    return res.json(updatedSubmission);
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error deleting artist request:', error);
+    return res.status(500).json({ error: 'Failed to delete artist request' });
   }
 });
 
