@@ -599,7 +599,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         curation,
         tags: tags || [],
         song: getSongDisplayName(level),
-        artists: getArtistDisplayName(level)
+        artists: level.songObject?.credits?.map(credit => credit.artist) || null
       };
 
       return res.json({
