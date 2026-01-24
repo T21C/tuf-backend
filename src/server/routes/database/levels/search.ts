@@ -280,7 +280,14 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
                   {
                     model: Artist,
                     as: 'artist',
-                    attributes: ['id', 'name', 'avatarUrl']
+                    attributes: ['id', 'name', 'avatarUrl'],
+                    include: [
+                      {
+                        model: ArtistAlias,
+                        as: 'aliases',
+                        attributes: ['id', 'alias']
+                      }
+                    ]
                   }
                 ]
               }
