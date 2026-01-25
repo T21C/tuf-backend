@@ -318,13 +318,16 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       return res.status(404).json({error: 'Song not found'});
     }
 
-    const {name, verificationState} = req.body;
+    const {name, verificationState, extraInfo} = req.body;
 
     if (name && typeof name === 'string') {
       song.name = name.trim();
     }
     if (verificationState) {
       song.verificationState = verificationState;
+    }
+    if (extraInfo !== undefined) {
+      song.extraInfo = extraInfo === null || extraInfo === '' ? null : String(extraInfo).trim();
     }
 
     await song.save({transaction});

@@ -333,7 +333,7 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       return res.status(404).json({error: 'Artist not found'});
     }
 
-    const {name, verificationState} = req.body;
+    const {name, verificationState, extraInfo} = req.body;
 
     if (name && typeof name === 'string') {
       artist.name = name.trim();
@@ -341,6 +341,9 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     // Avatar can only be changed via upload/delete endpoints
     if (verificationState) {
       artist.verificationState = verificationState;
+    }
+    if (extraInfo !== undefined) {
+      artist.extraInfo = extraInfo === null || extraInfo === '' ? null : String(extraInfo).trim();
     }
 
     await artist.save({transaction});
@@ -723,7 +726,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
 router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {link} = req.body;
+    const {link, extraInfo} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
@@ -731,7 +734,8 @@ router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdm
 
     const evidence = await evidenceService.updateArtistEvidence(
       parseInt(req.params.evidenceId),
-      link.trim()
+      link.trim(),
+      extraInfo !== undefined ? (extraInfo || null) : undefined
     );
 
     await transaction.commit();
