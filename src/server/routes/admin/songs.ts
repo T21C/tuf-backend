@@ -500,8 +500,7 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
 
     const evidence = await evidenceService.addEvidenceToSong(
       parseInt(req.params.id),
-      link.trim(),
-      extraInfo || null
+      link.trim()
     );
 
     await transaction.commit();

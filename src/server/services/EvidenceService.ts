@@ -118,12 +118,10 @@ class EvidenceService {
   public async addEvidenceToSong(
     songId: number,
     link: string,
-    extraInfo?: string | null
   ): Promise<SongEvidence> {
     return await SongEvidence.create({
       songId,
       link,
-      extraInfo: extraInfo || null
     });
   }
 
@@ -132,13 +130,11 @@ class EvidenceService {
    */
   public async addEvidenceToArtist(
     artistId: number,
-    link: string,
-    extraInfo?: string | null
+    link: string
   ): Promise<ArtistEvidence> {
     return await ArtistEvidence.create({
       artistId,
-      link,
-      extraInfo: extraInfo || null
+      link
     });
   }
 
