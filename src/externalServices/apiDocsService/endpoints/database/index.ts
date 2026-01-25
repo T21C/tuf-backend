@@ -7,6 +7,8 @@ import leaderboardEndpoints from './leaderboard.js';
 import playersEndpoints from './players.js';
 import referencesEndpoints from './references.js';
 import statisticsEndpoints from './statistics.js';
+import artistsEndpoints from './artists.js';
+import songsEndpoints from './songs.js';
 
 const databaseEndpoints: EndpointDefinition[] = [
   ...levelsEndpoints,
@@ -16,7 +18,9 @@ const databaseEndpoints: EndpointDefinition[] = [
   ...leaderboardEndpoints,
   ...playersEndpoints,
   ...referencesEndpoints,
-  ...statisticsEndpoints
+  ...statisticsEndpoints,
+  ...artistsEndpoints,
+  ...songsEndpoints
 ];
 
 export default databaseEndpoints;

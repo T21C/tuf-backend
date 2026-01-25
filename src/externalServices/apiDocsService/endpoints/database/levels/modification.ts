@@ -3,6 +3,34 @@ import { EndpointDefinition } from '../../../services/DocumentationService.js';
 const modificationEndpoints: EndpointDefinition[] = [
   {
     method: 'PUT',
+    path: '/v2/database/levels/own/:id',
+    description: 'Update level information (for level owners/creators) - limited fields',
+    category: 'LEVELS',
+    requiresAuth: true,
+    parameters: {
+      path: {
+        id: 'integer (required) - Level ID'
+      },
+      body: {
+        song: 'string (optional) - Song name',
+        artist: 'string (optional) - Artist name',
+        videoLink: 'string (optional) - Video link',
+        dlLink: 'string (optional) - Download link (restricted if level has clears)',
+        workshopLink: 'string (optional) - Workshop link',
+        songId: 'number (optional) - Song ID for normalized song relationship',
+        suffix: 'string (optional) - Suffix text (trimmed, null if empty)'
+      }
+    },
+    responses: {
+      '200': 'Returns { message, level } with updated level data including songObject',
+      '401': 'Unauthorized',
+      '403': 'Forbidden - not authorized to edit this level',
+      '404': 'Level not found',
+      '500': 'Failed to update level'
+    }
+  },
+  {
+    method: 'PUT',
     path: '/v2/database/levels/:id',
     description: 'Update level information with comprehensive validation and async operations',
     category: 'LEVELS',
@@ -246,3 +274,4 @@ const modificationEndpoints: EndpointDefinition[] = [
 ];
 
 export default modificationEndpoints;
+

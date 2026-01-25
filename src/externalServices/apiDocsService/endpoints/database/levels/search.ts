@@ -61,6 +61,24 @@ const searchEndpoints: EndpointDefinition[] = [
     }
   },
   {
+    method: 'HEAD',
+    path: '/v2/database/levels/:id',
+    description: 'Check if a level exists and if the user has permission to access it (for deleted levels)',
+    category: 'LEVELS',
+    parameters: {
+      path: {
+        id: 'integer (required) - Level ID'
+      }
+    },
+    responses: {
+      '200': 'Level exists and user has permission',
+      '400': 'Invalid level ID',
+      '403': 'Level is deleted and user is not super admin',
+      '404': 'Level not found',
+      '500': 'Internal server error'
+    }
+  },
+  {
     method: 'GET',
     path: '/v2/database/levels/:id',
     description: 'Get detailed level information including passes, ratings, and user-specific data',

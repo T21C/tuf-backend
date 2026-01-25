@@ -7,6 +7,8 @@ import curationsEndpoints from './curations.js';
 import auditLogEndpoints from './auditLog.js';
 import backupEndpoints from './backup.js';
 import statisticsEndpoints from './statistics.js';
+import songsEndpoints from './songs.js';
+import artistsEndpoints from './artists.js';
 
 const adminEndpoints: EndpointDefinition[] = [
   ...verifyPasswordEndpoints,
@@ -16,7 +18,9 @@ const adminEndpoints: EndpointDefinition[] = [
   ...curationsEndpoints,
   ...auditLogEndpoints,
   ...backupEndpoints,
-  ...statisticsEndpoints
+  ...statisticsEndpoints,
+  ...songsEndpoints,
+  ...artistsEndpoints
 ];
 
 export default adminEndpoints;
