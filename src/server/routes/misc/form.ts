@@ -420,9 +420,15 @@ router.post(
           }
         }
 
+        // Handle suffix - normalize to null if empty string
+        const suffix = req.body.suffix && typeof req.body.suffix === 'string' 
+          ? sanitizeTextInput(req.body.suffix).trim() || null 
+          : null;
+
         const submission = await LevelSubmission.create({
           artist: artistName,
           song: songName,
+          suffix: suffix,
           songId: songId,
           artistId: artistId,
           diff: sanitizeTextInput(req.body.diff),

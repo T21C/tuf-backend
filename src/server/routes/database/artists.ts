@@ -80,12 +80,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         {
           model: ArtistLink,
           as: 'links',
-          attributes: ['id', 'link', 'extraInfo']
+          attributes: ['id', 'link']
         },
         {
           model: ArtistEvidence,
           as: 'evidences',
-          attributes: ['id', 'link', 'extraInfo']
+          attributes: ['id', 'link']
         }
       ]
     }): {count: 0, rows: []};

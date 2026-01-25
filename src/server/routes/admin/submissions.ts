@@ -541,6 +541,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           {
             song: submission.song,
             artist: submission.artist,
+            suffix: submission.suffix || null,
             songId: finalSongId,
             charter: firstCharter?.creatorName || '',
             vfxer: firstVfxer?.creatorName || '',

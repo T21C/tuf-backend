@@ -1046,4 +1046,39 @@ router.delete('/levels/:id/artist-requests/:requestId', Auth.superAdmin(), async
   }
 });
 
+// Update suffix field
+router.put('/levels/:id/suffix', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const {suffix} = req.body;
+    const submission = await LevelSubmission.findByPk(req.params.id, {transaction});
+
+    if (!submission) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({error: 'Submission not found'});
+    }
+
+    // Normalize suffix: trim whitespace, set to null if empty string
+    const normalizedSuffix = suffix && typeof suffix === 'string' 
+      ? suffix.trim() || null 
+      : null;
+
+    // Update submission
+    await submission.update({
+      suffix: normalizedSuffix
+    }, {transaction});
+
+    await transaction.commit();
+
+    // Return only the updated field for efficient frontend merging
+    return res.json({
+      suffix: normalizedSuffix
+    });
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating suffix:', error);
+    return res.status(500).json({error: 'Failed to update suffix'});
+  }
+});
+
 export default router;

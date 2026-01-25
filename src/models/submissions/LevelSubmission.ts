@@ -16,6 +16,7 @@ class LevelSubmission extends BaseModel {
   declare charter: string;
   declare diff: string;
   declare song: string;
+  declare suffix: string | null;
   declare team: string;
   declare vfxer: string;
   declare videoLink: string;
@@ -63,6 +64,11 @@ LevelSubmission.init(
     song: {
       type: DataTypes.TEXT,
       allowNull: false,
+    },
+    suffix: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
     },
     team: {
       type: DataTypes.TEXT,
