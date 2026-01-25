@@ -294,7 +294,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
           {
             model: ArtistEvidence,
             as: 'evidences',
-            attributes: ['id', 'link', 'extraInfo']
+            attributes: ['id', 'link']
           }
         ]
       });
@@ -650,7 +650,7 @@ router.delete('/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})', Auth.superAdmin(),
 router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {link, extraInfo} = req.body;
+    const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
@@ -658,8 +658,7 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
 
     const evidence = await evidenceService.addEvidenceToArtist(
       parseInt(req.params.id),
-      link.trim(),
-      extraInfo || null
+      link.trim()
     );
 
     await transaction.commit();
@@ -726,7 +725,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
 router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {link, extraInfo} = req.body;
+    const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
@@ -734,8 +733,7 @@ router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdm
 
     const evidence = await evidenceService.updateArtistEvidence(
       parseInt(req.params.evidenceId),
-      link.trim(),
-      extraInfo !== undefined ? (extraInfo || null) : undefined
+      link.trim()
     );
 
     await transaction.commit();

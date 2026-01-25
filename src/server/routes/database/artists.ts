@@ -116,12 +116,12 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         {
           model: ArtistLink,
           as: 'links',
-          attributes: ['id', 'link', 'extraInfo']
+          attributes: ['id', 'link']
         },
         {
           model: ArtistEvidence,
           as: 'evidences',
-          attributes: ['id', 'link', 'extraInfo']
+          attributes: ['id', 'link']
         },
         {
           model: SongCredit,
