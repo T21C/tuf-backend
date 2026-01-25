@@ -46,6 +46,9 @@ import {
   logLevelMetadataUpdateHook,
 } from '../../webhooks/misc.js';
 import LevelTagAssignment from '../../../../models/levels/LevelTagAssignment.js';
+import { getSongDisplayName } from '../../../../utils/levelHelpers.js';
+import Song from '../../../../models/songs/Song.js';
+import Artist from '../../../../models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
@@ -427,18 +430,28 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
       await safeTransactionRollback(transaction);
       return res.status(403).json({error: errorMessage});
     }
-    const updateData: any = {};
-    if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
-    if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
-    if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
-    if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
-    if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
     const level = await Level.findByPk(levelId, {transaction});
     if (!level) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Level not found'});
     }
     const oldLevel = {...level.dataValues} as Level;
+    
+    const updateData: any = {};
+    if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
+    if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
+    if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
+    if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
+    
+    // Handle suffix
+    if (req.body.suffix !== undefined) {
+      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string' 
+        ? req.body.suffix.trim() || null 
+        : null;
+    }
+    
+    if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
+    
     if (
       canEdit
       && level.clears > 0
@@ -448,13 +461,61 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
       ) {
         updateData.dlLink = undefined;
       }
-
+    
+    // Handle songId if provided (for normalized song relationships)
+    if (req.body.songId !== undefined) {
+      if (req.body.songId === null || req.body.songId === '') {
+        updateData.songId = null;
+      } else {
+        const songId = parseInt(req.body.songId);
+        if (!isNaN(songId) && songId > 0) {
+          const song = await Song.findByPk(songId, {transaction, include: [
+            {
+              model: Artist,
+              as: 'artists',
+              required: false,
+            },
+          ]});
+          if (song) {
+            const suffix = updateData.suffix !== undefined ? updateData.suffix : level.suffix;
+            updateData.song = getSongDisplayName({ songObject: song, suffix });
+            updateData.songId = song.id;
+            updateData.artist = song.artists?.map(artist => artist.name).join(' & ') || '';
+          }
+        }
+      }
+    }
 
     await level.update(updateData, {transaction});
+    
+    // Reload level with associations for proper return
+    const updatedLevel = await Level.findByPk(levelId, {
+      include: [
+        {
+          model: Difficulty,
+          as: 'difficulty',
+          required: false,
+        },
+        {
+          model: Song,
+          as: 'songObject',
+          required: false,
+          include: [
+            {
+              model: Artist,
+              as: 'artists',
+              required: false,
+            },
+          ],
+        },
+      ],
+      transaction,
+    });
+    
     await transaction.commit();
-    await elasticsearchService.indexLevel(level);
-    await logLevelMetadataUpdateHook(oldLevel, level, req.user as User);
-    return res.status(200).json({message: 'Level updated successfully', level: level});
+    await elasticsearchService.indexLevel(updatedLevel || level);
+    await logLevelMetadataUpdateHook(oldLevel, updatedLevel || level, req.user as User);
+    return res.status(200).json({message: 'Level updated successfully', level: updatedLevel || level});
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error updating level:', error);
@@ -500,6 +561,9 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       await safeTransactionRollback(transaction);
       return res.status(404).json({error: 'Level not found'});
     }
+
+    // Save old level state for logging before any updates
+    const oldLevel = {...level.dataValues} as Level;
 
     // Check if user is super admin or creator
     const {canEdit, errorMessage} = await checkLevelOwnership(
@@ -586,6 +650,38 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       // Super admin has access to all fields
     updateData.song = sanitizeTextInput(req.body.song);
     updateData.artist = sanitizeTextInput(req.body.artist);
+    
+    // Handle suffix first (before songId processing so it's available for song name formatting)
+    if (req.body.suffix !== undefined) {
+      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string' 
+        ? req.body.suffix.trim() || null 
+        : null;
+    }
+    
+    // Handle songId if provided (for normalized song relationships)
+    if (req.body.songId !== undefined) {
+      if (req.body.songId === null || req.body.songId === '') {
+        updateData.songId = null;
+      } else {
+        const songId = parseInt(req.body.songId);
+        if (!isNaN(songId) && songId > 0) {
+          const song = await Song.findByPk(songId, {transaction, include: [
+            {
+              model: Artist,
+              as: 'artists',
+              required: false,
+            },
+          ]});
+          if (song) {
+            // Use suffix from updateData if set, otherwise from current level
+            const suffix = updateData.suffix !== undefined ? updateData.suffix : level.suffix;
+            updateData.song = getSongDisplayName({ songObject: song, suffix });
+            updateData.songId = song.id;
+            updateData.artist = song.artists?.map(artist => artist.name).join(' & ') || '';
+          }
+        }
+      }
+    }
     updateData.diffId = Number(req.body.diffId) || undefined;
     updateData.previousDiffId = previousDiffId;
     updateData.baseScore = baseScore;
@@ -602,14 +698,6 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     updateData.isHidden = isHidden;
     updateData.isAnnounced = isAnnounced;
     updateData.isExternallyAvailable = req.body.isExternallyAvailable ?? level.isExternallyAvailable;
-    
-    // Handle suffix
-    if (req.body.suffix !== undefined) {
-      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string' 
-        ? req.body.suffix.trim() || null 
-        : null;
-    }
-
 
     await Level.update(updateData, {
       where: {id: levelId},
@@ -646,7 +734,19 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
           through: {
             attributes: []
           }
-        }
+        },
+        {
+          model: Song,
+          as: 'songObject',
+          required: false,
+          include: [
+            {
+              model: Artist,
+              as: 'artists',
+              required: false,
+            },
+          ],
+        },
       ],
       transaction,
     });
@@ -681,6 +781,11 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     });
     logger.debug(`Rerate history: ${JSON.stringify(rerateHistory)}`);
     await transaction.commit();
+
+    // Log metadata changes (songId, suffix, etc.)
+    if (updatedLevel) {
+      await logLevelMetadataUpdateHook(oldLevel, updatedLevel, req.user as User);
+    }
 
     const response = {
       message: 'Level updated successfully',

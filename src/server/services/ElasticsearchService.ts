@@ -586,9 +586,6 @@ class ElasticsearchService {
       })) || []
     })) || [];
 
-    // Get primary artist (first artist from song credits)
-    const primaryArtist = artists.length > 0 ? artists[0] : null;
-
     return {
         ...level.get({ plain: true }),
         song: convertToPUA(level.song), // Keep text field for backward compatibility
@@ -596,10 +593,24 @@ class ElasticsearchService {
         songId: level.songId || null,
         suffix: level.suffix ? convertToPUA(level.suffix) : null,
         // For nested type, use array format. Omit field if null to avoid empty array issues
-        ...(songObject ? { songObject: [songObject] } : {}),
-        artists: artists, // Normalized artists array
-        // For nested type, use array format. Omit field if null to avoid empty array issues
-        ...(primaryArtist ? { primaryArtist: [primaryArtist] } : {}),
+        songObject: songObject ? {
+          ...songObject,
+          name: convertToPUA(songObject.name),
+          verificationState: songObject.verificationState,
+          aliases: songObject.aliases?.map(alias => ({
+            alias: convertToPUA(alias.alias)
+          }))
+        } : null,
+        artists: artists.length > 0 ? artists.map(artist => ({
+          ...artist,
+          name: convertToPUA(artist.name),
+          avatarUrl: artist.avatarUrl,
+          verificationState: artist.verificationState,
+          role: artist.role,
+          aliases: artist.aliases?.map(alias => ({
+            alias: convertToPUA(alias.alias)
+          }))
+        })) : null,
         team: convertToPUA(level.teamObject?.name),
         videoLink: level.videoLink ? convertToPUA(level.videoLink) : null,
         dlLink: level.dlLink ? convertToPUA(level.dlLink) : null,

@@ -54,8 +54,9 @@ export const getArtistDisplayName = (level: Level | any): string => {
 export const getSongDisplayName = (level: Level | any): string => {
   if (!level) return '';
   const songName = getSongName(level);
-  if (level.suffix && songName) {
-    return `${songName} (${level.suffix})`;
+  if (level.suffix && songName && level.songObject) {
+    return `${songName} ${level.suffix}`;
+  } else {
+    return songName;
   }
-  return songName;
 };

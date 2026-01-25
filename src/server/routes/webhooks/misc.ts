@@ -97,10 +97,12 @@ async function logLevelTargetUpdateHook(target: string, levelId: number, user: U
   }
 
   
-function getLevelMetadata(level: Level): {song: string | null, artist: string | null, videoLink: string | null, dlLink: string | null, workshopLink: string | null} {
+function getLevelMetadata(level: Level): {song: string | null, artist: string | null, songId: number | null, suffix: string | null, videoLink: string | null, dlLink: string | null, workshopLink: string | null} {
     return {
       song: level.song || null,
       artist: level.artist || null,
+      songId: level.songId || null,
+      suffix: level.suffix || null,
       videoLink: level.videoLink || null,
       dlLink: level.dlLink || null,
       workshopLink: level.workshopLink || null,
@@ -132,6 +134,8 @@ async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user
     const fieldLabels: Record<string, string> = {
         song: 'Song',
         artist: 'Artist',
+        songId: 'Song ID',
+        suffix: 'Suffix',
         videoLink: 'Video Link',
         dlLink: 'Download Link',
         workshopLink: 'Workshop Link'
@@ -142,14 +146,25 @@ async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user
         const oldValue = oldMetadata[key as keyof typeof oldMetadata];
         const newValue = newMetadata[key as keyof typeof newMetadata];
         
-        // Compare values (treat null/undefined/empty as equal)
-        const oldVal = oldValue || '';
-        const newVal = newValue || '';
-        
-        if (oldVal !== newVal) {
-            hasChanges = true;
-            const changeText = `${formatValue(oldVal as string)} ➔ ${formatValue(newVal as string)}`;
-            embed.addField(label, changeText, false);
+        // Special handling for songId (numeric comparison)
+        if (key === 'songId') {
+            const oldId = oldValue ?? null;
+            const newId = newValue ?? null;
+            if (oldId !== newId) {
+                hasChanges = true;
+                const changeText = `${oldId ?? '(empty)'} ➔ ${newId ?? '(empty)'}`;
+                embed.addField(label, changeText, false);
+            }
+        } else {
+            // Compare values (treat null/undefined/empty as equal)
+            const oldVal = oldValue || '';
+            const newVal = newValue || '';
+            
+            if (oldVal !== newVal) {
+                hasChanges = true;
+                const changeText = `${formatValue(oldVal as string)} ➔ ${formatValue(newVal as string)}`;
+                embed.addField(label, changeText, false);
+            }
         }
     }
 
