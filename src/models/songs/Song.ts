@@ -6,6 +6,7 @@ type SongAttributes = {
   id: number;
   name: string;
   verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed';
+  extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -16,6 +17,7 @@ class Song extends Model<SongAttributes, SongCreationAttributes> {
   declare id: number;
   declare name: string;
   declare verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed';
+  declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -43,6 +45,10 @@ Song.init(
       type: DataTypes.ENUM('declined', 'pending', 'conditional', 'ysmod_only', 'allowed'),
       allowNull: false,
       defaultValue: 'pending',
+    },
+    extraInfo: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

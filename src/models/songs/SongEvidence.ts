@@ -45,11 +45,6 @@ SongEvidence.init(
       type: DataTypes.TEXT,
       allowNull: false,
     },
-    type: {
-      type: DataTypes.ENUM('official', 'music_platform', 'video', 'other'),
-      allowNull: false,
-      defaultValue: 'other',
-    },
     createdAt: {
       type: DataTypes.DATE,
       allowNull: false,

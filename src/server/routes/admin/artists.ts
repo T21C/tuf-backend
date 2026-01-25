@@ -718,6 +718,33 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
   }
 });
 
+// Update evidence (managers only) - only for external links
+router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const {link} = req.body;
+    if (!link || typeof link !== 'string') {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'Link is required'});
+    }
+
+    const evidence = await evidenceService.updateArtistEvidence(
+      parseInt(req.params.evidenceId),
+      link.trim()
+    );
+
+    await transaction.commit();
+    return res.json(evidence);
+  } catch (error: any) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error updating evidence:', error);
+    if (error.message && error.message.includes('Cannot update CDN')) {
+      return res.status(400).json({error: error.message});
+    }
+    return res.status(500).json({error: 'Failed to update evidence'});
+  }
+});
+
 // Delete evidence
 router.delete('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {

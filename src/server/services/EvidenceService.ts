@@ -159,6 +159,44 @@ class EvidenceService {
   }
 
   /**
+   * Update evidence for song (only for external links, CDN links cannot be updated)
+   */
+  public async updateSongEvidence(evidenceId: number, link: string): Promise<SongEvidence> {
+    const evidence = await SongEvidence.findByPk(evidenceId);
+    if (!evidence) {
+      throw new Error('Evidence not found');
+    }
+
+    // Prevent updating CDN links
+    if (isCdnUrl(evidence.link)) {
+      throw new Error('Cannot update CDN evidence links. Delete and re-upload instead.');
+    }
+
+    evidence.link = link.trim();
+    await evidence.save();
+    return evidence;
+  }
+
+  /**
+   * Update evidence for artist (only for external links, CDN links cannot be updated)
+   */
+  public async updateArtistEvidence(evidenceId: number, link: string): Promise<ArtistEvidence> {
+    const evidence = await ArtistEvidence.findByPk(evidenceId);
+    if (!evidence) {
+      throw new Error('Evidence not found');
+    }
+
+    // Prevent updating CDN links
+    if (isCdnUrl(evidence.link)) {
+      throw new Error('Cannot update CDN evidence links. Delete and re-upload instead.');
+    }
+
+    evidence.link = link.trim();
+    await evidence.save();
+    return evidence;
+  }
+
+  /**
    * Delete evidence from song
    */
   public async deleteSongEvidence(evidenceId: number): Promise<void> {

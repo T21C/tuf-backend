@@ -2,6 +2,8 @@
 
 import sequelize from '../../config/db.js';
 import Level from '../../models/levels/Level.js';
+import LevelTag from '../../models/levels/LevelTag.js';
+import LevelTagAssignment from '../../models/levels/LevelTagAssignment.js';
 import { initializeAssociations } from '../../models/associations.js';
 import { logger } from '../../server/services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
@@ -14,7 +16,7 @@ import { Op } from 'sequelize';
 
 // Configuration
 const BATCH_SIZE = 100; // Process levels in batches
-const CONFIRMATION_REQUIRED = true; // Set to false to skip confirmation prompt
+const CONFIRMATION_REQUIRED = false; // Set to false to skip confirmation prompt
 
 interface MigrationStats {
   totalLevels: number;
@@ -33,8 +35,6 @@ interface MigrationStats {
 interface ParsedSongArtist {
   songName: string;
   artistNames: string[];
-  songAliases: string[];
-  artistAliases: string[];
 }
 
 /**
@@ -54,77 +54,341 @@ function parseSongAndArtist(level: Level): ParsedSongArtist | null {
   const songName = songText;
   const artistNames = artistText.split('&').map(a => a.trim()).filter(a => a.length > 0);
 
-  // Collect potential aliases
-  // For songs: variations with different casing, extra spaces
-  const songAliases: string[] = [];
-  if (songText !== songText.toLowerCase()) {
-    songAliases.push(songText.toLowerCase());
-  }
-  if (songText !== songText.toUpperCase()) {
-    songAliases.push(songText.toUpperCase());
-  }
-
-  // For artists: variations with different casing, split variations
-  const artistAliases: string[] = [];
-  artistNames.forEach(artist => {
-    if (artist !== artist.toLowerCase()) {
-      artistAliases.push(artist.toLowerCase());
-    }
-    if (artist !== artist.toUpperCase()) {
-      artistAliases.push(artist.toUpperCase());
-    }
-  });
-
   return {
     songName,
-    artistNames,
-    songAliases: [...new Set(songAliases)],
-    artistAliases: [...new Set(artistAliases)]
+    artistNames
   };
 }
 
 /**
- * Check if artist exists (for tracking created vs matched)
- * Uses same logic as ArtistService.findOrCreateArtist
+ * Batch check which artists exist (for tracking created vs matched)
+ * Returns a Set of normalized names that exist
  */
-async function artistExists(name: string): Promise<boolean> {
-  const artistService = ArtistService.getInstance();
-  const normalizedName = artistService.normalizeArtistName(name);
+async function batchCheckArtistsExist(names: string[]): Promise<Set<string>> {
+  if (names.length === 0) return new Set();
   
-  // Check exact name match
-  const artist = await Artist.findOne({
+  const artistService = ArtistService.getInstance();
+  const normalizedNames = names.map(name => artistService.normalizeArtistName(name));
+  
+  const existingArtists = await Artist.findAll({
     where: {
       name: {
-        [Op.like]: normalizedName
+        [Op.in]: normalizedNames
       }
-    }
+    },
+    attributes: ['name']
   });
   
-  return !!artist;
+  const existingSet = new Set<string>();
+  existingArtists.forEach(artist => {
+    existingSet.add(artistService.normalizeArtistName(artist.name));
+  });
+  
+  return existingSet;
 }
 
 /**
- * Check if song exists (for tracking created vs matched)
- * Uses same logic as SongService.findOrCreateSong
+ * Batch check which songs exist (for tracking created vs matched)
+ * Returns a Set of normalized names that exist
  */
-async function songExists(name: string): Promise<boolean> {
-  const songService = SongService.getInstance();
-  const normalizedName = songService.normalizeSongName(name);
+async function batchCheckSongsExist(names: string[]): Promise<Set<string>> {
+  if (names.length === 0) return new Set();
   
-  // Check exact name match
-  const song = await Song.findOne({
+  const songService = SongService.getInstance();
+  const normalizedNames = names.map(name => songService.normalizeSongName(name));
+  
+  const existingSongs = await Song.findAll({
     where: {
       name: {
-        [Op.like]: normalizedName
+        [Op.in]: normalizedNames
       }
-    }
+    },
+    attributes: ['name']
   });
   
-  return !!song;
+  const existingSet = new Set<string>();
+  existingSongs.forEach(song => {
+    existingSet.add(songService.normalizeSongName(song.name));
+  });
+  
+  return existingSet;
+}
+
+/**
+ * Batch check existing song credits
+ * Returns a Set of "songId-artistId" strings for existing credits
+ */
+async function batchCheckCreditsExist(
+  songIds: number[],
+  artistIds: number[],
+  transaction?: any
+): Promise<Set<string>> {
+  if (songIds.length === 0 || artistIds.length === 0) return new Set();
+  
+  const existingCredits = await SongCredit.findAll({
+    where: {
+      songId: { [Op.in]: songIds },
+      artistId: { [Op.in]: artistIds },
+      role: null
+    },
+    attributes: ['songId', 'artistId'],
+    transaction
+  });
+  
+  const existingSet = new Set<string>();
+  existingCredits.forEach(credit => {
+    existingSet.add(`${credit.songId}-${credit.artistId}`);
+  });
+  
+  return existingSet;
+}
+
+/**
+ * Batch migrate multiple levels from text-based to normalized structure
+ * This function processes levels in batches to minimize database queries
+ */
+async function migrateLevelsBatch(
+  levels: Level[],
+  stats: MigrationStats,
+  dryRun: boolean = false,
+  transaction?: any
+): Promise<void> {
+  if (levels.length === 0) return;
+
+  try {
+    // Parse all levels first
+    const levelData: Array<{
+      level: Level;
+      parsed: ParsedSongArtist;
+      levelTags: LevelTag[];
+    }> = [];
+
+    for (const level of levels) {
+      // Skip if already migrated
+      if (level.songId !== null) {
+        stats.skippedLevels++;
+        continue;
+      }
+
+      // Skip if no text data
+      if (!level.song || !level.artist) {
+        stats.skippedLevels++;
+        continue;
+      }
+
+      const parsed = parseSongAndArtist(level);
+      if (!parsed) {
+        stats.skippedLevels++;
+        continue;
+      }
+
+      // Get tags (should already be loaded from batch query)
+      const levelTags: LevelTag[] = (level as any).tags && Array.isArray((level as any).tags)
+        ? (level as any).tags
+        : [];
+
+      levelData.push({ level, parsed, levelTags });
+    }
+
+    if (levelData.length === 0) return;
+
+    // Collect all unique song and artist names for batch checking
+    const allSongNames = new Set<string>();
+    const allArtistNames = new Set<string>();
+    
+    levelData.forEach(({ parsed }) => {
+      allSongNames.add(parsed.songName);
+      parsed.artistNames.forEach(name => allArtistNames.add(name));
+    });
+
+    // Batch check existence
+    const artistService = ArtistService.getInstance();
+    const songService = SongService.getInstance();
+    
+    const existingSongsSet = await batchCheckSongsExist(Array.from(allSongNames));
+    const existingArtistsSet = await batchCheckArtistsExist(Array.from(allArtistNames));
+
+    // Process each level
+    const songsToUpdate: Array<{ song: Song; newState: string }> = [];
+    const creditsToCreate: Array<{ songId: number; artistId: number }> = [];
+    const levelsToUpdate: Array<{ level: Level; songId: number }> = [];
+
+    for (const { level, parsed, levelTags } of levelData) {
+      try {
+        logger.info(`\nProcessing Level ${level.id}:`);
+        logger.info(`  Song: "${parsed.songName}"`);
+        logger.info(`  Artists: ${parsed.artistNames.join(', ')}`);
+
+        // Check if level has "Youtube Stream" tag
+        const hasYoutubeStreamTag = levelTags.some(
+          (tag: LevelTag) => tag.name === 'Youtube Stream'
+        );
+
+        // Determine song verification state
+        let songVerificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed' = 'allowed';
+        if (hasYoutubeStreamTag) {
+          songVerificationState = 'ysmod_only';
+          logger.info(`  Level has "Youtube Stream" tag - setting song to YSMod Only`);
+        } else if (!level.isDeleted) {
+          songVerificationState = 'allowed';
+          logger.info(`  Level not deleted - setting song to Allowed`);
+        } else {
+          songVerificationState = 'allowed';
+          logger.info(`  Level is deleted - setting song to Allowed (default)`);
+        }
+
+        // Check if song existed before
+        const normalizedSongName = songService.normalizeSongName(parsed.songName);
+        const songExistedBefore = existingSongsSet.has(normalizedSongName);
+
+        // Find or create song
+        const song = await SongService.getInstance().findOrCreateSong(
+          parsed.songName
+        );
+
+        if (!song) {
+          throw new Error('Failed to find or create song');
+        }
+
+        // Track for batch update
+        if (!songExistedBefore) {
+          stats.songsCreated++;
+          logger.info(`  Song CREATED: ${song.name} (ID: ${song.id})`);
+          songsToUpdate.push({ song, newState: songVerificationState });
+        } else {
+          stats.songsMatched++;
+          logger.info(`  Song MATCHED: ${song.name} (ID: ${song.id})`);
+          if (song.verificationState !== songVerificationState) {
+            songsToUpdate.push({ song, newState: songVerificationState });
+            logger.info(`  Will update song verification state from ${song.verificationState} to: ${songVerificationState}`);
+          }
+        }
+
+        // Find or create artists
+        const artists: Array<{ id: number; name: string }> = [];
+        for (const artistName of parsed.artistNames) {
+          const normalizedArtistName = artistService.normalizeArtistName(artistName);
+          const artistExistedBefore = existingArtistsSet.has(normalizedArtistName);
+
+          const artist = await ArtistService.getInstance().findOrCreateArtist(
+            artistName,
+            undefined, // No aliases
+            'allowed' // Set all new artists to 'allowed'
+          );
+
+          if (!artist) {
+            throw new Error(`Failed to find or create artist: ${artistName}`);
+          }
+
+          if (!artistExistedBefore) {
+            stats.artistsCreated++;
+            logger.info(`  Artist CREATED: ${artist.name} (ID: ${artist.id}) with verificationState: allowed`);
+          } else {
+            stats.artistsMatched++;
+            logger.info(`  Artist MATCHED: ${artist.name} (ID: ${artist.id})`);
+          }
+
+          artists.push({ id: artist.id, name: artist.name });
+          
+          // Track credits to create
+          creditsToCreate.push({ songId: song.id, artistId: artist.id });
+        }
+
+        // Track level update
+        levelsToUpdate.push({ level, songId: song.id });
+
+        stats.processedLevels++;
+
+      } catch (error: any) {
+        stats.errorLevels++;
+        const errorMsg = error.message || String(error);
+        stats.errors.push({ levelId: level.id, error: errorMsg });
+        logger.error(`Error migrating Level ${level.id}:`, errorMsg);
+        // Continue with next level instead of throwing
+      }
+    }
+
+    // Batch operations
+    if (!dryRun) {
+      // Batch update songs
+      if (songsToUpdate.length > 0) {
+        const songUpdates = songsToUpdate.map(({ song, newState }) => ({
+          id: song.id,
+          verificationState: newState
+        }));
+
+        // Group by verification state for efficient updates
+        const updatesByState = new Map<string, number[]>();
+        songUpdates.forEach(update => {
+          if (!updatesByState.has(update.verificationState)) {
+            updatesByState.set(update.verificationState, []);
+          }
+          updatesByState.get(update.verificationState)!.push(update.id);
+        });
+
+        // Execute batch updates
+        for (const [state, ids] of updatesByState.entries()) {
+          await Song.update(
+            { verificationState: state as any },
+            {
+              where: { id: { [Op.in]: ids } },
+              transaction
+            }
+          );
+        }
+        logger.info(`  Batch updated ${songsToUpdate.length} songs`);
+      }
+
+      // Batch check existing credits
+      const songIds = [...new Set(creditsToCreate.map(c => c.songId))];
+      const artistIds = [...new Set(creditsToCreate.map(c => c.artistId))];
+      const existingCreditsSet = await batchCheckCreditsExist(songIds, artistIds, transaction);
+
+      // Filter out existing credits
+      const newCredits = creditsToCreate.filter(
+        credit => !existingCreditsSet.has(`${credit.songId}-${credit.artistId}`)
+      );
+
+      // Batch create credits
+      if (newCredits.length > 0) {
+        await SongCredit.bulkCreate(newCredits, { transaction });
+        stats.creditsCreated += newCredits.length;
+        logger.info(`  Batch created ${newCredits.length} credits`);
+      }
+
+      // Batch update levels
+      if (levelsToUpdate.length > 0) {
+        const levelUpdates = levelsToUpdate.map(({ level, songId }) => ({
+          id: level.id,
+          songId
+        }));
+
+        // Use Promise.all for parallel updates (more efficient than bulk update with different values)
+        await Promise.all(
+          levelUpdates.map(({ id, songId }) =>
+            Level.update({ songId }, { where: { id }, transaction })
+          )
+        );
+        stats.levelsUpdated += levelsToUpdate.length;
+        logger.info(`  Batch updated ${levelsToUpdate.length} levels`);
+      }
+    } else {
+      logger.info(`  [DRY RUN] Would update ${songsToUpdate.length} songs, create ${creditsToCreate.length} credits, update ${levelsToUpdate.length} levels`);
+    }
+
+  } catch (error: any) {
+    logger.error('Error in batch migration:', error);
+    throw error;
+  }
 }
 
 /**
  * Migrate a single level from text-based to normalized structure
+ * (Kept for backward compatibility, but now uses batch processing internally)
+ */
+/**
+ * Migrate a single level from text-based to normalized structure
+ * (Kept for backward compatibility, but now uses batch processing internally)
  */
 async function migrateLevel(
   level: Level,
@@ -132,127 +396,7 @@ async function migrateLevel(
   dryRun: boolean = false,
   transaction?: any
 ): Promise<void> {
-  try {
-    // Skip if already migrated (only check songId, not artistId)
-    // Levels only relate to songs, not directly to artists
-    if (level.songId !== null) {
-      stats.skippedLevels++;
-      logger.debug(`Level ${level.id}: Already migrated (songId: ${level.songId})`);
-      return;
-    }
-
-    // Skip if no text data
-    if (!level.song || !level.artist) {
-      stats.skippedLevels++;
-      logger.debug(`Level ${level.id}: Missing song or artist text fields`);
-      return;
-    }
-
-    const parsed = parseSongAndArtist(level);
-    if (!parsed) {
-      stats.skippedLevels++;
-      logger.debug(`Level ${level.id}: Could not parse song/artist`);
-      return;
-    }
-
-    logger.info(`\nProcessing Level ${level.id}:`);
-    logger.info(`  Song: "${parsed.songName}"`);
-    logger.info(`  Artists: ${parsed.artistNames.join(', ')}`);
-
-    // Check if song exists before creating (for stats)
-    const songExistedBefore = await songExists(parsed.songName);
-
-    // Find or create song
-    const song = await SongService.getInstance().findOrCreateSong(
-      parsed.songName,
-      parsed.songAliases.length > 0 ? parsed.songAliases : undefined
-    );
-
-    if (!song) {
-      throw new Error('Failed to find or create song');
-    }
-
-    if (!songExistedBefore) {
-      stats.songsCreated++;
-      logger.info(`  Song CREATED: ${song.name} (ID: ${song.id})`);
-    } else {
-      stats.songsMatched++;
-      logger.info(`  Song MATCHED: ${song.name} (ID: ${song.id})`);
-    }
-
-    // Find or create artists
-    const artists: Array<{ id: number; name: string }> = [];
-    for (const artistName of parsed.artistNames) {
-      // Check if artist exists before creating (for stats)
-      const artistExistedBefore = await artistExists(artistName);
-
-      const artist = await ArtistService.getInstance().findOrCreateArtist(
-        artistName,
-        parsed.artistAliases.length > 0 ? parsed.artistAliases : undefined
-      );
-
-      if (!artist) {
-        throw new Error(`Failed to find or create artist: ${artistName}`);
-      }
-
-      if (!artistExistedBefore) {
-        stats.artistsCreated++;
-        logger.info(`  Artist CREATED: ${artist.name} (ID: ${artist.id})`);
-      } else {
-        stats.artistsMatched++;
-        logger.info(`  Artist MATCHED: ${artist.name} (ID: ${artist.id})`);
-      }
-
-      artists.push({ id: artist.id, name: artist.name });
-    }
-
-    // Create song credits (link song to artists)
-    // Note: Levels only relate to songs, not directly to artists
-    // Artists are accessed through songs->songCredits->artists
-    
-    if (!dryRun) {
-      // Create credits for all artists
-      for (const artist of artists) {
-        const existingCredit = await SongCredit.findOne({
-          where: {
-            songId: song.id,
-            artistId: artist.id,
-            role: null
-          },
-          transaction
-        });
-
-        if (!existingCredit) {
-          await SongCredit.create({
-            songId: song.id,
-            artistId: artist.id,
-            role: null
-          }, { transaction });
-          stats.creditsCreated++;
-          logger.info(`  Created credit: Song ${song.id} -> Artist ${artist.id}`);
-        }
-      }
-
-      // Update level with normalized songId only (not artistId)
-      // Levels access artists through songs->songCredits->artists
-      await level.update({
-        songId: song.id
-      }, { transaction });
-      stats.levelsUpdated++;
-      logger.info(`  Updated Level ${level.id} with songId=${song.id}`);
-    } else {
-      logger.info(`  [DRY RUN] Would create credits and update level`);
-    }
-
-    stats.processedLevels++;
-
-  } catch (error: any) {
-    stats.errorLevels++;
-    const errorMsg = error.message || String(error);
-    stats.errors.push({ levelId: level.id, error: errorMsg });
-    logger.error(`Error migrating Level ${level.id}:`, errorMsg);
-    throw error; // Re-throw to allow transaction rollback
-  }
+  await migrateLevelsBatch([level], stats, dryRun, transaction);
 }
 
 /**
@@ -280,7 +424,17 @@ async function migrateSingleLevel(levelId: number, dryRun: boolean = false): Pro
       logger.info('DRY RUN MODE - No changes will be saved');
     }
 
-    const level = await Level.findByPk(levelId, { transaction });
+    const level = await Level.findByPk(levelId, {
+      include: [{
+        model: LevelTag,
+        as: 'tags',
+        through: {
+          attributes: []
+        },
+        required: false
+      }],
+      transaction
+    });
     if (!level) {
       throw new Error(`Level ${levelId} not found`);
     }
@@ -381,6 +535,14 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
           limit: batchLimit,
           offset: currentOffset,
           order: [['id', 'ASC']],
+          include: [{
+            model: LevelTag,
+            as: 'tags',
+            through: {
+              attributes: []
+            },
+            required: false
+          }],
           transaction: batchTransaction
         });
 
@@ -393,13 +555,12 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
         
         logger.info(`\nProcessing batch ${batchNumber}${isBatchMode ? ` (${batchNumber}/${totalBatches} in this batch)` : `/${totalBatches}`} (${levels.length} levels)`);
 
-        for (const level of levels) {
-          try {
-            await migrateLevel(level, stats, dryRun, batchTransaction);
-          } catch (error) {
-            // Error already logged in migrateLevel, continue with next level
-            // Transaction will be rolled back for this batch if needed
-          }
+        // Process all levels in this batch together
+        try {
+          await migrateLevelsBatch(levels, stats, dryRun, batchTransaction);
+        } catch (error) {
+          // Error already logged in migrateLevelsBatch
+          throw error; // Re-throw to trigger batch rollback
         }
 
         if (!dryRun) {

@@ -7,6 +7,7 @@ type ArtistAttributes = {
   name: string;
   avatarUrl: string | null;
   verificationState: 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed';
+  extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -18,6 +19,7 @@ class Artist extends Model<ArtistAttributes, ArtistCreationAttributes> {
   declare name: string;
   declare avatarUrl: string | null;
   declare verificationState: 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed';
+  declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -49,6 +51,10 @@ Artist.init(
       type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly declined', 'mostly allowed', 'allowed'),
       allowNull: false,
       defaultValue: 'unverified',
+    },
+    extraInfo: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,
