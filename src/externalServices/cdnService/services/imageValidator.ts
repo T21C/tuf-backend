@@ -238,11 +238,13 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
 
     if (imageType === 'EVIDENCE') {
         return {
-            minWidth: 100,
+            minWidth: 10,
             maxWidth: 4096,
-            minHeight: 100,
+            minHeight: 10,
             maxHeight: 4096,
             maxSize: typeConfig.maxSize,
+            maxAspectRatio: 9999,
+            minAspectRatio: 0.0001,
         };
     }
 
