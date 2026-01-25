@@ -29,7 +29,7 @@ import dotenv from 'dotenv';
 import { env } from 'process';
 import LevelTagAssignment from '../../../models/levels/LevelTagAssignment.js';
 import LevelTag from '../../../models/levels/LevelTag.js';
-import { getSongDisplayName } from '../../../utils/levelHelpers.js';
+import { getSongDisplayName, getArtistDisplayName } from '../../../utils/levelHelpers.js';
 import Song from '../../../models/songs/Song.js';
 import Artist from '../../../models/artists/Artist.js';
 
@@ -289,7 +289,21 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
                 ],
               },
               {model: Rating, as: 'ratings', attributes: ['averageDifficultyId'], limit: 1, order: [['confirmedAt', 'DESC']]},
-              {model: LevelTag, as: 'tags'}
+              {model: LevelTag, as: 'tags'},
+              {
+                model: Song,
+                as: 'songObject',
+                attributes: ['id', 'name'],
+                required: false,
+                include: [
+                  {
+                    model: Artist,
+                    as: 'artists',
+                    attributes: ['id', 'name'],
+                    required: false
+                  }
+                ]
+              }
             ],
           });
 
@@ -300,10 +314,14 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
 
           const averageDifficulty = level?.ratings?.[0]?.averageDifficultyId && level.difficulty?.name[0] === "Q" ? await Difficulty.findByPk(level.ratings?.[0]?.averageDifficultyId) : undefined;
 
-          const {song, artist, difficulty: diff} = level.dataValues;
+          const diff = level.difficulty;
           if (!diff) {
             throw new Error('Difficulty not found');
           }
+          
+          // Use helper functions to prioritize songObject for both song and artist
+          const song = getSongDisplayName(level);
+          const artist = getArtistDisplayName(level);
           const [details, metadata] = await Promise.all([
           axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
           .then(res => res.data).catch(() => undefined),
@@ -372,8 +390,8 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
             // Create a placeholder icon
             iconBuffer = Buffer.alloc(iconSize * iconSize * 4, 100);
           }
-          const artistOverflow = artist.length > 35;
-          const songOverflow = song.length > 35;
+          const artistOverflow = (artist || '').length > 35;
+          const songOverflow = (song || '').length > 35;
 
           const charters = formatCredits(level.charters);
           const vfxers = formatCredits(level.vfxers);
@@ -997,9 +1015,27 @@ router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Respons
     const passId = parseInt(req.params.id);
     const pass = await Pass.findByPk(passId, {
       include: [
-        {model: Level, as: 'level', include: [
-          {model: Difficulty, as: 'difficulty'}
-        ]},
+        {
+          model: Level,
+          as: 'level',
+          include: [
+            {model: Difficulty, as: 'difficulty'},
+            {
+              model: Song,
+              as: 'songObject',
+              attributes: ['id', 'name'],
+              required: false,
+              include: [
+                {
+                  model: Artist,
+                  as: 'artists',
+                  attributes: ['id', 'name'],
+                  required: false
+                }
+              ]
+            }
+          ]
+        },
         {model: Player, as: 'player'}
       ]
     });
@@ -1145,7 +1181,7 @@ router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Respons
                 />
                 <div class="content">
                   <div class="pass-id">Pass #${passId}</div>
-                  <div class="level-info">${pass.level?.song || 'Unknown Level'}</div>
+                  <div class="level-info">${pass.level ? getSongDisplayName(pass.level) : 'Unknown Level'}</div>
                   <div class="player-info">by ${pass.player?.name || 'Unknown Player'}</div>
                   <div class="stats">
                     ${pass.scoreV2 !== null ? `
@@ -1278,26 +1314,30 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
               isDeleted: false,
               isHidden: false
             },
-            attributes: ['id', 'artist', 'song', 'diffId'],
+            attributes: ['id', 'artist', 'song', 'diffId', 'suffix', 'songId'],
             required: true,
-            include: [{
-              model: Difficulty,
-              as: 'difficulty',
-              attributes: ['icon'],
-              required: false,
-              include: [{
+            include: [
+              {
+                model: Difficulty,
+                as: 'difficulty',
+                attributes: ['icon'],
+                required: false
+              },
+              {
                 model: Song,
                 as: 'songObject',
-                include: [{
-                  model: Artist,
-                  as: 'artist',
-                  attributes: ['name'],
-                  required: false
-                }],
-                attributes: ['name'],
-                required: false
-              }]
-            }]
+                attributes: ['id', 'name'],
+                required: false,
+                include: [
+                  {
+                    model: Artist,
+                    as: 'artists',
+                    attributes: ['id', 'name'],
+                    required: false
+                  }
+                ]
+              }
+            ]
           }],
           required: false,
           limit: 23,

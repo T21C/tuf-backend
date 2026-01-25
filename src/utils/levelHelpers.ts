@@ -37,12 +37,33 @@ export const getArtists = (level: Level | any): any | null => {
 
 /**
  * Get artist name from level with fallback
+ * Prioritizes artists from songObject.artists (direct association), then falls back to level.artists, then level.artist
  * @param level - Level instance or plain object
  * @returns Artist name or empty string
  */
 export const getArtistDisplayName = (level: Level | any): string => {
   if (!level) return '';
-  return level.artists?.map((artist: Artist) => artist.name).join(' & ') || level.artist || '';
+  
+  // First, try to get artists from songObject.artists (prioritize songObject direct association)
+  if (level.songObject?.artists && Array.isArray(level.songObject.artists)) {
+    const artistNames = level.songObject.artists
+      .map((artist: Artist) => artist.name)
+      .filter((name: string | undefined): name is string => !!name);
+    if (artistNames.length > 0) {
+      return artistNames.join(' & ');
+    }
+  }
+  
+  // Fallback to level.artists if available
+  if (level.artists && Array.isArray(level.artists)) {
+    const artistNames = level.artists.map((artist: Artist) => artist.name).filter(Boolean);
+    if (artistNames.length > 0) {
+      return artistNames.join(' & ');
+    }
+  }
+  
+  // Final fallback to legacy level.artist field
+  return level.artist || '';
 };
 
 
