@@ -11,9 +11,12 @@ import Level from '../../../models/levels/Level.js';
 import {escapeForMySQL} from '../../../misc/utils/data/searchHelpers.js';
 import {logger} from '../../services/LoggerService.js';
 import EvidenceService from '../../services/EvidenceService.js';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
+
 
 const router: Router = Router();
 const evidenceService = EvidenceService.getInstance();
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const MAX_LIMIT = 200;
 
@@ -203,17 +206,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
               attributes: ['id', 'name', 'avatarUrl', 'verificationState']
             }
           ]
-        },
-        {
-          model: Level,
-          as: 'levels',
-          attributes: ['id', 'song', 'artist'],
-          where: {
-            isDeleted: false,
-            isHidden: false
-          },
-          required: false,
-          limit: 20
         }
       ]
     });
@@ -222,7 +214,16 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       return res.status(404).json({error: 'Song not found'});
     }
 
-    return res.json(song);
+    const levelsResult = await elasticsearchService.searchLevels("", {
+      songId: song.id,
+      limit: 100,
+      offset: 0
+    });
+
+    return res.json({
+      ...song.toJSON(),
+      levels: levelsResult.hits
+    });
   } catch (error) {
     logger.error('Error fetching song:', error);
     return res.status(500).json({error: 'Failed to fetch song'});

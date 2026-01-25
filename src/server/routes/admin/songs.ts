@@ -16,10 +16,12 @@ import SongService from '../../services/SongService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '../../services/CdnService.js';
 import multer from 'multer';
+import ElasticsearchService from '../../services/ElasticsearchService.js';
 
 const router: Router = Router();
 const songService = SongService.getInstance();
 const evidenceService = EvidenceService.getInstance();
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -262,7 +264,16 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       return res.status(404).json({error: 'Song not found'});
     }
 
-    return res.json(song);
+    const levelsResult = await elasticsearchService.searchLevels("", {
+      songId: song.id,
+      limit: 100,
+      offset: 0
+    });
+
+    return res.json({
+      ...song.toJSON(),
+      levels: levelsResult.hits
+    });
   } catch (error) {
     logger.error('Error fetching song:', error);
     return res.status(500).json({error: 'Failed to fetch song'});

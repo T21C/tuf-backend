@@ -1774,6 +1774,14 @@ class ElasticsearchService {
         });
       }
 
+      // Handle songId filter
+      if (filters.songId) {
+        const songIdValue = parseInt(filters.songId);
+        if (!isNaN(songIdValue) && songIdValue > 0) {
+          must.push({ term: { songId: songIdValue } });
+        }
+      }
+
       // Handle hideVerified filter
       if (filters.creatorId && !isSuperAdmin) {
         if (filters.deletedFilter === 'show') {
