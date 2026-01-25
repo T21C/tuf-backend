@@ -133,10 +133,9 @@ router.post(
   upload.single('translationZip'),
   async (req: MulterRequest, res: Response) => {
     let tempDir: string | null = null;
-    const uploadedFile = req.file?.path;
 
     try {
-      if (!req.file || !uploadedFile) {
+      if (!req.file || !req.file.buffer) {
         return res.status(400).json({error: 'No file uploaded'});
       }
 
@@ -148,10 +147,11 @@ router.post(
       fs.mkdirSync(tempDir, {recursive: true});
 
         try {
-          const zip = new AdmZip(uploadedFile);
+          // Use buffer directly instead of file path
+          const zip = new AdmZip(req.file.buffer);
           zip.extractAllTo(tempDir, true);
         } catch (zipError) {
-          cleanupFiles(tempDir, uploadedFile);
+          cleanupFiles(tempDir);
           throw new Error(
             'Failed to extract archive with zip. Please check the archive format.',
           );
@@ -161,7 +161,7 @@ router.post(
       // Find the actual translation root directory
       const translationRoot = findTranslationRoot(tempDir);
       if (!translationRoot) {
-        cleanupFiles(tempDir, uploadedFile);
+        cleanupFiles(tempDir);
         throw new Error(
           'No translation files found in the archive. Make sure the archive contains JSON files either directly or in an immediate subdirectory',
         );
@@ -216,12 +216,12 @@ router.post(
       };
 
       // Clean up before sending response
-      cleanupFiles(tempDir, uploadedFile);
+      cleanupFiles(tempDir);
 
       return res.json(result);
     } catch (error) {
       // Clean up on error
-      cleanupFiles(tempDir, uploadedFile);
+      cleanupFiles(tempDir);
 
       logger.error('Error verifying translations:', error);
       return res.status(500).json({
