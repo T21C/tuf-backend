@@ -274,22 +274,9 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
                 attributes: ['id', 'alias']
               },
               {
-                model: SongCredit,
-                as: 'credits',
-                include: [
-                  {
-                    model: Artist,
-                    as: 'artist',
-                    attributes: ['id', 'name', 'avatarUrl'],
-                    include: [
-                      {
-                        model: ArtistAlias,
-                        as: 'aliases',
-                        attributes: ['id', 'alias']
-                      }
-                    ]
-                  }
-                ]
+                model: Artist,
+                as: 'artists',
+                attributes: ['id', 'name', 'avatarUrl']
               }
             ],
             required: false
@@ -599,7 +586,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         curation,
         tags: tags || [],
         song: getSongDisplayName(level),
-        artists: level.songObject?.credits?.map(credit => credit.artist) || null
+        artist: getArtistDisplayName(level) || null
       };
 
       return res.json({
