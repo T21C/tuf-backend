@@ -361,7 +361,21 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             },
             {
               model: Song,
-              as: 'songObject'
+              as: 'songObject',
+              include: [
+                {
+                  model: SongCredit,
+                  as: 'credits',
+                  include: [
+                    {
+                      model: Artist,
+                      as: 'artist',
+                      attributes: ['id', 'name']
+                    }
+                  ],
+                  required: false
+                }
+              ]
             },
             {
               model: Artist,
@@ -469,51 +483,65 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Handle artist requests (multiple artists supported)
         const finalArtistIds: number[] = [];
+        let finalArtistString: string = '';
         
-        if (submission.artistRequests && submission.artistRequests.length > 0) {
-          // Process multiple artist requests
-          for (const artistRequest of submission.artistRequests) {
-            if (artistRequest.artistId) {
-              // Use existing artist
-              finalArtistIds.push(artistRequest.artistId);
-            } else if (artistRequest.isNewRequest && artistRequest.artistName) {
-              // Create new artist with verification state from request
-              const verificationState = artistRequest.verificationState || 'unverified';
-              const artist = await artistService.findOrCreateArtist(
-                artistRequest.artistName.trim(),
-                undefined,
-                verificationState as 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed'
-              );
-              finalArtistIds.push(artist.id);
+        // If we have an existing song, inherit artists from song credits and discard submission artist requests
+        if (finalSongId && submission.songObject?.credits) {
+          // Extract artist IDs and names from song credits
+          const songCredits = submission.songObject.credits || [];
+          for (const credit of songCredits) {
+            if (credit.artist?.id) {
+              finalArtistIds.push(credit.artist.id);
             }
           }
-        } else if (submission.artistId) {
-          // Fallback: Use artistId directly from submission (backward compatibility)
-          finalArtistIds.push(submission.artistId);
-        }
-
-        // If we have an existing song, verify all song credits match artist requests
-        if (finalSongId && submission.songObject?.credits) {
-          const songCreditArtistIds = submission.songObject.credits
-            .map((credit: any) => credit.artist?.id)
-            .filter((id: number | undefined): id is number => id !== undefined)
-            .sort();
           
-          const requestArtistIds = [...finalArtistIds].sort();
+          // Format artist string from song credits (join with ' & ')
+          const artistNames = songCredits
+            .map((credit: any) => credit.artist?.name)
+            .filter((name: string | undefined): name is string => !!name);
+          finalArtistString = artistNames.join(' & ');
+        } else {
+          // For new songs, process artist requests as before
+          if (submission.artistRequests && submission.artistRequests.length > 0) {
+            // Process multiple artist requests
+            for (const artistRequest of submission.artistRequests) {
+              if (artistRequest.artistId) {
+                // Use existing artist
+                finalArtistIds.push(artistRequest.artistId);
+              } else if (artistRequest.isNewRequest && artistRequest.artistName) {
+                // Create new artist with verification state from request
+                const verificationState = artistRequest.verificationState || 'unverified';
+                const artist = await artistService.findOrCreateArtist(
+                  artistRequest.artistName.trim(),
+                  undefined,
+                  verificationState as 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed'
+                );
+                finalArtistIds.push(artist.id);
+              }
+            }
+          } else if (submission.artistId) {
+            // Fallback: Use artistId directly from submission (backward compatibility)
+            finalArtistIds.push(submission.artistId);
+          }
           
-          // Verify that all song credits are represented in artist requests
-          if (songCreditArtistIds.length !== requestArtistIds.length ||
-              !songCreditArtistIds.every((id: number, idx: number) => id === requestArtistIds[idx])) {
-            rollbackReason = 'Artist requests must match all song credits when an existing song is selected';
-            await safeTransactionRollback(transaction, logger);
-            return res.status(400).json({
-              error: 'Artist requests must match all song credits when an existing song is selected'
+          // Format artist string from artist requests (fallback to submission.artist if no requests)
+          if (finalArtistIds.length > 0) {
+            // Fetch artist names for formatting
+            const artists = await Artist.findAll({
+              where: { id: finalArtistIds },
+              attributes: ['id', 'name'],
+              transaction
             });
+            const artistNames = artists.map(a => a.name);
+            finalArtistString = artistNames.join(' & ');
+          } else {
+            finalArtistString = submission.artist || '';
           }
         }
 
-        // Create song credit relationships for all artists
-        if (finalSongId && finalArtistIds.length > 0) {
+        // Create song credit relationships for all artists (only needed for new songs)
+        // For existing songs, credits already exist, so skip this
+        if (finalSongId && finalArtistIds.length > 0 && !submission.songObject?.credits) {
           for (const artistId of finalArtistIds) {
             // Check if credit already exists
             const existingCredit = await SongCredit.findOne({
@@ -540,7 +568,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         const newLevel = await Level.create(
           {
             song: submission.song,
-            artist: submission.artist,
+            artist: finalArtistString || submission.artist || '',
             suffix: submission.suffix || null,
             songId: finalSongId,
             charter: firstCharter?.creatorName || '',
