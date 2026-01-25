@@ -13,6 +13,7 @@ import ArtistLink from '../../models/artists/ArtistLink.js';
 import ArtistEvidence from '../../models/artists/ArtistEvidence.js';
 import cdnServiceInstance from '../../server/services/CdnService.js';
 import { Op } from 'sequelize';
+import { isCdnUrl, getFileIdFromCdnUrl } from '../utils/Utility.js';
 
 // Configuration
 const API_URL = 'https://7thbe.at/wapi/getArtists';
@@ -67,10 +68,16 @@ interface MigrationStats {
  */
 function mapStatusToVerificationState(status: number): 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed' {
   switch (status) {
-    case 1:
+    case 0:
       return 'pending';
-    case 2:
+    case 1:
       return 'allowed';
+    case 2:
+      return 'mostly declined';
+    case 3:
+      return 'declined';
+    case 4:
+      return 'mostly allowed';
     default:
       return 'unverified';
   }
@@ -97,29 +104,52 @@ function isImageUrl(url: string): boolean {
 }
 
 /**
- * Download image from URL and return buffer
+ * Download image from URL and return buffer with timeout protection
  */
 async function downloadImage(url: string): Promise<Buffer | null> {
-  try {
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer',
-      timeout: 30000,
-      maxRedirects: 5,
-      validateStatus: (status) => status >= 200 && status < 400
-    });
-    
-    // Check content-type
-    const contentType = response.headers['content-type'] || '';
-    if (!contentType.startsWith('image/')) {
-      logger.warn(`URL ${url} does not have image content-type: ${contentType}`);
+  const timeoutMs = 45000; // 45 second timeout
+  
+  const downloadPromise = (async () => {
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: timeoutMs,
+        maxRedirects: 5,
+        validateStatus: (status) => status >= 200 && status < 400,
+        // Add headers that might help with S3 presigned URLs
+        headers: {
+          'Accept': 'image/*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      
+      // Check content-type
+      const contentType = response.headers['content-type'] || '';
+      if (!contentType.startsWith('image/')) {
+        logger.warn(`URL ${url} does not have image content-type: ${contentType}`);
+        return null;
+      }
+      
+      return Buffer.from(response.data);
+    } catch (error: any) {
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        logger.warn(`Download timeout for ${url} after ${timeoutMs}ms`);
+      } else {
+        logger.error(`Failed to download image from ${url}:`, error.message);
+      }
       return null;
     }
-    
-    return Buffer.from(response.data);
-  } catch (error: any) {
-    logger.error(`Failed to download image from ${url}:`, error.message);
-    return null;
-  }
+  })();
+
+  // Race against timeout wrapper as backup (in case axios timeout doesn't work)
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => {
+      logger.warn(`Download timeout wrapper triggered for ${url} (axios timeout may have failed)`);
+      resolve(null);
+    }, timeoutMs + 2000); // Slightly longer than axios timeout
+  });
+
+  return Promise.race([downloadPromise, timeoutPromise]);
 }
 
 /**
@@ -262,33 +292,87 @@ async function processArtist(
 
     // Process evidences
     if (sevenBGArtist.evidenceArray && sevenBGArtist.evidenceArray.length > 0) {
+      // Delete all existing evidence for this artist before creating new ones
+      if (!DRY_RUN) {
+        const existingEvidences = await ArtistEvidence.findAll({
+          where: {
+            artistId: artist.id
+          },
+          transaction
+        });
+
+        if (existingEvidences.length > 0) {
+          logger.info(`  Deleting ${existingEvidences.length} existing evidence entries...`);
+          
+          // Delete CDN files for evidence that are stored on CDN
+          for (const evidence of existingEvidences) {
+            const fileId = getFileIdFromCdnUrl(evidence.link);
+            if (fileId && isCdnUrl(evidence.link)) {
+              try {
+                await cdnServiceInstance.deleteFile(fileId);
+                logger.info(`  Deleted CDN file: ${evidence.link}`);
+              } catch (error: any) {
+                logger.warn(`  Failed to delete CDN file ${evidence.link}: ${error.message}`);
+              }
+            }
+          }
+
+          // Delete all evidence records from database
+          await ArtistEvidence.destroy({
+            where: {
+              artistId: artist.id
+            },
+            transaction
+          });
+          logger.info(`  Deleted all existing evidence entries`);
+        }
+      } else {
+        logger.info(`  [DRY RUN] Would delete existing evidence entries`);
+      }
+
+      // Separate image URLs from non-image URLs
+      const imageUrls: string[] = [];
+      const nonImageUrls: string[] = [];
+
       for (const evidenceUrl of sevenBGArtist.evidenceArray) {
         if (!evidenceUrl || !evidenceUrl.trim()) continue;
-
         const trimmedUrl = evidenceUrl.trim();
-        const isImage = isImageUrl(trimmedUrl);
+        if (isImageUrl(trimmedUrl)) {
+          imageUrls.push(trimmedUrl);
+        } else {
+          nonImageUrls.push(trimmedUrl);
+        }
+      }
 
-        if (isImage) {
-          // Download and upload to CDN
-          logger.info(`  Processing evidence image: ${trimmedUrl}`);
+      // Download all images in parallel (unawaited async tasks)
+      if (imageUrls.length > 0) {
+        logger.info(`  Downloading ${imageUrls.length} evidence images in parallel...`);
+        
+        if (!DRY_RUN) {
+          // Start all downloads in parallel
+          const downloadPromises = imageUrls.map(async (url) => {
+            logger.info(`  Downloading evidence image: ${url}`);
+            const imageBuffer = await downloadImage(url);
+            return { url, imageBuffer };
+          });
+
+          // Wait for all downloads to complete (or timeout)
+          const downloadResults = await Promise.allSettled(downloadPromises);
           
-          if (!DRY_RUN) {
-            const imageBuffer = await downloadImage(trimmedUrl);
-            if (imageBuffer) {
-              const filename = trimmedUrl.split('/').pop() || `evidence_${Date.now()}.png`;
-              const cdnUrl = await uploadImageToCdn(imageBuffer, filename);
-              
-              if (cdnUrl) {
-                // Check if evidence already exists
-                const existingEvidence = await ArtistEvidence.findOne({
-                  where: {
-                    artistId: artist.id,
-                    link: cdnUrl
-                  },
-                  transaction
-                });
+          // Process download results sequentially for uploading and database operations
+          for (let i = 0; i < downloadResults.length; i++) {
+            const result = downloadResults[i];
+            const url = imageUrls[i];
 
-                if (!existingEvidence) {
+            if (result.status === 'fulfilled') {
+              const { imageBuffer } = result.value;
+              
+              if (imageBuffer) {
+                // Upload to CDN
+                const filename = url.split('/').pop()?.split('?')[0] || `evidence_${Date.now()}.png`;
+                const cdnUrl = await uploadImageToCdn(imageBuffer, filename);
+                
+                if (cdnUrl) {
                   await ArtistEvidence.create({
                     artistId: artist.id,
                     link: cdnUrl
@@ -296,77 +380,59 @@ async function processArtist(
                   stats.evidencesAdded++;
                   logger.info(`  Added evidence (CDN): ${cdnUrl}`);
                 } else {
-                  logger.info(`  Evidence already exists: ${cdnUrl}`);
-                }
-              } else {
-                // If CDN upload failed, save as external evidence link
-                logger.warn(`  CDN upload failed, saving as external evidence link`);
-                const existingEvidence = await ArtistEvidence.findOne({
-                  where: {
-                    artistId: artist.id,
-                    link: trimmedUrl
-                  },
-                  transaction
-                });
-
-                if (!existingEvidence) {
+                  // If CDN upload failed, save as external evidence link
+                  logger.warn(`  CDN upload failed for ${url}, saving as external evidence link`);
                   await ArtistEvidence.create({
                     artistId: artist.id,
-                    link: trimmedUrl
+                    link: url
                   }, { transaction });
                   stats.evidencesAdded++;
-                  logger.info(`  Added evidence (external link): ${trimmedUrl}`);
+                  logger.info(`  Added evidence (external link): ${url}`);
                 }
-              }
-            } else {
-              // Download failed, save as external evidence link
-              logger.warn(`  Image download failed, saving as external evidence link`);
-              const existingEvidence = await ArtistEvidence.findOne({
-                where: {
-                  artistId: artist.id,
-                  link: trimmedUrl
-                },
-                transaction
-              });
-
-              if (!existingEvidence) {
+              } else {
+                // Download failed, save as external evidence link
+                logger.warn(`  Image download failed for ${url}, saving as external evidence link`);
                 await ArtistEvidence.create({
                   artistId: artist.id,
-                  link: trimmedUrl
+                  link: url
                 }, { transaction });
                 stats.evidencesAdded++;
-                logger.info(`  Added evidence (external link): ${trimmedUrl}`);
+                logger.info(`  Added evidence (external link): ${url}`);
               }
-            }
-          } else {
-            stats.evidencesAdded++;
-            logger.info(`  [DRY RUN] Would process evidence image: ${trimmedUrl}`);
-          }
-        } else {
-          // Not an image, save as external evidence link
-          logger.info(`  Processing evidence link: ${trimmedUrl}`);
-          
-          if (!DRY_RUN) {
-            const existingEvidence = await ArtistEvidence.findOne({
-              where: {
-                artistId: artist.id,
-                link: trimmedUrl
-              },
-              transaction
-            });
-
-            if (!existingEvidence) {
+            } else {
+              // Promise rejected, save as external evidence link
+              logger.warn(`  Image download error for ${url}: ${result.reason}, saving as external evidence link`);
               await ArtistEvidence.create({
                 artistId: artist.id,
-                link: trimmedUrl
+                link: url
               }, { transaction });
               stats.evidencesAdded++;
-              logger.info(`  Added evidence (external link): ${trimmedUrl}`);
+              logger.info(`  Added evidence (external link): ${url}`);
             }
-          } else {
-            stats.evidencesAdded++;
-            logger.info(`  [DRY RUN] Would add evidence (external link): ${trimmedUrl}`);
           }
+        } else {
+          // Dry run mode
+          for (const url of imageUrls) {
+            stats.evidencesAdded++;
+            logger.info(`  [DRY RUN] Would process evidence image: ${url}`);
+          }
+        }
+      }
+
+      // Process non-image URLs (external links)
+      for (const trimmedUrl of nonImageUrls) {
+        logger.info(`  Processing evidence link: ${trimmedUrl}`);
+        
+        if (!DRY_RUN) {
+          await ArtistEvidence.create({
+            artistId: artist.id,
+            link: trimmedUrl
+          }, { transaction });
+          stats.evidencesAdded++;
+          logger.info(`  Added evidence (external link): ${trimmedUrl}`);
+        } else {
+          stats.evidencesAdded++;
+          logger.info(`  [DRY RUN] Would add evidence (external link): ${trimmedUrl}`);
         }
       }
     }

@@ -164,7 +164,6 @@ class EvidenceService {
   public async updateSongEvidence(
     evidenceId: number,
     link: string,
-    extraInfo?: string | null
   ): Promise<SongEvidence> {
     const evidence = await SongEvidence.findByPk(evidenceId);
     if (!evidence) {
@@ -177,9 +176,6 @@ class EvidenceService {
     }
 
     evidence.link = link.trim();
-    if (extraInfo !== undefined) {
-      evidence.extraInfo = extraInfo?.trim() || null;
-    }
     await evidence.save();
     return evidence;
   }
@@ -190,7 +186,6 @@ class EvidenceService {
   public async updateArtistEvidence(
     evidenceId: number,
     link: string,
-    extraInfo?: string | null
   ): Promise<ArtistEvidence> {
     const evidence = await ArtistEvidence.findByPk(evidenceId);
     if (!evidence) {
@@ -203,9 +198,6 @@ class EvidenceService {
     }
 
     evidence.link = link.trim();
-    if (extraInfo !== undefined) {
-      evidence.extraInfo = extraInfo?.trim() || null;
-    }
     await evidence.save();
     return evidence;
   }
