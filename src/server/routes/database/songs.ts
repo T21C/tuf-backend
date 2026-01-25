@@ -144,7 +144,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         {
           model: SongEvidence,
           as: 'evidences',
-          attributes: ['id', 'link']
+          attributes: ['id', 'link', 'extraInfo']
         },
         {
           model: SongCredit,
@@ -186,12 +186,12 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         {
           model: SongLink,
           as: 'links',
-          attributes: ['id', 'link']
+          attributes: ['id', 'link', 'extraInfo']
         },
         {
           model: SongEvidence,
           as: 'evidences',
-          attributes: ['id', 'link']
+          attributes: ['id', 'link', 'extraInfo']
         },
         {
           model: SongCredit,

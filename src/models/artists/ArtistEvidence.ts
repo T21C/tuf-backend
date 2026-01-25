@@ -7,17 +7,18 @@ type ArtistEvidenceAttributes = {
   id: number;
   artistId: number;
   link: string;
+  extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-type ArtistEvidenceCreationAttributes = Optional<ArtistEvidenceAttributes, 'id' | 'createdAt' | 'updatedAt'>;
+type ArtistEvidenceCreationAttributes = Optional<ArtistEvidenceAttributes, 'id' | 'createdAt' | 'updatedAt' | 'extraInfo'>;
 
 class ArtistEvidence extends Model<ArtistEvidenceAttributes, ArtistEvidenceCreationAttributes> {
   declare id: number;
   declare artistId: number;
   declare link: string;
-  declare type: 'official' | 'social' | 'music_platform' | 'other';
+  declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -45,6 +46,10 @@ ArtistEvidence.init(
     link: {
       type: DataTypes.TEXT,
       allowNull: false,
+    },
+    extraInfo: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

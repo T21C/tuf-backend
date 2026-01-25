@@ -117,11 +117,13 @@ class EvidenceService {
    */
   public async addEvidenceToSong(
     songId: number,
-    link: string
+    link: string,
+    extraInfo?: string | null
   ): Promise<SongEvidence> {
     return await SongEvidence.create({
       songId,
-      link
+      link,
+      extraInfo: extraInfo || null
     });
   }
 
@@ -130,11 +132,13 @@ class EvidenceService {
    */
   public async addEvidenceToArtist(
     artistId: number,
-    link: string
+    link: string,
+    extraInfo?: string | null
   ): Promise<ArtistEvidence> {
     return await ArtistEvidence.create({
       artistId,
-      link
+      link,
+      extraInfo: extraInfo || null
     });
   }
 
@@ -161,7 +165,11 @@ class EvidenceService {
   /**
    * Update evidence for song (only for external links, CDN links cannot be updated)
    */
-  public async updateSongEvidence(evidenceId: number, link: string): Promise<SongEvidence> {
+  public async updateSongEvidence(
+    evidenceId: number,
+    link: string,
+    extraInfo?: string | null
+  ): Promise<SongEvidence> {
     const evidence = await SongEvidence.findByPk(evidenceId);
     if (!evidence) {
       throw new Error('Evidence not found');
@@ -173,6 +181,9 @@ class EvidenceService {
     }
 
     evidence.link = link.trim();
+    if (extraInfo !== undefined) {
+      evidence.extraInfo = extraInfo?.trim() || null;
+    }
     await evidence.save();
     return evidence;
   }
@@ -180,7 +191,11 @@ class EvidenceService {
   /**
    * Update evidence for artist (only for external links, CDN links cannot be updated)
    */
-  public async updateArtistEvidence(evidenceId: number, link: string): Promise<ArtistEvidence> {
+  public async updateArtistEvidence(
+    evidenceId: number,
+    link: string,
+    extraInfo?: string | null
+  ): Promise<ArtistEvidence> {
     const evidence = await ArtistEvidence.findByPk(evidenceId);
     if (!evidence) {
       throw new Error('Evidence not found');
@@ -192,6 +207,9 @@ class EvidenceService {
     }
 
     evidence.link = link.trim();
+    if (extraInfo !== undefined) {
+      evidence.extraInfo = extraInfo?.trim() || null;
+    }
     await evidence.save();
     return evidence;
   }

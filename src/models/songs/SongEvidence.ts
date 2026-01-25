@@ -7,16 +7,18 @@ type SongEvidenceAttributes = {
   id: number;
   songId: number;
   link: string;
+  extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-type SongEvidenceCreationAttributes = Optional<SongEvidenceAttributes, 'id' | 'createdAt' | 'updatedAt'>;
+type SongEvidenceCreationAttributes = Optional<SongEvidenceAttributes, 'id' | 'createdAt' | 'updatedAt' | 'extraInfo'>;
 
 class SongEvidence extends Model<SongEvidenceAttributes, SongEvidenceCreationAttributes> {
   declare id: number;
   declare songId: number;
   declare link: string;
+  declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -44,6 +46,10 @@ SongEvidence.init(
     link: {
       type: DataTypes.TEXT,
       allowNull: false,
+    },
+    extraInfo: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

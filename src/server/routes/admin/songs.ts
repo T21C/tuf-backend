@@ -489,7 +489,7 @@ router.delete('/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})', Auth.superAdmin(),
 router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {link} = req.body;
+    const {link, extraInfo} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
@@ -497,7 +497,8 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
 
     const evidence = await evidenceService.addEvidenceToSong(
       parseInt(req.params.id),
-      link.trim()
+      link.trim(),
+      extraInfo || null
     );
 
     await transaction.commit();
@@ -564,7 +565,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
 router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {link} = req.body;
+    const {link, extraInfo} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
@@ -572,7 +573,8 @@ router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdm
 
     const evidence = await evidenceService.updateSongEvidence(
       parseInt(req.params.evidenceId),
-      link.trim()
+      link.trim(),
+      extraInfo !== undefined ? (extraInfo || null) : undefined
     );
 
     await transaction.commit();
