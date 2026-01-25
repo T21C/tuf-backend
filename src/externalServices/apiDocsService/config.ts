@@ -47,6 +47,11 @@ export const API_CATEGORIES = {
         description: 'Creator and team management endpoints',
         color: '#fd7e14'
     },
+    DATABASE: {
+        name: 'Database',
+        description: 'Database management and retrieval endpoints',
+        color: '#17a2b8'
+    },
     DIFFICULTIES: {
         name: 'Difficulties',
         description: 'Difficulty management and configuration endpoints',
