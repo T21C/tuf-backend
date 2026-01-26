@@ -42,6 +42,11 @@ const BATCH_SIZE = 500;
 class ElasticsearchService {
   private static instance: ElasticsearchService;
   private isInitialized = false;
+  
+  // Debounce queue for artist-related reindexing
+  private artistReindexQueue: Set<number> = new Set();
+  private artistReindexTimer: NodeJS.Timeout | null = null;
+  private readonly ARTIST_REINDEX_DEBOUNCE_MS = 30000; // 5 seconds debounce
 
   private constructor() {}
 
@@ -111,7 +116,98 @@ class ElasticsearchService {
     }
   }
 
+  /**
+   * Get all level IDs that use a specific song
+   */
+  private async getLevelIdsBySongId(songId: number): Promise<number[]> {
+    try {
+      const levels = await Level.findAll({
+        where: {
+          songId: songId,
+          isDeleted: false
+        },
+        attributes: ['id']
+      });
+      return levels.map(level => level.id);
+    } catch (error) {
+      logger.error(`Error getting level IDs for song ${songId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all level IDs that have songs with credits from a specific artist
+   */
+  private async getLevelIdsByArtistId(artistId: number): Promise<number[]> {
+    try {
+      // Find all songs that have credits from this artist
+      const songCredits = await SongCredit.findAll({
+        where: {
+          artistId: artistId
+        },
+        attributes: ['songId'],
+        group: ['songId']
+      });
+
+      if (songCredits.length === 0) {
+        return [];
+      }
+
+      const songIds = songCredits.map(credit => credit.songId);
+
+      // Find all levels that use these songs
+      const levels = await Level.findAll({
+        where: {
+          songId: { [Op.in]: songIds },
+          isDeleted: false
+        },
+        attributes: ['id']
+      });
+
+      return levels.map(level => level.id);
+    } catch (error) {
+      logger.error(`Error getting level IDs for artist ${artistId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Schedule debounced reindexing for artist-related changes
+   * This prevents overwhelming the server when artists have thousands of levels
+   */
+  private scheduleArtistReindex(levelIds: number[]): void {
+    // Add level IDs to the queue
+    levelIds.forEach(id => this.artistReindexQueue.add(id));
+    const queueSize = this.artistReindexQueue.size;
+
+    // Clear existing timer if it exists
+    if (this.artistReindexTimer) {
+      clearTimeout(this.artistReindexTimer);
+      this.artistReindexTimer = null;
+    }
+
+    // Set new timer
+    this.artistReindexTimer = setTimeout(async () => {
+      const idsToReindex = Array.from(this.artistReindexQueue);
+      this.artistReindexQueue.clear();
+      this.artistReindexTimer = null;
+
+      if (idsToReindex.length > 0) {
+        logger.info(`Debounced artist reindex: Processing ${idsToReindex.length} levels`);
+        try {
+          await this.reindexLevels(idsToReindex);
+          logger.info(`Debounced artist reindex: Completed ${idsToReindex.length} levels`);
+        } catch (error) {
+          logger.error(`Error in debounced artist reindex:`, error);
+        }
+      }
+    }, this.ARTIST_REINDEX_DEBOUNCE_MS);
+
+    logger.debug(`Scheduled debounced reindex for ${levelIds.length} levels (${queueSize} total queued)`);
+  }
+
   private setupChangeListeners() {
+    const self = this; // Store reference to this for use in hooks
     // Remove existing hooks first to prevent duplicates
     Pass.removeHook('beforeSave', 'elasticsearchPassUpdate');
     LevelLikes.removeHook('beforeSave', 'elasticsearchLevelLikesUpdate');
@@ -125,6 +221,19 @@ class ElasticsearchService {
     LevelTagAssignment.removeHook('afterBulkDestroy', 'elasticsearchLevelTagAssignmentBulkDelete');
     Curation.removeHook('beforeSave', 'elasticsearchCurationUpdate');
     Curation.removeHook('afterBulkUpdate', 'elasticsearchCurationBulkUpdate');
+    Song.removeHook('afterSave', 'elasticsearchSongUpdate');
+    Song.removeHook('afterBulkUpdate', 'elasticsearchSongBulkUpdate');
+    SongAlias.removeHook('afterSave', 'elasticsearchSongAliasUpdate');
+    SongAlias.removeHook('afterCreate', 'elasticsearchSongAliasCreate');
+    SongAlias.removeHook('afterDestroy', 'elasticsearchSongAliasDestroy');
+    Artist.removeHook('afterSave', 'elasticsearchArtistUpdate');
+    Artist.removeHook('afterBulkUpdate', 'elasticsearchArtistBulkUpdate');
+    ArtistAlias.removeHook('afterSave', 'elasticsearchArtistAliasUpdate');
+    ArtistAlias.removeHook('afterCreate', 'elasticsearchArtistAliasCreate');
+    ArtistAlias.removeHook('afterDestroy', 'elasticsearchArtistAliasDestroy');
+    SongCredit.removeHook('afterSave', 'elasticsearchSongCreditUpdate');
+    SongCredit.removeHook('afterCreate', 'elasticsearchSongCreditCreate');
+    SongCredit.removeHook('afterDestroy', 'elasticsearchSongCreditDestroy');
 
     // Add hooks with unique names
     Pass.addHook('beforeSave', 'elasticsearchPassUpdate', async (pass: Pass, options: any) => {
@@ -396,6 +505,315 @@ class ElasticsearchService {
       }
       catch (error) {
         logger.error('Error in level tag assignment afterDestroy hook:', error);
+      }
+    });
+
+    // Add hooks for Song model - reindex all levels using this song
+    Song.addHook('afterSave', 'elasticsearchSongUpdate', async (song: Song, options: any) => {
+      logger.debug(`Song saved hook triggered for song ${song.id}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(song.id);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song ${song.id} update`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song ${song.id} update`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in song afterSave hook for song ${song.id}:`, error);
+      }
+    });
+
+    Song.addHook('afterBulkUpdate', 'elasticsearchSongBulkUpdate', async (options: any) => {
+      logger.debug('Song bulk update hook triggered');
+      try {
+        let songIds: number[] = [];
+        
+        if (options.where?.id) {
+          songIds = Array.isArray(options.where.id) 
+            ? options.where.id 
+            : [options.where.id];
+        } else if (options.where) {
+          const songs = await Song.findAll({ 
+            where: options.where, 
+            attributes: ['id'],
+            transaction: options.transaction 
+          });
+          songIds = songs.map(s => s.id);
+        }
+
+        if (songIds.length > 0) {
+          const allLevelIds = new Set<number>();
+          for (const songId of songIds) {
+            const levelIds = await self.getLevelIdsBySongId(songId);
+            levelIds.forEach(id => allLevelIds.add(id));
+          }
+
+          if (allLevelIds.size > 0) {
+            if (options.transaction) {
+              await options.transaction.afterCommit(async () => {
+                logger.debug(`Reindexing ${allLevelIds.size} levels after song bulk update`);
+                await this.reindexLevels(Array.from(allLevelIds));
+              });
+            } else {
+              logger.debug(`Reindexing ${allLevelIds.size} levels after song bulk update`);
+              await this.reindexLevels(Array.from(allLevelIds));
+            }
+          }
+        }
+      } catch (error) {
+        logger.error('Error in song afterBulkUpdate hook:', error);
+      }
+    });
+
+    // Add hooks for SongAlias model - reindex all levels using this song
+    SongAlias.addHook('afterSave', 'elasticsearchSongAliasUpdate', async (songAlias: SongAlias, options: any) => {
+      logger.debug(`SongAlias saved hook triggered for song ${songAlias.songId}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(songAlias.songId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song alias update`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song alias update`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in songAlias afterSave hook for song ${songAlias.songId}:`, error);
+      }
+    });
+
+    SongAlias.addHook('afterCreate', 'elasticsearchSongAliasCreate', async (songAlias: SongAlias, options: any) => {
+      logger.debug(`SongAlias created hook triggered for song ${songAlias.songId}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(songAlias.songId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song alias create`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song alias create`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in songAlias afterCreate hook for song ${songAlias.songId}:`, error);
+      }
+    });
+
+    SongAlias.addHook('afterDestroy', 'elasticsearchSongAliasDestroy', async (songAlias: SongAlias, options: any) => {
+      logger.debug(`SongAlias destroyed hook triggered for song ${songAlias.songId}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(songAlias.songId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song alias destroy`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song alias destroy`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in songAlias afterDestroy hook for song ${songAlias.songId}:`, error);
+      }
+    });
+
+    // Add hooks for Artist model - reindex all levels that have songs with credits from this artist
+    Artist.addHook('afterSave', 'elasticsearchArtistUpdate', async (artist: Artist, options: any) => {
+      logger.debug(`Artist saved hook triggered for artist ${artist.id}`);
+      try {
+        const levelIds = await self.getLevelIdsByArtistId(artist.id);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist ${artist.id} update`);
+              self.scheduleArtistReindex(levelIds);
+            });
+          } else {
+            logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist ${artist.id} update`);
+            self.scheduleArtistReindex(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in artist afterSave hook for artist ${artist.id}:`, error);
+      }
+    });
+
+    Artist.addHook('afterBulkUpdate', 'elasticsearchArtistBulkUpdate', async (options: any) => {
+      logger.debug('Artist bulk update hook triggered');
+      try {
+        let artistIds: number[] = [];
+        
+        if (options.where?.id) {
+          artistIds = Array.isArray(options.where.id) 
+            ? options.where.id 
+            : [options.where.id];
+        } else if (options.where) {
+          const artists = await Artist.findAll({ 
+            where: options.where, 
+            attributes: ['id'],
+            transaction: options.transaction 
+          });
+          artistIds = artists.map(a => a.id);
+        }
+
+        if (artistIds.length > 0) {
+          const allLevelIds = new Set<number>();
+          for (const artistId of artistIds) {
+            const levelIds = await self.getLevelIdsByArtistId(artistId);
+            levelIds.forEach(id => allLevelIds.add(id));
+          }
+
+          if (allLevelIds.size > 0) {
+            if (options.transaction) {
+              await options.transaction.afterCommit(async () => {
+                logger.debug(`Scheduling debounced reindex for ${allLevelIds.size} levels after artist bulk update`);
+                self.scheduleArtistReindex(Array.from(allLevelIds));
+              });
+            } else {
+              logger.debug(`Scheduling debounced reindex for ${allLevelIds.size} levels after artist bulk update`);
+              self.scheduleArtistReindex(Array.from(allLevelIds));
+            }
+          }
+        }
+      } catch (error) {
+        logger.error('Error in artist afterBulkUpdate hook:', error);
+      }
+    });
+
+    // Add hooks for ArtistAlias model - reindex all levels that have songs with credits from this artist
+    ArtistAlias.addHook('afterSave', 'elasticsearchArtistAliasUpdate', async (artistAlias: ArtistAlias, options: any) => {
+      logger.debug(`ArtistAlias saved hook triggered for artist ${artistAlias.artistId}`);
+      try {
+        const levelIds = await self.getLevelIdsByArtistId(artistAlias.artistId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias update`);
+              self.scheduleArtistReindex(levelIds);
+            });
+          } else {
+            logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias update`);
+            self.scheduleArtistReindex(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in artistAlias afterSave hook for artist ${artistAlias.artistId}:`, error);
+      }
+    });
+
+    ArtistAlias.addHook('afterCreate', 'elasticsearchArtistAliasCreate', async (artistAlias: ArtistAlias, options: any) => {
+      logger.debug(`ArtistAlias created hook triggered for artist ${artistAlias.artistId}`);
+      try {
+        const levelIds = await self.getLevelIdsByArtistId(artistAlias.artistId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias create`);
+              self.scheduleArtistReindex(levelIds);
+            });
+          } else {
+            logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias create`);
+            self.scheduleArtistReindex(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in artistAlias afterCreate hook for artist ${artistAlias.artistId}:`, error);
+      }
+    });
+
+    ArtistAlias.addHook('afterDestroy', 'elasticsearchArtistAliasDestroy', async (artistAlias: ArtistAlias, options: any) => {
+      logger.debug(`ArtistAlias destroyed hook triggered for artist ${artistAlias.artistId}`);
+      try {
+        const levelIds = await self.getLevelIdsByArtistId(artistAlias.artistId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias destroy`);
+              self.scheduleArtistReindex(levelIds);
+            });
+          } else {
+            logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias destroy`);
+            self.scheduleArtistReindex(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in artistAlias afterDestroy hook for artist ${artistAlias.artistId}:`, error);
+      }
+    });
+
+    // Add hooks for SongCredit model - reindex all levels that use the song with this credit
+    SongCredit.addHook('afterSave', 'elasticsearchSongCreditUpdate', async (songCredit: SongCredit, options: any) => {
+      logger.debug(`SongCredit saved hook triggered for song ${songCredit.songId}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(songCredit.songId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song credit update`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song credit update`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in songCredit afterSave hook for song ${songCredit.songId}:`, error);
+      }
+    });
+
+    SongCredit.addHook('afterCreate', 'elasticsearchSongCreditCreate', async (songCredit: SongCredit, options: any) => {
+      logger.debug(`SongCredit created hook triggered for song ${songCredit.songId}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(songCredit.songId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song credit create`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song credit create`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in songCredit afterCreate hook for song ${songCredit.songId}:`, error);
+      }
+    });
+
+    SongCredit.addHook('afterDestroy', 'elasticsearchSongCreditDestroy', async (songCredit: SongCredit, options: any) => {
+      logger.debug(`SongCredit destroyed hook triggered for song ${songCredit.songId}`);
+      try {
+        const levelIds = await self.getLevelIdsBySongId(songCredit.songId);
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Reindexing ${levelIds.length} levels after song credit destroy`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
+            logger.debug(`Reindexing ${levelIds.length} levels after song credit destroy`);
+            await this.reindexLevels(levelIds);
+          }
+        }
+      } catch (error) {
+        logger.error(`Error in songCredit afterDestroy hook for song ${songCredit.songId}:`, error);
       }
     });
   }
@@ -1517,8 +1935,6 @@ class ElasticsearchService {
               }
             }
           },
-          // Fallback to text artist field
-          { wildcard: { artist: { value: wildcardValue, case_insensitive: true } } },
           {
             nested: {
               path: 'levelCredits',
@@ -1548,21 +1964,7 @@ class ElasticsearchService {
                 }
               }
             }
-          },
-          {
-            nested: {
-              path: 'aliases',
-              query: {
-                wildcard: {
-                  'aliases.alias': {
-                    value: wildcardValue,
-                    case_insensitive: true
-                  }
-                }
-              }
-            }
           }
-
         ]
       }
     };

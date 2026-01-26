@@ -61,19 +61,59 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         break;
     }
 
-    // Build final where clause
+    // Step 1: Collect matching artist IDs from name and alias searches
+    let matchingArtistIds: number[] = [];
+    
+    if (escapedSearch && escapedSearch.trim()) {
+      // Query 1: Find artists matching by name
+      const nameMatches = await Artist.findAll({
+        where: {
+          name: {
+            [Op.like]: `%${escapedSearch}%`
+          }
+        },
+        attributes: ['id']
+      });
+      matchingArtistIds = matchingArtistIds.concat(nameMatches.map(a => a.id));
+
+      // Query 2: Find artists matching by alias
+      const aliasMatches = await ArtistAlias.findAll({
+        where: {
+          alias: {
+            [Op.like]: `%${escapedSearch}%`
+          }
+        },
+        attributes: ['artistId']
+      });
+      matchingArtistIds = matchingArtistIds.concat(aliasMatches.map(a => a.artistId));
+      
+      // Remove duplicates
+      matchingArtistIds = Array.from(new Set(matchingArtistIds));
+    }
+
+    // Step 2: Build final where clause using collected IDs and verification state filter
     const finalWhere: any = {};
+    
+    // If we have matching IDs from search, use them as baseline
+    if (matchingArtistIds.length > 0) {
+      finalWhere.id = {[Op.in]: matchingArtistIds};
+    } else if (escapedSearch && escapedSearch.trim()) {
+      // If search was provided but no matches found, return empty result
+      return res.json({
+        artists: [],
+        total: 0,
+        page: parseInt(page as string),
+        limit: normalizedLimit,
+        hasMore: false
+      });
+    }
     
     // Verification state filter (only if specified)
     if (verificationState) {
       finalWhere.verificationState = verificationState;
     }
-    
-    // Simple search filter on name
-    if (escapedSearch && escapedSearch.trim()) {
-      finalWhere.name = {[Op.like]: `%${escapedSearch}%`};
-    }
 
+    // Step 3: Construct final search with all required includes
     const {count, rows} = await Artist.findAndCountAll({
       where: finalWhere,
       limit: normalizedLimit,
