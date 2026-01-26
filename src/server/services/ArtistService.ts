@@ -233,11 +233,52 @@ class ArtistService {
     // Note: Levels no longer have direct artist relationship
     // They access artists through songs->songCredits->artists
     
-    // Update song credits
-    await SongCredit.update(
-      { artistId: target.id },
-      { where: { artistId: source.id } }
-    );
+    // Merge song credits from source to target (avoid duplicates)
+    // Since uniqueness is on songId+artistId, check if target already has credits for each song
+    const sourceCredits = await SongCredit.findAll({
+      where: { artistId: source.id },
+      attributes: ['id', 'songId', 'artistId', 'role']
+    });
+
+    if (sourceCredits.length > 0) {
+      // Get all songs that target already has credits for
+      const targetCredits = await SongCredit.findAll({
+        where: { artistId: target.id },
+        attributes: ['songId']
+      });
+      const targetSongsSet = new Set(targetCredits.map(c => c.songId));
+
+      // Separate credits into those that can be updated vs those that would create duplicates
+      const creditsToUpdate: SongCredit[] = [];
+      const creditsToDelete: SongCredit[] = [];
+
+      for (const credit of sourceCredits) {
+        if (targetSongsSet.has(credit.songId)) {
+          // Target already has a credit for this song - delete source credit to avoid duplicate
+          creditsToDelete.push(credit);
+        } else {
+          // Target doesn't have this song - update source credit to point to target
+          creditsToUpdate.push(credit);
+        }
+      }
+
+      // Update credits that won't create duplicates
+      if (creditsToUpdate.length > 0) {
+        const creditIdsToUpdate = creditsToUpdate.map(c => c.id);
+        await SongCredit.update(
+          { artistId: target.id },
+          { where: { id: { [Op.in]: creditIdsToUpdate } } }
+        );
+      }
+
+      // Delete credits that would create duplicates
+      if (creditsToDelete.length > 0) {
+        const creditIdsToDelete = creditsToDelete.map(c => c.id);
+        await SongCredit.destroy({
+          where: { id: { [Op.in]: creditIdsToDelete } }
+        });
+      }
+    }
 
     // Update level submission artist requests
     await LevelSubmissionArtistRequest.update(
