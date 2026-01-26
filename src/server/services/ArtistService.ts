@@ -36,7 +36,7 @@ class ArtistService {
   public async findOrCreateArtist(
     name: string,
     aliases?: string[],
-    verificationState?: 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed'
+    verificationState?: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed'
   ): Promise<Artist> {
     const normalizedName = this.normalizeArtistName(name);
     let artist: Artist | null = null;

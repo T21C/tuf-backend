@@ -11,7 +11,7 @@ type LevelSubmissionArtistRequestAttributes = {
   artistName: string | null;
   isNewRequest: boolean;
   requiresEvidence: boolean;
-  verificationState: 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed' | null;
+  verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -25,7 +25,7 @@ class LevelSubmissionArtistRequest extends Model<LevelSubmissionArtistRequestAtt
   declare artistName: string | null;
   declare isNewRequest: boolean;
   declare requiresEvidence: boolean;
-  declare verificationState: 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed' | null;
+  declare verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -76,7 +76,7 @@ LevelSubmissionArtistRequest.init(
       defaultValue: false,
     },
     verificationState: {
-      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly declined', 'mostly allowed', 'allowed'),
+      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly_declined', 'mostly_allowed', 'allowed'),
       allowNull: true,
       defaultValue: null,
     },

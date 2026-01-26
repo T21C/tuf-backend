@@ -66,18 +66,18 @@ interface MigrationStats {
  * Status 1 = pending/unverified
  * Status 2 = allowed
  */
-function mapStatusToVerificationState(status: number): 'unverified' | 'pending' | 'declined' | 'mostly declined' | 'mostly allowed' | 'allowed' {
+function mapStatusToVerificationState(status: number): 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' {
   switch (status) {
     case 0:
       return 'pending';
     case 1:
       return 'allowed';
     case 2:
-      return 'mostly declined';
+      return 'mostly_declined';
     case 3:
       return 'declined';
     case 4:
-      return 'mostly allowed';
+      return 'mostly_allowed';
     default:
       return 'unverified';
   }
