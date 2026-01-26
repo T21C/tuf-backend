@@ -526,6 +526,24 @@ class CdnService {
         return (await this.getBulkLevelMetadata([level]))[0];
     }
 
+    async getLevelAdofai(level: Level): Promise<any> {
+        try {
+            const fileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
+            if (!fileId) {
+                return null;
+            }
+            const response = await this.client.get(`/levels/${fileId}/level.adofai`);
+            return response.data;
+        } catch (error) {
+            this.handleCdnError(
+                error,
+                'get level adofai from CDN, level id: ' + level?.id || 'unknown' + ' ',
+                'Failed to get level adofai',
+                'GET_LEVEL_ADOFAI_ERROR'
+            );
+        }
+    }
+
     async generatePackDownload(request: {
         zipName: string;
         packId: number;

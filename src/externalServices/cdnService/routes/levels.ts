@@ -765,6 +765,35 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     }
 });
 
+router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        const file = await CdnFile.findByPk(fileId);
+        if (!file) {
+            throw { error: 'File not found', code: 404 };
+        }
+        if (file.type !== 'LEVELZIP') {
+            throw { error: 'File is not a level zip', code: 400 };
+        }
+        const metadata = file.metadata as any;
+        const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
+        if (!fs.existsSync(targetLevel)) {
+            throw { error: 'Target level file not found', code: 400 };
+        }
+        const levelData = new LevelDict(targetLevel);
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(levelData.toJSON());
+        return;
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('Unexpected error getting level.adofai for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting level.adofai' });
+    }
+});
 // Get durations from an existing CDN file
 router.get('/:fileId/durations', async (req: Request, res: Response) => {
     try {

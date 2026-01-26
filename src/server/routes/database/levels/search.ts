@@ -612,4 +612,22 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
   }
 });
 
+router.get('/:id([0-9]{1,20})/level.adofai', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    const level = await Level.findOne({
+      where: { id: levelId },
+    });
+    if (!level) {
+      return res.status(404).json({ error: 'Level not found' });
+    }
+    const metadata = await cdnService.getLevelAdofai(level);
+    return res.json(metadata);
+  }
+  catch (error) {
+    logger.error('Error fetching level.adofai:', error);
+    return res.status(500).json({ error: 'Failed to fetch level.adofai' });
+  }
+});
+
 export default router;
