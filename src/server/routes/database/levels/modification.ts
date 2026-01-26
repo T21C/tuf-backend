@@ -167,17 +167,10 @@ export const checkLevelOwnership = async (
   let charterCount = 0;
   let isOwner = false;
 
-  if (!isSuperAdmin && user?.id) {
+  if (!isSuperAdmin && user?.creatorId) {
     // Check if user is a creator of this level
     const levelCredits = await LevelCredit.findAll({
       where: {levelId},
-      include: [
-        {
-          model: Creator,
-          as: 'creator',
-          required: true,
-        },
-      ],
       transaction,
     });
 
@@ -188,15 +181,16 @@ export const checkLevelOwnership = async (
 
     // Check if user is one of the creators
     isCreator = levelCredits.some(
-      credit => credit.creator?.userId === user.id && 
+      credit => credit.creatorId === user.creatorId && 
       credit.role?.toLowerCase() === CreditRole.CHARTER
     );
 
     isOwner = levelCredits.some(
-      credit => credit.creator?.userId === user.id && credit.isOwner
+      credit => credit.creatorId === user.creatorId && credit.isOwner
     );
   }
 
+  console.log(isOwner);
 
   let canEdit = false;
   let errorMessage: string | undefined;

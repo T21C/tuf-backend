@@ -74,6 +74,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
     return res.json({
       user: {
         id: user.id,
+        creatorId: user.creatorId,
         username: user.username,
         nickname: user.nickname || user.username,
         email: user.email,
