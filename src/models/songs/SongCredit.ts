@@ -76,7 +76,8 @@ SongCredit.init(
       {fields: ['artistId']},
       {
         unique: true,
-        fields: ['songId', 'artistId', 'role'],
+        fields: ['songId', 'artistId'],
+        name: 'song_credits_songId_artistId_unique',
       },
     ],
   },
