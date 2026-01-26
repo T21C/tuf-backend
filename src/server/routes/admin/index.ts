@@ -7,8 +7,6 @@ import statisticsRoutes from './statistics.js';
 import { Auth } from '../../middleware/auth.js';
 import auditLogRoutes from './auditLog.js';
 import curationRoutes from './curations.js';
-import artistsRoutes from './artists.js';
-import songsRoutes from './songs.js';
 // Import other admin routes here
 
 const router: Router = Router();
@@ -21,8 +19,6 @@ router.use('/users', usersRoutes);
 router.use('/statistics', statisticsRoutes);
 router.use('/audit-log', auditLogRoutes);
 router.use('/curations', curationRoutes);
-router.use('/artists', artistsRoutes);
-router.use('/songs', songsRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
       return res.status(200).send();
