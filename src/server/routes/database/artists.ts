@@ -5,6 +5,7 @@ import Artist from '../../../models/artists/Artist.js';
 import ArtistAlias from '../../../models/artists/ArtistAlias.js';
 import ArtistLink from '../../../models/artists/ArtistLink.js';
 import ArtistEvidence from '../../../models/artists/ArtistEvidence.js';
+import ArtistRelation from '../../../models/artists/ArtistRelation.js';
 import SongCredit from '../../../models/songs/SongCredit.js';
 import Song from '../../../models/songs/Song.js';
 import Level from '../../../models/levels/Level.js';
@@ -97,6 +98,18 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       ]
     });
 
+    // Fetch relations bidirectionally for all artists in batch using service
+    const artistIds = rows.map(a => a.id);
+    if (artistIds.length > 0) {
+      const relationsMap = await artistService.getRelatedArtistsBatch(artistIds);
+      
+      // Add relatedArtists to each artist
+      rows.forEach(artist => {
+        const relatedArtists = relationsMap.get(artist.id) || [];
+        (artist as any).relatedArtists = relatedArtists.map(a => a.toJSON ? a.toJSON() : a);
+      });
+    }
+
     return res.json({
       artists: rows,
       total: count,
@@ -113,7 +126,8 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 // Get public artist detail page
 router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
-    const artist = await Artist.findByPk(req.params.id, {
+    const artistId = parseInt(req.params.id);
+    const artist = await Artist.findByPk(artistId, {
       include: [
         {
           model: ArtistAlias,
@@ -150,7 +164,14 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       return res.status(404).json({error: 'Artist not found'});
     }
 
-    return res.json(artist);
+    // Fetch relations bidirectionally using service
+    const relatedArtists = await artistService.getRelatedArtists(artistId);
+
+    // Add relatedArtists to the artist object
+    const artistJson: any = artist.toJSON();
+    artistJson.relatedArtists = relatedArtists.map(a => a.toJSON ? a.toJSON() : a);
+
+    return res.json(artistJson);
   } catch (error) {
     logger.error('Error fetching artist:', error);
     return res.status(500).json({error: 'Failed to fetch artist'});
@@ -751,6 +772,131 @@ router.delete('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.super
   } catch (error) {
     logger.error('Error deleting evidence:', error);
     return res.status(500).json({error: 'Failed to delete evidence'});
+  }
+});
+
+// Get artist relations (bidirectional)
+router.get('/:id([0-9]{1,20})/relations', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const artistId = parseInt(req.params.id);
+    
+    // Use service to fetch relations bidirectionally
+    const relatedArtists = await artistService.getRelatedArtists(artistId);
+
+    return res.json({
+      relations: relatedArtists.map(a => a.toJSON ? a.toJSON() : a)
+    });
+  } catch (error) {
+    logger.error('Error fetching artist relations:', error);
+    return res.status(500).json({error: 'Failed to fetch artist relations'});
+  }
+});
+
+// Add artist relation (bidirectional)
+router.post('/:id([0-9]{1,20})/relations', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const {relatedArtistId} = req.body;
+    const artistId = parseInt(req.params.id);
+    
+    if (!relatedArtistId || typeof relatedArtistId !== 'number') {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'relatedArtistId is required and must be a number'});
+    }
+
+    if (artistId === relatedArtistId) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'Artist cannot be related to itself'});
+    }
+
+    // Check if both artists exist
+    const [artist1, artist2] = await Promise.all([
+      Artist.findByPk(artistId, {transaction}),
+      Artist.findByPk(relatedArtistId, {transaction})
+    ]);
+
+    if (!artist1 || !artist2) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({error: 'One or both artists not found'});
+    }
+
+    // Ensure artistId1 < artistId2 for consistency (bidirectional relation)
+    const [id1, id2] = artistId < relatedArtistId ? [artistId, relatedArtistId] : [relatedArtistId, artistId];
+
+    // Check if relation already exists
+    const existingRelation = await ArtistRelation.findOne({
+      where: {
+        artistId1: id1,
+        artistId2: id2
+      },
+      transaction
+    });
+
+    if (existingRelation) {
+      await safeTransactionRollback(transaction);
+      return res.status(409).json({error: 'Relation already exists'});
+    }
+
+    // Create relation
+    const relation = await ArtistRelation.create({
+      artistId1: id1,
+      artistId2: id2
+    }, {transaction});
+
+    await transaction.commit();
+
+    // Fetch the related artist to return
+    const relatedArtist = await Artist.findByPk(relatedArtistId, {
+      attributes: ['id', 'name', 'avatarUrl', 'verificationState']
+    });
+
+    return res.json({
+      relation: {
+        id: relation.id,
+        artist: relatedArtist
+      }
+    });
+  } catch (error: any) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error adding artist relation:', error);
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({error: 'Relation already exists'});
+    }
+    return res.status(500).json({error: 'Failed to add artist relation'});
+  }
+});
+
+// Delete artist relation (bidirectional)
+router.delete('/:id([0-9]{1,20})/relations/:relatedArtistId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const artistId = parseInt(req.params.id);
+    const relatedArtistId = parseInt(req.params.relatedArtistId);
+
+    // Ensure artistId1 < artistId2 for consistency
+    const [id1, id2] = artistId < relatedArtistId ? [artistId, relatedArtistId] : [relatedArtistId, artistId];
+
+    const relation = await ArtistRelation.findOne({
+      where: {
+        artistId1: id1,
+        artistId2: id2
+      },
+      transaction
+    });
+
+    if (!relation) {
+      await safeTransactionRollback(transaction);
+      return res.status(404).json({error: 'Relation not found'});
+    }
+
+    await relation.destroy({transaction});
+    await transaction.commit();
+
+    return res.json({success: true});
+  } catch (error) {
+    await safeTransactionRollback(transaction);
+    logger.error('Error deleting artist relation:', error);
+    return res.status(500).json({error: 'Failed to delete artist relation'});
   }
 });
 

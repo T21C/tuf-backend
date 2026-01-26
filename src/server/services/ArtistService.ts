@@ -1,14 +1,16 @@
-import { Op } from 'sequelize';
+import { Op, Sequelize } from 'sequelize';
 import Artist from '../../models/artists/Artist.js';
 import ArtistAlias from '../../models/artists/ArtistAlias.js';
 import ArtistLink from '../../models/artists/ArtistLink.js';
 import ArtistEvidence from '../../models/artists/ArtistEvidence.js';
+import ArtistRelation from '../../models/artists/ArtistRelation.js';
 import SongCredit from '../../models/songs/SongCredit.js';
 import Level from '../../models/levels/Level.js';
 import LevelSubmissionArtistRequest from '../../models/submissions/LevelSubmissionArtistRequest.js';
 import { logger } from './LoggerService.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '../../misc/utils/Utility.js';
 import cdnServiceInstance from './CdnService.js';
+import sequelize from '../../config/db.js';
 
 class ArtistService {
   private static instance: ArtistService;
@@ -689,6 +691,80 @@ class ArtistService {
     }
 
     await artist.update({ avatarUrl: url });
+  }
+
+  /**
+   * Get related artists for a single artist (bidirectional)
+   * Uses the artist_relations_bidirectional view for efficient querying
+   */
+  public async getRelatedArtists(artistId: number): Promise<Artist[]> {
+    const results = await sequelize.query(`
+      SELECT DISTINCT a.id, a.name, a.avatarUrl, a.verificationState
+      FROM artist_relations_bidirectional ar
+      INNER JOIN artists a ON a.id = ar.relatedArtistId
+      WHERE ar.artistId = :artistId
+      ORDER BY a.name ASC
+    `, {
+      replacements: { artistId },
+      type: 'SELECT' as const
+    }) as any[];
+
+    console.log(results);
+
+    return results.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      avatarUrl: row.avatarUrl,
+      verificationState: row.verificationState
+    } as Artist));
+  }
+
+  /**
+   * Get related artists for multiple artists (bidirectional, batch)
+   * Returns a map of artistId -> related artists array
+   */
+  public async getRelatedArtistsBatch(artistIds: number[]): Promise<Map<number, Artist[]>> {
+    if (artistIds.length === 0) {
+      return new Map();
+    }
+
+    const results = await sequelize.query(`
+      SELECT 
+        ar.artistId,
+        a.id,
+        a.name,
+        a.avatarUrl,
+        a.verificationState
+      FROM artist_relations_bidirectional ar
+      INNER JOIN artists a ON a.id = ar.relatedArtistId
+      WHERE ar.artistId IN (:artistIds)
+      ORDER BY ar.artistId, a.name ASC
+    `, {
+      replacements: { artistIds },
+      type: 'SELECT' as const
+    }) as any[];
+
+    const relationsMap = new Map<number, Artist[]>();
+    
+    // Initialize map with empty arrays
+    artistIds.forEach(id => relationsMap.set(id, []));
+
+    // Group results by artistId
+    results.forEach((row: any) => {
+      const artistId = row.artistId;
+      const relatedArtist = {
+        id: row.id,
+        name: row.name,
+        avatarUrl: row.avatarUrl,
+        verificationState: row.verificationState
+      } as Artist;
+
+      const relations = relationsMap.get(artistId) || [];
+      relations.push(relatedArtist);
+      relationsMap.set(artistId, relations);
+    });
+
+    return relationsMap;
   }
 }
 

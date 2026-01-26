@@ -30,6 +30,7 @@ class Artist extends Model<ArtistAttributes, ArtistCreationAttributes> {
   declare songCredits?: import('../songs/SongCredit.js').default[];
   declare songs?: import('../songs/Song.js').default[];
   declare levels?: import('../levels/Level.js').default[];
+  declare relatedArtists?: import('./Artist.js').default[];
 }
 
 Artist.init(

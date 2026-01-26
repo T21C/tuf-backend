@@ -2,6 +2,7 @@ import Artist from './Artist.js';
 import ArtistAlias from './ArtistAlias.js';
 import ArtistLink from './ArtistLink.js';
 import ArtistEvidence from './ArtistEvidence.js';
+import ArtistRelation from './ArtistRelation.js';
 import SongCredit from '../songs/SongCredit.js';
 import Level from '../levels/Level.js';
 import Song from '../songs/Song.js';
@@ -80,5 +81,13 @@ export function initializeArtistsAssociations() {
     foreignKey: 'songId',
     otherKey: 'artistId',
     as: 'artists',
+  });
+
+  // Artist <-> Artist associations (many-to-many through ArtistRelation)
+  Artist.belongsToMany(Artist, {
+    through: ArtistRelation,
+    foreignKey: 'artistId1',
+    otherKey: 'artistId2',
+    as: 'relatedArtists',
   });
 }
