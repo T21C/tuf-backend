@@ -288,7 +288,10 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
             songId: song.id,
             alias: alias.trim()
           })),
-          {transaction}
+          {
+            transaction,
+            ignoreDuplicates: true // Prevent duplicate songId+alias combinations
+          }
         );
       }
     }
@@ -400,6 +403,20 @@ router.post('/:id([0-9]{1,20})/aliases', Auth.superAdmin(), async (req: Request,
       return res.status(400).json({error: 'Alias is required'});
     }
 
+    // Check if alias already exists for this song
+    const existingAlias = await SongAlias.findOne({
+      where: {
+        songId: parseInt(req.params.id),
+        alias: alias.trim()
+      },
+      transaction
+    });
+
+    if (existingAlias) {
+      await safeTransactionRollback(transaction);
+      return res.status(409).json({error: 'Alias already exists for this song'});
+    }
+
     const songAlias = await SongAlias.create({
       songId: parseInt(req.params.id),
       alias: alias.trim()
@@ -444,6 +461,20 @@ router.post('/:id([0-9]{1,20})/links', Auth.superAdmin(), async (req: Request, r
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
+    }
+
+    // Check if link already exists for this song
+    const existingLink = await SongLink.findOne({
+      where: {
+        songId: parseInt(req.params.id),
+        link: link.trim()
+      },
+      transaction
+    });
+
+    if (existingLink) {
+      await safeTransactionRollback(transaction);
+      return res.status(409).json({error: 'Link already exists for this song'});
     }
 
     const songLink = await SongLink.create({

@@ -59,6 +59,11 @@ SongLink.init(
     tableName: 'song_links',
     indexes: [
       {fields: ['songId']},
+      {
+        unique: true,
+        fields: ['songId', 'link'],
+        name: 'song_links_songId_link_unique',
+      },
     ],
   },
 );

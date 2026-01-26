@@ -101,7 +101,8 @@ class ArtistService {
             uniqueAliases.map(alias => ({
               artistId: artist!.id,
               alias: alias.trim()
-            }))
+            })),
+            { ignoreDuplicates: true } // Prevent duplicate artistId+alias combinations
           );
         }
       }
@@ -125,7 +126,8 @@ class ArtistService {
             newAliases.map(alias => ({
               artistId: artist!.id,
               alias: alias.trim()
-            }))
+            })),
+            { ignoreDuplicates: true } // Prevent duplicate artistId+alias combinations
           );
         }
       }
@@ -185,29 +187,65 @@ class ArtistService {
     // Add source name as alias if not already present
     const sourceNameNormalized = this.normalizeArtistName(source.name);
     if (!targetAliases.has(sourceNameNormalized)) {
-      await ArtistAlias.create({
-        artistId: target.id,
-        alias: source.name
+      // Check if alias already exists (case-insensitive)
+      const existingAlias = await ArtistAlias.findOne({
+        where: {
+          artistId: target.id,
+          alias: source.name
+        }
       });
+      if (!existingAlias) {
+        await ArtistAlias.create({
+          artistId: target.id,
+          alias: source.name
+        });
+      }
     }
 
-    // Merge links from source to target by updating artistId
-    const targetLinks = new Set(
-      (target.links || []).map(l => l.link.toLowerCase().trim())
-    );
+    // Merge links from source to target (avoid duplicates)
+    // Since uniqueness is on artistId+link, check if target already has links for each artist
     const sourceLinks = source.links || [];
-    const sourceLinksToMove = sourceLinks.filter(link => {
-      const normalizedLink = link.link.toLowerCase().trim();
-      return !targetLinks.has(normalizedLink);
-    });
-
-    // Update artistId for non-duplicate links (duplicates will be deleted when source is destroyed)
-    if (sourceLinksToMove.length > 0) {
-      const linkIds = sourceLinksToMove.map(l => l.id);
-      await ArtistLink.update(
-        { artistId: target.id },
-        { where: { id: { [Op.in]: linkIds } } }
+    if (sourceLinks.length > 0) {
+      // Get all links that target already has
+      const targetLinks = await ArtistLink.findAll({
+        where: { artistId: target.id },
+        attributes: ['link']
+      });
+      const targetLinksSet = new Set(
+        targetLinks.map(l => l.link.toLowerCase().trim())
       );
+
+      // Separate links into those that can be updated vs those that would create duplicates
+      const linksToUpdate: ArtistLink[] = [];
+      const linksToDelete: ArtistLink[] = [];
+
+      for (const link of sourceLinks) {
+        const normalizedLink = link.link.toLowerCase().trim();
+        if (targetLinksSet.has(normalizedLink)) {
+          // Target already has this link - delete source link to avoid duplicate
+          linksToDelete.push(link);
+        } else {
+          // Target doesn't have this link - update source link to point to target
+          linksToUpdate.push(link);
+        }
+      }
+
+      // Update links that won't create duplicates
+      if (linksToUpdate.length > 0) {
+        const linkIdsToUpdate = linksToUpdate.map(l => l.id);
+        await ArtistLink.update(
+          { artistId: target.id },
+          { where: { id: { [Op.in]: linkIdsToUpdate } } }
+        );
+      }
+
+      // Delete links that would create duplicates
+      if (linksToDelete.length > 0) {
+        const linkIdsToDelete = linksToDelete.map(l => l.id);
+        await ArtistLink.destroy({
+          where: { id: { [Op.in]: linkIdsToDelete } }
+        });
+      }
     }
 
     // Merge evidences from source to target by updating artistId
@@ -409,7 +447,10 @@ class ArtistService {
             artistId: artist1.id,
             alias: alias
           })),
-          { transaction }
+          { 
+            transaction,
+            ignoreDuplicates: true // Prevent duplicate artistId+alias combinations
+          }
         );
       }
 
@@ -430,7 +471,10 @@ class ArtistService {
             artistId: artist2.id,
             alias: alias
           })),
-          { transaction }
+          { 
+            transaction,
+            ignoreDuplicates: true // Prevent duplicate artistId+alias combinations
+          }
         );
       }
     }
@@ -450,7 +494,10 @@ class ArtistService {
             artistId: artist1.id,
             link: link
           })),
-          { transaction }
+          { 
+            transaction,
+            ignoreDuplicates: true // Prevent duplicate artistId+link combinations
+          }
         );
       }
 
@@ -464,7 +511,10 @@ class ArtistService {
             artistId: artist2.id,
             link: link
           })),
-          { transaction }
+          { 
+            transaction,
+            ignoreDuplicates: true // Prevent duplicate artistId+link combinations
+          }
         );
       }
     }

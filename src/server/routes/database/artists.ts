@@ -268,7 +268,10 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
               artistId: artist.id,
               alias: alias.trim()
             })),
-            {transaction}
+            {
+              transaction,
+              ignoreDuplicates: true // Prevent duplicate artistId+alias combinations
+            }
           );
         }
       }
@@ -526,6 +529,20 @@ router.post('/:id([0-9]{1,20})/aliases', Auth.superAdmin(), async (req: Request,
       return res.status(400).json({error: 'Alias is required'});
     }
 
+    // Check if alias already exists for this artist
+    const existingAlias = await ArtistAlias.findOne({
+      where: {
+        artistId: parseInt(req.params.id),
+        alias: alias.trim()
+      },
+      transaction
+    });
+
+    if (existingAlias) {
+      await safeTransactionRollback(transaction);
+      return res.status(409).json({error: 'Alias already exists for this artist'});
+    }
+
     const artistAlias = await ArtistAlias.create({
       artistId: parseInt(req.params.id),
       alias: alias.trim()
@@ -570,6 +587,20 @@ router.post('/:id([0-9]{1,20})/links', Auth.superAdmin(), async (req: Request, r
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'Link is required'});
+    }
+
+    // Check if link already exists for this artist
+    const existingLink = await ArtistLink.findOne({
+      where: {
+        artistId: parseInt(req.params.id),
+        link: link.trim()
+      },
+      transaction
+    });
+
+    if (existingLink) {
+      await safeTransactionRollback(transaction);
+      return res.status(409).json({error: 'Link already exists for this artist'});
     }
 
     const artistLink = await ArtistLink.create({

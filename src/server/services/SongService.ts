@@ -99,7 +99,8 @@ class SongService {
             uniqueAliases.map(alias => ({
               songId: song!.id,
               alias: alias.trim()
-            }))
+            })),
+            { ignoreDuplicates: true } // Prevent duplicate songId+alias combinations
           );
         }
       }
@@ -123,7 +124,8 @@ class SongService {
             newAliases.map(alias => ({
               songId: song!.id,
               alias: alias.trim()
-            }))
+            })),
+            { ignoreDuplicates: true } // Prevent duplicate songId+alias combinations
           );
         }
       }
@@ -185,29 +187,65 @@ class SongService {
     // Add source name as alias if not already present
     const sourceNameNormalized = this.normalizeSongName(source.name);
     if (!targetAliases.has(sourceNameNormalized)) {
-      await SongAlias.create({
-        songId: target.id,
-        alias: source.name
+      // Check if alias already exists (case-insensitive)
+      const existingAlias = await SongAlias.findOne({
+        where: {
+          songId: target.id,
+          alias: source.name
+        }
       });
+      if (!existingAlias) {
+        await SongAlias.create({
+          songId: target.id,
+          alias: source.name
+        });
+      }
     }
 
-    // Merge links from source to target by updating songId
-    const targetLinks = new Set(
-      (target.links || []).map(l => l.link.toLowerCase().trim())
-    );
+    // Merge links from source to target (avoid duplicates)
+    // Since uniqueness is on songId+link, check if target already has links for each song
     const sourceLinks = source.links || [];
-    const sourceLinksToMove = sourceLinks.filter(link => {
-      const normalizedLink = link.link.toLowerCase().trim();
-      return !targetLinks.has(normalizedLink);
-    });
-
-    // Update songId for non-duplicate links (duplicates will be deleted when source is destroyed)
-    if (sourceLinksToMove.length > 0) {
-      const linkIds = sourceLinksToMove.map(l => l.id);
-      await SongLink.update(
-        { songId: target.id },
-        { where: { id: { [Op.in]: linkIds } } }
+    if (sourceLinks.length > 0) {
+      // Get all links that target already has
+      const targetLinks = await SongLink.findAll({
+        where: { songId: target.id },
+        attributes: ['link']
+      });
+      const targetLinksSet = new Set(
+        targetLinks.map(l => l.link.toLowerCase().trim())
       );
+
+      // Separate links into those that can be updated vs those that would create duplicates
+      const linksToUpdate: SongLink[] = [];
+      const linksToDelete: SongLink[] = [];
+
+      for (const link of sourceLinks) {
+        const normalizedLink = link.link.toLowerCase().trim();
+        if (targetLinksSet.has(normalizedLink)) {
+          // Target already has this link - delete source link to avoid duplicate
+          linksToDelete.push(link);
+        } else {
+          // Target doesn't have this link - update source link to point to target
+          linksToUpdate.push(link);
+        }
+      }
+
+      // Update links that won't create duplicates
+      if (linksToUpdate.length > 0) {
+        const linkIdsToUpdate = linksToUpdate.map(l => l.id);
+        await SongLink.update(
+          { songId: target.id },
+          { where: { id: { [Op.in]: linkIdsToUpdate } } }
+        );
+      }
+
+      // Delete links that would create duplicates
+      if (linksToDelete.length > 0) {
+        const linkIdsToDelete = linksToDelete.map(l => l.id);
+        await SongLink.destroy({
+          where: { id: { [Op.in]: linkIdsToDelete } }
+        });
+      }
     }
 
     // Merge evidences from source to target by updating songId

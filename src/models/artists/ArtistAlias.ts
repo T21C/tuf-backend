@@ -60,6 +60,11 @@ ArtistAlias.init(
     indexes: [
       {fields: ['artistId']},
       {fields: ['alias']},
+      {
+        unique: true,
+        fields: ['artistId', 'alias'],
+        name: 'artist_aliases_artistId_alias_unique',
+      },
     ],
   },
 );

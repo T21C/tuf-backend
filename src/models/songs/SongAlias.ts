@@ -60,6 +60,11 @@ SongAlias.init(
     indexes: [
       {fields: ['songId']},
       {fields: ['alias']},
+      {
+        unique: true,
+        fields: ['songId', 'alias'],
+        name: 'song_aliases_songId_alias_unique',
+      },
     ],
   },
 );

@@ -59,6 +59,11 @@ ArtistLink.init(
     tableName: 'artist_links',
     indexes: [
       {fields: ['artistId']},
+      {
+        unique: true,
+        fields: ['artistId', 'link'],
+        name: 'artist_links_artistId_link_unique',
+      },
     ],
   },
 );
