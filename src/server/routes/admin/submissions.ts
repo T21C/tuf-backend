@@ -707,14 +707,16 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             if (evidence.type === 'song' && finalSongId) {
               await evidenceService.addEvidenceToSong(
                 finalSongId,
-                evidence.link
+                evidence.link,
+                transaction
               );
             } else if (evidence.type === 'artist' && finalArtistIds.length > 0) {
               // Add evidence to all artists in the request
               for (const artistId of finalArtistIds) {
                 await evidenceService.addEvidenceToArtist(
                   artistId,
-                  evidence.link
+                  evidence.link,
+                  transaction
                 );
               }
             }

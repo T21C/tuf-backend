@@ -494,7 +494,8 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
 
     const evidence = await evidenceService.addEvidenceToSong(
       parseInt(req.params.id),
-      link.trim()
+      link.trim(),
+      transaction
     );
 
     await transaction.commit();
@@ -531,7 +532,8 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
       // Create evidence record
       const evidence = await evidenceService.addEvidenceToSong(
         parseInt(req.params.id),
-        cdnUrl
+        cdnUrl,
+        transaction
       );
       evidences.push(evidence);
     }

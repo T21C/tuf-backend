@@ -528,9 +528,13 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
     }
 
     // Process in batches (each batch gets its own transaction)
-    let currentOffset = startOffset;
+    // Note: We always use offset: 0 because the WHERE clause (songId: null) naturally excludes
+    // already-processed levels. As levels are migrated, their songId changes, so they won't
+    // match the WHERE clause anymore. This avoids skipping records due to offset misalignment.
+    let batchNumber = 0;
     let processedInBatch = 0;
-    while (currentOffset < totalCount && processedInBatch < maxLevels) {
+    
+    while (processedInBatch < maxLevels) {
       const batchTransaction = await sequelize.transaction();
       
       try {
@@ -538,13 +542,14 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
         const remainingToProcess = maxLevels - processedInBatch;
         const batchLimit = Math.min(BATCH_SIZE, remainingToProcess);
         
+        // Always use offset: 0 since WHERE clause excludes already-processed levels
         const levels = await Level.findAll({
           where: {
             songId: null,
             isDeleted: false
           },
           limit: batchLimit,
-          offset: currentOffset,
+          offset: 0, // Always start from beginning - WHERE clause handles filtering
           order: [['id', 'ASC']],
           include: [{
             model: LevelTag,
@@ -557,9 +562,13 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
           transaction: batchTransaction
         });
 
-        if (levels.length === 0) break;
+        // If no levels found, we're done
+        if (levels.length === 0) {
+          logger.info('No more levels to migrate');
+          break;
+        }
 
-        const batchNumber = Math.floor(currentOffset / BATCH_SIZE) + 1;
+        batchNumber++;
         const totalBatches = isBatchMode 
           ? Math.ceil(stats.totalLevels / BATCH_SIZE)
           : Math.ceil(totalCount / BATCH_SIZE);
@@ -581,24 +590,28 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
           await safeTransactionRollback(batchTransaction);
         }
 
-        currentOffset += levels.length;
         processedInBatch += levels.length;
 
         // Progress update
         const processed = stats.processedLevels + stats.skippedLevels + stats.errorLevels;
         if (isBatchMode) {
           logger.info(`Progress: ${processed}/${stats.totalLevels} levels processed in this batch (${((processed / stats.totalLevels) * 100).toFixed(1)}%)`);
-          logger.info(`Overall offset: ${currentOffset}/${totalCount} total levels`);
         } else {
           logger.info(`Progress: ${processed}/${stats.totalLevels} levels processed (${((processed / stats.totalLevels) * 100).toFixed(1)}%)`);
         }
 
+        // If we got fewer levels than requested, we've processed all remaining levels
+        if (levels.length < batchLimit) {
+          logger.info('All remaining levels have been processed');
+          break;
+        }
+
       } catch (error: any) {
         await safeTransactionRollback(batchTransaction);
-        logger.error(`Error in batch ${Math.floor(currentOffset / BATCH_SIZE) + 1}:`, error);
-        // Continue with next batch
-        currentOffset += BATCH_SIZE;
-        processedInBatch += BATCH_SIZE;
+        logger.error(`Error in batch ${batchNumber}:`, error);
+        // Break on error to avoid infinite loop - user can restart migration
+        logger.error('Stopping migration due to error. You can restart from where it left off.');
+        break;
       }
     }
 
