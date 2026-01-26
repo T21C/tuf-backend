@@ -468,71 +468,36 @@ router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, r
   }
 });
 
-// Check if artists exist before splitting
-router.post('/:id([0-9]{1,20})/split/check', Auth.superAdmin(), async (req: Request, res: Response) => {
-  try {
-    const {name1, name2} = req.body;
-    
-    if (!name1 || typeof name1 !== 'string') {
-      return res.status(400).json({error: 'name1 is required'});
-    }
-    
-    if (!name2 || typeof name2 !== 'string') {
-      return res.status(400).json({error: 'name2 is required'});
-    }
-
-    const {existing1, existing2} = await artistService.checkExistingArtists(
-      name1.trim(),
-      name2.trim()
-    );
-
-    return res.json({
-      existing1: existing1 ? {
-        id: existing1.id,
-        name: existing1.name,
-        avatarUrl: existing1.avatarUrl
-      } : null,
-      existing2: existing2 ? {
-        id: existing2.id,
-        name: existing2.name,
-        avatarUrl: existing2.avatarUrl
-      } : null
-    });
-  } catch (error: any) {
-    logger.error('Error checking existing artists:', error);
-    return res.status(500).json({error: 'Failed to check existing artists'});
-  }
-});
-
-// Split artist into two new artists
+// Split artist into two existing artists
 router.post('/:id([0-9]{1,20})/split', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {
-      name1, 
-      name2, 
-      deleteOriginal = false,
-      useExisting1 = false,
-      useExisting2 = false
+      targetId1, 
+      targetId2, 
+      deleteOriginal = false
     } = req.body;
     
-    if (!name1 || typeof name1 !== 'string') {
+    if (!targetId1 || typeof targetId1 !== 'number') {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({error: 'name1 is required'});
+      return res.status(400).json({error: 'targetId1 is required and must be a number'});
     }
     
-    if (!name2 || typeof name2 !== 'string') {
+    if (!targetId2 || typeof targetId2 !== 'number') {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({error: 'name2 is required'});
+      return res.status(400).json({error: 'targetId2 is required and must be a number'});
+    }
+
+    if (targetId1 === targetId2) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'targetId1 and targetId2 must be different'});
     }
 
     const result = await artistService.splitArtist(
       parseInt(req.params.id),
-      name1.trim(),
-      name2.trim(),
+      targetId1,
+      targetId2,
       deleteOriginal === true || deleteOriginal === 'true',
-      useExisting1 === true || useExisting1 === 'true',
-      useExisting2 === true || useExisting2 === 'true',
       transaction
     );
     
@@ -540,8 +505,8 @@ router.post('/:id([0-9]{1,20})/split', Auth.superAdmin(), async (req: Request, r
 
     return res.json({
       success: true,
-      artist1: result.artist1,
-      artist2: result.artist2
+      entity1: result.artist1,
+      entity2: result.artist2
     });
   } catch (error: any) {
     await safeTransactionRollback(transaction);

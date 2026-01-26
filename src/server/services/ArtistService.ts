@@ -283,17 +283,14 @@ class ArtistService {
   }
 
   /**
-   * Split artist into two new artists with specified names
+   * Split artist into two existing artists specified by IDs
    * Creates deep copies of all data (aliases, links, evidences, avatar) and duplicates song credits
-   * If useExisting1 or useExisting2 is true, uses the existing artist instead of creating a new one
    */
   public async splitArtist(
     sourceId: number,
-    name1: string,
-    name2: string,
+    targetId1: number,
+    targetId2: number,
     deleteOriginal: boolean = false,
-    useExisting1: boolean = false,
-    useExisting2: boolean = false,
     transaction?: any
   ): Promise<{artist1: Artist; artist2: Artist}> {
     const source = await Artist.findByPk(sourceId, {
@@ -310,81 +307,64 @@ class ArtistService {
       throw new Error('Source artist not found');
     }
 
-    if (!name1 || !name2 || name1.trim() === '' || name2.trim() === '') {
-      throw new Error('Both names are required');
+    if (!targetId1 || !targetId2) {
+      throw new Error('Both target IDs are required');
     }
 
-    const normalizedName1 = this.normalizeArtistName(name1.trim());
-    const normalizedName2 = this.normalizeArtistName(name2.trim());
-
-    if (normalizedName1 === normalizedName2) {
-      throw new Error('Names must be different');
+    if (targetId1 === targetId2) {
+      throw new Error('Target IDs must be different');
     }
 
-    // Check if names already exist
-    const { existing1, existing2 } = await this.checkExistingArtists(name1, name2, transaction);
-
-    // Use existing artists if specified, otherwise create new ones
-    let artist1: Artist;
-    let artist2: Artist;
-
-    if (useExisting1 && existing1) {
-      artist1 = existing1;
-    } else {
-      if (existing1 && !useExisting1) {
-        throw new Error(`Artist with name "${name1}" already exists`);
-      }
-      // Create first new artist
-      artist1 = await Artist.create({
-        name: name1.trim(),
-        avatarUrl: source.avatarUrl, // Copy avatar URL
-        verificationState: source.verificationState
-      }, { transaction });
+    if (sourceId === targetId1 || sourceId === targetId2) {
+      throw new Error('Source artist cannot be one of the target artists');
     }
 
-    if (useExisting2 && existing2) {
-      artist2 = existing2;
-    } else {
-      if (existing2 && !useExisting2) {
-        throw new Error(`Artist with name "${name2}" already exists`);
-      }
-      // Create second new artist
-      artist2 = await Artist.create({
-        name: name2.trim(),
-        avatarUrl: source.avatarUrl, // Copy avatar URL
-        verificationState: source.verificationState
-      }, { transaction });
+    // Fetch target artists with their existing data
+    const artist1 = await Artist.findByPk(targetId1, {
+      include: [
+        { model: ArtistAlias, as: 'aliases' },
+        { model: ArtistLink, as: 'links' },
+        { model: ArtistEvidence, as: 'evidences' }
+      ],
+      transaction
+    });
+
+    const artist2 = await Artist.findByPk(targetId2, {
+      include: [
+        { model: ArtistAlias, as: 'aliases' },
+        { model: ArtistLink, as: 'links' },
+        { model: ArtistEvidence, as: 'evidences' }
+      ],
+      transaction
+    });
+
+    if (!artist1) {
+      throw new Error(`Target artist with ID ${targetId1} not found`);
     }
 
-    // Copy aliases to both artists (only add new ones if using existing artists)
+    if (!artist2) {
+      throw new Error(`Target artist with ID ${targetId2} not found`);
+    }
+
+    // Copy aliases to both artists (only add new ones)
     const sourceAliases = source.aliases || [];
     if (sourceAliases.length > 0) {
       const aliasesForBoth = sourceAliases.map(alias => alias.alias);
 
       // For artist1: add aliases that don't already exist
-      if (useExisting1 && existing1) {
-        const existingAliases1 = new Set(
-          (existing1.aliases || []).map(a => this.normalizeArtistName(a.alias))
-        );
-        existingAliases1.add(this.normalizeArtistName(existing1.name));
-        
-        const newAliases1 = aliasesForBoth.filter(alias => {
-          const normalized = this.normalizeArtistName(alias);
-          return !existingAliases1.has(normalized);
-        });
-        
-        if (newAliases1.length > 0) {
-          await ArtistAlias.bulkCreate(
-            newAliases1.map(alias => ({
-              artistId: artist1.id,
-              alias: alias
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingAliases1 = new Set(
+        (artist1.aliases || []).map(a => this.normalizeArtistName(a.alias))
+      );
+      existingAliases1.add(this.normalizeArtistName(artist1.name));
+      
+      const newAliases1 = aliasesForBoth.filter(alias => {
+        const normalized = this.normalizeArtistName(alias);
+        return !existingAliases1.has(normalized);
+      });
+      
+      if (newAliases1.length > 0) {
         await ArtistAlias.bulkCreate(
-          aliasesForBoth.map(alias => ({
+          newAliases1.map(alias => ({
             artistId: artist1.id,
             alias: alias
           })),
@@ -393,29 +373,19 @@ class ArtistService {
       }
 
       // For artist2: add aliases that don't already exist
-      if (useExisting2 && existing2) {
-        const existingAliases2 = new Set(
-          (existing2.aliases || []).map(a => this.normalizeArtistName(a.alias))
-        );
-        existingAliases2.add(this.normalizeArtistName(existing2.name));
-        
-        const newAliases2 = aliasesForBoth.filter(alias => {
-          const normalized = this.normalizeArtistName(alias);
-          return !existingAliases2.has(normalized);
-        });
-        
-        if (newAliases2.length > 0) {
-          await ArtistAlias.bulkCreate(
-            newAliases2.map(alias => ({
-              artistId: artist2.id,
-              alias: alias
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingAliases2 = new Set(
+        (artist2.aliases || []).map(a => this.normalizeArtistName(a.alias))
+      );
+      existingAliases2.add(this.normalizeArtistName(artist2.name));
+      
+      const newAliases2 = aliasesForBoth.filter(alias => {
+        const normalized = this.normalizeArtistName(alias);
+        return !existingAliases2.has(normalized);
+      });
+      
+      if (newAliases2.length > 0) {
         await ArtistAlias.bulkCreate(
-          aliasesForBoth.map(alias => ({
+          newAliases2.map(alias => ({
             artistId: artist2.id,
             alias: alias
           })),
@@ -424,28 +394,18 @@ class ArtistService {
       }
     }
 
-    // Copy links to both artists (only add new ones if using existing artists)
+    // Copy links to both artists (only add new ones)
     const sourceLinks = source.links || [];
     if (sourceLinks.length > 0) {
       const linksForBoth = sourceLinks.map(link => link.link);
 
       // For artist1: add links that don't already exist
-      if (useExisting1 && existing1) {
-        const existingLinks1 = new Set((existing1.links || []).map(l => l.link));
-        const newLinks1 = linksForBoth.filter(link => !existingLinks1.has(link));
-        
-        if (newLinks1.length > 0) {
-          await ArtistLink.bulkCreate(
-            newLinks1.map(link => ({
-              artistId: artist1.id,
-              link: link
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingLinks1 = new Set((artist1.links || []).map(l => l.link));
+      const newLinks1 = linksForBoth.filter(link => !existingLinks1.has(link));
+      
+      if (newLinks1.length > 0) {
         await ArtistLink.bulkCreate(
-          linksForBoth.map(link => ({
+          newLinks1.map(link => ({
             artistId: artist1.id,
             link: link
           })),
@@ -454,22 +414,12 @@ class ArtistService {
       }
 
       // For artist2: add links that don't already exist
-      if (useExisting2 && existing2) {
-        const existingLinks2 = new Set((existing2.links || []).map(l => l.link));
-        const newLinks2 = linksForBoth.filter(link => !existingLinks2.has(link));
-        
-        if (newLinks2.length > 0) {
-          await ArtistLink.bulkCreate(
-            newLinks2.map(link => ({
-              artistId: artist2.id,
-              link: link
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingLinks2 = new Set((artist2.links || []).map(l => l.link));
+      const newLinks2 = linksForBoth.filter(link => !existingLinks2.has(link));
+      
+      if (newLinks2.length > 0) {
         await ArtistLink.bulkCreate(
-          linksForBoth.map(link => ({
+          newLinks2.map(link => ({
             artistId: artist2.id,
             link: link
           })),
@@ -478,28 +428,18 @@ class ArtistService {
       }
     }
 
-    // Copy evidences to both artists (only add new ones if using existing artists)
+    // Copy evidences to both artists (only add new ones)
     const sourceEvidences = source.evidences || [];
     if (sourceEvidences.length > 0) {
       const evidencesForBoth = sourceEvidences.map(e => ({ link: e.link }));
 
       // For artist1: add evidences that don't already exist
-      if (useExisting1 && existing1) {
-        const existingEvidences1 = new Set((existing1.evidences || []).map(e => e.link));
-        const newEvidences1 = evidencesForBoth.filter(e => !existingEvidences1.has(e.link));
-        
-        if (newEvidences1.length > 0) {
-          await ArtistEvidence.bulkCreate(
-            newEvidences1.map(evidence => ({
-              artistId: artist1.id,
-              link: evidence.link
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingEvidences1 = new Set((artist1.evidences || []).map(e => e.link));
+      const newEvidences1 = evidencesForBoth.filter(e => !existingEvidences1.has(e.link));
+      
+      if (newEvidences1.length > 0) {
         await ArtistEvidence.bulkCreate(
-          evidencesForBoth.map(evidence => ({
+          newEvidences1.map(evidence => ({
             artistId: artist1.id,
             link: evidence.link
           })),
@@ -508,22 +448,12 @@ class ArtistService {
       }
 
       // For artist2: add evidences that don't already exist
-      if (useExisting2 && existing2) {
-        const existingEvidences2 = new Set((existing2.evidences || []).map(e => e.link));
-        const newEvidences2 = evidencesForBoth.filter(e => !existingEvidences2.has(e.link));
-        
-        if (newEvidences2.length > 0) {
-          await ArtistEvidence.bulkCreate(
-            newEvidences2.map(evidence => ({
-              artistId: artist2.id,
-              link: evidence.link
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingEvidences2 = new Set((artist2.evidences || []).map(e => e.link));
+      const newEvidences2 = evidencesForBoth.filter(e => !existingEvidences2.has(e.link));
+      
+      if (newEvidences2.length > 0) {
         await ArtistEvidence.bulkCreate(
-          evidencesForBoth.map(evidence => ({
+          newEvidences2.map(evidence => ({
             artistId: artist2.id,
             link: evidence.link
           })),
@@ -532,38 +462,27 @@ class ArtistService {
       }
     }
 
-    // Duplicate song credits for both artists (only add new ones if using existing artists)
+    // Duplicate song credits for both artists (only add new ones)
     const sourceCredits = source.songCredits || [];
     if (sourceCredits.length > 0) {
       // For artist1: add credits that don't already exist
-      if (useExisting1 && existing1) {
-        const existingCredits1 = await SongCredit.findAll({
-          where: { artistId: artist1.id },
-          attributes: ['songId', 'role'],
-          transaction
-        });
-        const existingCreditsSet1 = new Set(
-          existingCredits1.map(c => `${c.songId}-${c.role || ''}`)
-        );
-        
-        const newCredits1 = sourceCredits.filter(credit => {
-          const key = `${credit.songId}-${credit.role || ''}`;
-          return !existingCreditsSet1.has(key);
-        });
-        
-        if (newCredits1.length > 0) {
-          await SongCredit.bulkCreate(
-            newCredits1.map(credit => ({
-              songId: credit.songId,
-              artistId: artist1.id,
-              role: credit.role
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingCredits1 = await SongCredit.findAll({
+        where: { artistId: artist1.id },
+        attributes: ['songId', 'role'],
+        transaction
+      });
+      const existingCreditsSet1 = new Set(
+        existingCredits1.map(c => `${c.songId}-${c.role || ''}`)
+      );
+      
+      const newCredits1 = sourceCredits.filter(credit => {
+        const key = `${credit.songId}-${credit.role || ''}`;
+        return !existingCreditsSet1.has(key);
+      });
+      
+      if (newCredits1.length > 0) {
         await SongCredit.bulkCreate(
-          sourceCredits.map(credit => ({
+          newCredits1.map(credit => ({
             songId: credit.songId,
             artistId: artist1.id,
             role: credit.role
@@ -573,34 +492,23 @@ class ArtistService {
       }
 
       // For artist2: add credits that don't already exist
-      if (useExisting2 && existing2) {
-        const existingCredits2 = await SongCredit.findAll({
-          where: { artistId: artist2.id },
-          attributes: ['songId', 'role'],
-          transaction
-        });
-        const existingCreditsSet2 = new Set(
-          existingCredits2.map(c => `${c.songId}-${c.role || ''}`)
-        );
-        
-        const newCredits2 = sourceCredits.filter(credit => {
-          const key = `${credit.songId}-${credit.role || ''}`;
-          return !existingCreditsSet2.has(key);
-        });
-        
-        if (newCredits2.length > 0) {
-          await SongCredit.bulkCreate(
-            newCredits2.map(credit => ({
-              songId: credit.songId,
-              artistId: artist2.id,
-              role: credit.role
-            })),
-            { transaction }
-          );
-        }
-      } else {
+      const existingCredits2 = await SongCredit.findAll({
+        where: { artistId: artist2.id },
+        attributes: ['songId', 'role'],
+        transaction
+      });
+      const existingCreditsSet2 = new Set(
+        existingCredits2.map(c => `${c.songId}-${c.role || ''}`)
+      );
+      
+      const newCredits2 = sourceCredits.filter(credit => {
+        const key = `${credit.songId}-${credit.role || ''}`;
+        return !existingCreditsSet2.has(key);
+      });
+      
+      if (newCredits2.length > 0) {
         await SongCredit.bulkCreate(
-          sourceCredits.map(credit => ({
+          newCredits2.map(credit => ({
             songId: credit.songId,
             artistId: artist2.id,
             role: credit.role
