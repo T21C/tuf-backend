@@ -127,7 +127,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       finalWhere.id = {[Op.in]: artistSongIds};
     }
 
-    logger.debug('finalWhere', finalWhere);
     const {count, rows} = await Song.findAndCountAll({
       where: finalWhere,
       limit: normalizedLimit,

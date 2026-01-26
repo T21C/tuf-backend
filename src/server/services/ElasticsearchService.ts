@@ -118,6 +118,7 @@ class ElasticsearchService {
     Level.removeHook('beforeSave', 'elasticsearchLevelUpdate');
     Pass.removeHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate');
     Pass.removeHook('afterBulkCreate', 'elasticsearchPassBulkCreate');
+    Level.removeHook('beforeBulkUpdate', 'elasticsearchLevelBeforeBulkUpdate');
     Level.removeHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate');
     LevelTag.removeHook('afterBulkUpdate', 'elasticsearchLevelTagBulkUpdate');
     LevelTagAssignment.removeHook('afterBulkCreate', 'elasticsearchLevelTagAssignmentBulkCreate');
@@ -251,23 +252,59 @@ class ElasticsearchService {
       return;
     });
 
+    // Add beforeBulkUpdate hook to capture affected level IDs before update
+    // This is needed because the WHERE clause might reference fields that get updated
+    Level.addHook('beforeBulkUpdate', 'elasticsearchLevelBeforeBulkUpdate', async (options: any) => {
+      try {
+        if (options.where) {
+          // Find affected level IDs BEFORE the update happens
+          const affectedLevels = await Level.findAll({ 
+            where: options.where, 
+            attributes: ['id'],
+            transaction: options.transaction 
+          });
+          // Store the IDs in options so afterBulkUpdate can use them
+          options.affectedLevelIds = affectedLevels.map(level => level.id);
+          logger.debug(`Found ${options.affectedLevelIds.length} levels to reindex before bulk update`);
+        }
+      } catch (error) {
+        logger.error('Error in level beforeBulkUpdate hook:', error);
+      }
+    });
+
     // Add afterBulkUpdate hook for Level model
     Level.addHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate', async (options: any) => {
       logger.debug('Level bulk update hook triggered');
       try {
-        if (options.transaction) {
-          await options.transaction.afterCommit(async () => {
-            const levelIds = await Level.findAll({ where: options.where, attributes: ['id'] });
-            logger.debug(`Indexing ${levelIds.length} levels after bulk update`);
-            await this.reindexLevels(levelIds.map(level => level.id));
+        // Use pre-captured IDs if available (from beforeBulkUpdate hook)
+        // Otherwise fall back to finding by WHERE clause (for cases where WHERE fields weren't updated)
+        let levelIds: number[] = [];
+        
+        if (options.affectedLevelIds && options.affectedLevelIds.length > 0) {
+          // Use IDs captured before the update
+          levelIds = options.affectedLevelIds;
+        } else if (options.where) {
+          // Fallback: try to find by WHERE clause (works if WHERE fields weren't updated)
+          const foundLevels = await Level.findAll({ 
+            where: options.where, 
+            attributes: ['id'],
+            transaction: options.transaction 
+          });
+          levelIds = foundLevels.map(level => level.id);
+        }
 
-           });
-        } else {
-          if (options.where) {
-            const levelIds = await Level.findAll({ where: options.where, attributes: ['id'] });
+        if (levelIds.length > 0) {
+          if (options.transaction) {
+            await options.transaction.afterCommit(async () => {
+              logger.debug(`Indexing ${levelIds.length} levels after bulk update`);
+              await this.reindexLevels(levelIds);
+            });
+          } else {
             logger.debug(`Indexing ${levelIds.length} levels after bulk update`);
-            await this.reindexLevels(levelIds.map(level => level.id));
+            await this.reindexLevels(levelIds);
           }
+        } else {
+          logger.debug('No levels found to reindex after bulk update');
         }
       } catch (error) {
         logger.error('Error in level afterBulkUpdate hook:', error);
