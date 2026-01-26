@@ -10,7 +10,6 @@ type LevelSubmissionArtistRequestAttributes = {
   artistId: number | null;
   artistName: string | null;
   isNewRequest: boolean;
-  requiresEvidence: boolean;
   verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' | null;
   createdAt: Date;
   updatedAt: Date;
@@ -24,7 +23,6 @@ class LevelSubmissionArtistRequest extends Model<LevelSubmissionArtistRequestAtt
   declare artistId: number | null;
   declare artistName: string | null;
   declare isNewRequest: boolean;
-  declare requiresEvidence: boolean;
   declare verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -66,11 +64,6 @@ LevelSubmissionArtistRequest.init(
       allowNull: true,
     },
     isNewRequest: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-    },
-    requiresEvidence: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

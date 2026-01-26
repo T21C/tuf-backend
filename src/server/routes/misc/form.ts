@@ -485,7 +485,6 @@ router.post(
             songId: songId,
             songName: isNewSongRequest ? songName : null,
             isNewRequest: isNewSongRequest,
-            requiresEvidence: isNewSongRequest ? true : requiresSongEvidence // Always true for new songs
           }, { transaction });
           songRequestId = songRequest.id;
           await submission.update({ songRequestId: songRequest.id }, { transaction });
@@ -503,8 +502,7 @@ router.post(
               artistId: request.artistId || null,
               artistName: request.artistName ? sanitizeTextInput(request.artistName) : null,
               isNewRequest: request.isNewRequest || false,
-              requiresEvidence: request.requiresEvidence || false,
-              verificationState: request.verificationState || null
+              verificationState: request.verificationState || 'pending'
             }, { transaction });
           }));
           
@@ -519,8 +517,7 @@ router.post(
             artistId: artistId,
             artistName: isNewArtistRequest ? artistName : null,
             isNewRequest: isNewArtistRequest,
-            requiresEvidence: requiresArtistEvidence,
-            verificationState: req.body.verificationState || null
+            verificationState: req.body.verificationState || 'pending'
           }, { transaction });
           artistRequestId = artistRequest.id;
         }

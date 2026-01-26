@@ -34,7 +34,7 @@ const upload = multer({
 router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {songId, isNewRequest, songName, requiresEvidence} = req.body;
+    const {songId, isNewRequest, songName, verificationState} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {
       include: [
         {
@@ -58,6 +58,12 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
     let newSongRequestId: number | null = null;
     let finalSongId: number | null = null;
 
+    // Validate: if isNewRequest is true, songId must be null/undefined
+    if (isNewRequest && songId) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({error: 'Cannot specify songId when creating a new song request'});
+    }
+
     if (songId) {
       // Use existing song
       finalSongId = parseInt(songId);
@@ -67,19 +73,21 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
         return res.status(404).json({error: 'Song not found'});
       }
     } else if (isNewRequest && songName) {
-      // Create new song request with requiresEvidence from request
+      // Create new song request with verificationState from request
+      // Ensure songId is null for new requests
       const songRequest = await LevelSubmissionSongRequest.create({
         submissionId: submission.id,
+        songId: null, // Explicitly null for new requests
         songName: songName.trim(),
         isNewRequest: true,
-        requiresEvidence: requiresEvidence !== undefined ? requiresEvidence : true // Default to true if not specified
+        verificationState: verificationState || 'pending' // Default to pending if not specified
       }, {transaction});
       newSongRequestId = songRequest.id;
     }
 
-    // Update submission
+    // Update submission - ensure songId is null when creating new request
     await submission.update({
-      songId: finalSongId,
+      songId: isNewRequest ? null : finalSongId,
       songRequestId: newSongRequestId,
       song: songId ? (await Song.findByPk(songId, {transaction}))?.name : songName
     }, {transaction});
@@ -115,7 +123,7 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
 router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
-    const {artistId, artistRequestId, isNewRequest, artistName, requiresEvidence, verificationState} = req.body;
+    const {artistId, artistRequestId, isNewRequest, artistName, verificationState} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {
       include: [
         {
@@ -162,7 +170,6 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
             artistId: finalArtistId,
             artistName: artist.name,
             isNewRequest: false,
-            requiresEvidence: requiresEvidence || false,
             verificationState: null // Existing artists don't have verification state in request
           }, {transaction});
         } else {
@@ -176,7 +183,6 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
           artistId: finalArtistId,
           artistName: artist.name,
           isNewRequest: false,
-          requiresEvidence: requiresEvidence || false,
           verificationState: null // Existing artists don't have verification state in request
         }, {transaction});
       }
@@ -188,7 +194,6 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
           await existingRequest.update({
             artistName: artistName.trim(),
             isNewRequest: true,
-            requiresEvidence: requiresEvidence || false,
             verificationState: verificationState || null
           }, {transaction});
         } else {
@@ -201,7 +206,6 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
           submissionId: submission.id,
           artistName: artistName.trim(),
           isNewRequest: true,
-          requiresEvidence: requiresEvidence || false,
           verificationState: verificationState || null
         }, {transaction});
       }
@@ -350,7 +354,6 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
         songId: song.id,
         songName: song.name,
         isNewRequest: false,
-        requiresEvidence: false
       }, { transaction });
     } else {
       await LevelSubmissionSongRequest.create({
@@ -358,7 +361,6 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
         songId: song.id,
         songName: song.name,
         isNewRequest: false,
-        requiresEvidence: false
       }, { transaction });
     }
 
@@ -521,7 +523,6 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
       artistId: artist.id,
       artistName: artist.name,
       isNewRequest: false,
-      requiresEvidence: false,
       verificationState: null
     }, { transaction });
 
@@ -618,7 +619,7 @@ router.post('/levels/:id/songs', Auth.superAdmin(), async (req: Request, res: Re
         songId: song.id,
         songName: song.name,
         isNewRequest: false,
-        requiresEvidence: false
+        verificationState: 'pending'
       }, { transaction });
     } else if (!submission.songRequest) {
       // Create new song request if doesn't exist
@@ -627,7 +628,7 @@ router.post('/levels/:id/songs', Auth.superAdmin(), async (req: Request, res: Re
         songId: song.id,
         songName: song.name,
         isNewRequest: false,
-        requiresEvidence: false
+        verificationState: 'pending'
       }, { transaction });
     }
 
@@ -746,8 +747,6 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
           artistId: artist.id,
           artistName: artist.name,
           isNewRequest: false,
-          requiresEvidence: false,
-          verificationState: null
         }, { transaction });
       } else {
         await safeTransactionRollback(transaction);
@@ -760,7 +759,6 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
         artistId: artist.id,
         artistName: artist.name,
         isNewRequest: false,
-        requiresEvidence: false
       }, { transaction });
     }
 
@@ -827,14 +825,14 @@ router.post('/levels/:id/song-requests', Auth.superAdmin(), async (req: Request,
     }
 
     // Create a new song request with placeholder name
-    // Default requiresEvidence to true if not specified
-    const { requiresEvidence } = req.body;
+    // Default verificationState to pending if not specified
+    const { verificationState } = req.body;
     const placeholderName = submission.song || 'New Song';
     await LevelSubmissionSongRequest.create({
       submissionId: parseInt(id),
       songName: placeholderName,
       isNewRequest: true,
-      requiresEvidence: requiresEvidence !== undefined ? requiresEvidence : true
+      verificationState: verificationState || 'pending'
     }, { transaction });
 
     // Update submission to clear songId
@@ -922,8 +920,7 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
       submissionId: parseInt(id),
       artistName: placeholderName,
       isNewRequest: true,
-      requiresEvidence: false,
-      verificationState: verificationState || null
+      verificationState: verificationState || 'pending'
     }, { transaction });
 
     // Update submission to clear artistId if no artists remain

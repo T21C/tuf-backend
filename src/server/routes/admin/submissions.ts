@@ -472,8 +472,16 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Use existing song
             finalSongId = submission.songRequest.songId;
           } else if (submission.songRequest.isNewRequest && submission.songRequest.songName) {
-            // Create new song (service methods don't support transactions yet)
-            const song = await songService.findOrCreateSong(submission.songRequest.songName.trim());
+            // Create new song with verificationState from request
+            const verificationState = submission.songRequest.verificationState || 'pending';
+            const [song] = await Song.findOrCreate({
+              where: { name: submission.songRequest.songName.trim() },
+              defaults: {
+                name: submission.songRequest.songName.trim(),
+                verificationState: verificationState
+              },
+              transaction
+            });
             finalSongId = song.id;
           }
         } else if (submission.songId) {
