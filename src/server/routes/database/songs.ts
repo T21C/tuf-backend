@@ -163,7 +163,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       total: count,
       page: parseInt(page as string),
       limit: normalizedLimit,
-      hasMore: offset + normalizedLimit < count
+      hasMore: rows.length > 0 && offset + normalizedLimit < count
     });
   } catch (error) {
     logger.error('Error fetching songs:', error);
