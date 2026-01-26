@@ -269,26 +269,34 @@ class SongService {
 
   /**
    * Add artist credit to song
+   * Since uniqueness is enforced on songId+artistId, we check for existing credit regardless of role
+   * If credit exists, returns it without modifying role (role is only set on creation)
    */
   public async addArtistCredit(
     songId: number,
     artistId: number,
     role?: string | null
   ): Promise<SongCredit> {
-    const [credit, created] = await SongCredit.findOrCreate({
+    // Check if credit already exists (uniqueness is on songId+artistId, not role)
+    const existingCredit = await SongCredit.findOne({
       where: {
         songId,
-        artistId,
-        role: role || null
-      },
-      defaults: {
-        songId,
-        artistId,
-        role: role || null
+        artistId
       }
     });
 
-    return credit;
+    if (existingCredit) {
+      // Credit already exists - return it without modifying role
+      // Role is only set on creation, not updated on subsequent calls
+      return existingCredit;
+    }
+
+    // Create new credit
+    return await SongCredit.create({
+      songId,
+      artistId,
+      role: role || null
+    });
   }
 
   /**

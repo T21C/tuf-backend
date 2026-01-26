@@ -117,6 +117,7 @@ async function batchCheckSongsExist(names: string[]): Promise<Set<string>> {
 /**
  * Batch check existing song credits
  * Returns a Set of "songId-artistId" strings for existing credits
+ * Checks for ANY credit regardless of role, since uniqueness is enforced on songId+artistId
  */
 async function batchCheckCreditsExist(
   songIds: number[],
@@ -128,8 +129,8 @@ async function batchCheckCreditsExist(
   const existingCredits = await SongCredit.findAll({
     where: {
       songId: { [Op.in]: songIds },
-      artistId: { [Op.in]: artistIds },
-      role: null
+      artistId: { [Op.in]: artistIds }
+      // Don't filter by role - check for ANY credit since uniqueness is on songId+artistId
     },
     attributes: ['songId', 'artistId'],
     transaction
@@ -351,7 +352,17 @@ async function migrateLevelsBatch(
 
       // Batch create credits
       if (newCredits.length > 0) {
-        await SongCredit.bulkCreate(newCredits, { transaction });
+        // Ensure role is explicitly null for consistency
+        const creditsWithRole = newCredits.map(credit => ({
+          songId: credit.songId,
+          artistId: credit.artistId,
+          role: null // Explicitly set role to null
+        }));
+        
+        await SongCredit.bulkCreate(creditsWithRole, { 
+          transaction,
+          ignoreDuplicates: true // Safety measure - prevents errors if duplicates somehow slip through
+        });
         stats.creditsCreated += newCredits.length;
         logger.info(`  Batch created ${newCredits.length} credits`);
       }

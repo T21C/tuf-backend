@@ -463,21 +463,21 @@ class ArtistService {
     }
 
     // Duplicate song credits for both artists (only add new ones)
+    // Since uniqueness is on songId+artistId, check for existing credits regardless of role
     const sourceCredits = source.songCredits || [];
     if (sourceCredits.length > 0) {
-      // For artist1: add credits that don't already exist
+      // For artist1: add credits that don't already exist (check by songId only, not role)
       const existingCredits1 = await SongCredit.findAll({
         where: { artistId: artist1.id },
-        attributes: ['songId', 'role'],
+        attributes: ['songId'],
         transaction
       });
-      const existingCreditsSet1 = new Set(
-        existingCredits1.map(c => `${c.songId}-${c.role || ''}`)
+      const existingSongsSet1 = new Set(
+        existingCredits1.map(c => c.songId)
       );
       
       const newCredits1 = sourceCredits.filter(credit => {
-        const key = `${credit.songId}-${credit.role || ''}`;
-        return !existingCreditsSet1.has(key);
+        return !existingSongsSet1.has(credit.songId);
       });
       
       if (newCredits1.length > 0) {
@@ -485,25 +485,27 @@ class ArtistService {
           newCredits1.map(credit => ({
             songId: credit.songId,
             artistId: artist1.id,
-            role: credit.role
+            role: credit.role // Preserve role from source credit
           })),
-          { transaction }
+          { 
+            transaction,
+            ignoreDuplicates: true // Safety measure
+          }
         );
       }
 
-      // For artist2: add credits that don't already exist
+      // For artist2: add credits that don't already exist (check by songId only, not role)
       const existingCredits2 = await SongCredit.findAll({
         where: { artistId: artist2.id },
-        attributes: ['songId', 'role'],
+        attributes: ['songId'],
         transaction
       });
-      const existingCreditsSet2 = new Set(
-        existingCredits2.map(c => `${c.songId}-${c.role || ''}`)
+      const existingSongsSet2 = new Set(
+        existingCredits2.map(c => c.songId)
       );
       
       const newCredits2 = sourceCredits.filter(credit => {
-        const key = `${credit.songId}-${credit.role || ''}`;
-        return !existingCreditsSet2.has(key);
+        return !existingSongsSet2.has(credit.songId);
       });
       
       if (newCredits2.length > 0) {
@@ -511,9 +513,12 @@ class ArtistService {
           newCredits2.map(credit => ({
             songId: credit.songId,
             artistId: artist2.id,
-            role: credit.role
+            role: credit.role // Preserve role from source credit
           })),
-          { transaction }
+          { 
+            transaction,
+            ignoreDuplicates: true // Safety measure
+          }
         );
       }
     }
