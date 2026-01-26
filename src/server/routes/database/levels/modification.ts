@@ -190,8 +190,6 @@ export const checkLevelOwnership = async (
     );
   }
 
-  console.log(isOwner);
-
   let canEdit = false;
   let errorMessage: string | undefined;
   if (isSuperAdmin || isOwner) {

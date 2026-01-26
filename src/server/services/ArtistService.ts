@@ -709,8 +709,6 @@ class ArtistService {
       type: 'SELECT' as const
     }) as any[];
 
-    console.log(results);
-
     return results.map((row: any) => ({
       id: row.id,
       name: row.name,
