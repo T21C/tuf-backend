@@ -326,6 +326,55 @@ class ArtistService {
       { where: { artistId: source.id } }
     );
 
+    // Merge artist relations
+    // Find all relations where source is involved (as artistId1 or artistId2)
+    const sourceRelations = await ArtistRelation.findAll({
+      where: {
+        [Op.or]: [
+          { artistId1: source.id },
+          { artistId2: source.id }
+        ]
+      }
+    });
+
+    if (sourceRelations.length > 0) {
+      for (const relation of sourceRelations) {
+        // Determine the other artist in the relation
+        const otherArtistId = relation.artistId1 === source.id 
+          ? relation.artistId2 
+          : relation.artistId1;
+
+        // Skip if the other artist is the target (source and target are merging, no need for relation)
+        if (otherArtistId === target.id) {
+          await relation.destroy();
+          continue;
+        }
+
+        // Check if target already has a relation with the other artist
+        const [id1, id2] = target.id < otherArtistId 
+          ? [target.id, otherArtistId] 
+          : [otherArtistId, target.id];
+
+        const existingRelation = await ArtistRelation.findOne({
+          where: {
+            artistId1: id1,
+            artistId2: id2
+          }
+        });
+
+        if (existingRelation) {
+          // Target already has this relation, delete source relation
+          await relation.destroy();
+        } else {
+          // Update relation to point to target instead of source
+          await relation.update({
+            artistId1: id1,
+            artistId2: id2
+          });
+        }
+      }
+    }
+
     // Delete source artist (cascade will handle aliases/links/evidences)
     await source.destroy();
   }
@@ -613,6 +662,92 @@ class ArtistService {
             ignoreDuplicates: true // Safety measure
           }
         );
+      }
+    }
+
+    // Copy artist relations to both target artists
+    // Find all relations where source is involved
+    const sourceRelations = await ArtistRelation.findAll({
+      where: {
+        [Op.or]: [
+          { artistId1: source.id },
+          { artistId2: source.id }
+        ]
+      },
+      transaction
+    });
+
+    if (sourceRelations.length > 0) {
+      for (const relation of sourceRelations) {
+        // Determine the other artist in the relation
+        const otherArtistId = relation.artistId1 === source.id 
+          ? relation.artistId2 
+          : relation.artistId1;
+
+        // Skip if the other artist is one of the targets (they're splitting, relations will be handled separately)
+        if (otherArtistId === artist1.id || otherArtistId === artist2.id) {
+          continue;
+        }
+
+        // Create relation for artist1 if it doesn't already exist
+        const [id1_1, id2_1] = artist1.id < otherArtistId 
+          ? [artist1.id, otherArtistId] 
+          : [otherArtistId, artist1.id];
+
+        const existingRelation1 = await ArtistRelation.findOne({
+          where: {
+            artistId1: id1_1,
+            artistId2: id2_1
+          },
+          transaction
+        });
+
+        if (!existingRelation1) {
+          await ArtistRelation.create({
+            artistId1: id1_1,
+            artistId2: id2_1
+          }, { transaction });
+        }
+
+        // Create relation for artist2 if it doesn't already exist
+        const [id1_2, id2_2] = artist2.id < otherArtistId 
+          ? [artist2.id, otherArtistId] 
+          : [otherArtistId, artist2.id];
+
+        const existingRelation2 = await ArtistRelation.findOne({
+          where: {
+            artistId1: id1_2,
+            artistId2: id2_2
+          },
+          transaction
+        });
+
+        if (!existingRelation2) {
+          await ArtistRelation.create({
+            artistId1: id1_2,
+            artistId2: id2_2
+          }, { transaction });
+        }
+      }
+
+      // Create relation between artist1 and artist2 if source had relations (they're splitting from same source)
+      const [id1, id2] = artist1.id < artist2.id 
+        ? [artist1.id, artist2.id] 
+        : [artist2.id, artist1.id];
+
+      const existingRelationBetweenTargets = await ArtistRelation.findOne({
+        where: {
+          artistId1: id1,
+          artistId2: id2
+        },
+        transaction
+      });
+
+      if (!existingRelationBetweenTargets) {
+        await ArtistRelation.create({
+          artistId1: id1,
+          artistId2: id2
+        }, { transaction });
       }
     }
 
