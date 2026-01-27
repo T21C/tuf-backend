@@ -47,7 +47,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     const searchString = (search as string).trim();
     
-    // Build order clause
+    // Build order clause for sorting
     let order: any[] = [['name', 'ASC']];
     switch (sort) {
       case 'NAME_DESC':
@@ -61,10 +61,9 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         break;
     }
 
-    // Step 1: Check for special #{ID} matcher
-    let finalWhere: any = {};
+    // Step 1: Collect all matching IDs (unpaginated)
+    let allMatchingIds: number[] = [];
     let exactMatchIds: number[] = [];
-    let partialMatchIds: number[] = [];
     
     if (searchString) {
       // Check for #{ID} pattern
@@ -72,22 +71,23 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       if (idMatcher) {
         // Special ID matcher - bypass search conditionals
         const targetId = parseInt(searchString.replace('#', ''));
-        finalWhere.id = targetId;
+        allMatchingIds = [targetId];
       } else {
         // Normal search - separate exact matches from partial matches
         const escapedSearch = escapeForMySQL(searchString);
         
-        // Query 1: Find exact name matches (case-insensitive)
+        // Find exact name matches (case-insensitive, sorted)
         const exactNameMatches = await Artist.findAll({
           where: sequelize.where(
             sequelize.fn('LOWER', sequelize.col('name')),
             searchString.toLowerCase()
           ),
-          attributes: ['id']
+          attributes: ['id'],
+          order
         });
         exactMatchIds = exactNameMatches.map(a => a.id);
 
-        // Query 2: Find exact alias matches (case-insensitive)
+        // Find exact alias matches (case-insensitive)
         const exactAliasMatches = await ArtistAlias.findAll({
           where: sequelize.where(
             sequelize.fn('LOWER', sequelize.col('alias')),
@@ -95,9 +95,23 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           ),
           attributes: ['artistId']
         });
-        exactMatchIds = exactMatchIds.concat(exactAliasMatches.map(a => a.artistId));
+        const exactAliasIds = Array.from(new Set(exactAliasMatches.map(a => a.artistId)));
         
-        // Query 3: Find partial name matches (excluding exact matches)
+        // Sort exact alias IDs by querying artists with those IDs
+        if (exactAliasIds.length > 0) {
+          const sortedExactAliasArtists = await Artist.findAll({
+            where: { id: { [Op.in]: exactAliasIds } },
+            attributes: ['id'],
+            order
+          });
+          const sortedExactAliasIds = sortedExactAliasArtists.map(a => a.id);
+          exactMatchIds = [...exactMatchIds, ...sortedExactAliasIds];
+        }
+        
+        // Remove duplicates from exact matches
+        exactMatchIds = Array.from(new Set(exactMatchIds));
+        
+        // Find partial name matches (excluding exact matches, sorted)
         const partialNameWhere: any = {
           name: {
             [Op.like]: `%${escapedSearch}%`
@@ -108,11 +122,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         }
         const partialNameMatches = await Artist.findAll({
           where: partialNameWhere,
-          attributes: ['id']
+          attributes: ['id'],
+          order
         });
-        partialMatchIds = partialNameMatches.map(a => a.id);
+        const partialMatchIds = partialNameMatches.map(a => a.id);
 
-        // Query 4: Find partial alias matches (excluding exact matches)
+        // Find partial alias matches (excluding exact matches)
         const partialAliasWhere: any = {
           alias: {
             [Op.like]: `%${escapedSearch}%`
@@ -125,40 +140,50 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           where: partialAliasWhere,
           attributes: ['artistId']
         });
-        partialMatchIds = partialMatchIds.concat(partialAliasMatches.map(a => a.artistId));
+        const partialAliasIdsRaw = Array.from(new Set(partialAliasMatches.map(a => a.artistId)));
         
-        // Remove duplicates
-        exactMatchIds = Array.from(new Set(exactMatchIds));
-        partialMatchIds = Array.from(new Set(partialMatchIds));
-        
-        // Combine all matching IDs
-        const allMatchingIds = [...exactMatchIds, ...partialMatchIds];
-        
-        if (allMatchingIds.length > 0) {
-          finalWhere.id = {[Op.in]: allMatchingIds};
-        } else {
-          // If search was provided but no matches found, return empty result
-          return res.json({
-            artists: [],
-            total: 0,
-            page: parseInt(page as string),
-            limit: normalizedLimit,
-            hasMore: false
+        // Sort partial alias IDs by querying artists with those IDs
+        let partialAliasIds: number[] = [];
+        if (partialAliasIdsRaw.length > 0) {
+          const sortedPartialAliasArtists = await Artist.findAll({
+            where: { id: { [Op.in]: partialAliasIdsRaw } },
+            attributes: ['id'],
+            order
           });
+          partialAliasIds = sortedPartialAliasArtists.map(a => a.id);
         }
+        
+        // Combine: exact matches first, then partial matches (both sorted)
+        allMatchingIds = [...exactMatchIds, ...Array.from(new Set([...partialMatchIds, ...partialAliasIds]))];
       }
     }
     
-    // Verification state filter (only if specified)
-    if (verificationState) {
-      finalWhere.verificationState = verificationState;
+    // Apply verification state filter if specified
+    if (verificationState && allMatchingIds.length > 0) {
+      const filterWhere: any = {
+        id: {[Op.in]: allMatchingIds},
+      };
+      filterWhere.verificationState = verificationState;
+      const filteredArtists = await Artist.findAll({
+        where: filterWhere,
+        attributes: ['id'],
+        order
+      });
+      const filteredIds = filteredArtists.map(a => a.id);
+      
+      // Maintain order: exact matches first, then partial matches
+      const filteredExactIds = exactMatchIds.filter(id => filteredIds.includes(id));
+      const filteredPartialIds = allMatchingIds.filter(id => !exactMatchIds.includes(id) && filteredIds.includes(id));
+      allMatchingIds = [...filteredExactIds, ...filteredPartialIds];
     }
-
-    // Step 2: Construct final search with all required includes
-    const {count, rows} = await Artist.findAndCountAll({
-      where: finalWhere,
-      limit: normalizedLimit,
-      offset,
+    
+    // Step 2: Paginate the IDs array
+    const totalCount = allMatchingIds.length;
+    const paginatedIds = allMatchingIds.slice(offset, offset + normalizedLimit);
+    
+    // Step 3: Query with paginated IDs (or normal query if no search)
+    let finalWhere: any = {};
+    let queryOptions: any = {
       order,
       include: [
         {
@@ -177,20 +202,52 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           attributes: ['id', 'link']
         }
       ]
-    });
+    };
+    
+    if (searchString && paginatedIds.length > 0) {
+      // Use paginated IDs - already paginated, no limit/offset needed
+      finalWhere.id = {[Op.in]: paginatedIds};
+      queryOptions.where = finalWhere;
+    } else if (searchString && paginatedIds.length === 0) {
+      // No matches found
+      return res.json({
+        artists: [],
+        total: 0,
+        page: parseInt(page as string),
+        limit: normalizedLimit,
+        hasMore: false
+      });
+    } else {
+      // No search - apply verification state filter if specified
+      if (verificationState) {
+        finalWhere.verificationState = verificationState;
+      }
+      queryOptions.where = finalWhere;
+      queryOptions.limit = normalizedLimit;
+      queryOptions.offset = offset;
+    }
 
-    // Step 3: Sort results to put exact matches first (only if we had a normal search)
+    // Step 4: Fetch artists with all required includes
+    const {count, rows} = await Artist.findAndCountAll(queryOptions);
+
+    // Step 5: Sort results to maintain exact matches first (if we had a search)
     let sortedRows = rows;
-    if (searchString && !/^#\{\d+\}$/.test(searchString) && exactMatchIds.length > 0) {
+    if (searchString && exactMatchIds.length > 0 && paginatedIds.length > 0) {
       sortedRows = rows.sort((a, b) => {
         const aIsExact = exactMatchIds.includes(a.id);
         const bIsExact = exactMatchIds.includes(b.id);
         
         if (aIsExact && !bIsExact) return -1;
         if (!aIsExact && bIsExact) return 1;
-        return 0; // Keep original order for items in the same category
+        
+        // Both in same category - maintain order from paginatedIds
+        const aIndex = paginatedIds.indexOf(a.id);
+        const bIndex = paginatedIds.indexOf(b.id);
+        return aIndex - bIndex;
       });
     }
+    
+    const finalCount = searchString ? totalCount : count;
 
     // Fetch relations bidirectionally for all artists in batch using service
     const artistIds = sortedRows.map(a => a.id);
@@ -206,10 +263,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     return res.json({
       artists: sortedRows,
-      total: count,
+      total: finalCount,
       page: parseInt(page as string),
       limit: normalizedLimit,
-      hasMore: sortedRows.length > 0 && offset + normalizedLimit < count
+      hasMore: sortedRows.length > 0 && offset + normalizedLimit < finalCount
     });
   } catch (error) {
     logger.error('Error fetching artists:', error);
