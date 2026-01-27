@@ -45,7 +45,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
     const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
 
-    const escapedSearch = escapeForMySQL(search as string);
+    const searchString = (search as string).trim();
     
     // Build order clause
     let order: any[] = [['name', 'ASC']];
@@ -61,51 +61,92 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         break;
     }
 
-    // Step 1: Collect matching artist IDs from name and alias searches
-    let matchingArtistIds: number[] = [];
+    // Step 1: Check for special #{ID} matcher
+    let finalWhere: any = {};
+    let exactMatchIds: number[] = [];
+    let partialMatchIds: number[] = [];
     
-    if (escapedSearch && escapedSearch.trim()) {
-      // Query 1: Find artists matching by name
-      const nameMatches = await Artist.findAll({
-        where: {
+    if (searchString) {
+      // Check for #{ID} pattern
+      const idMatcher = /^#\d{1,20}$/.exec(searchString);
+      if (idMatcher) {
+        // Special ID matcher - bypass search conditionals
+        const targetId = parseInt(searchString.replace('#', ''));
+        finalWhere.id = targetId;
+      } else {
+        // Normal search - separate exact matches from partial matches
+        const escapedSearch = escapeForMySQL(searchString);
+        
+        // Query 1: Find exact name matches (case-insensitive)
+        const exactNameMatches = await Artist.findAll({
+          where: sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            searchString.toLowerCase()
+          ),
+          attributes: ['id']
+        });
+        exactMatchIds = exactNameMatches.map(a => a.id);
+
+        // Query 2: Find exact alias matches (case-insensitive)
+        const exactAliasMatches = await ArtistAlias.findAll({
+          where: sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('alias')),
+            searchString.toLowerCase()
+          ),
+          attributes: ['artistId']
+        });
+        exactMatchIds = exactMatchIds.concat(exactAliasMatches.map(a => a.artistId));
+        
+        // Query 3: Find partial name matches (excluding exact matches)
+        const partialNameWhere: any = {
           name: {
             [Op.like]: `%${escapedSearch}%`
           }
-        },
-        attributes: ['id']
-      });
-      matchingArtistIds = matchingArtistIds.concat(nameMatches.map(a => a.id));
+        };
+        if (exactMatchIds.length > 0) {
+          partialNameWhere.id = {[Op.notIn]: exactMatchIds};
+        }
+        const partialNameMatches = await Artist.findAll({
+          where: partialNameWhere,
+          attributes: ['id']
+        });
+        partialMatchIds = partialNameMatches.map(a => a.id);
 
-      // Query 2: Find artists matching by alias
-      const aliasMatches = await ArtistAlias.findAll({
-        where: {
+        // Query 4: Find partial alias matches (excluding exact matches)
+        const partialAliasWhere: any = {
           alias: {
             [Op.like]: `%${escapedSearch}%`
           }
-        },
-        attributes: ['artistId']
-      });
-      matchingArtistIds = matchingArtistIds.concat(aliasMatches.map(a => a.artistId));
-      
-      // Remove duplicates
-      matchingArtistIds = Array.from(new Set(matchingArtistIds));
-    }
-
-    // Step 2: Build final where clause using collected IDs and verification state filter
-    const finalWhere: any = {};
-    
-    // If we have matching IDs from search, use them as baseline
-    if (matchingArtistIds.length > 0) {
-      finalWhere.id = {[Op.in]: matchingArtistIds};
-    } else if (escapedSearch && escapedSearch.trim()) {
-      // If search was provided but no matches found, return empty result
-      return res.json({
-        artists: [],
-        total: 0,
-        page: parseInt(page as string),
-        limit: normalizedLimit,
-        hasMore: false
-      });
+        };
+        if (exactMatchIds.length > 0) {
+          partialAliasWhere.artistId = {[Op.notIn]: exactMatchIds};
+        }
+        const partialAliasMatches = await ArtistAlias.findAll({
+          where: partialAliasWhere,
+          attributes: ['artistId']
+        });
+        partialMatchIds = partialMatchIds.concat(partialAliasMatches.map(a => a.artistId));
+        
+        // Remove duplicates
+        exactMatchIds = Array.from(new Set(exactMatchIds));
+        partialMatchIds = Array.from(new Set(partialMatchIds));
+        
+        // Combine all matching IDs
+        const allMatchingIds = [...exactMatchIds, ...partialMatchIds];
+        
+        if (allMatchingIds.length > 0) {
+          finalWhere.id = {[Op.in]: allMatchingIds};
+        } else {
+          // If search was provided but no matches found, return empty result
+          return res.json({
+            artists: [],
+            total: 0,
+            page: parseInt(page as string),
+            limit: normalizedLimit,
+            hasMore: false
+          });
+        }
+      }
     }
     
     // Verification state filter (only if specified)
@@ -113,7 +154,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       finalWhere.verificationState = verificationState;
     }
 
-    // Step 3: Construct final search with all required includes
+    // Step 2: Construct final search with all required includes
     const {count, rows} = await Artist.findAndCountAll({
       where: finalWhere,
       limit: normalizedLimit,
@@ -138,24 +179,37 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       ]
     });
 
+    // Step 3: Sort results to put exact matches first (only if we had a normal search)
+    let sortedRows = rows;
+    if (searchString && !/^#\{\d+\}$/.test(searchString) && exactMatchIds.length > 0) {
+      sortedRows = rows.sort((a, b) => {
+        const aIsExact = exactMatchIds.includes(a.id);
+        const bIsExact = exactMatchIds.includes(b.id);
+        
+        if (aIsExact && !bIsExact) return -1;
+        if (!aIsExact && bIsExact) return 1;
+        return 0; // Keep original order for items in the same category
+      });
+    }
+
     // Fetch relations bidirectionally for all artists in batch using service
-    const artistIds = rows.map(a => a.id);
+    const artistIds = sortedRows.map(a => a.id);
     if (artistIds.length > 0) {
       const relationsMap = await artistService.getRelatedArtistsBatch(artistIds);
       
       // Add relatedArtists to each artist
-      rows.forEach(artist => {
+      sortedRows.forEach(artist => {
         const relatedArtists = relationsMap.get(artist.id) || [];
         (artist as any).relatedArtists = relatedArtists.map(a => a.toJSON ? a.toJSON() : a);
       });
     }
 
     return res.json({
-      artists: rows,
+      artists: sortedRows,
       total: count,
       page: parseInt(page as string),
       limit: normalizedLimit,
-      hasMore: rows.length > 0 && offset + normalizedLimit < count
+      hasMore: sortedRows.length > 0 && offset + normalizedLimit < count
     });
   } catch (error) {
     logger.error('Error fetching artists:', error);
