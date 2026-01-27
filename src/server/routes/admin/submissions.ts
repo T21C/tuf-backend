@@ -953,30 +953,6 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         return res.status(400).json({error: 'Invalid level ID'});
       }
 
-      // Check if pass already exists for this level+player combination (safety check)
-      const existingPass = await Pass.findOne({
-        where: {
-          levelId: submission.levelId,
-          playerId: submission.assignedPlayerId,
-          isDeleted: false,
-        },
-        transaction,
-      });
-
-      if (existingPass) {
-        await safeTransactionRollback(transaction, logger);
-        logger.warn('Pass already exists for level+player combination', {
-          submissionId,
-          levelId: submission.levelId,
-          playerId: submission.assignedPlayerId,
-          existingPassId: existingPass.id,
-        });
-        return res.status(400).json({
-          error: 'A pass already exists for this level and player combination',
-          existingPassId: existingPass.id,
-        });
-      }
-
       // === CALCULATION PHASE ===
       const levelData = {
         baseScore: submission.level.baseScore,
