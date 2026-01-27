@@ -193,10 +193,10 @@ class ElasticsearchService {
       this.artistReindexTimer = null;
 
       if (idsToReindex.length > 0) {
-        logger.info(`Debounced artist reindex: Processing ${idsToReindex.length} levels`);
+        logger.debug(`Debounced artist reindex: Processing ${idsToReindex.length} levels`);
         try {
           await this.reindexLevels(idsToReindex);
-          logger.info(`Debounced artist reindex: Completed ${idsToReindex.length} levels`);
+          logger.debug(`Debounced artist reindex: Completed ${idsToReindex.length} levels`);
         } catch (error) {
           logger.error(`Error in debounced artist reindex:`, error);
         }
