@@ -844,6 +844,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
     const submissionId = req.params.id;
 
     try {
+      // Use row-level locking to prevent race conditions
       const submission = await PassSubmission.findOne({
         where: {[Op.and]: [{id: parseInt(submissionId)}, {status: 'pending'}]},
         include: [
@@ -874,6 +875,7 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             as: 'judgements',
           },
         ],
+        lock: true,
         transaction,
       });
 
@@ -881,6 +883,17 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
       if (!submission) {
         await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found or already processed'});
+      }
+
+      // Check if pass already exists for this submission (prevent duplicates)
+      const submissionData = submission.toJSON() as any;
+      if (submissionData.passId) {
+        await safeTransactionRollback(transaction, logger);
+        logger.warn('Pass already exists for submission', {
+          submissionId,
+          existingPassId: submissionData.passId,
+        });
+        return res.status(400).json({error: 'Pass already exists for this submission'});
       }
 
       if (!submission.level) {
@@ -938,6 +951,30 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
           levelId: submission.levelId,
         });
         return res.status(400).json({error: 'Invalid level ID'});
+      }
+
+      // Check if pass already exists for this level+player combination (safety check)
+      const existingPass = await Pass.findOne({
+        where: {
+          levelId: submission.levelId,
+          playerId: submission.assignedPlayerId,
+          isDeleted: false,
+        },
+        transaction,
+      });
+
+      if (existingPass) {
+        await safeTransactionRollback(transaction, logger);
+        logger.warn('Pass already exists for level+player combination', {
+          submissionId,
+          levelId: submission.levelId,
+          playerId: submission.assignedPlayerId,
+          existingPassId: existingPass.id,
+        });
+        return res.status(400).json({
+          error: 'A pass already exists for this level and player combination',
+          existingPassId: existingPass.id,
+        });
       }
 
       // === CALCULATION PHASE ===
@@ -1343,36 +1380,100 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
       const validationErrors: string[] = [];
 
       try {
+        // Reload submission with row-level locking to prevent race conditions
+        const lockedSubmission = await PassSubmission.findOne({
+          where: {
+            id: submission.id,
+            status: 'pending',
+          },
+          include: [
+            {
+              model: Level,
+              as: 'level',
+              include: [
+                { model: Difficulty, as: 'difficulty' },
+                { model: LevelCredit, as: 'levelCredits', include: [{ model: Creator, as: 'creator' }] },
+              ],
+              required: true
+            },
+            {
+              model: Player,
+              as: 'assignedPlayer',
+              required: true
+            },
+            {
+              model: PassSubmissionFlags,
+              as: 'flags',
+              required: true
+            },
+            {
+              model: PassSubmissionJudgements,
+              as: 'judgements',
+              required: true
+            }
+          ],
+          lock: true,
+          transaction,
+        });
+
+        // Check if submission was already processed by another transaction
+        if (!lockedSubmission) {
+          validationErrors.push('Submission already processed or not found');
+          throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
+        }
+
+        // Check if pass already exists for this submission (prevent duplicates)
+        const submissionData = lockedSubmission.toJSON() as any;
+        if (submissionData.passId) {
+          validationErrors.push(`Pass already exists (passId: ${submissionData.passId})`);
+          throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
+        }
+
         // === VALIDATION PHASE ===
-        if (!submission.flags) {
+        if (!lockedSubmission.flags) {
           validationErrors.push('Missing flags data');
         }
-        if (!submission.judgements) {
+        if (!lockedSubmission.judgements) {
           validationErrors.push('Missing judgements data');
         }
-        if (!submission.level) {
+        if (!lockedSubmission.level) {
           validationErrors.push('Missing level data');
         }
-        if (submission.level && !submission.level.difficulty) {
+        if (lockedSubmission.level && !lockedSubmission.level.difficulty) {
           validationErrors.push('Level missing difficulty - may need rating');
         }
-        if (!submission.assignedPlayerId) {
+        if (!lockedSubmission.assignedPlayerId) {
           validationErrors.push('No player assigned');
         }
-        if (!submission.levelId || !isValidNumber(submission.levelId)) {
-          validationErrors.push(`Invalid levelId: ${submission.levelId}`);
+        if (!lockedSubmission.levelId || !isValidNumber(lockedSubmission.levelId)) {
+          validationErrors.push(`Invalid levelId: ${lockedSubmission.levelId}`);
         }
 
         if (validationErrors.length > 0) {
           throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
         }
 
+        // Check if pass already exists for this level+player combination (safety check)
+        const existingPass = await Pass.findOne({
+          where: {
+            levelId: lockedSubmission.levelId,
+            playerId: lockedSubmission.assignedPlayerId!,
+            isDeleted: false,
+          },
+          transaction,
+        });
+
+        if (existingPass) {
+          validationErrors.push(`Pass already exists for level+player (passId: ${existingPass.id})`);
+          throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
+        }
+
         // TypeScript narrowing after validation
-        const flags = submission.flags!;
-        const judgements = submission.judgements!;
-        const level = submission.level!;
+        const flags = lockedSubmission.flags!;
+        const judgements = lockedSubmission.judgements!;
+        const level = lockedSubmission.level!;
         const difficulty = level.difficulty!;
-        const playerId = submission.assignedPlayerId!;
+        const playerId = lockedSubmission.assignedPlayerId!;
 
         // === CALCULATION PHASE ===
         const judgementData = {
@@ -1410,16 +1511,16 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
 
         // === CREATE PHASE ===
         const passData = {
-          levelId: submission.levelId,
+          levelId: lockedSubmission.levelId,
           playerId,
           speed,
-          vidTitle: submission.title || '',
-          videoLink: submission.videoLink,
-          vidUploadTime: submission.rawTime || new Date(),
+          vidTitle: lockedSubmission.title || '',
+          videoLink: lockedSubmission.videoLink,
+          vidUploadTime: lockedSubmission.rawTime || new Date(),
           is12K: flags.is12K || false,
           is16K: flags.is16K || false,
           isNoHoldTap: flags.isNoHoldTap || false,
-          feelingRating: submission.feelingDifficulty || null,
+          feelingRating: lockedSubmission.feelingDifficulty || null,
           accuracy,
           scoreV2,
           isAnnounced: false,
@@ -1445,7 +1546,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         }
 
         // Update submission status
-        await submission.update(
+        await lockedSubmission.update(
           {
             status: 'approved',
             passId: pass.id,
@@ -1454,7 +1555,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         );
 
         // Update worlds first status
-        await updateWorldsFirstStatus(submission.levelId, transaction);
+        await updateWorldsFirstStatus(lockedSubmission.levelId, transaction);
 
         // Get complete pass with associations
         const newPass = await Pass.findByPk(pass.id, {
@@ -1485,7 +1586,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         } catch (statsError) {
           const statsErrorDetails = extractErrorDetails(statsError);
           logger.warn('Failed to update player stats during auto-approve', {
-            submissionId: submission.id,
+            submissionId: lockedSubmission.id,
             playerId,
             error: statsErrorDetails.message,
           });
@@ -1503,14 +1604,14 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
             type: 'passUpdate',
             data: {
               playerId,
-              passedLevelId: submission.levelId,
+              passedLevelId: lockedSubmission.levelId,
               newScore: playerStats?.rankedScore || 0,
               action: 'create',
             },
           });
         }
 
-        results.push({ id: submission.id, success: true });
+        results.push({ id: lockedSubmission.id, success: true });
       } catch (error) {
         await safeTransactionRollback(transaction, logger);
         const errorDetails = extractErrorDetails(error);
