@@ -266,14 +266,16 @@ export async function startServer() {
       }
 
       // Handle other Express errors
-      logger.error('Express error:', {
-        error: err.message,
-        code: err.code,
-        stack: err.stack,
-        path: req.path,
-        method: req.method,
-        ip: req.ip
-      });
+      if (!err.skipLogging) {
+        logger.error('Express error:', {
+          error: err.message || err.error,
+          code: err.code,
+          stack: err.stack,
+          path: req.path,
+          method: req.method,
+          ip: req.ip
+        });
+      }
 
       // Only send error response if headers haven't been sent
       if (!res.headersSent) {

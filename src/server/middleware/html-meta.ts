@@ -38,13 +38,13 @@ const readManifest = async (): Promise<Manifest> => {
         return JSON.parse(manifestContent);
       } catch (error: any) {
         if (!error.message.includes("ENOENT")) {
-          throw {code: 500, error: error.message};
+          throw {code: 500, skipLogging: true, error: error.message};
         }
         attempts++;
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
-    throw {code: 500, error: 'Manifest not found after 15 seconds'};
+    throw {code: 500, skipLogging: true, error: 'Manifest not found after 15 seconds'};
   }
 // Helper function to get all required assets
 const getRequiredAssets = async (manifest: Manifest) => {
@@ -353,8 +353,10 @@ export const htmlMetaMiddleware = async (
         metaTags,
       ));
     return res.send(html);
-  } catch (error) {
-    logger.error('Error serving HTML:', error);
+  } catch (error: any) {
+    if (!error.skipLogging) {
+      logger.error('Error serving HTML:', error);
+    }
     return next(error);
   }
 };
