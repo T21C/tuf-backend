@@ -4,14 +4,14 @@ import { getSequelizeForModelGroup } from '../../config/db.js';
 const sequelize = getSequelizeForModelGroup('credits');
 
 export class TeamAlias extends Model {
-  public id!: number;
-  public teamId!: number;
-  public name!: string;
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare public id: number;
+  declare public teamId: number;
+  declare public name: string;
+  declare public readonly createdAt: Date;
+  declare public readonly updatedAt: Date;
 
   // Associations
-  public team!: Team;
+  declare public team: Team;
 }
 
 TeamAlias.init(

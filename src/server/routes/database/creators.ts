@@ -912,30 +912,42 @@ router.get('/teams', async (req: Request, res: Response) => {
   try {
     const {search} = req.query;
 
-    const escapedSearch = escapeForMySQL(search as string);
-
+    let whereClause: any = {};
     const teamIds: Set<number> = new Set();
 
-    const teamNameIds = await Team.findAll({
-      where: {name: {[Op.like]: `%${escapedSearch}%`}},
-      attributes: ['id'],
-    });
+    // If search is provided, filter by name or alias
+    if (search && typeof search === 'string' && search.trim().length > 0) {
+      const escapedSearch = escapeForMySQL(search.trim());
 
-    for (const team of teamNameIds) {
-      teamIds.add(team.id);
-    }
+      const teamNameIds = await Team.findAll({
+        where: {name: {[Op.like]: `%${escapedSearch}%`}},
+        attributes: ['id'],
+      });
 
-    const teamAliasIds = await TeamAlias.findAll({
-      where: {name: {[Op.like]: `%${escapedSearch}%`}},
-      attributes: ['teamId'],
-    });
+      for (const team of teamNameIds) {
+        teamIds.add(team.id);
+      }
 
-    for (const alias of teamAliasIds) {
-      teamIds.add(alias.teamId);
+      const teamAliasIds = await TeamAlias.findAll({
+        where: {name: {[Op.like]: `%${escapedSearch}%`}},
+        attributes: ['teamId'],
+      });
+
+      for (const alias of teamAliasIds) {
+        teamIds.add(alias.teamId);
+      }
+
+      // If we have matching IDs, filter by them
+      if (teamIds.size > 0) {
+        whereClause = {id: {[Op.in]: Array.from(teamIds)}};
+      } else {
+        // No matches found, return empty array
+        return res.json([]);
+      }
     }
 
     const teams = await Team.findAll({
-      where: {id: {[Op.in]: Array.from(teamIds)}},
+      where: Object.keys(whereClause).length > 0 ? whereClause : undefined,
       include: [
         {
           model: Creator,
@@ -955,12 +967,12 @@ router.get('/teams', async (req: Request, res: Response) => {
     const formattedTeams = teams.map(team => ({
       id: team.id,
       name: team.name,
-      description: team.description,
+      description: team.description || null,
       members: team.teamCreators?.map(member => ({
         id: member.id,
         name: member.name
       })) || [],
-      aliases: team.teamAliases?.map(alias => alias.name) || []
+      aliases: (team.teamAliases?.map(alias => alias.name) || []).filter(Boolean)
     }));
 
     return res.json(formattedTeams);
@@ -1284,12 +1296,12 @@ router.get('/team/:teamId([0-9]{1,20})', async (req: Request, res: Response) => 
     const formattedTeam = {
       id: team.id,
       name: team.name,
-      description: team.description,
+      description: team.description || null,
       members: team.teamCreators?.map(member => ({
         id: member.id,
         name: member.name
       })) || [],
-      aliases: team.teamAliases?.map(alias => alias.name) || []
+      aliases: (team.teamAliases?.map(alias => alias.name) || []).filter(Boolean)
     };
 
     return res.json(formattedTeam);
@@ -1635,29 +1647,29 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
 
     // Create aliases if provided
     if (aliases && Array.isArray(aliases) && aliases.length > 0) {
-      const aliasRecords = aliases.map((alias: string) => ({
-        teamId: team.id,
-        name: alias.trim(),
-      }));
+      const aliasRecords = aliases
+        .map((alias: string) => (typeof alias === 'string' ? alias.trim() : String(alias).trim()))
+        .filter((alias: string) => alias.length > 0)
+        .map((alias: string) => ({
+          teamId: team.id,
+          name: alias,
+        }));
 
-      await TeamAlias.bulkCreate(aliasRecords, { transaction });
+      if (aliasRecords.length > 0) {
+        const createdAliases = await TeamAlias.bulkCreate(aliasRecords, { transaction });
+        logger.debug(`Created ${createdAliases.length} aliases for team ${team.id}: ${JSON.stringify(aliasRecords.map(a => a.name))}`);
+      }
     }
 
     await transaction.commit();
 
-    // Return the team with its members
+    // Return the team with its members - reload to ensure aliases are included
     const teamWithMembers = await Team.findByPk(team.id, {
       include: [
         {
-          model: TeamMember,
-          as: 'teamMembers',
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-              attributes: ['id', 'name'],
-            }
-          ]
+          model: Creator,
+          as: 'teamCreators',
+          through: { attributes: [] },
         },
         {
           model: TeamAlias,
@@ -1671,21 +1683,229 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
       return res.status(500).json({ error: 'Failed to fetch created team' });
     }
 
+    // Ensure aliases are properly extracted
+    const teamAliases = teamWithMembers.teamAliases || [];
+    const aliasNames = teamAliases.map(alias => alias.name).filter(Boolean);
+
+    logger.debug(`Team ${team.id} has ${teamAliases.length} aliases: ${JSON.stringify(aliasNames)}`);
+
     return res.json({
       id: teamWithMembers.id,
       name: teamWithMembers.name,
-      description: teamWithMembers.description,
+      description: teamWithMembers.description || null,
       type: 'team',
       members: teamWithMembers.teamCreators?.map(member => ({
         id: member.id,
         name: member.name
-      })),
-      aliases: teamWithMembers.teamAliases?.map(alias => alias.name) || []
+      })) || [],
+      aliases: aliasNames
     });
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error creating team:', error);
     return res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+// Update team
+router.put('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { teamId } = req.params;
+    const { name, aliases, description } = req.body;
+
+    const team = await Team.findByPk(teamId, {
+      include: [
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+        }
+      ],
+      transaction
+    });
+
+    if (!team) {
+      await safeTransactionRollback(transaction, logger);
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Update name if provided
+    if (name && typeof name === 'string' && name.trim().length > 0) {
+      const trimmedName = name.trim();
+      
+      // Check for duplicate name (excluding current team)
+      const existingTeam = await Team.findOne({
+        where: {
+          id: { [Op.ne]: teamId },
+          [Op.or]: [
+            sequelize.where(
+              sequelize.fn('LOWER', sequelize.col('name')),
+              sequelize.fn('LOWER', trimmedName)
+            ),
+            sequelize.literal(`EXISTS (
+              SELECT 1 FROM team_aliases 
+              WHERE team_aliases.name = '${trimmedName}' 
+              AND team_aliases.teamId != ${teamId}
+            )`)
+          ]
+        },
+        transaction
+      });
+
+      if (existingTeam) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({
+          error: `A team with the name "${trimmedName}" already exists (ID: ${existingTeam.id})`
+        });
+      }
+
+      team.name = trimmedName;
+    }
+
+    // Update description if provided
+    if (description !== undefined) {
+      team.description = description === null || description === '' ? undefined : String(description).trim();
+    }
+
+    await team.save({ transaction });
+
+    // Update aliases if provided
+    if (aliases !== undefined && Array.isArray(aliases)) {
+      // Delete existing aliases
+      await TeamAlias.destroy({
+        where: { teamId },
+        transaction
+      });
+
+      // Check if any new aliases conflict with existing team names
+      if (aliases.length > 0) {
+        const aliasConditions = aliases.map(alias => ({
+          id: { [Op.ne]: teamId },
+          [Op.or]: [
+            sequelize.where(
+              sequelize.fn('LOWER', sequelize.col('name')),
+              sequelize.fn('LOWER', alias.trim())
+            ),
+            sequelize.literal(`EXISTS (
+              SELECT 1 FROM team_aliases 
+              WHERE team_aliases.name = '${alias.trim()}'
+              AND team_aliases.teamId != ${teamId}
+            )`)
+          ]
+        }));
+
+        const conflictingTeam = await Team.findOne({
+          where: {
+            [Op.or]: aliasConditions
+          },
+          transaction
+        });
+
+        if (conflictingTeam) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({
+            error: `One of the aliases conflicts with an existing team (ID: ${conflictingTeam.id})`
+          });
+        }
+
+        // Create new aliases
+        const aliasRecords = aliases
+          .map((alias: string) => (typeof alias === 'string' ? alias.trim() : String(alias).trim()))
+          .filter((alias: string) => alias.length > 0)
+          .map((alias: string) => ({
+            teamId: team.id,
+            name: alias,
+          }));
+
+        if (aliasRecords.length > 0) {
+          await TeamAlias.bulkCreate(aliasRecords, { transaction });
+        }
+      }
+    }
+
+    await transaction.commit();
+
+    // Return updated team
+    const updatedTeam = await Team.findByPk(team.id, {
+      include: [
+        {
+          model: Creator,
+          as: 'teamCreators',
+          through: { attributes: [] },
+        },
+        {
+          model: TeamAlias,
+          as: 'teamAliases',
+          attributes: ['id', 'name'],
+        }
+      ]
+    });
+
+    return res.json({
+      id: updatedTeam!.id,
+      name: updatedTeam!.name,
+      description: updatedTeam!.description || null,
+      members: updatedTeam!.teamCreators?.map(member => ({
+        id: member.id,
+        name: member.name
+      })) || [],
+      aliases: (updatedTeam!.teamAliases?.map(alias => alias.name) || []).filter(Boolean)
+    });
+  } catch (error) {
+    await safeTransactionRollback(transaction, logger);
+    logger.error('Error updating team:', error);
+    return res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+// Delete team (only if not assigned to any levels)
+router.delete('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { teamId } = req.params;
+
+    const team = await Team.findByPk(teamId, { transaction });
+    if (!team) {
+      await safeTransactionRollback(transaction, logger);
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Check if team is assigned to any levels
+    const associatedLevels = await Level.findAll({
+      where: { teamId },
+      attributes: ['id'],
+      transaction,
+    });
+
+    if (associatedLevels.length > 0) {
+      await safeTransactionRollback(transaction, logger);
+      return res.status(400).json({
+        error: `Cannot delete team: assigned to ${associatedLevels.length} level(s)`,
+        levelCount: associatedLevels.length
+      });
+    }
+
+    // Delete team members
+    await TeamMember.destroy({
+      where: { teamId },
+      transaction,
+    });
+
+    // Delete team aliases
+    await TeamAlias.destroy({
+      where: { teamId },
+      transaction,
+    });
+
+    // Delete the team
+    await team.destroy({ transaction });
+
+    await transaction.commit();
+    return res.json({ message: 'Team deleted successfully' });
+  } catch (error) {
+    await safeTransactionRollback(transaction, logger);
+    logger.error('Error deleting team:', error);
+    return res.status(500).json({ error: 'Failed to delete team' });
   }
 });
 
@@ -1715,6 +1935,8 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     for (const alias of teamAliasIds) {
       teamIds.add(alias.teamId);
     }
+
+    logger.debug("alias ids: " + JSON.stringify(teamAliasIds));
 
     const teams = await Team.findAll({
       where: {
