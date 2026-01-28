@@ -35,7 +35,7 @@ import SongCredit from '../../models/songs/SongCredit.js';
 import Artist from '../../models/artists/Artist.js';
 import ArtistAlias from '../../models/artists/ArtistAlias.js';
 
-const MAX_BATCH_SIZE = 4000;
+const MAX_BATCH_SIZE = 2000;
 const BATCH_SIZE = 500;
 
 
