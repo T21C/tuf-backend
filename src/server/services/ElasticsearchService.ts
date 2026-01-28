@@ -1031,8 +1031,6 @@ class ElasticsearchService {
   private parseFields(level: Level): any {
     // Get normalized song data
     // For nested type in Elasticsearch, we need to provide an array
-    logger.debug(`Parsing fields for level ${level.id} songObject:`, level.songObject?.dataValues);
-
     // Get normalized artists data (from song credits)
     const artists = level.songObject?.credits?.map(credit => ({
       id: credit.artist.id,
