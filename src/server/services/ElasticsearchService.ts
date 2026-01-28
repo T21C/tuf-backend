@@ -864,7 +864,8 @@ class ElasticsearchService {
         include: [
           {
             model: CurationType,
-            as: 'type'
+            as: 'type',
+            attributes: ['id', 'name']
           }
         ]
       },
@@ -883,6 +884,7 @@ class ElasticsearchService {
         model: LevelTag,
         as: 'tags',
         required: false,
+        attributes: ['id', 'name', 'icon', 'color', 'group'],
         through: {
           attributes: []
         }
@@ -891,6 +893,7 @@ class ElasticsearchService {
         model: Song,
         as: 'songObject',
         required: false,
+        attributes: ['id', 'name', 'verificationState'],
         include: [
           {
             model: SongAlias,
@@ -900,10 +903,12 @@ class ElasticsearchService {
           {
             model: SongCredit,
             as: 'credits',
+            attributes: ['role'],
             include: [
               {
                 model: Artist,
                 as: 'artist',
+                attributes: ['id', 'name', 'avatarUrl', 'verificationState'],
                 include: [
                   {
                     model: ArtistAlias,
@@ -949,7 +954,8 @@ class ElasticsearchService {
             include: [
               {
                 model: CreatorAlias,
-                as: 'creatorAliases'
+                as: 'creatorAliases',
+                attributes: ['name']
               }
             ]
           }
@@ -975,6 +981,7 @@ class ElasticsearchService {
         model: LevelTag,
         as: 'tags',
         required: false,
+        attributes: ['id', 'name', 'icon', 'color', 'group'],
         through: {
           attributes: []
         }
