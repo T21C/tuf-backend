@@ -45,7 +45,7 @@ export class PoolManager {
     },
   };
 
-  constructor(defaultMaxConnections = 50) {
+  constructor(defaultMaxConnections = 10) {
     // Create default pool (backward compatibility)
     this.defaultPool = this.createPool('default', {
       name: 'default',
@@ -144,7 +144,6 @@ export class PoolManager {
     (sequelize as any)._healthCheckTimer = healthCheckTimer;
 
     this.pools.set(poolName, sequelize);
-    logger.debug(`Created isolated pool '${poolName}'`);
   }
 
   /**
@@ -271,7 +270,7 @@ let poolManagerInstance: PoolManager | null = null;
  */
 export function getPoolManager(): PoolManager {
   if (!poolManagerInstance) {
-    poolManagerInstance = new PoolManager(50); // Default max 50 connections
+    poolManagerInstance = new PoolManager(10); // Default max 10 connections
   }
   return poolManagerInstance;
 }

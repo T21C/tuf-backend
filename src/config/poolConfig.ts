@@ -41,7 +41,7 @@ const defaultPoolConfig: PoolConfiguration = {
     // High-traffic pools
     {
       name: 'levels',
-      maxConnections: 10,
+      maxConnections: 5,
       minConnections: 2,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -49,14 +49,15 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'players',
-      maxConnections: 20,
+      maxConnections: 5,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
+      evict: 5000,
     },
     {
       name: 'passes',
-      maxConnections: 20,
+      maxConnections: 5,
       minConnections: 2,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -64,7 +65,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'auth',
-      maxConnections: 10,
+      maxConnections: 5,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -72,7 +73,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'admin',
-      maxConnections: 10,
+      maxConnections: 5,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -80,7 +81,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'curations',
-      maxConnections: 20,
+      maxConnections: 5,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -96,7 +97,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'credits',
-      maxConnections: 10,
+      maxConnections: 5,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -104,7 +105,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'announcements',
-      maxConnections: 10,
+      maxConnections: 3,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -112,7 +113,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'submissions',
-      maxConnections: 10,
+      maxConnections: 2,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
@@ -120,7 +121,7 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'cdn',
-      maxConnections: 100,
+      maxConnections: 5,
       minConnections: 1,
       acquireTimeout: 20000,
       idleTimeout: 10000,
