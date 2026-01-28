@@ -91,6 +91,19 @@ export const startConnectionMonitoring = (): void => {
         return;
       }
 
+      // Health check: Test if database is reachable
+      try {
+        await sequelize.authenticate();
+      } catch (error: any) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'PROTOCOL_CONNECTION_LOST' || error.code === 'ETIMEDOUT') {
+          logger.warn(`Database connection lost during monitoring: ${error.code}. Sequelize will attempt to reconnect on next query.`);
+          // Don't throw - let the app continue, Sequelize will retry on next query
+          return;
+        }
+        // For other errors, log but continue
+        logger.error('Database health check failed:', error);
+      }
+
       const stats = await getConnectionStats();
 
       if (stats) {
@@ -103,6 +116,7 @@ export const startConnectionMonitoring = (): void => {
         }
       }
     } catch (error) {
+      // Don't let monitoring errors crash the app
       logger.error('Error in connection monitoring:', error);
     }
   }, CONNECTION_CHECK_INTERVAL);

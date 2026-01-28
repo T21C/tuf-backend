@@ -62,6 +62,23 @@ process.on('unhandledRejection', (reason: any, promise) => {
     return; // Don't treat client disconnects as critical errors
   }
 
+  // Handle database connection errors gracefully
+  // Sequelize will attempt to reconnect automatically on next query
+  if (reason && (
+    reason.code === 'ECONNREFUSED' || 
+    reason.code === 'PROTOCOL_CONNECTION_LOST' || 
+    reason.code === 'ETIMEDOUT' ||
+    (reason.name === 'SequelizeConnectionRefusedError') ||
+    (reason.name === 'SequelizeConnectionError')
+  )) {
+    logger.warn('Database connection error (unhandled rejection):', {
+      code: reason.code || reason.name,
+      message: reason.message,
+      note: 'Sequelize will attempt to reconnect automatically on next query'
+    });
+    return; // Don't treat database connection errors as critical - Sequelize handles reconnection
+  }
+
   // Check if it's a transaction rollback error and handle it gracefully
   if (reason instanceof Error && reason.message.includes('Transaction cannot be rolled back')) {
     logger.warn('Transaction rollback error detected - this is likely a duplicate rollback call');

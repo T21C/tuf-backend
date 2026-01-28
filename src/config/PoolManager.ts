@@ -72,16 +72,79 @@ export class PoolManager {
         min: config.minConnections ?? 2,
         acquire: config.acquireTimeout ?? 60000,
         idle: config.idleTimeout ?? 10000,
-        validate: (connection: any) => {
-          return connection.query('SELECT 1');
+        // Sequelize supports async validate, but TypeScript types don't reflect this
+        validate: async (connection: any) => {
+          try {
+            // Raw MySQL connection uses callbacks, wrap in Promise
+            // Try promise() method first (mysql2 promise wrapper)
+            if (connection.promise) {
+              const promiseConnection = connection.promise();
+              await promiseConnection.query('SELECT 1');
+            } else {
+              // Fallback: wrap callback-based query in Promise
+              await new Promise<void>((resolve, reject) => {
+                connection.query('SELECT 1', (error: any) => {
+                  if (error) reject(error);
+                  else resolve();
+                });
+              });
+            }
+            return true;
+          } catch (error) {
+            // Connection is dead, return false to remove it from pool
+            logger.debug(`Connection validation failed for pool ${poolName}, will be removed from pool`);
+            return false;
+          }
         },
         evict: 30000,
-      },
+      } as any, // Type assertion: Sequelize runtime supports async validate, but types don't
     });
+
+    // Add connection health check and reconnection logic
+    this.setupConnectionHealthCheck(sequelize, poolName);
 
     this.pools.set(poolName, sequelize);
     logger.debug(`Created isolated pool '${poolName}' with max ${config.maxConnections} connections`);
     return sequelize;
+  }
+
+  /**
+   * Sets up connection health checking and automatic reconnection
+   */
+  private setupConnectionHealthCheck(sequelize: Sequelize, poolName: string): void {
+    // Health check interval - test connection every 30 seconds
+    const HEALTH_CHECK_INTERVAL = 30000;
+    let healthCheckTimer: NodeJS.Timeout | null = null;
+    let isCheckingHealth = false;
+
+    const performHealthCheck = async () => {
+      if (isCheckingHealth) return;
+      
+      isCheckingHealth = true;
+      try {
+        // Try to authenticate - this will create a new connection if needed
+        await sequelize.authenticate();
+      } catch (error: any) {
+        if (error.code === 'ECONNREFUSED' || error.code === 'PROTOCOL_CONNECTION_LOST' || error.code === 'ETIMEDOUT') {
+          logger.warn(`Database connection lost for pool ${poolName}: ${error.code}. Will retry on next query.`);
+          // Sequelize will automatically attempt to reconnect on the next query
+          // The validate function will remove dead connections from the pool
+        } else {
+          logger.error(`Database health check failed for pool ${poolName}:`, error);
+        }
+      } finally {
+        isCheckingHealth = false;
+      }
+    };
+
+    // Start health checking
+    healthCheckTimer = setInterval(performHealthCheck, HEALTH_CHECK_INTERVAL);
+    
+    // Store timer reference for cleanup (if needed in the future)
+    (sequelize as any)._healthCheckTimer = healthCheckTimer;
+
+    this.pools.set(poolName, sequelize);
+    logger.debug(`Created isolated pool '${poolName}'`);
   }
 
   /**
