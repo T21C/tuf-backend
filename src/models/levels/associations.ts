@@ -13,9 +13,6 @@ import LevelPackItem from '../packs/LevelPackItem.js';
 import LevelPack from '../packs/LevelPack.js';
 import LevelTag from './LevelTag.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
-import Song from '../songs/Song.js';
-import Artist from '../artists/Artist.js';
-import SongCredit from '../songs/SongCredit.js';
 
 export function initializeLevelsAssociations() {
   // Level <-> Difficulty associations

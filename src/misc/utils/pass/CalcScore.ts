@@ -88,7 +88,7 @@ const getScore = (passData: PassData, levelData: LevelData) => {
   const speed = passData.speed;
   const inputs = passData.judgements;
   const accuracy = calcAcc(inputs);
-  const base = 
+  const base =
     accuracy === 1 && levelData.ppBaseScore ? levelData.ppBaseScore :
     levelData.baseScore ? levelData.baseScore
     : levelData.difficulty?.baseScore || 0;

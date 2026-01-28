@@ -45,7 +45,7 @@ export class PoolManager {
     },
   };
 
-  constructor(defaultMaxConnections: number = 50) {
+  constructor(defaultMaxConnections = 50) {
     // Create default pool (backward compatibility)
     this.defaultPool = this.createPool('default', {
       name: 'default',
@@ -136,7 +136,7 @@ export class PoolManager {
    */
   async getPoolStats(): Promise<Record<string, any>> {
     const stats: Record<string, any> = {};
-    
+
     for (const [poolName, sequelize] of this.pools.entries()) {
       try {
         // Access pool through connectionManager with type assertion
@@ -153,7 +153,7 @@ export class PoolManager {
         stats[poolName] = { error: 'Failed to get stats' };
       }
     }
-    
+
     return stats;
   }
 

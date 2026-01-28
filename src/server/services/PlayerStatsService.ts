@@ -1191,13 +1191,13 @@ export class PlayerStatsService {
 
     // Determine if we should include hidden passes (only for own profile)
     const includeHiddenPasses = user && user.playerId && user.playerId === playerId;
-    
+
     // Build where clause for passes
     const passWhereClause: any = {
       playerId: playerId,
       isDeleted: false,
     };
-    
+
     // If not own profile, exclude hidden passes
     if (!includeHiddenPasses) {
       passWhereClause.isHidden = false;

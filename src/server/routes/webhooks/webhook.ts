@@ -63,13 +63,13 @@ function renderMessageFormat(format: string, variables: {
 }): string {
   let result = format;
   result = result.replace(/\{count\}/g, String(variables.count));
-  
+
   if (variables.difficultyName !== undefined) {
     result = result.replace(/\{difficultyName\}/g, variables.difficultyName);
   } else {
     result = result.replace(/\{difficultyName\}/g, '');
   }
-  
+
   result = result.replace(/\{ping\}/g, variables.ping || '');
   result = result.replace(/\s+/g, ' ').trim();
   return result;
@@ -90,7 +90,7 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
 
   logger.debug(`[Message Processing] Processing ${items.length} item(s)`);
 
-  logger.debug(`[Message Processing] Webhook configs:`, {configs: Array.from(configs.entries())});
+  logger.debug('[Message Processing] Webhook configs:', {configs: Array.from(configs.entries())});
   // Collect all items per webhook URL, preserving channel config
   const webhookData = new Map<string, {
     items: (Pass | Level)[];
@@ -113,7 +113,7 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
           roleGroups: new Map()
         });
       }
-      
+
       const data = webhookData.get(channel.webhookUrl)!;
       if (!data.items.find(i => i.id === item.id)) {
         data.items.push(item);
@@ -124,12 +124,12 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
         if (!data.channelConfig.messageFormats) {
           data.channelConfig.messageFormats = [];
         }
-        
+
         // Add formats that don't already exist (by roleId + actionId + directiveId)
         for (const format of channel.messageFormats) {
-          const exists = data.channelConfig.messageFormats.some(f => 
-            f.roleId === format.roleId && 
-            f.actionId === format.actionId && 
+          const exists = data.channelConfig.messageFormats.some(f =>
+            f.roleId === format.roleId &&
+            f.actionId === format.actionId &&
             f.directiveId === format.directiveId
           );
           if (!exists) {
@@ -218,7 +218,7 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
 
         // Send header + embeds (only for items not yet embedded)
         const itemsToEmbed = allRoleItems.filter(item => !embeddedItems.has(item.id));
-        
+
         if (itemsToEmbed.length > 0) {
           // Create embeds for items that haven't been embedded yet
           const roleEmbeds: MessageBuilder[] = [];
@@ -271,7 +271,7 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
           });
 
           const itemsToEmbed = allRoleItems.filter(item => !embeddedItems.has(item.id));
-          
+
           if (itemsToEmbed.length > 0) {
             const roleEmbeds: MessageBuilder[] = [];
             for (const item of itemsToEmbed) {
@@ -346,13 +346,13 @@ async function sendMessages(channel: ChannelMessages, message?: string): Promise
     } else if (msg.type === 'embeds' && msg.embeds && msg.embeds.length > 0) {
       // Send embed batch
       const combinedEmbed = MessageBuilder.combine(...msg.embeds);
-      
+
       // Add content to embed batch if provided (from msg.content or fallback message)
       const textContent = msg.content || (message && channel.messages.indexOf(msg) === 0 ? message : undefined);
       if (textContent) {
         combinedEmbed.setText(textContent);
       }
-      
+
       await hook.send(combinedEmbed);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }

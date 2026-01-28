@@ -41,21 +41,6 @@ import { permissionFlags } from '../../../config/constants.js';
 const router: Router = express.Router();
 const evidenceService = EvidenceService.getInstance();
 
-// Configure multer for handling file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
-  }
-});
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 1000 * 1024 * 1024 // 1GB limit
-  }
-});
 
 // Enhanced input validation and sanitization
 const sanitizeTextInput = (input: string | null | undefined, maxLength = 1000): string => {
@@ -153,35 +138,6 @@ const cleanVideoUrl = (url: string) => {
   // If no pattern matches, return the original URL
   return url;
 };
-
-// Enhanced file cleanup with better error handling
-async function cleanUpFile(req: Request) {
-  if (req.file?.path) {
-    try {
-      // Check if file exists before attempting to delete
-      await fs.promises.access(req.file.path);
-      await fs.promises.unlink(req.file.path);
-      logger.debug('Temporary file cleaned up successfully:', {
-        path: req.file.path,
-        timestamp: new Date().toISOString()
-      });
-    } catch (cleanupError) {
-      // File might not exist or already be deleted
-      if ((cleanupError as any).code === 'ENOENT') {
-        logger.debug('Temporary file already deleted:', {
-          path: req.file.path,
-          timestamp: new Date().toISOString()
-        });
-      } else {
-        logger.error('Failed to clean up temporary file:', {
-          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-          path: req.file.path,
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-  }
-}
 
 // Enhanced CDN cleanup
 async function cleanUpCdnFile(fileId: string | null) {
@@ -391,7 +347,7 @@ router.post(
         // New songs always require evidence
         const requiresSongEvidence = isNewSongRequest || (req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true');
         const requiresArtistEvidence = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
-        
+
         // Set songId: null if new request, otherwise validate and use provided ID
         let songId: number | null = null;
         if (!isNewSongRequest && req.body.songId) {
@@ -405,7 +361,7 @@ router.post(
             songId = parsedSongId;
           }
         }
-        
+
         // Set artistId: null if new request, otherwise validate and use provided ID
         let artistId: number | null = null;
         if (!isNewArtistRequest && req.body.artistId) {
@@ -421,8 +377,8 @@ router.post(
         }
 
         // Handle suffix - normalize to null if empty string
-        const suffix = req.body.suffix && typeof req.body.suffix === 'string' 
-          ? sanitizeTextInput(req.body.suffix).trim() || null 
+        const suffix = req.body.suffix && typeof req.body.suffix === 'string'
+          ? sanitizeTextInput(req.body.suffix).trim() || null
           : null;
 
         const submission = await LevelSubmission.create({
@@ -493,7 +449,7 @@ router.post(
         // Create artist request records (multiple artists supported)
         const parsedArtistRequests = safeParseJSON(req.body.artistRequests);
         let artistRequestId: number | null = null;
-        
+
         if (Array.isArray(parsedArtistRequests) && parsedArtistRequests.length > 0) {
           // Create multiple artist requests
           const createdRequests = await Promise.all(parsedArtistRequests.map(async (request: any) => {
@@ -505,7 +461,7 @@ router.post(
               verificationState: request.verificationState || 'pending'
             }, { transaction });
           }));
-          
+
           // Use first request ID for backward compatibility
           if (createdRequests.length > 0) {
             artistRequestId = createdRequests[0].id;
@@ -521,20 +477,20 @@ router.post(
           }, { transaction });
           artistRequestId = artistRequest.id;
         }
-        
+
         if (artistRequestId) {
           await submission.update({ artistRequestId: artistRequestId }, { transaction });
         }
 
         // Handle evidence image uploads (up to 10 images)
         const evidenceFiles = files?.evidence || [];
-        
+
         // Evidence is required when new song/artist requests exist
         const requiresEvidence = requiresSongEvidence || requiresArtistEvidence;
         if (requiresEvidence && evidenceFiles.length === 0) {
           throw {code: 400, error: 'Evidence is required for new song/artist requests'};
         }
-        
+
         if (evidenceFiles.length > 0 && evidenceFiles.length <= 10) {
           const evidenceType = req.body.evidenceType || 'song'; // 'song' or 'artist'
           // For artist evidence, use the first artist request ID if multiple exist
@@ -817,12 +773,12 @@ router.post(
         }) : null;
 
         if (existingPass) {
-          throw {code: 400, 
-            error: 'A pass with identical video, judgements, and flags already exists for this level and speed', 
+          throw {code: 400,
+            error: 'A pass with identical video, judgements, and flags already exists for this level and speed',
             details: {
-              levelId: levelId, 
-              speed: speed, 
-              videoLink: cleanVideoUrl(req.body.videoLink), 
+              levelId: levelId,
+              speed: speed,
+              videoLink: cleanVideoUrl(req.body.videoLink),
               title: sanitizeTextInput(req.body.title),
             }
           };
@@ -846,8 +802,8 @@ router.post(
 
         // Validate that score is a valid number
         if (!Number.isFinite(score)) {
-          throw {code: 400, 
-            error: 'Invalid judgement values - could not calculate score', 
+          throw {code: 400,
+            error: 'Invalid judgement values - could not calculate score',
             details: {judgements: sanitizedJudgements, speed, levelId}
           };
         }
@@ -856,8 +812,8 @@ router.post(
 
         // Validate that accuracy is a valid number
         if (!Number.isFinite(accuracy)) {
-          throw {code: 400, 
-            error: 'Invalid judgement values - could not calculate accuracy', 
+          throw {code: 400,
+            error: 'Invalid judgement values - could not calculate accuracy',
             details: {judgements: sanitizedJudgements}
           };
         }

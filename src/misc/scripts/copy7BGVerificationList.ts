@@ -6,7 +6,6 @@ import { initializeAssociations } from '../../models/associations.js';
 import { logger } from '../../server/services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
 import ArtistService from '../../server/services/ArtistService.js';
-import EvidenceService from '../../server/services/EvidenceService.js';
 import Artist from '../../models/artists/Artist.js';
 import ArtistAlias from '../../models/artists/ArtistAlias.js';
 import ArtistLink from '../../models/artists/ArtistLink.js';
@@ -89,17 +88,17 @@ function mapStatusToVerificationState(status: number): 'unverified' | 'pending' 
 function isImageUrl(url: string): boolean {
   const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'];
   const lowerUrl = url.toLowerCase();
-  
+
   // Check extension
   if (imageExtensions.some(ext => lowerUrl.includes(ext))) {
     return true;
   }
-  
+
   // Check for common image CDN patterns
   if (lowerUrl.includes('/images/') || lowerUrl.includes('/image/') || lowerUrl.includes('evidence')) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -108,7 +107,7 @@ function isImageUrl(url: string): boolean {
  */
 async function downloadImage(url: string): Promise<Buffer | null> {
   const timeoutMs = 45000; // 45 second timeout
-  
+
   const downloadPromise = (async () => {
     try {
       const response = await axios.get(url, {
@@ -122,14 +121,14 @@ async function downloadImage(url: string): Promise<Buffer | null> {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
       });
-      
+
       // Check content-type
       const contentType = response.headers['content-type'] || '';
       if (!contentType.startsWith('image/')) {
         logger.warn(`URL ${url} does not have image content-type: ${contentType}`);
         return null;
       }
-      
+
       return Buffer.from(response.data);
     } catch (error: any) {
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
@@ -162,10 +161,10 @@ async function uploadImageToCdn(imageBuffer: Buffer, filename: string): Promise<
       filename,
       'EVIDENCE' // Evidence images use EVIDENCE type
     );
-    
+
     return uploadResult.urls.original;
   } catch (error: any) {
-    logger.error(`Failed to upload image to CDN:`, error.message);
+    logger.error('Failed to upload image to CDN:', error.message);
     return null;
   }
 }
@@ -303,7 +302,7 @@ async function processArtist(
 
         if (existingEvidences.length > 0) {
           logger.info(`  Deleting ${existingEvidences.length} existing evidence entries...`);
-          
+
           // Delete CDN files for evidence that are stored on CDN
           for (const evidence of existingEvidences) {
             const fileId = getFileIdFromCdnUrl(evidence.link);
@@ -324,10 +323,10 @@ async function processArtist(
             },
             transaction
           });
-          logger.info(`  Deleted all existing evidence entries`);
+          logger.info('  Deleted all existing evidence entries');
         }
       } else {
-        logger.info(`  [DRY RUN] Would delete existing evidence entries`);
+        logger.info('  [DRY RUN] Would delete existing evidence entries');
       }
 
       // Separate image URLs from non-image URLs
@@ -347,7 +346,7 @@ async function processArtist(
       // Download all images in parallel (unawaited async tasks)
       if (imageUrls.length > 0) {
         logger.info(`  Downloading ${imageUrls.length} evidence images in parallel...`);
-        
+
         if (!DRY_RUN) {
           // Start all downloads in parallel
           const downloadPromises = imageUrls.map(async (url) => {
@@ -358,7 +357,7 @@ async function processArtist(
 
           // Wait for all downloads to complete (or timeout)
           const downloadResults = await Promise.allSettled(downloadPromises);
-          
+
           // Process download results sequentially for uploading and database operations
           for (let i = 0; i < downloadResults.length; i++) {
             const result = downloadResults[i];
@@ -366,12 +365,12 @@ async function processArtist(
 
             if (result.status === 'fulfilled') {
               const { imageBuffer } = result.value;
-              
+
               if (imageBuffer) {
                 // Upload to CDN
                 const filename = url.split('/').pop()?.split('?')[0] || `evidence_${Date.now()}.png`;
                 const cdnUrl = await uploadImageToCdn(imageBuffer, filename);
-                
+
                 if (cdnUrl) {
                   await ArtistEvidence.create({
                     artistId: artist.id,
@@ -422,7 +421,7 @@ async function processArtist(
       // Process non-image URLs (external links)
       for (const trimmedUrl of nonImageUrls) {
         logger.info(`  Processing evidence link: ${trimmedUrl}`);
-        
+
         if (!DRY_RUN) {
           await ArtistEvidence.create({
             artistId: artist.id,
@@ -527,7 +526,7 @@ async function migrateArtists(): Promise<void> {
     // Fetch artists from API
     const artists = await fetchArtists(SEARCH_NAME);
     stats.totalArtists = artists.length;
-    
+
     if (SEARCH_NAME) {
       logger.info(`Filtered to ${artists.length} artists matching search: "${SEARCH_NAME}"`);
     }
@@ -566,10 +565,10 @@ function printStats(stats: MigrationStats): void {
   logger.info(`Processed: ${stats.processedArtists}`);
   logger.info(`Skipped: ${stats.skippedArtists}`);
   logger.info(`Errors: ${stats.errorArtists}`);
-  logger.info(`\nArtists:`);
+  logger.info('\nArtists:');
   logger.info(`  Created: ${stats.artistsCreated}`);
   logger.info(`  Updated: ${stats.artistsUpdated}`);
-  logger.info(`\nData:`);
+  logger.info('\nData:');
   logger.info(`  Aliases added: ${stats.aliasesAdded}`);
   logger.info(`  Links added: ${stats.linksAdded}`);
   logger.info(`  Evidences added: ${stats.evidencesAdded}`);
@@ -608,4 +607,4 @@ async function main() {
 }
 
 // Execute
-main();
+await main();

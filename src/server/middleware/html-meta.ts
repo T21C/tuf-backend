@@ -37,7 +37,7 @@ const readManifest = async (): Promise<Manifest> => {
         const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
         return JSON.parse(manifestContent);
       } catch (error: any) {
-        if (!error.message.includes("ENOENT")) {
+        if (!error.message.includes('ENOENT')) {
           throw {code: 500, skipLogging: true, error: error.message};
         }
         attempts++;

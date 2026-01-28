@@ -259,7 +259,7 @@ const sortableFields = {
   'LEVELS': 'levelCount'
 };
 // GET /packs - List all packs
-router.get('/', Auth.addUserToRequest(), Cache({ 
+router.get('/', Auth.addUserToRequest(), Cache({
   ttl: 300,
   varyByUser: true,
   varyByQuery: ['query', 'viewMode', 'pinned', 'myLikesOnly', 'offset', 'limit', 'sort', 'order'],
@@ -482,7 +482,7 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
 });
 
 // GET /packs/:id - Get specific pack with its content tree
-router.get('/:id', Auth.addUserToRequest(), Cache({ 
+router.get('/:id', Auth.addUserToRequest(), Cache({
   ttl: 60*60*24, // 24 hours
   varyByUser: true,
   varyByQuery: ['tree'],
@@ -564,24 +564,24 @@ router.get('/:id', Auth.addUserToRequest(), Cache({
             type: QueryTypes.SELECT
           }
         ) as Array<{ levelId: number; tagId: number }>;
-        
+
         if (assignments.length === 0) {
           return new Map<number, LevelTag[]>();
         }
-        
+
         // Get unique tag IDs
         const tagIds = [...new Set(assignments.map(a => a.tagId))];
-        
+
         // Fetch all tags
         const allTags = await LevelTag.findAll({
           where: { id: { [Op.in]: tagIds } },
           order: [['name', 'ASC']]
         });
-        
+
         // Map tags to levels
         const tagsByLevelId = new Map<number, LevelTag[]>();
         const tagsById = new Map(allTags.map((tag: LevelTag) => [tag.id, tag]));
-        
+
         assignments.forEach(assignment => {
           const tag = tagsById.get(assignment.tagId);
           if (tag) {
@@ -591,7 +591,7 @@ router.get('/:id', Auth.addUserToRequest(), Cache({
             tagsByLevelId.get(assignment.levelId)!.push(tag);
           }
         });
-        
+
         return tagsByLevelId;
       })() : Promise.resolve(new Map<number, LevelTag[]>()),
       req.user ? Pass.findAll({
@@ -642,7 +642,7 @@ router.get('/:id', Auth.addUserToRequest(), Cache({
       }
 
       const levelData: any = level.toJSON();
-      
+
       // Attach curation if exists
       const curation = curationsMap.get(level.id);
       if (curation) {
@@ -887,10 +887,10 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
 
     const folderOrPackName = targetFolder ? targetFolder.name : pack.name;
     const packCode = pack.linkCode;
-    const zipDisplayName = packCode 
+    const zipDisplayName = packCode
       ? `${folderOrPackName} - ${packCode}`
       : folderOrPackName;
-    
+
     const treePayload = {
       type: 'folder',
       name: zipDisplayName,
@@ -1485,7 +1485,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     if (error.code) {
-      if (error.code === 500) logger.error('Error adding item to pack:', error);      
+      if (error.code === 500) logger.error('Error adding item to pack:', error);
       return res.status(error.code).json(error);
     }
     logger.error('Error adding item to pack:', error);
@@ -1673,7 +1673,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
         });
 
         if (existingFolder) {
-          throw { 
+          throw {
             error: `Folder "${update.item.name}" already exists in the target location`,
             code: 400,
             details: {
@@ -1695,12 +1695,12 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
           packId: resolvedPackId,
           sortOrder: update.sortOrder
         };
-        
+
         // Only include parentId if it's not null (null means keep existing)
-        if (update.parentId != null) {
+        if (update.parentId !== null) {
           updateData.parentId = update.parentId;
         }
-        
+
         return updateData;
       });
 
@@ -2064,7 +2064,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
 
     // Check for unique constraint violations before updating
     // The constraint is on (packId, parentId, name) for folders
-    for (const { id, sortOrder, parentId } of items) {
+    for (const { id, parentId } of items) {
       if (id && parentId !== undefined) {
         const item = itemMap.get(id);
         if (item && item.type === 'folder' && item.name) {
@@ -2168,7 +2168,7 @@ LevelPack.addHook('afterUpdate', 'cacheInvalidationPackUpdate', async (pack: Lev
 LevelPack.addHook('afterDestroy', 'cacheInvalidationPackDestroy', async (pack: LevelPack, options: any) => {
   const packId = pack.id;
   const linkCode = pack.linkCode;
-  
+
   if (options.transaction) {
     await options.transaction.afterCommit(async () => {
       const tags: string[] = ['packs:all'];
@@ -2193,7 +2193,7 @@ LevelPack.addHook('afterBulkUpdate', 'cacheInvalidationPackBulkUpdate', async (o
         where: options.where,
         attributes: ['id', 'linkCode']
       });
-      
+
       const tags: string[] = ['packs:all'];
       affectedPacks.forEach(pack => {
         tags.push(`pack:${pack.id}`);
@@ -2201,7 +2201,7 @@ LevelPack.addHook('afterBulkUpdate', 'cacheInvalidationPackBulkUpdate', async (o
           tags.push(`pack:${pack.linkCode}`);
         }
       });
-      
+
       if (tags.length > 1) {
         await CacheInvalidation.invalidateTags([...new Set(tags)]);
         logger.debug(`Cache invalidated for ${affectedPacks.length} packs (bulk update)`);
@@ -2234,7 +2234,7 @@ LevelPackItem.addHook('afterUpdate', 'cacheInvalidationPackItemUpdate', async (i
 
 LevelPackItem.addHook('afterDestroy', 'cacheInvalidationPackItemDestroy', async (item: LevelPackItem, options: any) => {
   const packId = item.packId;
-  
+
   if (options.transaction) {
     await options.transaction.afterCommit(async () => {
       await invalidatePackCacheById(packId);
@@ -2249,11 +2249,11 @@ LevelPackItem.addHook('afterBulkCreate', 'cacheInvalidationPackItemBulkCreate', 
     await options.transaction.afterCommit(async () => {
       // Get unique pack IDs from created items
       const packIds = [...new Set(instances.map(item => item.packId))];
-      
+
       for (const packId of packIds) {
         await invalidatePackCacheById(packId);
       }
-      
+
       logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item create)`);
     });
   }
@@ -2269,13 +2269,13 @@ LevelPackItem.addHook('afterBulkUpdate', 'cacheInvalidationPackItemBulkUpdate', 
         attributes: ['packId'],
         group: ['packId']
       });
-      
+
       const packIds = [...new Set(affectedItems.map(item => item.packId))];
-      
+
       for (const packId of packIds) {
         await invalidatePackCacheById(packId);
       }
-      
+
       if (packIds.length > 0) {
         logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item update)`);
       }
@@ -2299,13 +2299,13 @@ LevelPackItem.addHook('afterBulkDestroy', 'cacheInvalidationPackItemBulkDestroy'
         }
         return [];
       });
-      
+
       const packIds = [...new Set(affectedItems.map(item => item.packId))];
-      
+
       for (const packId of packIds) {
         await invalidatePackCacheById(packId);
       }
-      
+
       if (packIds.length > 0) {
         logger.debug(`Cache invalidated for ${packIds.length} packs (bulk item destroy)`);
       }
@@ -2326,7 +2326,7 @@ PackFavorite.addHook('afterCreate', 'cacheInvalidationPackFavoriteCreate', async
 
 PackFavorite.addHook('afterDestroy', 'cacheInvalidationPackFavoriteDestroy', async (favorite: PackFavorite, options: any) => {
   const packId = favorite.packId;
-  
+
   if (options.transaction) {
     await options.transaction.afterCommit(async () => {
       await invalidatePackCacheById(packId);
@@ -2340,11 +2340,11 @@ PackFavorite.addHook('afterBulkCreate', 'cacheInvalidationPackFavoriteBulkCreate
   if (options.transaction) {
     await options.transaction.afterCommit(async () => {
       const packIds = [...new Set(instances.map(fav => fav.packId))];
-      
+
       for (const packId of packIds) {
         await invalidatePackCacheById(packId);
       }
-      
+
       logger.debug(`Cache invalidated for ${packIds.length} packs (bulk favorite create)`);
     });
   }

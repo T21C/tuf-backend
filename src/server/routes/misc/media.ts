@@ -653,7 +653,7 @@ router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
       }
       throw error;
     }
-    
+
     if (!videoLink) {
       return res.status(400).json({
         error: 'Video link is required'

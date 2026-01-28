@@ -11,7 +11,6 @@ import OAuthProvider from '../../../models/auth/OAuthProvider.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import PlayerStats from '../../../models/players/PlayerStats.js';
 import {Router, Request, Response} from 'express';
-import {fetchDiscordUserInfo} from '../../../misc/utils/auth/discord.js';
 import { escapeForMySQL } from '../../../misc/utils/data/searchHelpers.js';
 import PlayerModifier from '../../../models/players/PlayerModifier.js';
 import { ModifierService } from '../../services/ModifierService.js';
@@ -26,7 +25,7 @@ import RatingAccuracyVote from '../../../models/levels/RatingAccuracyVote.js';
 import RatingDetail from '../../../models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { permissionFlags } from '../../../config/constants.js';
-import { hasFlag, setUserPermissionAndSave, wherePermission } from '../../../misc/utils/auth/permissionUtils.js';
+import { hasFlag, setUserPermissionAndSave } from '../../../misc/utils/auth/permissionUtils.js';
 import { serializePlayer } from '../../../misc/utils/server/jsonHelpers.js';
 
 const router: Router = Router();
@@ -130,10 +129,10 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
     if (!playerExists) {
       return res.status(404).json({error: 'Player not found'});
     }
-    
+
     // Check if user is viewing their own profile
     const isOwnProfile = user && user.playerId && user.playerId === parseInt(id);
-    
+
     // Wait for both enriched data and stats in parallel
     const [enrichedPlayer, playerStats] = await Promise.all([
       playerStatsService.getEnrichedPlayer(parseInt(id), isOwnProfile ? user : undefined),
@@ -715,7 +714,7 @@ router.patch('/:id([0-9]{1,20})/ban', Auth.superAdmin(), async (req: Request, re
       const {id} = req.params;
       const {isBanned} = req.body;
 
-      const player = await Player.findByPk(id, {transaction, 
+      const player = await Player.findByPk(id, {transaction,
         include: [
           {
             model: User,

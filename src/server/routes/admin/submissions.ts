@@ -40,7 +40,6 @@ import LevelSubmissionEvidence from '../../../models/submissions/LevelSubmission
 import Song from '../../../models/songs/Song.js';
 import Artist from '../../../models/artists/Artist.js';
 import SongCredit from '../../../models/songs/SongCredit.js';
-import SongService from '../../services/SongService.js';
 import ArtistService from '../../services/ArtistService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
@@ -48,7 +47,6 @@ import submissionSongArtistRoutes from './submissions-song-artist.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
-const songService = SongService.getInstance();
 const artistService = ArtistService.getInstance();
 const evidenceService = EvidenceService.getInstance();
 
@@ -491,8 +489,8 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         // Handle artist requests (multiple artists supported)
         const finalArtistIds: number[] = [];
-        let finalArtistString: string = '';
-        
+        let finalArtistString = '';
+
         // If we have an existing song, inherit artists from song credits and discard submission artist requests
         if (finalSongId && submission.songObject?.credits) {
           // Extract artist IDs and names from song credits
@@ -502,7 +500,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
               finalArtistIds.push(credit.artist.id);
             }
           }
-          
+
           // Format artist string from song credits (join with ' & ')
           const artistNames = songCredits
             .map((credit: any) => credit.artist?.name)
@@ -531,7 +529,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             // Fallback: Use artistId directly from submission (backward compatibility)
             finalArtistIds.push(submission.artistId);
           }
-          
+
           // Format artist string from artist requests (fallback to submission.artist if no requests)
           if (finalArtistIds.length > 0) {
             // Fetch artist names for formatting
@@ -569,9 +567,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             }
           }
         }
-        
-        // Use first artist for backward compatibility with artistId field
-        const finalArtistId = finalArtistIds.length > 0 ? finalArtistIds[0] : null;
+
 
         const newLevel = await Level.create(
           {
@@ -646,7 +642,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                 transaction
               });
             }
-          } 
+          }
           else if (request.isNewRequest) {
             // For new creators
             const [creator] = await Creator.findOrCreate({

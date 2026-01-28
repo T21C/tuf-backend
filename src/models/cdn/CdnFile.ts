@@ -4,16 +4,16 @@ const sequelize = getSequelizeForModelGroup('cdn');
 
 class CdnFile extends Model {
     declare id: string;
-    declare type: 'PROFILE' 
-    | 'ICON' 
-    | 'BANNER' 
-    | 'THUMBNAIL' 
-    | 'CURATION_ICON' 
-    | 'LEVEL_THUMBNAIL' 
-    | 'PACK_ICON' 
-    | 'TAG_ICON' 
-    | 'LEVELZIP' 
-    | 'GENERAL' 
+    declare type: 'PROFILE'
+    | 'ICON'
+    | 'BANNER'
+    | 'THUMBNAIL'
+    | 'CURATION_ICON'
+    | 'LEVEL_THUMBNAIL'
+    | 'PACK_ICON'
+    | 'TAG_ICON'
+    | 'LEVELZIP'
+    | 'GENERAL'
     | 'EVIDENCE';
     declare filePath: string;
     declare metadata: object;
@@ -21,15 +21,15 @@ class CdnFile extends Model {
     declare cacheData: string | null;
 }
 
-export type ImageFileType = 
-'PROFILE' 
-| 'ICON' 
-| 'BANNER' 
-| 'THUMBNAIL' 
-| 'CURATION_ICON' 
-| 'LEVEL_THUMBNAIL' 
-| 'PACK_ICON' 
-| 'TAG_ICON' 
+export type ImageFileType =
+'PROFILE'
+| 'ICON'
+| 'BANNER'
+| 'THUMBNAIL'
+| 'CURATION_ICON'
+| 'LEVEL_THUMBNAIL'
+| 'PACK_ICON'
+| 'TAG_ICON'
 | 'EVIDENCE';
 
 CdnFile.init({

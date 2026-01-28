@@ -3,7 +3,6 @@ import SongAlias from './SongAlias.js';
 import SongLink from './SongLink.js';
 import SongEvidence from './SongEvidence.js';
 import SongCredit from './SongCredit.js';
-import Artist from '../artists/Artist.js';
 import Level from '../levels/Level.js';
 
 export function initializeSongsAssociations() {

@@ -295,7 +295,7 @@ export async function getLevelAnnouncementConfig(
       if (action.pingType === 'ROLE' && action.role) {
         // Use role's messageFormat or default format (note: count is lowercase in template but uppercase in render)
         const messageFormat = action.role.messageFormat || '{count} New levels {ping}';
-        
+
         const ping = action.role.roleId ? `<@&${action.role.roleId}>` : '';
 
         channelConfig.messageFormats!.push({
@@ -369,7 +369,7 @@ export async function getPassAnnouncementConfig(pass: Pass): Promise<Announcemen
       if (action.pingType === 'ROLE' && action.role) {
         // Use role's messageFormat or default format (note: count is lowercase in template but uppercase in render)
         const messageFormat = action.role.messageFormat || '{count} New {difficultyName} clears {ping}';
-        
+
         const ping = action.role.roleId ? `<@&${action.role.roleId}>` : '';
 
         channelConfig.messageFormats!.push({

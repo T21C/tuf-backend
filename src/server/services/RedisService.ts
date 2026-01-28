@@ -9,7 +9,7 @@ class RedisService {
   private static instance: RedisService;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private client: any = null;
-  private isConnecting: boolean = false;
+  private isConnecting = false;
   private connectionPromise: Promise<void> | null = null;
 
   private constructor() {}

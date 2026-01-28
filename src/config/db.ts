@@ -264,7 +264,7 @@ export const getPoolManagerInstance = (): PoolManager => {
 /**
  * Initialize pools with configuration.
  * Call this during application startup before models are initialized.
- * 
+ *
  * @example
  * initializeDatabasePools({
  *   pools: [

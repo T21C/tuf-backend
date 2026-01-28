@@ -2,17 +2,17 @@ import { initializeDatabasePools } from './db.js';
 
 /**
  * Pool configuration for isolating model groups.
- * 
+ *
  * This configuration allows you to:
  * 1. Create isolated connection pools for different model groups
  * 2. Prevent one bottleneck from exhausting all database connections
  * 3. Scale pools independently based on usage patterns
- * 
+ *
  * To add a new pool:
  * 1. Add a pool config to the pools array
  * 2. Map your model group to the pool in modelMappings
  * 3. Update your model files to use getSequelizeForModelGroup()
- * 
+ *
  * Pool sizing guidelines:
  * - High-traffic groups (levels, submissions): 10-15 connections
  * - Medium-traffic groups (players, passes): 5-10 connections

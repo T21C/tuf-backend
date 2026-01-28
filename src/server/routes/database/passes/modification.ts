@@ -15,9 +15,6 @@ import { getScoreV2 } from '../../../../misc/utils/pass/CalcScore.js';
 import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
 import { sseManager } from '../../../../misc/utils/server/sse.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
-import { wherePermission } from '../../../../misc/utils/auth/permissionUtils.js';
-import { Op } from 'sequelize';
-import { permissionFlags } from '../../../../config/constants.js';
 import { User } from '../../../../models/index.js';
 import Creator from '../../../../models/credits/Creator.js';
 import LevelCredit from '../../../../models/levels/LevelCredit.js';
@@ -341,6 +338,7 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       }
 
       if (oldPass.levelId !== updatedPass?.levelId) {
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         elasticsearchService.indexLevel(oldPass.levelId);
       }
 

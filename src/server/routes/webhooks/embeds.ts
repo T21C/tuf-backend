@@ -5,7 +5,7 @@ import {MessageBuilder} from '../../../misc/webhook/index.js';
 import {getVideoDetails} from '../../../misc/utils/data/videoDetailParser.js';
 import {PlayerStatsService} from '../../services/PlayerStatsService.js';
 import { OAuthProvider } from '../../../models/index.js';
-import { clientUrlEnv, ownUrl } from '../../../config/app.config.js';
+import { clientUrlEnv } from '../../../config/app.config.js';
 import Rating from '../../../models/levels/Rating.js';
 
 const playerStatsService = PlayerStatsService.getInstance();

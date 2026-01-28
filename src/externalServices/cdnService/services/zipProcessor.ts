@@ -66,8 +66,8 @@ async function extractFile(zipFilePath: string, entry: ZipEntry, targetPath: str
 type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
 
 export async function processZipFile(
-    zipFilePath: string, 
-    zipFileId: string, 
+    zipFilePath: string,
+    zipFileId: string,
     originalFilename: string,
     onProgress?: ProgressCallback
 ): Promise<void> {
@@ -192,7 +192,7 @@ export async function processZipFile(
         await sendProgress('processing', 40, 'Processing song files');
         let totalSongSize = 0;
         const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'];
-        const songEntries = zipEntries.filter(entry => 
+        const songEntries = zipEntries.filter(entry =>
             !entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())
         );
         let processedSongs = 0;
@@ -289,13 +289,13 @@ export async function processZipFile(
 
         if (allLevelFiles.length > 0) {
             // Filter out backup.adofai files first, prefer any other level file
-            const nonBackupFiles = allLevelFiles.filter(file => 
+            const nonBackupFiles = allLevelFiles.filter(file =>
                 file.name.toLowerCase() !== 'backup.adofai'
             );
-            
+
             // Select target level: prefer non-backup files, fall back to backup if it's the only option
             const candidateFiles = nonBackupFiles.length > 0 ? nonBackupFiles : allLevelFiles;
-            
+
             // Select the largest level file from candidates
             const largestLevel = candidateFiles.reduce((largest, current) => {
                 return (current.size > largest.size) ? current : largest;
@@ -406,7 +406,7 @@ export async function processZipFile(
             zipFileId,
             timestamp: new Date().toISOString()
         });
-        
+
         // Send failure progress update
         await sendProgress('failed', 0, error instanceof Error ? error.message : String(error));
         throw error;

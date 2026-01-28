@@ -67,7 +67,7 @@ export default class Webhook {
     if (endPayload.embeds && Array.isArray(endPayload.embeds)) {
       endPayload.embeds = endPayload.embeds.filter((embed: any) => {
         // Check if embed has any meaningful content
-        const hasContent = 
+        const hasContent =
           embed.title ||
           embed.description ||
           embed.author ||

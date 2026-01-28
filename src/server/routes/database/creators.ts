@@ -1732,7 +1732,7 @@ router.put('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request
     // Update name if provided
     if (name && typeof name === 'string' && name.trim().length > 0) {
       const trimmedName = name.trim();
-      
+
       // Check for duplicate name (excluding current team)
       const existingTeam = await Team.findOne({
         where: {
@@ -1936,7 +1936,7 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
       teamIds.add(alias.teamId);
     }
 
-    logger.debug("alias ids: " + JSON.stringify(teamAliasIds));
+    logger.debug('alias ids: ' + JSON.stringify(teamAliasIds));
 
     const teams = await Team.findAll({
       where: {

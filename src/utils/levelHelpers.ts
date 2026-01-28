@@ -43,7 +43,7 @@ export const getArtists = (level: Level | any): any | null => {
  */
 export const getArtistDisplayName = (level: Level | any): string => {
   if (!level) return '';
-  
+
   // First, try to get artists from songObject.artists (prioritize songObject direct association)
   if (level.songObject?.artists && Array.isArray(level.songObject.artists)) {
     const artistNames = level.songObject.artists
@@ -53,7 +53,7 @@ export const getArtistDisplayName = (level: Level | any): string => {
       return artistNames.join(' & ');
     }
   }
-  
+
   // Fallback to level.artists if available
   if (level.artists && Array.isArray(level.artists)) {
     const artistNames = level.artists.map((artist: Artist) => artist.name).filter(Boolean);
@@ -61,7 +61,7 @@ export const getArtistDisplayName = (level: Level | any): string => {
       return artistNames.join(' & ');
     }
   }
-  
+
   // Final fallback to legacy level.artist field
   return level.artist || '';
 };

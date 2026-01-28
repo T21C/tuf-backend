@@ -16,7 +16,6 @@ import RatingDetail from '../../../../models/levels/RatingDetail.js';
 import Rating from '../../../../models/levels/Rating.js';
 import LevelLikes from '../../../../models/levels/LevelLikes.js';
 import { User } from '../../../../models/index.js';
-import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js';
 import { logger } from '../../../services/LoggerService.js';
 import ElasticsearchService from '../../../services/ElasticsearchService.js';
 import LevelRerateHistory from '../../../../models/levels/LevelRerateHistory.js';
@@ -30,10 +29,8 @@ import cdnService from '../../../services/CdnService.js';
 import CurationSchedule from '../../../../models/curations/CurationSchedule.js';
 import Song from '../../../../models/songs/Song.js';
 import SongAlias from '../../../../models/songs/SongAlias.js';
-import SongCredit from '../../../../models/songs/SongCredit.js';
 import Artist from '../../../../models/artists/Artist.js';
-import ArtistAlias from '../../../../models/artists/ArtistAlias.js';
-import { getArtistDisplayName, getSongDisplayName, getSongName } from '../../../../utils/levelHelpers.js';
+import { getArtistDisplayName, getSongDisplayName } from '../../../../utils/levelHelpers.js';
 
 
 const MAX_LIMIT = 200;
@@ -304,7 +301,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         transaction,
       }).then(async (passes) => {
         if (passes.length === 0) return [];
-        
+
         const playerIds = passes.map(p => p.playerId).filter(Boolean);
         const playersPromise = Player.findAll({
           where: {
@@ -368,7 +365,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         transaction,
       }).then(async (credits) => {
         if (credits.length === 0) return [];
-        
+
         const creatorIds = credits.map(c => c.creatorId).filter(Boolean);
         const creatorsPromise = Creator.findAll({
           where: {
@@ -452,24 +449,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         transaction,
       });
 
-      // RatingAccuracyVote query (needs difficulty ID)
-      const votesPromise = Promise.all([levelPromise, difficultyPromise]).then(async ([level, difficulty]) => {
-        return RatingAccuracyVote.findAll({
-          where: {
-            levelId: levelId,
-            diffId: difficulty?.id || 0
-          },
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['username', 'avatarUrl']
-            },
-          ],
-          transaction,
-        });
-      });
-
       // LevelLikes query
       const isLikedPromise = req.user ? LevelLikes.findOne({
         where: { levelId: levelId, userId: req.user?.id },
@@ -505,7 +484,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       // CDN service calls (need level data)
       const cdnDataPromise = levelPromise.then(async (level) => {
         if (!level?.dlLink) return { bpm: undefined, tilecount: undefined, accessCount: 0 };
-        
+
         try {
           const fileResponse = await cdnService.getLevelData(level, ['settings','tilecount','accessCount']);
           return {
@@ -539,7 +518,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         teamObject,
         curation,
         ratings,
-        votes,
         isLiked,
         isCleared,
         rerateHistory,
@@ -555,7 +533,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         teamPromise,
         curationPromise,
         ratingsPromise,
-        votesPromise,
         isLikedPromise,
         isClearedPromise,
         rerateHistoryPromise,
@@ -592,9 +569,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       return res.json({
         level: assembledLevel,
         ratings,
-        votes: req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN) ? votes : undefined,
         rerateHistory,
-        totalVotes: votes.length,
         isLiked,
         isCleared,
         bpm: cdnData.bpm,

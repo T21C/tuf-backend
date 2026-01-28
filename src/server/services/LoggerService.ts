@@ -53,12 +53,12 @@ const safeStringify = (obj: any): string => {
  */
 const extractMetadata = (info: any): string => {
   const parts: string[] = [];
-  
+
   // Extract splat array from Symbol property (Winston stores additional args here)
   // Check all Symbol properties to find the splat array
   const symbols = Object.getOwnPropertySymbols(info);
   let splat: any[] | undefined;
-  
+
   for (const sym of symbols) {
     const value = info[sym];
     // Winston's splat is an array containing the additional arguments
@@ -74,14 +74,14 @@ const extractMetadata = (info: any): string => {
         }
         return true;
       });
-      
+
       if (hasNonSymbolValues) {
         splat = value;
         break;
       }
     }
   }
-  
+
   // Format splat values
   if (splat && splat.length > 0) {
     splat.forEach((item: any) => {
@@ -89,12 +89,12 @@ const extractMetadata = (info: any): string => {
       if (typeof item === 'symbol') {
         return;
       }
-      
+
       // Skip Winston log info objects (they're internal)
       if (typeof item === 'object' && item !== null && item.level && item.message) {
         return;
       }
-      
+
       if (item === null || item === undefined) {
         parts.push(String(item));
       } else if (typeof item === 'object') {
@@ -104,7 +104,7 @@ const extractMetadata = (info: any): string => {
       }
     });
   }
-  
+
   // Extract regular metadata (excluding known Winston properties and Symbol keys)
   const knownKeys = ['level', 'message', 'timestamp', 'splat'];
   const regularMeta: Record<string, any> = {};
@@ -113,11 +113,11 @@ const extractMetadata = (info: any): string => {
       regularMeta[key] = info[key];
     }
   }
-  
+
   if (Object.keys(regularMeta).length > 0) {
     parts.push(safeStringify(regularMeta));
   }
-  
+
   return parts.length > 0 ? parts.join(' ') : '';
 };
 

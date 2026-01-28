@@ -61,7 +61,7 @@ class OAuthService {
         where: {email: profile.email},
         include: [{model: OAuthProvider, as: 'providers'}],
       });
-      
+
       // If user exists but doesn't have this provider linked, link it
       if (user) {
         const now = new Date();
@@ -73,7 +73,7 @@ class OAuthService {
           createdAt: now,
           updatedAt: now,
         });
-        
+
         return [user, false];
       }
     }

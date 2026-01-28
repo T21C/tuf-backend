@@ -41,7 +41,7 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
       }
 
       const pass = await Pass.findOne({ where: whereClause });
-      
+
       if (!pass) {
         return res.json({count: 0, results: []});
       }
@@ -86,7 +86,7 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
               where: { levelId: level.id },
             }).then(async (credits) => {
               if (credits.length === 0) return [];
-              
+
               const creatorIds = [...new Set(credits.map(c => c.creatorId).filter((id): id is number => Boolean(id)))];
               if (creatorIds.length === 0) return credits.map(c => ({ ...c.toJSON(), creator: null }));
 
@@ -172,9 +172,9 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
       if (!level || (level.isDeleted || level.isHidden) && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
         return res.status(404).json({error: 'Level not found'});
       }
-      
+
       const parsedLevelId = parseInt(levelId);
-      
+
       // Fetch passes
       const passesPromise = Pass.findAll({
         where: {
@@ -225,7 +225,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
         // Assemble passes with nested data and filter out passes with null players
         const userPlayerId = req.user?.playerId;
         const isSuperAdmin = req.user && hasFlag(req.user, permissionFlags.SUPER_ADMIN);
-        
+
         return passes
           .map(pass => {
             const player = pass.playerId ? playersById[pass.playerId] : null;
@@ -240,7 +240,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
             if (pass.player === null || pass.judgements === null) {
               return false;
             }
-            
+
             // Filter out hidden passes unless user is the owner or super admin
             if (pass.isHidden) {
               if (isSuperAdmin) {
@@ -251,7 +251,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
               }
               return false; // Hidden passes are not visible to others
             }
-            
+
             return true;
           });
       });

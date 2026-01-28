@@ -49,7 +49,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
 
     const escapedSearch = escapeForMySQL(search as string);
-    
+
     // Build order clause
     let order: any[] = [['name', 'ASC']];
     switch (sort) {
@@ -72,7 +72,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         .split(',')
         .map(id => parseInt(id.trim()))
         .filter(id => !isNaN(id) && id > 0);
-      
+
       if (artistIds.length > 0) {
         if (artistIds.length === 1) {
           // Single artist: simple query
@@ -88,7 +88,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             where: {artistId: {[Op.in]: artistIds}},
             attributes: ['songId', 'artistId']
           });
-          
+
           // Group by songId and check if each song has all required artists
           const songArtistMap = new Map<number, Set<number>>();
           allCredits.forEach(credit => {
@@ -97,9 +97,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             }
             songArtistMap.get(credit.songId)!.add(credit.artistId);
           });
-          
+
           // Filter to only songs that have ALL the specified artists
           artistSongIds = Array.from(songArtistMap.entries())
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
             .filter(([songId, artistSet]) => {
               // Check if this song has all required artists
               return artistIds.every(id => artistSet.has(id));
@@ -111,17 +112,17 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     // Build final where clause
     const finalWhere: any = {};
-    
+
     // Simple search filter on name
     if (escapedSearch && escapedSearch.trim()) {
       finalWhere.name = {[Op.like]: `%${escapedSearch}%`};
     }
-    
+
     // Verification state filter (only if specified)
     if (verificationState) {
       finalWhere.verificationState = verificationState;
     }
-    
+
     // Apply artist filter if provided
     if (artistSongIds !== null) {
       finalWhere.id = {[Op.in]: artistSongIds};
@@ -236,7 +237,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       return res.status(404).json({error: 'Song not found'});
     }
 
-    const levelsResult = await elasticsearchService.searchLevels("", {
+    const levelsResult = await elasticsearchService.searchLevels('', {
       songId: song.id,
       limit: 100,
       offset: 0
@@ -573,7 +574,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
     return res.json({evidences});
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    
+
     // Check if it's a CdnError and propagate the actual error details
     if (error instanceof CdnError) {
       const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
@@ -584,7 +585,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
         details: error.details
       });
     }
-    
+
     logger.error('Error uploading evidence:', error);
     return res.status(500).json({error: 'Failed to upload evidence'});
   }
@@ -690,22 +691,22 @@ router.post('/:id([0-9]{1,20})/levels/suffix', Auth.superAdmin(), async (req: Re
     }
 
     // Normalize suffix: trim whitespace, set to null if empty string
-    const normalizedSuffix = suffix && typeof suffix === 'string' 
-      ? suffix.trim() || null 
+    const normalizedSuffix = suffix && typeof suffix === 'string'
+      ? suffix.trim() || null
       : null;
 
     // Update all levels with this songId
     const [updatedCount] = await Level.update(
       { suffix: normalizedSuffix },
-      { 
+      {
         where: { songId },
         transaction
       }
     );
 
     await transaction.commit();
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       updatedCount,
       suffix: normalizedSuffix
     });

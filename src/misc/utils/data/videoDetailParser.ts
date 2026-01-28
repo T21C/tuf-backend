@@ -157,7 +157,7 @@ async function getYouTubeVideoDetails(
   const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${apiKey}&part=snippet,contentDetails`;
 
   try {
-    const response = await axios.get<YouTubeResponse>(apiUrl).catch(err => {
+    const response = await axios.get<YouTubeResponse>(apiUrl).catch(() => {
       return null;
     });
     if (!response) {
@@ -222,7 +222,7 @@ async function getDriveFromYt(link: string, response: YouTubeResponse | null = n
     if (!response) {
       response = await axios.get<YouTubeResponse>(
       `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${id}&key=${process.env.YOUTUBE_API_KEY}`,
-      ).then(res => res.data).catch(err => {
+      ).then(res => res.data).catch(() => {
         return null;
       });
     }

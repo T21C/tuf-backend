@@ -26,8 +26,6 @@ import { formatCredits } from '../../../misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '../webhooks/embeds.js';
 import dotenv from 'dotenv';
-import { env } from 'process';
-import LevelTagAssignment from '../../../models/levels/LevelTagAssignment.js';
 import LevelTag from '../../../models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName } from '../../../utils/levelHelpers.js';
 import Song from '../../../models/songs/Song.js';
@@ -312,13 +310,13 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
             throw new Error('Level or difficulty not found');
           }
 
-          const averageDifficulty = level?.ratings?.[0]?.averageDifficultyId && level.difficulty?.name[0] === "Q" ? await Difficulty.findByPk(level.ratings?.[0]?.averageDifficultyId) : undefined;
+          const averageDifficulty = level?.ratings?.[0]?.averageDifficultyId && level.difficulty?.name[0] === 'Q' ? await Difficulty.findByPk(level.ratings?.[0]?.averageDifficultyId) : undefined;
 
           const diff = level.difficulty;
           if (!diff) {
             throw new Error('Difficulty not found');
           }
-          
+
           // Use helper functions to prioritize songObject for both song and artist
           const song = getSongDisplayName(level);
           const artist = getArtistDisplayName(level);
@@ -658,10 +656,10 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
               </body>
             </html>
           `;
-          
+
           // Export HTML to file for review
           await exportHtmlToFile(html, 'level', levelId);
-          
+
           // Convert to PNG
           const buffer = await htmlToPng(html, width, height);
 
@@ -778,7 +776,7 @@ router.get('/thumbnail/player/:id([0-9]{1,20})', async (req: Request, res: Respo
     });
     const difficulties = await Difficulty.findAll();
     const difficultyMap = new Map<number, string>(difficulties.map(difficulty => [difficulty.id, difficulty.name]));
-    
+
     if (!player) {
       return res.status(404).send('Player not found');
     }
@@ -1039,7 +1037,7 @@ router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Respons
         {model: Player, as: 'player'}
       ]
     });
-    
+
     if (!pass || pass.isDeleted || pass.isHidden) {
       return res.status(404).send('Pass not found');
     }
@@ -1288,7 +1286,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const param = req.params.id;
     const resolvedPackId = await resolvePackId(param);
-    
+
     if (!resolvedPackId) {
       return res.status(404).send('Pack not found');
     }
@@ -1432,10 +1430,10 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
 
           // Build level list HTML
           let levelsHtml = `<div class="pack-level-count">${totalLevelCount} level${totalLevelCount === 1 ? '' : 's'}</div>`;
-          levelItems.forEach((item, index) => {
+          levelItems.forEach((item) => {
             const level = item.referencedLevel;
             if (!level) return;
-            
+
             const diffIcon = level.difficulty?.icon || '';
             const songName = getSongDisplayName(level);
             levelsHtml += `
@@ -1448,13 +1446,12 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
 
           // Build overlapping icons HTML for the more section
           let moreIconsHtml = '';
-          let iconsContainerWidth = 0;
           if (moreLevelItems.length > 0 || remainingCount > 0) {
             const validIcons = moreLevelItems.filter(item => item.referencedLevel && item.referencedLevel.difficulty?.icon);
             validIcons.forEach((item, index) => {
               const level = item.referencedLevel;
               if (!level || !level.difficulty?.icon) return;
-              
+
               const diffIcon = level.difficulty.icon;
 
               moreIconsHtml += `
@@ -1468,14 +1465,7 @@ router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Respon
                 </div>
               `;
             });
-            
-            // Calculate container width: icon width (32px) + max offset (2px * (count - 1))
-            if (validIcons.length > 0) {
-              const iconSize = 32 * multiplier;
-              const maxOffset = Math.min(2 * (validIcons.length - 1), 2 * 19) * multiplier;
-              iconsContainerWidth = iconSize + maxOffset;
-            }
-            
+
             levelsHtml += `
               <div class="level-item level-item-more">
                 ${moreIconsHtml}

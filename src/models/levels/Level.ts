@@ -13,7 +13,6 @@ import Rating from './Rating.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
 import LevelTag from './LevelTag.js';
 import Song from '../songs/Song.js';
-import Artist from '../artists/Artist.js';
 import SongCredit from '../songs/SongCredit.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
@@ -76,7 +75,7 @@ class Level
   declare charters: string[];
   declare vfxers: string[];
   declare tags?: LevelTag[];
-  
+
   // Associations for normalized song
   declare songObject?: Song;
   declare songCredits?: SongCredit[];

@@ -12,7 +12,7 @@ import Level from '../../../models/levels/Level.js';
 import sequelize from '../../../config/db.js';
 import {escapeForMySQL} from '../../../misc/utils/data/searchHelpers.js';
 import {logger} from '../../services/LoggerService.js';
-import {safeTransactionRollback, isCdnUrl, getFileIdFromCdnUrl} from '../../../misc/utils/Utility.js';
+import {safeTransactionRollback, getFileIdFromCdnUrl} from '../../../misc/utils/Utility.js';
 import ArtistService from '../../services/ArtistService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '../../services/CdnService.js';
@@ -46,7 +46,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
 
     const searchString = (search as string).trim();
-    
+
     // Build order clause for sorting
     let order: any[] = [['name', 'ASC']];
     switch (sort) {
@@ -64,7 +64,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     // Step 1: Collect all matching IDs (unpaginated)
     let allMatchingIds: number[] = [];
     let exactMatchIds: number[] = [];
-    
+
     if (searchString) {
       // Check for #{ID} pattern
       const idMatcher = /^#\d{1,20}$/.exec(searchString);
@@ -75,7 +75,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       } else {
         // Normal search - separate exact matches from partial matches
         const escapedSearch = escapeForMySQL(searchString);
-        
+
         // Find exact name matches (case-insensitive, sorted)
         const exactNameMatches = await Artist.findAll({
           where: sequelize.where(
@@ -96,7 +96,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           attributes: ['artistId']
         });
         const exactAliasIds = Array.from(new Set(exactAliasMatches.map(a => a.artistId)));
-        
+
         // Sort exact alias IDs by querying artists with those IDs
         if (exactAliasIds.length > 0) {
           const sortedExactAliasArtists = await Artist.findAll({
@@ -107,10 +107,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           const sortedExactAliasIds = sortedExactAliasArtists.map(a => a.id);
           exactMatchIds = [...exactMatchIds, ...sortedExactAliasIds];
         }
-        
+
         // Remove duplicates from exact matches
         exactMatchIds = Array.from(new Set(exactMatchIds));
-        
+
         // Find partial name matches (excluding exact matches, sorted)
         const partialNameWhere: any = {
           name: {
@@ -141,7 +141,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           attributes: ['artistId']
         });
         const partialAliasIdsRaw = Array.from(new Set(partialAliasMatches.map(a => a.artistId)));
-        
+
         // Sort partial alias IDs by querying artists with those IDs
         let partialAliasIds: number[] = [];
         if (partialAliasIdsRaw.length > 0) {
@@ -152,12 +152,12 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           });
           partialAliasIds = sortedPartialAliasArtists.map(a => a.id);
         }
-        
+
         // Combine: exact matches first, then partial matches (both sorted)
         allMatchingIds = [...exactMatchIds, ...Array.from(new Set([...partialMatchIds, ...partialAliasIds]))];
       }
     }
-    
+
     // Apply verification state filter if specified
     if (verificationState && allMatchingIds.length > 0) {
       const filterWhere: any = {
@@ -170,17 +170,17 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         order
       });
       const filteredIds = filteredArtists.map(a => a.id);
-      
+
       // Maintain order: exact matches first, then partial matches
       const filteredExactIds = exactMatchIds.filter(id => filteredIds.includes(id));
       const filteredPartialIds = allMatchingIds.filter(id => !exactMatchIds.includes(id) && filteredIds.includes(id));
       allMatchingIds = [...filteredExactIds, ...filteredPartialIds];
     }
-    
+
     // Step 2: Paginate the IDs array
     const totalCount = allMatchingIds.length;
     const paginatedIds = allMatchingIds.slice(offset, offset + normalizedLimit);
-    
+
     // Step 3: Query with paginated IDs (or normal query if no search)
     let finalWhere: any = {};
     let queryOptions: any = {
@@ -203,7 +203,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         }
       ]
     };
-    
+
     if (searchString && paginatedIds.length > 0) {
       // Use paginated IDs - already paginated, no limit/offset needed
       finalWhere.id = {[Op.in]: paginatedIds};
@@ -236,24 +236,24 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       sortedRows = rows.sort((a, b) => {
         const aIsExact = exactMatchIds.includes(a.id);
         const bIsExact = exactMatchIds.includes(b.id);
-        
+
         if (aIsExact && !bIsExact) return -1;
         if (!aIsExact && bIsExact) return 1;
-        
+
         // Both in same category - maintain order from paginatedIds
         const aIndex = paginatedIds.indexOf(a.id);
         const bIndex = paginatedIds.indexOf(b.id);
         return aIndex - bIndex;
       });
     }
-    
+
     const finalCount = searchString ? totalCount : count;
 
     // Fetch relations bidirectionally for all artists in batch using service
     const artistIds = sortedRows.map(a => a.id);
     if (artistIds.length > 0) {
       const relationsMap = await artistService.getRelatedArtistsBatch(artistIds);
-      
+
       // Add relatedArtists to each artist
       sortedRows.forEach(artist => {
         const relatedArtists = relationsMap.get(artist.id) || [];
@@ -345,7 +345,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
   const transaction = await sequelize.transaction();
   try {
     let {name, verificationState, aliases} = req.body;
-    
+
     // Parse aliases if it's a JSON string (from FormData)
     if (typeof aliases === 'string') {
       try {
@@ -363,11 +363,11 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
 
     const trimmedName = name.trim();
     const normalizedName = trimmedName.toLowerCase();
-    
+
     // Avatar must be uploaded as a file first (before checking duplicates)
     let cdnUrl: string | null = null;
     let uploadedFileId: string | null = null;
-    
+
     if (req.file) {
       try {
         // Upload avatar to CDN first
@@ -405,7 +405,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
 
     if (existingArtist) {
       await safeTransactionRollback(transaction);
-      
+
       // If we uploaded a file, delete it from CDN
       if (uploadedFileId && cdnUrl) {
         try {
@@ -415,7 +415,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
           logger.error(`Failed to delete uploaded avatar file ${uploadedFileId} after duplicate check:`, deleteError);
         }
       }
-      
+
       return res.status(400).json({
         error: `Artist with name "${existingArtist.name}" already exists`,
         code: 'DUPLICATE_ARTIST',
@@ -449,7 +449,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
       }
 
       await transaction.commit();
-      
+
       // Fetch full artist with relations
       const createdArtist = await Artist.findByPk(artist.id, {
         include: [
@@ -474,7 +474,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
       return res.json(createdArtist);
     } catch (error: any) {
       await safeTransactionRollback(transaction);
-      
+
       // If artist creation failed and we uploaded a file, delete it from CDN
       if (uploadedFileId && cdnUrl) {
         try {
@@ -484,7 +484,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
           logger.error(`Failed to delete uploaded avatar file ${uploadedFileId} after failed artist creation:`, deleteError);
         }
       }
-      
+
       logger.error('Error creating artist:', error);
       return res.status(500).json({error: 'Failed to create artist'});
     }
@@ -553,7 +553,7 @@ router.post('/:id([0-9]{1,20})/avatar', Auth.superAdmin(), upload.single('avatar
         details: error.details
       });
     }
-    
+
     logger.error('Error uploading avatar:', error);
     return res.status(500).json({error: 'Failed to upload avatar'});
   }
@@ -648,16 +648,16 @@ router.post('/:id([0-9]{1,20})/split', Auth.superAdmin(), async (req: Request, r
   const transaction = await sequelize.transaction();
   try {
     const {
-      targetId1, 
-      targetId2, 
+      targetId1,
+      targetId2,
       deleteOriginal = false
     } = req.body;
-    
+
     if (!targetId1 || typeof targetId1 !== 'number') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'targetId1 is required and must be a number'});
     }
-    
+
     if (!targetId2 || typeof targetId2 !== 'number') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'targetId2 is required and must be a number'});
@@ -675,7 +675,7 @@ router.post('/:id([0-9]{1,20})/split', Auth.superAdmin(), async (req: Request, r
       deleteOriginal === true || deleteOriginal === 'true',
       transaction
     );
-    
+
     await transaction.commit();
 
     return res.json({
@@ -871,7 +871,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
     return res.json({evidences});
   } catch (error: any) {
     await safeTransactionRollback(transaction);
-    
+
     // Check if it's a CdnError and propagate the actual error details
     if (error instanceof CdnError) {
       const statusCode = error.details?.status || (error.code === 'VALIDATION_ERROR' ? 400 : 500);
@@ -882,7 +882,7 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
         details: error.details
       });
     }
-    
+
     logger.error('Error uploading evidence:', error);
     return res.status(500).json({error: 'Failed to upload evidence'});
   }
@@ -930,7 +930,7 @@ router.delete('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.super
 router.get('/:id([0-9]{1,20})/relations', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
     const artistId = parseInt(req.params.id);
-    
+
     // Use service to fetch relations bidirectionally
     const relatedArtists = await artistService.getRelatedArtists(artistId);
 
@@ -949,7 +949,7 @@ router.post('/:id([0-9]{1,20})/relations', Auth.superAdmin(), async (req: Reques
   try {
     const {relatedArtistId} = req.body;
     const artistId = parseInt(req.params.id);
-    
+
     if (!relatedArtistId || typeof relatedArtistId !== 'number') {
       await safeTransactionRollback(transaction);
       return res.status(400).json({error: 'relatedArtistId is required and must be a number'});

@@ -1,11 +1,10 @@
-import { Op, Sequelize } from 'sequelize';
+import { Op } from 'sequelize';
 import Artist from '../../models/artists/Artist.js';
 import ArtistAlias from '../../models/artists/ArtistAlias.js';
 import ArtistLink from '../../models/artists/ArtistLink.js';
 import ArtistEvidence from '../../models/artists/ArtistEvidence.js';
 import ArtistRelation from '../../models/artists/ArtistRelation.js';
 import SongCredit from '../../models/songs/SongCredit.js';
-import Level from '../../models/levels/Level.js';
 import LevelSubmissionArtistRequest from '../../models/submissions/LevelSubmissionArtistRequest.js';
 import { logger } from './LoggerService.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '../../misc/utils/Utility.js';
@@ -272,7 +271,7 @@ class ArtistService {
     // Update all references to point to target
     // Note: Levels no longer have direct artist relationship
     // They access artists through songs->songCredits->artists
-    
+
     // Merge song credits from source to target (avoid duplicates)
     // Since uniqueness is on songId+artistId, check if target already has credits for each song
     const sourceCredits = await SongCredit.findAll({
@@ -340,8 +339,8 @@ class ArtistService {
     if (sourceRelations.length > 0) {
       for (const relation of sourceRelations) {
         // Determine the other artist in the relation
-        const otherArtistId = relation.artistId1 === source.id 
-          ? relation.artistId2 
+        const otherArtistId = relation.artistId1 === source.id
+          ? relation.artistId2
           : relation.artistId1;
 
         // Skip if the other artist is the target (source and target are merging, no need for relation)
@@ -351,8 +350,8 @@ class ArtistService {
         }
 
         // Check if target already has a relation with the other artist
-        const [id1, id2] = target.id < otherArtistId 
-          ? [target.id, otherArtistId] 
+        const [id1, id2] = target.id < otherArtistId
+          ? [target.id, otherArtistId]
           : [otherArtistId, target.id];
 
         const existingRelation = await ArtistRelation.findOne({
@@ -420,7 +419,7 @@ class ArtistService {
     sourceId: number,
     targetId1: number,
     targetId2: number,
-    deleteOriginal: boolean = false,
+    deleteOriginal = false,
     transaction?: any
   ): Promise<{artist1: Artist; artist2: Artist}> {
     const source = await Artist.findByPk(sourceId, {
@@ -486,19 +485,19 @@ class ArtistService {
         (artist1.aliases || []).map(a => this.normalizeArtistName(a.alias))
       );
       existingAliases1.add(this.normalizeArtistName(artist1.name));
-      
+
       const newAliases1 = aliasesForBoth.filter(alias => {
         const normalized = this.normalizeArtistName(alias);
         return !existingAliases1.has(normalized);
       });
-      
+
       if (newAliases1.length > 0) {
         await ArtistAlias.bulkCreate(
           newAliases1.map(alias => ({
             artistId: artist1.id,
             alias: alias
           })),
-          { 
+          {
             transaction,
             ignoreDuplicates: true // Prevent duplicate artistId+alias combinations
           }
@@ -510,19 +509,19 @@ class ArtistService {
         (artist2.aliases || []).map(a => this.normalizeArtistName(a.alias))
       );
       existingAliases2.add(this.normalizeArtistName(artist2.name));
-      
+
       const newAliases2 = aliasesForBoth.filter(alias => {
         const normalized = this.normalizeArtistName(alias);
         return !existingAliases2.has(normalized);
       });
-      
+
       if (newAliases2.length > 0) {
         await ArtistAlias.bulkCreate(
           newAliases2.map(alias => ({
             artistId: artist2.id,
             alias: alias
           })),
-          { 
+          {
             transaction,
             ignoreDuplicates: true // Prevent duplicate artistId+alias combinations
           }
@@ -538,14 +537,14 @@ class ArtistService {
       // For artist1: add links that don't already exist
       const existingLinks1 = new Set((artist1.links || []).map(l => l.link));
       const newLinks1 = linksForBoth.filter(link => !existingLinks1.has(link));
-      
+
       if (newLinks1.length > 0) {
         await ArtistLink.bulkCreate(
           newLinks1.map(link => ({
             artistId: artist1.id,
             link: link
           })),
-          { 
+          {
             transaction,
             ignoreDuplicates: true // Prevent duplicate artistId+link combinations
           }
@@ -555,14 +554,14 @@ class ArtistService {
       // For artist2: add links that don't already exist
       const existingLinks2 = new Set((artist2.links || []).map(l => l.link));
       const newLinks2 = linksForBoth.filter(link => !existingLinks2.has(link));
-      
+
       if (newLinks2.length > 0) {
         await ArtistLink.bulkCreate(
           newLinks2.map(link => ({
             artistId: artist2.id,
             link: link
           })),
-          { 
+          {
             transaction,
             ignoreDuplicates: true // Prevent duplicate artistId+link combinations
           }
@@ -578,7 +577,7 @@ class ArtistService {
       // For artist1: add evidences that don't already exist
       const existingEvidences1 = new Set((artist1.evidences || []).map(e => e.link));
       const newEvidences1 = evidencesForBoth.filter(e => !existingEvidences1.has(e.link));
-      
+
       if (newEvidences1.length > 0) {
         await ArtistEvidence.bulkCreate(
           newEvidences1.map(evidence => ({
@@ -592,7 +591,7 @@ class ArtistService {
       // For artist2: add evidences that don't already exist
       const existingEvidences2 = new Set((artist2.evidences || []).map(e => e.link));
       const newEvidences2 = evidencesForBoth.filter(e => !existingEvidences2.has(e.link));
-      
+
       if (newEvidences2.length > 0) {
         await ArtistEvidence.bulkCreate(
           newEvidences2.map(evidence => ({
@@ -617,11 +616,11 @@ class ArtistService {
       const existingSongsSet1 = new Set(
         existingCredits1.map(c => c.songId)
       );
-      
+
       const newCredits1 = sourceCredits.filter(credit => {
         return !existingSongsSet1.has(credit.songId);
       });
-      
+
       if (newCredits1.length > 0) {
         await SongCredit.bulkCreate(
           newCredits1.map(credit => ({
@@ -629,7 +628,7 @@ class ArtistService {
             artistId: artist1.id,
             role: credit.role // Preserve role from source credit
           })),
-          { 
+          {
             transaction,
             ignoreDuplicates: true // Safety measure
           }
@@ -645,11 +644,11 @@ class ArtistService {
       const existingSongsSet2 = new Set(
         existingCredits2.map(c => c.songId)
       );
-      
+
       const newCredits2 = sourceCredits.filter(credit => {
         return !existingSongsSet2.has(credit.songId);
       });
-      
+
       if (newCredits2.length > 0) {
         await SongCredit.bulkCreate(
           newCredits2.map(credit => ({
@@ -657,7 +656,7 @@ class ArtistService {
             artistId: artist2.id,
             role: credit.role // Preserve role from source credit
           })),
-          { 
+          {
             transaction,
             ignoreDuplicates: true // Safety measure
           }
@@ -680,8 +679,8 @@ class ArtistService {
     if (sourceRelations.length > 0) {
       for (const relation of sourceRelations) {
         // Determine the other artist in the relation
-        const otherArtistId = relation.artistId1 === source.id 
-          ? relation.artistId2 
+        const otherArtistId = relation.artistId1 === source.id
+          ? relation.artistId2
           : relation.artistId1;
 
         // Skip if the other artist is one of the targets (they're splitting, relations will be handled separately)
@@ -690,8 +689,8 @@ class ArtistService {
         }
 
         // Create relation for artist1 if it doesn't already exist
-        const [id1_1, id2_1] = artist1.id < otherArtistId 
-          ? [artist1.id, otherArtistId] 
+        const [id1_1, id2_1] = artist1.id < otherArtistId
+          ? [artist1.id, otherArtistId]
           : [otherArtistId, artist1.id];
 
         const existingRelation1 = await ArtistRelation.findOne({
@@ -710,8 +709,8 @@ class ArtistService {
         }
 
         // Create relation for artist2 if it doesn't already exist
-        const [id1_2, id2_2] = artist2.id < otherArtistId 
-          ? [artist2.id, otherArtistId] 
+        const [id1_2, id2_2] = artist2.id < otherArtistId
+          ? [artist2.id, otherArtistId]
           : [otherArtistId, artist2.id];
 
         const existingRelation2 = await ArtistRelation.findOne({
@@ -731,8 +730,8 @@ class ArtistService {
       }
 
       // Create relation between artist1 and artist2 if source had relations (they're splitting from same source)
-      const [id1, id2] = artist1.id < artist2.id 
-        ? [artist1.id, artist2.id] 
+      const [id1, id2] = artist1.id < artist2.id
+        ? [artist1.id, artist2.id]
         : [artist2.id, artist1.id];
 
       const existingRelationBetweenTargets = await ArtistRelation.findOne({
@@ -762,7 +761,7 @@ class ArtistService {
             await cdnServiceInstance.deleteFile(fileId);
           }
         } catch (error) {
-          logger.error(`Failed to delete avatar during split:`, error);
+          logger.error('Failed to delete avatar during split:', error);
           // Continue with artist deletion even if CDN deletion fails
         }
       }
@@ -878,7 +877,7 @@ class ArtistService {
     }) as any[];
 
     const relationsMap = new Map<number, Artist[]>();
-    
+
     // Initialize map with empty arrays
     artistIds.forEach(id => relationsMap.set(id, []));
 

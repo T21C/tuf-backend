@@ -9,8 +9,6 @@ import {ConditionOperator, DirectiveCondition, DirectiveConditionType, IDifficul
 import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
-import {fileURLToPath} from 'url';
-import {dirname} from 'path';
 import {getIO} from '../../../misc/utils/server/socket.js';
 import {sseManager} from '../../../misc/utils/server/sse.js';
 import {getScoreV2} from '../../../misc/utils/pass/CalcScore.js';
@@ -100,9 +98,6 @@ async function updateDifficultiesHash() {
 // Initialize the hash
 await updateDifficultiesHash();
 
-// Fix __dirname equivalent for ES modules
-const __filename = fileURLToPath(import.meta.url);
-
 // Cache directory path
 const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
 const ICON_CACHE_DIR = path.join(CACHE_PATH, 'icons');
@@ -144,10 +139,10 @@ async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
 }
 
 // Helper function to save uploaded icon file to local cache
-async function saveIconToCache(iconBuffer: Buffer, diffName: string, originalFilename: string, isLegacy: boolean = false): Promise<string> {
+async function saveIconToCache(iconBuffer: Buffer, diffName: string, originalFilename: string, isLegacy = false): Promise<string> {
   try {
     await fs.mkdir(ICON_CACHE_DIR, {recursive: true});
-    
+
     // Get file extension from original filename or default to png
     const ext = path.extname(originalFilename).toLowerCase() || '.png';
     const prefix = isLegacy ? 'legacy_' : '';
@@ -156,7 +151,7 @@ async function saveIconToCache(iconBuffer: Buffer, diffName: string, originalFil
     const newUrl = `${ownUrlEnv}${ICON_IMAGE_API}/icon/${fileName}`;
 
     await fs.writeFile(filePath, iconBuffer);
-    
+
     return newUrl;
   } catch (error) {
     logger.error(`Failed to save icon to cache for ${diffName}:`, error);
@@ -322,8 +317,8 @@ router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
       const validVariables = ['{count}', '{difficultyName}', '{ping}', '{groupName}'];
       const hasRequiredVariable = validVariables.some(v => messageFormat.includes(v));
       if (!hasRequiredVariable) {
-        return res.status(400).json({ 
-          error: `Message format must contain at least one of: ${validVariables.join(', ')}` 
+        return res.status(400).json({
+          error: `Message format must contain at least one of: ${validVariables.join(', ')}`
         });
       }
     }
@@ -373,8 +368,8 @@ router.put('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res
         const validVariables = ['{count}', '{difficultyName}', '{ping}', '{groupName}'];
         const hasRequiredVariable = validVariables.some(v => messageFormat.includes(v));
         if (!hasRequiredVariable) {
-          return res.status(400).json({ 
-            error: `Message format must contain at least one of: ${validVariables.join(', ')}` 
+          return res.status(400).json({
+            error: `Message format must contain at least one of: ${validVariables.join(', ')}`
           });
         }
       }
@@ -515,15 +510,15 @@ async function findSmallestUnoccupiedId(): Promise<number> {
     attributes: ['id'],
     order: [['id', 'ASC']]
   });
-  
+
   const existingIds = new Set(allDifficulties.map(d => d.id));
-  
+
   // Start from 1 and find the first gap
   let candidateId = 1;
   while (existingIds.has(candidateId)) {
     candidateId++;
   }
-  
+
   return candidateId;
 }
 
@@ -609,7 +604,7 @@ router.post('/', Auth.superAdminPassword(), difficultyIconUpload.fields([
           finalLegacyIcon = legacyIcon;
         }
       }
-      
+
       const lastSortOrder = await Difficulty.max('sortOrder') as number;
 
       const difficulty = await Difficulty.create({
@@ -738,14 +733,14 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), difficultyIconUpload.
         legacyEmoji: legacyEmoji ?? difficulty.legacyEmoji,
         updatedAt: new Date(),
       };
-      
+
       if (finalIcon !== undefined) {
         updateData.icon = finalIcon as any;
       }
       if (finalLegacyIcon !== undefined) {
         updateData.legacyIcon = finalLegacyIcon as any;
       }
-      
+
       await difficulty.update(updateData, {transaction});
 
       // If base score changed, recalculate scores for all affected passes
@@ -1335,7 +1330,7 @@ router.put('/tags/group-sort-orders', Auth.superAdminPassword(), async (req: Req
 
         // Update all tags with matching group name
         // Use empty string check for "Ungrouped" which has null/empty group
-        const whereClause = name === '' || name === null 
+        const whereClause = name === '' || name === null
           ? { [Op.or]: [{ group: null }, { group: '' }] }
           : { group: name };
 
@@ -1423,7 +1418,7 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
         finalIconUrl = uploadResult.urls.original;
       } catch (uploadError) {
         await safeTransactionRollback(transaction);
-        
+
         // Handle CdnError with validation details
         if (uploadError instanceof CdnError) {
           const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
@@ -1431,7 +1426,7 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
             error: uploadError.message,
             code: uploadError.code
           };
-          
+
           // Include validation error details if available
           if (uploadError.details) {
             if (uploadError.details.errors) {
@@ -1444,14 +1439,14 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
               errorResponse.metadata = uploadError.details.metadata;
             }
           }
-          
+
           logger.debug('Error uploading tag icon to CDN:', uploadError);
           return res.status(statusCode).json(errorResponse);
         }
-        
+
         // Generic error handling
         logger.error('Error uploading tag icon to CDN:', uploadError);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Failed to upload icon to CDN',
           details: uploadError instanceof Error ? uploadError.message : String(uploadError)
         });
@@ -1471,9 +1466,9 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
     let groupSortOrder = 0;
     if (group) {
       // Check if group already exists
-      const existingGroupTag = await LevelTag.findOne({ 
+      const existingGroupTag = await LevelTag.findOne({
         where: { group },
-        transaction 
+        transaction
       });
       if (existingGroupTag) {
         groupSortOrder = existingGroupTag.groupSortOrder;
@@ -1484,9 +1479,9 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
       }
     } else {
       // Ungrouped tags - check for existing ungrouped tags
-      const existingUngroupedTag = await LevelTag.findOne({ 
+      const existingUngroupedTag = await LevelTag.findOne({
         where: { [Op.or]: [{ group: null }, { group: '' }] },
-        transaction 
+        transaction
       });
       if (existingUngroupedTag) {
         groupSortOrder = existingUngroupedTag.groupSortOrder;
@@ -1570,7 +1565,7 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
         finalIconUrl = uploadResult.urls.original;
       } catch (uploadError) {
         await safeTransactionRollback(transaction);
-        
+
         // Handle CdnError with validation details
         if (uploadError instanceof CdnError) {
           const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
@@ -1578,7 +1573,7 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
             error: uploadError.message,
             code: uploadError.code
           };
-          
+
           // Include validation error details if available
           if (uploadError.details) {
             if (uploadError.details.errors) {
@@ -1591,14 +1586,14 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
               errorResponse.metadata = uploadError.details.metadata;
             }
           }
-          
+
           logger.error('Error uploading tag icon to CDN:', uploadError);
           return res.status(statusCode).json(errorResponse);
         }
-        
+
         // Generic error handling
         logger.error('Error uploading tag icon to CDN:', uploadError);
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Failed to upload icon to CDN',
           details: uploadError instanceof Error ? uploadError.message : String(uploadError)
         });
@@ -1620,9 +1615,9 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
     if (isGroupChanging) {
       if (newGroup) {
         // Check if group already exists
-        const existingGroupTag = await LevelTag.findOne({ 
+        const existingGroupTag = await LevelTag.findOne({
           where: { group: newGroup },
-          transaction 
+          transaction
         });
         if (existingGroupTag) {
           groupSortOrder = existingGroupTag.groupSortOrder;
@@ -1633,9 +1628,9 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
         }
       } else {
         // Ungrouped tags - check for existing ungrouped tags
-        const existingUngroupedTag = await LevelTag.findOne({ 
+        const existingUngroupedTag = await LevelTag.findOne({
           where: { [Op.or]: [{ group: null }, { group: '' }] },
-          transaction 
+          transaction
         });
         if (existingUngroupedTag) {
           groupSortOrder = existingUngroupedTag.groupSortOrder;

@@ -106,9 +106,9 @@ async function waitForSpace(estimatedSize: number, cacheKey: string): Promise<vo
     if (activeGenerations.has(cacheKey)) {
         return;
     }
-    
+
     const currentTotal = getTotalActiveSize();
-    
+
     // If adding this request would exceed the limit, queue it
     if (currentTotal + estimatedSize > PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
         logger.debug('Pack generation queued due to size limit', {
@@ -119,7 +119,7 @@ async function waitForSpace(estimatedSize: number, cacheKey: string): Promise<vo
             currentTotalGB: (currentTotal / (1024 * 1024 * 1024)).toFixed(2),
             queueLength: generationQueue.length
         });
-        
+
         // Wait in queue until space is available
         return new Promise<void>((resolve, reject) => {
             generationQueue.push({
@@ -130,13 +130,13 @@ async function waitForSpace(estimatedSize: number, cacheKey: string): Promise<vo
             });
         });
     }
-    
+
     // Space available, register immediately
     activeGenerations.set(cacheKey, {
         cacheKey,
         estimatedSize
     });
-    
+
     logger.debug('Pack generation started immediately', {
         cacheKey,
         estimatedSize,
@@ -151,28 +151,28 @@ function unregisterGeneration(cacheKey: string): void {
     if (!removed) {
         return;
     }
-    
+
     logger.debug('Pack generation completed, processing queue', {
         cacheKey,
         currentTotal: getTotalActiveSize(),
         currentTotalGB: (getTotalActiveSize() / (1024 * 1024 * 1024)).toFixed(2),
         queueLength: generationQueue.length
     });
-    
+
     // Process queue - try to start queued generations that can fit
     while (generationQueue.length > 0) {
         const queued = generationQueue[0];
-        
+
         // Skip if this cacheKey is already registered (e.g., another request already started)
         if (activeGenerations.has(queued.cacheKey)) {
             generationQueue.shift(); // Remove from queue
             queued.resolve(); // Still resolve to unblock the waiting request
             continue;
         }
-        
+
         // Recalculate current total (may have changed from previous iterations)
         const currentTotal = getTotalActiveSize();
-        
+
         // Check if this queued item can fit now
         if (currentTotal + queued.estimatedSize <= PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
             generationQueue.shift(); // Remove from queue
@@ -180,7 +180,7 @@ function unregisterGeneration(cacheKey: string): void {
                 cacheKey: queued.cacheKey,
                 estimatedSize: queued.estimatedSize
             });
-            
+
             logger.debug('Pack generation dequeued and started', {
                 cacheKey: queued.cacheKey,
                 estimatedSize: queued.estimatedSize,
@@ -189,7 +189,7 @@ function unregisterGeneration(cacheKey: string): void {
                 newTotalGB: ((currentTotal + queued.estimatedSize) / (1024 * 1024 * 1024)).toFixed(2),
                 remainingQueueLength: generationQueue.length
             });
-            
+
             queued.resolve();
         } else {
             // Can't fit this one yet, stop processing queue
@@ -285,7 +285,7 @@ function buildLevelFolderName(node: PackDownloadNode, baseName: string): string 
     if (idPrefixPattern.test(sanitizedBase)) {
         sanitizedBase = sanitizePathSegment(sanitizedBase.replace(idPrefixPattern, '').trim() || 'Level');
     }
-    const withId = node.levelId != null
+    const withId = node.levelId !== null
         ? `#${node.levelId} ${sanitizedBase}`
         : sanitizedBase;
     return sanitizePathSegment(withId);
@@ -400,20 +400,20 @@ async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Pr
     // Access the S3 client and config through spacesStorage
     const s3 = (spacesStorage as any).s3;
     const bucket = (spacesStorage as any).config?.bucket;
-    
+
     if (!s3 || !bucket) {
         throw new Error('Failed to access Spaces storage configuration');
     }
-    
+
     const params = {
         Bucket: bucket,
         Key: spacesKey
     };
-    
+
     // Create a true stream from S3 (not using .promise() which loads into memory)
     const stream = s3.getObject(params).createReadStream();
     const writeStream = fs.createWriteStream(targetPath);
-    
+
     return new Promise<void>((resolve, reject) => {
         const cleanupOnError = async (error: Error) => {
             stream.destroy();
@@ -441,10 +441,10 @@ async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Pr
 
 async function extractZipToFolder(zipPath: string, extractTo: string): Promise<void> {
     await fs.promises.mkdir(extractTo, { recursive: true });
-    
+
     const sevenZipPath = '7z';
     let cmd: string;
-    
+
     if (isWindows) {
         // 7z: -mcu=on forces UTF-8 encoding for filenames
         cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y -mcu=on`;
@@ -455,7 +455,7 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         // Note: unzip may exit with code 1 for warnings but still extract successfully
         cmd = `unzip -o -q "${zipPath}" -d "${extractTo}"`;
     }
-    
+
     try {
         await execAsync(cmd, {
             shell: isWindows ? 'cmd.exe' : '/bin/bash',
@@ -467,7 +467,7 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         // unzip exit codes: 0=success, 1=warnings but continued, 2=corrupt, 3=severe error
         // Exit code 1 often means filename encoding warnings but extraction succeeded
         const exitCode = error?.code;
-        
+
         // Check if extraction actually succeeded by verifying files/directories exist
         let extractedEntries: fs.Dirent[] = [];
         try {
@@ -475,12 +475,12 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         } catch {
             // Directory doesn't exist or can't be read - extraction failed
         }
-        
+
         // If we have files/directories, extraction succeeded despite warnings
         if (extractedEntries.length > 0) {
             return; // Success - files were extracted
         }
-        
+
         // Exit code 2 or 3 means real failure, or exit code 1 with no files extracted
         // Fall back to AdmZip
         logger.debug('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
@@ -495,23 +495,6 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         const zip = new AdmZip(zipPath);
         // extractAllTo with overwrite=true should preserve UTF-8 filenames
         zip.extractAllTo(extractTo, true);
-    }
-}
-
-async function addDirectoryToZipRecursive(zip: AdmZip, dirPath: string, zipPath: string): Promise<void> {
-    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-    
-    for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        const entryZipPath = zipPath ? path.posix.join(zipPath, entry.name) : entry.name;
-        
-        if (entry.isDirectory()) {
-            zip.addFile(entryZipPath + '/', Buffer.alloc(0));
-            await addDirectoryToZipRecursive(zip, fullPath, entryZipPath);
-        } else {
-            const fileBuffer = await fs.promises.readFile(fullPath);
-            zip.addFile(entryZipPath, fileBuffer);
-        }
     }
 }
 
@@ -552,7 +535,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
         let zipPath: string;
         let tempZipPath: string | null = null;
         let finalFolderName: string;
-        
+
         try {
             if (existence.storageType === StorageType.SPACES) {
                 tempZipPath = path.join(context.tempDir, `level-${node.fileId}-${crypto.randomUUID()}.zip`);
@@ -599,7 +582,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
                     storageType: existence.storageType,
                     fileId: node.fileId
                 });
-                
+
                 if (fileExists) {
                     try {
                         await fs.promises.unlink(tempZipPath);
@@ -635,13 +618,13 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             const relativeFolderName = parentPath
                 ? path.posix.join(parentPath, finalFolderName)
                 : finalFolderName;
-            
+
             // Update progress after successful level extraction
             await updateProgress(context.downloadId, context.cacheKey, {
                 processedLevels: context.successCount,
                 currentLevel: finalFolderName
             });
-            
+
             return { folderName: relativeFolderName, success: true };
         } finally {
             // Clean up temp zip file if extraction failed (fallback cleanup)
@@ -653,7 +636,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
                     fileExists,
                     fileId: node.fileId
                 });
-                
+
                 if (fileExists) {
                     try {
                         await fs.promises.unlink(tempZipPath);
@@ -765,7 +748,7 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             fileExists,
             sourceUrl: node.sourceUrl
         });
-        
+
         if (fileExists) {
             try {
                 await fs.promises.unlink(tempZipPath);
@@ -793,13 +776,13 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         const relativeFolderName = parentPath
             ? path.posix.join(parentPath, finalFolderName)
             : finalFolderName;
-        
+
         // Update progress after successful level extraction
         await updateProgress(context.downloadId, context.cacheKey, {
             processedLevels: context.successCount,
             currentLevel: finalFolderName
         });
-        
+
         return { folderName: relativeFolderName, success: true };
     } catch (error) {
         logger.debug('Failed to download external level for pack generation', {
@@ -816,7 +799,7 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
                 fileExists,
                 sourceUrl: node.sourceUrl
             });
-            
+
             if (fileExists) {
                 try {
                     await fs.promises.unlink(tempZipPath);
@@ -854,7 +837,7 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
         const folderPath = parentPath
             ? path.posix.join(parentPath, folderName)
             : folderName;
-        
+
         // Create folder on disk
         const diskFolderPath = path.join(context.extractRoot, folderPath);
         await fs.promises.mkdir(diskFolderPath, { recursive: true });
@@ -890,8 +873,8 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
 }
 
 async function generatePackDownloadZip(
-    zipName: string, 
-    tree: PackDownloadNode, 
+    zipName: string,
+    tree: PackDownloadNode,
     cacheKey: string,
     clientDownloadId?: string // Client-provided downloadId for progress tracking
 ): Promise<PackDownloadResponse> {
@@ -904,7 +887,7 @@ async function generatePackDownloadZip(
 
     // Use client-provided downloadId if available, otherwise generate a new one
     const downloadId = clientDownloadId || crypto.randomUUID();
-    
+
     // Count total levels before processing
     const totalLevels = countTotalLevels(tree);
 
@@ -943,7 +926,7 @@ async function generatePackDownloadZip(
         // Use UUID for local file to avoid conflicts
         const localZipFilename = `${downloadId}.zip`;
         targetPath = path.join(PACK_DOWNLOAD_DIR, localZipFilename);
-        
+
         // Create sanitized filename for Spaces: UUID folder with formatted zip name
         const sanitizedZipNameForSpaces = sanitizePathSegment(zipName);
         const spacesZipFilename = `${sanitizedZipNameForSpaces}.zip`;
@@ -952,7 +935,7 @@ async function generatePackDownloadZip(
         // Use 7z to create final zip from extracted folders
         const sevenZipPath = '7z';
         let cmd: string;
-        
+
         if (isWindows) {
             // Windows: 7z a (add) command
             // -tzip: force zip format, -mx=0: no compression (faster), -mm=Copy: store only
@@ -983,14 +966,14 @@ async function generatePackDownloadZip(
 
         let spacesKey: string | null = null;
         let responseUrl: string;
-        
+
         // Update progress: uploading if using Spaces
         if (spacesKeyFilename) {
             await updateProgress(downloadId, cacheKey, {
                 status: 'uploading'
             });
         }
-        
+
         try {
             await spacesStorage.uploadFile(targetPath, spacesKeyFilename, 'application/zip', {
                 cacheKey,
@@ -1010,7 +993,6 @@ async function generatePackDownloadZip(
         if (spacesKey) {
             const presignedUrl = await spacesStorage.getPresignedUrl(
                 spacesKey,
-                Math.max(60, Math.floor(PACK_DOWNLOAD_TTL_MS / 1000))
             );
             responseUrl = presignedUrl;
         } else {
@@ -1072,7 +1054,7 @@ async function generatePackDownloadZip(
                 error: error instanceof Error ? error.message : String(error)
             });
         }
-        
+
         // Clean up targetPath if it was created but upload failed
         if (targetPath && fs.existsSync(targetPath)) {
             try {
@@ -1148,7 +1130,7 @@ async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
         // If not in metadata, try to get from file system/storage
         const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.LOCAL;
         const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
-        
+
         if (!existence.exists) {
             return null;
         }
@@ -1200,7 +1182,7 @@ async function getFileSizeFromUrl(sourceUrl: string): Promise<number | null> {
             maxRedirects: 5,
             validateStatus: (status) => status >= 200 && status < 400
         });
-        
+
         const contentLength = response.headers['content-length'];
         if (contentLength) {
             const size = parseInt(contentLength, 10);
@@ -1361,7 +1343,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         // Estimate total zip size before generation
         logger.debug('Estimating total zip size for pack download', { zipName });
         const sizeEstimate = await estimateTotalZipSize(tree);
-        
+
         if (sizeEstimate.totalSize > PACK_DOWNLOAD_MAX_SIZE_BYTES) {
             const sizeGB = (sizeEstimate.totalSize / (1024 * 1024 * 1024)).toFixed(2);
             const maxGB = (PACK_DOWNLOAD_MAX_SIZE_BYTES / (1024 * 1024 * 1024)).toFixed(0);
@@ -1408,11 +1390,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                 try {
                     let url: string | null = null;
                     if (entry.spacesKey) {
-                        const secondsRemaining = Math.max(
-                            60,
-                            Math.floor((entry.expiresAt - Date.now()) / 1000)
-                        );
-                        url = await spacesStorage.getPresignedUrl(entry.spacesKey, secondsRemaining);
+                        url = await spacesStorage.getPresignedUrl(entry.spacesKey);
                     } else if (entry.filePath && fs.existsSync(entry.filePath)) {
                         url = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`;
                     }
@@ -1436,7 +1414,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                                 error: error instanceof Error ? error.message : String(error)
                             });
                         });
-                        
+
                         return res.json({
                             downloadId: existingDownloadId,
                             url,
@@ -1476,14 +1454,11 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             // Wait for space in the queue system before starting generation
             // This will register the generation if space is available, or queue it if not
             await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
-            
+
             const sanitizedZipName = sanitizePathSegment(finalZipName);
             const generationPromise = (async () => {
                 try {
                     return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId);
-                } catch (error) {
-                    // If generation fails, still unregister to free up space
-                    throw error;
                 } finally {
                     // Unregister from active generations and process queue
                     unregisterGeneration(normalizedCacheKey);
@@ -1533,11 +1508,7 @@ router.get('/packs/downloads/:id', async (req: Request, res: Response) => {
 
         if (entry.spacesKey) {
             try {
-                const secondsRemaining = Math.max(
-                    60,
-                    Math.floor((entry.expiresAt - Date.now()) / 1000)
-                );
-                const presignedUrl = await spacesStorage.getPresignedUrl(entry.spacesKey, secondsRemaining);
+                const presignedUrl = await spacesStorage.getPresignedUrl(entry.spacesKey);
                 return res.redirect(presignedUrl);
             } catch (error) {
                 logger.error('Failed to get pack download presigned URL', {
@@ -1694,7 +1665,7 @@ router.post('/', (req: Request, res: Response) => {
 
             // Process zip file first to validate contents
             logger.debug('Starting zip file processing');
-            
+
             // Create progress callback
             const onProgress = async (
                 status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed',

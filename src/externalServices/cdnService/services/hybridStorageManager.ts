@@ -823,7 +823,7 @@ export class HybridStorageManager {
         try {
             if (storageType === StorageType.SPACES) {
                 // Generate presigned URL for private files
-                return await spacesStorage.getPresignedUrl(filePath, 3600); // 1 hour expiry
+                return await spacesStorage.getPresignedUrl(filePath);
             } else {
                 // For local files, return the CDN URL
                 const relativePath = path.relative(CDN_CONFIG.user_root, filePath);

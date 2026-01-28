@@ -38,9 +38,9 @@ class CdnService {
             (response) => response,
             async (error: AxiosError) => {
                 const config = error.config as any;
-                
+
                 // Check if this is a retryable connection error
-                const isRetryableError = 
+                const isRetryableError =
                     error.code === 'ECONNRESET' ||
                     error.code === 'ECONNREFUSED' ||
                     error.code === 'ETIMEDOUT' ||
@@ -298,7 +298,7 @@ class CdnService {
                 ...formData.getHeaders(),
                 'X-File-Type': 'LEVELZIP'
             };
-            
+
             if (uploadId) {
                 headers['X-Upload-Id'] = uploadId;
             }
@@ -620,7 +620,7 @@ class CdnService {
     /**
      * Unified error handler for CDN service errors.
      * Converts Axios errors to CdnError and handles ignored error codes.
-     * 
+     *
      * @param error - The error to handle
      * @param operation - Name of the operation (for logging)
      * @param defaultMessage - Default error message if error data is not available
@@ -633,7 +633,7 @@ class CdnService {
         error: unknown,
         operation: string,
         defaultMessage: string,
-        defaultCode: string = 'CDN_ERROR',
+        defaultCode = 'CDN_ERROR',
         additionalIgnoredCodes: string[] = [],
         customDetails?: any
     ): never {

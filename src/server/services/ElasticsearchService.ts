@@ -42,7 +42,7 @@ const BATCH_SIZE = 500;
 class ElasticsearchService {
   private static instance: ElasticsearchService;
   private isInitialized = false;
-  
+
   // Debounce queue for artist-related reindexing
   private artistReindexQueue: Set<number> = new Set();
   private artistReindexTimer: NodeJS.Timeout | null = null;
@@ -57,7 +57,7 @@ class ElasticsearchService {
     return ElasticsearchService.instance;
   }
 
-  private isBeingInitialized: boolean = false;
+  private isBeingInitialized = false;
   public async initialize(): Promise<void> {
     if (this.isInitialized || this.isBeingInitialized) {
       logger.info(`ElasticsearchService ${this.isInitialized ? 'already' : 'is being'} initialized`);
@@ -198,7 +198,7 @@ class ElasticsearchService {
           await this.reindexLevels(idsToReindex);
           logger.debug(`Debounced artist reindex: Completed ${idsToReindex.length} levels`);
         } catch (error) {
-          logger.error(`Error in debounced artist reindex:`, error);
+          logger.error('Error in debounced artist reindex:', error);
         }
       }
     }, this.ARTIST_REINDEX_DEBOUNCE_MS);
@@ -207,7 +207,6 @@ class ElasticsearchService {
   }
 
   private setupChangeListeners() {
-    const self = this; // Store reference to this for use in hooks
     // Remove existing hooks first to prevent duplicates
     Pass.removeHook('beforeSave', 'elasticsearchPassUpdate');
     LevelLikes.removeHook('beforeSave', 'elasticsearchLevelLikesUpdate');
@@ -296,12 +295,12 @@ class ElasticsearchService {
               // Get unique level IDs from the passes
               const levelIds = Array.from(new Set(instances.map(pass => pass.levelId)));
               const passIds = instances.map(pass => pass.id);
-              
+
               logger.debug(`Bulk indexing ${passIds.length} passes and ${levelIds.length} levels after bulk create`);
-              
+
               // Bulk index all affected passes
               await this.reindexPasses(passIds);
-              
+
               // Update all affected levels
               for (const levelId of levelIds) {
                 await this.indexLevel(levelId);
@@ -312,9 +311,9 @@ class ElasticsearchService {
           if (instances.length > 0) {
             const levelIds = Array.from(new Set(instances.map(pass => pass.levelId)));
             const passIds = instances.map(pass => pass.id);
-            
+
             await this.reindexPasses(passIds);
-            
+
             for (const levelId of levelIds) {
               await this.indexLevel(levelId);
             }
@@ -367,10 +366,10 @@ class ElasticsearchService {
       try {
         if (options.where) {
           // Find affected level IDs BEFORE the update happens
-          const affectedLevels = await Level.findAll({ 
-            where: options.where, 
+          const affectedLevels = await Level.findAll({
+            where: options.where,
             attributes: ['id'],
-            transaction: options.transaction 
+            transaction: options.transaction
           });
           // Store the IDs in options so afterBulkUpdate can use them
           options.affectedLevelIds = affectedLevels.map(level => level.id);
@@ -388,16 +387,16 @@ class ElasticsearchService {
         // Use pre-captured IDs if available (from beforeBulkUpdate hook)
         // Otherwise fall back to finding by WHERE clause (for cases where WHERE fields weren't updated)
         let levelIds: number[] = [];
-        
+
         if (options.affectedLevelIds && options.affectedLevelIds.length > 0) {
           // Use IDs captured before the update
           levelIds = options.affectedLevelIds;
         } else if (options.where) {
           // Fallback: try to find by WHERE clause (works if WHERE fields weren't updated)
-          const foundLevels = await Level.findAll({ 
-            where: options.where, 
+          const foundLevels = await Level.findAll({
+            where: options.where,
             attributes: ['id'],
-            transaction: options.transaction 
+            transaction: options.transaction
           });
           levelIds = foundLevels.map(level => level.id);
         }
@@ -477,7 +476,7 @@ class ElasticsearchService {
     });
 
     LevelTagAssignment.addHook('afterBulkCreate', 'elasticsearchLevelTagAssignmentBulkCreate', async (options: any) => {
-      logger.debug(`LevelTagAssignment bulk create hook triggered`, options[0].levelId);
+      logger.debug('LevelTagAssignment bulk create hook triggered', options[0].levelId);
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
@@ -493,7 +492,7 @@ class ElasticsearchService {
     });
 
     LevelTagAssignment.addHook('afterBulkDestroy', 'elasticsearchLevelTagAssignmentDestroy', async (options: any) => {
-      logger.debug(`LevelTagAssignment destroy hook triggered`, options.where.levelId);
+      logger.debug('LevelTagAssignment destroy hook triggered', options.where.levelId);
       try {
         if (options.transaction) {
           await options.transaction.afterCommit(async () => {
@@ -512,7 +511,7 @@ class ElasticsearchService {
     Song.addHook('afterSave', 'elasticsearchSongUpdate', async (song: Song, options: any) => {
       logger.debug(`Song saved hook triggered for song ${song.id}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(song.id);
+        const levelIds = await this.getLevelIdsBySongId(song.id);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -533,16 +532,16 @@ class ElasticsearchService {
       logger.debug('Song bulk update hook triggered');
       try {
         let songIds: number[] = [];
-        
+
         if (options.where?.id) {
-          songIds = Array.isArray(options.where.id) 
-            ? options.where.id 
+          songIds = Array.isArray(options.where.id)
+            ? options.where.id
             : [options.where.id];
         } else if (options.where) {
-          const songs = await Song.findAll({ 
-            where: options.where, 
+          const songs = await Song.findAll({
+            where: options.where,
             attributes: ['id'],
-            transaction: options.transaction 
+            transaction: options.transaction
           });
           songIds = songs.map(s => s.id);
         }
@@ -550,7 +549,7 @@ class ElasticsearchService {
         if (songIds.length > 0) {
           const allLevelIds = new Set<number>();
           for (const songId of songIds) {
-            const levelIds = await self.getLevelIdsBySongId(songId);
+            const levelIds = await this.getLevelIdsBySongId(songId);
             levelIds.forEach(id => allLevelIds.add(id));
           }
 
@@ -575,7 +574,7 @@ class ElasticsearchService {
     SongAlias.addHook('afterSave', 'elasticsearchSongAliasUpdate', async (songAlias: SongAlias, options: any) => {
       logger.debug(`SongAlias saved hook triggered for song ${songAlias.songId}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(songAlias.songId);
+        const levelIds = await this.getLevelIdsBySongId(songAlias.songId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -595,7 +594,7 @@ class ElasticsearchService {
     SongAlias.addHook('afterCreate', 'elasticsearchSongAliasCreate', async (songAlias: SongAlias, options: any) => {
       logger.debug(`SongAlias created hook triggered for song ${songAlias.songId}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(songAlias.songId);
+        const levelIds = await this.getLevelIdsBySongId(songAlias.songId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -615,7 +614,7 @@ class ElasticsearchService {
     SongAlias.addHook('afterDestroy', 'elasticsearchSongAliasDestroy', async (songAlias: SongAlias, options: any) => {
       logger.debug(`SongAlias destroyed hook triggered for song ${songAlias.songId}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(songAlias.songId);
+        const levelIds = await this.getLevelIdsBySongId(songAlias.songId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -636,16 +635,16 @@ class ElasticsearchService {
     Artist.addHook('afterSave', 'elasticsearchArtistUpdate', async (artist: Artist, options: any) => {
       logger.debug(`Artist saved hook triggered for artist ${artist.id}`);
       try {
-        const levelIds = await self.getLevelIdsByArtistId(artist.id);
+        const levelIds = await this.getLevelIdsByArtistId(artist.id);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
               logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist ${artist.id} update`);
-              self.scheduleArtistReindex(levelIds);
+              this.scheduleArtistReindex(levelIds);
             });
           } else {
             logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist ${artist.id} update`);
-            self.scheduleArtistReindex(levelIds);
+            this.scheduleArtistReindex(levelIds);
           }
         }
       } catch (error) {
@@ -657,16 +656,16 @@ class ElasticsearchService {
       logger.debug('Artist bulk update hook triggered');
       try {
         let artistIds: number[] = [];
-        
+
         if (options.where?.id) {
-          artistIds = Array.isArray(options.where.id) 
-            ? options.where.id 
+          artistIds = Array.isArray(options.where.id)
+            ? options.where.id
             : [options.where.id];
         } else if (options.where) {
-          const artists = await Artist.findAll({ 
-            where: options.where, 
+          const artists = await Artist.findAll({
+            where: options.where,
             attributes: ['id'],
-            transaction: options.transaction 
+            transaction: options.transaction
           });
           artistIds = artists.map(a => a.id);
         }
@@ -674,7 +673,7 @@ class ElasticsearchService {
         if (artistIds.length > 0) {
           const allLevelIds = new Set<number>();
           for (const artistId of artistIds) {
-            const levelIds = await self.getLevelIdsByArtistId(artistId);
+            const levelIds = await this.getLevelIdsByArtistId(artistId);
             levelIds.forEach(id => allLevelIds.add(id));
           }
 
@@ -682,11 +681,11 @@ class ElasticsearchService {
             if (options.transaction) {
               await options.transaction.afterCommit(async () => {
                 logger.debug(`Scheduling debounced reindex for ${allLevelIds.size} levels after artist bulk update`);
-                self.scheduleArtistReindex(Array.from(allLevelIds));
+                this.scheduleArtistReindex(Array.from(allLevelIds));
               });
             } else {
               logger.debug(`Scheduling debounced reindex for ${allLevelIds.size} levels after artist bulk update`);
-              self.scheduleArtistReindex(Array.from(allLevelIds));
+              this.scheduleArtistReindex(Array.from(allLevelIds));
             }
           }
         }
@@ -699,16 +698,16 @@ class ElasticsearchService {
     ArtistAlias.addHook('afterSave', 'elasticsearchArtistAliasUpdate', async (artistAlias: ArtistAlias, options: any) => {
       logger.debug(`ArtistAlias saved hook triggered for artist ${artistAlias.artistId}`);
       try {
-        const levelIds = await self.getLevelIdsByArtistId(artistAlias.artistId);
+        const levelIds = await this.getLevelIdsByArtistId(artistAlias.artistId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
               logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias update`);
-              self.scheduleArtistReindex(levelIds);
+              this.scheduleArtistReindex(levelIds);
             });
           } else {
             logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias update`);
-            self.scheduleArtistReindex(levelIds);
+            this.scheduleArtistReindex(levelIds);
           }
         }
       } catch (error) {
@@ -719,16 +718,16 @@ class ElasticsearchService {
     ArtistAlias.addHook('afterCreate', 'elasticsearchArtistAliasCreate', async (artistAlias: ArtistAlias, options: any) => {
       logger.debug(`ArtistAlias created hook triggered for artist ${artistAlias.artistId}`);
       try {
-        const levelIds = await self.getLevelIdsByArtistId(artistAlias.artistId);
+        const levelIds = await this.getLevelIdsByArtistId(artistAlias.artistId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
               logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias create`);
-              self.scheduleArtistReindex(levelIds);
+              this.scheduleArtistReindex(levelIds);
             });
           } else {
             logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias create`);
-            self.scheduleArtistReindex(levelIds);
+            this.scheduleArtistReindex(levelIds);
           }
         }
       } catch (error) {
@@ -739,16 +738,16 @@ class ElasticsearchService {
     ArtistAlias.addHook('afterDestroy', 'elasticsearchArtistAliasDestroy', async (artistAlias: ArtistAlias, options: any) => {
       logger.debug(`ArtistAlias destroyed hook triggered for artist ${artistAlias.artistId}`);
       try {
-        const levelIds = await self.getLevelIdsByArtistId(artistAlias.artistId);
+        const levelIds = await this.getLevelIdsByArtistId(artistAlias.artistId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
               logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias destroy`);
-              self.scheduleArtistReindex(levelIds);
+              this.scheduleArtistReindex(levelIds);
             });
           } else {
             logger.debug(`Scheduling debounced reindex for ${levelIds.length} levels after artist alias destroy`);
-            self.scheduleArtistReindex(levelIds);
+            this.scheduleArtistReindex(levelIds);
           }
         }
       } catch (error) {
@@ -760,7 +759,7 @@ class ElasticsearchService {
     SongCredit.addHook('afterSave', 'elasticsearchSongCreditUpdate', async (songCredit: SongCredit, options: any) => {
       logger.debug(`SongCredit saved hook triggered for song ${songCredit.songId}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(songCredit.songId);
+        const levelIds = await this.getLevelIdsBySongId(songCredit.songId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -780,7 +779,7 @@ class ElasticsearchService {
     SongCredit.addHook('afterCreate', 'elasticsearchSongCreditCreate', async (songCredit: SongCredit, options: any) => {
       logger.debug(`SongCredit created hook triggered for song ${songCredit.songId}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(songCredit.songId);
+        const levelIds = await this.getLevelIdsBySongId(songCredit.songId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -800,7 +799,7 @@ class ElasticsearchService {
     SongCredit.addHook('afterDestroy', 'elasticsearchSongCreditDestroy', async (songCredit: SongCredit, options: any) => {
       logger.debug(`SongCredit destroyed hook triggered for song ${songCredit.songId}`);
       try {
-        const levelIds = await self.getLevelIdsBySongId(songCredit.songId);
+        const levelIds = await this.getLevelIdsBySongId(songCredit.songId);
         if (levelIds.length > 0) {
           if (options.transaction) {
             await options.transaction.afterCommit(async () => {
@@ -817,7 +816,7 @@ class ElasticsearchService {
       }
     });
   }
-  
+
 
 
 
@@ -1204,7 +1203,7 @@ class ElasticsearchService {
         });
 
         if (operations.length > 0) {
-          await client.bulk({ 
+          await client.bulk({
             operations,
             refresh: false // Don't refresh after each batch for better performance
           });
@@ -1352,6 +1351,7 @@ class ElasticsearchService {
                 limit: MAX_BATCH_SIZE
               })
             : Promise.resolve([])
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ]).then(([_, next]) => next);
 
         processedCount += currentBatchSize;
@@ -1398,6 +1398,7 @@ class ElasticsearchService {
                 limit: MAX_BATCH_SIZE
               })
             : Promise.resolve([])
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         ]).then(([_, next]) => next);
 
         processedCount += currentBatchSize;
@@ -2002,7 +2003,7 @@ class ElasticsearchService {
         must.push({ term: { isDeleted: false } });
       } else if (filters.deletedFilter === 'only' && isSuperAdmin) {
         must.push({ bool: { should: [
-          { term: { isDeleted: true } }, 
+          { term: { isDeleted: true } },
           { term: { isHidden: true } }
         ] } });
       } else if (!isSuperAdmin) {
@@ -2141,7 +2142,7 @@ class ElasticsearchService {
               }
             };
           }
-          
+
           // Multiple tags in group: use OR logic (should array)
           return {
             nested: {
@@ -2157,7 +2158,7 @@ class ElasticsearchService {
             }
           };
         });
-        
+
         // All groups must match (AND logic between groups)
         must.push({
           bool: {
@@ -2180,7 +2181,7 @@ class ElasticsearchService {
                 }
               }
             }));
-            
+
             // All tag queries must match
             must.push({
               bool: {
@@ -2699,7 +2700,7 @@ class ElasticsearchService {
         must.push({ term: { 'level.isHidden': false } });
         must.push({ term: { 'level.isDeleted': false } });
         must.push({ term: { 'player.isBanned': false } });
-        
+
         // Filter out hidden passes unless the user is the owner
         if (userPlayerId !== undefined) {
           // User is logged in - show their hidden passes but hide others' hidden passes
@@ -2707,7 +2708,7 @@ class ElasticsearchService {
             bool: {
               should: [
                 { term: { isHidden: false } },
-                { 
+                {
                   bool: {
                     must: [
                       { term: { isHidden: true } },

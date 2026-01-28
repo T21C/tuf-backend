@@ -1,6 +1,6 @@
 import {Webhook, MessageBuilder} from '../../../misc/webhook/index.js';
-import { User } from "../../../models/index.js";
-import { clientUrlEnv } from "../../../config/app.config.js";
+import { User } from '../../../models/index.js';
+import { clientUrlEnv } from '../../../config/app.config.js';
 import Level from '../../../models/levels/Level.js';
 import Difficulty from '../../../models/levels/Difficulty.js';
 
@@ -96,7 +96,7 @@ async function logLevelTargetUpdateHook(target: string, levelId: number, user: U
     await hook.send(embed);
   }
 
-  
+
 function getLevelMetadata(level: Level): {song: string | null, artist: string | null, songId: number | null, suffix: string | null, videoLink: string | null, dlLink: string | null, workshopLink: string | null} {
     return {
       song: level.song || null,
@@ -117,7 +117,7 @@ async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user
     const hook = new Webhook(process.env.LEVEL_FILE_UPDATE_HOOK);
     hook.setUsername('Level Updates');
     hook.setAvatar(botAvatar);
-    
+
     const oldMetadata = getLevelMetadata(oldLevel);
     const newMetadata = getLevelMetadata(newLevel);
 
@@ -145,7 +145,7 @@ async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user
     for (const [key, label] of Object.entries(fieldLabels)) {
         const oldValue = oldMetadata[key as keyof typeof oldMetadata];
         const newValue = newMetadata[key as keyof typeof newMetadata];
-        
+
         // Special handling for songId (numeric comparison)
         if (key === 'songId') {
             const oldId = oldValue ?? null;
@@ -159,7 +159,7 @@ async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user
             // Compare values (treat null/undefined/empty as equal)
             const oldVal = oldValue || '';
             const newVal = newValue || '';
-            
+
             if (oldVal !== newVal) {
                 hasChanges = true;
                 const changeText = `${formatValue(oldVal as string)} ➔ ${formatValue(newVal as string)}`;
@@ -174,11 +174,11 @@ async function logLevelMetadataUpdateHook(oldLevel: Level, newLevel: Level, user
     }
 }
 
-  
-export { 
-  logLevelFileUpdateHook, 
-  logLevelFileDeleteHook, 
-  logLevelFileUploadHook, 
-  logLevelTargetUpdateHook, 
-  logLevelMetadataUpdateHook 
+
+export {
+  logLevelFileUpdateHook,
+  logLevelFileDeleteHook,
+  logLevelFileUploadHook,
+  logLevelTargetUpdateHook,
+  logLevelMetadataUpdateHook
 };

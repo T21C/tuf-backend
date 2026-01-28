@@ -4,7 +4,6 @@ import { Command } from 'commander';
 import { logger } from '../../../server/services/LoggerService.js';
 import CdnFile from '../../../models/cdn/CdnFile.js';
 import sequelize from '../../../config/db.js';
-import { Op } from 'sequelize';
 import { levelCacheService } from '../services/levelCacheService.js';
 
 /**
@@ -78,8 +77,8 @@ async function findFilesNeedingCache(onlyNull: boolean): Promise<CdnFile[]> {
 /**
  * Main script execution
  */
-async function main(options: { 
-    dryRun: boolean; 
+async function main(options: {
+    dryRun: boolean;
     limit?: number;
     onlyNull: boolean;
     fileId?: string;

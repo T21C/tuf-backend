@@ -3,7 +3,6 @@
 import sequelize from '../../config/db.js';
 import Level from '../../models/levels/Level.js';
 import LevelTag from '../../models/levels/LevelTag.js';
-import LevelTagAssignment from '../../models/levels/LevelTagAssignment.js';
 import { initializeAssociations } from '../../models/associations.js';
 import { logger } from '../../server/services/LoggerService.js';
 import { safeTransactionRollback } from '../utils/Utility.js';
@@ -66,10 +65,10 @@ function parseSongAndArtist(level: Level): ParsedSongArtist | null {
  */
 async function batchCheckArtistsExist(names: string[]): Promise<Set<string>> {
   if (names.length === 0) return new Set();
-  
+
   const artistService = ArtistService.getInstance();
   const normalizedNames = names.map(name => artistService.normalizeArtistName(name));
-  
+
   const existingArtists = await Artist.findAll({
     where: {
       name: {
@@ -78,12 +77,12 @@ async function batchCheckArtistsExist(names: string[]): Promise<Set<string>> {
     },
     attributes: ['name']
   });
-  
+
   const existingSet = new Set<string>();
   existingArtists.forEach(artist => {
     existingSet.add(artistService.normalizeArtistName(artist.name));
   });
-  
+
   return existingSet;
 }
 
@@ -93,10 +92,10 @@ async function batchCheckArtistsExist(names: string[]): Promise<Set<string>> {
  */
 async function batchCheckSongsExist(names: string[]): Promise<Set<string>> {
   if (names.length === 0) return new Set();
-  
+
   const songService = SongService.getInstance();
   const normalizedNames = names.map(name => songService.normalizeSongName(name));
-  
+
   const existingSongs = await Song.findAll({
     where: {
       name: {
@@ -105,12 +104,12 @@ async function batchCheckSongsExist(names: string[]): Promise<Set<string>> {
     },
     attributes: ['name']
   });
-  
+
   const existingSet = new Set<string>();
   existingSongs.forEach(song => {
     existingSet.add(songService.normalizeSongName(song.name));
   });
-  
+
   return existingSet;
 }
 
@@ -125,7 +124,7 @@ async function batchCheckCreditsExist(
   transaction?: any
 ): Promise<Set<string>> {
   if (songIds.length === 0 || artistIds.length === 0) return new Set();
-  
+
   const existingCredits = await SongCredit.findAll({
     where: {
       songId: { [Op.in]: songIds },
@@ -135,12 +134,12 @@ async function batchCheckCreditsExist(
     attributes: ['songId', 'artistId'],
     transaction
   });
-  
+
   const existingSet = new Set<string>();
   existingCredits.forEach(credit => {
     existingSet.add(`${credit.songId}-${credit.artistId}`);
   });
-  
+
   return existingSet;
 }
 
@@ -151,7 +150,7 @@ async function batchCheckCreditsExist(
 async function migrateLevelsBatch(
   levels: Level[],
   stats: MigrationStats,
-  dryRun: boolean = false,
+  dryRun = false,
   transaction?: any
 ): Promise<void> {
   if (levels.length === 0) return;
@@ -196,7 +195,7 @@ async function migrateLevelsBatch(
     // Collect all unique song and artist names for batch checking
     const allSongNames = new Set<string>();
     const allArtistNames = new Set<string>();
-    
+
     levelData.forEach(({ parsed }) => {
       allSongNames.add(parsed.songName);
       parsed.artistNames.forEach(name => allArtistNames.add(name));
@@ -205,7 +204,7 @@ async function migrateLevelsBatch(
     // Batch check existence
     const artistService = ArtistService.getInstance();
     const songService = SongService.getInstance();
-    
+
     const existingSongsSet = await batchCheckSongsExist(Array.from(allSongNames));
     const existingArtistsSet = await batchCheckArtistsExist(Array.from(allArtistNames));
 
@@ -229,13 +228,13 @@ async function migrateLevelsBatch(
         let songVerificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed' = 'allowed';
         if (hasYoutubeStreamTag) {
           songVerificationState = 'ysmod_only';
-          logger.info(`  Level has "Youtube Stream" tag - setting song to YSMod Only`);
+          logger.info('  Level has "Youtube Stream" tag - setting song to YSMod Only');
         } else if (!level.isDeleted) {
           songVerificationState = 'allowed';
-          logger.info(`  Level not deleted - setting song to Allowed`);
+          logger.info('  Level not deleted - setting song to Allowed');
         } else {
           songVerificationState = 'allowed';
-          logger.info(`  Level is deleted - setting song to Allowed (default)`);
+          logger.info('  Level is deleted - setting song to Allowed (default)');
         }
 
         // Check if song existed before
@@ -290,7 +289,7 @@ async function migrateLevelsBatch(
           }
 
           artists.push({ id: artist.id, name: artist.name });
-          
+
           // Track credits to create
           creditsToCreate.push({ songId: song.id, artistId: artist.id });
         }
@@ -358,8 +357,8 @@ async function migrateLevelsBatch(
           artistId: credit.artistId,
           role: null // Explicitly set role to null
         }));
-        
-        await SongCredit.bulkCreate(creditsWithRole, { 
+
+        await SongCredit.bulkCreate(creditsWithRole, {
           transaction,
           ignoreDuplicates: true // Safety measure - prevents errors if duplicates somehow slip through
         });
@@ -404,7 +403,7 @@ async function migrateLevelsBatch(
 async function migrateLevel(
   level: Level,
   stats: MigrationStats,
-  dryRun: boolean = false,
+  dryRun = false,
   transaction?: any
 ): Promise<void> {
   await migrateLevelsBatch([level], stats, dryRun, transaction);
@@ -413,7 +412,7 @@ async function migrateLevel(
 /**
  * Migrate a single level by ID (for testing)
  */
-async function migrateSingleLevel(levelId: number, dryRun: boolean = false): Promise<void> {
+async function migrateSingleLevel(levelId: number, dryRun = false): Promise<void> {
   const transaction = await sequelize.transaction();
   const stats: MigrationStats = {
     totalLevels: 1,
@@ -472,7 +471,7 @@ async function migrateSingleLevel(levelId: number, dryRun: boolean = false): Pro
 /**
  * Migrate all levels in batches
  */
-async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?: number): Promise<void> {
+async function migrateAllLevels(dryRun = false, limit?: number, offset?: number): Promise<void> {
   const stats: MigrationStats = {
     totalLevels: 0,
     processedLevels: 0,
@@ -491,7 +490,7 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
     const isBatchMode = limit !== undefined;
     const startOffset = offset ?? 0;
     const maxLevels = limit ?? Infinity;
-    
+
     logger.info(`\n=== ${isBatchMode ? 'Batch' : 'Full'} Migration ${dryRun ? '(DRY RUN)' : ''} ===`);
     if (dryRun) {
       logger.info('DRY RUN MODE - No changes will be saved');
@@ -511,7 +510,7 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
     });
 
     stats.totalLevels = isBatchMode && limit !== undefined ? Math.min(limit, totalCount - startOffset) : totalCount;
-    
+
     logger.info(`Found ${totalCount} total levels to migrate`);
     if (isBatchMode && limit !== undefined) {
       logger.info(`Processing ${stats.totalLevels} levels (offset: ${startOffset}, limit: ${limit})`);
@@ -533,15 +532,15 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
     // match the WHERE clause anymore. This avoids skipping records due to offset misalignment.
     let batchNumber = 0;
     let processedInBatch = 0;
-    
+
     while (processedInBatch < maxLevels) {
       const batchTransaction = await sequelize.transaction();
-      
+
       try {
         // Calculate how many levels to fetch in this batch
         const remainingToProcess = maxLevels - processedInBatch;
         const batchLimit = Math.min(BATCH_SIZE, remainingToProcess);
-        
+
         // Always use offset: 0 since WHERE clause excludes already-processed levels
         const levels = await Level.findAll({
           where: {
@@ -569,19 +568,15 @@ async function migrateAllLevels(dryRun: boolean = false, limit?: number, offset?
         }
 
         batchNumber++;
-        const totalBatches = isBatchMode 
+        const totalBatches = isBatchMode
           ? Math.ceil(stats.totalLevels / BATCH_SIZE)
           : Math.ceil(totalCount / BATCH_SIZE);
-        
+
         logger.info(`\nProcessing batch ${batchNumber}${isBatchMode ? ` (${batchNumber}/${totalBatches} in this batch)` : `/${totalBatches}`} (${levels.length} levels)`);
 
         // Process all levels in this batch together
-        try {
-          await migrateLevelsBatch(levels, stats, dryRun, batchTransaction);
-        } catch (error) {
-          // Error already logged in migrateLevelsBatch
-          throw error; // Re-throw to trigger batch rollback
-        }
+        await migrateLevelsBatch(levels, stats, dryRun, batchTransaction);
+
 
         if (!dryRun) {
           await batchTransaction.commit();
@@ -633,10 +628,10 @@ function printStats(stats: MigrationStats): void {
   logger.info(`Processed: ${stats.processedLevels}`);
   logger.info(`Skipped: ${stats.skippedLevels}`);
   logger.info(`Errors: ${stats.errorLevels}`);
-  logger.info(`\nArtists:`);
+  logger.info('\nArtists:');
   logger.info(`  Created: ${stats.artistsCreated}`);
   logger.info(`  Matched: ${stats.artistsMatched}`);
-  logger.info(`\nSongs:`);
+  logger.info('\nSongs:');
   logger.info(`  Created: ${stats.songsCreated}`);
   logger.info(`  Matched: ${stats.songsMatched}`);
   logger.info(`\nLevels updated: ${stats.levelsUpdated}`);
@@ -656,7 +651,7 @@ function printStats(stats: MigrationStats): void {
 /**
  * Show preview of what would be migrated
  */
-async function previewMigration(limit: number = 10): Promise<void> {
+async function previewMigration(limit = 10): Promise<void> {
   logger.info(`\n=== Migration Preview (showing first ${limit} levels) ===`);
 
   const levels = await Level.findAll({
@@ -683,13 +678,13 @@ async function previewMigration(limit: number = 10): Promise<void> {
       logger.info(`  Song: "${parsed.songName}"`);
       logger.info(`  Artists: ${parsed.artistNames.join(', ')}`);
       logger.info(`  Current: songId=${level.songId || 'null'}`);
-      
+
       uniqueSongs.add(parsed.songName.toLowerCase());
       parsed.artistNames.forEach(a => uniqueArtists.add(a.toLowerCase()));
       if (parsed.artistNames.length > 1) {
         multiArtistCount++;
       }
-      
+
       logger.info('');
     }
   }
@@ -701,7 +696,7 @@ async function previewMigration(limit: number = 10): Promise<void> {
     }
   });
 
-  logger.info(`\n=== Preview Summary ===`);
+  logger.info('\n=== Preview Summary ===');
   logger.info(`Total levels that would be migrated: ${totalCount}`);
   logger.info(`Unique songs (case-insensitive): ${uniqueSongs.size}`);
   logger.info(`Unique artists (case-insensitive): ${uniqueArtists.size}`);
@@ -834,4 +829,5 @@ Migration Process:
 }
 
 // Execute
-main();
+
+await main();

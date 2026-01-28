@@ -154,7 +154,7 @@ export const isCdnUrl = (url: string): boolean => {
 // Helper function to extract file ID from CDN URL
 export const getFileIdFromCdnUrl = (url: string): string | null => {
   if (!isCdnUrl(url)) return null;
-  
+
   const regex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/g;
   const matches = [...url.matchAll(regex)];
   if (matches.length !== 1) return null; // Only allow a single UUID occurrence
@@ -175,7 +175,7 @@ export function formatCredits(credits: string[] | undefined): string {
 
 export const formatCreatorDisplay = (level: ILevel) => {
   // If team exists, it takes priority
-  if (!level) return "";
+  if (!level) return '';
 
   if (level.team) {
     return level.team;
@@ -183,7 +183,7 @@ export const formatCreatorDisplay = (level: ILevel) => {
 
   // If no credits, fall back to creator field
   if (!level.levelCredits || level.levelCredits.length === 0) {
-    return "No credits";
+    return 'No credits';
   }
 
   // Group credits by role
@@ -205,8 +205,8 @@ export const formatCreatorDisplay = (level: ILevel) => {
   if (level.levelCredits.length >= 3) {
     const parts = [];
     if (charters.length > 0) {
-      parts.push(charters.length === 1 
-        ? charters[0] 
+      parts.push(charters.length === 1
+        ? charters[0]
         : `${charters[0]} & ${charters.length - 1} more`);
     }
     if (vfxers.length > 0) {
@@ -224,5 +224,5 @@ export const formatCreatorDisplay = (level: ILevel) => {
     }
   }
 
-  return level.levelCredits[0]?.creator?.name || "No credits";
+  return level.levelCredits[0]?.creator?.name || 'No credits';
 };

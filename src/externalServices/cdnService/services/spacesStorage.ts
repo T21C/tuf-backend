@@ -465,9 +465,8 @@ export class SpacesStorageManager {
     /**
      * Get a public CDN URL for a file (bucket is public, no signing needed)
      * @param key - The file key
-     * @param _expiresIn - Deprecated, kept for backwards compatibility
      */
-    public async getPresignedUrl(key: string, _expiresIn = 3600): Promise<string> {
+    public async getPresignedUrl(key: string): Promise<string> {
         // Since the bucket is public, we just return the CDN URL directly
         // This enables proper CDN caching without query string parameters
         const url = this.getFileUrl(key);

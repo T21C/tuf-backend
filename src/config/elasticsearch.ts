@@ -288,7 +288,7 @@ export const levelMapping = {
       aliases: {
         type: 'nested' as const,
         properties: {
-          alias: { 
+          alias: {
             type: 'text' as const,
             fields: {
               keyword: {
@@ -349,15 +349,15 @@ export const levelMapping = {
         type: 'nested' as const,
         properties: {
           id: { type: 'integer' as const },
-          name: { 
+          name: {
             type: 'text' as const,
-            analyzer: 'custom_text_analyzer', 
+            analyzer: 'custom_text_analyzer',
           },
           aliases: {
             type: 'nested' as const,
             properties: {
               id: { type: 'integer' as const },
-              name: { 
+              name: {
                 type: 'text' as const,
                 analyzer: 'custom_text_analyzer',
               }
@@ -460,7 +460,7 @@ export const passMapping = {
           aliases: {
             type: 'nested' as const,
             properties: {
-              alias: { 
+              alias: {
                 type: 'text' as const,
                 analyzer: 'custom_text_analyzer',
                 fields: {

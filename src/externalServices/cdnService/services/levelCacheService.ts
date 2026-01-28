@@ -1,6 +1,6 @@
 import { logger } from '../../../server/services/LoggerService.js';
 import CdnFile from '../../../models/cdn/CdnFile.js';
-import LevelDict, { analysisUtils, constants } from 'adofai-lib';
+import LevelDict, { analysisUtils } from 'adofai-lib';
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
@@ -23,7 +23,7 @@ export const SAFE_TO_PARSE_VERSION = 2;
  * - New fields are added to analysis
  * - Field types or meanings change
  * - Calculation logic for any analysis field changes
- * 
+ *
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
 export const ANALYSIS_FORMAT_VERSION = 4;
@@ -111,8 +111,8 @@ class LevelCacheService {
             }
 
             // Determine storage type for the zip
-            const zipStorageType = (originalZip.storageType as StorageType) || 
-                                   (metadata.storageInfo?.zip as StorageType) || 
+            const zipStorageType = (originalZip.storageType as StorageType) ||
+                                   (metadata.storageInfo?.zip as StorageType) ||
                                    StorageType.LOCAL;
 
             // Download the zip to a temporary location
@@ -198,9 +198,9 @@ class LevelCacheService {
 
     /**
      * Load level data with proper version checking and cache management.
-     * This is the SINGLE entry point for loading level files - use this instead of 
+     * This is the SINGLE entry point for loading level files - use this instead of
      * manually checking safeToParse.
-     * 
+     *
      * @param file - CdnFile instance
      * @param levelPath - Path to the level file
      * @param metadata - Optional metadata object (will use file.metadata if not provided)
@@ -214,7 +214,7 @@ class LevelCacheService {
         const fileMetadata = metadata || file.metadata as any;
         const safeToParse = fileMetadata?.targetSafeToParse || false;
         const versionCurrent = this.isVersionCurrent(fileMetadata);
-        
+
         // Determine if we need to re-parse from original source
         const needsReparse = !safeToParse || !versionCurrent;
 
@@ -250,17 +250,17 @@ class LevelCacheService {
 
             // Parse from the source file
             const levelData = new LevelDict(sourceToUse);
-            
+
             // Write the processed version back to the target level path
             levelData.writeToFile(levelPath);
-            
+
             // Update targetSafeToParse flag AND version in metadata
-            await file.update({ 
-                metadata: { 
-                    ...fileMetadata, 
+            await file.update({
+                metadata: {
+                    ...fileMetadata,
                     targetSafeToParse: true,
                     targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
-                } 
+                }
             });
 
             logger.debug('Level file loaded and version updated', {
@@ -284,7 +284,7 @@ class LevelCacheService {
      * - JSON parsing fails
      * - metadata is provided and version doesn't match (cache invalidation)
      * - running in development mode
-     * 
+     *
      * @param cacheDataString - The cached JSON string
      * @param metadata - Optional metadata to check version against
      */
@@ -365,9 +365,9 @@ class LevelCacheService {
      * @returns Updated cache data
      */
     async populateCache(
-        file: CdnFile, 
-        levelPath: string, 
-        metadata?: any, 
+        file: CdnFile,
+        levelPath: string,
+        metadata?: any,
         requestedModes?: string[],
         levelData?: LevelDict
     ): Promise<LevelCacheData> {
@@ -378,12 +378,12 @@ class LevelCacheService {
 
             // Parse existing cache - will return null if version mismatch or dev mode
             const existingCache = this.parseCacheData(file.cacheData, fileMetadata);
-            
+
             // Check if file exists
             if (!fs.existsSync(levelPath)) {
                 throw new Error(`Level file not found at path: ${levelPath}`);
             }
-            
+
             // Use provided levelData or load it using the unified method
             let parsedLevelData: LevelDict;
             if (levelData) {
@@ -396,7 +396,7 @@ class LevelCacheService {
             // Build cache data, preserving existing values
             // Only preserve analysis if version matches, otherwise it needs recomputation
             const existingAnalysisValid = existingCache?.analysis && this.isAnalysisVersionCurrent(existingCache.analysis);
-            
+
             const cacheData: LevelCacheData = {
                 tilecount: existingCache?.tilecount ?? parsedLevelData.getAngles().length,
                 settings: existingCache?.settings ?? parsedLevelData.getSettings(),
@@ -483,10 +483,10 @@ class LevelCacheService {
         levelData?: LevelDict
     ): Promise<{ cacheData: LevelCacheData; wasPopulated: boolean }> {
         const fileMetadata = metadata || file.metadata as any;
-        
+
         // Parse existing cache - returns null if version mismatch or dev mode
         let cacheData = this.parseCacheData(file.cacheData, fileMetadata);
-        
+
         // Strip outdated analysis from cache before checking hits
         if (cacheData?.analysis && !this.isAnalysisVersionCurrent(cacheData.analysis)) {
             logger.debug('Stripping outdated analysis from cache', {
@@ -495,10 +495,10 @@ class LevelCacheService {
             });
             cacheData = { ...cacheData, analysis: undefined };
         }
-        
+
         // Check if cache needs population
         const cacheHits = this.checkCacheHits(cacheData, requestedModes);
-        const needsPopulation = requestedModes.some(mode => 
+        const needsPopulation = requestedModes.some(mode =>
             (mode === 'settings' && !cacheHits.settings) ||
             (mode === 'tilecount' && !cacheHits.tilecount) ||
             (mode === 'analysis' && !cacheHits.analysis)
@@ -548,7 +548,7 @@ class LevelCacheService {
 
             // Determine target level
             const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
-            
+
             if (!fs.existsSync(targetLevel)) {
                 logger.error('Target level file not found:', { fileId, targetLevel });
                 return null;
@@ -556,7 +556,7 @@ class LevelCacheService {
 
             // Parse cache - returns null if version mismatch or dev mode
             const cacheData = this.parseCacheData(file.cacheData, metadata);
-            
+
             if (!cacheData || cacheData.tilecount === undefined || cacheData.settings === undefined) {
                 // Populate cache (will also update version if outdated)
                 return await this.populateCache(file, targetLevel, metadata);
@@ -596,10 +596,10 @@ class LevelCacheService {
         }> = {};
 
         const fileMetadata = metadata || file.metadata as any;
-        
+
         // Parse cache - returns null if version mismatch or dev mode
         const cacheData = this.parseCacheData(file.cacheData, fileMetadata);
-        
+
         // If cache is null (version mismatch, dev mode, or empty), only return accessCount
         if (!cacheData) {
             if (requestedModes.includes('accessCount')) {
@@ -644,33 +644,33 @@ class LevelCacheService {
      */
     async getDurationsFromCdnFile(fileId: string): Promise<number[] | null> {
         const cdnFile = await CdnFile.findByPk(fileId);
-        
+
         if (!cdnFile) {
             return null;
         }
-        
+
         try {
             // Get the level file path from CDN
             const metadata = cdnFile.metadata as any;
             if (!metadata?.targetLevel) {
                 return null;
             }
-            
+
             const levelPath = metadata.targetLevel;
-            
+
             // Check if file exists
             const fileCheck = await hybridStorageManager.fileExistsWithFallback(
                 levelPath,
                 metadata.levelStorageType || metadata.storageType
             );
-            
+
             if (!fileCheck.exists) {
                 return null;
             }
-            
+
             // Load and parse the level file
             const { levelData } = await this.loadLevelData(cdnFile, levelPath, metadata);
-            
+
             // Get durations and filter out undefined values
             const durations = levelData.getDurations();
             return durations.filter((d): d is number => d !== undefined);

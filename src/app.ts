@@ -23,7 +23,7 @@ import {fileURLToPath} from 'url';
 import healthRouter from './server/routes/misc/health.js';
 import { logger } from './server/services/LoggerService.js';
 import ElasticsearchService from './server/services/ElasticsearchService.js';
-import { clientUrlEnv, port, ownUrl, corsOptions } from './config/app.config.js';
+import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
 import { startConnectionMonitoring } from './config/db.js';
 import { initializeDefaultPools } from './config/poolConfig.js';
 import { redis } from './server/services/RedisService.js';
@@ -41,7 +41,7 @@ process.on('uncaughtException', (error: any) => {
     // Don't shut down for client disconnects - these are expected
     return;
   }
-  
+
   // For other uncaught exceptions, log and continue (don't shut down)
   logger.error('UNCAUGHT EXCEPTION:', {
     message: error.message,
@@ -164,6 +164,7 @@ export async function startServer() {
     try {
       logger.info('Starting Async Elasticsearch initialization...');
       const elasticsearchService = ElasticsearchService.getInstance();
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       elasticsearchService.initialize();
     } catch (error) {
       logger.error('Error initializing Elasticsearch:', error);

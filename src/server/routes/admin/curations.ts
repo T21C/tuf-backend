@@ -662,7 +662,7 @@ router.get('/', async (req, res) => {
 
     // Check for existing curation with the same levelId and typeId combination
     const existingCuration = await Curation.findOne({
-      where: { 
+      where: {
         levelId,
         typeId: assignableType.id
       }

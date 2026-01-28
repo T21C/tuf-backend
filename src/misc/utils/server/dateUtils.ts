@@ -1,4 +1,4 @@
-import { logger } from "../../../server/services/LoggerService.js";
+import { logger } from '../../../server/services/LoggerService.js';
 
 // Define reasonable date bounds (TUF website context)
 const MIN_VALID_DATE = new Date('2020-01-01'); // Earliest reasonable date
@@ -11,7 +11,7 @@ const MAX_VALID_DATE = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // One 
  */
 export function validateAndClampDate(dateString: string, defaultDate: Date): Date {
   let parsedDate = new Date(dateString);
-  
+
   // Check if date is invalid
   if (isNaN(parsedDate.getTime())) {
     logger.debug(`Invalid date string provided: ${dateString}, using default`);

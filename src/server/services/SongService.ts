@@ -4,10 +4,8 @@ import SongAlias from '../../models/songs/SongAlias.js';
 import SongLink from '../../models/songs/SongLink.js';
 import SongEvidence from '../../models/songs/SongEvidence.js';
 import SongCredit from '../../models/songs/SongCredit.js';
-import Artist from '../../models/artists/Artist.js';
 import Level from '../../models/levels/Level.js';
 import LevelSubmissionSongRequest from '../../models/submissions/LevelSubmissionSongRequest.js';
-import { logger } from './LoggerService.js';
 
 class SongService {
   private static instance: SongService;
@@ -37,7 +35,7 @@ class SongService {
     aliases?: string[]
   ): Promise<Song> {
     const normalizedName = this.normalizeSongName(name);
-    
+
     // First, try to find by exact name match (case-insensitive)
     let song = await Song.findOne({
       where: {

@@ -10,7 +10,7 @@ import PlayerStats from '../../../models/players/PlayerStats.js';
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
-router.get('/', Cache({ 
+router.get('/', Cache({
   ttl: 300,
   varyByQuery: ['sortBy', 'order', 'showBanned', 'query', 'offset', 'limit', 'filters'],
   tags: ['leaderboard:all'] // Tag all list queries
@@ -47,13 +47,13 @@ router.get('/', Cache({
           .replace(/"NaN"/g, '"0"');
 
         const parsed = JSON.parse(sanitizedFilters, (key, value) => {
-          if (typeof value === "number") {
+          if (typeof value === 'number') {
             return Number.parseFloat(value.toString());
           }
           return value;
         });
         filters = parsed;
-       
+
     } catch (error) {
       logger.error('Error parsing filters:', error);
       return res.status(400).json({

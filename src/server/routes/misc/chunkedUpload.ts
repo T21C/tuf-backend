@@ -7,12 +7,7 @@ import { logger } from '../../services/LoggerService.js';
 import cors from 'cors';
 import { corsOptions } from '../../../config/app.config.js';
 import sequelize from '../../../config/db.js';
-import { Transaction } from 'sequelize';
 import Level from '../../../models/levels/Level.js';
-import Creator from '../../../models/credits/Creator.js';
-import LevelCredit from '../../../models/levels/LevelCredit.js';
-import { permissionFlags } from '../../../config/constants.js';
-import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { checkLevelOwnership } from '../database/levels/modification.js';
 
 const router: Router = express.Router();
@@ -147,7 +142,7 @@ router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Reque
       const outputPath = path.join(assembledDir, `${fileId}.zip`);
 
       const writeStream = fs.createWriteStream(outputPath);
-      
+
       // Mark file as in use
       filesInUse.add(fileId);
 
@@ -170,7 +165,7 @@ router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Reque
           }
 
           const chunkBuffer = fs.readFileSync(chunkPath);
-          
+
           // Handle backpressure and errors during write
           const writeSuccess = writeStream.write(chunkBuffer);
           if (!writeSuccess) {
@@ -179,7 +174,7 @@ router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Reque
               writeStream.once('drain', resolve);
             });
           }
-          
+
           // Remove chunk after writing
           fs.unlinkSync(chunkPath);
         }
@@ -228,7 +223,7 @@ router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Reque
         } catch (cleanupError) {
           logger.warn('Failed to clean up partial assembled file:', cleanupError);
         }
-        
+
         // Only send error if response hasn't been sent
         if (!res.headersSent) {
           throw error;
@@ -357,13 +352,13 @@ const cleanupUserUploads = async (userId: string, excludeFileId?: string) => {
       for (const file of files) {
         // Extract fileId from filename (format: fileId.zip)
         const fileId = file.replace('.zip', '');
-        
+
         // Skip if file is currently in use or is the excluded file
         if (filesInUse.has(fileId) || (excludeFileId && fileId === excludeFileId)) {
           logger.debug(`Skipping cleanup of file in use: ${fileId}`);
           continue;
         }
-        
+
         try {
           await fs.promises.unlink(path.join(assembledDir, file));
         } catch (unlinkError: any) {
@@ -373,7 +368,7 @@ const cleanupUserUploads = async (userId: string, excludeFileId?: string) => {
           }
         }
       }
-      
+
       // Remove directory if empty
       try {
         const remainingFiles = await fs.promises.readdir(assembledDir);

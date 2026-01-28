@@ -115,7 +115,7 @@ export function escapeForMySQL(str: string) {
         return char;
     }
   });
-};
+}
 
 /**
  * Converts special characters to PUA characters for indexing
@@ -129,7 +129,7 @@ export function convertToPUA(str: string): string {
   const pattern = new RegExp(`[\\${Object.keys(SPECIAL_CHAR_MAP).join('\\')}]`, 'g');
 
   return str.replace(pattern, char => SPECIAL_CHAR_MAP[char as keyof typeof SPECIAL_CHAR_MAP] || char);
-};
+}
 
 /**
  * Converts PUA characters back to their original special characters
@@ -143,7 +143,7 @@ export function convertFromPUA(str: string): string {
   const pattern = new RegExp(`[${Object.values(SPECIAL_CHAR_MAP).join('')}]`, 'g');
 
   return str.replace(pattern, char => PUA_CHAR_MAP[char] || char);
-};
+}
 
 /**
  * Converts special characters in search terms to their PUA equivalents
@@ -157,4 +157,4 @@ export function prepareSearchTerm(str: string): string {
   return convertToPUA(str)
     .replace(/\s+/g, ' ') // Normalize whitespace
     .trim();
-};
+}

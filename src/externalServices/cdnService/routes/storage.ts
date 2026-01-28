@@ -88,14 +88,12 @@ router.get('/spaces/exists/:key(*)', async (req: Request, res: Response) => {
 router.get('/spaces/url/:key(*)', async (req: Request, res: Response) => {
     try {
         const { key } = req.params;
-        const { expires = 3600 } = req.query;
-        const url = await spacesStorage.getPresignedUrl(key, Number(expires));
+        const url = await spacesStorage.getPresignedUrl(key);
 
         res.json({
             success: true,
             key,
-            url,
-            expires: Number(expires)
+            url
         });
     } catch (error) {
         logger.error('Failed to get presigned URL for Spaces file:', {

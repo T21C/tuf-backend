@@ -85,27 +85,27 @@ function generateCacheKey(req: Request, config: CacheConfig): string {
 
 /**
  * Cache middleware factory
- * 
+ *
  * @example
  * // Basic usage with defaults (5 min TTL)
  * router.get('/levels', Cache(), async (req, res) => { ... });
- * 
+ *
  * @example
  * // Custom TTL
  * router.get('/stats', Cache({ ttl: 60 }), async (req, res) => { ... });
- * 
+ *
  * @example
  * // Vary by specific query params only
- * router.get('/search', Cache({ 
+ * router.get('/search', Cache({
  *   ttl: 120,
- *   varyByQuery: ['q', 'page', 'limit'] 
+ *   varyByQuery: ['q', 'page', 'limit']
  * }), async (req, res) => { ... });
- * 
+ *
  * @example
  * // Per-user caching
- * router.get('/my-data', Auth.user(), Cache({ 
+ * router.get('/my-data', Auth.user(), Cache({
  *   varyByUser: true,
- *   ttl: 60 
+ *   ttl: 60
  * }), async (req, res) => { ... });
  */
 export function Cache(config: CacheConfig = {}): (req: Request, res: Response, next: NextFunction) => Promise<void> {
@@ -167,11 +167,11 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
                 if (tags.length > 0) {
                   const tagPromises = tags.map(tag => {
                     const tagKey = `cache:tags:${tag}`;
-                    return redis.sAdd(tagKey, cacheKey).catch(err => 
+                    return redis.sAdd(tagKey, cacheKey).catch(err =>
                       logger.error(`Cache tag error for ${tagKey}:`, err)
                     );
                   });
-                  Promise.all(tagPromises).catch(err => 
+                  Promise.all(tagPromises).catch(err =>
                     logger.error('Cache tagging error:', err)
                   );
                 }
@@ -198,7 +198,7 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
 
 /**
  * Decorator for caching controller method responses
- * 
+ *
  * @example
  * class LevelController {
  *   @Cached({ ttl: 300, prefix: 'levels' })
@@ -269,11 +269,11 @@ export function Cached(config: CacheConfig = {}) {
                   if (tags.length > 0) {
                     const tagPromises = tags.map(tag => {
                       const tagKey = `cache:tags:${tag}`;
-                      return redis.sAdd(tagKey, cacheKey).catch(err => 
+                      return redis.sAdd(tagKey, cacheKey).catch(err =>
                         logger.error(`Cache tag error for ${tagKey}:`, err)
                       );
                     });
-                    Promise.all(tagPromises).catch(err => 
+                    Promise.all(tagPromises).catch(err =>
                       logger.error('Cache tagging error:', err)
                     );
                   }
@@ -335,7 +335,7 @@ export const CacheInvalidation = {
     try {
       const tagKey = `cache:tags:${tag}`;
       const cacheKeys = await redis.sMembers(tagKey);
-      
+
       if (cacheKeys.length === 0) {
         return 0;
       }

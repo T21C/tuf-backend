@@ -8,8 +8,6 @@ import Judgement from '../../../../models/passes/Judgement.js';
 import Difficulty from '../../../../models/levels/Difficulty.js';
 import { logger } from '../../../services/LoggerService.js';
 import User from '../../../../models/auth/User.js';
-import { permissionFlags } from '../../../../config/constants.js';
-import { wherePermission } from '../../../../misc/utils/auth/permissionUtils.js';
 
 const router = Router();
 

@@ -167,7 +167,7 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
           const hours = Math.floor(msRemaining / (60 * 60 * 1000));
           const minutes = Math.floor((msRemaining % (60 * 60 * 1000)) / (60 * 1000));
           const seconds = Math.floor((msRemaining % (60 * 1000)) / 1000);
-          
+
           const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
           const nextAvailableChange = new Date(user.lastUsernameChange.getTime() + usernameChangeCooldown);
 

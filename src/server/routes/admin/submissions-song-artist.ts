@@ -1,17 +1,13 @@
 import {Router, Request, Response} from 'express';
-import {Op} from 'sequelize';
 import {Auth} from '../../middleware/auth.js';
 import LevelSubmission from '../../../models/submissions/LevelSubmission.js';
 import LevelSubmissionSongRequest from '../../../models/submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from '../../../models/submissions/LevelSubmissionArtistRequest.js';
-import LevelSubmissionEvidence from '../../../models/submissions/LevelSubmissionEvidence.js';
 import Song from '../../../models/songs/Song.js';
 import Artist from '../../../models/artists/Artist.js';
 import sequelize from '../../../config/db.js';
 import {logger} from '../../services/LoggerService.js';
 import {safeTransactionRollback} from '../../../misc/utils/Utility.js';
-import SongService from '../../services/SongService.js';
-import ArtistService from '../../services/ArtistService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import multer from 'multer';
 import SongAlias from '../../../models/songs/SongAlias.js';
@@ -19,8 +15,6 @@ import ArtistAlias from '../../../models/artists/ArtistAlias.js';
 import SongCredit from '../../../models/songs/SongCredit.js';
 
 const router: Router = Router();
-const songService = SongService.getInstance();
-const artistService = ArtistService.getInstance();
 const evidenceService = EvidenceService.getInstance();
 
 const upload = multer({
@@ -146,8 +140,8 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
     // If an existing song is selected, artists are locked
     if (submission.songId && submission.songObject) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.' 
+      return res.status(400).json({
+        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.'
       });
     }
 
@@ -342,7 +336,7 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
       ],
       transaction
     });
-    
+
     if (!song) {
       await safeTransactionRollback(transaction);
       return res.status(404).json({ error: 'Song not found' });
@@ -379,7 +373,7 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
         isNewRequest: false,
         requiresEvidence: false
       })).filter((req: any) => req.artistId !== null);
-      
+
       if (artistRequests.length > 0) {
         await LevelSubmissionArtistRequest.bulkCreate(artistRequests, { transaction });
       }
@@ -392,7 +386,7 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
     }, { transaction });
 
     await transaction.commit();
-    
+
     // Fetch updated submission with all associations
     const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
       include: [
@@ -496,8 +490,8 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
     // If an existing song is selected, artists are locked and must match song credits
     if (submission.songId && submission.songObject) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.' 
+      return res.status(400).json({
+        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.'
       });
     }
 
@@ -535,7 +529,7 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
     }
 
     await transaction.commit();
-    
+
     // Fetch updated submission
     const updatedSubmission = await LevelSubmission.findByPk(submission.id, {
       include: [
@@ -707,8 +701,8 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
     // If an existing song is selected, artists are locked
     if (submission.songId && submission.songObject) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.' 
+      return res.status(400).json({
+        error: 'Cannot modify artists when an existing song is selected. Artists are automatically set from song credits.'
       });
     }
 
@@ -891,17 +885,17 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
     // If an existing song is selected, artists are locked
     if (submission.songId && submission.songObject) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Cannot add artist requests when an existing song is selected. Artists are automatically set from song credits.' 
+      return res.status(400).json({
+        error: 'Cannot add artist requests when an existing song is selected. Artists are automatically set from song credits.'
       });
     }
 
     // Generate "New Artist N" name based on existing artist requests in this submission
     const existingArtistNames = (submission.artistRequests || []).map((req: any) => req.artistName || '');
-    
+
     let artistNumber = 1;
     const usedNumbers = new Set<number>();
-    
+
     existingArtistNames.forEach((name: string) => {
       const match = name.match(/^New Artist (\d+)$/);
       if (match) {
@@ -975,8 +969,8 @@ router.delete('/levels/:id/artist-requests/:requestId', Auth.superAdmin(), async
     // If an existing song is selected, artists are locked
     if (submission.songId && submission.songObject) {
       await safeTransactionRollback(transaction);
-      return res.status(400).json({ 
-        error: 'Cannot remove artist requests when an existing song is selected. Artists are automatically set from song credits.' 
+      return res.status(400).json({
+        error: 'Cannot remove artist requests when an existing song is selected. Artists are automatically set from song credits.'
       });
     }
 
@@ -1056,8 +1050,8 @@ router.put('/levels/:id/suffix', Auth.superAdmin(), async (req: Request, res: Re
     }
 
     // Normalize suffix: trim whitespace, set to null if empty string
-    const normalizedSuffix = suffix && typeof suffix === 'string' 
-      ? suffix.trim() || null 
+    const normalizedSuffix = suffix && typeof suffix === 'string'
+      ? suffix.trim() || null
       : null;
 
     // Update submission

@@ -11,7 +11,7 @@ const program = new Command();
 program
   .name('test-email')
   .description('Test email sending')
-  
+
 
 program.command('test')
   .description('Test email sending')

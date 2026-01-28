@@ -1,5 +1,4 @@
 import Difficulty from '../../../models/levels/Difficulty.js';
-import { logger } from '../../../server/services/LoggerService.js';
 
 // Cache for difficulties to avoid repeated DB queries
 let difficultyCache: {

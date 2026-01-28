@@ -25,7 +25,7 @@ interface IReferenceUpdate {
 const router: Router = Router();
 
 // Get all references grouped by difficulty
-router.get('/', Cache({ 
+router.get('/', Cache({
   ttl: 60*60*24*7, // week
   tags: ['references:all'] // Tag all list queries
 }), async (req: Request, res: Response) => {
@@ -69,7 +69,7 @@ router.get('/', Cache({
     }).then(difficulties => {
       return difficulties.filter(diff => /^[PGU]+[0-9]+$/.test(diff.name));
     });
-    
+
     // Transform the data into a more usable format
     const formattedReferences = difficulties.map(diff => ({
       difficulty: diff,
@@ -87,7 +87,7 @@ router.get('/', Cache({
 });
 
 // Get references for a specific difficulty
-router.get('/difficulty/:difficultyId([0-9]{1,20})', Cache({ 
+router.get('/difficulty/:difficultyId([0-9]{1,20})', Cache({
   ttl: 60*60*24*7, // week
   tags: ['references:difficulty'] // Tag all list queries
 }), async (req: Request, res: Response) => {
@@ -144,7 +144,7 @@ router.get('/difficulty/:difficultyId([0-9]{1,20})', Cache({
 });
 
 // Get references by level ID
-router.get('/level/:levelId([0-9]{1,20})', Cache({ 
+router.get('/level/:levelId([0-9]{1,20})', Cache({
   ttl: 60*60*24*7, // week
   tags: ['references:level'] // Tag all list queries
 }), async (req: Request, res: Response) => {
@@ -334,7 +334,7 @@ const invalidateReferencesCache = async () => {
 
 Reference.afterBulkCreate('cacheInvalidationReferenceBulkCreate', async () => {
   await invalidateReferencesCache();
-}); 
+});
 
 Reference.afterBulkUpdate('cacheInvalidationReferenceBulkUpdate', async () => {
   await invalidateReferencesCache();

@@ -125,7 +125,7 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             if (fileCheck.storageType === StorageType.SPACES) {
 
                 // Generate presigned URL for direct download (expires in 1 hour)
-                const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path, 3600);
+                const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path);
 
                 logger.debug('Redirecting to Spaces presigned URL:', {
                     fileId,

@@ -36,7 +36,6 @@ import LevelTag from '../../../../models/levels/LevelTag.js';
 import {permissionFlags} from '../../../../config/constants.js';
 import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
 import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
-import Creator from '../../../../models/credits/Creator.js';
 import LevelCredit, { CreditRole } from '../../../../models/levels/LevelCredit.js';
 import {
   logLevelFileUploadHook,
@@ -73,9 +72,9 @@ function compareDurations(originalDurations: number[], newDurations: number[]): 
     result.matches = false;
     return result;
   }
-  
+
   const tolerance = 0.5; // ms
-  
+
   // Find all mismatches
   for (let i = 0; i < originalDurations.length; i++) {
     const diff = Math.abs(originalDurations[i] - newDurations[i]);
@@ -84,12 +83,12 @@ function compareDurations(originalDurations: number[], newDurations: number[]): 
       result.mismatches.push(i);
     }
   }
-  
+
   // Group consecutive mismatches into ranges
   if (result.mismatches.length > 0) {
     let rangeStart = result.mismatches[0];
     let rangeEnd = result.mismatches[0];
-    
+
     for (let i = 1; i < result.mismatches.length; i++) {
       if (result.mismatches[i] === rangeEnd + 1) {
         // Consecutive, extend range
@@ -104,7 +103,7 @@ function compareDurations(originalDurations: number[], newDurations: number[]): 
     // Add the last range
     result.ranges.push({ start: rangeStart, end: rangeEnd });
   }
-  
+
   return result;
 }
 
@@ -117,21 +116,21 @@ function formatDurationMismatchMessage(mismatchResult: DurationMismatchResult): 
   }
 
   const { mismatches, ranges } = mismatchResult;
-  
+
   // If there are less than 5 singular mismatches (no consecutive ranges), list them directly
   if (mismatches.length < 5 && ranges.length === mismatches.length) {
     // All mismatches are singular (no consecutive tiles)
     const tileNumbers = mismatches.map(index => index + 1).join(', '); // Convert to 1-based tile numbers
     return `Tiles ${tileNumbers} have different timing than original`;
   }
-  
+
   // If there are ranges, format up to 3 ranges
   const displayRanges = ranges.slice(0, 3);
   const remainingRanges = ranges.length - 3;
-  const remainingMismatches = remainingRanges > 0 
+  const remainingMismatches = remainingRanges > 0
     ? ranges.slice(3).reduce((sum, range) => sum + (range.end - range.start + 1), 0)
     : 0;
-  
+
   const rangeStrings = displayRanges.map(range => {
     if (range.start === range.end) {
       return `Tile ${range.start + 1}`; // Single tile, convert to 1-based
@@ -139,13 +138,13 @@ function formatDurationMismatchMessage(mismatchResult: DurationMismatchResult): 
       return `Tiles ${range.start + 1}-${range.end + 1}`; // Range, convert to 1-based
     }
   });
-  
+
   let message = rangeStrings.join(', ');
-  
+
   if (remainingRanges > 0) {
     message += `, and ${remainingMismatches} more tile${remainingMismatches !== 1 ? 's' : ''}`;
   }
-  
+
   return `${message} have different timing than original`;
 }
 
@@ -181,7 +180,7 @@ export const checkLevelOwnership = async (
 
     // Check if user is one of the creators
     isCreator = levelCredits.some(
-      credit => credit.creatorId === user.creatorId && 
+      credit => credit.creatorId === user.creatorId &&
       credit.role?.toLowerCase() === CreditRole.CHARTER
     );
 
@@ -350,14 +349,14 @@ const handleScoreRecalculations = async (
 
   // Collect all updates for bulk operation
   const passUpdates: Array<{id: number; levelId: number; playerId: number; accuracy: number; scoreV2: number}> = [];
-  
+
   for (const passData of passes) {
     const pass = passData.dataValues;
     if (!pass.judgements) continue;
 
     const accuracy = calcAcc(pass.judgements);
     const diffToUse = currentDifficulty || pass.level?.difficulty;
-    
+
     if (!diffToUse) {
       logger.warn(`No difficulty found for pass ${pass.id}, skipping score calculation`);
       continue;
@@ -428,22 +427,22 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
       return res.status(404).json({error: 'Level not found'});
     }
     const oldLevel = {...level.dataValues} as Level;
-    
+
     const updateData: any = {};
     if (req.body.song !== undefined) updateData.song = sanitizeTextInput(req.body.song);
     if (req.body.artist !== undefined) updateData.artist = sanitizeTextInput(req.body.artist);
     if (req.body.videoLink !== undefined) updateData.videoLink = sanitizeTextInput(req.body.videoLink);
     if (req.body.dlLink !== undefined) updateData.dlLink = sanitizeTextInput(req.body.dlLink);
-    
+
     // Handle suffix
     if (req.body.suffix !== undefined) {
-      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string' 
-        ? req.body.suffix.trim() || null 
+      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string'
+        ? req.body.suffix.trim() || null
         : null;
     }
-    
+
     if (req.body.workshopLink !== undefined) updateData.workshopLink = sanitizeTextInput(req.body.workshopLink);
-    
+
     if (
       canEdit
       && level.clears > 0
@@ -453,7 +452,7 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
       ) {
         updateData.dlLink = undefined;
       }
-    
+
     // Handle songId if provided (for normalized song relationships)
     if (req.body.songId !== undefined) {
       if (req.body.songId === null || req.body.songId === '') {
@@ -479,7 +478,7 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
     }
 
     await level.update(updateData, {transaction});
-    
+
     // Reload level with associations for proper return
     const updatedLevel = await Level.findByPk(levelId, {
       include: [
@@ -503,7 +502,7 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
       ],
       transaction,
     });
-    
+
     await transaction.commit();
     await elasticsearchService.indexLevel(updatedLevel || level);
     await logLevelMetadataUpdateHook(oldLevel, updatedLevel || level, req.user as User);
@@ -638,18 +637,18 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     };
 
     // For non-admin creators, only include allowed fields
-   
+
       // Super admin has access to all fields
     updateData.song = sanitizeTextInput(req.body.song);
     updateData.artist = sanitizeTextInput(req.body.artist);
-    
+
     // Handle suffix first (before songId processing so it's available for song name formatting)
     if (req.body.suffix !== undefined) {
-      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string' 
-        ? req.body.suffix.trim() || null 
+      updateData.suffix = req.body.suffix && typeof req.body.suffix === 'string'
+        ? req.body.suffix.trim() || null
         : null;
     }
-    
+
     // Handle songId if provided (for normalized song relationships)
     if (req.body.songId !== undefined) {
       if (req.body.songId === null || req.body.songId === '') {
@@ -696,15 +695,15 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       transaction,
     });
 
-    const basescoreTagName = "Basescore Edit"
-    const ppBasescoreTagName = "Pure Perfect Basescore Increase"
+    const basescoreTagName = 'Basescore Edit'
+    const ppBasescoreTagName = 'Pure Perfect Basescore Increase'
     let basescoreTag = await LevelTag.findOne({where: {name: basescoreTagName}, transaction});
     let ppBasescoreTag = await LevelTag.findOne({where: {name: ppBasescoreTagName}, transaction});
     if (!basescoreTag) { basescoreTag = await LevelTag.create({name: basescoreTagName, color: '#ff0000'}, {transaction}); }
     if (!ppBasescoreTag) { ppBasescoreTag = await LevelTag.create({name: ppBasescoreTagName, color: '#000000'}, {transaction}); }
     if (updateData.baseScore && updateData.baseScore !== level.difficulty?.baseScore) {
       await LevelTagAssignment.upsert({levelId: levelId, tagId: basescoreTag.id}, {transaction});
-    } else { 
+    } else {
       await LevelTagAssignment.destroy({where: {levelId: levelId, tagId: basescoreTag.id}, transaction}); }
     if (updateData.ppBaseScore) {
       await LevelTagAssignment.upsert({levelId: levelId, tagId: ppBasescoreTag.id}, {transaction});
@@ -995,6 +994,7 @@ router.patch('/:id([0-9]{1,20})/restore', Auth.superAdmin(), async (req: Request
 
       await transaction.commit();
 
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
           sseManager.broadcast({type: 'levelUpdate'});
@@ -1062,6 +1062,7 @@ router.patch('/:id([0-9]{1,20})/toggle-hidden', Auth.verified(), async (req: Req
 
       await transaction.commit();
 
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       (async () => {
         try {
           sseManager.broadcast({type: 'levelUpdate'});
@@ -1328,7 +1329,7 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
 
 
       if (
-        !hasFlag(req.user, permissionFlags.SUPER_ADMIN) 
+        !hasFlag(req.user, permissionFlags.SUPER_ADMIN)
         && canEdit
         && level.clears > 0
         && level.dlLink
@@ -1400,12 +1401,12 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
               originalDurations = await cdnService.getDurationsFromFile(originalFileId);
             }
           }
-          
+
           // If original file exists, validate durations match
           if (originalDurations) {
             // Extract durations from the newly uploaded file using CDN service
             const newDurations = await cdnService.getDurationsFromFile(uploadResult.fileId);
-            
+
             if (!newDurations) {
               // Failed to extract durations from new file, delete it and throw error
               try {
@@ -1418,9 +1419,9 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
                 code: 500,
               };
             }
-            
+
             logger.debug('Comparing durations - Original:', originalDurations.length, 'New:', newDurations.length);
-            
+
             // First check if the tile counts match
             if (originalDurations.length !== newDurations.length) {
               // Delete the uploaded file since tile count doesn't match
@@ -1435,13 +1436,13 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
               } catch (deleteError) {
                 logger.error('Failed to delete uploaded file after tile count mismatch:', deleteError);
               }
-              
+
               throw {
                 error: `Chart tile count mismatch. Original chart has ${originalDurations.length} tiles, uploaded chart has ${newDurations.length} tiles.`,
                 code: 400,
               };
             }
-            
+
             // Compare durations - if they don't match, delete the uploaded file and reject
             const mismatchResult = compareDurations(originalDurations, newDurations);
             if (!mismatchResult.matches) {
@@ -1457,10 +1458,10 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
               } catch (deleteError) {
                 logger.error('Failed to delete uploaded file after validation failure:', deleteError);
               }
-              
+
               // Format detailed error message
               const detailedMessage = formatDurationMismatchMessage(mismatchResult);
-              
+
               throw {
                 error: detailedMessage || 'Chart gameplay has changed. The timing/delays between inputs do not match the original chart.',
                 code: 400,
@@ -1476,7 +1477,7 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
               logger.warn('Failed to clean up assembled file after validation failure:', unlinkError);
             }
           }
-          
+
           // If it's our validation error, re-throw it
           if (validationError.code === 400 || validationError.code === 500) {
             throw validationError;
@@ -1524,7 +1525,7 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
           else {
             await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
           }
-          
+
 
         } catch (webhookError) {
           // Log webhook error but don't fail the request
@@ -1647,7 +1648,7 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
       }
     } catch (error: any) {
       await safeTransactionRollback(transaction);
-      
+
       // Handle client disconnection gracefully - this is expected behavior
       if (error instanceof Error && error.message.includes('Client disconnected')) {
         logger.warn('Client disconnected during level file upload:', {
@@ -1675,7 +1676,7 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
         if (error.code === 500) logger.error('Error uploading level file:', error);
         return res.status(error.code).json(error);
       }
-      
+
       logger.error('Error uploading level file:', error);
       if (!res.headersSent) {
         return res.status(500).json({
@@ -1729,7 +1730,7 @@ router.post('/:id([0-9]{1,20})/select-level', Auth.verified(), async (req: Reque
       } catch (webhookError) {
         logger.warn('Failed to send webhook for level target update:', webhookError);
       }
-      
+
 
       return res.json({
         success: true,

@@ -11,7 +11,6 @@ import { hybridStorageManager, StorageType } from '../services/hybridStorageMana
 import LevelDict, { Action } from 'adofai-lib';
 import { AnalysisCacheData, levelCacheService } from '../services/levelCacheService.js';
 import { Op } from 'sequelize';
-import { constants } from 'adofai-lib';
 
 // Repack folder configuration
 const REPACK_FOLDER = path.join(CDN_CONFIG.user_root, 'repack');
@@ -86,16 +85,16 @@ function sanitizeFilename(filename: string): string {
     .replace(/^\.+/, '') // Remove leading dots
     .replace(/\.+$/, '') // Remove trailing dots
     .substring(0, 255); // Limit length
-};
+}
 
 // Add helper function for encoding Content-Disposition
 function encodeContentDisposition(filename: string): string {
   const sanitized = sanitizeFilename(filename);
   // Percent-encode the filename for RFC 2231 compliance
   const encoded = encodeURIComponent(sanitized);
-  
+
   return `attachment; filename*=UTF-8''${encoded}`;
-};
+}
 
 function extractLevelMetadata(metadata: any) {
     return {
@@ -157,7 +156,7 @@ function extractLevelTypes(levelData: LevelDict) {
         filterTypes: Array.from(filterTypes).sort(),
         advancedFilterTypes: Array.from(advancedFilterTypes).sort()
     };
-};
+}
 
 // Transform level endpoint
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
@@ -349,11 +348,11 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             // Find the song file referenced in the level
             const songFilename = transformedLevel.getSetting('songFilename');
             const requiresYSMod = transformedLevel.getSetting('requiredMods')?.includes('YouTubeStream');
-            
+
             // Handle song file download if needed using fallback logic
             let songFilePath: string | undefined;
             let selectedSongFile: { name: string; path: string; size: number; type: string } | undefined;
-            
+
             if (!requiresYSMod) {
                 // First, try to find the song file specified in the level
                 if (songFilename && metadata.songFiles[songFilename]) {
@@ -365,10 +364,11 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                         requestedSongFilename: songFilename,
                         availableSongFiles: Object.keys(metadata.songFiles)
                     });
-                    
+
                     // Search through all song files for .ogg or .wav extensions
                     const audioExtensions = ['.ogg', '.wav'];
-                    for (const [key, songFile] of Object.entries(metadata.songFiles)) {
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                    for (const [_, songFile] of Object.entries(metadata.songFiles)) {
                         const fileExtension = path.extname(songFile.name).toLowerCase();
                         if (audioExtensions.includes(fileExtension)) {
                             selectedSongFile = songFile;
@@ -380,7 +380,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                             break;
                         }
                     }
-                    
+
                     if (!selectedSongFile) {
                         logger.error('No song file found (neither specified nor .ogg/.wav fallback)', {
                             fileId,
@@ -608,9 +608,9 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
                 fileId: fileId,
                 metadata: extractLevelMetadata(metadata)
             };
-            
+
         });
-        
+
         return res.json(levels);
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
@@ -628,7 +628,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     const { modes } = req.query;
     if (!fileId) {
         throw { error: 'File ID is required', code: 400 };
-    }   
+    }
     const file = await CdnFile.findByPk(fileId);
     if (!file) {
         throw { error: 'File not found', code: 404 };
@@ -664,7 +664,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         analysis?: AnalysisCacheData;
         durations?: number[];
     } = {};
-    
+
     // If no modes specified, return full level data (no caching for this case)
     if (!modes || typeof modes !== 'string') {
         const { levelData } = await levelCacheService.loadLevelData(file, targetLevel, metadata);
@@ -673,13 +673,13 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
 
     // Parse requested modes
     const requestedModes = modes.split(',').map((m: string) => m.trim());
-    
+
     // Check cache hits using cache service (parseCacheData handles version validation)
     const cacheData = levelCacheService.parseCacheData(file.cacheData, metadata);
     const cacheHits = levelCacheService.checkCacheHits(cacheData, requestedModes);
     // Determine if we need to load the level file
     // Analysis requires the level file if not cached, but we can compute it during cache population
-    const needsLevelFile = requestedModes.some(mode => 
+    const needsLevelFile = requestedModes.some(mode =>
         (mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles' || mode === 'durations') ||
         (mode === 'settings' && !cacheHits.settings) ||
         (mode === 'tilecount' && !cacheHits.tilecount) ||
@@ -690,10 +690,10 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
 
     if (needsLevelFile) {
         // Determine if we need non-cached data that requires level file loading
-        const needsNonCachedData = requestedModes.some(mode => 
+        const needsNonCachedData = requestedModes.some(mode =>
             mode === 'actions' || mode === 'decorations' || mode === 'angles' || mode === 'relativeAngles' || mode === 'durations'
         );
-        
+
         // If we need analysis but don't have it cached, we need to load the level file for cache population
         const needsAnalysisAndNotCached = requestedModes.includes('analysis') && !cacheHits.analysis;
 
@@ -732,13 +732,13 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     if (levelData) {
         if (requestedModes.includes('actions')) {
             response.actions = levelData.getActions();
-        } 
+        }
         if (requestedModes.includes('decorations')) {
             response.decorations = levelData.getDecorations();
-        } 
+        }
         if (requestedModes.includes('angles')) {
             response.angles = levelData.getAngles();
-        } 
+        }
         if (requestedModes.includes('relativeAngles')) {
             response.relativeAngles = levelData.getAnglesRelative();
         }
@@ -753,7 +753,7 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
     if (requestedModes.includes('accessCount')) {
         response.accessCount = file.accessCount || 0;
     }
-    
+
     return res.json(response);
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
@@ -798,17 +798,17 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
 router.get('/:fileId/durations', async (req: Request, res: Response) => {
     try {
         const { fileId } = req.params;
-        
+
         const durations = await levelCacheService.getDurationsFromCdnFile(fileId);
-        
+
         if (durations === null) {
             return res.status(404).json({ error: 'File not found or could not extract durations' });
         }
-        
+
         return res.json({ durations });
     } catch (error) {
         logger.error('Error getting durations from CDN file:', error);
-        return res.status(500).json({ 
+        return res.status(500).json({
             error: 'Failed to get durations',
             details: error instanceof Error ? error.message : String(error)
         });

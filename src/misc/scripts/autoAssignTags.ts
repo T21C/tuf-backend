@@ -18,14 +18,14 @@ const elasticsearch = elasticsearchService.getInstance();
 async function autoAssignTagsAndReindex(levelId: string): Promise<void> {
     await tagAssignmentService.removeAutoTags(parseInt(levelId));
     const result = await tagAssignmentService.assignAutoTags(parseInt(levelId));
-    
+
     if (result.errors.length > 0) {
         for (const error of result.errors) {
             logger.error(`Level ${levelId}: ${error}`);
         }
         return;
     }
-    
+
     if (result.assignedTags.length > 0) {
         await elasticsearch.reindexLevels([parseInt(levelId)]);
     }
@@ -36,13 +36,13 @@ async function autoAssignTagsAndReindex(levelId: string): Promise<void> {
  */
 async function refreshTagsAndReindex(levelId: string): Promise<void> {
     const result = await tagAssignmentService.refreshAutoTags(parseInt(levelId));
-    
+
     if (result.errors.length > 0) {
         for (const error of result.errors) {
             logger.error(`Level ${levelId}: ${error}`);
         }
     }
-    
+
     if (result.removedTags.length > 0 || result.assignedTags.length > 0) {
         await elasticsearch.reindexLevels([parseInt(levelId)]);
     }
@@ -97,7 +97,7 @@ program.command('autoAssignTags')
                 limit: Math.min(batchSize, offset + limit - i)
             });
             const promises = levelIds.map(level => autoAssignTagsAndReindex(level.id.toString()).catch(error => {
-                if (!error.message?.includes("Cannot destructure property")) {
+                if (!error.message?.includes('Cannot destructure property')) {
                     logger.error(`Error assigning tags to level ${level.id}:`, error instanceof Error ? error.message : error);
                 }
                 return null;

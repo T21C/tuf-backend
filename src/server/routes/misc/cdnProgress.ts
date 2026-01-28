@@ -72,7 +72,7 @@ router.post('/level-upload-progress', async (req: Request, res: Response) => {
             type: 'levelUploadProgress',
             data: payload
         });
-        
+
         return res.status(200).json({ success: true });
     } catch (error) {
         logger.error('Failed to handle level upload progress update', {
