@@ -826,6 +826,42 @@ class ElasticsearchService {
         as: 'difficulty'
       },
       {
+        model: Song,
+        as: 'songObject',
+        required: false,
+        attributes: ['id', 'name', 'verificationState'],
+        include: [
+          {
+            model: SongAlias,
+            as: 'aliases',
+            required: false,
+            attributes: ['alias']
+          },
+          {
+            model: SongCredit,
+            as: 'credits',
+            required: false,
+            attributes: ['role'],
+            include: [
+              {
+                model: Artist,
+                as: 'artist',
+                required: false,
+                attributes: ['id', 'name', 'avatarUrl', 'verificationState'],
+                include: [
+                  {
+                    model: ArtistAlias,
+                    as: 'aliases',
+                    required: false,
+                    attributes: ['alias']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
         model: LevelAlias,
         as: 'aliases',
         attributes: ['alias']
@@ -888,38 +924,6 @@ class ElasticsearchService {
         through: {
           attributes: []
         }
-      },
-      {
-        model: Song,
-        as: 'songObject',
-        required: false,
-        attributes: ['id', 'name', 'verificationState'],
-        include: [
-          {
-            model: SongAlias,
-            as: 'aliases',
-            attributes: ['alias']
-          },
-          {
-            model: SongCredit,
-            as: 'credits',
-            attributes: ['role'],
-            include: [
-              {
-                model: Artist,
-                as: 'artist',
-                attributes: ['id', 'name', 'avatarUrl', 'verificationState'],
-                include: [
-                  {
-                    model: ArtistAlias,
-                    as: 'aliases',
-                    attributes: ['alias']
-                  }
-                ]
-              }
-            ]
-          }
-        ]
       }
     ];
 
@@ -996,9 +1000,10 @@ class ElasticsearchService {
 
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
     logger.debug(`Getting level with relations for level ${levelId}`);
-    const level = await Level.findByPk(levelId,
-      {include: this.levelIncludes}
-    );
+    const level = await Level.findByPk(levelId, {
+      include: this.levelIncludes as any,
+      subQuery: false // Prevents Sequelize from using subqueries which can break LEFT JOINs
+    });
     if (!level) return null;
     const clears = await Pass.count({
       where: {
@@ -1026,14 +1031,7 @@ class ElasticsearchService {
   private parseFields(level: Level): any {
     // Get normalized song data
     // For nested type in Elasticsearch, we need to provide an array
-    const songObject = level.songObject ? {
-      id: level.songObject.id,
-      name: convertToPUA(level.songObject.name),
-      verificationState: level.songObject.verificationState,
-      aliases: (level.songObject.aliases || []).map(alias => ({
-        alias: convertToPUA(alias.alias)
-      }))
-    } : null;
+    logger.debug(`Parsing fields for level ${level.id} songObject:`, level.songObject?.dataValues);
 
     // Get normalized artists data (from song credits)
     const artists = level.songObject?.credits?.map(credit => ({
@@ -1054,11 +1052,12 @@ class ElasticsearchService {
         songId: level.songId || null,
         suffix: level.suffix ? convertToPUA(level.suffix) : null,
         // For nested type, use array format. Omit field if null to avoid empty array issues
-        songObject: songObject ? {
-          ...songObject,
-          name: convertToPUA(songObject.name),
-          verificationState: songObject.verificationState,
-          aliases: songObject.aliases?.map(alias => ({
+        songObject: level.songObject ? {
+          ...level.songObject.get({ plain: true }),
+          name: convertToPUA(level.songObject.name),
+          verificationState: level.songObject.verificationState,
+          aliases: level.songObject.aliases?.map(alias => ({
+            ...alias.get({ plain: true }),
             alias: convertToPUA(alias.alias)
           }))
         } : null,
@@ -1337,11 +1336,13 @@ class ElasticsearchService {
       let processedCount = 0;
 
       // Fetch first batch
+      // Use subQuery: false to ensure LEFT JOINs work correctly with required: false
       let levels = await Level.findAll({
         where: whereClause,
         include: this.levelIncludes as any,
         offset: offset,
-        limit: MAX_BATCH_SIZE
+        limit: MAX_BATCH_SIZE,
+        subQuery: false // Prevents Sequelize from using subqueries which can break LEFT JOINs
       });
 
       while (levels.length > 0) {
@@ -1355,7 +1356,8 @@ class ElasticsearchService {
                 where: whereClause,
                 include: this.levelIncludes as any,
                 offset: offset + MAX_BATCH_SIZE,
-                limit: MAX_BATCH_SIZE
+                limit: MAX_BATCH_SIZE,
+                subQuery: false // Prevents Sequelize from using subqueries which can break LEFT JOINs
               })
             : Promise.resolve([])
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -2606,14 +2608,14 @@ class ElasticsearchService {
         originalValue: convertFromPUA(alias.originalValue as string),
         alias: convertFromPUA(alias.alias as string)
       })),
-      songObject: source.songObject && Array.isArray(source.songObject) && source.songObject.length > 0 ? source.songObject.map((song: Record<string, any>) => ({
-        ...song,
-        name: convertFromPUA(song.name as string),
-        aliases: song.aliases?.map((alias: Record<string, any>) => ({
+      songObject: source.songObject ? {
+        ...source.songObject,
+        name: convertFromPUA(source.songObject.name as string),
+        aliases: source.songObject.aliases?.map((alias: Record<string, any>) => ({
           ...alias,
           alias: convertFromPUA(alias.alias as string)
-        })) || []
-      })) : null,
+        }))
+      } : null,
       artists: source.artists?.map((artist: Record<string, any>) => ({
         ...artist,
         name: convertFromPUA(artist.name as string),
@@ -2622,14 +2624,6 @@ class ElasticsearchService {
           alias: convertFromPUA(alias.alias as string)
         })) || []
       })),
-      primaryArtist: source.primaryArtist && Array.isArray(source.primaryArtist) && source.primaryArtist.length > 0 ? source.primaryArtist.map((artist: Record<string, any>) => ({
-        ...artist,
-        name: convertFromPUA(artist.name as string),
-        aliases: artist.aliases?.map((alias: Record<string, any>) => ({
-          ...alias,
-          alias: convertFromPUA(alias.alias as string)
-        })) || []
-      })) : null,
       levelCredits: source.levelCredits?.map((credit: Record<string, any>) => ({
         ...credit,
         creator: credit.creator ? {

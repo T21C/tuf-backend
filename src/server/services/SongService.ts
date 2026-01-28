@@ -182,24 +182,6 @@ class SongService {
       );
     }
 
-    // Add source name as alias if not already present
-    const sourceNameNormalized = this.normalizeSongName(source.name);
-    if (!targetAliases.has(sourceNameNormalized)) {
-      // Check if alias already exists (case-insensitive)
-      const existingAlias = await SongAlias.findOne({
-        where: {
-          songId: target.id,
-          alias: source.name
-        }
-      });
-      if (!existingAlias) {
-        await SongAlias.create({
-          songId: target.id,
-          alias: source.name
-        });
-      }
-    }
-
     // Merge links from source to target (avoid duplicates)
     // Since uniqueness is on songId+link, check if target already has links for each song
     const sourceLinks = source.links || [];
