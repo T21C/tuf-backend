@@ -826,42 +826,6 @@ class ElasticsearchService {
         as: 'difficulty'
       },
       {
-        model: Song,
-        as: 'songObject',
-        required: false,
-        attributes: ['id', 'name', 'verificationState'],
-        include: [
-          {
-            model: SongAlias,
-            as: 'aliases',
-            required: false,
-            attributes: ['alias']
-          },
-          {
-            model: SongCredit,
-            as: 'credits',
-            required: false,
-            attributes: ['role'],
-            include: [
-              {
-                model: Artist,
-                as: 'artist',
-                required: false,
-                attributes: ['id', 'name', 'avatarUrl', 'verificationState'],
-                include: [
-                  {
-                    model: ArtistAlias,
-                    as: 'aliases',
-                    required: false,
-                    attributes: ['alias']
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      },
-      {
         model: LevelAlias,
         as: 'aliases',
         attributes: ['alias']
@@ -924,6 +888,38 @@ class ElasticsearchService {
         through: {
           attributes: []
         }
+      },
+      {
+        model: Song,
+        as: 'songObject',
+        required: false,
+        attributes: ['id', 'name', 'verificationState'],
+        include: [
+          {
+            model: SongAlias,
+            as: 'aliases',
+            attributes: ['alias']
+          },
+          {
+            model: SongCredit,
+            as: 'credits',
+            attributes: ['role'],
+            include: [
+              {
+                model: Artist,
+                as: 'artist',
+                attributes: ['id', 'name', 'avatarUrl', 'verificationState'],
+                include: [
+                  {
+                    model: ArtistAlias,
+                    as: 'aliases',
+                    attributes: ['alias']
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     ];
 
@@ -1000,10 +996,9 @@ class ElasticsearchService {
 
   private async getLevelWithRelations(levelId: number): Promise<Level | null> {
     logger.debug(`Getting level with relations for level ${levelId}`);
-    const level = await Level.findByPk(levelId, {
-      include: this.levelIncludes as any,
-      subQuery: false // Prevents Sequelize from using subqueries which can break LEFT JOINs
-    });
+    const level = await Level.findByPk(levelId,
+      {include: this.levelIncludes}
+    );
     if (!level) return null;
     const clears = await Pass.count({
       where: {
@@ -1029,8 +1024,6 @@ class ElasticsearchService {
 
 
   private parseFields(level: Level): any {
-    // Get normalized song data
-    // For nested type in Elasticsearch, we need to provide an array
     // Get normalized artists data (from song credits)
     const artists = level.songObject?.credits?.map(credit => ({
       id: credit.artist.id,
@@ -1334,13 +1327,11 @@ class ElasticsearchService {
       let processedCount = 0;
 
       // Fetch first batch
-      // Use subQuery: false to ensure LEFT JOINs work correctly with required: false
       let levels = await Level.findAll({
         where: whereClause,
         include: this.levelIncludes as any,
         offset: offset,
-        limit: MAX_BATCH_SIZE,
-        subQuery: false // Prevents Sequelize from using subqueries which can break LEFT JOINs
+        limit: MAX_BATCH_SIZE
       });
 
       while (levels.length > 0) {
@@ -1354,8 +1345,7 @@ class ElasticsearchService {
                 where: whereClause,
                 include: this.levelIncludes as any,
                 offset: offset + MAX_BATCH_SIZE,
-                limit: MAX_BATCH_SIZE,
-                subQuery: false // Prevents Sequelize from using subqueries which can break LEFT JOINs
+                limit: MAX_BATCH_SIZE
               })
             : Promise.resolve([])
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
