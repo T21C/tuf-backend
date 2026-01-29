@@ -9,6 +9,7 @@ import { initializeCurationsAssociations } from './curations/associations.js';
 import { initializePacksAssociations } from './packs/associations.js';
 import { initializeArtistsAssociations } from './artists/associations.js';
 import { initializeSongsAssociations } from './songs/associations.js';
+import { initializeLevelCacheHooks } from './levels/hooks.js';
 
 export function initializeAssociations() {
   // Initialize all model associations by calling individual association functions
@@ -23,4 +24,7 @@ export function initializeAssociations() {
   initializePacksAssociations();
   initializeArtistsAssociations();
   initializeSongsAssociations();
+  
+  // Initialize cache hooks after associations
+  initializeLevelCacheHooks();
 }

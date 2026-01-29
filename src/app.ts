@@ -90,6 +90,7 @@ process.on('unhandledRejection', (reason: any, promise) => {
   logger.error('Reason:', reason);
   logger.error('Promise:', promise);
   logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
+  return
 });
 
 // Handle Node.js warnings - filter out known non-critical warnings

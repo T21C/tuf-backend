@@ -8,7 +8,7 @@ import Team from '../../../../models/credits/Team.js';
 import Creator from '../../../../models/credits/Creator.js';
 import LevelAlias from '../../../../models/levels/LevelAlias.js';
 import sequelize from '../../../../config/db.js';
-import { Op, Transaction } from 'sequelize';
+import { Op, Transaction, where } from 'sequelize';
 import Player from '../../../../models/players/Player.js';
 import Judgement from '../../../../models/passes/Judgement.js';
 import { CreatorAlias } from '../../../../models/credits/CreatorAlias.js';
@@ -31,6 +31,7 @@ import Song from '../../../../models/songs/Song.js';
 import SongAlias from '../../../../models/songs/SongAlias.js';
 import Artist from '../../../../models/artists/Artist.js';
 import { getArtistDisplayName, getSongDisplayName } from '../../../../utils/levelHelpers.js';
+import { Cache } from '../../../middleware/cache.js';
 
 
 const MAX_LIMIT = 200;
@@ -145,7 +146,11 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   }
 });
 
-router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
+  ttl: 300, // 5 minutes
+  varyByRole: true, // Different cache for admin vs regular users (due to isDeleted check)
+  tags: (req) => [`level:${req.params.id}`, 'levels:all']
+}), async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
 
@@ -246,7 +251,11 @@ router.head('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reque
   }
 });
 
-router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
+  ttl: 60*60*24, 
+  varyByRole: true, // isliked checked in other endpoint
+  tags: (req) => [`level:${req.params.id}`, 'levels:all']
+}), async (req: Request, res: Response) => {
   try {
     if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
       return res.status(400).json({ error: 'Invalid level ID' });
@@ -449,18 +458,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         transaction,
       });
 
-      // LevelLikes query
-      const isLikedPromise = req.user ? LevelLikes.findOne({
-        where: { levelId: levelId, userId: req.user?.id },
-        transaction,
-      }).then(like => !!like) : Promise.resolve(false);
-
-      // Pass query for isCleared
-      const isClearedPromise = req.user?.playerId ? Pass.findOne({
-        where: { levelId: levelId, playerId: req.user?.playerId },
-        transaction,
-      }).then(pass => !!pass) : Promise.resolve(false);
-
       // LevelRerateHistory query
       const rerateHistoryPromise = LevelRerateHistory.findAll({
         where: { levelId: levelId },
@@ -518,8 +515,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         teamObject,
         curation,
         ratings,
-        isLiked,
-        isCleared,
         rerateHistory,
         tags,
         cdnData,
@@ -533,8 +528,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         teamPromise,
         curationPromise,
         ratingsPromise,
-        isLikedPromise,
-        isClearedPromise,
         rerateHistoryPromise,
         tagsPromise,
         cdnDataPromise,
@@ -570,8 +563,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         level: assembledLevel,
         ratings,
         rerateHistory,
-        isLiked,
-        isCleared,
         bpm: cdnData.bpm,
         tilecount: cdnData.tilecount,
         accessCount: cdnData.accessCount,
@@ -584,6 +575,32 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
   } catch (error) {
     logger.error('Error fetching level:', error);
     return res.status(500).json({ error: 'Failed to fetch level' });
+  }
+});
+
+router.get('/:id([0-9]{1,20})/isLiked', Auth.addUserToRequest(), Cache({
+  ttl: 300,
+  varyByUser: true, // User-specific, so must vary by user
+  tags: (req) => [`level:${req.params.id}:isLiked`, 'levels:all']
+}), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    
+    const likes = await LevelLikes.count({
+      where: { levelId: levelId },
+    });
+    
+    if (!req.user?.id) {
+      return res.json({ isLiked: false, likes });
+    }
+    
+    const isLiked = await LevelLikes.findOne({
+      where: { levelId: levelId, userId: req.user.id },
+    });
+    return res.json({ isLiked: !!isLiked, likes });
+  } catch (error) {
+    logger.error('Error checking if level is liked:', error);
+    return res.status(500).json({ error: 'Failed to check if level is liked' });
   }
 });
 

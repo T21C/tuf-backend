@@ -976,7 +976,13 @@ router.post(
         }
       }
 
-      return res.status(error.code || 500).json({
+      // Ensure error.code is a valid numeric HTTP status code
+      // CdnError and other errors may have string codes (e.g., "UPLOAD_ERROR")
+      const statusCode = (typeof error.code === 'number' && error.code >= 100 && error.code < 600) 
+        ? error.code 
+        : 500;
+      
+      return res.status(statusCode).json({
         error: error.error || 'Failed to process submission',
         details: error.details || {},
       });

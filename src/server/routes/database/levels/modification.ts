@@ -14,6 +14,7 @@ import {sseManager} from '../../../../misc/utils/server/sse.js';
 import LevelLikes from '../../../../models/levels/LevelLikes.js';
 import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js';
 import User from '../../../../models/auth/User.js';
+import { CacheInvalidation } from '../../../middleware/cache.js';
 
 // Type assertion helper for req.user to User model
 const getUserModel = (user: any): User => user as User;
@@ -1150,6 +1151,11 @@ router.put('/:id([0-9]{1,20})/like', Auth.verified(), async (req: Request, res: 
       }
 
       await transaction.commit();
+
+      // Invalidate cache for this level's like status
+      await CacheInvalidation.invalidateTag(`level:${levelId}:isLiked`).catch(err =>
+        logger.error('Error invalidating like cache:', err)
+      );
 
       // Get updated like count
       const likeCount = await LevelLikes.count({

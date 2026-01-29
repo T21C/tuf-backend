@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 import { redis } from '../services/RedisService.js';
 import { logger } from '../services/LoggerService.js';
+import { permissionFlags } from '../../config/constants.js';
+import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
 
 /**
  * Configuration for cache behavior
@@ -17,6 +19,8 @@ export interface CacheConfig {
   varyByQuery?: string[];
   /** Vary cache by user ID (requires auth middleware to run first) */
   varyByUser?: boolean;
+  /** Vary cache by user role/permissions (groups users by role for better cache efficiency) */
+  varyByRole?: boolean;
   /** Bypass cache for authenticated users */
   bypassForAuth?: boolean;
   /** Custom condition to skip caching */
@@ -31,15 +35,34 @@ const DEFAULT_CONFIG: Required<Omit<CacheConfig, 'superKeyGenerator' | 'varyByQu
   ttl: 300,
   prefix: 'cache',
   varyByUser: false,
+  varyByRole: false,
   bypassForAuth: false,
   addHeaders: true,
 };
 
 /**
+ * Determine user role/cache group based on permissions
+ * Groups users into: 'admin', 'authenticated', 'anonymous'
+ */
+function getUserRoleGroup(req: Request): string {
+  if (!req.user) {
+    return 'anonymous';
+  }
+  
+  // Super admins see deleted/hidden content, so they need separate cache
+  if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+    return 'admin';
+  }
+  
+  // All other authenticated users can share cache
+  return 'authenticated';
+}
+
+/**
  * Generate a cache key from the request
  */
 function generateCacheKey(req: Request, config: CacheConfig): string {
-  const { prefix = 'cache', varyByQuery, varyByUser } = config;
+  const { prefix = 'cache', varyByQuery, varyByUser, varyByRole } = config;
 
   // If custom key generator is provided, use it
   if (config.superKeyGenerator) {
@@ -71,9 +94,12 @@ function generateCacheKey(req: Request, config: CacheConfig): string {
     parts.push(sortedQuery);
   }
 
-  // Add user ID if varying by user
+  // Add user ID if varying by user (most specific)
   if (varyByUser && req.user?.id) {
     parts.push(`user:${req.user.id}`);
+  } else if (varyByRole) {
+    // Add role group if varying by role (groups users by permissions)
+    parts.push(`role:${getUserRoleGroup(req)}`);
   }
 
   // Create a hash for the key to avoid super long keys
@@ -106,6 +132,13 @@ function generateCacheKey(req: Request, config: CacheConfig): string {
  * router.get('/my-data', Auth.user(), Cache({
  *   varyByUser: true,
  *   ttl: 60
+ * }), async (req, res) => { ... });
+ *
+ * @example
+ * // Role-based caching (groups users by permissions for better performance)
+ * router.get('/levels/:id', Auth.addUserToRequest(), Cache({
+ *   varyByRole: true,
+ *   ttl: 300
  * }), async (req, res) => { ... });
  */
 export function Cache(config: CacheConfig = {}): (req: Request, res: Response, next: NextFunction) => Promise<void> {
@@ -417,6 +450,9 @@ export const CachePresets = {
 
   /** Per-user cache with 5 minute TTL */
   perUser: (overrides?: Partial<CacheConfig>) => Cache({ ttl: 300, varyByUser: true, ...overrides }),
+
+  /** Role-based cache with 5 minute TTL (groups users by permissions: admin, authenticated, anonymous) */
+  byRole: (overrides?: Partial<CacheConfig>) => Cache({ ttl: 300, varyByRole: true, ...overrides }),
 
   /** No cache for authenticated users, 5 min for anonymous */
   publicOnly: (overrides?: Partial<CacheConfig>) => Cache({ ttl: 300, bypassForAuth: true, ...overrides }),
