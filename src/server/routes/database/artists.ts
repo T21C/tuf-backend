@@ -42,8 +42,14 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       verificationState,
     } = req.query;
 
-    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-    const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
+    // Normalize and validate limit first
+    const normalizedLimit = Math.min(Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string) || 50)), 200);
+    
+    // Normalize and validate page (must be at least 1)
+    const normalizedPage = Math.max(1, parseInt(page as string) || 1);
+    
+    // Calculate offset using normalized values
+    const offset = (normalizedPage - 1) * normalizedLimit;
 
     const searchString = (search as string).trim();
 
@@ -213,7 +219,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       return res.json({
         artists: [],
         total: 0,
-        page: parseInt(page as string),
+        page: normalizedPage,
         limit: normalizedLimit,
         hasMore: false
       });
@@ -264,7 +270,7 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     return res.json({
       artists: sortedRows,
       total: finalCount,
-      page: parseInt(page as string),
+      page: normalizedPage,
       limit: normalizedLimit,
       hasMore: sortedRows.length > 0 && offset + normalizedLimit < finalCount
     });
