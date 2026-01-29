@@ -1425,20 +1425,6 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
         }
 
-        // Check if pass already exists for this level+player combination (safety check)
-        const existingPass = await Pass.findOne({
-          where: {
-            levelId: lockedSubmission.levelId,
-            playerId: lockedSubmission.assignedPlayerId!,
-            isDeleted: false,
-          },
-          transaction,
-        });
-
-        if (existingPass) {
-          validationErrors.push(`Pass already exists for level+player (passId: ${existingPass.id})`);
-          throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
-        }
 
         // TypeScript narrowing after validation
         const flags = lockedSubmission.flags!;
