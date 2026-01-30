@@ -674,7 +674,10 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
         }
       }
     }
-    updateData.diffId = Number(req.body.diffId) || undefined;
+    // Handle diffId - allow 0 as a valid value
+    if (req.body.diffId !== undefined) {
+      updateData.diffId = Number(req.body.diffId);
+    }
     updateData.previousDiffId = previousDiffId;
     updateData.baseScore = baseScore;
     updateData.ppBaseScore = Number(req.body.ppBaseScore) || 0;
