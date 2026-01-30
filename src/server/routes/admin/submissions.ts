@@ -463,6 +463,20 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
         const allExistingCreatorsVerified = existingCreators.every((c: Creator) => c.isVerified);
 
+        // Validate song request before processing
+        if (submission.songRequest) {
+          const hasSongId = !!submission.songRequest.songId;
+          const hasNewSongRequest = submission.songRequest.isNewRequest && !!submission.songRequest.songName;
+          
+          if (!hasSongId && !hasNewSongRequest) {
+            rollbackReason = 'Song request exists but is incomplete: must have either songId or (isNewRequest=true and songName)';
+            await safeTransactionRollback(transaction, logger);
+            return res.status(400).json({
+              error: 'Song request is incomplete. Please either assign an existing song or mark it as a new song request with a name.'
+            });
+          }
+        }
+
         // Handle song request
         let finalSongId: number | null = null;
         if (submission.songRequest) {
@@ -485,6 +499,24 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         } else if (submission.songId) {
           // Use songId directly from submission
           finalSongId = submission.songId;
+        }
+
+        // Validate artist requests before processing (only if not inheriting from song credits)
+        if (!(finalSongId && submission.songObject?.credits)) {
+          if (submission.artistRequests && submission.artistRequests.length > 0) {
+            for (const artistRequest of submission.artistRequests) {
+              const hasArtistId = !!artistRequest.artistId;
+              const hasNewArtistRequest = artistRequest.isNewRequest && !!artistRequest.artistName;
+              
+              if (!hasArtistId && !hasNewArtistRequest) {
+                rollbackReason = `Artist request is incomplete: must have either artistId or (isNewRequest=true and artistName). Artist: ${artistRequest.artistName || 'unknown'}`;
+                await safeTransactionRollback(transaction, logger);
+                return res.status(400).json({
+                  error: `Artist request is incomplete. Please either assign an existing artist or mark it as a new artist request with a name.`
+                });
+              }
+            }
+          }
         }
 
         // Handle artist requests (multiple artists supported)
@@ -542,6 +574,26 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             finalArtistString = artistNames.join(' & ');
           } else {
             finalArtistString = submission.artist || '';
+          }
+        }
+
+        // Final validation: ensure we have required data
+        if (submission.songRequest && !finalSongId) {
+          rollbackReason = 'Song request was processed but no songId was resolved';
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({
+            error: 'Failed to resolve song from song request. Please ensure the song request is properly configured.'
+          });
+        }
+
+        // Validate artist data if we have artist requests but no final artists (and not inheriting from song)
+        if (!(finalSongId && submission.songObject?.credits)) {
+          if (submission.artistRequests && submission.artistRequests.length > 0 && finalArtistIds.length === 0) {
+            rollbackReason = 'Artist requests were processed but no artistIds were resolved';
+            await safeTransactionRollback(transaction, logger);
+            return res.status(400).json({
+              error: 'Failed to resolve artists from artist requests. Please ensure all artist requests are properly configured.'
+            });
           }
         }
 

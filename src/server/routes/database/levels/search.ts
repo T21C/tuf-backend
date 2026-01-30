@@ -8,7 +8,7 @@ import Team from '../../../../models/credits/Team.js';
 import Creator from '../../../../models/credits/Creator.js';
 import LevelAlias from '../../../../models/levels/LevelAlias.js';
 import sequelize from '../../../../config/db.js';
-import { Op, Transaction, where } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import Player from '../../../../models/players/Player.js';
 import Judgement from '../../../../models/passes/Judgement.js';
 import { CreatorAlias } from '../../../../models/credits/CreatorAlias.js';
