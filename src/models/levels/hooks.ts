@@ -7,8 +7,14 @@ import LevelAlias from './LevelAlias.js';
 import LevelTag from './LevelTag.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
 import LevelLikes from './LevelLikes.js';
+import Song from '../songs/Song.js';
+import Artist from '../artists/Artist.js';
+import SongCredit from '../songs/SongCredit.js';
+import SongAlias from '../songs/SongAlias.js';
+import ArtistAlias from '../artists/ArtistAlias.js';
 import { CacheInvalidation } from '../../server/middleware/cache.js';
 import { logger } from '../../server/services/LoggerService.js';
+import { Op } from 'sequelize';
 
 /**
  * Invalidate cache for a specific level
@@ -20,6 +26,77 @@ const invalidateLevelCache = async (levelId: number): Promise<void> => {
     logger.debug(`Cache invalidated for level ${levelId}`);
   } catch (error) {
     logger.error(`Error invalidating level cache for level ${levelId}:`, error);
+  }
+};
+
+/**
+ * Invalidate cache for multiple levels
+ */
+const invalidateLevelsCache = async (levelIds: number[]): Promise<void> => {
+  if (levelIds.length === 0) return;
+  
+  try {
+    const tags = ['levels:all'];
+    const levelTags = levelIds.map(id => `level:${id}`);
+    await CacheInvalidation.invalidateTags([...tags, ...levelTags]);
+    logger.debug(`Cache invalidated for ${levelIds.length} levels`);
+  } catch (error) {
+    logger.error(`Error invalidating level cache for ${levelIds.length} levels:`, error);
+  }
+};
+
+/**
+ * Get all level IDs that use a specific song
+ */
+const getLevelIdsBySongId = async (songId: number): Promise<number[]> => {
+  try {
+    const levels = await Level.findAll({
+      where: {
+        songId: songId,
+        isDeleted: false
+      },
+      attributes: ['id']
+    });
+    return levels.map(level => level.id);
+  } catch (error) {
+    logger.error(`Error getting level IDs for song ${songId}:`, error);
+    return [];
+  }
+};
+
+/**
+ * Get all level IDs that have songs with credits from a specific artist
+ */
+const getLevelIdsByArtistId = async (artistId: number): Promise<number[]> => {
+  try {
+    // Find all songs that have credits from this artist
+    const songCredits = await SongCredit.findAll({
+      where: {
+        artistId: artistId
+      },
+      attributes: ['songId'],
+      group: ['songId']
+    });
+
+    if (songCredits.length === 0) {
+      return [];
+    }
+
+    const songIds = songCredits.map(credit => credit.songId);
+
+    // Find all levels that use these songs
+    const levels = await Level.findAll({
+      where: {
+        songId: { [Op.in]: songIds },
+        isDeleted: false
+      },
+      attributes: ['id']
+    });
+
+    return levels.map(level => level.id);
+  } catch (error) {
+    logger.error(`Error getting level IDs for artist ${artistId}:`, error);
+    return [];
   }
 };
 
@@ -284,6 +361,260 @@ export function initializeLevelCacheHooks(): void {
       });
     } else {
       if (levelId) await invalidateLevelCache(levelId);
+    }
+  });
+
+  // Song hooks - invalidate cache for all levels using this song when song changes
+  Song.addHook('afterUpdate', 'cacheInvalidationSongUpdate', async (song: Song, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        const levelIds = await getLevelIdsBySongId(song.id);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      });
+    } else {
+      const levelIds = await getLevelIdsBySongId(song.id);
+      if (levelIds.length > 0) {
+        await invalidateLevelsCache(levelIds);
+      }
+    }
+  });
+
+  Song.addHook('afterDestroy', 'cacheInvalidationSongDestroy', async (song: Song, options: any) => {
+    const songId = song.id;
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        const levelIds = await getLevelIdsBySongId(songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      });
+    } else {
+      const levelIds = await getLevelIdsBySongId(songId);
+      if (levelIds.length > 0) {
+        await invalidateLevelsCache(levelIds);
+      }
+    }
+  });
+
+  // Artist hooks - invalidate cache for all levels using songs with credits from this artist
+  Artist.addHook('afterUpdate', 'cacheInvalidationArtistUpdate', async (artist: Artist, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        const levelIds = await getLevelIdsByArtistId(artist.id);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      });
+    } else {
+      const levelIds = await getLevelIdsByArtistId(artist.id);
+      if (levelIds.length > 0) {
+        await invalidateLevelsCache(levelIds);
+      }
+    }
+  });
+
+  Artist.addHook('afterDestroy', 'cacheInvalidationArtistDestroy', async (artist: Artist, options: any) => {
+    const artistId = artist.id;
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        const levelIds = await getLevelIdsByArtistId(artistId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      });
+    } else {
+      const levelIds = await getLevelIdsByArtistId(artistId);
+      if (levelIds.length > 0) {
+        await invalidateLevelsCache(levelIds);
+      }
+    }
+  });
+
+  // SongCredit hooks - invalidate cache for all levels using the song when credits change
+  SongCredit.addHook('afterCreate', 'cacheInvalidationSongCreditCreate', async (credit: SongCredit, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (credit.songId) {
+          const levelIds = await getLevelIdsBySongId(credit.songId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (credit.songId) {
+        const levelIds = await getLevelIdsBySongId(credit.songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  SongCredit.addHook('afterUpdate', 'cacheInvalidationSongCreditUpdate', async (credit: SongCredit, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (credit.songId) {
+          const levelIds = await getLevelIdsBySongId(credit.songId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (credit.songId) {
+        const levelIds = await getLevelIdsBySongId(credit.songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  SongCredit.addHook('afterDestroy', 'cacheInvalidationSongCreditDestroy', async (credit: SongCredit, options: any) => {
+    const songId = credit.songId;
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (songId) {
+          const levelIds = await getLevelIdsBySongId(songId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (songId) {
+        const levelIds = await getLevelIdsBySongId(songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  // SongAlias hooks - invalidate cache for all levels using this song when aliases change
+  SongAlias.addHook('afterCreate', 'cacheInvalidationSongAliasCreate', async (alias: SongAlias, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (alias.songId) {
+          const levelIds = await getLevelIdsBySongId(alias.songId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (alias.songId) {
+        const levelIds = await getLevelIdsBySongId(alias.songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  SongAlias.addHook('afterUpdate', 'cacheInvalidationSongAliasUpdate', async (alias: SongAlias, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (alias.songId) {
+          const levelIds = await getLevelIdsBySongId(alias.songId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (alias.songId) {
+        const levelIds = await getLevelIdsBySongId(alias.songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  SongAlias.addHook('afterDestroy', 'cacheInvalidationSongAliasDestroy', async (alias: SongAlias, options: any) => {
+    const songId = alias.songId;
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (songId) {
+          const levelIds = await getLevelIdsBySongId(songId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (songId) {
+        const levelIds = await getLevelIdsBySongId(songId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  // ArtistAlias hooks - invalidate cache for all levels using songs with credits from this artist
+  ArtistAlias.addHook('afterCreate', 'cacheInvalidationArtistAliasCreate', async (alias: ArtistAlias, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (alias.artistId) {
+          const levelIds = await getLevelIdsByArtistId(alias.artistId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (alias.artistId) {
+        const levelIds = await getLevelIdsByArtistId(alias.artistId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  ArtistAlias.addHook('afterUpdate', 'cacheInvalidationArtistAliasUpdate', async (alias: ArtistAlias, options: any) => {
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (alias.artistId) {
+          const levelIds = await getLevelIdsByArtistId(alias.artistId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (alias.artistId) {
+        const levelIds = await getLevelIdsByArtistId(alias.artistId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
+    }
+  });
+
+  ArtistAlias.addHook('afterDestroy', 'cacheInvalidationArtistAliasDestroy', async (alias: ArtistAlias, options: any) => {
+    const artistId = alias.artistId;
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        if (artistId) {
+          const levelIds = await getLevelIdsByArtistId(artistId);
+          if (levelIds.length > 0) {
+            await invalidateLevelsCache(levelIds);
+          }
+        }
+      });
+    } else {
+      if (artistId) {
+        const levelIds = await getLevelIdsByArtistId(artistId);
+        if (levelIds.length > 0) {
+          await invalidateLevelsCache(levelIds);
+        }
+      }
     }
   });
 
