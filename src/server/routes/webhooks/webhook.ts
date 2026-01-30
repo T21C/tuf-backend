@@ -699,31 +699,68 @@ router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) =
         levels.map(level => createRerateEmbed(level as Level))
       );
 
-      // Get ping role ID
-      const pingRoleId = process.env.RERATE_PING_ROLE_ID || '';
-      const ping = pingRoleId ? `<@&${pingRoleId}>` : undefined;
+      // Parse comma-separated webhook URLs and role IDs
+      const webhookUrls = (process.env.RERATE_ANNOUNCEMENT_HOOK || '')
+        .split(',')
+        .map(url => url.trim())
+        .filter(url => url.length > 0);
+      
+      const pingRoleIds = (process.env.RERATE_PING_ROLE_ID || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(id => id.length > 0);
 
-      // Create channel for rerates
-      const rerateMessages: ChannelMessage[] = [];
-      for (let i = 0; i < embeds.length; i += 8) {
-        rerateMessages.push(createEmbedBatchMessage(
-          embeds.slice(i, i + 8),
-          i === 0 ? ping : undefined // Add ping to first batch
-        ));
+      // Validate 1-to-1 mapping
+      if (webhookUrls.length !== pingRoleIds.length) {
+        logger.warn('RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID count mismatch', {
+          webhookCount: webhookUrls.length,
+          roleIdCount: pingRoleIds.length
+        });
+        return res.status(400).json({
+          error: 'RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID must have the same number of entries',
+          webhookCount: webhookUrls.length,
+          roleIdCount: pingRoleIds.length
+        });
       }
 
-      const rerateChannel: ChannelMessages = {
-        webhookUrl: process.env.RERATE_ANNOUNCEMENT_HOOK || '',
-        channelConfig: {
-          label: 'rerates',
-          webhookUrl: process.env.RERATE_ANNOUNCEMENT_HOOK || '',
-          ping: ping
-        },
-        messages: rerateMessages
-      };
+      // If no webhooks configured, return early
+      if (webhookUrls.length === 0) {
+        logger.warn('No RERATE_ANNOUNCEMENT_HOOK configured');
+        return res.status(400).json({error: 'RERATE_ANNOUNCEMENT_HOOK is not configured'});
+      }
 
-      // Send embeds with ping on first batch
-      await sendMessages(rerateChannel, ping);
+      // Create channel messages for each webhook URL with its corresponding ping role
+      const rerateChannels: ChannelMessages[] = [];
+      
+      for (let i = 0; i < webhookUrls.length; i++) {
+        const webhookUrl = webhookUrls[i];
+        const pingRoleId = pingRoleIds[i];
+        const ping = pingRoleId ? `<@&${pingRoleId}>` : undefined;
+
+        // Create messages for this channel (same embeds for all channels)
+        const rerateMessages: ChannelMessage[] = [];
+        for (let j = 0; j < embeds.length; j += 8) {
+          rerateMessages.push(createEmbedBatchMessage(
+            embeds.slice(j, j + 8),
+            j === 0 ? ping : undefined // Add ping to first batch only
+          ));
+        }
+
+        rerateChannels.push({
+          webhookUrl,
+          channelConfig: {
+            label: `rerates-${i}`,
+            webhookUrl,
+            ping: ping
+          },
+          messages: rerateMessages
+        });
+      }
+
+      // Send embeds to all channels
+      for (const channel of rerateChannels) {
+        await sendMessages(channel, channel.channelConfig.ping);
+      }
 
       // Mark levels as announced after successful webhook sending
       if (UPDATE_AFTER_ANNOUNCEMENT) {
@@ -733,7 +770,11 @@ router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) =
         );
       }
 
-      return res.json({success: true, message: 'Webhooks sent successfully'});
+      return res.json({
+        success: true,
+        message: 'Webhooks sent successfully',
+        channelsSent: rerateChannels.length
+      });
     } catch (error) {
       logger.error('Error sending webhook:', error);
       return res.status(500).json({

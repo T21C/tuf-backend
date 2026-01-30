@@ -260,15 +260,27 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     if (artistIds.length > 0) {
       const relationsMap = await artistService.getRelatedArtistsBatch(artistIds);
 
-      // Add relatedArtists to each artist
+      // Add relatedArtists to each artist (plain objects, already serialized)
       sortedRows.forEach(artist => {
         const relatedArtists = relationsMap.get(artist.id) || [];
-        (artist as any).relatedArtists = relatedArtists.map(a => a.toJSON ? a.toJSON() : a);
+        // Relations from getRelatedArtistsBatch are already plain objects
+        (artist as any).relatedArtists = relatedArtists;
       });
     }
 
+    // Serialize artists with relations included
+    const serializedArtists = sortedRows.map(artist => {
+      const artistJson: any = artist.toJSON();
+      // Ensure relatedArtists is included in the serialized response
+      const relatedArtists = (artist as any).relatedArtists;
+      if (relatedArtists !== undefined) {
+        artistJson.relatedArtists = relatedArtists;
+      }
+      return artistJson;
+    });
+
     return res.json({
-      artists: sortedRows,
+      artists: serializedArtists,
       total: finalCount,
       page: normalizedPage,
       limit: normalizedLimit,
