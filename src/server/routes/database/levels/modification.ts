@@ -341,7 +341,7 @@ const handleScoreRecalculations = async (
     {transaction}
   );
 
-  if (!currentDifficulty && updateData.diffId) {
+  if (!currentDifficulty) {
     logger.error(
       `No difficulty found for level ${levelId} with diffId ${updateData.diffId}`,
     );
