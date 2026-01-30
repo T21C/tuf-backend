@@ -65,8 +65,18 @@ export class PoolManager {
       return this.pools.get(poolName)!;
     }
 
+    // Apply CDN-specific dialectOptions to prevent "packets out of order" errors
+    // This setting ensures each connection handles only one query at a time
+    const dialectOptions = poolName === 'cdn' 
+      ? {
+          ...this.baseConfig.dialectOptions,
+          multipleStatements: false, // Prevent concurrent queries on same connection
+        }
+      : this.baseConfig.dialectOptions;
+
     const sequelize = new Sequelize({
       ...this.baseConfig,
+      dialectOptions,
       pool: {
         max: config.maxConnections,
         min: config.minConnections ?? 2,

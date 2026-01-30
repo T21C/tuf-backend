@@ -775,16 +775,85 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
         if (file.type !== 'LEVELZIP') {
             throw { error: 'File is not a level zip', code: 400 };
         }
-        const metadata = file.metadata as any;
-        const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
-        if (!fs.existsSync(targetLevel)) {
-            throw { error: 'Target level file not found', code: 400 };
+        const metadata = file.metadata as {
+            allLevelFiles?: Array<{
+                name: string;
+                path: string;
+                size: number;
+            }>;
+            targetLevel?: string | null;
+            targetSafeToParse?: boolean;
+            levelStorageType?: StorageType;
+            storageType?: StorageType;
+        };
+        const targetLevel = metadata.targetLevel || metadata.allLevelFiles?.[0]?.path;
+        if (!targetLevel) {
+            throw { error: 'Target level file not found in metadata', code: 400 };
         }
-        const levelData = new LevelDict(targetLevel);
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Cache-Control', 'no-store');
-        res.json(levelData.toJSON());
-        return;
+
+        // Check if target level is safe to parse (already processed through levelDict)
+        if (metadata.targetSafeToParse) {
+            // File has already been parsed and written back as valid JSON
+            // Stream it directly without re-parsing
+            const preferredStorageType = metadata.levelStorageType || metadata.storageType;
+            const levelCheck = await hybridStorageManager.fileExistsWithFallback(
+                targetLevel,
+                preferredStorageType
+            );
+
+            if (!levelCheck.exists) {
+                throw { error: 'Target level file not found in storage', code: 400 };
+            }
+
+            let jsonContent: string;
+            if (levelCheck.storageType === StorageType.SPACES) {
+                // Download from Spaces and read as text
+                const tempPath = path.join(REPACK_FOLDER, fileId, `temp_level_${Date.now()}.adofai`);
+                await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
+                await hybridStorageManager.downloadFile(targetLevel, StorageType.SPACES, tempPath);
+                jsonContent = await fs.promises.readFile(tempPath, 'utf8');
+                // Clean up temp file
+                await fs.promises.unlink(tempPath).catch(() => {});
+            } else {
+                // Read directly from local storage
+                jsonContent = await fs.promises.readFile(levelCheck.actualPath, 'utf8');
+            }
+
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.json(JSON.parse(jsonContent));
+            return;
+        } else {
+            // Not safe to parse - need to parse through LevelDict
+            const preferredStorageType = metadata.levelStorageType || metadata.storageType;
+            const levelCheck = await hybridStorageManager.fileExistsWithFallback(
+                targetLevel,
+                preferredStorageType
+            );
+
+            if (!levelCheck.exists) {
+                throw { error: 'Target level file not found in storage', code: 400 };
+            }
+
+            let levelData: LevelDict;
+            if (levelCheck.storageType === StorageType.SPACES) {
+                // Download from Spaces to temporary file
+                const tempPath = path.join(REPACK_FOLDER, fileId, `temp_level_${Date.now()}.adofai`);
+                await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
+                await hybridStorageManager.downloadFile(targetLevel, StorageType.SPACES, tempPath);
+                levelData = await new LevelDict(tempPath);
+                // Clean up temp file
+                await fs.promises.unlink(tempPath).catch(() => {});
+            } else {
+                // Read from local storage using the actual path found
+                levelData = await new LevelDict(levelCheck.actualPath);
+            }
+
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.json(levelData.toJSON());
+            return;
+        }
     } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
             const customError = error as { code: number; error: string };
