@@ -87,7 +87,7 @@ router.get('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response)
  * POST /admin/discord/guilds
  * Create a new Discord guild
  */
-router.post('/guilds', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/guilds', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -144,7 +144,7 @@ router.post('/guilds', Auth.superAdmin(), async (req: Request, res: Response) =>
  * PUT /admin/discord/guilds/:id
  * Update a Discord guild
  */
-router.put('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -223,7 +223,7 @@ router.put('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response)
  * DELETE /admin/discord/guilds/:id
  * Delete a Discord guild and all its roles
  */
-router.delete('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -287,7 +287,7 @@ router.get('/guilds/:guildId/roles', Auth.superAdmin(), async (req: Request, res
  * POST /admin/discord/guilds/:guildId/roles
  * Create a new role for a guild
  */
-router.post('/guilds/:guildId/roles', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post('/guilds/:guildId/roles', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -397,7 +397,7 @@ router.post('/guilds/:guildId/roles', Auth.superAdmin(), async (req: Request, re
  * PUT /admin/discord/guilds/:guildId/roles/:roleId
  * Update a role
  */
-router.put('/guilds/:guildId/roles/:roleId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/guilds/:guildId/roles/:roleId', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -474,7 +474,7 @@ router.put('/guilds/:guildId/roles/:roleId', Auth.superAdmin(), async (req: Requ
  * DELETE /admin/discord/guilds/:guildId/roles/:roleId
  * Delete a role
  */
-router.delete('/guilds/:guildId/roles/:roleId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete('/guilds/:guildId/roles/:roleId', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -501,7 +501,7 @@ router.delete('/guilds/:guildId/roles/:roleId', Auth.superAdmin(), async (req: R
  * PUT /admin/discord/guilds/:guildId/roles/reorder
  * Reorder roles in a guild
  */
-router.put('/guilds/:guildId/roles/reorder', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put('/guilds/:guildId/roles/reorder', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {

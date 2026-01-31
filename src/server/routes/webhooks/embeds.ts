@@ -36,7 +36,7 @@ export async function getDifficultyEmojis(
     if (level.difficulty?.name.startsWith('Q')) {
       return `${difficulty?.emoji || ''} ${estimatedEmoji ? `||${estimatedEmoji}||` : ''}`;
     }
-    return `${difficulty?.emoji || ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
+    return difficulty?.emoji || '';
   } else {
     const difficulty = difficulties.find(
       difficulty => difficulty.name === level.difficulty?.name,
@@ -47,16 +47,11 @@ export async function getDifficultyEmojis(
     let diffString = '';
     let previousDiffString = '';
     if (level.difficulty?.name.startsWith('Q')) {
-      const emoji = estimatedEmoji || '';
-      diffString = `${difficulty?.emoji || ''}${emoji ? ` ||${emoji}||` : ''}`;
+      diffString = `${difficulty?.emoji || ''}${estimatedEmoji ? ` ||${estimatedEmoji}||` : ''}`;
     } else {
-      diffString = `${difficulty?.emoji || ''}${difficulty?.legacyEmoji ? ` | ${difficulty?.legacyEmoji}` : ''}`;
+      diffString = difficulty?.emoji || '';
     }
-    if (level.previousDifficulty?.name.startsWith('Q')) {
-      previousDiffString = `${previousDifficulty?.emoji || ''}`;
-    } else {
-      previousDiffString = `${previousDifficulty?.emoji || ''}${previousDifficulty?.legacyEmoji ? ` | ${previousDifficulty?.legacyEmoji}` : ''}`;
-    }
+    previousDiffString = previousDifficulty?.emoji || '';
     return `**${previousDiffString}** ➔ **${diffString}**`;
   }
 }
