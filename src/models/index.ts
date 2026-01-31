@@ -42,6 +42,7 @@ import SongEvidence from './songs/SongEvidence.js';
 import LevelSubmissionSongRequest from './submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from './submissions/LevelSubmissionArtistRequest.js';
 import LevelSubmissionEvidence from './submissions/LevelSubmissionEvidence.js';
+import { DiscordGuild, DiscordSyncRole } from './discord/index.js';
 // Create db object with models first
 export const db = {
   sequelize,
@@ -88,7 +89,9 @@ export const db = {
     SongEvidence,
     LevelSubmissionSongRequest,
     LevelSubmissionArtistRequest,
-    LevelSubmissionEvidence
+    LevelSubmissionEvidence,
+    DiscordGuild,
+    DiscordSyncRole
   },
 };
 
@@ -101,3 +104,6 @@ export default db;
 
 // Also export User and OAuthProvider directly for convenience
 export {User, OAuthProvider, RateLimit, AuditLog};
+
+// Export Discord models
+export {DiscordGuild, DiscordSyncRole};

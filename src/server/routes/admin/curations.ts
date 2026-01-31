@@ -18,6 +18,7 @@ import { permissionFlags } from '../../../config/constants.js';
 import { canAssignCurationType } from '../../../misc/utils/data/curationTypeUtils.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import Team from '../../../models/credits/Team.js';
+import { roleSyncService } from '../../services/RoleSyncService.js';
 
 const router: Router = Router();
 
@@ -718,6 +719,16 @@ router.get('/', async (req, res) => {
         abilities: completeCuration.type.abilities.toString()
       } : null
     } : null;
+
+    // Trigger Discord role sync for all creators credited on this level (async, non-blocking)
+    if (completeCuration?.level?.levelCredits) {
+      for (const credit of completeCuration.level.levelCredits) {
+        if (credit.creatorId) {
+          roleSyncService.syncCurationRolesForCreator(credit.creatorId)
+            .catch(err => logger.error('Error syncing Discord curation roles for creator:', err));
+        }
+      }
+    }
 
     return res.status(201).json({ curation: serializedCuration });
   } catch (error) {

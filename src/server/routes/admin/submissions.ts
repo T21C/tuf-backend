@@ -43,6 +43,7 @@ import SongCredit from '../../../models/songs/SongCredit.js';
 import ArtistService from '../../services/ArtistService.js';
 import EvidenceService from '../../services/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
+import { roleSyncService } from '../../services/RoleSyncService.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -1176,6 +1177,12 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
       }
 
+      // Trigger Discord role sync for the player (async, non-blocking)
+      if (submission.assignedPlayerId) {
+        roleSyncService.syncDifficultyRolesForPlayer(submission.assignedPlayerId)
+          .catch(err => logger.error('Error syncing Discord roles for player:', err));
+      }
+
       return res.json({
         message: 'Pass submission approved successfully',
         pass,
@@ -1620,6 +1627,10 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
             },
           });
         }
+
+        // Trigger Discord role sync for the player (async, non-blocking)
+        roleSyncService.syncDifficultyRolesForPlayer(playerId)
+          .catch(err => logger.error('Error syncing Discord roles for player (auto-approve):', err));
 
         results.push({ id: lockedSubmission.id, success: true });
       } catch (error) {
