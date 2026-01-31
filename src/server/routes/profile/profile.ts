@@ -20,7 +20,7 @@ import { permissionFlags } from '../../../config/constants.js';
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
 
-const usernameChangeCooldown = 3 * 24 * 60 * 60 * 1000; // 3 days
+const usernameChangeCooldown = 1 * 24 * 60 * 60 * 1000; // 1 day
 
 // Configure multer for memory storage
 const upload = multer({
@@ -119,6 +119,11 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
 
     if (req.body.username && req.body.username.length < 3) {
       throw {'error': 'Username must be at least 3 characters', 'code': 400};
+    }
+
+    // Validate username format: only alphanumeric characters and underscores
+    if (req.body.username && !/^[a-zA-Z0-9_]+$/.test(req.body.username)) {
+      throw {'error': 'Username can only contain letters, numbers, and underscores', 'code': 400};
     }
 
     if (req.body.nickname && req.body.nickname.length > 60) {

@@ -1,9 +1,8 @@
 import { Op } from 'sequelize';
 import DiscordRoleClient from '../../misc/webhook/classes/discordRoleClient.js';
 import { DiscordGuild, DiscordSyncRole } from '../../models/discord/index.js';
-import Pass from '../../models/passes/Pass.js';
-import Level from '../../models/levels/Level.js';
 import Difficulty from '../../models/levels/Difficulty.js';
+import Level from '../../models/levels/Level.js';
 import Player from '../../models/players/Player.js';
 import User from '../../models/auth/User.js';
 import OAuthProvider from '../../models/auth/OAuthProvider.js';
@@ -12,6 +11,7 @@ import LevelCredit from '../../models/levels/LevelCredit.js';
 import Curation from '../../models/curations/Curation.js';
 import CurationType from '../../models/curations/CurationType.js';
 import { logger } from './LoggerService.js';
+import { PlayerStatsService } from './PlayerStatsService.js';
 
 export interface RoleSyncResult {
   success: boolean;
@@ -34,8 +34,11 @@ export interface UserSyncResult {
  */
 class RoleSyncService {
   private static instance: RoleSyncService;
+  private playerStatsService: PlayerStatsService;
 
-  private constructor() {}
+  private constructor() {
+    this.playerStatsService = PlayerStatsService.getInstance();
+  }
 
   public static getInstance(): RoleSyncService {
     if (!RoleSyncService.instance) {
@@ -98,36 +101,25 @@ class RoleSyncService {
 
   /**
    * Get the highest difficulty cleared by a player (based on sortOrder)
+   * Uses PlayerStatsService to get the top difficulty from cached stats
    */
   async getHighestDifficultyClear(playerId: number): Promise<Difficulty | null> {
     try {
       logger.debug(`[RoleSyncService] Getting highest difficulty clear for player ${playerId}`);
-      const pass = await Pass.findOne({
-        where: {
-          playerId,
-          isHidden: { [Op.ne]: true },
-          isDeleted: { [Op.ne]: true },
-        },
-        include: [{
-          model: Level,
-          as: 'level',
-          where: {
-            isHidden: { [Op.ne]: true },
-            isDeleted: { [Op.ne]: true },
-          },
-          include: [{
-            model: Difficulty,
-            as: 'difficulty',
-          }],
-        }],
-        order: [[{ model: Level, as: 'level' }, { model: Difficulty, as: 'difficulty' }, 'sortOrder', 'DESC']],
-      });
+      const stats = await this.playerStatsService.getPlayerStats(playerId);
+      
+      if (!stats || stats.length === 0) {
+        logger.debug(`[RoleSyncService] No stats found for player ${playerId}`);
+        return null;
+      }
 
-      const difficulty = pass?.level?.difficulty as Difficulty | null;
+      const playerStats = stats[0];
+      const difficulty = playerStats.topDiff as Difficulty | null;
       logger.debug(`[RoleSyncService] Highest difficulty for player ${playerId}: ${difficulty?.name || 'none'}`);
       return difficulty;
     } catch (error: any) {
       logger.error(`RoleSyncService.getHighestDifficultyClear error: ${error.message}`);
+      logger.debug(`[RoleSyncService] Exception getting highest difficulty: ${error.stack}`);
       return null;
     }
   }
