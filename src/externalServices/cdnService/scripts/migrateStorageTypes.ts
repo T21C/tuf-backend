@@ -7,8 +7,11 @@ import { hybridStorageManager, StorageType } from '../services/hybridStorageMana
 import { storageManager } from '../services/storageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 import { processZipFile } from '../services/zipProcessor.js';
-import sequelize from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '../../../config/db.js';
 import { Transaction, Op } from 'sequelize';
+
+const cdnSequelize = getSequelizeForModelGroup('cdn');
+const sequelize = cdnSequelize; // For authenticate/close in scripts
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import fs from 'fs';
 import path from 'path';

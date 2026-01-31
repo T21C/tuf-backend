@@ -10,8 +10,10 @@ import { Request, Response, Router } from 'express';
 import CdnFile from '../../../models/cdn/CdnFile.js';
 import crypto from 'crypto';
 import LevelDict from 'adofai-lib';
-import sequelize from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '../../../config/db.js';
 import { Transaction } from 'sequelize';
+
+const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
@@ -1766,7 +1768,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
 
     try {
         // Start transaction
-        transaction = await sequelize.transaction();
+        transaction = await cdnSequelize.transaction();
 
         const levelEntry = await CdnFile.findByPk(fileId, { transaction });
         if (!levelEntry || !levelEntry.metadata) {

@@ -6,8 +6,10 @@ import { logger } from '../../../server/services/LoggerService.js';
 import { storageManager } from './storageManager.js';
 import { hybridStorageManager } from './hybridStorageManager.js';
 import LevelDict from 'adofai-lib';
-import sequelize from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '../../../config/db.js';
 import { Transaction } from 'sequelize';
+
+const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { decodeFilename } from '../misc/utils.js';
 
@@ -316,7 +318,7 @@ export async function processZipFile(
 
         // Start transaction for database operations
         await sendProgress('processing', 90, 'Creating database entry');
-        transaction = await sequelize.transaction();
+        transaction = await cdnSequelize.transaction();
 
         // Create database entry with comprehensive storage information
         await CdnFile.create({

@@ -8,8 +8,10 @@ import path from 'path';
 import { storageManager } from '../services/storageManager.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import { Op } from 'sequelize';
-import sequelize from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '../../../config/db.js';
 import { Transaction } from 'sequelize';
+
+const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 
@@ -387,7 +389,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
         const { fileId } = req.params;
 
         // Start transaction
-        transaction = await sequelize.transaction();
+        transaction = await cdnSequelize.transaction();
 
         const file = await CdnFile.findByPk(fileId, { transaction });
 

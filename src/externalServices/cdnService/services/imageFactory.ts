@@ -6,8 +6,10 @@ import { validateImage, getValidationOptionsForType, ImageValidationError } from
 import { processImage } from './imageProcessor.js';
 import { storageManager } from './storageManager.js';
 import CdnFile from '../../../models/cdn/CdnFile.js';
-import sequelize from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '../../../config/db.js';
 import { Transaction } from 'sequelize';
+
+const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 
 
@@ -68,7 +70,7 @@ export class ImageFactory {
             await processImage(originalPath, imageType, fileId);
 
             // Start transaction for database operations
-            transaction = await sequelize.transaction();
+            transaction = await cdnSequelize.transaction();
 
             // Create database entry with absolute path within transaction
             await CdnFile.create({
