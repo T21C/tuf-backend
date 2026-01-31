@@ -18,7 +18,7 @@ export function initializeCurationsAssociations() {
 
   Curation.belongsTo(Level, {
     foreignKey: 'levelId',
-    as: 'curationLevel',
+    as: 'level',
   });
 
   Level.hasOne(Curation, {

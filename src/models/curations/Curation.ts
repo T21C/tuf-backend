@@ -2,6 +2,7 @@ import {Model, DataTypes, Optional} from 'sequelize';
 import CurationSchedule from './CurationSchedule.js';
 import CurationType from './CurationType.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
+import Level from '../levels/Level.js';
 const sequelize = getSequelizeForModelGroup('curations');
 
 export interface ICuration {
@@ -42,6 +43,7 @@ class Curation
 
   declare curationSchedules: CurationSchedule[];
   declare type?: CurationType;
+  declare level?: Level;
 }
 
 Curation.init(

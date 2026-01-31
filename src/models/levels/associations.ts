@@ -224,12 +224,6 @@ export function initializeLevelsAssociations() {
     otherKey: 'levelId',
   });
 
-  // Level <-> Curation associations
-  Curation.belongsTo(Level, {
-    foreignKey: 'levelId',
-    as: 'level',
-  });
-
   // Level <-> LevelTag associations (many-to-many through LevelTagAssignment)
   Level.belongsToMany(LevelTag, {
     through: LevelTagAssignment,
