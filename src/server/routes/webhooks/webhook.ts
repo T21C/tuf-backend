@@ -361,6 +361,11 @@ async function sendMessages(channel: ChannelMessages, message?: string): Promise
 
 
 export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
+  if (!process.env.LEVEL_SUBMISSION_HOOK) {
+    logger.warn('LEVEL_SUBMISSION_HOOK environment variable is not set, skipping webhook');
+    return;
+  }
+  
   const hook = new Webhook(process.env.LEVEL_SUBMISSION_HOOK);
   hook.setUsername('TUF Level Submissions');
   hook.setAvatar(botAvatar);
@@ -425,6 +430,11 @@ export async function passSubmissionHook(
   pass: PassSubmission,
   sanitizedJudgements: IJudgements,
 ) {
+  if (!process.env.PASS_SUBMISSION_HOOK) {
+    logger.warn('PASS_SUBMISSION_HOOK environment variable is not set, skipping webhook');
+    return;
+  }
+  
   const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
   hook.setUsername('TUF Pass Submissions');
   hook.setAvatar(botAvatar);
