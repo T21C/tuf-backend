@@ -51,6 +51,8 @@ process.on('uncaughtException', (error: any) => {
   });
 });
 
+// CRITICAL: This handler ensures unhandled rejections NEVER exit the application
+// All errors are logged but the application continues running
 process.on('unhandledRejection', (reason: any, promise) => {
   // Handle connection reset errors gracefully
   if (reason && (reason.code === 'ECONNRESET' || reason.code === 'EPIPE')) {
@@ -69,7 +71,8 @@ process.on('unhandledRejection', (reason: any, promise) => {
     reason.code === 'PROTOCOL_CONNECTION_LOST' || 
     reason.code === 'ETIMEDOUT' ||
     (reason.name === 'SequelizeConnectionRefusedError') ||
-    (reason.name === 'SequelizeConnectionError')
+    (reason.name === 'SequelizeConnectionError') ||
+    (reason.name === 'SequelizeConnectionAcquireTimeoutError')
   )) {
     logger.warn('Database connection error (unhandled rejection):', {
       code: reason.code || reason.name,
@@ -90,7 +93,8 @@ process.on('unhandledRejection', (reason: any, promise) => {
   logger.error('Reason:', reason);
   logger.error('Promise:', promise);
   logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
-  return
+  // Explicitly prevent process exit - application will continue running
+  return;
 });
 
 // Handle Node.js warnings - filter out known non-critical warnings

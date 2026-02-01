@@ -113,9 +113,9 @@ const defaultPoolConfig: PoolConfiguration = {
     },
     {
       name: 'submissions',
-      maxConnections: 5,
-      minConnections: 1,
-      acquireTimeout: 20000,
+      maxConnections: 10,
+      minConnections: 2,
+      acquireTimeout: 60000, // Increased to 60s to prevent timeout errors
       idleTimeout: 10000,
       evict: 5000,
     },
