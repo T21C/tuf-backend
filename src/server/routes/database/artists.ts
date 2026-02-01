@@ -428,7 +428,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
       if (uploadedFileId && cdnUrl) {
         try {
           await cdnServiceInstance.deleteFile(uploadedFileId);
-          logger.info(`Deleted uploaded avatar file ${uploadedFileId} due to duplicate artist name`);
+          logger.debug(`Deleted uploaded avatar file ${uploadedFileId} due to duplicate artist name`);
         } catch (deleteError) {
           logger.error(`Failed to delete uploaded avatar file ${uploadedFileId} after duplicate check:`, deleteError);
         }
@@ -497,7 +497,7 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
       if (uploadedFileId && cdnUrl) {
         try {
           await cdnServiceInstance.deleteFile(uploadedFileId);
-          logger.info(`Deleted uploaded avatar file ${uploadedFileId} after failed artist creation`);
+          logger.debug(`Deleted uploaded avatar file ${uploadedFileId} after failed artist creation`);
         } catch (deleteError) {
           logger.error(`Failed to delete uploaded avatar file ${uploadedFileId} after failed artist creation:`, deleteError);
         }

@@ -76,4 +76,18 @@ DiscordGuild.init(
   },
 );
 
+// Override toJSON to ensure botToken is never exposed in API responses
+DiscordGuild.prototype.toJSON = function() {
+  const values = this.get();
+  // Use getDataValue to access the raw token value (only accessible internally)
+  const hasToken = !!this.getDataValue('botToken');
+  // Create new object without exposing the actual token
+  const { botToken: _botToken, ...safeValues } = values as any;
+  return {
+    ...safeValues,
+    botToken: '••••••••',
+    hasToken,
+  };
+};
+
 export default DiscordGuild;

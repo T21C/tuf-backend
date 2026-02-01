@@ -13,8 +13,25 @@ export interface RateLimiterConfig {
   incrementOnSuccess?: boolean;
 }
 
-export function RateLimiter(config: RateLimiterConfig) {
-  const { incrementOnFailure = true, incrementOnSuccess = false } = config;
+export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
+  const { 
+    windowMs = 24 * 60 * 60 * 1000, 
+    maxAttempts = 3, 
+    blockDuration = 7 * 24 * 60 * 60 * 1000, 
+    type = 'default', 
+    incrementOnFailure = true, 
+    incrementOnSuccess = false 
+  } = { ...defaultConfig, ...innerConfig };
+
+
+  const config: RateLimiterConfig = {
+    windowMs,
+    maxAttempts,
+    blockDuration,
+    type,
+    incrementOnFailure,
+    incrementOnSuccess,
+  };
 
   return function (
     target: any,

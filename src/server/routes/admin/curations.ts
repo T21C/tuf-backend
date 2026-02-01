@@ -111,9 +111,9 @@ const cleanupCurationCdnFiles = async (curations: Curation[]) => {
       const fileId = getFileIdFromCdnUrl(curation.previewLink);
       if (fileId) {
         try {
-          logger.info(`Deleting curation thumbnail ${fileId} from CDN`);
+          logger.debug(`Deleting curation thumbnail ${fileId} from CDN`);
           await CdnService.deleteFile(fileId);
-          logger.info(`Successfully deleted curation thumbnail ${fileId} from CDN`);
+          logger.debug(`Successfully deleted curation thumbnail ${fileId} from CDN`);
         } catch (error) {
           logger.error(`Error deleting curation thumbnail ${fileId} from CDN:`, error);
           // Continue with cleanup even if CDN deletion fails
@@ -130,9 +130,9 @@ const cleanupCurationTypeCdnFiles = async (type: CurationType) => {
     const fileId = getFileIdFromCdnUrl(type.icon);
     if (fileId) {
       try {
-        logger.info(`Deleting curation type icon ${fileId} from CDN`);
+        logger.debug(`Deleting curation type icon ${fileId} from CDN`);
         await CdnService.deleteFile(fileId);
-        logger.info(`Successfully deleted curation type icon ${fileId} from CDN`);
+        logger.debug(`Successfully deleted curation type icon ${fileId} from CDN`);
       } catch (error) {
         logger.error(`Error deleting curation type icon ${fileId} from CDN:`, error);
         // Continue with cleanup even if CDN deletion fails
@@ -298,7 +298,7 @@ router.delete('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, 
 
     const affectedLevelIds = curations.map(curation => curation.levelId);
 
-    logger.info(`Found ${curations.length} curations to clean up for curation type ${id}`);
+    logger.debug(`Found ${curations.length} curations to clean up for curation type ${id}`);
 
     // Clean up CDN files for all curations of this type
     await cleanupCurationCdnFiles(curations);
@@ -314,7 +314,7 @@ router.delete('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, 
     // Reindex affected levels after successful deletion
     await elasticsearchService.reindexLevels(affectedLevelIds);
 
-    logger.info(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
+    logger.debug(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
     return res.status(204).send();
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -411,7 +411,7 @@ router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => 
     // Reindex curated levels after sort order changes
     await reindexCuratedLevels();
 
-    logger.info(`Successfully updated sort orders for ${sortOrders.length} curation types`);
+    logger.debug(`Successfully updated sort orders for ${sortOrders.length} curation types`);
     return res.json({success: true, message: 'Sort orders updated successfully'});
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -488,7 +488,7 @@ router.get('/', async (req, res) => {
           distinct: true,
         });
 
-        logger.info(`Direct level ID lookup for level ${levelId}: found ${curations.count} curations`);
+        logger.debug(`Direct level ID lookup for level ${levelId}: found ${curations.count} curations`);
       } else {
         // Regular text search
         const searchWhere = {
@@ -1175,9 +1175,9 @@ router.post('/:id([0-9]{1,20})/thumbnail', [requireCurationManagementPermission,
 
       if (existingFileId) {
         try {
-          logger.info(`Deleting existing thumbnail ${existingFileId} before uploading new one`);
+          logger.debug(`Deleting existing thumbnail ${existingFileId} before uploading new one`);
           await CdnService.deleteFile(existingFileId);
-          logger.info(`Successfully deleted existing thumbnail ${existingFileId}`);
+          logger.debug(`Successfully deleted existing thumbnail ${existingFileId}`);
         } catch (deleteError) {
           logger.error('Error deleting existing thumbnail:', deleteError);
           // Continue with upload even if deletion fails

@@ -16,6 +16,8 @@ import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
+import { roleSyncService } from '../../services/RoleSyncService.js';
+import { createRateLimiter } from '../../decorators/rateLimiter.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -434,5 +436,35 @@ router.delete('/avatar', Auth.user(), async (req: Request, res: Response) => {
         return res.status(500).json({error: 'Failed to remove avatar'});
     }
 });
+
+// Rate limiter for sync-roles endpoint
+const syncRolesRateLimiter = createRateLimiter({
+  windowMs: 60000, // 1 minute
+  maxAttempts: 1,
+  blockDuration: 5 * 60 * 1000, // 5 minutes block
+  type: 'sync-roles',
+});
+
+router.post('/sync-roles', 
+  Auth.user(), 
+  syncRolesRateLimiter.middleware,
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({error: 'User not authenticated'});
+      }
+      const result = await roleSyncService.manualSync(user.id);
+      return res.json({
+        success: true,
+        result,
+      });
+    } catch (error) {
+      logger.error('Error syncing Discord roles:', error);
+      return res.status(500).json({ error: 'Failed to sync roles' });
+    }
+  }
+);
+
 
 export default router;

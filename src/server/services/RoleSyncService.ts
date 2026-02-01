@@ -655,7 +655,7 @@ class RoleSyncService {
     difficulty: UserSyncResult | null;
     curation: UserSyncResult | null;
   }> {
-    logger.info(`Manual role sync triggered for user ${userId}`);
+    logger.debug(`Manual role sync triggered for user ${userId}`);
     return this.syncAllRolesForUser(userId);
   }
 
@@ -670,13 +670,11 @@ class RoleSyncService {
   }> {
     try {
       logger.debug(`[RoleSyncService] Testing bot permissions for guild ${guildId}`);
-      const client = new DiscordRoleClient(botToken);
 
       // First, try to get the bot's own member info to verify it's in the guild
       // We'll use a test user ID (the bot itself) - but we need to get the bot's user ID first
       // For simplicity, we'll try to get guild info which requires basic permissions
       const DISCORD_API_BASE = 'https://discord.com/api/v10';
-      const fetch = (await import('node-fetch')).default;
 
       // Get bot's own user info
       const botUserResponse = await fetch(`${DISCORD_API_BASE}/users/@me`, {
@@ -724,8 +722,6 @@ class RoleSyncService {
           canManageRoles: false,
         };
       }
-
-      const member = await memberResponse.json() as { roles: string[] };
       
       // Get guild info to check bot's permissions
       const guildResponse = await fetch(`${DISCORD_API_BASE}/guilds/${guildId}`, {
@@ -817,7 +813,6 @@ class RoleSyncService {
 
       // Get bot's own user ID
       const DISCORD_API_BASE = 'https://discord.com/api/v10';
-      const fetch = (await import('node-fetch')).default;
 
       const botUserResponse = await fetch(`${DISCORD_API_BASE}/users/@me`, {
         headers: {

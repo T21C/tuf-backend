@@ -8,6 +8,7 @@ import CurationType from '../../../models/curations/CurationType.js';
 import { roleSyncService } from '../../services/RoleSyncService.js';
 import { logger } from '../../services/LoggerService.js';
 import sequelize from '../../../config/db.js';
+import { RateLimiter } from '../../decorators/rateLimiter.js';
 
 const router: Router = Router();
 
@@ -28,20 +29,13 @@ router.get('/guilds', Auth.superAdmin(), async (req: Request, res: Response) => 
           { model: CurationType, as: 'curationType' },
         ],
       }],
+      attributes: {
+        exclude: ['botToken'],
+      },
       order: [['name', 'ASC']],
     });
 
-    // Don't expose bot tokens in the response
-    const sanitizedGuilds = guilds.map(guild => {
-      const guildJson = guild.toJSON();
-      return {
-        ...guildJson,
-        botToken: '••••••••', // Mask the token
-        hasToken: !!guild.botToken,
-      };
-    });
-
-    return res.json(sanitizedGuilds);
+    return res.json(guilds);
   } catch (error: any) {
     logger.error('Error fetching Discord guilds:', error);
     return res.status(500).json({ error: 'Failed to fetch guilds' });
@@ -71,12 +65,8 @@ router.get('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response)
       return res.status(404).json({ error: 'Guild not found' });
     }
 
-    const guildJson = guild.toJSON();
-    return res.json({
-      ...guildJson,
-      botToken: '••••••••',
-      hasToken: !!guild.botToken,
-    });
+    // toJSON already handles token masking
+    return res.json(guild.toJSON());
   } catch (error: any) {
     logger.error('Error fetching Discord guild:', error);
     return res.status(500).json({ error: 'Failed to fetch guild' });
@@ -128,11 +118,8 @@ router.post('/guilds', Auth.superAdminPassword(), async (req: Request, res: Resp
       logger.debug(`Bot permission test passed for guild ${guildId}`);
     }
 
-    return res.status(201).json({
-      ...guild.toJSON(),
-      botToken: '••••••••',
-      hasToken: true,
-    });
+    // toJSON already handles token masking
+    return res.status(201).json(guild.toJSON());
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error creating Discord guild:', error);
@@ -207,11 +194,8 @@ router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: R
       }
     }
 
-    return res.json({
-      ...guild.toJSON(),
-      botToken: '••••••••',
-      hasToken: !!guild.botToken,
-    });
+    // toJSON already handles token masking
+    return res.json(guild.toJSON());
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error updating Discord guild:', error);
