@@ -207,7 +207,7 @@ router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: R
  * DELETE /admin/discord/guilds/:id
  * Delete a Discord guild and all its roles
  */
-router.delete('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete('/guilds/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -242,7 +242,7 @@ router.delete('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res
  * GET /admin/discord/guilds/:guildId/roles
  * List all roles for a guild
  */
-router.get('/guilds/:guildId/roles', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
     const { guildId } = req.params;
 
@@ -271,7 +271,7 @@ router.get('/guilds/:guildId/roles', Auth.superAdmin(), async (req: Request, res
  * POST /admin/discord/guilds/:guildId/roles
  * Create a new role for a guild
  */
-router.post('/guilds/:guildId/roles', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.post('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -381,7 +381,7 @@ router.post('/guilds/:guildId/roles', Auth.superAdminPassword(), async (req: Req
  * PUT /admin/discord/guilds/:guildId/roles/:roleId
  * Update a role
  */
-router.put('/guilds/:guildId/roles/:roleId', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -458,7 +458,7 @@ router.put('/guilds/:guildId/roles/:roleId', Auth.superAdminPassword(), async (r
  * DELETE /admin/discord/guilds/:guildId/roles/:roleId
  * Delete a role
  */
-router.delete('/guilds/:guildId/roles/:roleId', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
@@ -484,17 +484,40 @@ router.delete('/guilds/:guildId/roles/:roleId', Auth.superAdminPassword(), async
 /**
  * PUT /admin/discord/guilds/:guildId/roles/reorder
  * Reorder roles in a guild
+ * Expects: { roleIds: [6, 8, 4, 5] } - array of role IDs in desired order
+ * Sets sortOrder based on array index (0, 1, 2, 3...)
  */
-router.put('/guilds/:guildId/roles/reorder', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put('/guilds/:guildId([0-9]{1,20})/roles/reorder', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   
   try {
     const { guildId } = req.params;
     const { roleIds } = req.body;
 
+    // Validate request body
     if (!Array.isArray(roleIds)) {
       await safeTransactionRollback(transaction);
       return res.status(400).json({ error: 'roleIds must be an array' });
+    }
+
+    if (roleIds.length === 0) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'roleIds array cannot be empty' });
+    }
+
+    // Parse and validate role IDs
+    const parsedRoleIds = roleIds.map(id => {
+      const parsed = parseInt(id, 10);
+      if (isNaN(parsed) || parsed <= 0) {
+        throw new Error(`Invalid role ID: ${id}`);
+      }
+      return parsed;
+    });
+
+    // Check for duplicates
+    if (new Set(parsedRoleIds).size !== parsedRoleIds.length) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'roleIds array contains duplicate IDs' });
     }
 
     const guild = await DiscordGuild.findByPk(guildId, { transaction });
@@ -503,19 +526,38 @@ router.put('/guilds/:guildId/roles/reorder', Auth.superAdminPassword(), async (r
       return res.status(404).json({ error: 'Guild not found' });
     }
 
-    // Update sort orders
-    for (let i = 0; i < roleIds.length; i++) {
+    // Verify all roles exist and belong to this guild
+    const existingRoles = await DiscordSyncRole.findAll({
+      where: {
+        id: { [Op.in]: parsedRoleIds },
+        discordGuildId: parseInt(guildId as string),
+      },
+      transaction,
+    });
+
+    if (existingRoles.length !== parsedRoleIds.length) {
+      await safeTransactionRollback(transaction);
+      const foundIds = existingRoles.map(r => r.id);
+      const missingIds = parsedRoleIds.filter(id => !foundIds.includes(id));
+      return res.status(400).json({ 
+        error: 'Some role IDs do not exist or do not belong to this guild',
+        missingIds 
+      });
+    }
+
+    // Update sort orders based on array index
+    for (let i = 0; i < parsedRoleIds.length; i++) {
       await DiscordSyncRole.update(
         { sortOrder: i },
-        { where: { id: roleIds[i], discordGuildId: guildId }, transaction }
+        { where: { id: parsedRoleIds[i], discordGuildId: parseInt(guildId as string) }, transaction }
       );
     }
 
     await transaction.commit();
 
-    // Return updated roles
+    // Return updated roles sorted by sortOrder
     const roles = await DiscordSyncRole.findAll({
-      where: { discordGuildId: guildId },
+      where: { discordGuildId: parseInt(guildId as string) },
       include: [
         { model: Difficulty, as: 'difficulty' },
         { model: CurationType, as: 'curationType' },
@@ -527,6 +569,12 @@ router.put('/guilds/:guildId/roles/reorder', Auth.superAdminPassword(), async (r
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error reordering Discord roles:', error);
+    
+    // Return more specific error messages
+    if (error.message && error.message.includes('Invalid role ID')) {
+      return res.status(400).json({ error: error.message });
+    }
+    
     return res.status(500).json({ error: 'Failed to reorder roles' });
   }
 });
