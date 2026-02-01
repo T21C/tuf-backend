@@ -40,6 +40,25 @@ class RoleSyncService {
     this.playerStatsService = PlayerStatsService.getInstance();
   }
 
+  /**
+   * Check if an error is non-critical (expected behavior, doesn't need ERROR level logging)
+   */
+  private isNonCriticalError(errorMsg: string, statusCode?: number): boolean {
+    // 404 errors are typically non-critical (user not in guild, role not found, etc.)
+    if (statusCode === 404) {
+      return true;
+    }
+    
+    // Check for specific non-critical error messages
+    const nonCriticalPatterns = [
+      /user not found in guild/i,
+      /member not found/i,
+      /role not found/i,
+    ];
+    
+    return nonCriticalPatterns.some(pattern => pattern.test(errorMsg));
+  }
+
   public static getInstance(): RoleSyncService {
     if (!RoleSyncService.instance) {
       RoleSyncService.instance = new RoleSyncService();
@@ -329,6 +348,8 @@ class RoleSyncService {
 
       // Track results
       logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Processing sync results`);
+      const criticalErrors: string[] = [];
+      
       for (let i = 0; i < syncResult.added.length; i++) {
         const roleId = targetRoleIds[i];
         const role = roles.find(r => r.roleId === roleId);
@@ -340,9 +361,16 @@ class RoleSyncService {
         } else {
           const errorMsg = syncResult.added[i].error || 'Unknown error adding role';
           const statusCode = syncResult.added[i].statusCode;
-          result.errors.push(errorMsg);
-          logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Failed to add role ${roleLabel} (${roleId}) - Error: ${errorMsg}${statusCode ? ` (Status: ${statusCode})` : ''}`);
-          logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Role add failure details - Guild: ${guild.name} (${guild.guildId}), User: ${discordId}, Role: ${roleLabel} (${roleId}), Error: ${errorMsg}`);
+          const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
+          
+          if (isNonCritical) {
+            logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: User not in guild or role not found - Role: ${roleLabel} (${roleId}), Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
+          } else {
+            result.errors.push(errorMsg);
+            criticalErrors.push(errorMsg);
+            logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Failed to add role ${roleLabel} (${roleId}) - Error: ${errorMsg}${statusCode ? ` (Status: ${statusCode})` : ''}`);
+            logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Role add failure details - Guild: ${guild.name} (${guild.guildId}), User: ${discordId}, Role: ${roleLabel} (${roleId}), Error: ${errorMsg}`);
+          }
         }
       }
 
@@ -353,19 +381,26 @@ class RoleSyncService {
         } else {
           const errorMsg = removed.error || 'Unknown error removing role';
           const statusCode = removed.statusCode;
-          result.errors.push(errorMsg);
-          logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Failed to remove role - Error: ${errorMsg}${statusCode ? ` (Status: ${statusCode})` : ''}`);
-          logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Role remove failure details - Guild: ${guild.name} (${guild.guildId}), User: ${discordId}, Error: ${errorMsg}`);
+          const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
+          
+          if (isNonCritical) {
+            logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: User not in guild - Role removal skipped, Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
+          } else {
+            result.errors.push(errorMsg);
+            criticalErrors.push(errorMsg);
+            logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Failed to remove role - Error: ${errorMsg}${statusCode ? ` (Status: ${statusCode})` : ''}`);
+            logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Role remove failure details - Guild: ${guild.name} (${guild.guildId}), User: ${discordId}, Error: ${errorMsg}`);
+          }
         }
       }
 
-      if (result.errors.length > 0) {
+      if (criticalErrors.length > 0) {
         result.success = false;
-        logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Sync completed with ${result.errors.length} error(s) for guild ${guild.name} (${guild.guildId})`);
-        logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Errors: ${result.errors.join('; ')}`);
+        logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Sync completed with ${criticalErrors.length} critical error(s) for guild ${guild.name} (${guild.guildId})`);
+        logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Critical errors: ${criticalErrors.join('; ')}`);
         logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Full error details - Guild: ${guild.name}, User: ${discordId}, Errors: ${JSON.stringify(result.errors)}`);
       } else {
-        logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Sync completed successfully`);
+        logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Sync completed successfully (non-critical errors ignored)`);
       }
     } catch (error: any) {
       result.success = false;
@@ -554,44 +589,53 @@ class RoleSyncService {
       );
       logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Sync completed - Added: ${syncResult.added.length}, Removed: ${syncResult.removed.length}`);
 
-      // Track detailed errors
-      const addedErrors = syncResult.added
-        .map((r, i) => {
-          if (!r.success) {
-            const roleId = targetRoleIds[i];
-            const role = roles.find(role => role.roleId === roleId);
-            const roleLabel = role?.label || roleId || 'unknown';
-            const errorMsg = r.error || 'Unknown error';
-            const statusCode = r.statusCode;
+      // Track detailed errors (only critical ones)
+      const criticalErrors: string[] = [];
+      
+      syncResult.added.forEach((r, i) => {
+        if (!r.success) {
+          const roleId = targetRoleIds[i];
+          const role = roles.find(role => role.roleId === roleId);
+          const roleLabel = role?.label || roleId || 'unknown';
+          const errorMsg = r.error || 'Unknown error';
+          const statusCode = r.statusCode;
+          const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
+          
+          if (isNonCritical) {
+            logger.debug(`[RoleSyncService] syncCurationRolesForGuild: User not in guild or role not found - Role: ${roleLabel} (${roleId}), Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
+          } else {
+            result.errors.push(errorMsg);
+            criticalErrors.push(errorMsg);
             logger.error(`[RoleSyncService] syncCurationRolesForGuild: Failed to add role ${roleLabel} (${roleId}) - Error: ${errorMsg}${statusCode ? ` (Status: ${statusCode})` : ''}`);
             logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Role add failure details - Guild: ${guild.name} (${guild.guildId}), User: ${discordId}, Role: ${roleLabel} (${roleId}), Error: ${errorMsg}`);
-            return errorMsg;
           }
-          return null;
-        })
-        .filter((e): e is string => e !== null);
+        }
+      });
 
-      const removedErrors = syncResult.removed
-        .map((r) => {
-          if (!r.success) {
-            const errorMsg = r.error || 'Unknown error';
-            const statusCode = r.statusCode;
+      syncResult.removed.forEach((r) => {
+        if (!r.success) {
+          const errorMsg = r.error || 'Unknown error';
+          const statusCode = r.statusCode;
+          const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
+          
+          if (isNonCritical) {
+            logger.debug(`[RoleSyncService] syncCurationRolesForGuild: User not in guild - Role removal skipped, Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
+          } else {
+            result.errors.push(errorMsg);
+            criticalErrors.push(errorMsg);
             logger.error(`[RoleSyncService] syncCurationRolesForGuild: Failed to remove role - Error: ${errorMsg}${statusCode ? ` (Status: ${statusCode})` : ''}`);
             logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Role remove failure details - Guild: ${guild.name} (${guild.guildId}), User: ${discordId}, Error: ${errorMsg}`);
-            return errorMsg;
           }
-          return null;
-        })
-        .filter((e): e is string => e !== null);
+        }
+      });
 
-      if (addedErrors.length > 0 || removedErrors.length > 0) {
+      if (criticalErrors.length > 0) {
         result.success = false;
-        result.errors = [...addedErrors, ...removedErrors];
-        logger.error(`[RoleSyncService] syncCurationRolesForGuild: Sync completed with ${result.errors.length} error(s) for guild ${guild.name} (${guild.guildId})`);
-        logger.error(`[RoleSyncService] syncCurationRolesForGuild: Errors: ${result.errors.join('; ')}`);
+        logger.error(`[RoleSyncService] syncCurationRolesForGuild: Sync completed with ${criticalErrors.length} critical error(s) for guild ${guild.name} (${guild.guildId})`);
+        logger.error(`[RoleSyncService] syncCurationRolesForGuild: Critical errors: ${criticalErrors.join('; ')}`);
         logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Full error details - Guild: ${guild.name}, User: ${discordId}, Errors: ${JSON.stringify(result.errors)}`);
       } else {
-        logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Sync completed successfully`);
+        logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Sync completed successfully (non-critical errors ignored)`);
       }
     } catch (error: any) {
       result.success = false;

@@ -18,6 +18,11 @@ import { logger } from '../../services/LoggerService.js';
 import Creator from '../../../models/credits/Creator.js';
 import { PassSubmission } from '../../../models/submissions/PassSubmission.js';
 import LevelSubmission from '../../../models/submissions/LevelSubmission.js';
+import Difficulty from '../../../models/levels/Difficulty.js';
+import LevelCredit from '../../../models/levels/LevelCredit.js';
+import Level from '../../../models/levels/Level.js';
+import Curation from '../../../models/curations/Curation.js';
+import CurationType from '../../../models/curations/CurationType.js';
 import { AuditLog } from '../../../models/index.js';
 import UsernameChange from '../../../models/auth/UsernameChange.js';
 import LevelRerateHistory from '../../../models/levels/LevelRerateHistory.js';
@@ -1111,6 +1116,109 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
   } catch (error) {
     logger.error('Error generating modifier:', error);
     return res.status(500).json({ error: 'Failed to generate modifier' });
+  }
+});
+
+router.get('/:discordId([0-9]{1,20})/role-data', async (req, res) => {
+  try {
+    const discordId = req.params.discordId;
+    
+    // Get user by discordId
+    const provider = await OAuthProvider.findOne({
+      where: {
+        providerId: discordId,
+        provider: 'discord',
+      },
+      include: [{
+        model: User,
+        as: 'oauthUser',
+        include: [
+          { model: Player, as: 'player' },
+          { model: Creator, as: 'creator' },
+        ],
+      }],
+    });
+
+    if (!provider || !(provider as any).oauthUser) {
+      return res.status(404).json({ error: 'User not found for this Discord ID' });
+    }
+
+    const user = (provider as any).oauthUser as User;
+    const result: any = {
+      discordId,
+      userId: user.id,
+      playerId: user.playerId || null,
+      creatorId: user.creatorId || null,
+      topDifficulty: null,
+      curationTypes: [],
+    };
+
+    // Get top difficulty if user has a player
+    if (user.playerId) {
+      try {
+        const stats = await playerStatsService.getPlayerStats(user.playerId);
+        if (stats && stats.length > 0) {
+          const topDiff = stats[0].topDiff as Difficulty | null;
+          if (topDiff) {
+            result.topDifficulty = {
+              id: topDiff.id,
+              name: topDiff.name,
+              sortOrder: topDiff.sortOrder,
+            };
+          }
+        }
+      } catch (error: any) {
+        logger.debug(`Error fetching top difficulty for player ${user.playerId}: ${error.message}`);
+      }
+    }
+
+    // Get all curation types if user has a creator
+    if (user.creatorId) {
+      try {
+        const credits = await LevelCredit.findAll({
+          where: { creatorId: user.creatorId },
+          include: [{
+            model: Level,
+            as: 'level',
+            where: {
+              isHidden: { [Op.ne]: true },
+              isDeleted: { [Op.ne]: true },
+            },
+            include: [{
+              model: Curation,
+              as: 'curation',
+              required: true,
+              include: [{
+                model: CurationType,
+                as: 'type',
+              }],
+            }],
+          }],
+        });
+
+        // Extract unique curation types
+        const curationTypeMap = new Map<number, CurationType>();
+        for (const credit of credits) {
+          const curation = (credit.level as any)?.curation;
+          if (curation?.type) {
+            curationTypeMap.set(curation.type.id, curation.type);
+          }
+        }
+
+        result.curationTypes = Array.from(curationTypeMap.values()).map(ct => ({
+          id: ct.id,
+          name: ct.name,
+          sortOrder: ct.sortOrder,
+        })).sort((a, b) => (b.sortOrder || 0) - (a.sortOrder || 0)); // Sort descending
+      } catch (error: any) {
+        logger.debug(`Error fetching curation types for creator ${user.creatorId}: ${error.message}`);
+      }
+    }
+
+    return res.json(result);
+  } catch (error: any) {
+    logger.error('Error fetching role data:', error);
+    return res.status(500).json({ error: 'Failed to fetch role data' });
   }
 });
 
