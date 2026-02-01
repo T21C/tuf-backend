@@ -215,7 +215,15 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
           model: User,
           as: 'levelSubmitter',
           required: false,
-          attributes: ['id', 'username', 'playerId']
+          attributes: ['id', 'username', 'playerId', 'creatorId'],
+          include: [
+            {
+              model: Creator,
+              as: 'creator',
+              required: false,
+              attributes: ['id', 'name', 'isVerified']
+            }
+          ]
         }
       ]
     });
