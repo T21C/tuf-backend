@@ -314,16 +314,6 @@ router.post('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdminPassword(), as
       return res.status(400).json({ error: 'curationTypeId is required for CURATION type roles' });
     }
 
-    // Check for duplicate roleId in this guild
-    const existing = await DiscordSyncRole.findOne({
-      where: { discordGuildId: guildId, roleId },
-      transaction,
-    });
-    if (existing) {
-      await safeTransactionRollback(transaction);
-      return res.status(409).json({ error: 'A role with this ID already exists in this guild' });
-    }
-
     // Test if bot can manage this role before saving
     if (guild.botToken) {
       logger.debug(`Testing role assignment permission for role ${roleId} in guild ${guild.guildId}`);
@@ -403,20 +393,8 @@ router.put('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.supe
       return res.status(404).json({ error: 'Role not found in this guild' });
     }
 
-    // Check for duplicate if changing roleId
-    if (newRoleId && newRoleId !== role.roleId) {
-      const existing = await DiscordSyncRole.findOne({
-        where: {
-          discordGuildId: guildId,
-          roleId: newRoleId,
-          id: { [Op.ne]: roleId },
-        },
-        transaction,
-      });
-      if (existing) {
-        await safeTransactionRollback(transaction);
-        return res.status(409).json({ error: 'A role with this ID already exists in this guild' });
-      }
+    // Update roleId if provided (allow duplicates - multiple rules can target same roleId)
+    if (newRoleId !== undefined && newRoleId !== role.roleId) {
       role.roleId = newRoleId;
     }
 
