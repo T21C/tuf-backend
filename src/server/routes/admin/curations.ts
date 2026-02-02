@@ -141,10 +141,14 @@ const cleanupCurationTypeCdnFiles = async (type: CurationType) => {
   }
 };
 
-const syncRolesForLevel = async (levelId: number | undefined) => {
+const syncRolesForLevel = async (
+  levelId: number | undefined,
+  oldCurationTypeSets?: Map<number, Set<number>>
+) => {
   if (!levelId) {
     return;
   }
+  
   const level = await Level.findByPk(levelId, {
     include: [
       {
@@ -158,14 +162,61 @@ const syncRolesForLevel = async (levelId: number | undefined) => {
     ],
   });
 
-  if (level?.levelCredits) {
-      const creatorIds = level.levelCredits
-        .map(credit => credit.creator?.id)
-        .filter((id): id is number => id !== null && id !== undefined);
+  if (!level?.levelCredits) {
+    return;
+  }
+
+  const creatorIds = level.levelCredits
+    .map(credit => credit.creator?.id)
+    .filter((id): id is number => id !== null && id !== undefined);
+  
+  if (creatorIds.length === 0) {
+    return;
+  }
+
+  // If old curation type sets are provided, perform change detection
+  if (oldCurationTypeSets) {
+    // Get new curation type sets (after change)
+    const newCurationTypeSets = await roleSyncService.getCreatorsCurationTypeSets(creatorIds);
+
+    // Find creators whose curation type set changed
+    const changedCreatorIds = creatorIds.filter(creatorId => {
+      const oldTypes = oldCurationTypeSets.get(creatorId) ?? new Set<number>();
+      const newTypes = newCurationTypeSets.get(creatorId) ?? new Set<number>();
       
-      if (creatorIds.length > 0) {
-        await roleSyncService.notifyBotOfRoleSyncByCreatorIds(creatorIds);
+      // Compare sets - if sizes differ or sets are not equal, there's a change
+      if (oldTypes.size !== newTypes.size) {
+        return true;
       }
+      
+      // Check if all types in old set exist in new set
+      for (const typeId of oldTypes) {
+        if (!newTypes.has(typeId)) {
+          return true; // Type was removed
+        }
+      }
+      
+      // Check if any new types were added
+      for (const typeId of newTypes) {
+        if (!oldTypes.has(typeId)) {
+          return true; // Type was added
+        }
+      }
+      
+      return false; // Sets are identical
+    });
+
+    // Only notify changed creators
+    if (changedCreatorIds.length > 0) {
+      logger.debug(`[curations] Curation type sets changed for ${changedCreatorIds.length} creator(s) out of ${creatorIds.length}`);
+      await roleSyncService.notifyBotOfRoleSyncByCreatorIds(changedCreatorIds);
+    } else {
+      logger.debug(`[curations] No curation type set changes detected for ${creatorIds.length} creator(s)`);
+    }
+  } else {
+    // No old state provided, notify all creators (backward compatibility for create case)
+    // For create, we still want to notify since it's a new curation
+    await roleSyncService.notifyBotOfRoleSyncByCreatorIds(creatorIds);
   }
 };
 
@@ -702,6 +753,29 @@ router.get('/', async (req, res) => {
       return res.status(409).json({error: `This level already has a curation of type "${assignableType.name}"`});
     }
 
+    // Get level with creators BEFORE creating curation to capture old state
+    const levelWithCreators = await Level.findByPk(levelId, {
+      include: [
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          include: [{
+            model: Creator,
+            as: 'creator',
+          }],
+        },
+      ],
+    });
+
+    // Get old curation type sets for affected creators
+    const creatorIds = levelWithCreators?.levelCredits
+      ?.map(credit => credit.creator?.id)
+      .filter((id): id is number => id !== null && id !== undefined) ?? [];
+    
+    const oldCurationTypeSets = creatorIds.length > 0
+      ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
+      : undefined;
+
     const curation = await Curation.create({
       levelId,
       typeId: assignableType.id,
@@ -749,8 +823,8 @@ router.get('/', async (req, res) => {
       } : null
     } : null;
 
-    // Trigger Discord role sync for all creators credited on this level (async, non-blocking)
-    syncRolesForLevel(completeCuration?.levelId);
+    // Trigger Discord role sync for creators whose curation types changed
+    syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
 
     return res.status(201).json({ curation: serializedCuration });
   } catch (error) {
@@ -770,6 +844,30 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     if (!curation) {
       return res.status(404).json({error: 'Curation not found'});
     }
+
+    // Get level with creators BEFORE update to capture old state
+    const levelWithCreators = await Level.findByPk(curation.levelId, {
+      transaction,
+      include: [
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          include: [{
+            model: Creator,
+            as: 'creator',
+          }],
+        },
+      ],
+    });
+
+    // Get old curation type sets for affected creators
+    const creatorIds = levelWithCreators?.levelCredits
+      ?.map(credit => credit.creator?.id)
+      .filter((id): id is number => id !== null && id !== undefined) ?? [];
+    
+    const oldCurationTypeSets = creatorIds.length > 0
+      ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
+      : undefined;
 
     await curation.update({
       shortDescription,
@@ -812,7 +910,7 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     });
 
     await transaction.commit();
-    syncRolesForLevel(completeCuration?.levelId);
+    syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
     // Serialize BigInt abilities to string
     const serializedCuration = completeCuration ? {
       ...completeCuration.toJSON(),
@@ -900,6 +998,30 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
       return res.status(404).json({error: 'Curation not found'});
     }
 
+    // Get level with creators BEFORE deletion to capture old state
+    const levelWithCreators = await Level.findByPk(curation.levelId, {
+      transaction,
+      include: [
+        {
+          model: LevelCredit,
+          as: 'levelCredits',
+          include: [{
+            model: Creator,
+            as: 'creator',
+          }],
+        },
+      ],
+    });
+
+    // Get old curation type sets for affected creators
+    const creatorIds = levelWithCreators?.levelCredits
+      ?.map(credit => credit.creator?.id)
+      .filter((id): id is number => id !== null && id !== undefined) ?? [];
+    
+    const oldCurationTypeSets = creatorIds.length > 0
+      ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
+      : undefined;
+
     // Clean up CDN files for this curation
     await cleanupCurationCdnFiles([curation]);
     // Delete the curation (this will cascade delete related schedules)
@@ -909,7 +1031,7 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
 
     // Reindex the level
     await elasticsearchService.indexLevel(curation.levelId);
-    syncRolesForLevel(curation.levelId);
+    syncRolesForLevel(curation.levelId, oldCurationTypeSets);
     
 
     logger.debug(`Successfully deleted curation ${id} and cleaned up related resources`);

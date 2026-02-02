@@ -1,5 +1,8 @@
 import {sendWebhook, sendFile} from '../api/index.js';
 import MessageBuilder from './messageBuilder.js';
+import { logger } from '../../../server/services/LoggerService.js';
+
+const MAX_RATE_LIMIT_RETRIES = 3;
 
 export default class Webhook {
   private payload: any;
@@ -41,10 +44,11 @@ export default class Webhook {
 
       if (res.statusCode !== 200) {
         throw new Error(
-          `Error sending webhook: ${res.statusCode} status code.`,
+          `Error sending webhook file: ${res.statusCode} status code.`,
         );
       }
     } catch (err: any) {
+      logger.error(`[Webhook] Failed to send file: ${err.message}`, { filePath });
       if (this.throwErrors) throw new Error(err.message);
     }
   }
@@ -90,19 +94,33 @@ export default class Webhook {
     }
 
     try {
-      const res = await sendWebhook(this.hookURL, endPayload);
+      let res = await sendWebhook(this.hookURL, endPayload);
+      let rateLimitRetries = 0;
 
-      if (res.status === 429 && this.retryOnLimit) {
+      // Handle rate limiting with proper retry logic
+      while (res.status === 429 && this.retryOnLimit && rateLimitRetries < MAX_RATE_LIMIT_RETRIES) {
+        rateLimitRetries++;
         const body: any = await res.json();
-        const waitUntil = body['retry_after'];
+        const waitUntil = (body['retry_after'] || 1) * 1000; // Convert to ms, default 1 second
+        
+        logger.warn(`[Webhook] Rate limited, retrying in ${waitUntil}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})`);
+        
+        await new Promise(resolve => setTimeout(resolve, waitUntil));
+        res = await sendWebhook(this.hookURL, endPayload);
+      }
 
-        setTimeout(() => sendWebhook(this.hookURL, endPayload), waitUntil);
-      } else if (res.status !== 204) {
-        throw new Error(
-          `Error sending webhook: ${res.status} status code. Response: ${await res.text()}`,
-        );
+      if (res.status === 429) {
+        throw new Error(`Rate limit exceeded after ${MAX_RATE_LIMIT_RETRIES} retries`);
+      } else if (res.status !== 204 && res.status !== 200) {
+        const responseText = await res.text();
+        throw new Error(`HTTP ${res.status}: ${responseText}`);
       }
     } catch (err: any) {
+      // Log all errors with context
+      logger.error(`[Webhook] Failed to send webhook: ${err.message}`, {
+        embedCount: endPayload.embeds?.length || 0,
+        hasContent: !!endPayload.content,
+      });
       if (this.throwErrors) throw new Error(err.message);
     }
   }

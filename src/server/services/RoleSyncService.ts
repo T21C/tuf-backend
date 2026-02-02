@@ -391,6 +391,63 @@ class RoleSyncService {
   }
 
   /**
+   * Get curation type sets for multiple creators
+   * Returns a Map where each creatorId maps to a Set of curation type IDs they have
+   */
+  async getCreatorsCurationTypeSets(creatorIds: number[]): Promise<Map<number, Set<number>>> {
+    const result = new Map<number, Set<number>>();
+    
+    if (!creatorIds || creatorIds.length === 0) {
+      return result;
+    }
+
+    try {
+      // Initialize all creators with empty sets
+      creatorIds.forEach(id => result.set(id, new Set<number>()));
+
+      // Find all levels the creators have credits for
+      const credits = await LevelCredit.findAll({
+        where: { creatorId: creatorIds },
+        include: [{
+          model: Level,
+          as: 'level',
+          where: {
+            isHidden: { [Op.ne]: true },
+            isDeleted: { [Op.ne]: true },
+          },
+          include: [{
+            model: Curation,
+            as: 'curation',
+            required: true,
+            include: [{
+              model: CurationType,
+              as: 'type',
+            }],
+          }],
+        }],
+      });
+
+      // Build sets of curation type IDs for each creator
+      for (const credit of credits) {
+        const creatorId = credit.creatorId;
+        const curation = (credit.level as any)?.curation;
+        if (curation?.type?.id) {
+          const typeSet = result.get(creatorId);
+          if (typeSet) {
+            typeSet.add(curation.type.id);
+          }
+        }
+      }
+
+      logger.debug(`[RoleSyncService] Retrieved curation type sets for ${creatorIds.length} creator(s)`);
+    } catch (error: any) {
+      logger.error(`RoleSyncService.getCreatorsCurationTypeSets error: ${error.message}`);
+    }
+
+    return result;
+  }
+
+  /**
    * Sync difficulty roles for a player across all active guilds
    */
   async syncDifficultyRolesForPlayer(playerId: number): Promise<UserSyncResult> {
