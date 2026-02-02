@@ -4,6 +4,7 @@ import { DiscordGuild, DiscordSyncRole } from '../../models/discord/index.js';
 import Difficulty from '../../models/levels/Difficulty.js';
 import Level from '../../models/levels/Level.js';
 import Player from '../../models/players/Player.js';
+import PlayerStats from '../../models/players/PlayerStats.js';
 import User from '../../models/auth/User.js';
 import OAuthProvider from '../../models/auth/OAuthProvider.js';
 import Creator from '../../models/credits/Creator.js';
@@ -12,6 +13,7 @@ import Curation from '../../models/curations/Curation.js';
 import CurationType from '../../models/curations/CurationType.js';
 import { logger } from './LoggerService.js';
 import { PlayerStatsService } from './PlayerStatsService.js';
+import axios from 'axios';
 
 export interface RoleSyncResult {
   success: boolean;
@@ -34,11 +36,6 @@ export interface UserSyncResult {
  */
 class RoleSyncService {
   private static instance: RoleSyncService;
-  private playerStatsService: PlayerStatsService;
-
-  private constructor() {
-    this.playerStatsService = PlayerStatsService.getInstance();
-  }
 
   /**
    * Check if an error is non-critical (expected behavior, doesn't need ERROR level logging)
@@ -118,6 +115,201 @@ class RoleSyncService {
     }
   }
 
+
+  /**
+   * Main function to notify bot of role sync by Discord IDs
+   * This is the core function that makes the actual API call
+   */
+  async notifyBotOfRoleSyncByDiscordIds(discordIds: string[]): Promise<void> {
+    try {
+      if (!discordIds || discordIds.length === 0) {
+        logger.debug(`[RoleSyncService] No Discord IDs provided, skipping bot notification`);
+        return;
+      }
+
+      logger.debug(`[RoleSyncService] Sending notification for ${discordIds.length} Discord ID(s)`);
+      
+      await axios.post(`${process.env.HYONSU_BOT_URL}`, {
+        discordIds,
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `${process.env.HYONSU_BOT_TOKEN}`,
+        },
+      });
+    } catch (error: any) {
+      logger.error(`RoleSyncService.notifyBotOfRoleSyncByDiscordIds error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Notify bot of role sync for curation changes by creator IDs
+   * Converts creatorIds to userIds, then to discordIds, and calls the main function
+   */
+  async notifyBotOfRoleSyncByCreatorIds(creatorIds: number[]): Promise<void> {
+    try {
+      if (!creatorIds || creatorIds.length === 0) {
+        logger.debug(`[RoleSyncService] No creator IDs provided, skipping bot notification`);
+        return;
+      }
+
+      logger.debug(`[RoleSyncService] Notifying bot of role sync for ${creatorIds.length} creator(s)`);
+
+      // Get creators and their userIds
+      const creators = await Creator.findAll({
+        where: { id: creatorIds },
+        attributes: ['id', 'userId'],
+      });
+
+      const userIds = creators
+        .map(c => c.userId)
+        .filter((userId): userId is string => userId !== null && userId !== undefined);
+
+      if (userIds.length === 0) {
+        logger.debug(`[RoleSyncService] No userIds found for provided creatorIds, skipping bot notification`);
+        return;
+      }
+
+      // Convert userIds to discordIds
+      const discordIds: string[] = [];
+      for (const userId of userIds) {
+        const discordId = await this.getDiscordIdForUser(userId);
+        if (discordId) {
+          discordIds.push(discordId);
+        }
+      }
+
+      if (discordIds.length === 0) {
+        logger.debug(`[RoleSyncService] No Discord IDs found for creators, skipping bot notification`);
+        return;
+      }
+
+      // Call main function
+      await this.notifyBotOfRoleSyncByDiscordIds(discordIds);
+    } catch (error: any) {
+      logger.error(`RoleSyncService.notifyBotOfRoleSyncByCreatorIds error: ${error.message}`);
+    }
+  }
+
+  /**
+   * Notify bot of role sync for player stats updates
+   * Only notifies when topDifficulty (topDiffId) has changed for a player
+   */
+  async notifyBotOfRoleSyncByPlayerIds(
+    playerIds: number[],
+    oldTopDiffIds?: Map<number, number>
+  ): Promise<void> {
+    try {
+      if (!playerIds || playerIds.length === 0) {
+        logger.debug(`[RoleSyncService] No player IDs provided, skipping bot notification`);
+        return;
+      }
+
+      logger.debug(`[RoleSyncService] Checking topDiffId changes for ${playerIds.length} player(s)`);
+
+      // If oldTopDiffIds not provided, fetch them from database
+      let oldTopDiffMap: Map<number, number>;
+      if (oldTopDiffIds) {
+        oldTopDiffMap = oldTopDiffIds;
+      } else {
+        const oldStats = await PlayerStats.findAll({
+          where: { id: playerIds },
+          attributes: ['id', 'topDiffId'],
+        });
+        oldTopDiffMap = new Map(oldStats.map(stat => [stat.id, stat.topDiffId]));
+      }
+
+      // Get new topDiffIds from database
+      const newStats = await PlayerStats.findAll({
+        where: { id: playerIds },
+        attributes: ['id', 'topDiffId'],
+      });
+
+      // Find players whose topDiffId changed
+      const changedPlayerIds = newStats
+        .filter(stat => {
+          const oldTopDiffId = oldTopDiffMap.get(stat.id) ?? 0;
+          return oldTopDiffId !== stat.topDiffId;
+        })
+        .map(stat => stat.id);
+
+      if (changedPlayerIds.length === 0) {
+        logger.debug(`[RoleSyncService] No topDiffId changes detected, skipping bot notification`);
+        return;
+      }
+
+      logger.debug(`[RoleSyncService] TopDiffId changed for ${changedPlayerIds.length} player(s), notifying bot`);
+
+      // Convert changed playerIds to discordIds
+      const discordIds: string[] = [];
+      for (const playerId of changedPlayerIds) {
+        const discordId = await this.getDiscordIdForPlayer(playerId);
+        if (discordId) {
+          discordIds.push(discordId);
+        }
+      }
+
+      if (discordIds.length === 0) {
+        logger.debug(`[RoleSyncService] No Discord IDs found for players with changed topDiffId, skipping bot notification`);
+        return;
+      }
+
+      // Call main function
+      await this.notifyBotOfRoleSyncByDiscordIds(discordIds);
+    } catch (error: any) {
+      logger.error(`RoleSyncService.notifyBotOfRoleSyncByPlayerIds error: ${error.message}`);
+    }
+  }
+
+  /**
+   * @deprecated Use notifyBotOfRoleSyncByDiscordIds, notifyBotOfRoleSyncByCreatorIds, or notifyBotOfRoleSyncByPlayerIds instead
+   * Legacy function for backward compatibility
+   */
+  async notifyBotOfRoleSync(userIdOrPlayerId: string | number | string[] | number[]): Promise<void> {
+    try {
+      // Normalize input to array
+      const items = Array.isArray(userIdOrPlayerId) ? userIdOrPlayerId : [userIdOrPlayerId];
+      
+      logger.debug(`[RoleSyncService] Notifying bot of role sync for ${items.length} item(s)`);
+      
+      // Process each item to get Discord IDs
+      const discordIds: string[] = [];
+      
+      for (const item of items) {
+        // Check if input is a UUID pattern (userId) or a number (playerId)
+        const isUUID = typeof item === 'string' && 
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item);
+        
+        let discordId: string | null;
+        
+        if (isUUID) {
+          logger.debug(`[RoleSyncService] Getting Discord ID for user ${item}`);
+          discordId = await this.getDiscordIdForUser(item);
+          if (!discordId) {
+            logger.debug(`[RoleSyncService] User ${item} has no Discord account, skipping`);
+            continue;
+          }
+        } else if (typeof item === 'number') {
+          logger.debug(`[RoleSyncService] Getting Discord ID for player ${item}`);
+          discordId = await this.getDiscordIdForPlayer(item);
+          if (!discordId) {
+            logger.debug(`[RoleSyncService] Player ${item} has no Discord account, skipping`);
+            continue;
+          }
+        } else {
+          logger.error(`[RoleSyncService] Invalid input for notifyBotOfRoleSync: ${item} (must be UUID string or number)`);
+          continue;
+        }
+        
+        discordIds.push(discordId);
+      }
+      
+      // Call main function
+      await this.notifyBotOfRoleSyncByDiscordIds(discordIds);
+    } catch (error: any) {
+      logger.error(`RoleSyncService.notifyBotOfRoleSync error: ${error.message}`);
+    }
+  }
   /**
    * Get the highest difficulty cleared by a player (based on sortOrder)
    * Uses PlayerStatsService to get the top difficulty from cached stats
@@ -125,7 +317,7 @@ class RoleSyncService {
   async getHighestDifficultyClear(playerId: number): Promise<Difficulty | null> {
     try {
       logger.debug(`[RoleSyncService] Getting highest difficulty clear for player ${playerId}`);
-      const stats = await this.playerStatsService.getPlayerStats(playerId);
+      const stats = await PlayerStatsService.getInstance().getPlayerStats(playerId);
       
       if (!stats || stats.length === 0) {
         logger.debug(`[RoleSyncService] No stats found for player ${playerId}`);

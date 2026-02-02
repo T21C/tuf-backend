@@ -8,7 +8,6 @@ import CurationType from '../../../models/curations/CurationType.js';
 import { roleSyncService } from '../../services/RoleSyncService.js';
 import { logger } from '../../services/LoggerService.js';
 import sequelize from '../../../config/db.js';
-import { RateLimiter } from '../../decorators/rateLimiter.js';
 
 const router: Router = Router();
 

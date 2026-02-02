@@ -1187,8 +1187,18 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 
       // Trigger Discord role sync for the player (async, non-blocking)
       if (submission.assignedPlayerId) {
-        roleSyncService.syncDifficultyRolesForPlayer(submission.assignedPlayerId)
-          .catch(err => logger.error('Error syncing Discord roles for player:', err));
+        roleSyncService.getDiscordIdForPlayer(submission.assignedPlayerId)
+          .then(discordId => {
+            if (discordId) {
+              roleSyncService.notifyBotOfRoleSyncByDiscordIds([discordId]).catch(() => {
+                // Error already logged in RoleSyncService
+              });
+            }
+          })
+          .catch(err => {
+            // Silently handle errors - notification is non-critical
+            logger.debug(`[submissions] Failed to notify bot of role sync: ${err.message}`);
+          });
       }
 
       return res.json({
@@ -1637,8 +1647,18 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
         }
 
         // Trigger Discord role sync for the player (async, non-blocking)
-        roleSyncService.syncDifficultyRolesForPlayer(playerId)
-          .catch(err => logger.error('Error syncing Discord roles for player (auto-approve):', err));
+        roleSyncService.getDiscordIdForPlayer(playerId)
+          .then(discordId => {
+            if (discordId) {
+              roleSyncService.notifyBotOfRoleSyncByDiscordIds([discordId]).catch(() => {
+                // Error already logged in RoleSyncService
+              });
+            }
+          })
+          .catch(err => {
+            // Silently handle errors - notification is non-critical
+            logger.debug(`[submissions] Failed to notify bot of role sync: ${err.message}`);
+          });
 
         results.push({ id: lockedSubmission.id, success: true });
       } catch (error) {

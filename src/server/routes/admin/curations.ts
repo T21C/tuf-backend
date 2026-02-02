@@ -141,6 +141,35 @@ const cleanupCurationTypeCdnFiles = async (type: CurationType) => {
   }
 };
 
+const syncRolesForLevel = async (levelId: number | undefined) => {
+  if (!levelId) {
+    return;
+  }
+  const level = await Level.findByPk(levelId, {
+    include: [
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        include: [{
+          model: Creator,
+          as: 'creator',
+        }],
+      },
+    ],
+  });
+
+  if (level?.levelCredits) {
+      const creatorIds = level.levelCredits
+        .map(credit => credit.creator?.id)
+        .filter((id): id is number => id !== null && id !== undefined);
+      
+      if (creatorIds.length > 0) {
+        await roleSyncService.notifyBotOfRoleSyncByCreatorIds(creatorIds);
+      }
+  }
+};
+
+
 // Configure multer for file uploads
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -721,14 +750,7 @@ router.get('/', async (req, res) => {
     } : null;
 
     // Trigger Discord role sync for all creators credited on this level (async, non-blocking)
-    if (completeCuration?.level?.levelCredits) {
-      for (const credit of completeCuration.level.levelCredits) {
-        if (credit.creatorId) {
-          roleSyncService.syncCurationRolesForCreator(credit.creatorId)
-            .catch(err => logger.error('Error syncing Discord curation roles for creator:', err));
-        }
-      }
-    }
+    syncRolesForLevel(completeCuration?.levelId);
 
     return res.status(201).json({ curation: serializedCuration });
   } catch (error) {
@@ -790,6 +812,7 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     });
 
     await transaction.commit();
+    syncRolesForLevel(completeCuration?.levelId);
     // Serialize BigInt abilities to string
     const serializedCuration = completeCuration ? {
       ...completeCuration.toJSON(),
@@ -886,6 +909,8 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
 
     // Reindex the level
     await elasticsearchService.indexLevel(curation.levelId);
+    syncRolesForLevel(curation.levelId);
+    
 
     logger.debug(`Successfully deleted curation ${id} and cleaned up related resources`);
     return res.status(200).json({

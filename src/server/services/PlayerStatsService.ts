@@ -19,6 +19,11 @@ import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../config/constants.js';
 import LevelCredit from '../../models/levels/LevelCredit.js';
 import Team from '../../models/credits/Team.js';
+import { roleSyncService } from './RoleSyncService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
 // Define operation types for the queue
 type QueueOperation = {
   type: 'reloadAllStats' | 'updatePlayerStats' | 'updateRanks';
@@ -55,7 +60,7 @@ export class PlayerStatsService {
   private readonly RELOAD_INTERVAL = 30 * 60 * 1000; // 30 minutes
   private readonly CHUNK_SIZE = 200; // Reduced from 2000 to 500 to lower memory usage
   private readonly BATCHES_PER_CHUNK = 4; // Number of batches to split each chunk into
-  private readonly DEBOUNCE_DELAY = 2 * 60 * 1000; // 2 minutes in milliseconds
+  private readonly DEBOUNCE_DELAY = process.env.NODE_ENV === 'production' ? 2 * 60 * 1000 : 10 * 1000; // 2 minutes in milliseconds
   private modifierService: ModifierService | null = null;
   private updating = false;
   private operationQueue: QueueOperation[] = [];
@@ -486,6 +491,14 @@ export class PlayerStatsService {
     logger.debug(`[PlayerStatsService] Starting stats update for ${playerIds.length} players`);
 
     this.updating = true;
+    
+    // Fetch old topDiffIds before updating (for change detection)
+    const oldStats = await PlayerStats.findAll({
+      where: { id: playerIds },
+      attributes: ['id', 'topDiffId'],
+    });
+    const oldTopDiffIds = new Map(oldStats.map(stat => [stat.id, stat.topDiffId]));
+
     // Use a single transaction for the entire batch
     const transaction = await sequelize.transaction();
     try {
@@ -561,6 +574,8 @@ export class PlayerStatsService {
       await transaction.commit();
       logger.debug(`[PlayerStatsService] Stats updated for ${statsUpdates.length} players with stats, ${playersWithoutStats.length} players without stats`);
 
+      // Notify bot only for players whose topDiffId changed
+      await roleSyncService.notifyBotOfRoleSyncByPlayerIds(playerIds, oldTopDiffIds);
     } catch (error) {
       this.updating = false;
       logger.error('[PlayerStatsService] Failed to update player stats:', error);

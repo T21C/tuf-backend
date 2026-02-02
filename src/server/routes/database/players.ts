@@ -144,6 +144,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       playerStatsService.getPlayerStats(parseInt(id)).then(stats => stats?.[0]),
     ]);
 
+    /*
     // Filter out sensitive information from hidden levels and ensure no circular references
     if (enrichedPlayer?.passes) {
       enrichedPlayer.passes = enrichedPlayer.passes.map((pass: any) => {
@@ -162,6 +163,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         return plainPass;
       });
     }
+    */
 
     // Convert enriched player to plain object and remove any circular references
     const plainEnrichedPlayer = enrichedPlayer ? {
