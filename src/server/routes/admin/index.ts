@@ -23,7 +23,7 @@ router.use('/curations', curationRoutes);
 router.use('/discord', discordRolesRoutes);
 
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
-      return res.status(200).send();
+      return res.status(200).send({});
 });
 // Add other admin routes here
 

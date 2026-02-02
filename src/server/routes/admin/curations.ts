@@ -344,7 +344,7 @@ router.delete('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, 
     await elasticsearchService.reindexLevels(affectedLevelIds);
 
     logger.debug(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
-    return res.status(204).send();
+    return res.status(204).send({ success: true, message: 'Curation type deleted successfully' });
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting curation type:', error);
@@ -407,7 +407,7 @@ router.delete('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), async (
 
     await transaction.commit();
 
-    return res.json({success: true, message: 'Icon removed successfully'});
+    return res.json({ success: true, message: 'Icon removed successfully' });
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting curation icon:', error);

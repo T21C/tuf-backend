@@ -1192,7 +1192,7 @@ router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (re
 
 // Verify super admin password
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
-    return res.status(200).send();
+    return res.status(200).send({});
 });
 
 // Update difficulty sort orders in bulk

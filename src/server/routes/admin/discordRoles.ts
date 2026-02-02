@@ -227,7 +227,7 @@ router.delete('/guilds/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req:
     await guild.destroy({ transaction });
     await transaction.commit();
 
-    return res.status(204).send();
+    return res.status(204).send({ success: true, message: 'Guild deleted successfully' });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting Discord guild:', error);
@@ -450,7 +450,7 @@ router.delete('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.s
     await role.destroy({ transaction });
     await transaction.commit();
 
-    return res.status(204).send({});
+    return res.status(204).send({ success: true, message: 'Role deleted successfully' });
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting Discord role:', error);
