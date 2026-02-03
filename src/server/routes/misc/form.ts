@@ -942,7 +942,7 @@ router.post(
       // Enhanced error handling with proper cleanup
 
       if (!error.code || error.code === 500 ) {
-        logger.error('Submission error:', error);
+        logger.error('Submission error:', {error, body: req.body});
       }
 
       // Clean up uploaded CDN file if transaction failed
