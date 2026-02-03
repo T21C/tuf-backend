@@ -6,7 +6,7 @@ type ArtistAttributes = {
   id: number;
   name: string;
   avatarUrl: string | null;
-  verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed';
+  verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed' | 'tuf_verified';
   extraInfo: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -18,7 +18,7 @@ class Artist extends Model<ArtistAttributes, ArtistCreationAttributes> {
   declare id: number;
   declare name: string;
   declare avatarUrl: string | null;
-  declare verificationState: 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed';
+  declare verificationState: ArtistAttributes['verificationState'];
   declare extraInfo: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
@@ -49,7 +49,7 @@ Artist.init(
       allowNull: true,
     },
     verificationState: {
-      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly_declined', 'mostly_allowed', 'allowed'),
+      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly_declined', 'mostly_allowed', 'allowed', 'ysmod_only', 'tuf_verified'),
       allowNull: false,
       defaultValue: 'unverified',
     },

@@ -10,7 +10,7 @@ type LevelSubmissionSongRequestAttributes = {
   songId: number | null;
   songName: string | null;
   isNewRequest: boolean;
-  verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed' | null;
+  verificationState: Song['verificationState'] | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -23,7 +23,7 @@ class LevelSubmissionSongRequest extends Model<LevelSubmissionSongRequestAttribu
   declare songId: number | null;
   declare songName: string | null;
   declare isNewRequest: boolean;
-  declare verificationState: 'declined' | 'pending' | 'conditional' | 'ysmod_only' | 'allowed' | null;
+  declare verificationState: Song['verificationState'] | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -69,7 +69,7 @@ LevelSubmissionSongRequest.init(
       defaultValue: false,
     },
     verificationState: {
-      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'ysmod_only', 'allowed'),
+      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'ysmod_only', 'allowed', 'tuf_verified'),
       allowNull: true,
       defaultValue: null,
     },

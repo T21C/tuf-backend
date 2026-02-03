@@ -561,7 +561,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
                 const artist = await artistService.findOrCreateArtist(
                   artistRequest.artistName.trim(),
                   undefined,
-                  verificationState as 'unverified' | 'pending' | 'ysmod_only' | 'declined' | 'mostly_declined' | 'mostly_allowed' | 'allowed'
+                  verificationState as Artist['verificationState']
                 );
                 finalArtistIds.push(artist.id);
               }
