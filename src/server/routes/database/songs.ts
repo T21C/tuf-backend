@@ -45,12 +45,18 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       verificationState,
     } = req.query;
 
-    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-    const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
+    // Normalize and validate limit first
+    const normalizedLimit = Math.min(Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string) || 50)), 200);
+    
+    // Normalize and validate page (must be at least 1)
+    const normalizedPage = Math.max(1, parseInt(page as string) || 1);
+    
+    // Calculate offset using normalized values
+    const offset = (normalizedPage - 1) * normalizedLimit;
 
-    const escapedSearch = escapeForMySQL(search as string);
+    const searchString = (search as string).trim();
 
-    // Build order clause
+    // Build order clause for sorting
     let order: any[] = [['name', 'ASC']];
     switch (sort) {
       case 'NAME_DESC':
@@ -62,6 +68,103 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       case 'ID_DESC':
         order = [['id', 'DESC']];
         break;
+    }
+
+    // Step 1: Collect all matching IDs (unpaginated)
+    let allMatchingIds: number[] = [];
+    let exactMatchIds: number[] = [];
+
+    if (searchString) {
+      // Check for #{ID} pattern
+      const idMatcher = /^#\d{1,20}$/.exec(searchString);
+      if (idMatcher) {
+        // Special ID matcher - bypass search conditionals
+        const targetId = parseInt(searchString.replace('#', ''));
+        allMatchingIds = [targetId];
+      } else {
+        // Normal search - separate exact matches from partial matches
+        const escapedSearch = escapeForMySQL(searchString);
+
+        // Find exact name matches (case-insensitive, sorted)
+        const exactNameMatches = await Song.findAll({
+          where: sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('name')),
+            searchString.toLowerCase()
+          ),
+          attributes: ['id'],
+          order
+        });
+        exactMatchIds = exactNameMatches.map(s => s.id);
+
+        // Find exact alias matches (case-insensitive)
+        const exactAliasMatches = await SongAlias.findAll({
+          where: sequelize.where(
+            sequelize.fn('LOWER', sequelize.col('alias')),
+            searchString.toLowerCase()
+          ),
+          attributes: ['songId']
+        });
+        const exactAliasIds = Array.from(new Set(exactAliasMatches.map(a => a.songId)));
+
+        // Sort exact alias IDs by querying songs with those IDs
+        if (exactAliasIds.length > 0) {
+          const sortedExactAliasSongs = await Song.findAll({
+            where: { id: { [Op.in]: exactAliasIds } },
+            attributes: ['id'],
+            order
+          });
+          const sortedExactAliasIds = sortedExactAliasSongs.map(s => s.id);
+          exactMatchIds = [...exactMatchIds, ...sortedExactAliasIds];
+        }
+
+        // Remove duplicates from exact matches
+        exactMatchIds = Array.from(new Set(exactMatchIds));
+
+        // Find partial name matches (excluding exact matches, sorted)
+        const partialNameWhere: any = {
+          name: {
+            [Op.like]: `%${escapedSearch}%`
+          }
+        };
+        if (exactMatchIds.length > 0) {
+          partialNameWhere.id = {[Op.notIn]: exactMatchIds};
+        }
+        const partialNameMatches = await Song.findAll({
+          where: partialNameWhere,
+          attributes: ['id'],
+          order
+        });
+        const partialMatchIds = partialNameMatches.map(s => s.id);
+
+        // Find partial alias matches (excluding exact matches)
+        const partialAliasWhere: any = {
+          alias: {
+            [Op.like]: `%${escapedSearch}%`
+          }
+        };
+        if (exactMatchIds.length > 0) {
+          partialAliasWhere.songId = {[Op.notIn]: exactMatchIds};
+        }
+        const partialAliasMatches = await SongAlias.findAll({
+          where: partialAliasWhere,
+          attributes: ['songId']
+        });
+        const partialAliasIdsRaw = Array.from(new Set(partialAliasMatches.map(a => a.songId)));
+
+        // Sort partial alias IDs by querying songs with those IDs
+        let partialAliasIds: number[] = [];
+        if (partialAliasIdsRaw.length > 0) {
+          const sortedPartialAliasSongs = await Song.findAll({
+            where: { id: { [Op.in]: partialAliasIdsRaw } },
+            attributes: ['id'],
+            order
+          });
+          partialAliasIds = sortedPartialAliasSongs.map(s => s.id);
+        }
+
+        // Combine: exact matches first, then partial matches (both sorted)
+        allMatchingIds = [...exactMatchIds, ...Array.from(new Set([...partialMatchIds, ...partialAliasIds]))];
+      }
     }
 
     // Filter by artist(s) if provided - supports comma-separated IDs like "51,76"
@@ -110,28 +213,44 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       }
     }
 
-    // Build final where clause
-    const finalWhere: any = {};
-
-    // Simple search filter on name
-    if (escapedSearch && escapedSearch.trim()) {
-      finalWhere.name = {[Op.like]: `%${escapedSearch}%`};
+    // Apply artist filter to search results if both are present
+    if (artistSongIds !== null && allMatchingIds.length > 0) {
+      allMatchingIds = allMatchingIds.filter(id => artistSongIds!.includes(id));
+      // Maintain order: exact matches first, then partial matches
+      const filteredExactIds = exactMatchIds.filter(id => artistSongIds!.includes(id));
+      const filteredPartialIds = allMatchingIds.filter(id => !exactMatchIds.includes(id));
+      allMatchingIds = [...filteredExactIds, ...filteredPartialIds];
+    } else if (artistSongIds !== null && allMatchingIds.length === 0) {
+      // No search but artist filter exists
+      allMatchingIds = artistSongIds;
     }
 
-    // Verification state filter (only if specified)
-    if (verificationState) {
-      finalWhere.verificationState = verificationState;
+    // Apply verification state filter if specified
+    if (verificationState && allMatchingIds.length > 0) {
+      const filterWhere: any = {
+        id: {[Op.in]: allMatchingIds},
+      };
+      filterWhere.verificationState = verificationState;
+      const filteredSongs = await Song.findAll({
+        where: filterWhere,
+        attributes: ['id'],
+        order
+      });
+      const filteredIds = filteredSongs.map(s => s.id);
+
+      // Maintain order: exact matches first, then partial matches
+      const filteredExactIds = exactMatchIds.filter(id => filteredIds.includes(id));
+      const filteredPartialIds = allMatchingIds.filter(id => !exactMatchIds.includes(id) && filteredIds.includes(id));
+      allMatchingIds = [...filteredExactIds, ...filteredPartialIds];
     }
 
-    // Apply artist filter if provided
-    if (artistSongIds !== null) {
-      finalWhere.id = {[Op.in]: artistSongIds};
-    }
+    // Step 2: Paginate the IDs array
+    const totalCount = allMatchingIds.length;
+    const paginatedIds = allMatchingIds.slice(offset, offset + normalizedLimit);
 
-    const {count, rows} = await Song.findAndCountAll({
-      where: finalWhere,
-      limit: normalizedLimit,
-      offset,
+    // Step 3: Query with paginated IDs (or normal query if no search)
+    let finalWhere: any = {};
+    let queryOptions: any = {
       order,
       include: [
         {
@@ -156,14 +275,62 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
           ]
         }
       ]
-    });
+    };
+
+    if (searchString && paginatedIds.length > 0) {
+      // Use paginated IDs - already paginated, no limit/offset needed
+      finalWhere.id = {[Op.in]: paginatedIds};
+      queryOptions.where = finalWhere;
+    } else if (searchString && paginatedIds.length === 0) {
+      // No matches found
+      return res.json({
+        songs: [],
+        total: 0,
+        page: normalizedPage,
+        limit: normalizedLimit,
+        hasMore: false
+      });
+    } else {
+      // No search - apply filters if specified
+      if (verificationState) {
+        finalWhere.verificationState = verificationState;
+      }
+      if (artistSongIds !== null) {
+        finalWhere.id = {[Op.in]: artistSongIds};
+      }
+      queryOptions.where = finalWhere;
+      queryOptions.limit = normalizedLimit;
+      queryOptions.offset = offset;
+    }
+
+    // Step 4: Fetch songs with all required includes
+    const {count, rows} = await Song.findAndCountAll(queryOptions);
+
+    // Step 5: Sort results to maintain exact matches first (if we had a search)
+    let sortedRows = rows;
+    if (searchString && exactMatchIds.length > 0 && paginatedIds.length > 0) {
+      sortedRows = rows.sort((a, b) => {
+        const aIsExact = exactMatchIds.includes(a.id);
+        const bIsExact = exactMatchIds.includes(b.id);
+
+        if (aIsExact && !bIsExact) return -1;
+        if (!aIsExact && bIsExact) return 1;
+
+        // Both in same category - maintain order from paginatedIds
+        const aIndex = paginatedIds.indexOf(a.id);
+        const bIndex = paginatedIds.indexOf(b.id);
+        return aIndex - bIndex;
+      });
+    }
+
+    const finalCount = searchString ? totalCount : count;
 
     return res.json({
-      songs: rows,
-      total: count,
-      page: parseInt(page as string),
+      songs: sortedRows,
+      total: finalCount,
+      page: normalizedPage,
       limit: normalizedLimit,
-      hasMore: rows.length > 0 && offset + normalizedLimit < count
+      hasMore: sortedRows.length > 0 && offset + normalizedLimit < finalCount
     });
   } catch (error) {
     logger.error('Error fetching songs:', error);
