@@ -40,7 +40,7 @@ const upload = multer({
 });
 
 // Get current user profile
-router.get('/me', Cache({ varyByUser: true }), Auth.user(), async (req: Request, res: Response) => {
+router.get('/me', Auth.user(), Cache({ varyByUser: true, }), async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
