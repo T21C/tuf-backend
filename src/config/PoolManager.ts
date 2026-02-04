@@ -27,6 +27,16 @@ export class PoolManager {
   private defaultPool: Sequelize;
   private readonly SLOW_QUERY_THRESHOLD_MS = process.env.SLOW_QUERY_THRESHOLD_MS ? parseInt(process.env.SLOW_QUERY_THRESHOLD_MS) : 2000; // Log queries taking > 2 seconds
 
+  // SQL patterns excluded from slow query logging (expected to be slow)
+  private readonly SLOW_QUERY_EXCLUDED_PATTERNS = [
+    'WITH PassesData AS',        // PlayerStatsService bulk stats calculation
+    'player_pass_summary',       // Views involving pass summaries are expected to be slow
+  ];
+
+  private isExcludedQuery(sql: string): boolean {
+    return this.SLOW_QUERY_EXCLUDED_PATTERNS.some(pattern => sql.includes(pattern));
+  }
+
   private readonly baseConfig = {
     dialect: 'mysql' as const,
     host: process.env.DB_HOST,
@@ -37,7 +47,7 @@ export class PoolManager {
         ? process.env.DB_STAGING_DATABASE
         : process.env.DB_DATABASE,
     logging: (sql: string, timing?: number) => {
-      if (timing && timing > this.SLOW_QUERY_THRESHOLD_MS) {
+      if (timing && timing > this.SLOW_QUERY_THRESHOLD_MS && !this.isExcludedQuery(sql)) {
         logger.warn(`Slow query (${timing}ms):`, { sql: sql.substring(0, 500) });
       }
     },

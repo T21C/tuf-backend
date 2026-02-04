@@ -212,13 +212,31 @@ export async function startServer() {
 
     // Response time logging middleware - logs slow endpoints
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
+    // Endpoints excluded from slow logging (supports wildcards with *)
+    const SLOW_LOG_EXCLUDED_ROUTES = [
+      '/v2/media/thumbnail/*',   // Thumbnail generation is expected to be slow
+      '/v2/chunked-upload/*',    // File uploads are expected to be slow
+      '/health',                 // Health checks are lightweight, no need to log
+    ];
+
+    const isExcludedRoute = (path: string): boolean => {
+      return SLOW_LOG_EXCLUDED_ROUTES.some(pattern => {
+        if (pattern.includes('*')) {
+          const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+          return regex.test(path);
+        }
+        return path === pattern;
+      });
+    };
+
     app.use((req: Request, res: Response, next: NextFunction) => {
       const start = process.hrtime.bigint();
-      const route = `${req.method} ${req.originalUrl.split('?')[0]}`; // Strip query params for cleaner logs
+      const path = req.originalUrl.split('?')[0]; // Strip query params
+      const route = `${req.method} ${path}`;
 
       res.on('finish', () => {
         const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-        if (durationMs > SLOW_ENDPOINT_THRESHOLD_MS) {
+        if (durationMs > SLOW_ENDPOINT_THRESHOLD_MS && !isExcludedRoute(path)) {
           logger.warn(`Slow endpoint (${durationMs.toFixed(0)}ms): ${route}`, {
             status: res.statusCode,
             duration: Math.round(durationMs),
