@@ -8,7 +8,7 @@ export interface ILevelPackItem {
   id: number;
   packId: number;
   type: 'folder' | 'level';
-  parentId: number | null;
+  parentId: number; // 0 = root level
   name: string | null;
   levelId: number | null;
   sortOrder: number;
@@ -29,7 +29,7 @@ class LevelPackItem
   declare id: number;
   declare packId: number;
   declare type: 'folder' | 'level';
-  declare parentId: number | null;
+  declare parentId: number; // 0 = root level
   declare name: string | null;
   declare levelId: number | null;
   declare sortOrder: number;
@@ -68,13 +68,9 @@ LevelPackItem.init(
     },
     parentId: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'level_pack_items',
-        key: 'id',
-      },
-      onDelete: 'CASCADE',
-      comment: 'Parent item ID for tree structure within pack',
+      allowNull: false,
+      defaultValue: 0,
+      comment: 'Parent item ID for tree structure within pack (0 = root level)',
     },
     name: {
       type: DataTypes.STRING,
@@ -128,6 +124,14 @@ LevelPackItem.init(
       {
         fields: ['packId', 'parentId', 'sortOrder'],
         name: 'level_pack_items_pack_parent_sort',
+      },
+      {
+        // Prevent duplicate levels in the same folder within a pack
+        // Same level can exist in different folders (different parentId)
+        // NULL levelIds (folders) don't conflict due to MySQL NULL handling in unique indexes
+        unique: true,
+        fields: ['packId', 'parentId', 'levelId'],
+        name: 'level_pack_items_pack_parent_level_unique',
       },
     ],
   }

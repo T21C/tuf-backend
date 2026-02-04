@@ -89,7 +89,7 @@ const canEditPack = (pack: LevelPack, user: any): boolean => {
 };
 
 // Helper function to build tree recursively from items
-const buildItemTree = (items: any[], parentId: number | null = null): any[] => {
+const buildItemTree = (items: any[], parentId: number = 0): any[] => {
   const children = items.filter(item => {
     // Handle both Sequelize model instances and plain objects
     const itemParentId = item.parentId;
@@ -817,9 +817,9 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
       }
     }
 
-    const itemsByParent = new Map<number | null, LevelPackItem[]>();
+    const itemsByParent = new Map<number, LevelPackItem[]>();
     for (const item of packItems) {
-      const parentKey = item.parentId ?? null;
+      const parentKey = item.parentId ?? 0;
       if (!itemsByParent.has(parentKey)) {
         itemsByParent.set(parentKey, []);
       }
@@ -846,7 +846,7 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
       packItemId?: number;
     };
 
-    const buildDownloadTree = (parentId: number | null): DownloadTreeNode[] => {
+    const buildDownloadTree = (parentId: number = 0): DownloadTreeNode[] => {
       const children = itemsByParent.get(parentId) ?? [];
 
       return children.map(child => {
@@ -879,7 +879,7 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
       }).filter((node) => node !== null) as DownloadTreeNode[];
     };
 
-    const rootChildren = buildDownloadTree(targetFolder ? targetFolder.id : null);
+    const rootChildren = buildDownloadTree(targetFolder ? targetFolder.id : 0);
 
     if (rootChildren.length === 0) {
       return res.status(400).json({ error: 'No levels available for download in the selected scope' });
@@ -1305,7 +1305,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         where: {
           packId: resolvedPackId,
           type: 'folder',
-          parentId: parentId || null,
+          parentId: parentId || 0,
           name: name.trim()
         },
         transaction
@@ -1341,7 +1341,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       let finalSortOrder = sortOrder;
       if (finalSortOrder === undefined || finalSortOrder === null) {
         const maxSortOrder = await LevelPackItem.max('sortOrder', {
-          where: { packId: resolvedPackId, parentId: parentId || null },
+          where: { packId: resolvedPackId, parentId: parentId || 0 },
           transaction
         });
         finalSortOrder = (maxSortOrder as number || 0) + 1;
@@ -1350,7 +1350,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       const item = await LevelPackItem.create({
         packId: resolvedPackId,
         type: 'folder',
-        parentId: parentId || null,
+        parentId: parentId || 0,
         name: name.trim(),
         levelId: null,
         sortOrder: finalSortOrder
@@ -1443,7 +1443,7 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       let baseSortOrder = sortOrder;
       if (baseSortOrder === undefined || baseSortOrder === null) {
         const maxSortOrder = await LevelPackItem.max('sortOrder', {
-          where: { packId: resolvedPackId, parentId: parentId || null },
+          where: { packId: resolvedPackId, parentId: parentId || 0 },
           transaction
         });
         baseSortOrder = (maxSortOrder as number || 0) + 1;
@@ -1452,15 +1452,25 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
       const itemsToCreate = newLevelIds.map((levelIdToAdd, i) => ({
         packId: resolvedPackId,
         type: 'level' as const,
-        parentId: parentId || null,
+        parentId: parentId || 0,
         name: null,
         levelId: levelIdToAdd,
         sortOrder: baseSortOrder + i
       }));
 
-      const createdItems = await LevelPackItem.bulkCreate(itemsToCreate, { transaction });
+      // Use ignoreDuplicates to handle race conditions from concurrent requests
+      // This prevents errors when the same level is added by parallel requests
+      const createdItems = await LevelPackItem.bulkCreate(itemsToCreate, { 
+        transaction,
+        ignoreDuplicates: true 
+      });
 
       await transaction.commit();
+
+      // If all items were duplicates (concurrent request already added them), return success with empty array
+      if (createdItems.length === 0) {
+        return res.status(200).json({ message: 'Levels already in pack', items: [] });
+      }
 
       // Return all created items with level data
       const result = await LevelPackItem.findAll({
@@ -1591,7 +1601,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     }
 
     // Flatten the tree structure to get all updates
-    const flattenTreeUpdates = (treeItems: any[], parentId: number | null = null, updates: any[] = []) => {
+    const flattenTreeUpdates = (treeItems: any[], parentId: number = 0, updates: any[] = []) => {
       treeItems.forEach((item, index) => {
         updates.push({
           id: item.id,
@@ -1623,9 +1633,9 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     }
 
     // Check for circular references in folders
-    const folderMap = new Map<number, number | null>();
+    const folderMap = new Map<number, number>();
     updates.forEach(update => {
-      folderMap.set(update.id, update.parentId);
+      folderMap.set(update.id, update.parentId ?? 0);
     });
 
     for (const item of packItems) {
@@ -1633,7 +1643,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
         let currentParentId = folderMap.get(item.id);
         const visited = new Set<number>([item.id]);
 
-        while (currentParentId) {
+        while (currentParentId && currentParentId !== 0) {
           if (visited.has(currentParentId)) {
             throw { error: 'Circular reference detected in folder structure', code: 400 };
           }
@@ -1682,21 +1692,14 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
     // Perform all updates using bulkCreate with updateOnDuplicate to trigger hooks
     if (enrichedUpdates.length > 0) {
-      // Prepare bulk create data - only include fields we want to update
-      const bulkData = enrichedUpdates.map(update => {
-        const updateData: any = {
-          id: update.id,
-          packId: resolvedPackId,
-          sortOrder: update.sortOrder
-        };
-
-        // Only include parentId if it's not null (null means keep existing)
-        if (update.parentId !== null) {
-          updateData.parentId = update.parentId;
-        }
-
-        return updateData;
-      });
+      // Prepare bulk create data - include required fields for Sequelize
+      const bulkData = enrichedUpdates.map(update => ({
+        id: update.id,
+        packId: resolvedPackId,
+        type: update.item.type, // Required field
+        sortOrder: update.sortOrder,
+        parentId: update.parentId ?? 0 // 0 = root level
+      }));
 
       // Use bulkCreate with updateOnDuplicate to update existing records
       // This triggers afterBulkCreate and afterBulkUpdate hooks
@@ -2067,7 +2070,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
             where: {
               packId: resolvedPackId,
               type: 'folder',
-              parentId: parentId || null,
+              parentId: parentId || 0,
               name: item.name,
               id: { [Op.ne]: id } // Exclude the current item
             },
@@ -2086,7 +2089,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
       if (id && sortOrder !== undefined) {
         const updateData: any = { sortOrder };
         if (parentId !== undefined) {
-          updateData.parentId = parentId || null;
+          updateData.parentId = parentId || 0;
         }
 
         await LevelPackItem.update(
