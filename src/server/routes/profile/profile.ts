@@ -16,6 +16,7 @@ import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
+import { Cache } from '../../middleware/cache.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -39,7 +40,7 @@ const upload = multer({
 });
 
 // Get current user profile
-router.get('/me', Auth.user(), async (req: Request, res: Response) => {
+router.get('/me', Cache({ varyByUser: true }), Auth.user(), async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
@@ -52,24 +53,7 @@ router.get('/me', Auth.user(), async (req: Request, res: Response) => {
       attributes: ['provider', 'providerId', 'profile'],
     });
 
-    const player = await Player.findByPk(user.playerId, {
-      include: [
-        {
-          model: PlayerStats,
-          as: 'stats',
-          include: [
-            {
-              model: Difficulty,
-              as: 'topDiff',
-            },
-            {
-              model: Difficulty,
-              as: 'top12kDiff',
-            },
-          ],
-        },
-      ],
-    });
+    const player = await Player.findByPk(user.playerId);
 
     return res.json({
       user: {
