@@ -214,6 +214,7 @@ export async function startServer() {
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
     // Endpoints excluded from slow logging (supports wildcards with *)
     const SLOW_LOG_EXCLUDED_ROUTES = [
+      '/v2/webhook/*',
       '/v2/form/form-submit',
       '/v2/media/thumbnail/*',
       '/v2/media/image-proxy',   // Thumbnail generation is expected to be slow

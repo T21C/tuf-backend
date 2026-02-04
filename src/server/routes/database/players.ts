@@ -32,6 +32,7 @@ import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { permissionFlags } from '../../../config/constants.js';
 import { hasFlag, setUserPermissionAndSave } from '../../../misc/utils/auth/permissionUtils.js';
 import { serializePlayer } from '../../../misc/utils/server/jsonHelpers.js';
+import { CacheInvalidation } from '../../middleware/cache.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -632,12 +633,25 @@ router.put('/:id([0-9]{1,20})/name', Auth.superAdmin(), async (req: Request, res
         });
       }
 
-      const player = await Player.findByPk(id);
+      const player = await Player.findByPk(id, {
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id']
+          }
+        ]
+      });
       if (!player) {
         return res.status(404).json({error: 'Player not found'});
       }
 
       await player.update({name});
+
+      // Invalidate user-specific cache if player has a user
+      if (player.user) {
+        await CacheInvalidation.invalidateUser(player.user.id);
+      }
 
       const io = getIO();
       io.emit('leaderboardUpdated');
@@ -744,6 +758,11 @@ router.patch('/:id([0-9]{1,20})/ban', Auth.superAdmin(), async (req: Request, re
 
       await transaction.commit();
 
+      // Invalidate user-specific cache if player has a user
+      if (player.user) {
+        await CacheInvalidation.invalidateUser(player.user.id);
+      }
+
       sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
@@ -784,6 +803,11 @@ router.patch('/:id([0-9]{1,20})/pause-submissions', Auth.superAdmin(), async (re
       }
 
       await transaction.commit();
+
+      // Invalidate user-specific cache if player has a user
+      if (player.user) {
+        await CacheInvalidation.invalidateUser(player.user.id);
+      }
 
       sseManager.broadcast({type: 'playerUpdate'});
 
@@ -977,6 +1001,14 @@ router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, r
       });
 
       await transaction.commit();
+
+      // Invalidate cache for both users if they exist
+      if (sourcePlayer.user) {
+        await CacheInvalidation.invalidateUser(sourcePlayer.user.id);
+      }
+      if (targetPlayer.user) {
+        await CacheInvalidation.invalidateUser(targetPlayer.user.id);
+      }
 
       // Update stats for target player
       await playerStatsService.updatePlayerStats([targetPlayer.id]);

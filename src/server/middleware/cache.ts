@@ -402,6 +402,15 @@ export const CacheInvalidation = {
   },
 
   /**
+   * Invalidate all cache entries for a specific user by UUID
+   * Only invalidates the UUID-specific tag to avoid affecting other users' caches
+   * @example CacheInvalidation.invalidateUser('123e4567-e89b-12d3-a456-426614174000')
+   */
+  async invalidateUser(userId: string): Promise<number> {
+    return this.invalidateTag(`user:${userId}`);
+  },
+
+  /**
    * Create middleware that invalidates cache after successful mutation
    * @example router.post('/levels', Auth.curator(), InvalidateCache('levels'), createLevel);
    */

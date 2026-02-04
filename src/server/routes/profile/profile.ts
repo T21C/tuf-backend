@@ -16,7 +16,7 @@ import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
-import { Cache } from '../../middleware/cache.js';
+import { Cache, CacheInvalidation } from '../../middleware/cache.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -40,7 +40,10 @@ const upload = multer({
 });
 
 // Get current user profile
-router.get('/me', Auth.user(), Cache({ varyByUser: true, }), async (req: Request, res: Response) => {
+router.get('/me', Auth.user(), Cache({ 
+  varyByUser: true, 
+  tags: (req: Request) => [`user:${req.user?.id}`]
+}), async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
@@ -253,6 +256,9 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
       logger.error('Error updating Elasticsearch after profile update:', elasticsearchError);
     }
 
+    // Invalidate user-specific cache
+    await CacheInvalidation.invalidateUser(user.id);
+
     return res.json({
       message: 'Profile updated successfully',
       user: {
@@ -309,6 +315,9 @@ router.put('/password', Auth.user(), async (req: Request, res: Response) => {
     // Update user's password
     await User.update({password: hashedPassword}, {where: {id: user.id}});
 
+    // Invalidate user-specific cache
+    await CacheInvalidation.invalidateUser(user.id);
+
     return res.json({message: 'Password updated successfully'});
   } catch (error) {
     logger.error('Error updating password:', error);
@@ -355,6 +364,9 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
             },
             {where: {id: user.id}}
         );
+
+        // Invalidate user-specific cache
+        await CacheInvalidation.invalidateUser(user.id);
 
         return res.json({
             message: 'Avatar uploaded successfully',
@@ -411,6 +423,9 @@ router.delete('/avatar', Auth.user(), async (req: Request, res: Response) => {
             // Log the error but don't fail the request since user record is already updated
             logger.error('Error deleting old avatar from CDN:', error);
         }
+
+        // Invalidate user-specific cache
+        await CacheInvalidation.invalidateUser(user.id);
 
         return res.json({message: 'Avatar removed successfully'});
     } catch (error) {

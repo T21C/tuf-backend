@@ -8,6 +8,7 @@ import {tokenUtils} from '../../../misc/utils/auth/auth.js';
 import { logger } from '../../services/LoggerService.js';
 import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
+import { CacheInvalidation } from '../../middleware/cache.js';
 
 const router: Router = Router();
 
@@ -194,6 +195,9 @@ router.post(
         await setUserPermissionAndSave(userToUpdate, targetFlag, true);
       }
 
+      // Invalidate user-specific cache
+      await CacheInvalidation.invalidateUser(userToUpdate.id);
+
       return res.json({
         message: 'Role granted successfully',
         user: {
@@ -278,6 +282,9 @@ router.post(
       }
       }
 
+      // Invalidate user-specific cache
+      await CacheInvalidation.invalidateUser(userToUpdate.id);
+
       // Generate new token with updated permissions
       const newToken = tokenUtils.generateJWT(userToUpdate);
 
@@ -334,6 +341,8 @@ router.post(
 
           if (discordInfo.username && discordInfo.username !== user.username) {
             await user.update({username: discordInfo.username});
+            // Invalidate user-specific cache
+            await CacheInvalidation.invalidateUser(user.id);
             updates.push(discordId);
           }
         } catch (error) {
@@ -390,6 +399,9 @@ router.patch(
 
       // Update the user's rating ban status
       await player.user.update({isRatingBanned});
+
+      // Invalidate user-specific cache
+      await CacheInvalidation.invalidateUser(player.user.id);
 
       return res.json({
         message: 'Rating ban status updated successfully',

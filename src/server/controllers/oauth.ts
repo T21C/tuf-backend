@@ -12,6 +12,7 @@ import { logger } from '../services/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '../../config/app.config.js';
 import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../config/constants.js';
+import { CacheInvalidation } from '../middleware/cache.js';
 
 
 interface ProfileResponse {
@@ -166,6 +167,9 @@ export const OAuthController = {
             new Date(Date.now() + tokens.tokens.expires_in * 1000),
           );
 
+          // Invalidate user-specific cache
+          await CacheInvalidation.invalidateUser(req.user.id);
+
           return res.json({success: true});
         } catch (error: any) {
           if (error.message.includes('ERR_BAD_REQUEST') || (error.response && error.response.status === 400)) {
@@ -191,6 +195,9 @@ export const OAuthController = {
           tokens.tokens.refresh_token,
           new Date(Date.now() + tokens.tokens.expires_in * 1000),
         );
+
+        // Invalidate user-specific cache (for new users, this is a no-op but harmless)
+        await CacheInvalidation.invalidateUser(user.id);
 
         const token = tokenUtils.generateJWT(user);
         return res.json({
@@ -304,6 +311,9 @@ export const OAuthController = {
           new Date(Date.now() + tokens.expires_in * 1000),
         );
 
+        // Invalidate user-specific cache
+        await CacheInvalidation.invalidateUser(req.user!.id);
+
         return res.json({success: true});
       }
 
@@ -330,6 +340,10 @@ export const OAuthController = {
       }
 
       const success = await OAuthService.unlinkProvider(req.user!.id, provider);
+      
+      // Invalidate user-specific cache
+      await CacheInvalidation.invalidateUser(req.user!.id);
+      
       return res.json({success});
     } catch (error) {
       logger.error('Provider unlinking error:', error);
