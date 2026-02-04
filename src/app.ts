@@ -210,6 +210,27 @@ export async function startServer() {
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
 
+    // Response time logging middleware - logs slow endpoints
+    const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const start = process.hrtime.bigint();
+      const route = `${req.method} ${req.originalUrl.split('?')[0]}`; // Strip query params for cleaner logs
+
+      res.on('finish', () => {
+        const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+        if (durationMs > SLOW_ENDPOINT_THRESHOLD_MS) {
+          logger.warn(`Slow endpoint (${durationMs.toFixed(0)}ms): ${route}`, {
+            status: res.statusCode,
+            duration: Math.round(durationMs),
+            userId: (req as any).user?.id,
+            query: Object.keys(req.query).length > 0 ? req.query : undefined
+          });
+        }
+      });
+
+      next();
+    });
+
     // Set up API routes first
     app.use('/v2/admin', adminRoutes);
     app.use('/v2/form', formRoutes);

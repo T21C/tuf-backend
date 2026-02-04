@@ -261,9 +261,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
       return res.status(400).json({ error: 'Invalid level ID' });
     }
     const levelId = parseInt(req.params.id);
-    const transaction = await sequelize.transaction({
-      isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED,
-    });
 
     try {
       // Base level query (minimal data) with normalized song/artist
@@ -288,15 +285,13 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
             required: false
           },
         ],
-        transaction,
       });
 
       // Difficulty query (needs level's diffId)
       const difficultyPromise = levelPromise.then(async (level) => {
         if (!level) return null;
         return Difficulty.findOne({
-          where: { id: level.diffId },
-          transaction,
+          where: { id: level.diffId }
         });
       });
 
@@ -306,8 +301,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
           levelId: levelId,
           isDeleted: false,
           isHidden: false
-        },
-        transaction,
+        }
       }).then(async (passes) => {
         if (passes.length === 0) return [];
 
@@ -325,14 +319,12 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
               attributes: ['avatarUrl', 'username'],
             },
           ],
-          transaction,
         });
 
         const judgementsPromise = Judgement.findAll({
           where: {
             id: { [Op.in]: passes.map(p => p.id) }
           },
-          transaction,
         });
 
         const [players, judgements] = await Promise.all([playersPromise, judgementsPromise]);
@@ -365,13 +357,11 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
       // LevelAlias query
       const aliasesPromise = LevelAlias.findAll({
         where: { levelId: levelId },
-        transaction,
       });
 
       // LevelCredit query with nested Creator and CreatorAlias
       const levelCreditsPromise = LevelCredit.findAll({
         where: { levelId: levelId },
-        transaction,
       }).then(async (credits) => {
         if (credits.length === 0) return [];
 
@@ -388,7 +378,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
               attributes: ['name'],
             },
           ],
-          transaction,
         });
 
         const creators = await creatorsPromise;
@@ -408,7 +397,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         if (!level?.teamId) return null;
         return Team.findOne({
           where: { id: level.teamId },
-          transaction,
         });
       });
 
@@ -432,7 +420,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
             attributes: ['nickname','username', 'avatarUrl'],
           },
         ],
-        transaction,
       });
 
       // Rating query
@@ -455,14 +442,12 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
           },
         ],
         order: [['confirmedAt', 'DESC']],
-        transaction,
       });
 
       // LevelRerateHistory query
       const rerateHistoryPromise = LevelRerateHistory.findAll({
         where: { levelId: levelId },
         order: [['createdAt', 'DESC']],
-        transaction,
       });
 
       // Tags query
@@ -475,7 +460,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
           }
         },
         order: [['name', 'ASC']],
-        transaction,
       });
 
       // CDN service calls (need level data)
@@ -534,8 +518,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         metadataPromise
       ]);
 
-      await transaction.commit();
-
       if (!level) {
         return res.status(404).json({ error: 'Level not found' });
       }
@@ -569,7 +551,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         metadata,
       });
     } catch (error) {
-      await safeTransactionRollback(transaction);
       throw error;
     }
   } catch (error) {

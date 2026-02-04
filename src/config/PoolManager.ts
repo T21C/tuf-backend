@@ -10,6 +10,7 @@ export interface PoolConfig {
   minConnections?: number;
   acquireTimeout?: number;
   idleTimeout?: number;
+  evict?: number;
 }
 
 export interface ModelPoolMapping {
@@ -24,6 +25,8 @@ export class PoolManager {
   private pools: Map<string, Sequelize> = new Map();
   private modelMappings: ModelPoolMapping = {};
   private defaultPool: Sequelize;
+  private readonly SLOW_QUERY_THRESHOLD_MS = process.env.SLOW_QUERY_THRESHOLD_MS ? parseInt(process.env.SLOW_QUERY_THRESHOLD_MS) : 2000; // Log queries taking > 2 seconds
+
   private readonly baseConfig = {
     dialect: 'mysql' as const,
     host: process.env.DB_HOST,
@@ -33,7 +36,12 @@ export class PoolManager {
       process.env.NODE_ENV === 'staging'
         ? process.env.DB_STAGING_DATABASE
         : process.env.DB_DATABASE,
-    logging: false,
+    logging: (sql: string, timing?: number) => {
+      if (timing && timing > this.SLOW_QUERY_THRESHOLD_MS) {
+        logger.warn(`Slow query (${timing}ms):`, { sql: sql.substring(0, 500) });
+      }
+    },
+    benchmark: true,
     dialectOptions: {
       connectTimeout: 60000,
       timezone: '+00:00', // Force UTC timezone
@@ -106,7 +114,7 @@ export class PoolManager {
             return false;
           }
         },
-        evict: 30000,
+        evict: config.evict ?? 30000,
       } as any, // Type assertion: Sequelize runtime supports async validate, but types don't
     });
 

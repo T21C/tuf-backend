@@ -1449,22 +1449,16 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         baseSortOrder = (maxSortOrder as number || 0) + 1;
       }
 
-      const createdItems = [];
-      for (let i = 0; i < newLevelIds.length; i++) {
-        const levelIdToAdd = newLevelIds[i];
-        const finalSortOrder = baseSortOrder + i;
+      const itemsToCreate = newLevelIds.map((levelIdToAdd, i) => ({
+        packId: resolvedPackId,
+        type: 'level' as const,
+        parentId: parentId || null,
+        name: null,
+        levelId: levelIdToAdd,
+        sortOrder: baseSortOrder + i
+      }));
 
-        const item = await LevelPackItem.create({
-          packId: resolvedPackId,
-          type: 'level',
-          parentId: parentId || null,
-          name: null,
-          levelId: levelIdToAdd,
-          sortOrder: finalSortOrder
-        }, { transaction });
-
-        createdItems.push(item);
-      }
+      const createdItems = await LevelPackItem.bulkCreate(itemsToCreate, { transaction });
 
       await transaction.commit();
 
