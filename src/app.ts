@@ -214,7 +214,8 @@ export async function startServer() {
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
     // Endpoints excluded from slow logging (supports wildcards with *)
     const SLOW_LOG_EXCLUDED_ROUTES = [
-      '/v2/media/thumbnail/*',   // Thumbnail generation is expected to be slow
+      '/v2/media/thumbnail/*',
+      '/v2/media/image-proxy',   // Thumbnail generation is expected to be slow
       '/v2/chunked-upload/*',    // File uploads are expected to be slow
       '/health',                 // Health checks are lightweight, no need to log
     ];
