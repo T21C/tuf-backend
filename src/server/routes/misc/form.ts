@@ -850,7 +850,7 @@ router.post(
           passSubmissionId: submission.id,
         }, { transaction });
 
-        // Create flags with proper validation
+        // Create or update flags with proper validation
         const flags = {
           passSubmissionId: submission.id,
           is12K,
@@ -858,7 +858,8 @@ router.post(
           is16K,
         };
 
-        await PassSubmissionFlags.create(flags, { transaction });
+        // Use upsert to avoid duplicate key errors - updates if exists, creates if not
+        await PassSubmissionFlags.upsert(flags, { transaction });
 
         const passObj = await PassSubmission.findByPk(submission.id, {
           include: [
