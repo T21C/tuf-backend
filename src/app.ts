@@ -214,21 +214,27 @@ export async function startServer() {
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
     // Endpoints excluded from slow logging (supports wildcards with *)
     const SLOW_LOG_EXCLUDED_ROUTES = [
-      '/v2/webhook/*',
-      '/v2/form/form-submit',
-      '/v2/media/thumbnail/*',
-      '/v2/media/image-proxy',   // Thumbnail generation is expected to be slow
-      '/v2/chunked-upload/*',    // File uploads are expected to be slow
-      '/health',                 // Health checks are lightweight, no need to log
+      '/v2/webhook/*',                                    // Webhook endpoints are expected to be slow
+      '/v2/database/levels/packs/*/download-link',        // Pack download link generation is expected to be slow
+      '/v2/form/form-submit',                             // Form submissions can be slow due to processing
+      '/v2/media/thumbnail/*',                            // Thumbnail generation is expected to be slow
+      '/v2/media/image-proxy',                            // Image proxy is expected to be slow
+      '/v2/chunked-upload/*',                             // File uploads are expected to be slow
+      '/health',                                          // Health checks are lightweight, no need to log
     ];
 
     const isExcludedRoute = (path: string): boolean => {
       return SLOW_LOG_EXCLUDED_ROUTES.some(pattern => {
-        if (pattern.includes('*')) {
-          const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
-          return regex.test(path);
-        }
-        return path === pattern;
+        // Convert pattern to regex:
+        // 1. Replace * with a temporary placeholder
+        // 2. Escape all regex special characters
+        // 3. Replace placeholder with .* regex
+        const escapedPattern = pattern
+          .replace(/\*/g, '__WILDCARD__')           // Temporarily replace * with placeholder
+          .replace(/[.+?^${}()|[\]\\]/g, '\\$&')   // Escape regex special chars
+          .replace(/__WILDCARD__/g, '.*');         // Replace placeholder with .* regex
+        const regex = new RegExp(`^${escapedPattern}$`);
+        return regex.test(path);
       });
     };
 
