@@ -26,6 +26,7 @@ import ElasticsearchService from './server/services/ElasticsearchService.js';
 import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
 import { initializeDefaultPools } from './config/poolConfig.js';
 import { redis } from './server/services/RedisService.js';
+// CRITICAL: Initialize pools BEFORE importing models to ensure logging database is available
 initializeDefaultPools();
 
 // Add these at the very top of the file, before any other imports

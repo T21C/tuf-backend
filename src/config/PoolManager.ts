@@ -136,11 +136,32 @@ export class PoolManager {
       } as any, // Type assertion: Sequelize runtime supports async validate, but types don't
     });
 
+    // Store pool first so it's available immediately
+    this.pools.set(poolName, sequelize);
+    
     // Add connection health check and reconnection logic
     this.setupConnectionHealthCheck(sequelize, poolName);
 
-    this.pools.set(poolName, sequelize);
-    logger.debug(`Created isolated pool '${poolName}' with max ${config.maxConnections} connections`);
+    // Verify database configuration for logging pool
+    if (config.database === 'logging') {
+      const actualDatabase = (sequelize as any).config.database;
+      logger.info(`Logging pool '${poolName}' configured with database: ${actualDatabase}`);
+      
+      // Verify connection asynchronously (non-blocking)
+      sequelize.authenticate()
+        .then(() => {
+          logger.info(`Logging pool '${poolName}' successfully connected to database: ${actualDatabase}`);
+        })
+        .catch((error: any) => {
+          logger.error(`Failed to connect logging pool '${poolName}' to database '${actualDatabase}':`, {
+            error: error.message,
+            code: error.code,
+            note: 'Make sure the logging database exists and the user has proper permissions'
+          });
+        });
+    }
+    
+    logger.debug(`Created isolated pool '${poolName}' with max ${config.maxConnections} connections, database: ${(sequelize as any).config.database}`);
     return sequelize;
   }
 
@@ -178,8 +199,6 @@ export class PoolManager {
     
     // Store timer reference for cleanup (if needed in the future)
     (sequelize as any)._healthCheckTimer = healthCheckTimer;
-
-    this.pools.set(poolName, sequelize);
   }
 
   /**
@@ -199,9 +218,31 @@ export class PoolManager {
    */
   getPoolForModelGroup(modelGroup: string): Sequelize {
     const poolName = this.modelMappings[modelGroup];
-    if (poolName && this.pools.has(poolName)) {
-      return this.pools.get(poolName)!;
+    if (poolName) {
+      if (this.pools.has(poolName)) {
+        const pool = this.pools.get(poolName)!;
+        // Verify logging pool is using the correct database
+        if (modelGroup === 'logging') {
+          const databaseName = (pool as any).config?.database;
+          const expectedDatabase = process.env.DB_LOGGING_DATABASE || 'tuf_logging';
+          if (databaseName !== expectedDatabase) {
+            logger.error(`[CRITICAL] Logging pool '${poolName}' is using wrong database! Expected: ${expectedDatabase}, Got: ${databaseName}`);
+          } else {
+            logger.debug(`Logging pool '${poolName}' correctly using database: ${databaseName}`);
+          }
+        }
+        return pool;
+      } else {
+        // Pool should exist but doesn't - log warning and return default
+        logger.warn(`Pool '${poolName}' for model group '${modelGroup}' does not exist. Make sure pools are initialized before models. Falling back to default pool.`);
+        if (modelGroup === 'logging') {
+          logger.error(`[CRITICAL] Logging model group requested but pool '${poolName}' does not exist! This will cause models to use the wrong database.`);
+        }
+        return this.defaultPool;
+      }
     }
+    // No mapping exists - return default pool
+    logger.debug(`No pool mapping for model group '${modelGroup}', using default pool`);
     return this.defaultPool;
   }
 
@@ -323,16 +364,30 @@ export function initializePools(config?: {
 
   if (config?.pools) {
     let totalConnections = 0;
+    // Create all pools first
     for (const poolConfig of config.pools) {
       manager.createPool(poolConfig.name, poolConfig);
       totalConnections += poolConfig.maxConnections;
     }
     logger.info(`Initialized ${totalConnections} connections across ${config.pools.length} pools`);
+    
+    // Verify logging pool was created
+    if (manager.getPool('logging')) {
+      const loggingPool = manager.getPool('logging');
+      const loggingDb = (loggingPool as any).config.database;
+      logger.info(`Logging pool initialized and connected to database: ${loggingDb}`);
+    }
   }
 
   if (config?.modelMappings) {
     for (const [modelGroup, poolName] of Object.entries(config.modelMappings)) {
+      // Verify pool exists before assigning
+      if (!manager.getPool(poolName)) {
+        logger.error(`Cannot assign model group '${modelGroup}' to non-existent pool '${poolName}'`);
+        continue;
+      }
       manager.assignModelGroupToPool(modelGroup, poolName);
+      logger.debug(`Assigned model group '${modelGroup}' to pool '${poolName}'`);
     }
   }
 
