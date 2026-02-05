@@ -128,15 +128,6 @@ const defaultPoolConfig: PoolConfiguration = {
       idleTimeout: 10000,
       evict: 5000,
     },
-    {
-      name: 'logging',
-      maxConnections: 5,
-      minConnections: 1,
-      acquireTimeout: 20000,
-      idleTimeout: 10000,
-      evict: 5000,
-      database: 'logging',
-    },
   ],
   modelMappings: {
     levels: 'levels',
@@ -150,7 +141,6 @@ const defaultPoolConfig: PoolConfiguration = {
     credits: 'credits',
     announcements: 'announcements',
     cdn: 'cdn',
-    logging: 'logging',
   },
 };
 
