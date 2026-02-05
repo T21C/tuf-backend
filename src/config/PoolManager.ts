@@ -90,10 +90,19 @@ export class PoolManager {
         }
       : this.baseConfig.dialectOptions;
 
+    // Determine which database to use
+    const databaseName = config.database === 'logging' 
+      ? (process.env.DB_LOGGING_DATABASE || 'tuf_logging')
+      : process.env.DB_DATABASE;
+
+    if (config.database === 'logging') {
+      logger.info(`Creating logging pool '${poolName}' with database: ${databaseName}`);
+    }
+
     const sequelize = new Sequelize({
       ...this.baseConfig,
       dialectOptions,
-      database: config.database === 'logging' ? (process.env.DB_LOGGING_DATABASE || 'tuf_logging') : process.env.DB_DATABASE,
+      database: databaseName,
       pool: {
         max: config.maxConnections,
         min: config.minConnections ?? 2,
