@@ -48,7 +48,7 @@ router.get('/', Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }
   }
 });
 
-router.get('/ratings-per-user', Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'page', 'limit'], prefix: 'admin:statistics:ratings-per-user' }), async (req: Request, res: Response) => {
+router.get('/ratings-per-user', Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'limit'], prefix: 'admin:statistics:ratings-per-user' }), async (req: Request, res: Response) => {
   try {
     // Get the date parameters from query string
     // Support both 'date' and 'startDate' for backwards compatibility

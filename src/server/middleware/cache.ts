@@ -41,6 +41,13 @@ const DEFAULT_CONFIG: Required<Omit<CacheConfig, 'superKeyGenerator' | 'varyByQu
 };
 
 /**
+ * Map to track pending promises for cache keys
+ * Prevents cache stampede/thundering herd when multiple concurrent requests
+ * hit the same cache key that's not yet cached
+ */
+const pendingPromises = new Map<string, Promise<void>>();
+
+/**
  * Determine user role/cache group based on permissions
  * Groups users into: 'admin', 'authenticated', 'anonymous'
  */
@@ -184,12 +191,70 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
         return;
       }
 
+      // Check if there's already a pending promise for this cache key
+      // This prevents cache stampede when multiple concurrent requests hit the same cache key
+      const pendingPromise = pendingPromises.get(cacheKey);
+      if (pendingPromise) {
+        logger.debug(`Cache MISS (awaiting pending): ${cacheKey}`);
+        
+        // Wait for the pending request to complete and cache the result
+        await pendingPromise;
+        
+        // Try cache again - it should be populated now
+        const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
+        if (cachedAfterWait) {
+          logger.debug(`Cache HIT (after pending): ${cacheKey}`);
+          
+          if (mergedConfig.addHeaders) {
+            res.setHeader('X-Cache', 'HIT');
+            const ttl = await redis.ttl(cacheKey);
+            if (ttl > 0) {
+              res.setHeader('X-Cache-TTL', ttl);
+            }
+          }
+          
+          res.status(cachedAfterWait.statusCode).json(cachedAfterWait.body);
+          return;
+        }
+        
+        // If still not cached (shouldn't happen, but handle gracefully)
+        logger.warn(`Cache still MISS after pending promise: ${cacheKey}`);
+      }
+
       logger.debug(`Cache MISS: ${cacheKey}`);
+
+      // Create a promise that resolves when the response is cached
+      let resolvePending: () => void;
+      const executionPromise = new Promise<void>((resolve) => {
+        resolvePending = resolve;
+      });
+
+      // Store the promise so other concurrent requests can await it
+      pendingPromises.set(cacheKey, executionPromise);
+
+      // Set a timeout to clean up pending promise if handler doesn't respond (safety net)
+      const timeout = setTimeout(() => {
+        if (pendingPromises.has(cacheKey)) {
+          logger.warn(`Pending promise timeout for cache key: ${cacheKey}`);
+          pendingPromises.delete(cacheKey);
+          resolvePending(); // Resolve so other requests don't hang
+        }
+      }, 60000); // 60 second timeout
 
       // Store original json method to intercept response
       const originalJson = res.json.bind(res);
 
+      const cleanup = () => {
+        clearTimeout(timeout);
+        if (pendingPromises.has(cacheKey)) {
+          pendingPromises.delete(cacheKey);
+          resolvePending(); // Resolve so other requests don't hang
+        }
+      };
+
       res.json = function (body: unknown): Response {
+        clearTimeout(timeout);
+        
         // Only cache successful responses
         if (res.statusCode >= 200 && res.statusCode < 300) {
           redis.set(cacheKey, { body, statusCode: res.statusCode }, mergedConfig.ttl)
@@ -209,8 +274,18 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
                   );
                 }
               }
+              
+              // Remove from pending promises and resolve
+              cleanup();
             })
-            .catch(err => logger.error('Cache SET error:', err));
+            .catch(err => {
+              logger.error('Cache SET error:', err);
+              // Remove from pending promises even on error
+              cleanup();
+            });
+        } else {
+          // Non-successful response - don't cache, but still resolve promise
+          cleanup();
         }
 
         if (mergedConfig.addHeaders) {
@@ -219,6 +294,10 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
 
         return originalJson(body);
       };
+
+      // Handle response finish/close events to clean up if res.json() wasn't called
+      res.once('finish', cleanup);
+      res.once('close', cleanup);
 
       next();
     } catch (error) {
@@ -287,12 +366,67 @@ export function Cached(config: CacheConfig = {}) {
           return res.status(cached.statusCode).json(cached.body);
         }
 
+        // Check if there's already a pending promise for this cache key
+        const pendingPromise = pendingPromises.get(cacheKey);
+        if (pendingPromise) {
+          logger.debug(`Cache MISS (awaiting pending, decorator): ${cacheKey}`);
+          
+          // Wait for the pending request to complete and cache the result
+          await pendingPromise;
+          
+          // Try cache again - it should be populated now
+          const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
+          if (cachedAfterWait) {
+            logger.debug(`Cache HIT (after pending, decorator): ${cacheKey}`);
+            
+            if (mergedConfig.addHeaders) {
+              res.setHeader('X-Cache', 'HIT');
+              const ttl = await redis.ttl(cacheKey);
+              if (ttl > 0) {
+                res.setHeader('X-Cache-TTL', ttl);
+              }
+            }
+            
+            return res.status(cachedAfterWait.statusCode).json(cachedAfterWait.body);
+          }
+          
+          logger.warn(`Cache still MISS after pending promise (decorator): ${cacheKey}`);
+        }
+
         logger.debug(`Cache MISS (decorator): ${cacheKey}`);
+
+        // Create a promise that resolves when the response is cached
+        let resolvePending: () => void;
+        const executionPromise = new Promise<void>((resolve) => {
+          resolvePending = resolve;
+        });
+
+        // Store the promise so other concurrent requests can await it
+        pendingPromises.set(cacheKey, executionPromise);
+
+        // Set a timeout to clean up pending promise if handler doesn't respond (safety net)
+        const timeout = setTimeout(() => {
+          if (pendingPromises.has(cacheKey)) {
+            logger.warn(`Pending promise timeout for cache key (decorator): ${cacheKey}`);
+            pendingPromises.delete(cacheKey);
+            resolvePending();
+          }
+        }, 60000); // 60 second timeout
 
         // Store original json method
         const originalJson = res.json.bind(res);
 
+        const cleanup = () => {
+          clearTimeout(timeout);
+          if (pendingPromises.has(cacheKey)) {
+            pendingPromises.delete(cacheKey);
+            resolvePending();
+          }
+        };
+
         res.json = function (body: unknown): Response {
+          clearTimeout(timeout);
+          
           if (res.statusCode >= 200 && res.statusCode < 300) {
             redis.set(cacheKey, { body, statusCode: res.statusCode }, mergedConfig.ttl)
               .then(() => {
@@ -311,8 +445,15 @@ export function Cached(config: CacheConfig = {}) {
                     );
                   }
                 }
+                
+                cleanup();
               })
-              .catch(err => logger.error('Cache SET error:', err));
+              .catch(err => {
+                logger.error('Cache SET error:', err);
+                cleanup();
+              });
+          } else {
+            cleanup();
           }
 
           if (mergedConfig.addHeaders) {
@@ -321,6 +462,10 @@ export function Cached(config: CacheConfig = {}) {
 
           return originalJson(body);
         };
+
+        // Handle response finish/close events to clean up if res.json() wasn't called
+        res.once('finish', cleanup);
+        res.once('close', cleanup);
 
         return originalMethod.apply(this, [req, res, ...args]);
       } catch (error) {
