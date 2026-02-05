@@ -11,6 +11,7 @@ export interface PoolConfig {
   acquireTimeout?: number;
   idleTimeout?: number;
   evict?: number;
+  database?: string;
 }
 
 export interface ModelPoolMapping {
@@ -42,10 +43,7 @@ export class PoolManager {
     host: process.env.DB_HOST,
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database:
-      process.env.NODE_ENV === 'staging'
-        ? process.env.DB_STAGING_DATABASE
-        : process.env.DB_DATABASE,
+    database: process.env.DB_DATABASE,
     logging: (sql: string, timing?: number) => {
       if (timing && timing > this.SLOW_QUERY_THRESHOLD_MS && !this.isExcludedQuery(sql)) {
         logger.warn(`Slow query (${timing}ms):`, { sql: sql.substring(0, 500) });
@@ -95,6 +93,7 @@ export class PoolManager {
     const sequelize = new Sequelize({
       ...this.baseConfig,
       dialectOptions,
+      database: config.database === 'logging' ? (process.env.DB_LOGGING_DATABASE || 'tuf_logging') : process.env.DB_DATABASE,
       pool: {
         max: config.maxConnections,
         min: config.minConnections ?? 2,

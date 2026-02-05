@@ -37,29 +37,11 @@ function setSafeHeader(res: Response, name: string, value: string | number | obj
     }
 }
 
-// Helper function to clean up old file access logs
-async function cleanupOldAccessLogs(): Promise<void> {
-    try {
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-        const deletedCount = await FileAccessLog.destroy({
-            where: {
-                createdAt: {
-                    [Op.lt]: oneWeekAgo
-                }
-            }
-        });
-
-        if (deletedCount > 0) {
-            logger.debug(`Cleaned up ${deletedCount} old file access logs older than 1 week`);
-        }
-    } catch (error) {
-        logger.error('Error cleaning up old file access logs:', {
-            error: error instanceof Error ? error.message : String(error)
-        });
-    }
-}
+// Note: Cleanup removed - logging tables are now in separate database
+// and should be managed separately to prevent snapshot backup size issues
+// async function cleanupOldAccessLogs(): Promise<void> {
+//     // Cleanup removed - logs are now in separate database
+// }
 
 async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         // For level zips, get the original zip from metadata
@@ -207,8 +189,6 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
                 pathConfirmed: metadata.pathConfirmed
             });
 
-            // Clean up old access logs before incrementing access count
-            await cleanupOldAccessLogs();
 
             await file.increment('accessCount');
 
@@ -298,9 +278,6 @@ router.get('/:fileId', async (req: Request, res: Response) => {
         if (IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES]) {
             filePath = path.join(file.filePath, 'original.png');
         }
-
-        // Clean up old access logs before creating new ones
-        await cleanupOldAccessLogs();
 
         await FileAccessLog.create({
             fileId: fileId,

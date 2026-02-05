@@ -1,7 +1,7 @@
 import { Model, DataTypes } from 'sequelize';
 import CdnFile from './CdnFile.js';
 import { getSequelizeForModelGroup } from '../../config/db.js';
-const sequelize = getSequelizeForModelGroup('cdn');
+const sequelize = getSequelizeForModelGroup('logging');
 
 class FileAccessLog extends Model {
     declare id: number;
@@ -39,8 +39,8 @@ FileAccessLog.init({
     timestamps: true
 });
 
-// Define associations
-CdnFile.hasMany(FileAccessLog, { foreignKey: 'fileId' });
-FileAccessLog.belongsTo(CdnFile, { foreignKey: 'fileId' });
+// Note: Associations removed since FileAccessLog is now in a separate database
+// CdnFile.hasMany(FileAccessLog, { foreignKey: 'fileId' });
+// FileAccessLog.belongsTo(CdnFile, { foreignKey: 'fileId' });
 
 export default FileAccessLog;

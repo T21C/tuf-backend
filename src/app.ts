@@ -24,7 +24,6 @@ import healthRouter from './server/routes/misc/health.js';
 import { logger } from './server/services/LoggerService.js';
 import ElasticsearchService from './server/services/ElasticsearchService.js';
 import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
-import { startConnectionMonitoring } from './config/db.js';
 import { initializeDefaultPools } from './config/poolConfig.js';
 import { redis } from './server/services/RedisService.js';
 initializeDefaultPools();
@@ -169,7 +168,6 @@ export async function startServer() {
       logger.info('Initializing database...');
       await db.sequelize.sync({force: true});
     }
-    startConnectionMonitoring();
 
     logger.info('Database connection established.');
 
