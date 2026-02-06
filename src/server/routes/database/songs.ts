@@ -17,7 +17,7 @@ import EvidenceService from '../../services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '../../services/CdnService.js';
 import multer from 'multer';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
-import { parseSearchQuery, queryParserConfigs, extractFieldValues } from '../../../misc/utils/data/queryParser.js';
+import { parseSearchQuery, queryParserConfigs, extractFieldValues, extractGeneralSearchTerms } from '../../../misc/utils/data/queryParser.js';
 
 
 const router: Router = Router();
@@ -55,12 +55,22 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     // Calculate offset using normalized values
     const offset = (normalizedPage - 1) * normalizedLimit;
 
-    let searchString = (search as string).trim();
+    const originalSearchString = (search as string).trim();
 
-    // Parse search query for artist count filters
+    // Parse search query to extract both general search terms and artist count filters
     let artistCountFilter: { min?: number; max?: number; exact?: number } | null = null;
-    if (searchString) {
-      const searchGroups = parseSearchQuery(searchString, queryParserConfigs.song);
+    let searchString = '';
+    
+    if (originalSearchString) {
+      const searchGroups = parseSearchQuery(originalSearchString, queryParserConfigs.song);
+      logger.debug(`Search groups: ${JSON.stringify(searchGroups)}`);
+      
+      // Extract general search terms (field === 'any')
+      const generalSearchTerms = extractGeneralSearchTerms(searchGroups);
+      // Combine general search terms with spaces for text search
+      searchString = generalSearchTerms.join(' ').trim();
+      
+      // Extract artist count filter values
       const artistCountValues = extractFieldValues(searchGroups, 'artists');
       
       if (artistCountValues.length > 0) {
@@ -90,14 +100,6 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
             artistCountFilter = { exact: exactCount };
           }
         }
-        
-        // Remove artist count filter from search string for text search
-        // Replace patterns like "artists:2+", "artists:3", etc.
-        searchString = searchString
-          .replace(/artists:\d+\+/gi, '')
-          .replace(/artists:\d+-\d+/gi, '')
-          .replace(/artists:\d+/gi, '')
-          .trim();
       }
     }
 
