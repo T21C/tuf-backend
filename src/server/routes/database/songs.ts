@@ -272,6 +272,9 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     // Apply artist count filter if specified
     if (artistCountFilter) {
+      // Store in const to preserve type narrowing after async operations
+      const filter = artistCountFilter;
+      
       // Get songs with their artist counts
       const songIdsToCheck = allMatchingIds.length > 0 ? allMatchingIds : null;
       
@@ -317,20 +320,20 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       // Filter songs based on artist count criteria
       let filteredByArtistCount: number[] = [];
       
-      if (artistCountFilter.exact !== undefined) {
+      if (filter.exact !== undefined) {
         // Exact count match (including 0 artists)
         filteredByArtistCount = Array.from(artistCountMap.entries())
-          .filter(([songId, count]) => count === artistCountFilter.exact)
+          .filter(([songId, count]) => count === filter.exact)
           .map(([songId]) => songId);
-      } else if (artistCountFilter.min !== undefined && artistCountFilter.max !== undefined) {
+      } else if (filter.min !== undefined && filter.max !== undefined) {
         // Range match
         filteredByArtistCount = Array.from(artistCountMap.entries())
-          .filter(([songId, count]) => count >= artistCountFilter.min! && count <= artistCountFilter.max!)
+          .filter(([songId, count]) => count >= filter.min! && count <= filter.max!)
           .map(([songId]) => songId);
-      } else if (artistCountFilter.min !== undefined) {
+      } else if (filter.min !== undefined) {
         // Minimum count match (e.g., "2+")
         filteredByArtistCount = Array.from(artistCountMap.entries())
-          .filter(([songId, count]) => count >= artistCountFilter.min!)
+          .filter(([songId, count]) => count >= filter.min!)
           .map(([songId]) => songId);
       }
 
