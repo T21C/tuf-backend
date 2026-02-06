@@ -1404,21 +1404,25 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
         throw { error: 'One or more levels not found', code: 404 };
       }
 
-      // Check which levels are already in pack
+      // Check which levels are already in pack at the same parent location
+      // Allow the same level in different folders by checking both parentId and levelId
+      const targetParentId = parentId || 0;
       const existingItems = await LevelPackItem.findAll({
         where: {
           packId: resolvedPackId,
           type: 'level',
+          parentId: targetParentId,
           levelId: { [Op.in]: levelIdsToAdd }
         },
         transaction
       });
 
-      const existingLevelIds = existingItems.map(item => item.levelId);
-      const newLevelIds = levelIdsToAdd.filter(id => !existingLevelIds.includes(id));
+      // Create a set of existing levelIds in this parent location
+      const existingLevelIdsInParent = new Set(existingItems.map(item => item.levelId));
+      const newLevelIds = levelIdsToAdd.filter(id => !existingLevelIdsInParent.has(id));
 
       if (newLevelIds.length === 0) {
-        throw { error: 'All specified levels are already in pack', code: 400 };
+        throw { error: 'All specified levels are already in pack at this location', code: 400 };
       }
 
       // Check item limit
@@ -1662,6 +1666,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
 
     // Check for unique constraint violations before updating
     // The constraint is on (packId, parentId, name) for folders
+    // For levels, check (packId, parentId, levelId) to prevent duplicates in same location
     for (const update of enrichedUpdates) {
       if (update.item?.type === 'folder' && update.item?.name) {
         // Check if moving this folder to the new parent would create a duplicate name
@@ -1684,6 +1689,30 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
               folderId: update.id,
               folderName: update.item.name,
               targetParentId: update.parentId
+            }
+          };
+        }
+      } else if (update.item?.type === 'level' && update.item?.levelId) {
+        // Check if moving this level to the new parent would create a duplicate levelId in same location
+        const existingLevel = await LevelPackItem.findOne({
+          where: {
+            packId: resolvedPackId,
+            type: 'level',
+            parentId: update.parentId ?? 0,
+            levelId: update.item.levelId,
+            id: { [Op.ne]: update.id } // Exclude the current item
+          },
+          transaction
+        });
+
+        if (existingLevel) {
+          throw {
+            error: `Level #${update.item.levelId} already exists in the target location`,
+            code: 400,
+            details: {
+              itemId: update.id,
+              levelId: update.item.levelId,
+              targetParentId: update.parentId ?? 0
             }
           };
         }
@@ -2061,6 +2090,7 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
 
     // Check for unique constraint violations before updating
     // The constraint is on (packId, parentId, name) for folders
+    // For levels, check (packId, parentId, levelId) to prevent duplicates in same location
     for (const { id, parentId } of items) {
       if (id && parentId !== undefined) {
         const item = itemMap.get(id);
@@ -2079,6 +2109,22 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
 
           if (existingFolder) {
             throw { error: `Folder "${item.name}" already exists in the target location`, code: 400 };
+          }
+        } else if (item && item.type === 'level' && item.levelId) {
+          // Check if moving this level to the new parent would create a duplicate levelId in same location
+          const existingLevel = await LevelPackItem.findOne({
+            where: {
+              packId: resolvedPackId,
+              type: 'level',
+              parentId: parentId || 0,
+              levelId: item.levelId,
+              id: { [Op.ne]: id } // Exclude the current item
+            },
+            transaction
+          });
+
+          if (existingLevel) {
+            throw { error: `Level #${item.levelId} already exists in the target location`, code: 400 };
           }
         }
       }
