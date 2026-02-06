@@ -157,8 +157,8 @@ export const extractGeneralSearchTerms = (searchGroups: SearchGroup[]): string[]
  */
 export const queryParserConfigs = {
   level: {
-    allowedFields: ['id', 'song', 'artist', 'charter', 'team', 'vfxer', 'creator', 'dlLink', 'legacyDllink', 'videolink'],
-    numericFields: ['id']
+    allowedFields: ['id', 'song', 'artist', 'charter', 'team', 'vfxer', 'creator', 'dlLink', 'legacyDllink', 'videolink', 'artists'],
+    numericFields: ['id', 'artists']
   },
   pass: {
     allowedFields: ['player', 'video', 'vidtitle', 'level.song', 'level.artist', 'level.dlLink'],
@@ -168,5 +168,9 @@ export const queryParserConfigs = {
   pack: {
     allowedFields: ['name', 'owner', 'levelId', 'viewMode', 'pinned'],
     numericFields: ['levelId']
+  },
+  song: {
+    allowedFields: ['artists'],
+    numericFields: ['artists']
   }
 };

@@ -17,6 +17,7 @@ import EvidenceService from '../../services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '../../services/CdnService.js';
 import multer from 'multer';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
+import { parseSearchQuery, queryParserConfigs, extractFieldValues } from '../../../misc/utils/data/queryParser.js';
 
 
 const router: Router = Router();
@@ -54,7 +55,51 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     // Calculate offset using normalized values
     const offset = (normalizedPage - 1) * normalizedLimit;
 
-    const searchString = (search as string).trim();
+    let searchString = (search as string).trim();
+
+    // Parse search query for artist count filters
+    let artistCountFilter: { min?: number; max?: number; exact?: number } | null = null;
+    if (searchString) {
+      const searchGroups = parseSearchQuery(searchString, queryParserConfigs.song);
+      const artistCountValues = extractFieldValues(searchGroups, 'artists');
+      
+      if (artistCountValues.length > 0) {
+        // Parse artist count value (supports: "2+", "3", "2-5")
+        const artistCountValue = artistCountValues[0];
+        
+        // Handle "2+" format (2 or more)
+        if (artistCountValue.endsWith('+')) {
+          const minCount = parseInt(artistCountValue.slice(0, -1));
+          if (!isNaN(minCount) && minCount >= 0) {
+            artistCountFilter = { min: minCount };
+          }
+        }
+        // Handle "2-5" format (range)
+        else if (artistCountValue.includes('-')) {
+          const [minStr, maxStr] = artistCountValue.split('-').map(s => s.trim());
+          const minCount = parseInt(minStr);
+          const maxCount = parseInt(maxStr);
+          if (!isNaN(minCount) && !isNaN(maxCount) && minCount >= 0 && maxCount >= minCount) {
+            artistCountFilter = { min: minCount, max: maxCount };
+          }
+        }
+        // Handle exact number "3"
+        else {
+          const exactCount = parseInt(artistCountValue);
+          if (!isNaN(exactCount) && exactCount >= 0) {
+            artistCountFilter = { exact: exactCount };
+          }
+        }
+        
+        // Remove artist count filter from search string for text search
+        // Replace patterns like "artists:2+", "artists:3", etc.
+        searchString = searchString
+          .replace(/artists:\d+\+/gi, '')
+          .replace(/artists:\d+-\d+/gi, '')
+          .replace(/artists:\d+/gi, '')
+          .trim();
+      }
+    }
 
     // Build order clause for sorting
     let order: any[] = [['name', 'ASC']];
@@ -225,6 +270,90 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
       allMatchingIds = artistSongIds;
     }
 
+    // Apply artist count filter if specified
+    if (artistCountFilter) {
+      // Get songs with their artist counts
+      const songIdsToCheck = allMatchingIds.length > 0 ? allMatchingIds : null;
+      
+      // Build query options for counting artists per song
+      const countQueryOptions: any = {
+        attributes: [
+          'songId',
+          [sequelize.fn('COUNT', sequelize.col('SongCredit.id')), 'artistCount']
+        ],
+        group: ['songId'],
+        raw: true
+      };
+      
+      if (songIdsToCheck && songIdsToCheck.length > 0) {
+        countQueryOptions.where = { songId: { [Op.in]: songIdsToCheck } };
+      }
+
+      const songArtistCounts = await SongCredit.findAll(countQueryOptions) as any[];
+      
+      // Create a map of songId -> artistCount
+      const artistCountMap = new Map<number, number>();
+      songArtistCounts.forEach((item: any) => {
+        artistCountMap.set(item.songId, parseInt(item.artistCount) || 0);
+      });
+
+      // If we're checking specific song IDs, also include songs with 0 artists
+      if (songIdsToCheck && songIdsToCheck.length > 0) {
+        songIdsToCheck.forEach(songId => {
+          if (!artistCountMap.has(songId)) {
+            artistCountMap.set(songId, 0);
+          }
+        });
+      } else {
+        // No search string - get all songs and check which have 0 artists
+        const allSongs = await Song.findAll({ attributes: ['id'] });
+        allSongs.forEach(song => {
+          if (!artistCountMap.has(song.id)) {
+            artistCountMap.set(song.id, 0);
+          }
+        });
+      }
+
+      // Filter songs based on artist count criteria
+      let filteredByArtistCount: number[] = [];
+      
+      if (artistCountFilter.exact !== undefined) {
+        // Exact count match (including 0 artists)
+        filteredByArtistCount = Array.from(artistCountMap.entries())
+          .filter(([songId, count]) => count === artistCountFilter.exact)
+          .map(([songId]) => songId);
+      } else if (artistCountFilter.min !== undefined && artistCountFilter.max !== undefined) {
+        // Range match
+        filteredByArtistCount = Array.from(artistCountMap.entries())
+          .filter(([songId, count]) => count >= artistCountFilter.min! && count <= artistCountFilter.max!)
+          .map(([songId]) => songId);
+      } else if (artistCountFilter.min !== undefined) {
+        // Minimum count match (e.g., "2+")
+        filteredByArtistCount = Array.from(artistCountMap.entries())
+          .filter(([songId, count]) => count >= artistCountFilter.min!)
+          .map(([songId]) => songId);
+      }
+
+      // Apply filter to existing results
+      if (allMatchingIds.length > 0) {
+        allMatchingIds = allMatchingIds.filter(id => filteredByArtistCount.includes(id));
+        exactMatchIds = exactMatchIds.filter(id => filteredByArtistCount.includes(id));
+      } else {
+        // No search string, just filter by artist count
+        // Sort the filtered results according to the order clause
+        if (filteredByArtistCount.length > 0) {
+          const sortedSongs = await Song.findAll({
+            where: { id: { [Op.in]: filteredByArtistCount } },
+            attributes: ['id'],
+            order
+          });
+          allMatchingIds = sortedSongs.map(s => s.id);
+        } else {
+          allMatchingIds = filteredByArtistCount;
+        }
+      }
+    }
+
     // Apply verification state filter if specified
     if (verificationState && allMatchingIds.length > 0) {
       const filterWhere: any = {
@@ -291,16 +420,24 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         hasMore: false
       });
     } else {
-      // No search - apply filters if specified
-      if (verificationState) {
-        finalWhere.verificationState = verificationState;
+      // No search string - apply filters if specified
+      // Check if we have filtered IDs from artist count filter or artist filter
+      if (allMatchingIds.length > 0) {
+        // We have filtered IDs (from artist count filter or artist filter)
+        finalWhere.id = {[Op.in]: paginatedIds};
+        queryOptions.where = finalWhere;
+      } else {
+        // No filters at all - apply verification state if specified
+        if (verificationState) {
+          finalWhere.verificationState = verificationState;
+        }
+        if (artistSongIds !== null) {
+          finalWhere.id = {[Op.in]: artistSongIds};
+        }
+        queryOptions.where = finalWhere;
+        queryOptions.limit = normalizedLimit;
+        queryOptions.offset = offset;
       }
-      if (artistSongIds !== null) {
-        finalWhere.id = {[Op.in]: artistSongIds};
-      }
-      queryOptions.where = finalWhere;
-      queryOptions.limit = normalizedLimit;
-      queryOptions.offset = offset;
     }
 
     // Step 4: Fetch songs with all required includes
