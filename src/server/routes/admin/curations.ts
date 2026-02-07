@@ -90,19 +90,6 @@ const requireCuratorOrRater = (req: Request, res: Response, next: NextFunction) 
   });
 };
 
-const reindexCuratedLevels = async () => {
-  const curations = await Curation.findAll({
-    include: [
-      {
-        model: Level,
-        as: 'level',
-      },
-    ],
-  });
-  const levelIds = curations.map(curation => curation.levelId);
-  await elasticsearchService.reindexLevels(levelIds);
-};
-
 // Helper function to clean up CDN files for curations
 const cleanupCurationCdnFiles = async (curations: Curation[]) => {
   for (const curation of curations) {
@@ -286,8 +273,6 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
       sortOrder: 0,
     });
 
-    await reindexCuratedLevels();
-
     // Convert BigInt abilities to string for JSON serialization
     const serializedType = {
       ...type.toJSON(),
@@ -341,8 +326,6 @@ router.put('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res
       color,
       abilities: abilities ? BigInt(abilities) : type.abilities,
     });
-
-    await reindexCuratedLevels();
 
     // Convert BigInt abilities to string for JSON serialization
     const serializedType = {
@@ -487,9 +470,6 @@ router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => 
     }
 
     await transaction.commit();
-
-    // Reindex curated levels after sort order changes
-    await reindexCuratedLevels();
 
     logger.debug(`Successfully updated sort orders for ${sortOrders.length} curation types`);
     return res.json({success: true, message: 'Sort orders updated successfully'});

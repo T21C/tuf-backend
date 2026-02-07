@@ -563,7 +563,7 @@ class CdnService {
             const response = await this.client.post('/zips/packs/generate', request, {timeout: MAX_PACK_GENERATION_TIMEOUT_MS}); // 60 hours timeout
             return response.data;
         } catch (error: any) {
-            if (error.error.includes('timeout') || error.message.includes('timeout')) {
+            if (error.error?.includes('timeout') || error.message?.includes('timeout')) {
                 //just ignore idc
             }
             this.handleCdnError(
