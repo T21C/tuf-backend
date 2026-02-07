@@ -13,8 +13,7 @@ import LevelCredit from '../../../models/levels/LevelCredit.js';
 import { logger } from '../../services/LoggerService.js';
 import {
   getDifficulties,
-  parseRatingRange,
-  calculateRequestedDifficulty
+  parseRatingRange
 } from '../../../misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
@@ -247,23 +246,21 @@ router.get('/', async (req: Request, res: Response) => {
           },
           include: [
             {
-              model: Difficulty,
-              as: 'difficulty',
-              required: false,
-            },
-            {
               model: Team,
               as: 'teamObject',
+              attributes: ['name'],
               required: false,
             },
             {
               model: LevelCredit,
               as: 'levelCredits',
               required: false,
+              attributes: ['id', 'role'],
               include: [
                 {
                   model: Creator,
                   as: 'creator',
+                  attributes: ['name', 'id'],
                 },
               ],
             },
@@ -280,43 +277,11 @@ router.get('/', async (req: Request, res: Response) => {
             },
           ],
         },
-        {
-          model: Difficulty,
-          as: 'currentDifficulty',
-          required: false,
-        },
-        {
-          model: Difficulty,
-          as: 'averageDifficulty',
-          required: false,
-        },
-        {
-          model: Difficulty,
-          as: 'communityDifficulty',
-          required: false,
-        },
       ],
       order: [['levelId', 'ASC']],
     });
 
-    // Calculate requestedDiffId for each rating and add it to the response
-    const ratingsWithRequestedDiff = await Promise.all(
-      ratings.map(async (rating) => {
-        const requestedDiffId = await calculateRequestedDifficulty(
-          rating.level?.rerateNum || null,
-          rating.requesterFR || null,
-        );
-
-        // Convert to plain object and add the calculated field
-        const ratingData = rating.toJSON();
-        return {
-          ...ratingData,
-          requestedDiffId,
-        };
-      })
-    );
-
-    return res.json(ratingsWithRequestedDiff);
+    return res.json(ratings);
   } catch (error) {
     logger.error('Error fetching ratings:', error);
     return res.status(500).json({error: 'Internal Server Error'});
@@ -451,26 +416,13 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
         transaction,
       });
 
-
-      // Calculate requestedDiffId and add it to the response
-      const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
-        updatedRating.level?.rerateNum || null,
-        updatedRating.requesterFR || null
-      ) : null;
-
-      const ratingData = updatedRating ? updatedRating.toJSON() : null;
-      const responseData = ratingData ? {
-        ...ratingData,
-        requestedDiffId,
-      } : null;
-
       // Broadcast rating update via SSE
       sseManager.broadcast({type: 'ratingUpdate'});
 
       await transaction.commit();
       return res.json({
         message: 'Rating detail deleted successfully',
-        rating: responseData,
+        rating: updatedRating,
       });
     }
 
@@ -670,19 +622,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       transaction,
     });
 
-
-    // Calculate requestedDiffId and add it to the response
-    const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
-      updatedRating.level?.rerateNum || null,
-      updatedRating.requesterFR || null
-    ) : null;
-
-    const ratingData = updatedRating ? updatedRating.toJSON() : null;
-    const responseData = ratingData ? {
-      ...ratingData,
-      requestedDiffId,
-    } : null;
-
     // Broadcast rating update via SSE
     sseManager.broadcast({type: 'ratingUpdate'});
 
@@ -690,7 +629,7 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
 
     return res.json({
       message: 'Rating updated successfully',
-      rating: responseData,
+      rating: updatedRating,
     });
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -816,18 +755,6 @@ router.delete(
         transaction,
       });
 
-      // Calculate requestedDiffId and add it to the response
-      const requestedDiffId = updatedRating ? await calculateRequestedDifficulty(
-        updatedRating.level?.rerateNum || null,
-        updatedRating.requesterFR || null
-      ) : null;
-
-      const ratingData = updatedRating ? updatedRating.toJSON() : null;
-      const responseData = ratingData ? {
-        ...ratingData,
-        requestedDiffId,
-      } : null;
-
       // Broadcast rating update via SSE
       sseManager.broadcast({type: 'ratingUpdate'});
 
@@ -835,7 +762,7 @@ router.delete(
 
       return res.json({
         message: 'Rating detail confirmed successfully',
-        rating: responseData,
+        rating: updatedRating,
       });
     } catch (error: unknown) {
       await safeTransactionRollback(transaction);
