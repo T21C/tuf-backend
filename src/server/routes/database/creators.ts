@@ -91,13 +91,13 @@ router.get('/', async (req: Request, res: Response) => {
         attributes: ['id'],
       });
 
-      const creatorsByAlias = await CreatorAlias.findAll({
-        where: {name: {[Op.like]: `%${escapedSearch}%`}},
-        attributes: ['creatorId'],
-      });
-
       const creatorIds: Set<number> = new Set(creatorsByName.map(creator => creator.id));
+
       if (excludeAliases !== 'true') {
+        const creatorsByAlias = await CreatorAlias.findAll({
+          where: {name: {[Op.like]: `%${escapedSearch}%`}},
+          attributes: ['creatorId'],
+        });
         creatorsByAlias.forEach(alias => creatorIds.add(alias.creatorId));
       }
 
@@ -107,29 +107,14 @@ router.get('/', async (req: Request, res: Response) => {
         where: {id: {[Op.in]: Array.from(creatorIds)}},
         include: [
           {
-            model: Level,
-            as: 'createdLevels',
-            through: {attributes: ['role']},
-            attributes: ['id'],
-            include: [{
-              model: LevelCredit,
-              as: 'levelCredits',
-              include: [{
-                model: Creator,
-                as: 'creator',
-                attributes: ['id', 'name']
-              }],
-            },
-            {
-              model: Team,
-              as: 'teamObject',
-            },
-          ],
-          },
-          {
             model: User,
             as: 'user',
             attributes: ['id', 'username', 'avatarUrl'],
+          },
+          {
+            model: LevelCredit,
+            as: 'credits',
+            attributes: ['id', 'role'],
           },
           {
             model: CreatorAlias,
@@ -655,9 +640,9 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
       const source = await Creator.findByPk(creatorId, {
         include: [
           {
-            model: Level,
-            as: 'createdLevels',
-            through: {attributes: ['role']},
+            model: LevelCredit,
+            as: 'credits',
+            attributes: ['id', 'role'],
           },
           {
             model: CreatorAlias,
@@ -873,17 +858,9 @@ router.put('/:id([0-9]{1,20})', async (req: Request, res: Response) => {
     const updatedCreator = await Creator.findByPk(id, {
       include: [
         {
-          model: Level,
-          as: 'createdLevels',
-          through: {attributes: ['role']},
-          include: [{
-            model: LevelCredit,
-            as: 'levelCredits',
-            include: [{
-              model: Creator,
-              as: 'creator',
-            }],
-          }],
+          model: LevelCredit,
+          as: 'credits',
+          attributes: ['id', 'role'],
         },
         {
           model: User,
