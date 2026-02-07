@@ -19,32 +19,7 @@ export async function updateWorldsFirstStatus(
       levelId,
       isDeleted: false
     },
-    include: [
-      {
-        model: Player,
-        as: 'player',
-        required: true,
-        where: {
-          isBanned: false
-        },
-        include: [
-          {
-            model: User,
-            as: 'user',
-            required: false,
-          }
-        ]
-      },
-      {
-        model: Level,
-        as: 'level',
-        where: {
-          isDeleted: false,
-          isHidden: false
-        },
-        required: true
-      }
-    ],
+    attributes: ['id', 'vidUploadTime'],
     order: [['vidUploadTime', 'ASC']],
     transaction,
   });
@@ -53,7 +28,7 @@ export async function updateWorldsFirstStatus(
   await Pass.update(
     {isWorldsFirst: false},
     {
-      where: {levelId},
+      where: {levelId, isWorldsFirst: true},
       transaction,
     },
   );
