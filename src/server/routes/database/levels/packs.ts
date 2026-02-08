@@ -1950,7 +1950,7 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     if (favorited) {
       // Try to create, but ignore if already exists (race condition)
       try {
-        await PackFavorite.create({
+        await PackFavorite.upsert({
           packId: resolvedPackId,
           userId: req.user?.id
         }, { transaction });

@@ -744,84 +744,112 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), difficultyIconUpload.
       await difficulty.update(updateData, {transaction});
 
       // If base score changed, recalculate scores for all affected passes
-      let affectedPasses: Pass[] = [];
+      let affectedPassCount = 0;
       const affectedPlayerIds: Set<number> = new Set();
 
       if (isBaseScoreChanged) {
-        // Get all levels with this difficulty
+        // Only get levels that rely on the difficulty's baseScore as fallback
+        // (levels with their own baseScore won't be affected by this change)
         const levels = await Level.findAll({
-          where: {diffId: diffId},
+          attributes: ['id', 'baseScore', 'ppBaseScore'],
+          where: {
+            diffId: diffId,
+            [Op.or]: [
+              {baseScore: null},
+              {baseScore: 0},
+            ],
+          },
           transaction,
         });
 
         const levelIds = levels.map(level => level.id);
 
-        // Get all non-deleted passes for these levels
-        affectedPasses = await Pass.findAll({
-          where: {
-            levelId: {[Op.in]: levelIds},
-            isDeleted: false,
-          },
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              include: [
-                {
-                  model: Difficulty,
-                  as: 'difficulty',
-                },
-              ],
-            },
-            {
-              model: Judgement,
-              as: 'judgements',
-            },
-          ],
-          transaction,
-        });
-
-        // Recalculate scores for each pass
-        for (const pass of affectedPasses) {
-          if (!pass.level || !pass.level.difficulty || !pass.judgements)
-            continue;
-
-          const levelData = {
-            baseScore: pass.level.baseScore,
-            ppBaseScore: pass.level.ppBaseScore,
-            difficulty: pass.level.difficulty,
-          };
-
-          const passData = {
-            speed: pass.speed || 1.0,
-            judgements: pass.judgements,
-            isNoHoldTap: pass.isNoHoldTap || false,
-          };
-
-          const newScore = getScoreV2(passData, levelData);
-
-          await pass.update(
-            {
-              scoreV2: newScore,
-            },
-            {transaction},
+        if (levelIds.length > 0) {
+          // Build a lookup map for level data to avoid re-querying
+          const levelDataMap = new Map(
+            levels.map(level => [level.id, {
+              baseScore: level.baseScore,
+              ppBaseScore: level.ppBaseScore,
+            }])
           );
 
-          // Collect affected player IDs
-          if (pass.playerId) {
-            affectedPlayerIds.add(pass.playerId);
+          // Use the known updated difficulty values directly (no need to re-fetch)
+          const updatedDifficulty = {
+            name: updateData.name as string,
+            baseScore: updateData.baseScore as number,
+          };
+
+          // Get all non-deleted passes for affected levels with limited columns
+          const affectedPasses = await Pass.findAll({
+            attributes: ['id', 'speed', 'isNoHoldTap', 'playerId', 'levelId', 'scoreV2'],
+            where: {
+              levelId: {[Op.in]: levelIds},
+              isDeleted: false,
+            },
+            include: [
+              {
+                model: Judgement,
+                as: 'judgements',
+              },
+            ],
+            transaction,
+          });
+
+          // Calculate all new scores first
+          const scoreUpdates: {id: number; scoreV2: number}[] = [];
+
+          for (const pass of affectedPasses) {
+            if (!pass.judgements) continue;
+
+            const level = levelDataMap.get(pass.levelId);
+            if (!level) continue;
+
+            const levelData = {
+              baseScore: level.baseScore,
+              ppBaseScore: level.ppBaseScore,
+              difficulty: updatedDifficulty,
+            };
+
+            const passData = {
+              speed: pass.speed || 1.0,
+              judgements: pass.judgements,
+              isNoHoldTap: pass.isNoHoldTap || false,
+            };
+
+            const newScore = getScoreV2(passData, levelData);
+            scoreUpdates.push({id: pass.id, scoreV2: newScore});
+
+            if (pass.playerId) {
+              affectedPlayerIds.add(pass.playerId);
+            }
           }
+
+          // Batch update pass scores using CASE WHEN (single query per batch)
+          const BATCH_SIZE = 500;
+          for (let i = 0; i < scoreUpdates.length; i += BATCH_SIZE) {
+            const batch = scoreUpdates.slice(i, i + BATCH_SIZE);
+            const ids = batch.map(u => u.id);
+            const cases = batch.map(u => `WHEN ${u.id} THEN ${u.scoreV2}`).join(' ');
+
+            await sequelize.query(
+              `UPDATE passes SET scoreV2 = CASE id ${cases} END WHERE id IN (${ids.join(',')})`,
+              {transaction},
+            );
+          }
+
+          affectedPassCount = scoreUpdates.length;
         }
       }
 
       // Commit the transaction first to ensure all updates are saved
       await transaction.commit();
 
-      // If base score was changed, reload all stats after the transaction is committed
-      if (isBaseScoreChanged) {
+      // If base score was changed, update stats for affected players only
+      if (isBaseScoreChanged && affectedPlayerIds.size > 0) {
         try {
-          // Reload all stats since this is a critical update affecting scores
-          await playerStatsService.reloadAllStats();
+          // Only recalculate stats for players whose passes were affected
+          await playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+          await playerStatsService.updateRanks();
 
           // Emit events for frontend updates after stats are reloaded
           const io = getIO();
@@ -834,12 +862,12 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), difficultyIconUpload.
             data: {
               difficultyId: diffId,
               action: 'update',
-              affectedPasses: affectedPasses.length,
+              affectedPasses: affectedPassCount,
               affectedPlayers: affectedPlayerIds.size,
             },
           });
         } catch (error) {
-          logger.error('Error reloading stats:', error);
+          logger.error('Error updating player stats:', error);
           return res.status(500).json({
             error:
               'Difficulty updated but failed to reload stats. Please reload manually.',
