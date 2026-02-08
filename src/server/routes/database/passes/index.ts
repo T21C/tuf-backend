@@ -12,7 +12,7 @@ const router: Router = Router();
 export async function updateWorldsFirstStatus(
   levelId: number,
   transaction?: any,
-) {
+) : Promise<Pass | null> {
   // Find the earliest non-deleted pass for this level from non-banned players
   const earliestPass = await Pass.findOne({
     where: {
@@ -42,7 +42,9 @@ export async function updateWorldsFirstStatus(
         transaction,
       },
     );
+    return earliestPass!;
   }
+  return null;
 }
 
 export async function searchPasses(query: any, userPlayerId?: number, isSuperAdmin = false) {

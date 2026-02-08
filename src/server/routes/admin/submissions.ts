@@ -1157,6 +1157,19 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         playerStats = (await playerStatsService.getPlayerStats(submission.assignedPlayerId))[0];
       }
 
+
+      if (submission.level.clears === 0 && submission.level.difficulty.name.includes('Q')) {
+        await Rating.create(
+          {
+            levelId: submission.levelId,
+            currentDifficultyId: null,
+            lowDiff: false,
+            requesterFR: submission.feelingDifficulty + " [cleared]" || 'cleared'
+          },
+          {transaction},
+        );
+      }
+
       await transaction.commit();
 
       // Index in Elasticsearch after commit
