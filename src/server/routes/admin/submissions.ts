@@ -1638,6 +1638,17 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           });
         }
 
+        if (lockedSubmission.level!.clears === 0 && lockedSubmission.level!.difficulty!.name.includes('Q')) {
+          await Rating.create(
+            {
+              levelId: lockedSubmission.levelId,
+              lowDiff: false,
+              requesterFR: lockedSubmission.feelingDifficulty + " [cleared]" || 'cleared'
+            },
+            {transaction},
+          );
+        }
+
         await transaction.commit();
 
         // Index in Elasticsearch after commit
