@@ -550,8 +550,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     // Update the main rating record with current and average difficulties
     await ratingRecord.update(
       {
-        currentDifficultyId:
-          !isCommunityRating && difficulty ? difficulty.id : null,
         averageDifficultyId: averageDifficulty?.id || null,
         communityDifficultyId: communityDifficulty?.id || null,
       },

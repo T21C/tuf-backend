@@ -234,7 +234,6 @@ const handleRatingChanges = async (
         await Rating.create(
           {
             levelId: level.id,
-            currentDifficultyId: 0,
             lowDiff,
             requesterFR: '',
             averageDifficultyId: null,

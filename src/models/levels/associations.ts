@@ -146,20 +146,9 @@ export function initializeLevelsAssociations() {
     as: 'levelReference',
   });
 
-  // Rating <-> Difficulty associations
-  Rating.belongsTo(Difficulty, {
-    foreignKey: 'currentDifficultyId',
-    as: 'currentDifficulty',
-  });
-
   Rating.belongsTo(Difficulty, {
     foreignKey: 'averageDifficultyId',
     as: 'averageDifficulty',
-  });
-
-  Difficulty.hasMany(Rating, {
-    foreignKey: 'currentDifficultyId',
-    as: 'currentRatings',
   });
 
   Difficulty.hasMany(Rating, {

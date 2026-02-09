@@ -255,7 +255,6 @@ export const levelMapping = {
         properties: {
           id: { type: 'integer' as const },
           levelId: { type: 'integer' as const },
-          currentDifficultyId: { type: 'integer' as const },
           lowDiff: { type: 'boolean' as const },
           requesterFR: {
             type: 'text' as const,

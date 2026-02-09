@@ -8,7 +8,6 @@ const sequelize = getSequelizeForModelGroup('levels');
 interface RatingAttributes {
   id: number;
   levelId: number;
-  currentDifficultyId: number | null;
   lowDiff: boolean;
   requesterFR: string;
   averageDifficultyId: number | null;
@@ -18,7 +17,7 @@ interface RatingAttributes {
 
 type RatingCreationAttributes = Optional<
   RatingAttributes,
-  'id' | 'averageDifficultyId' | 'currentDifficultyId' | 'communityDifficultyId'
+  'id' | 'averageDifficultyId' | 'communityDifficultyId'
 >;
 
 class Rating
@@ -27,7 +26,6 @@ class Rating
 {
   declare id: number;
   declare levelId: number;
-  declare currentDifficultyId: number | null;
   declare lowDiff: boolean;
   declare requesterFR: string;
   declare averageDifficultyId: number | null;
@@ -36,7 +34,6 @@ class Rating
   // Virtual fields from associations
   declare level?: Level;
   declare details?: RatingDetail[];
-  declare currentDifficulty?: Difficulty;
   declare averageDifficulty?: Difficulty;
   declare communityDifficulty?: Difficulty;
   declare confirmedAt: Date | null;
@@ -54,14 +51,6 @@ Rating.init(
       allowNull: false,
       references: {
         model: 'levels',
-        key: 'id',
-      },
-    },
-    currentDifficultyId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'difficulties',
         key: 'id',
       },
     },

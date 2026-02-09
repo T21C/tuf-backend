@@ -668,7 +668,6 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         await Rating.create(
           {
             levelId: newLevel.id,
-            currentDifficultyId: 0,
             lowDiff: lowRatingRegex.test(submission.diff),
             requesterFR: submission.diff,
             averageDifficultyId: null,
@@ -1162,7 +1161,6 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         await Rating.create(
           {
             levelId: submission.levelId,
-            currentDifficultyId: null,
             lowDiff: false,
             requesterFR: submission.feelingDifficulty + " [cleared]" || 'cleared'
           },

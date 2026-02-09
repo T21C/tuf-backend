@@ -878,7 +878,7 @@ class ElasticsearchService {
         limit: 1,
         required: false,
         order: [['confirmedAt', 'DESC']] as any,
-        attributes: ['id', 'levelId', 'currentDifficultyId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
+        attributes: ['id', 'levelId', 'lowDiff', 'requesterFR', 'averageDifficultyId', 'communityDifficultyId', 'confirmedAt']
       },
       {
         model: LevelTag,
