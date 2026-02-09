@@ -7,8 +7,7 @@ import { permissionFlags } from '../../../config/constants.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
-// Use explicit seconds value (48 hours = 48 * 60 * 60 seconds) to avoid parsing issues
-const JWT_EXPIRES_IN = 48 * 60 * 60; // 48 hours in seconds
+const JWT_EXPIRES_IN = 4 * 24 * 60 * 60; // 4 days in seconds
 
 /**
  * Password utilities

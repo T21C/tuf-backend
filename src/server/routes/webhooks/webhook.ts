@@ -159,10 +159,6 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
 
     // If we have messageFormats, group by roleId and create headers
     if (data.channelConfig.messageFormats && data.channelConfig.messageFormats.length > 0) {
-      // Check if ANY format has {difficultyName}
-      const hasAnyDifficultyNameFormat = data.channelConfig.messageFormats.some(
-        f => f.messageFormat.includes('{difficultyName}')
-      );
 
       // Sort formats by directiveSortOrder
       const sortedFormats = [...data.channelConfig.messageFormats].sort(
@@ -247,16 +243,57 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
           });
         }
       }
-
+      // Check if ANY format has {difficultyName}
+      const hasAnyDifficultyNameFormat = data.channelConfig.messageFormats.some(
+        f => f.messageFormat.includes('{difficultyName}')
+      );
       // Third: Send generic headers once before all embeds (if specific formats exist)
       // OR send generic headers with embeds (if no specific formats exist)
       if (hasAnyDifficultyNameFormat) {
-        // Send generic headers as plain text before embeds
-        for (const headerText of genericHeaders) {
-          messages.unshift({
-            type: 'text',
-            content: headerText
-          });
+        // Collect unembedded items from generic role groups
+        const unembeddedGenericItems: (Pass | Level)[] = [];
+        for (const format of uniqueGenericFormats.values()) {
+          const allRoleItems = data.roleGroups.get(format.roleId) || [];
+          for (const item of allRoleItems) {
+            if (!embeddedItems.has(item.id) && !unembeddedGenericItems.find(i => i.id === item.id)) {
+              unembeddedGenericItems.push(item);
+            }
+          }
+        }
+
+        if (unembeddedGenericItems.length > 0) {
+          // Create embeds for items only in generic role groups
+          const genericEmbeds: MessageBuilder[] = [];
+          for (const item of unembeddedGenericItems) {
+            if ('level' in item) {
+              genericEmbeds.push(await createClearEmbed(item as Pass));
+            } else {
+              genericEmbeds.push(await createNewLevelEmbed(item as Level));
+            }
+            embeddedItems.add(item.id);
+          }
+
+          // Combine all generic headers into one string
+          const combinedHeaders = genericHeaders.join('\n');
+
+          // Send headers + embeds for unembedded generic items
+          const genericMessages: ChannelMessage[] = [];
+          for (let i = 0; i < genericEmbeds.length; i += 8) {
+            const batch = genericEmbeds.slice(i, i + 8);
+            genericMessages.push(createEmbedBatchMessage(
+              batch,
+              i === 0 ? combinedHeaders : undefined
+            ));
+          }
+          messages.unshift(...genericMessages);
+        } else {
+          // All items already embedded by specific formats, just send generic headers as plain text
+          for (const headerText of genericHeaders) {
+            messages.unshift({
+              type: 'text',
+              content: headerText
+            });
+          }
         }
       } else {
         // No specific formats - send generic headers with embeds

@@ -38,7 +38,7 @@ router.get('/', Cache({
 
     // Parse filters from query params with validation
     let filters: Record<string, [number, number]> | undefined;
-    if (filtersParam && typeof filtersParam === 'string') {
+    if (filtersParam && typeof filtersParam === 'string' && filtersParam.trim().length > 0) {
       try {
         // Replace invalid JSON values before parsing
         let sanitizedFilters = filtersParam
