@@ -55,7 +55,7 @@ router.get('/', Cache({
         filters = parsed;
 
     } catch (error) {
-      logger.error('Error parsing filters:', error);
+      logger.error('Error parsing filters:', {error, filters: filtersParam});
       return res.status(400).json({
         error: 'Invalid filters',
         details: error instanceof Error ? error.message : String(error),
