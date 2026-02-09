@@ -603,11 +603,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
         },
         {
           model: Difficulty,
-          as: 'currentDifficulty',
-          required: false,
-        },
-        {
-          model: Difficulty,
           as: 'averageDifficulty',
           required: false,
         },
