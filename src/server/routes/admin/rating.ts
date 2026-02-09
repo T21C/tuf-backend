@@ -399,11 +399,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
           },
           {
             model: Difficulty,
-            as: 'currentDifficulty',
-            required: false,
-          },
-          {
-            model: Difficulty,
             as: 'averageDifficulty',
             required: false,
           },
@@ -516,11 +511,6 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
               attributes: ['id', 'username', 'nickname', 'avatarUrl'],
             },
           ],
-        },
-        {
-          model: Difficulty,
-          as: 'currentDifficulty',
-          required: false,
         },
         {
           model: Difficulty,
@@ -733,11 +723,6 @@ router.delete(
                 attributes: ['id', 'username', 'nickname', 'avatarUrl'],
               },
             ],
-          },
-          {
-            model: Difficulty,
-            as: 'currentDifficulty',
-            required: false,
           },
           {
             model: Difficulty,
