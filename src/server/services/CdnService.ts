@@ -496,7 +496,7 @@ class CdnService {
                 'get level data from CDN, level id: ' + level?.id || 'unknown' + ' ',
                 'Failed to get level data',
                 'GET_LEVEL_DATA_ERROR',
-                [],
+                ['Level data is not available for this file (level too large to parse)'],
                 { modes: modes?.join(',') }
             );
         }

@@ -212,6 +212,11 @@ class LevelCacheService {
         metadata?: any
     ): Promise<{ levelData: LevelDict; wasReparsed: boolean }> {
         const fileMetadata = metadata || file.metadata as any;
+
+        if (fileMetadata?.targetLevelOversized) {
+            throw new Error('Level file is too large to parse (oversized); cache and level data are not available');
+        }
+
         const safeToParse = fileMetadata?.targetSafeToParse || false;
         const versionCurrent = this.isVersionCurrent(fileMetadata);
 
@@ -372,9 +377,12 @@ class LevelCacheService {
         levelData?: LevelDict
     ): Promise<LevelCacheData> {
         try {
-            logger.debug('Populating cache for file:', { fileId: file.id, levelPath, requestedModes });
-
             const fileMetadata = metadata || file.metadata as any;
+            if (fileMetadata?.targetLevelOversized) {
+                throw new Error('Level file is too large to parse (oversized); cannot populate cache');
+            }
+
+            logger.debug('Populating cache for file:', { fileId: file.id, levelPath, requestedModes });
 
             // Parse existing cache - will return null if version mismatch or dev mode
             const existingCache = this.parseCacheData(file.cacheData, fileMetadata);
@@ -539,10 +547,16 @@ class LevelCacheService {
                     size: number;
                 }>;
                 targetLevel?: string | null;
+                targetLevelOversized?: boolean;
             };
 
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
                 logger.error('No level files found in metadata:', { fileId });
+                return null;
+            }
+
+            if (metadata.targetLevelOversized) {
+                logger.debug('Skipping cache population for oversized level (not parsed)', { fileId });
                 return null;
             }
 

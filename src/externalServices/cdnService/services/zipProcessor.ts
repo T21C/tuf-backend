@@ -13,6 +13,8 @@ const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
 import { decodeFilename } from '../misc/utils.js';
 
+/** Max level file size (bytes) to parse with LevelDict. Node string limit is ~0x1fffffe8 (~512MB); use 400MB to stay safe. */
+const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 400 * 1024 * 1024;
 
 interface ZipEntry {
     name: string;
@@ -99,6 +101,7 @@ export async function processZipFile(
             size: number;
             hasYouTubeStream?: boolean;
             songFilename?: string;
+            oversizedUnparsed?: boolean;
         }> = [];
         const songFiles: { [key: string]: any } = {};
 
@@ -147,22 +150,52 @@ export async function processZipFile(
             await extractFile(zipFilePath, entry, tempPath);
 
             try {
-                const levelDict = new LevelDict(tempPath);
-
                 const levelFilename = path.basename(entry.relativePath);
+                const tooLargeToParse = entry.size > MAX_LEVEL_FILE_SIZE_FOR_PARSE;
 
-                const levelFile = {
-                    name: levelFilename,
-                    path: tempPath, // Keep temp path for now, will be uploaded later
-                    size: entry.size,
-                    hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
-                    songFilename: levelDict.getSetting('songFilename'),
-                    artist: levelDict.getSetting('artist'),
-                    song: levelDict.getSetting('song'),
-                    author: levelDict.getSetting('author'),
-                    difficulty: levelDict.getSetting('difficulty'),
-                    bpm: levelDict.getSetting('bpm')
+                let levelFile: {
+                    name: string;
+                    path: string;
+                    size: number;
+                    hasYouTubeStream?: boolean;
+                    songFilename?: string;
+                    oversizedUnparsed?: boolean;
+                    artist?: unknown;
+                    song?: unknown;
+                    author?: unknown;
+                    difficulty?: unknown;
+                    bpm?: unknown;
                 };
+
+                if (tooLargeToParse) {
+                    logger.debug('Skipping LevelDict parse for oversized level file (would exceed Node string limit):', {
+                        name: levelFilename,
+                        size: entry.size,
+                        maxParseSize: MAX_LEVEL_FILE_SIZE_FOR_PARSE
+                    });
+                    levelFile = {
+                        name: levelFilename,
+                        path: tempPath,
+                        size: entry.size,
+                        hasYouTubeStream: false,
+                        songFilename: undefined,
+                        oversizedUnparsed: true
+                    };
+                } else {
+                    const levelDict = new LevelDict(tempPath);
+                    levelFile = {
+                        name: levelFilename,
+                        path: tempPath, // Keep temp path for now, will be uploaded later
+                        size: entry.size,
+                        hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
+                        songFilename: levelDict.getSetting('songFilename'),
+                        artist: levelDict.getSetting('artist'),
+                        song: levelDict.getSetting('song'),
+                        author: levelDict.getSetting('author'),
+                        difficulty: levelDict.getSetting('difficulty'),
+                        bpm: levelDict.getSetting('bpm')
+                    };
+                }
 
                 levelFiles[entry.relativePath] = levelFile;
                 allLevelFiles.push(levelFile);
@@ -179,7 +212,8 @@ export async function processZipFile(
                     name: levelFilename,
                     size: entry.size,
                     path: tempPath,
-                    hasYouTubeStream: levelFile.hasYouTubeStream
+                    hasYouTubeStream: levelFile.hasYouTubeStream,
+                    skippedParse: tooLargeToParse
                 });
             } catch (error) {
                 logger.warn('Failed to process level file:', {
@@ -287,6 +321,7 @@ export async function processZipFile(
 
         // Determine target level
         let targetLevel: string | null = null;
+        let targetLevelOversized = false;
         const pathConfirmed = false;
 
         if (allLevelFiles.length > 0) {
@@ -304,6 +339,7 @@ export async function processZipFile(
             });
 
             targetLevel = largestLevel.path; // Use storage path (Spaces key or local path)
+            targetLevelOversized = !!largestLevel.oversizedUnparsed;
 
             logger.debug('Selected largest level file as target:', {
                 selectedLevel: largestLevel.name,
@@ -312,7 +348,8 @@ export async function processZipFile(
                 totalLevels: allLevelFiles.length,
                 nonBackupCount: nonBackupFiles.length,
                 isBackup: largestLevel.name.toLowerCase() === 'backup.adofai',
-                storageType: levelUploadResult.storageType
+                storageType: levelUploadResult.storageType,
+                targetLevelOversized
             });
         }
 
@@ -330,6 +367,7 @@ export async function processZipFile(
                 allLevelFiles,
                 songFiles: updatedSongFiles,
                 targetLevel,
+                targetLevelOversized,
                 pathConfirmed,
                 // Always include storage type at the root level for easy access
                 storageType: levelUploadResult.storageType,

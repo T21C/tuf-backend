@@ -110,14 +110,16 @@ function extractLevelMetadata(metadata: any) {
                 name: levelFile.name,
                 size: levelFile.size,
                 songFilename: levelFile.songFilename,
-                hasYouTubeStream: levelFile.hasYouTubeStream
+                hasYouTubeStream: levelFile.hasYouTubeStream,
+                oversizedUnparsed: !!levelFile.oversizedUnparsed
             };
         }),
         originalZip: {
             name: metadata.originalZip.name,
             size: metadata.originalZip.size,
             originalFilename: metadata.originalZip.originalFilename
-        }
+        },
+        transformUnavailable: !!metadata.targetLevelOversized
     };
 }
 
@@ -198,6 +200,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 type: string;
             }>;
             targetLevel?: string | null;
+            targetLevelOversized?: boolean;
             storageType?: StorageType;
             levelStorageType?: StorageType;
             songStorageType?: StorageType;
@@ -208,6 +211,11 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 originalFilename?: string;
             };
         };
+
+        // Transform (event keep/drop, etc.) is not available for oversized levels that were not parsed
+        if (metadata.targetLevelOversized) {
+            throw { error: 'Transform not available for this level (file too large to process). Please download the original zip.', code: 400 };
+        }
 
         // Log metadata structure for debugging
         logger.debug('Level metadata structure:', {
@@ -542,8 +550,10 @@ router.get('/transform-options', async (req: Request, res: Response) => {
                 name: string;
                 path: string;
                 size: number;
+                oversizedUnparsed?: boolean;
             }>;
             targetLevel?: string | null;
+            targetLevelOversized?: boolean;
         };
 
         // If targetLevel is missing, find the largest level file
@@ -569,6 +579,17 @@ router.get('/transform-options', async (req: Request, res: Response) => {
             });
 
             metadata.targetLevel = largestLevel.path;
+        }
+
+        // Oversized levels were not parsed; transform (event keep/drop, etc.) is not available
+        if (metadata.targetLevelOversized) {
+            return res.status(200).json({
+                transformUnavailable: true,
+                reason: 'oversized',
+                eventTypes: [],
+                filterTypes: [],
+                advancedFilterTypes: []
+            });
         }
 
         // Read the level file
@@ -644,9 +665,13 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         }>;
         targetLevel?: string | null;
         targetSafeToParse?: boolean;
+        targetLevelOversized?: boolean;
     };
     if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
         throw { error: 'No level files found in metadata', code: 400 };
+    }
+    if (metadata.targetLevelOversized) {
+        throw { error: 'Level data is not available for this file (level too large to parse)', code: 400 };
     }
     const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
     if (!fs.existsSync(targetLevel)) {
@@ -783,12 +808,16 @@ router.get('/:fileId/level.adofai', async (req: Request, res: Response) => {
             }>;
             targetLevel?: string | null;
             targetSafeToParse?: boolean;
+            targetLevelOversized?: boolean;
             levelStorageType?: StorageType;
             storageType?: StorageType;
         };
         const targetLevel = metadata.targetLevel || metadata.allLevelFiles?.[0]?.path;
         if (!targetLevel) {
             throw { error: 'Target level file not found in metadata', code: 400 };
+        }
+        if (metadata.targetLevelOversized) {
+            throw { error: 'Level file is too large to serve as JSON. Please download the original zip.', code: 400 };
         }
 
         // Check if target level is safe to parse (already processed through levelDict)

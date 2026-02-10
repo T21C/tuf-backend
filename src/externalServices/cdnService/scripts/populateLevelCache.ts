@@ -29,6 +29,14 @@ async function populateCacheForFile(file: CdnFile, stats: ScriptStats): Promise<
     try {
         logger.info(`[${stats.processed + 1}/${stats.total}] Processing file: ${file.id}`);
 
+        const metadata = file.metadata as { targetLevelOversized?: boolean } | undefined;
+        if (metadata?.targetLevelOversized) {
+            stats.skipped++;
+            logger.info(`⊘ Skipped oversized level (cache not available): ${file.id}`);
+            stats.processed++;
+            return;
+        }
+
         // Try to populate cache
         const cacheData = await levelCacheService.ensureCachePopulated(file.id);
 
