@@ -662,7 +662,7 @@ router.post(
           earlyDouble: validateNumericInput(req.body.earlyDouble, 0, 999999999),
           earlySingle: validateNumericInput(req.body.earlySingle, 0, 999999999),
           ePerfect: validateNumericInput(req.body.ePerfect, 0, 999999999),
-          perfect: validateNumericInput(req.body.perfect, 0, 999999999), // Must be at least 1
+          perfect: validateNumericInput(req.body.perfect, 0, 999999999),
           lPerfect: validateNumericInput(req.body.lPerfect, 0, 999999999),
           lateSingle: validateNumericInput(req.body.lateSingle, 0, 999999999),
           lateDouble: validateNumericInput(req.body.lateDouble, 0, 999999999),
@@ -704,6 +704,7 @@ router.post(
 
         const existingSubmission = await PassSubmission.findOne({
           where: {
+            status: 'pending',
             levelId: levelId,
             speed: speed,
             passer: sanitizeTextInput(req.body.passer),
