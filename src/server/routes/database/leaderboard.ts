@@ -36,68 +36,17 @@ router.get('/', Cache({
     const offsetNum = Math.max(0, parseInt(offset as string) || 0);
     const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 30));
 
-    // Parse filters from query params with validation
+    // Parse filters from query params: try JSON.parse once, use only if it yields a plain object
     let filters: Record<string, [number, number]> | undefined;
     if (filtersParam && typeof filtersParam === 'string' && filtersParam.trim().length > 0) {
       try {
-        const trimmedFilters = filtersParam.trim();
-        
-        // Check if JSON string appears incomplete (basic validation)
-        const openBraces = (trimmedFilters.match(/{/g) || []).length;
-        const closeBraces = (trimmedFilters.match(/}/g) || []).length;
-        const openBrackets = (trimmedFilters.match(/\[/g) || []).length;
-        const closeBrackets = (trimmedFilters.match(/\]/g) || []).length;
-        
-        // If braces/brackets are unbalanced, the JSON is incomplete
-        if (openBraces !== closeBraces || openBrackets !== closeBrackets) {
-          logger.debug('Incomplete filters JSON detected, ignoring filters:', {filters: trimmedFilters});
-          // Don't return error, just ignore the filters and continue without them
-          filters = undefined;
+        const parsed = JSON.parse(filtersParam.trim());
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          filters = parsed as Record<string, [number, number]>;
         } else {
-          // Replace invalid JSON values before parsing
-          let sanitizedFilters = trimmedFilters
-            .replace(/"Infinity"/g, '"2147483647"')
-            .replace(/"-Infinity"/g, '"-2147483647"')
-            .replace(/"NaN"/g, '"0"');
-
-          const parsed = JSON.parse(sanitizedFilters, (key, value) => {
-            if (typeof value === 'number') {
-              return Number.parseFloat(value.toString());
-            }
-            return value;
-          });
-          
-          // Validate that parsed filters have the correct structure
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            // Check if all values are arrays of 2 numbers
-            const isValid = Object.values(parsed).every(value => 
-              Array.isArray(value) && 
-              value.length === 2 && 
-              typeof value[0] === 'number' && 
-              typeof value[1] === 'number'
-            );
-            
-            if (isValid) {
-              filters = parsed as Record<string, [number, number]>;
-            } else {
-              logger.debug('Invalid filter structure, ignoring filters:', {filters: trimmedFilters});
-              filters = undefined;
-            }
-          } else {
-            logger.debug('Filters must be an object, ignoring:', {filters: trimmedFilters});
-            filters = undefined;
-          }
+          filters = undefined;
         }
-      } catch (error) {
-        logger.error('Error parsing filters:', {
-          error: error instanceof Error ? {
-            message: error.message,
-            stack: error.stack,
-            name: error.name
-          } : error,
-          filters: filtersParam
-        });
-        // Don't return error, just ignore the filters and continue without them
+      } catch {
         filters = undefined;
       }
     }
