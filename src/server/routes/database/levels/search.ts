@@ -462,23 +462,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         order: [['name', 'ASC']],
       });
 
-      // CDN service calls (need level data)
-      const cdnDataPromise = levelPromise.then(async (level) => {
-        if (!level?.dlLink) return { bpm: undefined, tilecount: undefined, accessCount: 0 };
-
-        try {
-          const fileResponse = await cdnService.getLevelData(level, ['settings','tilecount','accessCount']);
-          return {
-            bpm: fileResponse?.settings?.bpm,
-            tilecount: fileResponse?.tilecount,
-            accessCount: fileResponse?.accessCount || 0
-          };
-        } catch (error) {
-          logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
-          return { bpm: undefined, tilecount: undefined, accessCount: 0 };
-        }
-      });
-
       const metadataPromise = levelPromise.then(async (level) => {
         if (!level) return undefined;
         try {
@@ -501,7 +484,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         ratings,
         rerateHistory,
         tags,
-        cdnData,
         metadata
       ] = await Promise.all([
         levelPromise,
@@ -514,7 +496,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         ratingsPromise,
         rerateHistoryPromise,
         tagsPromise,
-        cdnDataPromise,
         metadataPromise
       ]);
 
@@ -545,9 +526,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         level: assembledLevel,
         ratings,
         rerateHistory,
-        bpm: cdnData.bpm,
-        tilecount: cdnData.tilecount,
-        accessCount: cdnData.accessCount,
         metadata,
       });
     } catch (error) {
@@ -556,6 +534,47 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
   } catch (error) {
     logger.error('Error fetching level:', error);
     return res.status(500).json({ error: 'Failed to fetch level' });
+  }
+});
+
+router.get('/:id([0-9]{1,20})/cdnData', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
+      return res.status(400).json({ error: 'Invalid level ID' });
+    }
+    const levelId = parseInt(req.params.id);
+
+    const level = await Level.findOne({
+      where: { id: levelId },
+      attributes: ['id', 'dlLink', 'isDeleted']
+    });
+
+    if (!level) {
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
+      return res.status(404).json({ error: 'Level not found' });
+    }
+
+    if (!level.dlLink) {
+      return res.json({ accessCount: 0 });
+    }
+
+    try {
+      const fileResponse = await cdnService.getLevelData(level, ['settings','tilecount','accessCount']);
+      return res.json({
+        bpm: fileResponse?.settings?.bpm,
+        tilecount: fileResponse?.tilecount,
+        accessCount: fileResponse?.accessCount || 0
+      });
+    } catch (error) {
+      logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
+      return res.json({ accessCount: 0 });
+    }
+  } catch (error) {
+    logger.error('Error fetching level CDN data:', error);
+    return res.status(500).json({ error: 'Failed to fetch level CDN data' });
   }
 });
 
