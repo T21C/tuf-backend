@@ -249,6 +249,7 @@ async function approvePassSubmission(
       { levelId: submission.levelId, lowDiff: false, requesterFR: reqFr || 'cleared' },
       { transaction },
     );
+    await Level.update({ toRate: true, rerateNum: submission.feelingDifficulty || '', rerateReason: "cleared"}, { where: { id: submission.levelId }, transaction });
   }
 
   return { pass, newPass: newPass as Pass, playerStats };
