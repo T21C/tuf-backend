@@ -26,7 +26,7 @@ import LevelSubmissionTeamRequest from '../../../models/submissions/LevelSubmiss
 import Creator from '../../../models/credits/Creator.js';
 import LevelCredit from '../../../models/levels/LevelCredit.js';
 import User from '../../../models/auth/User.js';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import { logger } from '../../services/LoggerService.js';
 import ElasticsearchService from '../../services/ElasticsearchService.js';
 import { CDN_CONFIG } from '../../../externalServices/cdnService/config.js';
@@ -83,6 +83,175 @@ function extractErrorDetails(error: unknown): {
  */
 function isValidNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && !Number.isNaN(value);
+}
+
+/** Include config for pass submission approval - used by both single approve and auto-approve */
+const PASS_SUBMISSION_APPROVE_INCLUDES = [
+  {
+    model: Level,
+    as: 'level',
+    include: [
+      { model: Difficulty, as: 'difficulty' },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        include: [{ model: Creator, as: 'creator' }],
+      },
+    ],
+  },
+  { model: Player, as: 'assignedPlayer' },
+  { model: PassSubmissionFlags, as: 'flags' },
+  { model: PassSubmissionJudgements, as: 'judgements' },
+];
+
+interface ApprovePassSubmissionResult {
+  pass: Pass;
+  newPass: Pass;
+  playerStats: Awaited<ReturnType<typeof playerStatsService.getPlayerStats>>[0] | null;
+}
+
+/**
+ * Core logic to approve a pass submission. Validates, calculates, creates pass,
+ * updates submission, worlds first, player stats, and rating.
+ * Throws on validation or processing errors.
+ */
+async function approvePassSubmission(
+  submission: PassSubmission & {
+    level: Level & { difficulty: Difficulty; levelCredits?: unknown[] };
+    flags: PassSubmissionFlags;
+    judgements: PassSubmissionJudgements;
+  },
+  transaction: Transaction,
+): Promise<ApprovePassSubmissionResult> {
+  const submissionData = submission.toJSON() as { passId?: number };
+  if (submissionData.passId) {
+    throw new Error(`Pass already exists for this submission (passId: ${submissionData.passId})`);
+  }
+  if (!submission.level) throw new Error('Level data not found for this submission');
+  if (!submission.level.difficulty) {
+    throw new Error('Level difficulty not found - level may need to be rated first');
+  }
+  if (!submission.assignedPlayerId) throw new Error('No player assigned to this submission');
+
+  const player = await Player.findByPk(submission.assignedPlayerId, { transaction });
+  if (!player) throw new Error('Assigned player does not exist');
+
+  if (!submission.judgements) throw new Error('Judgements data not found for this submission');
+  if (!submission.flags) throw new Error('Flags data not found for this submission');
+  if (!submission.levelId || !isValidNumber(submission.levelId)) {
+    throw new Error('Invalid level ID');
+  }
+
+  const flags = submission.flags;
+  const judgements = submission.judgements;
+  const level = submission.level;
+  const difficulty = level.difficulty;
+
+  const judgementData = {
+    earlyDouble: judgements.earlyDouble || 0,
+    earlySingle: judgements.earlySingle || 0,
+    ePerfect: judgements.ePerfect || 0,
+    perfect: judgements.perfect || 0,
+    lPerfect: judgements.lPerfect || 0,
+    lateSingle: judgements.lateSingle || 0,
+    lateDouble: judgements.lateDouble || 0,
+  };
+
+  const speed = submission.speed || 1;
+  const accuracy = calcAcc(judgementData as IPassSubmissionJudgements);
+  const scoreV2 = getScoreV2(
+    {
+      speed,
+      judgements: judgementData as IPassSubmissionJudgements,
+      isNoHoldTap: flags.isNoHoldTap || false,
+    },
+    { baseScore: level.baseScore, ppBaseScore: level.ppBaseScore, difficulty },
+  );
+
+  if (!isValidNumber(accuracy)) {
+    throw new Error(`Failed to calculate valid accuracy from judgements`);
+  }
+  if (!isValidNumber(scoreV2)) {
+    throw new Error(`Failed to calculate valid score - check level base score and difficulty`);
+  }
+
+  const passData = {
+    levelId: submission.levelId,
+    playerId: submission.assignedPlayerId,
+    speed,
+    vidTitle: submission.title || '',
+    videoLink: submission.videoLink,
+    vidUploadTime: submission.rawTime || new Date(),
+    is12K: flags.is12K || false,
+    is16K: flags.is16K || false,
+    isNoHoldTap: flags.isNoHoldTap || false,
+    feelingRating: submission.feelingDifficulty || null,
+    accuracy,
+    scoreV2,
+    isAnnounced: false,
+    isDeleted: false,
+  };
+
+  const pass = await Pass.create(passData, { transaction });
+
+  const now = new Date();
+  const judgementRecord = await Judgement.create(
+    { id: pass.id, ...judgementData, createdAt: now, updatedAt: now },
+    { transaction },
+  );
+  if (!judgementRecord) {
+    throw new Error(`Failed to create judgement record for pass #${pass.id}`);
+  }
+
+  await submission.update({ status: 'approved', passId: pass.id }, { transaction });
+  await updateWorldsFirstStatus(submission.levelId, transaction);
+
+  const newPass = await Pass.findByPk(pass.id, {
+    include: [
+      { model: Player, as: 'player' },
+      {
+        model: Level,
+        as: 'level',
+        include: [
+          { model: Difficulty, as: 'difficulty' },
+          {
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{ model: Creator, as: 'creator' }],
+          },
+        ],
+      },
+      { model: Judgement, as: 'judgements' },
+    ],
+    transaction,
+  });
+
+  if (!newPass) throw new Error(`Failed to fetch created pass #${pass.id}`);
+
+  let playerStats: ApprovePassSubmissionResult['playerStats'] = null;
+  try {
+    await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
+    playerStats = (await playerStatsService.getPlayerStats(submission.assignedPlayerId))[0];
+  } catch (statsError) {
+    logger.warn('Failed to update player stats during approval', {
+      submissionId: submission.id,
+      playerId: submission.assignedPlayerId,
+      error: statsError instanceof Error ? statsError.message : String(statsError),
+    });
+  }
+
+  if (level.clears === 0 && difficulty.name.includes('Q')) {
+    let reqFr = (submission.feelingDifficulty ?? '') + ' [cleared]';
+    if (difficulty.name.includes('UQ')) {
+      reqFr = `vote cleared (${submission.feelingDifficulty ?? ''})`;
+    }
+    await Rating.create(
+      { levelId: submission.levelId, lowDiff: false, requesterFR: reqFr || 'cleared' },
+      { transaction },
+    );
+  }
+
+  return { pass, newPass: newPass as Pass, playerStats };
 }
 
 interface CreditStats {
@@ -900,288 +1069,28 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
     const submissionId = req.params.id;
 
     try {
-      // Use row-level locking to prevent race conditions
       const submission = await PassSubmission.findOne({
         where: {[Op.and]: [{id: parseInt(submissionId)}, {status: 'pending'}]},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-            ],
-          },
-          {
-            model: PassSubmissionFlags,
-            as: 'flags',
-          },
-          {
-            model: PassSubmissionJudgements,
-            as: 'judgements',
-          },
-        ],
+        include: PASS_SUBMISSION_APPROVE_INCLUDES,
         lock: true,
         transaction,
       });
 
-      // === VALIDATION PHASE ===
       if (!submission) {
         await safeTransactionRollback(transaction, logger);
         return res.status(404).json({error: 'Submission not found or already processed'});
       }
 
-      // Check if pass already exists for this submission (prevent duplicates)
-      const submissionData = submission.toJSON() as any;
-      if (submissionData.passId) {
-        await safeTransactionRollback(transaction, logger);
-        logger.warn('Pass already exists for submission', {
-          submissionId,
-          existingPassId: submissionData.passId,
-        });
-        return res.status(400).json({error: 'Pass already exists for this submission'});
-      }
-
-      if (!submission.level) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Pass submission missing level data', {
-          submissionId,
-          levelId: submission.levelId,
-        });
-        return res.status(400).json({error: 'Level data not found for this submission'});
-      }
-
-      if (!submission.level.difficulty) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Pass submission level missing difficulty', {
-          submissionId,
-          levelId: submission.levelId,
-        });
-        return res.status(400).json({error: 'Level difficulty not found - level may need to be rated first'});
-      }
-
-      if (!submission.assignedPlayerId) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Pass submission missing assigned player', { submissionId });
-        return res.status(400).json({error: 'No player assigned to this submission'});
-      }
-
-      // Verify player exists
-      const player = await Player.findByPk(submission.assignedPlayerId, { transaction });
-      if (!player) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Assigned player not found', {
-          submissionId,
-          playerId: submission.assignedPlayerId,
-        });
-        return res.status(400).json({error: 'Assigned player does not exist'});
-      }
-
-      if (!submission.judgements) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Pass submission missing judgements', { submissionId });
-        return res.status(400).json({error: 'Judgements data not found for this submission'});
-      }
-
-      if (!submission.flags) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Pass submission missing flags', { submissionId });
-        return res.status(400).json({error: 'Flags data not found for this submission'});
-      }
-
-      // Validate levelId
-      if (!submission.levelId || !isValidNumber(submission.levelId)) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Pass submission has invalid levelId', {
-          submissionId,
-          levelId: submission.levelId,
-        });
-        return res.status(400).json({error: 'Invalid level ID'});
-      }
-
-      // === CALCULATION PHASE ===
-      const levelData = {
-        baseScore: submission.level.baseScore,
-        ppBaseScore: submission.level.ppBaseScore,
-        difficulty: submission.level.difficulty,
-      };
-
-      const judgements = {
-        earlyDouble: submission.judgements.earlyDouble || 0,
-        earlySingle: submission.judgements.earlySingle || 0,
-        ePerfect: submission.judgements.ePerfect || 0,
-        perfect: submission.judgements.perfect || 0,
-        lPerfect: submission.judgements.lPerfect || 0,
-        lateSingle: submission.judgements.lateSingle || 0,
-        lateDouble: submission.judgements.lateDouble || 0,
-      };
-
-      const speed = submission.speed || 1;
-      const accuracy = calcAcc(judgements as IPassSubmissionJudgements);
-      const scoreV2 = getScoreV2(
-        {
-          speed,
-          judgements: judgements as IPassSubmissionJudgements,
-          isNoHoldTap: submission.flags.isNoHoldTap || false,
-        },
-        levelData,
-      );
-
-      // Validate calculated values
-      if (!isValidNumber(accuracy)) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Calculated accuracy is invalid', {
-          submissionId,
-          accuracy,
-          judgements,
-        });
-        return res.status(400).json({error: 'Failed to calculate valid accuracy from judgements'});
-      }
-
-      if (!isValidNumber(scoreV2)) {
-        await safeTransactionRollback(transaction, logger);
-        logger.error('Calculated scoreV2 is invalid', {
-          submissionId,
-          scoreV2,
-          speed,
-          baseScore: submission.level.baseScore,
-          judgements,
-        });
-        return res.status(400).json({error: 'Failed to calculate valid score - check level base score and difficulty'});
-      }
-
-      // === CREATE PHASE ===
-      const passData = {
-        levelId: submission.levelId,
-        playerId: submission.assignedPlayerId,
-        speed,
-        vidTitle: submission.title || '',
-        videoLink: submission.videoLink,
-        vidUploadTime: submission.rawTime || new Date(),
-        is12K: submission.flags.is12K || false,
-        is16K: submission.flags.is16K || false,
-        isNoHoldTap: submission.flags.isNoHoldTap || false,
-        feelingRating: submission.feelingDifficulty || null,
-        accuracy,
-        scoreV2,
-        isAnnounced: false,
-        isDeleted: false,
-      };
-
-      logger.debug('Creating pass with data', {
-        submissionId,
-        levelId: passData.levelId,
-        playerId: passData.playerId,
-        accuracy: passData.accuracy,
-        scoreV2: passData.scoreV2,
-      });
-
-      const pass = await Pass.create(passData, { transaction });
-
-      // Create judgements record
-      const now = new Date();
-      const judgementRecord = await Judgement.create(
-        {
-          id: pass.id,
-          ...judgements,
-          createdAt: now,
-          updatedAt: now,
-        },
-        { transaction },
-      );
-
-      if (!judgementRecord) {
-        throw new Error(`Failed to create judgement record for pass #${pass.id}`);
-      }
-
-      // Update submission status
-      await submission.update(
-        {
-          status: 'approved',
-          passId: pass.id,
-        },
-        { transaction },
-      );
-
-      // Update worlds first status if needed
-      await updateWorldsFirstStatus(submission.levelId, transaction);
-
-      // Fetch complete pass with associations
-      const newPass = await Pass.findByPk(pass.id, {
-        include: [
-          {
-            model: Player,
-            as: 'player',
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-        ],
-        transaction,
-      });
-
-      // Update player stats before committing
-      let playerStats = null;
-      if (submission.assignedPlayerId) {
-        await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
-        playerStats = (await playerStatsService.getPlayerStats(submission.assignedPlayerId))[0];
-      }
-
-
-      if (submission.level.clears === 0 && submission.level.difficulty.name.includes('Q')) {
-        await Rating.create(
-          {
-            levelId: submission.levelId,
-            lowDiff: false,
-            requesterFR: submission.feelingDifficulty + " [cleared]" || 'cleared'
-          },
-          {transaction},
-        );
-      }
+      const { pass, newPass, playerStats } = await approvePassSubmission(submission as any, transaction);
 
       await transaction.commit();
 
-      // Index in Elasticsearch after commit
-      await elasticsearchService.indexPass(newPass!);
-      await elasticsearchService.indexLevel(newPass!.level!);
+      await elasticsearchService.indexPass(newPass);
+      await elasticsearchService.indexLevel(newPass.level!);
 
-      // Broadcast updates
       sseManager.broadcast({
         type: 'submissionUpdate',
-        data: {
-          action: 'create',
-          submissionId: submission.id,
-          submissionType: 'pass',
-        },
+        data: { action: 'create', submissionId: submission.id, submissionType: 'pass' },
       });
 
       if (submission.assignedPlayerId && playerStats) {
@@ -1196,26 +1105,19 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         });
       }
 
-      // Trigger Discord role sync for the player (async, non-blocking)
       if (submission.assignedPlayerId) {
         roleSyncService.getDiscordIdForPlayer(submission.assignedPlayerId)
           .then(discordId => {
             if (discordId) {
-              roleSyncService.notifyBotOfRoleSyncByDiscordIds([discordId]).catch(() => {
-                // Error already logged in RoleSyncService
-              });
+              roleSyncService.notifyBotOfRoleSyncByDiscordIds([discordId]).catch(() => {});
             }
           })
           .catch(err => {
-            // Silently handle errors - notification is non-critical
             logger.debug(`[submissions] Failed to notify bot of role sync: ${err.message}`);
           });
       }
 
-      return res.json({
-        message: 'Pass submission approved successfully',
-        pass,
-      });
+      return res.json({ message: 'Pass submission approved successfully', pass });
     } catch (error) {
       await safeTransactionRollback(transaction, logger);
       const errorDetails = extractErrorDetails(error);
@@ -1226,7 +1128,13 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         originalError: errorDetails.original,
         fields: errorDetails.fields,
       });
-      return res.status(500).json({
+      const validationPhrases = [
+        'Pass already exists', 'Level data not found', 'difficulty not found',
+        'No player assigned', 'does not exist', 'Judgements data not found',
+        'Flags data not found', 'Invalid level', 'Failed to calculate',
+      ];
+      const isValidation = validationPhrases.some(p => errorDetails.message?.includes(p));
+      return res.status(isValidation ? 400 : 500).json({
         error: 'Failed to process pass submission',
         details: errorDetails.message,
       });
@@ -1397,7 +1305,6 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
 // Auto-approve pass submissions
 router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
   try {
-    // Find all pending submissions with assigned players and required data
     const pendingSubmissions = await PassSubmission.findAll({
       where: { status: 'pending' },
       include: [
@@ -1408,24 +1315,12 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
             { model: Difficulty, as: 'difficulty' },
             { model: LevelCredit, as: 'levelCredits', include: [{ model: Creator, as: 'creator' }] },
           ],
-          required: true
+          required: true,
         },
-        {
-          model: Player,
-          as: 'assignedPlayer',
-          required: true
-        },
-        {
-          model: PassSubmissionFlags,
-          as: 'flags',
-          required: true
-        },
-        {
-          model: PassSubmissionJudgements,
-          as: 'judgements',
-          required: true
-        }
-      ]
+        { model: Player, as: 'assignedPlayer', required: true },
+        { model: PassSubmissionFlags, as: 'flags', required: true },
+        { model: PassSubmissionJudgements, as: 'judgements', required: true },
+      ],
     });
 
     const results: Array<{
@@ -1440,227 +1335,30 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
       const validationErrors: string[] = [];
 
       try {
-        // Reload submission with row-level locking to prevent race conditions
         const lockedSubmission = await PassSubmission.findOne({
-          where: {
-            id: submission.id,
-            status: 'pending',
-          },
-          include: [
-            {
-              model: Level,
-              as: 'level',
-              include: [
-                { model: Difficulty, as: 'difficulty' },
-                { model: LevelCredit, as: 'levelCredits', include: [{ model: Creator, as: 'creator' }] },
-              ],
-              required: true
-            },
-            {
-              model: Player,
-              as: 'assignedPlayer',
-              required: true
-            },
-            {
-              model: PassSubmissionFlags,
-              as: 'flags',
-              required: true
-            },
-            {
-              model: PassSubmissionJudgements,
-              as: 'judgements',
-              required: true
-            }
-          ],
+          where: { id: submission.id, status: 'pending' },
+          include: PASS_SUBMISSION_APPROVE_INCLUDES,
           lock: true,
           transaction,
         });
 
-        // Check if submission was already processed by another transaction
         if (!lockedSubmission) {
           validationErrors.push('Submission already processed or not found');
           throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
         }
 
-        // Check if pass already exists for this submission (prevent duplicates)
-        const submissionData = lockedSubmission.toJSON() as any;
-        if (submissionData.passId) {
-          validationErrors.push(`Pass already exists (passId: ${submissionData.passId})`);
-          throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
-        }
-
-        // === VALIDATION PHASE ===
-        if (!lockedSubmission.flags) {
-          validationErrors.push('Missing flags data');
-        }
-        if (!lockedSubmission.judgements) {
-          validationErrors.push('Missing judgements data');
-        }
-        if (!lockedSubmission.level) {
-          validationErrors.push('Missing level data');
-        }
-        if (lockedSubmission.level && !lockedSubmission.level.difficulty) {
-          validationErrors.push('Level missing difficulty - may need rating');
-        }
-        if (!lockedSubmission.assignedPlayerId) {
-          validationErrors.push('No player assigned');
-        }
-        if (!lockedSubmission.levelId || !isValidNumber(lockedSubmission.levelId)) {
-          validationErrors.push(`Invalid levelId: ${lockedSubmission.levelId}`);
-        }
-
-        if (validationErrors.length > 0) {
-          throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
-        }
-
-
-        // TypeScript narrowing after validation
-        const flags = lockedSubmission.flags!;
-        const judgements = lockedSubmission.judgements!;
-        const level = lockedSubmission.level!;
-        const difficulty = level.difficulty!;
-        const playerId = lockedSubmission.assignedPlayerId!;
-
-        // === CALCULATION PHASE ===
-        const judgementData = {
-          earlyDouble: judgements.earlyDouble || 0,
-          earlySingle: judgements.earlySingle || 0,
-          ePerfect: judgements.ePerfect || 0,
-          perfect: judgements.perfect || 0,
-          lPerfect: judgements.lPerfect || 0,
-          lateSingle: judgements.lateSingle || 0,
-          lateDouble: judgements.lateDouble || 0,
-        };
-
-        const speed = submission.speed || 1;
-        const accuracy = calcAcc(judgementData as IPassSubmissionJudgements);
-        const scoreV2 = getScoreV2(
-          {
-            speed,
-            judgements: judgementData as IPassSubmissionJudgements,
-            isNoHoldTap: flags.isNoHoldTap || false,
-          },
-          {
-            baseScore: level.baseScore,
-            ppBaseScore: level.ppBaseScore,
-            difficulty,
-          },
-        );
-
-        // Validate calculated values
-        if (!isValidNumber(accuracy)) {
-          throw new Error(`Invalid accuracy calculated: ${accuracy}`);
-        }
-        if (!isValidNumber(scoreV2)) {
-          throw new Error(`Invalid scoreV2 calculated: ${scoreV2} (baseScore: ${level.baseScore})`);
-        }
-
-        // === CREATE PHASE ===
-        const passData = {
-          levelId: lockedSubmission.levelId,
-          playerId,
-          speed,
-          vidTitle: lockedSubmission.title || '',
-          videoLink: lockedSubmission.videoLink,
-          vidUploadTime: lockedSubmission.rawTime || new Date(),
-          is12K: flags.is12K || false,
-          is16K: flags.is16K || false,
-          isNoHoldTap: flags.isNoHoldTap || false,
-          feelingRating: lockedSubmission.feelingDifficulty || null,
-          accuracy,
-          scoreV2,
-          isAnnounced: false,
-          isDeleted: false,
-        };
-
-        const pass = await Pass.create(passData, { transaction });
-
-        // Create judgements record
-        const now = new Date();
-        const judgementRecord = await Judgement.create(
-          {
-            id: pass.id,
-            ...judgementData,
-            createdAt: now,
-            updatedAt: now,
-          },
-          { transaction },
-        );
-
-        if (!judgementRecord) {
-          throw new Error(`Failed to create judgement record for pass #${pass.id}`);
-        }
-
-        // Update submission status
-        await lockedSubmission.update(
-          {
-            status: 'approved',
-            passId: pass.id,
-          },
-          { transaction },
-        );
-
-        // Update worlds first status
-        await updateWorldsFirstStatus(lockedSubmission.levelId, transaction);
-
-        // Get complete pass with associations
-        const newPass = await Pass.findByPk(pass.id, {
-          include: [
-            { model: Player, as: 'player' },
-            {
-              model: Level,
-              as: 'level',
-              include: [
-                { model: Difficulty, as: 'difficulty' },
-                { model: LevelCredit, as: 'levelCredits', include: [{ model: Creator, as: 'creator' }] },
-              ],
-            },
-            { model: Judgement, as: 'judgements' },
-          ],
-          transaction,
-        });
-
-        if (!newPass) {
-          throw new Error(`Failed to fetch created pass #${pass.id}`);
-        }
-
-        // Update player stats (in separate try-catch to not fail the main flow)
-        let playerStats = null;
-        try {
-          await playerStatsService.updatePlayerStats([playerId]);
-          playerStats = (await playerStatsService.getPlayerStats(playerId))?.[0];
-        } catch (statsError) {
-          const statsErrorDetails = extractErrorDetails(statsError);
-          logger.warn('Failed to update player stats during auto-approve', {
-            submissionId: lockedSubmission.id,
-            playerId,
-            error: statsErrorDetails.message,
-          });
-        }
-
-        if (lockedSubmission.level!.clears === 0 && lockedSubmission.level!.difficulty!.name.includes('Q')) {
-          await Rating.create(
-            {
-              levelId: lockedSubmission.levelId,
-              lowDiff: false,
-              requesterFR: lockedSubmission.feelingDifficulty + " [cleared]" || 'cleared'
-            },
-            {transaction},
-          );
-        }
+        const { newPass, playerStats } = await approvePassSubmission(lockedSubmission as any, transaction);
 
         await transaction.commit();
 
-        // Index in Elasticsearch after commit
         await elasticsearchService.indexPass(newPass);
         await elasticsearchService.indexLevel(newPass.level!);
 
-        // Broadcast updates
-        if (playerStats) {
+        if (lockedSubmission.assignedPlayerId && playerStats) {
           sseManager.broadcast({
             type: 'passUpdate',
             data: {
-              playerId,
+              playerId: lockedSubmission.assignedPlayerId,
               passedLevelId: lockedSubmission.levelId,
               newScore: playerStats?.rankedScore || 0,
               action: 'create',
@@ -1668,24 +1366,25 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
           });
         }
 
-        // Trigger Discord role sync for the player (async, non-blocking)
-        roleSyncService.getDiscordIdForPlayer(playerId)
-          .then(discordId => {
-            if (discordId) {
-              roleSyncService.notifyBotOfRoleSyncByDiscordIds([discordId]).catch(() => {
-                // Error already logged in RoleSyncService
-              });
-            }
-          })
-          .catch(err => {
-            // Silently handle errors - notification is non-critical
-            logger.debug(`[submissions] Failed to notify bot of role sync: ${err.message}`);
-          });
+        if (lockedSubmission.assignedPlayerId) {
+          roleSyncService.getDiscordIdForPlayer(lockedSubmission.assignedPlayerId)
+            .then(discordId => {
+              if (discordId) {
+                roleSyncService.notifyBotOfRoleSyncByDiscordIds([discordId]).catch(() => {});
+              }
+            })
+            .catch(err => {
+              logger.debug(`[submissions] Failed to notify bot of role sync: ${err.message}`);
+            });
+        }
 
         results.push({ id: lockedSubmission.id, success: true });
       } catch (error) {
         await safeTransactionRollback(transaction, logger);
         const errorDetails = extractErrorDetails(error);
+        if (!validationErrors.length) {
+          validationErrors.push(errorDetails.message);
+        }
         logger.error('Error auto-approving submission', {
           submissionId: submission.id,
           levelId: submission.levelId,
@@ -1704,7 +1403,6 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
       }
     }
 
-    // Broadcast final updates
     sseManager.broadcast({ type: 'submissionUpdate' });
     sseManager.broadcast({
       type: 'submissionUpdate',
@@ -1715,8 +1413,7 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
       },
     });
 
-    const io = getIO();
-    io.emit('leaderboardUpdated');
+    getIO().emit('leaderboardUpdated');
 
     const successCount = results.filter(r => r.success).length;
     const failCount = results.filter(r => !r.success).length;
