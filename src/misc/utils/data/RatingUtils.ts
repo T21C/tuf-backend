@@ -7,6 +7,17 @@ let difficultyCache: {
   nameMap: Map<string, any>;
 } | null = null;
 
+let difficultyCacheTimeout: NodeJS.Timeout | null = null;
+
+function setDifficultyCacheTimeout() {
+  if (difficultyCacheTimeout) {
+    clearTimeout(difficultyCacheTimeout);
+  }
+  difficultyCacheTimeout = setTimeout(() => {
+    difficultyCache = null;
+  }, 1000 * 60 * 5); // 5 minutes
+}
+
 // Helper function to get difficulties
 export async function getDifficulties(transaction: any) {
   if (!difficultyCache) {
@@ -14,6 +25,8 @@ export async function getDifficulties(transaction: any) {
       transaction,
       order: [['sortOrder', 'ASC']],
     });
+
+    setDifficultyCacheTimeout();
 
     difficultyCache = {
       special: new Set(
@@ -87,7 +100,7 @@ export async function calculateRequestedDifficulty(
     return null;
   }
 
-  const {nameMap} = await getDifficulties(null);
+  const {nameMap} = await getDifficulties(undefined);
   const parts = await parseRatingRange(input.trim(), new Set());
 
   // If it's not a range, just return the difficulty ID

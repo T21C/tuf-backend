@@ -20,6 +20,44 @@ import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '../../../config/constants.js';
 const router: Router = Router();
 
+/** Reusable options for fetching a rating with full includes (level, details, difficulties). */
+function fullRatingIncludeOptions(transaction: any) {
+  return {
+    include: [
+      {
+        model: Level,
+        as: 'level',
+        where: { isDeleted: false, isHidden: false },
+        required: false,
+        include: [
+          { model: Difficulty, as: 'difficulty', required: false },
+          { model: Team, as: 'teamObject', required: false },
+          {
+            model: LevelCredit,
+            as: 'levelCredits',
+            required: false,
+            include: [{ model: Creator, as: 'creator' }],
+          },
+        ],
+      },
+      {
+        model: RatingDetail,
+        as: 'details',
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username', 'nickname', 'avatarUrl'],
+          },
+        ],
+      },
+      { model: Difficulty, as: 'averageDifficulty', required: false },
+      { model: Difficulty, as: 'communityDifficulty', required: false },
+    ],
+    transaction,
+  };
+}
+
 // Helper function to normalize rating string and calculate average for ranges
 async function normalizeRating(
   rating: string,
@@ -29,9 +67,9 @@ async function normalizeRating(
     return {specialRatings: []};
   }
 
-  const {special: specialDifficulties, map: difficultyMap} = await getDifficulties(transaction);
-  const parts = await parseRatingRange(rating, specialDifficulties);
+  const {special: specialDifficulties, nameMap: difficultyMap} = await getDifficulties(transaction);
 
+  const parts = await parseRatingRange(rating, specialDifficulties);
   // If it's not a range, just normalize the single rating
   if (parts.length === 1) {
     // First check if it's a special difficulty directly
@@ -107,7 +145,6 @@ async function normalizeRating(
 
   // Find PGU ratings
   const pguRatings = ratings.filter(r => !r.isSpecial && r.difficulty);
-
   if (pguRatings.length === 0) {
     return {specialRatings};
   }
@@ -119,24 +156,20 @@ async function normalizeRating(
     };
   }
 
-  // Calculate average using sortOrder
-  const avgId = Math.floor(
-    pguRatings.reduce((sum, r) => sum + (r.difficulty?.id || 0), 0) / pguRatings.length
-  );
+  // Average by sortOrder and find closest PGU by sortOrder
+  const avgSortOrder =
+    pguRatings.reduce((sum, r) => sum + (r.difficulty?.sortOrder ?? 0), 0) / pguRatings.length;
 
-  // Find the difficulty with the closest sortOrder
-  const closestDifficulty =
-    Array.from(difficultyMap.values())
-      .filter(d => d.type === 'PGU')
-      .sort((a, b) => a.id - b.id)
-      .find(d => d.id === avgId)
-      ||
-    Array.from(difficultyMap.values())
-      .filter(d => d.type === 'PGU')
-      .sort((a, b) => b.id - a.id)[0];
+  const pguDifficulties = Array.from(difficultyMap.values())
+    .filter(d => d.type === 'PGU')
+    .sort(
+      (a, b) =>
+        Math.abs(a.sortOrder - avgSortOrder) - Math.abs(b.sortOrder - avgSortOrder),
+    );
+  const closestDifficulty = pguDifficulties[0];
 
   return {
-    pguRating: closestDifficulty.name,
+    pguRating: closestDifficulty?.name,
     specialRatings,
   };
 }
@@ -154,7 +187,7 @@ async function calculateAverageRating(
 
   // Count votes for each difficulty
   const voteCounts = new Map<string, {count: number; difficulty: any}>();
-  const pguVotes = new Map<number, number>(); // Map of difficulty ID to vote count
+  const pguVotes = new Map<number, number>(); // Map of sortOrder to vote count
 
   // First pass: Count all votes
   for (const detail of details) {
@@ -179,9 +212,8 @@ async function calculateAverageRating(
       const difficulty = difficultyMap.get(pguRating);
       if (!difficulty || difficulty.type !== 'PGU') continue;
 
-      // Use difficulty ID for vote counting
-      const currentCount = pguVotes.get(difficulty.id) || 0;
-      pguVotes.set(difficulty.id, currentCount + 1);
+      const currentCount = pguVotes.get(difficulty.sortOrder) ?? 0;
+      pguVotes.set(difficulty.sortOrder, currentCount + 1);
     }
   }
 
@@ -200,32 +232,32 @@ async function calculateAverageRating(
     }
   }
 
-  // If no special rating has enough votes, calculate PGU average
+  // If no special rating has enough votes, calculate PGU average by sortOrder
   if (pguVotes.size > 0) {
     const totalVotes = Array.from(pguVotes.values()).reduce(
       (sum, count) => sum + count,
       0,
     );
 
-    // Calculate weighted average using difficulty IDs
-    const weightedAverage =
+    const weightedAvgSortOrder =
       Array.from(pguVotes.entries()).reduce(
-        (sum, [diffId, count]) => sum + diffId * count,
+        (sum, [sortOrder, count]) => sum + sortOrder * count,
         0,
       ) / totalVotes;
 
-    // Find the closest PGU difficulty by ID
     const pguDifficulties = Array.from(difficultyMap.values())
       .filter(d => d.type === 'PGU')
       .sort(
         (a, b) =>
-          Math.abs(a.id - weightedAverage) - Math.abs(b.id - weightedAverage),
+          Math.abs(a.sortOrder - weightedAvgSortOrder) -
+          Math.abs(b.sortOrder - weightedAvgSortOrder),
       );
 
     if (pguDifficulties.length > 0) {
       return pguDifficulties[0];
     }
   }
+  
 
   return null;
 }
@@ -334,86 +366,24 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
 
       // Calculate new average difficulties for both rater and community ratings
       const averageDifficulty = await calculateAverageRating(details, transaction);
+      logger.debug(`[RatingService] averageDifficulty: ${averageDifficulty} for ${rating}`);
       const communityDifficulty = await calculateAverageRating(
         details,
         transaction,
         true,
       );
 
-      // Update the main rating record
       await Rating.update(
         {
-          averageDifficultyId: averageDifficulty?.id || null,
-          communityDifficultyId: communityDifficulty?.id || null,
+          averageDifficultyId: averageDifficulty?.id ?? null,
+          communityDifficultyId: communityDifficulty?.id ?? null,
         },
-        {
-          where: {id: id},
-          transaction,
-        },
+        { where: { id }, transaction },
       );
 
-      // Fetch the updated record with all associations
-      const updatedRating = await Rating.findByPk(id, {
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            where: {
-              isDeleted: false,
-              isHidden: false,
-            },
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-                required: false,
-              },
-              {
-                model: Team,
-                as: 'teamObject',
-                required: false,
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                required: false,
-                include: [
-                  {
-                    model: Creator,
-                    as: 'creator',
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            model: RatingDetail,
-            as: 'details',
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ['id', 'username', 'nickname', 'avatarUrl'],
-              },
-            ],
-          },
-          {
-            model: Difficulty,
-            as: 'averageDifficulty',
-            required: false,
-          },
-          {
-            model: Difficulty,
-            as: 'communityDifficulty',
-            required: false,
-          },
-        ],
-        transaction,
-      });
+      const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
 
-      // Broadcast rating update via SSE
-      sseManager.broadcast({type: 'ratingUpdate'});
-
+      sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
       return res.json({
         message: 'Rating detail deleted successfully',
@@ -421,38 +391,17 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       });
     }
 
-    // Find or create rating detail
-    const [ratingDetail] = await RatingDetail.findOrCreate({
-      where: {
-        ratingId: Number(id),
-        userId: user.id,
-      },
-      defaults: {
+    // Upsert rating detail (insert or update in one step)
+    await RatingDetail.upsert(
+      {
         ratingId: Number(id),
         userId: user.id,
         rating: rating || '',
         comment: comment || '',
         isCommunityRating,
       },
-      transaction,
-    });
-
-    // Only update if the detail already existed and values changed
-    if (
-      ratingDetail &&
-      (ratingDetail.rating !== rating ||
-        ratingDetail.comment !== comment ||
-        ratingDetail.isCommunityRating !== isCommunityRating)
-    ) {
-      await ratingDetail.update(
-        {
-          rating: rating || '',
-          comment: comment || '',
-          isCommunityRating,
-        },
-        {transaction},
-      );
-    }
+      { transaction },
+    );
 
     // Get all rating details for this rating
     const details = await RatingDetail.findAll({
@@ -467,143 +416,20 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
       transaction,
       true,
     );
-    // Find the rating record
-    const ratingRecord = await Rating.findByPk(id, {
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          where: {
-            isDeleted: false,
-            isHidden: false,
-          },
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-              required: false,
-            },
-            {
-              model: Team,
-              as: 'teamObject',
-              required: false,
-            },
-            {
-              model: LevelCredit,
-              as: 'levelCredits',
-              required: false,
-              include: [
-                {
-                  model: Creator,
-                  as: 'creator',
-                },
-              ],
-            },
-          ],
-        },
-        {
-          model: RatingDetail,
-          as: 'details',
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username', 'nickname', 'avatarUrl'],
-            },
-          ],
-        },
-        {
-          model: Difficulty,
-          as: 'averageDifficulty',
-          required: false,
-        },
-        {
-          model: Difficulty,
-          as: 'communityDifficulty',
-          required: false,
-        },
-      ],
-      transaction,
-    });
 
-    if (!ratingRecord) {
+    const [updatedCount] = await Rating.update(
+      {
+        averageDifficultyId: averageDifficulty?.id ?? null,
+        communityDifficultyId: communityDifficulty?.id ?? null,
+      },
+      { where: { id }, transaction },
+    );
+    if (updatedCount === 0) {
       await safeTransactionRollback(transaction);
-      return res.status(404).json({error: 'Rating not found'});
+      return res.status(404).json({ error: 'Rating not found' });
     }
 
-    // Find the difficulty if it exists (for current difficulty)
-    const difficulty = await Difficulty.findOne({
-      where: {name: rating},
-      transaction,
-    });
-
-    // Update the main rating record with current and average difficulties
-    await ratingRecord.update(
-      {
-        averageDifficultyId: averageDifficulty?.id || null,
-        communityDifficultyId: communityDifficulty?.id || null,
-      },
-      {transaction},
-    );
-
-    // Fetch the updated record with all associations
-    const updatedRating = await Rating.findByPk(id, {
-      include: [
-        {
-          model: Level,
-          as: 'level',
-          where: {
-            isDeleted: false,
-            isHidden: false,
-          },
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-              required: false,
-            },
-            {
-              model: Team,
-              as: 'teamObject',
-              required: false,
-            },
-            {
-              model: LevelCredit,
-              as: 'levelCredits',
-              required: false,
-              include: [
-                {
-                  model: Creator,
-                  as: 'creator',
-                },
-              ],
-            },
-          ],
-        },
-        {
-          model: RatingDetail,
-          as: 'details',
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['id', 'username', 'nickname', 'avatarUrl'],
-            },
-          ],
-        },
-        {
-          model: Difficulty,
-          as: 'averageDifficulty',
-          required: false,
-        },
-        {
-          model: Difficulty,
-          as: 'communityDifficulty',
-          required: false,
-        },
-      ],
-      transaction,
-    });
+    const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
 
     // Broadcast rating update via SSE
     sseManager.broadcast({type: 'ratingUpdate'});
@@ -654,90 +480,30 @@ router.delete(
         transaction,
       });
 
-      // Get remaining rating details
       const details = await RatingDetail.findAll({
-        where: {
-          ratingId: id
-        },
+        where: { ratingId: id },
         transaction,
       });
 
-      // Calculate new average difficulty
-      const averageDifficulty = await calculateAverageRating(
+      const averageDifficulty = await calculateAverageRating(details, transaction);
+      const communityDifficulty = await calculateAverageRating(
         details,
         transaction,
+        true,
       );
 
-      // Update the main rating record
       await Rating.update(
         {
-          averageDifficultyId: averageDifficulty?.id || null,
+          averageDifficultyId: averageDifficulty?.id ?? null,
+          communityDifficultyId: communityDifficulty?.id ?? null,
         },
-        {
-          where: {id: id},
-          transaction,
-        },
+        { where: { id }, transaction },
       );
 
-      // Fetch the updated record with all associations
-      const updatedRating = await Rating.findByPk(id, {
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            where: {
-              isDeleted: false,
-              isHidden: false,
-            },
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-                required: false,
-              },
-              {
-                model: Team,
-                as: 'teamObject',
-                required: false,
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                required: false,
-                include: [
-                  {
-                    model: Creator,
-                    as: 'creator',
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            model: RatingDetail,
-            as: 'details',
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ['id', 'username', 'nickname', 'avatarUrl'],
-              },
-            ],
-          },
-          {
-            model: Difficulty,
-            as: 'averageDifficulty',
-            required: false,
-          },
-        ],
-        transaction,
-      });
+      const updatedRating = await Rating.findByPk(id, fullRatingIncludeOptions(transaction));
 
-      // Broadcast rating update via SSE
-      sseManager.broadcast({type: 'ratingUpdate'});
-
+      sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
-
       return res.json({
         message: 'Rating detail confirmed successfully',
         rating: updatedRating,
