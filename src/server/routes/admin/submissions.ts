@@ -241,15 +241,15 @@ async function approvePassSubmission(
   }
 
   if (level.clears === 0 && difficulty.name.includes('Q')) {
-    let reqFr = (submission.feelingDifficulty ?? '') + ' [cleared]';
+    let reqFr = (submission.feelingDifficulty ?? '');
     if (difficulty.name.includes('UQ')) {
-      reqFr = `vote cleared (${submission.feelingDifficulty ?? ''})`;
+      reqFr = `vote (${submission.feelingDifficulty ?? ''})`;
     }
     await Rating.create(
-      { levelId: submission.levelId, lowDiff: false, requesterFR: reqFr || 'cleared' },
+      { levelId: submission.levelId, lowDiff: false, requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared' },
       { transaction },
     );
-    await Level.update({ toRate: true, rerateNum: submission.feelingDifficulty || '', rerateReason: "cleared"}, { where: { id: submission.levelId }, transaction });
+    await Level.update({ toRate: true, rerateNum: reqFr.substring(0, 60) || '', rerateReason: "cleared"}, { where: { id: submission.levelId }, transaction });
   }
 
   return { pass, newPass: newPass as Pass, playerStats };
