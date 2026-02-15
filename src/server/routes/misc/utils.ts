@@ -207,8 +207,6 @@ router.post(
           fs.readFileSync(uploadedFile, 'utf8'),
         );
 
-        console.log('enContent', enContent);
-
         const enKeys = getKeysRecursively(enContent);
         const uploadedKeys = getKeysRecursively(uploadedContent);
 
@@ -838,7 +836,6 @@ router.get('/', (req: Request, res: Response) => {
           try {
             const languages = Object.values(${JSON.stringify(languages)}).sort((a, b) => b.status - a.status);
             const languageList = document.getElementById('languageList');
-            console.log(languages);
             
             languages.forEach(lang => {
               const card = document.createElement('div');
