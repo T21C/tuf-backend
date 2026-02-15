@@ -71,22 +71,34 @@ function getKeysRecursively(obj: any, prefix = ''): string[] {
 function findTranslationRoot(dir: string): string | null {
   const list = fs.readdirSync(dir);
 
-  // First check if current directory has JSON files
+  // If there are JSON files in the current directory, return the current directory
   if (list.some(file => path.extname(file) === '.json')) {
     return dir;
   }
 
-  // Then check immediate subdirectories
-  for (const item of list) {
-    const itemPath = path.join(dir, item);
-    if (fs.statSync(itemPath).isDirectory()) {
-      const subList = fs.readdirSync(itemPath);
-      if (subList.some(file => path.extname(file) === '.json')) {
-        return itemPath;
-      }
+  // Identify subdirectories
+  const subdirs = list.filter(file => {
+    try {
+      return fs.statSync(path.join(dir, file)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+
+  // If there's only one subdirectory, recurse into it
+  if (subdirs.length === 1 && !subdirs[0].endsWith('.json')) {
+    return findTranslationRoot(path.join(dir, subdirs[0]));
+  }
+
+  // If there are multiple subdirectories, check each for JSON files
+  for (const subdir of subdirs) {
+    const subList = fs.readdirSync(path.join(dir, subdir));
+    if (subList.some(file => path.extname(file) === '.json')) {
+      return dir;
     }
   }
 
+  // No directory with JSON files found
   return null;
 }
 
@@ -146,25 +158,27 @@ router.post(
       );
       fs.mkdirSync(tempDir, {recursive: true});
 
-        try {
-          // Use buffer directly instead of file path
-          const zip = new AdmZip(req.file.buffer);
-          zip.extractAllTo(tempDir, true);
-        } catch (zipError) {
-          cleanupFiles(tempDir);
-          throw new Error(
+      try {
+        // Use buffer directly instead of file path
+        const zip = new AdmZip(req.file.buffer);
+        zip.extractAllTo(tempDir, true);
+      } catch (zipError) {
+        throw {
+          code: 400,
+          error:
             'Failed to extract archive with zip. Please check the archive format.',
-          );
-        }
-
+        };
+      }
 
       // Find the actual translation root directory
       const translationRoot = findTranslationRoot(tempDir);
+      logger.debug('translationRoot', translationRoot);
       if (!translationRoot) {
-        cleanupFiles(tempDir);
-        throw new Error(
-          'No translation files found in the archive. Make sure the archive contains JSON files either directly or in an immediate subdirectory',
-        );
+        throw {
+          code: 400,
+          error:
+            'No translation files found in the archive. Make sure the archive contains JSON files either directly or in an immediate subdirectory',
+        };
       }
 
       // Get base English translations with correct path resolution
@@ -193,8 +207,11 @@ router.post(
           fs.readFileSync(uploadedFile, 'utf8'),
         );
 
+        console.log('enContent', enContent);
+
         const enKeys = getKeysRecursively(enContent);
         const uploadedKeys = getKeysRecursively(uploadedContent);
+
 
         const missing = enKeys.filter(key => !uploadedKeys.includes(key));
         const extra = uploadedKeys.filter(key => !enKeys.includes(key));
@@ -219,10 +236,16 @@ router.post(
       cleanupFiles(tempDir);
 
       return res.json(result);
-    } catch (error) {
-      // Clean up on error
+    } catch (error: any) {
       cleanupFiles(tempDir);
 
+      // Consistently handle custom thrown errors with code property
+      if (typeof error === 'object' && error !== null && 'code' in error) {
+        return res.status(error.code || 400).json({
+          error: error.error || 'Bad Request',
+          details: error.details || undefined,
+        });
+      }
       logger.error('Error verifying translations:', error);
       return res.status(500).json({
         error: 'Failed to verify translations',
@@ -915,7 +938,7 @@ router.get('/', (req: Request, res: Response) => {
               resultDiv.textContent = result;
               resultDiv.className = data.isValid ? 'success' : 'error';
             } else {
-              throw new Error(data.error || 'Failed to verify translations');
+              throw new Error(data.details || data.error || 'Failed to verify translations');
             }
           } catch (error) {
             resultDiv.textContent = "Error: " + error.message;
