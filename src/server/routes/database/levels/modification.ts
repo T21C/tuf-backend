@@ -1680,19 +1680,12 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
         return;
       }
 
-      if (error.code) {
-        if (error.code === 500) logger.error('Error uploading level file:', error);
-        return res.status(error.code).json(error);
-      }
-
-      logger.error('Error uploading level file:', error);
-      if (!res.headersSent) {
-        return res.status(500).json({
-          error: 'Failed to upload level file',
-          details: error instanceof Error ? error.message : String(error),
-        });
-      }
-      return;
+      const statusCode =
+        typeof error.code === 'number' && error.code >= 100 && error.code < 600
+          ? error.code
+          : 500;
+      if (statusCode === 500) logger.error('Error uploading level file:', error);
+      return res.status(statusCode).json(error);
     }
   },
 );
@@ -1746,15 +1739,12 @@ router.post('/:id([0-9]{1,20})/select-level', Auth.verified(), async (req: Reque
       });
     } catch (error: any) {
       await safeTransactionRollback(transaction);
-      if (error.code) {
-        if (error.code === 500) logger.error('Error selecting level file:', error);
-        return res.status(error.code).json(error);
-      }
-      logger.error('Error selecting level file:', error);
-      return res.status(500).json({
-        error: 'Failed to select level file',
-        details: error instanceof Error ? error.message : String(error),
-      });
+      const statusCode =
+        typeof error.code === 'number' && error.code >= 100 && error.code < 600
+          ? error.code
+          : 500;
+      if (statusCode === 500) logger.error('Error selecting level file:', error);
+      return res.status(statusCode).json(error);
     }
   },
 );
@@ -1817,15 +1807,12 @@ router.delete('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, 
       });
     } catch (error: any) {
       await safeTransactionRollback(transaction);
-      if (error.code) {
-        if (error.code === 500) logger.error('Error deleting level file:', error);
-        return res.status(error.code).json(error);
-      }
-      logger.error('Error deleting level file:', error);
-      return res.status(500).json({
-        error: 'Failed to delete level file',
-        details: error instanceof Error ? error.message : String(error),
-      });
+      const statusCode =
+        typeof error.code === 'number' && error.code >= 100 && error.code < 600
+          ? error.code
+          : 500;
+      if (statusCode === 500) logger.error('Error deleting level file:', error);
+      return res.status(statusCode).json(error);
     }
   },
 );
