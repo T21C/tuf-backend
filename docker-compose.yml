@@ -74,11 +74,6 @@ services:
       - ICON_IMAGE_API=${ICON_IMAGE_API:-/v2/media/image}
       - BILIBILI_API=${BILIBILI_API:-/v2/media/bilibili}
       
-      # Placeholder Configuration
-      - PLACEHOLDER_PREFIX=${PLACEHOLDER_PREFIX}
-      - PLACEHOLDER_BODY=${PLACEHOLDER_BODY}
-      - PLACEHOLDER_POSTFIX=${PLACEHOLDER_POSTFIX}
-      
       # Database Initialization
       - APRIL_FOOLS=${APRIL_FOOLS:-false}
       - INIT_DB="${INIT_DB:-false}"
