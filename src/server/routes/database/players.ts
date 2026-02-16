@@ -927,11 +927,38 @@ router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, r
             });
             await provider.update({ userId: targetUserId }, { transaction });
           }
-          // 2. RatingDetail
-          await RatingDetail.update(
-            {userId: targetUserId},
-            {where: {userId: sourceUserId}, transaction}
-          );
+          // 2. RatingDetail (unique on ratingId+userId: only migrate source rows where target has no row for that rating)
+          const [sourceDetails, targetDetails] = await Promise.all([
+            RatingDetail.findAll({
+              where: {userId: sourceUserId},
+              attributes: ['id', 'ratingId'],
+              transaction,
+            }),
+            RatingDetail.findAll({
+              where: {userId: targetUserId},
+              attributes: ['ratingId'],
+              transaction,
+            }),
+          ]);
+          const targetRatingIds = new Set(targetDetails.map((d) => d.ratingId));
+          const idsToDelete: number[] = [];
+          const idsToUpdate: number[] = [];
+          for (const d of sourceDetails) {
+            if (targetRatingIds.has(d.ratingId)) idsToDelete.push(d.id);
+            else idsToUpdate.push(d.id);
+          }
+          if (idsToDelete.length > 0) {
+            await RatingDetail.destroy({
+              where: {id: idsToDelete},
+              transaction,
+            });
+          }
+          if (idsToUpdate.length > 0) {
+            await RatingDetail.update(
+              {userId: targetUserId},
+              {where: {id: idsToUpdate}, transaction}
+            );
+          }
           // 3. RatingAccuracyVote (userId is INTEGER, so skip if not compatible)
           // Only update if both user IDs are integers
           if (sourceUserId && targetUserId) {

@@ -1962,6 +1962,27 @@ class ElasticsearchService {
                 }
               }
             }
+          },
+          {
+            nested: {
+              path: 'teamObject',
+              query: {
+                bool: {
+                  should: [
+                    { wildcard: { 'teamObject.name': { value: wildcardValue, case_insensitive: true } } },
+                    ...(excludeAliases ? [] : [{
+                      nested: {
+                        path: 'teamObject.aliases',
+                        query: {
+                          wildcard: { 'teamObject.aliases.name': { value: wildcardValue, case_insensitive: true } }
+                        }
+                      }
+                    }])
+                  ],
+                  minimum_should_match: 1
+                }
+              }
+            }
           }
         ]
       }
