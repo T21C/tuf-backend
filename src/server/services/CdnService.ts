@@ -7,7 +7,7 @@ import { getFileIdFromCdnUrl } from '../../misc/utils/Utility.js';
 
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
-const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR', 'read ECONNRESET'];
+const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR', 'read ECONNRESET', 'GET_LEVEL_DATA_ERROR'];
 const MAX_PACK_GENERATION_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
 
 export class CdnError extends Error {

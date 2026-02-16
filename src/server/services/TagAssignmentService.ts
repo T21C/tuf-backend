@@ -218,7 +218,7 @@ class TagAssignmentService {
             const levelData = await cdnService.getLevelData(level, ['settings', 'analysis']);
             return levelData;
         } catch (error) {
-            logger.error(`Failed to get level data for level ${level.id}:`, error instanceof Error ? error.message : error);
+            logger.debug(`Failed to get level data for level ${level.id}:`, error instanceof Error ? error.message : error);
             return null;
         }
     }
