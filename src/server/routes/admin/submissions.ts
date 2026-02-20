@@ -240,7 +240,7 @@ async function approvePassSubmission(
     });
   }
 
-  if (level.clears === 0 && difficulty.name.includes('Q')) {
+  if (level.clears === 0 && difficulty.name.includes('Q') && speed === 1) {
     let reqFr = (submission.feelingDifficulty ?? '');
     if (difficulty.name.includes('UQ')) {
       reqFr = `vote (${submission.feelingDifficulty ?? ''})`;
