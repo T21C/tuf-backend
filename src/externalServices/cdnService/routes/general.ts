@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '../../../server/services/LoggerService.js';
 import CdnFile from '../../../models/cdn/CdnFile.js';
 import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '../config.js';
-import FileAccessLog from '../../../models/cdn/FileAccessLog.js';
+//import FileAccessLog from '../../../models/cdn/FileAccessLog.js';
 import fs from 'fs';
 import path from 'path';
 import { storageManager } from '../services/storageManager.js';
@@ -279,11 +279,13 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             filePath = path.join(file.filePath, 'original.png');
         }
 
+        /* just no
         await FileAccessLog.create({
             fileId: fileId,
             ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
             userAgent: req.get('user-agent') || null
         });
+        */
 
         await file.increment('accessCount');
 

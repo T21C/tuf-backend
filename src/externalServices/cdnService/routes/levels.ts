@@ -336,13 +336,15 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
         const transformedLevel = transformLevel(parsedLevel, options);
 
         // Log the transformation
+        /*
         await FileAccessLog.create({
             fileId: fileId,
             ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
             userAgent: req.get('user-agent') || null,
             action: 'transform'
         });
-
+        */
+       
         await file.increment('accessCount');
 
         // Handle different response formats

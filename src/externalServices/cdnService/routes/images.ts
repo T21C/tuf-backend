@@ -42,13 +42,16 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         }
 
         // Log access
+        /* 500 mb is not fun data to manage
         await FileAccessLog.create({
             fileId: file.id,
             ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
             userAgent: req.get('user-agent') || null
         });
+        */
 
-        await file.increment('accessCount');
+        // also useless
+        //await file.increment('accessCount');
 
         res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);
         res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
