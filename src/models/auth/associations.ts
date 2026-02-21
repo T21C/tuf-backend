@@ -1,9 +1,20 @@
 import User from './User.js';
 import OAuthProvider from './OAuthProvider.js';
+import RefreshToken from './RefreshToken.js';
 import Player from '../players/Player.js';
 import Creator from '../credits/Creator.js';
 
 export function initializeAuthAssociations() {
+  // User <-> RefreshToken associations
+  User.hasMany(RefreshToken, {
+    foreignKey: 'userId',
+    as: 'refreshTokens',
+  });
+  RefreshToken.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'user',
+  });
+
   // User <-> Player associations
   User.belongsTo(Player, {
     foreignKey: 'playerId',

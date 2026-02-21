@@ -1,5 +1,6 @@
 import express, {Express, Request, Response, NextFunction} from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import {createServer} from 'http';
 import {Server} from 'socket.io';
@@ -208,6 +209,7 @@ export async function startServer() {
 
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
+    app.use(cookieParser());
 
     // Response time logging middleware - logs slow endpoints
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;

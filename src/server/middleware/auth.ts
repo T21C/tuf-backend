@@ -1,6 +1,6 @@
 import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider} from '../../models/index.js';
-import {tokenUtils} from '../../misc/utils/auth/auth.js';
+import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '../../misc/utils/auth/auth.js';
 import type {UserAttributes} from '../../models/auth/User.js';
 import axios from 'axios';
 import Player from '../../models/players/Player.js';
@@ -57,17 +57,29 @@ type MiddlewareFunction = (
 ) => Promise<void>;
 
 /**
- * Base authentication middleware - handles token verification and user lookup
+ * Get access token from request: cookie first, then Authorization header
+ */
+function getAccessToken(req: Request): string | null {
+  const fromCookie = req.cookies?.accessToken;
+  if (fromCookie) return fromCookie;
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) return authHeader.split(' ')[1];
+  return null;
+}
+
+/**
+ * Base authentication middleware - handles access token verification and user lookup
+ * Reads token from cookie (accessToken) or Authorization: Bearer
  */
 const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
+    const token = getAccessToken(req);
     if (!token) {
       res.status(401).json({error: 'No token provided'});
       return;
     }
 
-    const decoded = tokenUtils.verifyJWT(token);
+    const decoded = tokenUtils.verifyAccessToken(token);
     if (!decoded) {
       res.status(401).json({error: 'Invalid token'});
       return;
@@ -79,26 +91,15 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
       return;
     }
 
-    // Check if token is about to expire
-    const tokenExp = decoded.exp ? decoded.exp * 1000 : 0;
-    const beforeExpiry = 60 * 60 * 1000;
-    const shouldRefresh = tokenExp - Date.now() < beforeExpiry;
-
-    // Check if permissions are up to date
+    // Check if permissions are up to date; if not, set new access token cookie
     const permissionsValid = await tokenUtils.verifyTokenPermissions(decoded);
     if (!permissionsValid) {
-      // Generate new token with updated permissions
-      const newToken = tokenUtils.generateJWT(user);
-      res.setHeader('X-New-Token', newToken);
+      const newAccessToken = tokenUtils.generateAccessToken(user);
+      cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       res.setHeader('X-Permission-Changed', 'true');
     }
-    // If token is about to expire, generate a new one
-    else if (shouldRefresh) {
-      const newToken = tokenUtils.generateJWT(user);
-      res.setHeader('X-New-Token', newToken);
-    }
 
-    // Check if any OAuth tokens need refresh
+    // Check if any OAuth tokens need refresh (e.g. Discord)
     const discordProvider = user.providers?.find(p => p.provider === 'discord');
     if (discordProvider?.tokenExpiry && new Date(discordProvider.tokenExpiry) <= new Date()) {
       try {
@@ -122,9 +123,8 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
           tokenExpiry: new Date(Date.now() + expires_in * 1000),
         });
 
-        // Generate new JWT with updated expiry
-        const newToken = tokenUtils.generateJWT(user);
-        res.setHeader('X-New-Token', newToken);
+        const newAccessToken = tokenUtils.generateAccessToken(user);
+        cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       } catch (error) {
         // Continue with request even if refresh fails
       }
@@ -363,13 +363,13 @@ export const Auth = {
   addUserToRequest: (): MiddlewareFunction =>
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const token = req.headers.authorization?.split(' ')[1];
+        const token = getAccessToken(req);
         if (!token) {
           next();
           return;
         }
 
-        const decoded = tokenUtils.verifyJWT(token);
+        const decoded = tokenUtils.verifyAccessToken(token);
         if (!decoded) {
           next();
           return;

@@ -15,6 +15,7 @@ import sequelize from '../config/db.js';
 import {initializeAssociations} from './associations.js';
 import User from './auth/User.js';
 import OAuthProvider from './auth/OAuthProvider.js';
+import RefreshToken from './auth/RefreshToken.js';
 import Creator from './credits/Creator.js';
 import LevelCredit from './levels/LevelCredit.js';
 import Team from './credits/Team.js';
@@ -60,6 +61,7 @@ export const db = {
     Difficulty,
     User,
     OAuthProvider,
+    RefreshToken,
     Creator,
     LevelCredit,
     Team,
@@ -102,8 +104,8 @@ initializeAssociations();
 
 export default db;
 
-// Also export User and OAuthProvider directly for convenience
-export {User, OAuthProvider, RateLimit, AuditLog};
+// Also export User, OAuthProvider, RefreshToken, etc. directly for convenience
+export {User, OAuthProvider, RefreshToken, RateLimit, AuditLog};
 
 // Export Discord models
 export {DiscordGuild, DiscordSyncRole};

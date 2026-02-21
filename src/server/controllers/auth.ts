@@ -5,7 +5,14 @@ import User from '../../models/auth/User.js';
 import Player from '../../models/players/Player.js';
 import PlayerStats from '../../models/players/PlayerStats.js';
 import {emailService} from '../../misc/utils/auth/email.js';
-import {passwordUtils, tokenUtils} from '../../misc/utils/auth/auth.js';
+import {
+  passwordUtils,
+  tokenUtils,
+  refreshTokenService,
+  cookieUtils,
+  ACCESS_COOKIE_MAX_AGE_SEC,
+  REFRESH_COOKIE_MAX_AGE_SEC,
+} from '../../misc/utils/auth/auth.js';
 import {PlayerStatsService} from '../services/PlayerStatsService.js';
 import { logger } from '../services/LoggerService.js';
 import CaptchaService from '../services/CaptchaService.js';
@@ -205,12 +212,17 @@ class AuthController {
       // Send verification email
       await emailService.sendVerificationEmail(email, verificationToken);
 
-      // Generate JWT
-      const token = tokenUtils.generateJWT(user);
+      const accessToken = tokenUtils.generateAccessToken(user);
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const ip = typeof forwardedFor === 'string' ? forwardedFor?.split(',')[0].trim() : req.ip ?? '127.0.0.1';
+      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
+        userAgent: req.get('user-agent'),
+        ip,
+      });
+      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
 
       return res.status(201).json({
         message: 'Registration successful. Please check your email for verification.',
-        token,
         user: {
           id: user.id,
           username: user.username,
@@ -220,6 +232,8 @@ class AuthController {
           isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
           permissionFlags: user.permissionFlags.toString(),
         },
+        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
+        sessionId,
         usernameModified: finalUsername !== username,
       });
     } catch (error) {
@@ -424,11 +438,14 @@ class AuthController {
       // Update last login
       await user.update({lastLogin: new Date()});
 
-      // Generate JWT
-      const token = tokenUtils.generateJWT(user);
+      const accessToken = tokenUtils.generateAccessToken(user);
+      const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
+        userAgent: req.get('user-agent'),
+        ip,
+      });
+      cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
 
       return res.json({
-        token,
         user: {
           id: user.id,
           username: user.username,
@@ -438,6 +455,8 @@ class AuthController {
           isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
           permissionFlags: user.permissionFlags.toString(),
         },
+        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
+        sessionId,
       });
     } catch (error) {
       logger.error('Login error:', error);
@@ -576,6 +595,111 @@ class AuthController {
     } catch (error) {
       logger.error('Password reset error:', error);
       return res.status(500).json({message: 'Failed to reset password'});
+    }
+  }
+
+  /**
+   * Refresh access token using refresh token cookie
+   */
+  public async refresh(req: Request, res: Response): Promise<Response> {
+    try {
+      const refreshTokenValue = req.cookies?.refreshToken;
+      if (!refreshTokenValue) {
+        return res.status(401).json({ error: 'Refresh token required' });
+      }
+      const record = await refreshTokenService.findValidRefreshToken(refreshTokenValue);
+      if (!record?.user) {
+        return res.status(401).json({ error: 'Invalid or expired refresh token' });
+      }
+      const user = record.user as User;
+      await refreshTokenService.revokeRefreshToken(refreshTokenValue);
+      const reqIp = typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : req.ip ?? undefined;
+      const { token: newRefreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
+        userAgent: req.get('user-agent'),
+        ip: reqIp,
+      });
+      const accessToken = tokenUtils.generateAccessToken(user);
+      cookieUtils.setAuthCookies(res, accessToken, newRefreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
+      return res.json({
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          isRater: hasFlag(user, permissionFlags.RATER),
+          isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
+          isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+          permissionFlags: user.permissionFlags.toString(),
+        },
+        expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
+        sessionId,
+      });
+    } catch (error) {
+      logger.error('Refresh token error:', error);
+      return res.status(500).json({ error: 'Failed to refresh token' });
+    }
+  }
+
+  /**
+   * Logout: revoke refresh token and clear auth cookies
+   */
+  public async logout(req: Request, res: Response): Promise<Response> {
+    try {
+      const refreshTokenValue = req.cookies?.refreshToken;
+      if (refreshTokenValue) {
+        await refreshTokenService.revokeRefreshToken(refreshTokenValue);
+      }
+      cookieUtils.clearAuthCookies(res);
+      return res.status(204).send();
+    } catch (error) {
+      logger.error('Logout error:', error);
+      cookieUtils.clearAuthCookies(res);
+      return res.status(204).send();
+    }
+  }
+
+  /**
+   * List active sessions (cross-device): returns all valid refresh tokens for the current user
+   */
+  public async getSessions(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      const sessions = await refreshTokenService.listSessionsForUser(req.user.id);
+      return res.json({ sessions });
+    } catch (error) {
+      logger.error('Get sessions error:', error);
+      return res.status(500).json({ error: 'Failed to list sessions' });
+    }
+  }
+
+  /**
+   * Revoke a session by id (current user only). If revoking current session, clear cookies.
+   */
+  public async revokeSession(req: Request, res: Response): Promise<Response> {
+    try {
+      const { id: sessionId } = req.params;
+      if (!req.user?.id) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      if (!sessionId) {
+        return res.status(400).json({ error: 'Session id required' });
+      }
+      const currentRefreshToken = req.cookies?.refreshToken;
+      const currentRecord = currentRefreshToken
+        ? await refreshTokenService.findValidRefreshToken(currentRefreshToken)
+        : null;
+      const revoked = await refreshTokenService.revokeSessionById(sessionId, req.user.id);
+      if (!revoked) {
+        return res.status(404).json({ error: 'Session not found or already revoked' });
+      }
+      if (currentRecord?.id === sessionId) {
+        cookieUtils.clearAuthCookies(res);
+      }
+      return res.status(204).send();
+    } catch (error) {
+      logger.error('Revoke session error:', error);
+      return res.status(500).json({ error: 'Failed to revoke session' });
     }
   }
 }

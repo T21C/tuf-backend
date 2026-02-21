@@ -1,6 +1,12 @@
 import {Request, Response} from 'express';
 import OAuthService from '../services/OAuthService.js';
-import {tokenUtils} from '../../misc/utils/auth/auth.js';
+import {
+  tokenUtils,
+  refreshTokenService,
+  cookieUtils,
+  ACCESS_COOKIE_MAX_AGE_SEC,
+  REFRESH_COOKIE_MAX_AGE_SEC,
+} from '../../misc/utils/auth/auth.js';
 import {OAuthProvider} from '../../models/index.js';
 import axios from 'axios';
 import {
@@ -199,7 +205,14 @@ export const OAuthController = {
         // Invalidate user-specific cache (for new users, this is a no-op but harmless)
         await CacheInvalidation.invalidateUser(user.id);
 
-        const token = tokenUtils.generateJWT(user);
+        const accessToken = tokenUtils.generateAccessToken(user);
+        const forwardedFor = req.headers['x-forwarded-for'];
+        const ip = typeof forwardedFor === 'string' ? forwardedFor?.split(',')[0].trim() : req.ip ?? '127.0.0.1';
+        const { token: refreshToken, sessionId } = await refreshTokenService.createRefreshToken(user.id, {
+          userAgent: req.get('user-agent'),
+          ip,
+        });
+        cookieUtils.setAuthCookies(res, accessToken, refreshToken, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
         return res.json({
           user: {
             id: user.id,
@@ -213,7 +226,8 @@ export const OAuthController = {
             permissionFlags: user.permissionFlags.toString(),
           },
           isNew,
-          token,
+          expiresIn: ACCESS_COOKIE_MAX_AGE_SEC,
+          sessionId,
         });
       }
     } catch (error) {
