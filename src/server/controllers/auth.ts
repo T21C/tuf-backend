@@ -409,6 +409,7 @@ class AuthController {
       });
 
       if (!user) {
+        recordFailedAttempt(ip);
         return res.status(401).json({
           message: 'Invalid credentials',
           requireCaptcha: isCaptchaRequired(ip)
@@ -426,6 +427,7 @@ class AuthController {
         user.password,
       );
       if (!isValidPassword) {
+        recordFailedAttempt(ip);
         return res.status(401).json({
           message: 'Invalid credentials',
           requireCaptcha: isCaptchaRequired(ip)
