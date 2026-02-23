@@ -41,10 +41,6 @@ module.exports = {
           type: Sequelize.DATE,
           allowNull: false,
         },
-        revokedAt: {
-          type: Sequelize.DATE,
-          allowNull: true,
-        },
         replacedBy: {
           type: Sequelize.UUID,
           allowNull: true,
@@ -80,7 +76,7 @@ module.exports = {
         }
       }
     };
-    await addIndexIfNotExists('refresh_tokens', ['tokenHash', 'revokedAt', 'expiresAt'], {
+    await addIndexIfNotExists('refresh_tokens', ['tokenHash', 'expiresAt'], {
       name: 'refresh_tokens_token_hash_revoked_expires',
     });
     await addIndexIfNotExists('refresh_tokens', ['userId'], {

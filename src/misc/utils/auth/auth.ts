@@ -183,7 +183,6 @@ export const refreshTokenService = {
     const records = await RefreshToken.findAll({
       where: {
         userId,
-        revokedAt: null,
         expiresAt: { [Op.gt]: new Date() },
       },
       attributes: ['id', 'userAgent', 'ip', 'label', 'createdAt', 'expiresAt'],
@@ -203,10 +202,9 @@ export const refreshTokenService = {
    * Revoke a session by id (user can only revoke their own)
    */
   async revokeSessionById(sessionId: string, userId: string): Promise<boolean> {
-    const [count] = await RefreshToken.update(
-      { revokedAt: new Date() },
-      { where: { id: sessionId, userId } }
-    );
+    const count = await RefreshToken.destroy({
+      where: { id: sessionId, userId },
+    });
     return count > 0;
   },
 
@@ -218,7 +216,6 @@ export const refreshTokenService = {
     const record = await RefreshToken.findOne({
       where: {
         tokenHash,
-        revokedAt: null,
         expiresAt: { [Op.gt]: new Date() },
       },
       include: [{ model: User, as: 'user' }],
@@ -231,20 +228,14 @@ export const refreshTokenService = {
    */
   async revokeRefreshToken(plainToken: string): Promise<void> {
     const tokenHash = hashRefreshToken(plainToken);
-    await RefreshToken.update(
-      { revokedAt: new Date() },
-      { where: { tokenHash } }
-    );
+    await RefreshToken.destroy({ where: { tokenHash } });
   },
 
   /**
    * Revoke all refresh tokens for a user
    */
   async revokeAllRefreshTokensForUser(userId: string): Promise<void> {
-    await RefreshToken.update(
-      { revokedAt: new Date() },
-      { where: { userId } }
-    );
+    await RefreshToken.destroy({ where: { userId } });
   },
 };
 

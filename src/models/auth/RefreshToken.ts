@@ -12,14 +12,13 @@ export interface RefreshTokenAttributes {
   ip?: string | null;
   label?: string | null;
   expiresAt: Date;
-  revokedAt?: Date | null;
   replacedBy?: string | null;
   createdAt: Date;
 }
 
 type RefreshTokenCreationAttributes = Optional<
   RefreshTokenAttributes,
-  'id' | 'userAgent' | 'ip' | 'label' | 'revokedAt' | 'replacedBy' | 'createdAt'
+  'id' | 'userAgent' | 'ip' | 'label' | 'replacedBy' | 'createdAt'
 >;
 
 class RefreshToken
@@ -33,7 +32,6 @@ class RefreshToken
   declare ip?: string | null;
   declare label?: string | null;
   declare expiresAt: Date;
-  declare revokedAt?: Date | null;
   declare replacedBy?: string | null;
   declare createdAt: Date;
 
@@ -77,10 +75,6 @@ RefreshToken.init(
       type: DataTypes.DATE,
       allowNull: false,
     },
-    revokedAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
     replacedBy: {
       type: DataTypes.UUID,
       allowNull: true,
@@ -100,7 +94,7 @@ RefreshToken.init(
     sequelize,
     tableName: 'refresh_tokens',
     indexes: [
-      { name: 'refresh_tokens_token_hash_revoked_expires', fields: ['tokenHash', 'revokedAt', 'expiresAt'] },
+      { name: 'refresh_tokens_token_hash_expires', fields: ['tokenHash', 'expiresAt'] },
       { name: 'refresh_tokens_user_id', fields: ['userId'] },
     ],
     updatedAt: false,
