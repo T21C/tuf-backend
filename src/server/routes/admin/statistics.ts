@@ -1,16 +1,16 @@
 import {Router, Request, Response} from 'express';
-import {Auth} from '../../middleware/auth.js';
-import LevelSubmission from '../../../models/submissions/LevelSubmission.js';
-import {PassSubmission} from '../../../models/submissions/PassSubmission.js';
-import RatingDetail from '../../../models/levels/RatingDetail.js';
-import User from '../../../models/auth/User.js';
-import sequelize from '../../../config/db.js';
+import {Auth} from '@/server/middleware/auth.js';
+import LevelSubmission from '@/models/submissions/LevelSubmission.js';
+import {PassSubmission} from '@/models/submissions/PassSubmission.js';
+import RatingDetail from '@/models/levels/RatingDetail.js';
+import User from '@/models/auth/User.js';
+import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
-import { logger } from '../../services/LoggerService.js';
-import { permissionFlags } from '../../../config/constants.js';
-import { wherehasFlag} from '../../../misc/utils/auth/permissionUtils.js';
-import { validateAndClampDate } from '../../../misc/utils/server/dateUtils.js';
-import { Cache } from '../../middleware/cache.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { permissionFlags } from '@/config/constants.js';
+import { wherehasFlag} from '@/misc/utils/auth/permissionUtils.js';
+import { validateAndClampDate } from '@/misc/utils/server/dateUtils.js';
+import { Cache } from '@/server/middleware/cache.js';
 const router: Router = Router();
 
 router.get('/', Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }), Auth.rater(), async (req: Request, res: Response) => {

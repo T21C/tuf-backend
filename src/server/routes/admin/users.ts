@@ -1,14 +1,14 @@
 import {Router, Request, Response, NextFunction} from 'express';
-import {Auth} from '../../middleware/auth.js';
-import {User, OAuthProvider} from '../../../models/index.js';
-import Player from '../../../models/players/Player.js';
-import {fetchDiscordUserInfo} from '../../../misc/utils/auth/discord.js';
+import {Auth} from '@/server/middleware/auth.js';
+import {User, OAuthProvider} from '@/models/index.js';
+import Player from '@/models/players/Player.js';
+import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
 import {Op} from 'sequelize';
-import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '../../../misc/utils/auth/auth.js';
-import { logger } from '../../services/LoggerService.js';
-import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '../../../misc/utils/auth/permissionUtils.js';
-import { permissionFlags } from '../../../config/constants.js';
-import { CacheInvalidation } from '../../middleware/cache.js';
+import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '@/misc/utils/auth/auth.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 const router: Router = Router();
 

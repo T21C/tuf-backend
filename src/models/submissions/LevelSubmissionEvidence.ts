@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import LevelSubmission from './LevelSubmission.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('submissions');
 
 type LevelSubmissionEvidenceAttributes = {

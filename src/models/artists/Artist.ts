@@ -1,5 +1,5 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 type ArtistAttributes = {

@@ -7,9 +7,9 @@ import {
     ForeignKey,
   } from 'sequelize';
 import Level from './Level.js';
-import User from '../auth/User.js';
+import User from '@/models/auth/User.js';
 import Difficulty from './Difficulty.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
   class RatingAccuracyVote extends Model<

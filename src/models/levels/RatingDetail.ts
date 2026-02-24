@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
-import User from '../auth/User.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import User from '@/models/auth/User.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 interface RatingDetailAttributes {

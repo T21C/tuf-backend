@@ -4,16 +4,16 @@ import {
   IPass,
   IDifficulty,
   ICreator
-} from '../../server/interfaces/models/index.js';
+} from '@/server/interfaces/models/index.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
-import Team from '../credits/Team.js';
-import Curation from '../curations/Curation.js';
+import Team from '@/models/credits/Team.js';
+import Curation from '@/models/curations/Curation.js';
 import Rating from './Rating.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import LevelTag from './LevelTag.js';
-import Song from '../songs/Song.js';
-import SongCredit from '../songs/SongCredit.js';
+import Song from '@/models/songs/Song.js';
+import SongCredit from '@/models/songs/SongCredit.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 type LevelAttributes = ILevel;

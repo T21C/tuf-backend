@@ -1,23 +1,23 @@
 import {Op} from 'sequelize';
-import {Auth} from '../../middleware/auth.js';
-import Creator from '../../../models/credits/Creator.js';
-import Level from '../../../models/levels/Level.js';
-import LevelCredit from '../../../models/levels/LevelCredit.js';
-import {CreditRole} from '../../../models/levels/LevelCredit.js';
-import sequelize from '../../../config/db.js';
-import Team from '../../../models/credits/Team.js';
-import TeamMember from '../../../models/credits/TeamMember.js';
-import User from '../../../models/auth/User.js';
+import {Auth} from '@/server/middleware/auth.js';
+import Creator from '@/models/credits/Creator.js';
+import Level from '@/models/levels/Level.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import {CreditRole} from '@/models/levels/LevelCredit.js';
+import sequelize from '@/config/db.js';
+import Team from '@/models/credits/Team.js';
+import TeamMember from '@/models/credits/TeamMember.js';
+import User from '@/models/auth/User.js';
 import {
   escapeForMySQL,
-} from '../../../misc/utils/data/searchHelpers.js';
+} from '@/misc/utils/data/searchHelpers.js';
 import {Router, Request, Response} from 'express';
-import LevelSubmissionCreatorRequest from '../../../models/submissions/LevelSubmissionCreatorRequest.js';
-import { CreatorAlias } from '../../../models/credits/CreatorAlias.js';
-import { TeamAlias } from '../../../models/credits/TeamAlias.js';
-import { logger } from '../../services/LoggerService.js';
-import ElasticsearchService from '../../services/ElasticsearchService.js';
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
+import LevelSubmissionCreatorRequest from '@/models/submissions/LevelSubmissionCreatorRequest.js';
+import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
+import { TeamAlias } from '@/models/credits/TeamAlias.js';
+import { logger } from '@/server/services/LoggerService.js';
+import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();

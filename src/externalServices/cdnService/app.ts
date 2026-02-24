@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import cors from 'cors';
-import { logger } from '../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { CDN_CONFIG } from './config.js';
 import router from './routes/index.js';
 import dotenv from 'dotenv';

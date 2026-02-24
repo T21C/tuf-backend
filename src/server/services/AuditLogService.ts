@@ -1,5 +1,5 @@
 // import { Op } from 'sequelize';
-import AuditLog from '../../models/admin/AuditLog.js';
+import AuditLog from '@/models/admin/AuditLog.js';
 
 // const RETENTION_PERIOD = 1000 * 60 * 60 * 24 * 30; // one month retention
 

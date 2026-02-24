@@ -1,8 +1,8 @@
-import {Webhook, MessageBuilder} from '../../../misc/webhook/index.js';
-import { User } from '../../../models/index.js';
-import { clientUrlEnv } from '../../../config/app.config.js';
-import Level from '../../../models/levels/Level.js';
-import Difficulty from '../../../models/levels/Difficulty.js';
+import {Webhook, MessageBuilder} from '@/misc/webhook/index.js';
+import { User } from '@/models/index.js';
+import { clientUrlEnv } from '@/config/app.config.js';
+import Level from '@/models/levels/Level.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 
 const botAvatar = process.env.BOT_AVATAR_URL || '';
 

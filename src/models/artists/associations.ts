@@ -3,8 +3,8 @@ import ArtistAlias from './ArtistAlias.js';
 import ArtistLink from './ArtistLink.js';
 import ArtistEvidence from './ArtistEvidence.js';
 import ArtistRelation from './ArtistRelation.js';
-import SongCredit from '../songs/SongCredit.js';
-import Song from '../songs/Song.js';
+import SongCredit from '@/models/songs/SongCredit.js';
+import Song from '@/models/songs/Song.js';
 
 export function initializeArtistsAssociations() {
   // Artist <-> ArtistAlias associations

@@ -11,7 +11,7 @@ import {
   PassSubmissionJudgements,
   PassSubmissionFlags,
 } from './submissions/PassSubmission.js';
-import sequelize from '../config/db.js';
+import sequelize from '@/config/db.js';
 import {initializeAssociations} from './associations.js';
 import User from './auth/User.js';
 import OAuthProvider from './auth/OAuthProvider.js';

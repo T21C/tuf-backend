@@ -1,15 +1,15 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '../../../server/services/LoggerService.js';
-import CdnFile from '../../../models/cdn/CdnFile.js';
-import { CDN_CONFIG } from '../config.js';
-import FileAccessLog from '../../../models/cdn/FileAccessLog.js';
+import { logger } from '@/server/services/LoggerService.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
+import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
+import FileAccessLog from '@/models/cdn/FileAccessLog.js';
 import fs from 'fs';
 import path from 'path';
-import { PROTECTED_EVENT_TYPES, transformLevel } from '../services/levelTransformer.js';
-import { repackZipFile } from '../services/zipProcessor.js';
-import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
+import { PROTECTED_EVENT_TYPES, transformLevel } from '@/externalServices/cdnService/services/levelTransformer.js';
+import { repackZipFile } from '@/externalServices/cdnService/services/zipProcessor.js';
+import { hybridStorageManager, StorageType } from '@/externalServices/cdnService/services/hybridStorageManager.js';
 import LevelDict, { Action } from 'adofai-lib';
-import { AnalysisCacheData, levelCacheService } from '../services/levelCacheService.js';
+import { AnalysisCacheData, levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
 import { Op } from 'sequelize';
 
 // Repack folder configuration

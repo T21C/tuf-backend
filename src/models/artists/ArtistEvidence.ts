@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import Artist from './Artist.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 type ArtistEvidenceAttributes = {

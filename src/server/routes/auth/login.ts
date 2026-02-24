@@ -1,7 +1,7 @@
 import {Router, Request, Response} from 'express';
-import {OAuthController} from '../../controllers/oauth.js';
-import {authController} from '../../controllers/auth.js';
-import { logger } from '../../services/LoggerService.js';
+import {OAuthController} from '@/server/controllers/oauth.js';
+import {authController} from '@/server/controllers/auth.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 const router: Router = Router();
 

@@ -1,4 +1,4 @@
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { API_CATEGORIES, type ApiCategory } from '../config.js';
 import allEndpoints from '../endpoints/index.js';
 

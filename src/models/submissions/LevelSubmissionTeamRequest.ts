@@ -1,8 +1,8 @@
 import { DataTypes } from 'sequelize';
-import BaseModel from '../BaseModel.js';
+import BaseModel from '@/models/BaseModel.js';
 import LevelSubmission from './LevelSubmission.js';
-import Team from '../credits/Team.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import Team from '@/models/credits/Team.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('submissions');
 
 class LevelSubmissionTeamRequest extends BaseModel {

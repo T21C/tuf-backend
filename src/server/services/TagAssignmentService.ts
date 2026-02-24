@@ -1,7 +1,7 @@
 import cdnService from './CdnService.js';
-import Level from '../../models/levels/Level.js';
-import LevelTag from '../../models/levels/LevelTag.js';
-import LevelTagAssignment from '../../models/levels/LevelTagAssignment.js';
+import Level from '@/models/levels/Level.js';
+import LevelTag from '@/models/levels/LevelTag.js';
+import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { logger } from './LoggerService.js';
 import { Op } from 'sequelize';
 

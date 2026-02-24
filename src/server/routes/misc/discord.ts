@@ -1,6 +1,6 @@
 import {Router} from 'express';
-import {fetchDiscordUserInfo} from '../../../misc/utils/auth/discord.js';
-import { logger } from '../../services/LoggerService.js';
+import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 const router: Router = Router();
 

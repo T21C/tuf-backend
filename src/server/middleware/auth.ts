@@ -1,15 +1,15 @@
 import {Request, Response, NextFunction} from 'express';
-import {User, OAuthProvider} from '../../models/index.js';
-import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '../../misc/utils/auth/auth.js';
-import type {UserAttributes} from '../../models/auth/User.js';
+import {User, OAuthProvider} from '@/models/index.js';
+import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '@/misc/utils/auth/auth.js';
+import type {UserAttributes} from '@/models/auth/User.js';
 import axios from 'axios';
-import Player from '../../models/players/Player.js';
-import { logger } from '../services/LoggerService.js';
-import { AuditLogService } from '../services/AuditLogService.js';
-import PlayerStats from '../../models/players/PlayerStats.js';
-import Difficulty from '../../models/levels/Difficulty.js';
-import { permissionFlags } from '../../config/constants.js';
-import { hasAnyFlag, hasFlag } from '../../misc/utils/auth/permissionUtils.js';
+import Player from '@/models/players/Player.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { AuditLogService } from '@/server/services/AuditLogService.js';
+import PlayerStats from '@/models/players/PlayerStats.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import { permissionFlags } from '@/config/constants.js';
+import { hasAnyFlag, hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 
 const getUser = async (id: string): Promise<User | null> => {
   return await User.findByPk(id, {

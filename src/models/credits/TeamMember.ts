@@ -1,7 +1,7 @@
 import {DataTypes, Model, Optional} from 'sequelize';
 import Creator from './Creator.js';
 import Team from './Team.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('credits');
 
 interface TeamMemberAttributes {

@@ -1,23 +1,23 @@
-import {Auth} from '../../middleware/auth.js';
-import Rating from '../../../models/levels/Rating.js';
-import RatingDetail from '../../../models/levels/RatingDetail.js';
-import Level from '../../../models/levels/Level.js';
-import {sseManager} from '../../../misc/utils/server/sse.js';
-import sequelize from '../../../config/db.js';
-import Difficulty from '../../../models/levels/Difficulty.js';
-import User from '../../../models/auth/User.js';
+import {Auth} from '@/server/middleware/auth.js';
+import Rating from '@/models/levels/Rating.js';
+import RatingDetail from '@/models/levels/RatingDetail.js';
+import Level from '@/models/levels/Level.js';
+import {sseManager} from '@/misc/utils/server/sse.js';
+import sequelize from '@/config/db.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import User from '@/models/auth/User.js';
 import {Router, Request, Response, NextFunction} from 'express';
-import Team from '../../../models/credits/Team.js';
-import Creator from '../../../models/credits/Creator.js';
-import LevelCredit from '../../../models/levels/LevelCredit.js';
-import { logger } from '../../services/LoggerService.js';
+import Team from '@/models/credits/Team.js';
+import Creator from '@/models/credits/Creator.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import { logger } from '@/server/services/LoggerService.js';
 import {
   getDifficulties,
   parseRatingRange
-} from '../../../misc/utils/data/RatingUtils.js';
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
-import { hasFlag } from '../../../misc/utils/auth/permissionUtils.js';
-import { permissionFlags } from '../../../config/constants.js';
+} from '@/misc/utils/data/RatingUtils.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
 const router: Router = Router();
 
 /** Reusable options for fetching a rating with full includes (level, details, difficulties). */

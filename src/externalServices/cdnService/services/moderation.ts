@@ -1,14 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import CdnFile from '../../../models/cdn/CdnFile.js';
-import { logger } from '../../../server/services/LoggerService.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { storageManager } from './storageManager.js';
-import { getSequelizeForModelGroup } from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 
 export interface ImageValidationResult {
     isValid: boolean;

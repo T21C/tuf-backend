@@ -1,6 +1,6 @@
 import { Model, DataTypes } from 'sequelize';
 import Player from './Player.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('players');
 
 export enum ModifierType {

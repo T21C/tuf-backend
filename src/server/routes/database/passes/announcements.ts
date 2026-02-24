@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { Op } from 'sequelize';
-import { Auth } from '../../../middleware/auth.js';
-import Pass from '../../../../models/passes/Pass.js';
-import Player from '../../../../models/players/Player.js';
-import Level from '../../../../models/levels/Level.js';
-import Judgement from '../../../../models/passes/Judgement.js';
-import Difficulty from '../../../../models/levels/Difficulty.js';
-import { logger } from '../../../services/LoggerService.js';
-import User from '../../../../models/auth/User.js';
+import { Auth } from '@/server/middleware/auth.js';
+import Pass from '@/models/passes/Pass.js';
+import Player from '@/models/players/Player.js';
+import Level from '@/models/levels/Level.js';
+import Judgement from '@/models/passes/Judgement.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import { logger } from '@/server/services/LoggerService.js';
+import User from '@/models/auth/User.js';
 
 const router = Router();
 

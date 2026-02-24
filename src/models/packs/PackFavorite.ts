@@ -1,7 +1,7 @@
 import { Model, DataTypes, Optional } from 'sequelize';
-import User from '../auth/User.js';
+import User from '@/models/auth/User.js';
 import LevelPack from './LevelPack.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('packs');
 
 export interface IPackFavorite {

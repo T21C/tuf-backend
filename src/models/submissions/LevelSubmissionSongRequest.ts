@@ -1,7 +1,7 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import LevelSubmission from './LevelSubmission.js';
-import Song from '../songs/Song.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import Song from '@/models/songs/Song.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('submissions');
 
 type LevelSubmissionSongRequestAttributes = {

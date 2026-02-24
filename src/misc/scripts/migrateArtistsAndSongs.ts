@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 
-import sequelize from '../../config/db.js';
-import Level from '../../models/levels/Level.js';
-import LevelTag from '../../models/levels/LevelTag.js';
-import { initializeAssociations } from '../../models/associations.js';
-import { logger } from '../../server/services/LoggerService.js';
-import { safeTransactionRollback } from '../utils/Utility.js';
-import ArtistService from '../../server/services/ArtistService.js';
-import SongService from '../../server/services/SongService.js';
-import SongCredit from '../../models/songs/SongCredit.js';
-import Artist from '../../models/artists/Artist.js';
-import Song from '../../models/songs/Song.js';
+import sequelize from '@/config/db.js';
+import Level from '@/models/levels/Level.js';
+import LevelTag from '@/models/levels/LevelTag.js';
+import { initializeAssociations } from '@/models/associations.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import ArtistService from '@/server/services/ArtistService.js';
+import SongService from '@/server/services/SongService.js';
+import SongCredit from '@/models/songs/SongCredit.js';
+import Artist from '@/models/artists/Artist.js';
+import Song from '@/models/songs/Song.js';
 import { Op } from 'sequelize';
 
 // Configuration

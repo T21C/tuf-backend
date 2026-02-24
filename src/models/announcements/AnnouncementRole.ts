@@ -1,7 +1,7 @@
 import {Model, DataTypes} from 'sequelize';
-import {IAnnouncementRole} from '../../server/interfaces/models/index.js';
+import {IAnnouncementRole} from '@/server/interfaces/models/index.js';
 import { now } from 'sequelize/lib/utils';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('announcements');
 
 

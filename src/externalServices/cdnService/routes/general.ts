@@ -1,19 +1,19 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '../../../server/services/LoggerService.js';
-import CdnFile from '../../../models/cdn/CdnFile.js';
-import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '../config.js';
-//import FileAccessLog from '../../../models/cdn/FileAccessLog.js';
+import { logger } from '@/server/services/LoggerService.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
+import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '@/externalServices/cdnService/config.js';
+//import FileAccessLog from '@/models/cdn/FileAccessLog.js';
 import fs from 'fs';
 import path from 'path';
-import { storageManager } from '../services/storageManager.js';
-import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
+import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
+import { hybridStorageManager, StorageType } from '@/externalServices/cdnService/services/hybridStorageManager.js';
 import { Op } from 'sequelize';
-import { getSequelizeForModelGroup } from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
-import { spacesStorage } from '../services/spacesStorage.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 
 const router = Router();
 

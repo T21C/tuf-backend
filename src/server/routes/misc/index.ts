@@ -6,11 +6,15 @@ import formRoutes from './form.js';
 import eventsRoutes from './events.js';
 import discordRoutes from './discord.js';
 import chunkedUploadRoutes from './chunkedUpload.js';
+import externalRouter from './external.js';
 
 const router: Router = Router();
 
 // Utils routes
 router.use('/utils', utilsRoutes);
+
+// External routes
+router.use('/external', externalRouter);
 
 // Media routes
 router.use('/media', mediaRoutes);

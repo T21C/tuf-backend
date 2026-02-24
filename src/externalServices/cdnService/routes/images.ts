@@ -1,12 +1,12 @@
-import { logger } from '../../../server/services/LoggerService.js';
-import imageFactory, { ImageProcessingError } from '../services/imageFactory.js';
-import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from '../config.js';
+import { logger } from '@/server/services/LoggerService.js';
+import imageFactory, { ImageProcessingError } from '@/externalServices/cdnService/services/imageFactory.js';
+import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from '@/externalServices/cdnService/config.js';
 import { Request, Response, Router } from 'express';
-import CdnFile from '../../../models/cdn/CdnFile.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
-import FileAccessLog from '../../../models/cdn/FileAccessLog.js';
-import { storageManager } from '../services/storageManager.js';
+import FileAccessLog from '@/models/cdn/FileAccessLog.js';
+import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
 
 const router = Router();
 

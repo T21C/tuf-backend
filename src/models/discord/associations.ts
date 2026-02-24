@@ -1,7 +1,7 @@
 import DiscordGuild from './DiscordGuild.js';
 import DiscordSyncRole from './DiscordSyncRole.js';
-import Difficulty from '../levels/Difficulty.js';
-import CurationType from '../curations/CurationType.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import CurationType from '@/models/curations/CurationType.js';
 
 export function initializeDiscordAssociations() {
   // DiscordGuild <-> DiscordSyncRole associations

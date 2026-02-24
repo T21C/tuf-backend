@@ -1,8 +1,8 @@
 import User from './User.js';
 import OAuthProvider from './OAuthProvider.js';
 import RefreshToken from './RefreshToken.js';
-import Player from '../players/Player.js';
-import Creator from '../credits/Creator.js';
+import Player from '@/models/players/Player.js';
+import Creator from '@/models/credits/Creator.js';
 
 export function initializeAuthAssociations() {
   // User <-> RefreshToken associations

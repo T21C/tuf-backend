@@ -1,5 +1,5 @@
 import AWS from 'aws-sdk';
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';

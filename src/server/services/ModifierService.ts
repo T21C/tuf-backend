@@ -1,20 +1,20 @@
-import PlayerModifier, { ModifierType } from '../../models/players/PlayerModifier.js';
+import PlayerModifier, { ModifierType } from '@/models/players/PlayerModifier.js';
 import { Op } from 'sequelize';
 import { PlayerStatsService } from './PlayerStatsService.js';
-import Pass from '../../models/passes/Pass.js';
-import Level from '../../models/levels/Level.js';
+import Pass from '@/models/passes/Pass.js';
+import Level from '@/models/levels/Level.js';
 import { CronJob } from 'cron';
-import Player from '../../models/players/Player.js';
-import User from '../../models/auth/User.js';
-import Judgement from '../../models/passes/Judgement.js';
-import sequelize from '../../config/db.js';
-import Difficulty from '../../models/levels/Difficulty.js';
-import { calcAcc } from '../../misc/utils/pass/CalcAcc.js';
-import { getScoreV2 } from '../../misc/utils/pass/CalcScore.js';
+import Player from '@/models/players/Player.js';
+import User from '@/models/auth/User.js';
+import Judgement from '@/models/passes/Judgement.js';
+import sequelize from '@/config/db.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
+import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
 import { env } from 'process';
 import { logger } from './LoggerService.js';
-import { permissionFlags } from '../../config/constants.js';
-import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 
 const ENABLE_MODIFIERS = env.APRIL_FOOLS === 'true';
 

@@ -1,7 +1,7 @@
 import Player from './Player.js';
 import PlayerStats from './PlayerStats.js';
 import PlayerModifier from './PlayerModifier.js';
-import Difficulty from '../levels/Difficulty.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 
 export function initializePlayersAssociations() {
   // Player <-> PlayerStats associations

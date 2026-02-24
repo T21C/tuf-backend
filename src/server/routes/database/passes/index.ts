@@ -1,7 +1,7 @@
-import Pass from '../../../../models/passes/Pass.js';
+import Pass from '@/models/passes/Pass.js';
 import {Router} from 'express';
-import { logger } from '../../../services/LoggerService.js';
-import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import { logger } from '@/server/services/LoggerService.js';
+import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();

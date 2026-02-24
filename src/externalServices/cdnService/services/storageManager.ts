@@ -4,8 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import diskInfo from 'node-disk-info';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
-import { logger } from '../../../server/services/LoggerService.js';
-import CdnFile from '../../../models/cdn/CdnFile.js';
+import { logger } from '@/server/services/LoggerService.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
 import dotenv from 'dotenv';
 dotenv.config();
 

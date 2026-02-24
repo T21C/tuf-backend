@@ -1,24 +1,24 @@
 import {Request, Response} from 'express';
-import OAuthService from '../services/OAuthService.js';
+import OAuthService from '@/server/services/OAuthService.js';
 import {
   tokenUtils,
   refreshTokenService,
   cookieUtils,
   ACCESS_COOKIE_MAX_AGE_SEC,
   REFRESH_COOKIE_MAX_AGE_SEC,
-} from '../../misc/utils/auth/auth.js';
-import {OAuthProvider} from '../../models/index.js';
+} from '@/misc/utils/auth/auth.js';
+import {OAuthProvider} from '@/models/index.js';
 import axios from 'axios';
 import {
   type RESTPostOAuth2AccessTokenResult,
   type RESTGetAPIUserResult,
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
-import { logger } from '../services/LoggerService.js';
-import { clientUrlEnv, ownUrl } from '../../config/app.config.js';
-import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
-import { permissionFlags } from '../../config/constants.js';
-import { CacheInvalidation } from '../middleware/cache.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { clientUrlEnv, ownUrl } from '@/config/app.config.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 
 interface ProfileResponse {

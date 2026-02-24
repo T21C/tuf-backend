@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import Curation from './Curation.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('curations');
 
 export interface ICurationSchedule {

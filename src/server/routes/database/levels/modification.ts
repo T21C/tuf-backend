@@ -1,54 +1,54 @@
 import {Router, Request, Response} from 'express';
-import sequelize from '../../../../config/db.js';
-import Level from '../../../../models/levels/Level.js';
-import Difficulty from '../../../../models/levels/Difficulty.js';
-import {Auth} from '../../../middleware/auth.js';
+import sequelize from '@/config/db.js';
+import Level from '@/models/levels/Level.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import {Auth} from '@/server/middleware/auth.js';
 import {Transaction} from 'sequelize';
-import Rating from '../../../../models/levels/Rating.js';
-import Pass from '../../../../models/passes/Pass.js';
-import Judgement from '../../../../models/passes/Judgement.js';
-import {calcAcc} from '../../../../misc/utils/pass/CalcAcc.js';
-import {getScoreV2} from '../../../../misc/utils/pass/CalcScore.js';
-import {PlayerStatsService} from '../../../services/PlayerStatsService.js';
-import {sseManager} from '../../../../misc/utils/server/sse.js';
-import LevelLikes from '../../../../models/levels/LevelLikes.js';
-import RatingAccuracyVote from '../../../../models/levels/RatingAccuracyVote.js';
-import User from '../../../../models/auth/User.js';
-import { CacheInvalidation } from '../../../middleware/cache.js';
+import Rating from '@/models/levels/Rating.js';
+import Pass from '@/models/passes/Pass.js';
+import Judgement from '@/models/passes/Judgement.js';
+import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
+import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
+import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
+import {sseManager} from '@/misc/utils/server/sse.js';
+import LevelLikes from '@/models/levels/LevelLikes.js';
+import RatingAccuracyVote from '@/models/levels/RatingAccuracyVote.js';
+import User from '@/models/auth/User.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 // Type assertion helper for req.user to User model
 const getUserModel = (user: any): User => user as User;
-import Player from '../../../../models/players/Player.js';
-import {logger} from '../../../services/LoggerService.js';
-import ElasticsearchService from '../../../services/ElasticsearchService.js';
+import Player from '@/models/players/Player.js';
+import {logger} from '@/server/services/LoggerService.js';
+import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import {
   isCdnUrl,
   getFileIdFromCdnUrl,
   safeTransactionRollback,
   sanitizeTextInput,
-} from '../../../../misc/utils/Utility.js';
-import cdnService from '../../../services/CdnService.js';
-import {CDN_CONFIG} from '../../../../externalServices/cdnService/config.js';
+} from '@/misc/utils/Utility.js';
+import cdnService from '@/server/services/CdnService.js';
+import {CDN_CONFIG} from '@/externalServices/cdnService/config.js';
 import fs from 'fs';
 import path from 'path';
-import {cleanupUserUploads} from '../../misc/chunkedUpload.js';
-import LevelRerateHistory from '../../../../models/levels/LevelRerateHistory.js';
-import LevelTag from '../../../../models/levels/LevelTag.js';
-import {permissionFlags} from '../../../../config/constants.js';
-import {hasFlag} from '../../../../misc/utils/auth/permissionUtils.js';
-import {tagAssignmentService} from '../../../services/TagAssignmentService.js';
-import LevelCredit, { CreditRole } from '../../../../models/levels/LevelCredit.js';
+import {cleanupUserUploads} from '@/server/routes/misc/chunkedUpload.js';
+import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
+import LevelTag from '@/models/levels/LevelTag.js';
+import {permissionFlags} from '@/config/constants.js';
+import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
+import {tagAssignmentService} from '@/server/services/TagAssignmentService.js';
+import LevelCredit, { CreditRole } from '@/models/levels/LevelCredit.js';
 import {
   logLevelFileUploadHook,
   logLevelFileUpdateHook,
   logLevelFileDeleteHook,
   logLevelTargetUpdateHook,
   logLevelMetadataUpdateHook,
-} from '../../webhooks/misc.js';
-import LevelTagAssignment from '../../../../models/levels/LevelTagAssignment.js';
-import { getSongDisplayName } from '../../../../utils/levelHelpers.js';
-import Song from '../../../../models/songs/Song.js';
-import Artist from '../../../../models/artists/Artist.js';
+} from '@/server/routes/webhooks/misc.js';
+import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
+import { getSongDisplayName } from '@/utils/levelHelpers.js';
+import Song from '@/models/songs/Song.js';
+import Artist from '@/models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 

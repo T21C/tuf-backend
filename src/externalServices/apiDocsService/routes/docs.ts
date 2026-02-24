@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { API_DOCS_CONFIG } from '../config.js';
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import DocumentationService from '../services/DocumentationService.js';
 
 const router = express.Router();

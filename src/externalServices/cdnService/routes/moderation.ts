@@ -1,4 +1,4 @@
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { getPendingImages, moderateImage } from '../services/moderation.js';
 import { Request, Response, Router } from 'express';
 

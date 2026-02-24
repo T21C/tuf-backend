@@ -1,12 +1,12 @@
 import {Router, Request, Response} from 'express';
-import {Auth} from '../../middleware/auth.js';
-import {BackupService} from '../../services/BackupService.js';
+import {Auth} from '@/server/middleware/auth.js';
+import {BackupService} from '@/server/services/BackupService.js';
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import os from 'os';
-import { logger } from '../../services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 const router: Router = Router();
 const backupService = new BackupService();

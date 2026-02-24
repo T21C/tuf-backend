@@ -1,7 +1,7 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import Song from './Song.js';
-import Artist from '../artists/Artist.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import Artist from '@/models/artists/Artist.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 type SongCreditAttributes = {

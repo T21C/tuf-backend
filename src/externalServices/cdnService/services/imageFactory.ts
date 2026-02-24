@@ -1,16 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
 import { processImage } from './imageProcessor.js';
 import { storageManager } from './storageManager.js';
-import CdnFile from '../../../models/cdn/CdnFile.js';
-import { getSequelizeForModelGroup } from '../../../config/db.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 
 
 export interface ImageUploadResult {

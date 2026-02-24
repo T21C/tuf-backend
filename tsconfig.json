@@ -1,6 +1,10 @@
 {
   "extends": "./node_modules/gts/tsconfig-google.json",
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -19,10 +23,7 @@
     "resolveJsonModule": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "typeRoots": [
-      "./node_modules/@types",
-      "src/server/interfaces"
-    ]
+    "typeRoots": ["./node_modules/@types", "src/server/interfaces"]
   },
   "ts-node": {
     "esm": true,
@@ -36,8 +37,5 @@
     "src/config/*.json",
     "src/*.html"
   ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "exclude": ["node_modules", "dist"]
 }

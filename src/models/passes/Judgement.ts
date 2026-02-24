@@ -1,6 +1,6 @@
 import {DataTypes, Model} from 'sequelize';
-import {IJudgement} from '../../server/interfaces/models/index.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import {IJudgement} from '@/server/interfaces/models/index.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('passes');
 
 class Judgement extends Model<IJudgement> implements IJudgement {

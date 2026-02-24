@@ -1,9 +1,9 @@
 import {DataTypes, Model} from 'sequelize';
-import {ITeam} from '../../server/interfaces/models/index.js';
+import {ITeam} from '@/server/interfaces/models/index.js';
 import { TeamAlias } from './TeamAlias.js';
 import Creator from './Creator.js';
 import TeamMember from './TeamMember.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('credits');
 
 class Team extends Model implements ITeam {

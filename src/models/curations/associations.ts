@@ -1,8 +1,8 @@
 import CurationType from './CurationType.js';
 import Curation from './Curation.js';
 import CurationSchedule from './CurationSchedule.js';
-import Level from '../levels/Level.js';
-import User from '../auth/User.js';
+import Level from '@/models/levels/Level.js';
+import User from '@/models/auth/User.js';
 
 export function initializeCurationsAssociations() {
   // Curation associations

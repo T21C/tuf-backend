@@ -7,7 +7,7 @@ import {
   ForeignKey,
 } from 'sequelize';
 import Level from './Level.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 class LevelAlias extends Model<

@@ -1,7 +1,7 @@
-import LevelSubmissionEvidence from '../../models/submissions/LevelSubmissionEvidence.js';
-import ArtistEvidence from '../../models/artists/ArtistEvidence.js';
-import SongEvidence from '../../models/songs/SongEvidence.js';
-import { getFileIdFromCdnUrl, isCdnUrl } from '../../misc/utils/Utility.js';
+import LevelSubmissionEvidence from '@/models/submissions/LevelSubmissionEvidence.js';
+import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
+import SongEvidence from '@/models/songs/SongEvidence.js';
+import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnServiceInstance from './CdnService.js';
 import { logger } from './LoggerService.js';
 

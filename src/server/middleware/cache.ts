@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
-import { redis } from '../services/RedisService.js';
-import { logger } from '../services/LoggerService.js';
-import { permissionFlags } from '../../config/constants.js';
-import { hasFlag } from '../../misc/utils/auth/permissionUtils.js';
+import { redis } from '@/server/services/RedisService.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { permissionFlags } from '@/config/constants.js';
+import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 
 /**
  * Configuration for cache behavior

@@ -1,5 +1,5 @@
 import { Model, DataTypes } from 'sequelize';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('auth');
 
 interface RateLimitAttributes {

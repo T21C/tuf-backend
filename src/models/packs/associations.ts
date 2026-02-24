@@ -1,8 +1,8 @@
 import LevelPack from './LevelPack.js';
 import LevelPackItem from './LevelPackItem.js';
 import PackFavorite from './PackFavorite.js';
-import User from '../auth/User.js';
-import Level from '../levels/Level.js';
+import User from '@/models/auth/User.js';
+import Level from '@/models/levels/Level.js';
 
 export function initializePacksAssociations() {
   // LevelPack <-> User associations

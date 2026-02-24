@@ -1,11 +1,11 @@
 import {Request, Response, Router} from 'express';
-import {validSortOptions} from '../../../config/constants.js';
-import {PlayerStatsService} from '../../services/PlayerStatsService.js';
-import User from '../../../models/auth/User.js';
-import OAuthProvider from '../../../models/auth/OAuthProvider.js';
-import { logger } from '../../services/LoggerService.js';
-import { Cache, CacheInvalidation } from '../../middleware/cache.js';
-import PlayerStats from '../../../models/players/PlayerStats.js';
+import {validSortOptions} from '@/config/constants.js';
+import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
+import User from '@/models/auth/User.js';
+import OAuthProvider from '@/models/auth/OAuthProvider.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import PlayerStats from '@/models/players/PlayerStats.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();

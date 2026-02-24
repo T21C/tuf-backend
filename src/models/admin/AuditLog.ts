@@ -1,7 +1,7 @@
 import { DataTypes } from 'sequelize';
-import BaseModel from '../BaseModel.js';
-import User from '../auth/User.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import BaseModel from '@/models/BaseModel.js';
+import User from '@/models/auth/User.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('admin');
 
 class AuditLog extends BaseModel {

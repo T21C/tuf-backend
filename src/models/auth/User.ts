@@ -1,8 +1,8 @@
 import {Model, DataTypes} from 'sequelize';
-import Player from '../players/Player.js';
+import Player from '@/models/players/Player.js';
 import OAuthProvider from './OAuthProvider.js';
-import Creator from '../credits/Creator.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import Creator from '@/models/credits/Creator.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('auth');
 
 export interface UserAttributes {

@@ -4,23 +4,18 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import {createServer} from 'http';
 import {Server} from 'socket.io';
-import adminRoutes from './server/routes/admin/index.js';
-import authRoutes from './server/routes/auth/index.js';
-import mediaRoutes from './server/routes/misc/media.js';
-import formRoutes from './server/routes/misc/form.js';
-import databaseRoutes from './server/routes/database/index.js';
-import webhookRoutes from './server/routes/webhooks/index.js';
-import db from './models/index.js';
-import {setIO} from './misc/utils/server/socket.js';
-import {htmlMetaMiddleware} from './server/middleware/html-meta.js';
+import adminRoutes from '@/server/routes/admin/index.js';
+import authRoutes from '@/server/routes/auth/index.js';
+import databaseRoutes from '@/server/routes/database/index.js';
+import webhookRoutes from '@/server/routes/webhooks/index.js';
+import db from '@/models/index.js';
+import {setIO} from '@/misc/utils/server/socket.js';
+import {htmlMetaMiddleware} from '@/server/middleware/html-meta.js';
 import path from 'path';
-import discordRouter from './server/routes/misc/discord.js';
-import eventsRouter from './server/routes/misc/events.js';
-import utilsRouter from './server/routes/misc/utils.js';
-import chunkedUploadRouter from './server/routes/misc/chunkedUpload.js';
-import cdnProgressRouter from './server/routes/misc/cdnProgress.js';
+import cdnProgressRouter from '@/server/routes/misc/cdnProgress.js';
 import {PlayerStatsService} from './server/services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
+import miscRoutes from './server/routes/misc/index.js';
 import healthRouter from './server/routes/misc/health.js';
 import { logger } from './server/services/LoggerService.js';
 import ElasticsearchService from './server/services/ElasticsearchService.js';
@@ -262,17 +257,12 @@ export async function startServer() {
 
     // Set up API routes first
     app.use('/v2/admin', adminRoutes);
-    app.use('/v2/form', formRoutes);
     app.use('/v2/auth', authRoutes);
-    app.use('/v2/media', mediaRoutes);
     app.use('/v2/database', databaseRoutes());
     app.use('/v2/webhook', webhookRoutes);
-    app.use('/v2/discord', discordRouter);
-    app.use('/events', eventsRouter);
-    app.use('/v2/utils', utilsRouter);
     app.use('/health', healthRouter);
-    app.use('/v2/chunked-upload', chunkedUploadRouter);
     app.use('/v2/cdn', cdnProgressRouter);
+    app.use('/v2', miscRoutes)
     // HTML meta tags middleware for specific routes BEFORE static files
     app.get(['/passes/:id', '/levels/:id', '/profile/:id', '/packs/:id'], htmlMetaMiddleware);
 

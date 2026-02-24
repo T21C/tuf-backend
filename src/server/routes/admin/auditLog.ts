@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { Auth } from '../../middleware/auth.js';
-import { AuditLog, User } from '../../../models/index.js';
+import { Auth } from '@/server/middleware/auth.js';
+import { AuditLog, User } from '@/models/index.js';
 import { Op } from 'sequelize';
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 const router = Router();
 

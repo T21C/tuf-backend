@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import axios from 'axios';
-import sequelize from '../../config/db.js';
+import sequelize from '@/config/db.js';
 import v8 from 'v8';
 
 export class HealthService {

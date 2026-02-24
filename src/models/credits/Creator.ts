@@ -1,10 +1,10 @@
 import {Model, DataTypes} from 'sequelize';
-import {ICreator} from '../../server/interfaces/models/index.js';
-import User from '../auth/User.js';
-import LevelCredit from '../levels/LevelCredit.js';
+import {ICreator} from '@/server/interfaces/models/index.js';
+import User from '@/models/auth/User.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
 import {CreatorAlias} from './CreatorAlias.js';
 import Team from './Team.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('credits');
 
 class Creator extends Model implements ICreator {

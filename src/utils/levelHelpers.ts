@@ -4,8 +4,8 @@
  * Pattern: newObject || oldProperty
  */
 
-import Level from '../models/levels/Level.js';
-import Artist from '../models/artists/Artist.js';
+import Level from '@/models/levels/Level.js';
+import Artist from '@/models/artists/Artist.js';
 
 /**
  * Get song name from level with fallback

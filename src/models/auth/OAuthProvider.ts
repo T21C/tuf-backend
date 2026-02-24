@@ -1,6 +1,6 @@
 import {Model, DataTypes, Optional} from 'sequelize';
 import User from './User.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('auth');
 
 interface OAuthProviderAttributes {

@@ -1,18 +1,18 @@
 #!/usr/bin/env ts-node
 
 import { Command } from 'commander';
-import { logger } from '../../../server/services/LoggerService.js';
-import CdnFile from '../../../models/cdn/CdnFile.js';
+import { logger } from '@/server/services/LoggerService.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
 import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import { storageManager } from '../services/storageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 import { processZipFile } from '../services/zipProcessor.js';
-import { getSequelizeForModelGroup } from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction, Op } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 const sequelize = cdnSequelize; // For authenticate/close in scripts
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import fs from 'fs';
 import path from 'path';
 

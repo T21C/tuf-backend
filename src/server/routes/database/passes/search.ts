@@ -1,22 +1,22 @@
 
 import { Router, Request, Response } from 'express';
-import { Auth } from '../../../middleware/auth.js';
+import { Auth } from '@/server/middleware/auth.js';
 import { Op } from 'sequelize';
-import Pass from '../../../../models/passes/Pass.js';
-import Player from '../../../../models/players/Player.js';
-import Level from '../../../../models/levels/Level.js';
-import Judgement from '../../../../models/passes/Judgement.js';
-import Difficulty from '../../../../models/levels/Difficulty.js';
-import { logger } from '../../../services/LoggerService.js';
-import { PlayerStatsService } from '../../../services/PlayerStatsService.js';
-import { User } from '../../../../models/index.js';
+import Pass from '@/models/passes/Pass.js';
+import Player from '@/models/players/Player.js';
+import Level from '@/models/levels/Level.js';
+import Judgement from '@/models/passes/Judgement.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { PlayerStatsService } from '@/server/services/PlayerStatsService.js';
+import { User } from '@/models/index.js';
 import { searchPasses } from './index.js';
-import { ensureString } from '../../../../misc/utils/Utility.js';
-import { hasFlag, wherePermission } from '../../../../misc/utils/auth/permissionUtils.js';
-import { permissionFlags } from '../../../../config/constants.js';
-import Creator from '../../../../models/credits/Creator.js';
-import LevelCredit from '../../../../models/levels/LevelCredit.js';
-import Team from '../../../../models/credits/Team.js';
+import { ensureString } from '@/misc/utils/Utility.js';
+import { hasFlag, wherePermission } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
+import Creator from '@/models/credits/Creator.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import Team from '@/models/credits/Team.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();

@@ -3,10 +3,10 @@ import loginRoutes from './login.js';
 import registerRoutes from './register.js';
 import verificationRoutes from './verification.js';
 import oauthRoutes from './oauth.js';
-import profileRoutes from '../profile/profile.js';
+import profileRoutes from '@/server/routes/profile/profile.js';
 import forgotPasswordRoutes from './forgotPassword.js';
-import { authController } from '../../controllers/auth.js';
-import { Auth } from '../../middleware/auth.js';
+import { authController } from '@/server/controllers/auth.js';
+import { Auth } from '@/server/middleware/auth.js';
 
 const router: Router = Router();
 

@@ -1,11 +1,11 @@
 import { Op } from 'sequelize';
-import Song from '../../models/songs/Song.js';
-import SongAlias from '../../models/songs/SongAlias.js';
-import SongLink from '../../models/songs/SongLink.js';
-import SongEvidence from '../../models/songs/SongEvidence.js';
-import SongCredit from '../../models/songs/SongCredit.js';
-import Level from '../../models/levels/Level.js';
-import LevelSubmissionSongRequest from '../../models/submissions/LevelSubmissionSongRequest.js';
+import Song from '@/models/songs/Song.js';
+import SongAlias from '@/models/songs/SongAlias.js';
+import SongLink from '@/models/songs/SongLink.js';
+import SongEvidence from '@/models/songs/SongEvidence.js';
+import SongCredit from '@/models/songs/SongCredit.js';
+import Level from '@/models/levels/Level.js';
+import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 
 class SongService {
   private static instance: SongService;

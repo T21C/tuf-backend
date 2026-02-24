@@ -2,7 +2,7 @@ import AnnouncementDirective from './AnnouncementDirective.js';
 import DirectiveAction from './DirectiveAction.js';
 import AnnouncementChannel from './AnnouncementChannel.js';
 import AnnouncementRole from './AnnouncementRole.js';
-import Difficulty from '../levels/Difficulty.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 
 export function initializeAnnouncementsAssociations() {
   // Difficulty Associations

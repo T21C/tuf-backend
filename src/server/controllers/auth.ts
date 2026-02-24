@@ -1,10 +1,10 @@
 import {Request, Response} from 'express';
 import {Op, CreationAttributes} from 'sequelize';
 import {v4 as uuidv4} from 'uuid';
-import User from '../../models/auth/User.js';
-import Player from '../../models/players/Player.js';
-import PlayerStats from '../../models/players/PlayerStats.js';
-import {emailService} from '../../misc/utils/auth/email.js';
+import User from '@/models/auth/User.js';
+import Player from '@/models/players/Player.js';
+import PlayerStats from '@/models/players/PlayerStats.js';
+import {emailService} from '@/misc/utils/auth/email.js';
 import {
   passwordUtils,
   tokenUtils,
@@ -12,13 +12,13 @@ import {
   cookieUtils,
   ACCESS_COOKIE_MAX_AGE_SEC,
   REFRESH_COOKIE_MAX_AGE_SEC,
-} from '../../misc/utils/auth/auth.js';
-import {PlayerStatsService} from '../services/PlayerStatsService.js';
-import { logger } from '../services/LoggerService.js';
-import CaptchaService from '../services/CaptchaService.js';
-import { RateLimiter } from '../decorators/rateLimiter.js';
-import { permissionFlags } from '../../config/constants.js';
-import { hasFlag, setUserPermissionAndSave } from '../../misc/utils/auth/permissionUtils.js';
+} from '@/misc/utils/auth/auth.js';
+import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
+import { logger } from '@/server/services/LoggerService.js';
+import CaptchaService from '@/server/services/CaptchaService.js';
+import { RateLimiter } from '@/server/decorators/rateLimiter.js';
+import { permissionFlags } from '@/config/constants.js';
+import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 
 // Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();

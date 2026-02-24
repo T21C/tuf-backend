@@ -3,8 +3,8 @@ import { CreatorAlias } from './CreatorAlias.js';
 import Team from './Team.js';
 import TeamMember from './TeamMember.js';
 import { TeamAlias } from './TeamAlias.js';
-import LevelCredit from '../levels/LevelCredit.js';
-import Level from '../levels/Level.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import Level from '@/models/levels/Level.js';
 
 export function initializeCreditsAssociations() {
   // Creator <-> CreatorAlias associations

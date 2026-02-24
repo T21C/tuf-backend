@@ -3,9 +3,9 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
 import type { Response } from 'express';
-import {User, RefreshToken} from '../../../models/index.js';
+import {User, RefreshToken} from '@/models/index.js';
 import { hasFlag } from './permissionUtils.js';
-import { permissionFlags } from '../../../config/constants.js';
+import { permissionFlags } from '@/config/constants.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env

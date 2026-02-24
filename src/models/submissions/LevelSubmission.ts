@@ -1,14 +1,14 @@
 import {DataTypes} from 'sequelize';
-import BaseModel from '../BaseModel.js';
+import BaseModel from '@/models/BaseModel.js';
 import LevelSubmissionCreatorRequest from './LevelSubmissionCreatorRequest.js';
 import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
 import LevelSubmissionSongRequest from './LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from './LevelSubmissionArtistRequest.js';
 import LevelSubmissionEvidence from './LevelSubmissionEvidence.js';
-import User from '../auth/User.js';
-import Song from '../songs/Song.js';
-import Artist from '../artists/Artist.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import User from '@/models/auth/User.js';
+import Song from '@/models/songs/Song.js';
+import Artist from '@/models/artists/Artist.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('submissions');
 
 class LevelSubmission extends BaseModel {

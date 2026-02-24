@@ -9,12 +9,12 @@ import LevelSubmissionTeamRequest from './LevelSubmissionTeamRequest.js';
 import LevelSubmissionSongRequest from './LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from './LevelSubmissionArtistRequest.js';
 import LevelSubmissionEvidence from './LevelSubmissionEvidence.js';
-import Player from '../players/Player.js';
-import User from '../auth/User.js';
-import Creator from '../credits/Creator.js';
-import Team from '../credits/Team.js';
-import Song from '../songs/Song.js';
-import Artist from '../artists/Artist.js';
+import Player from '@/models/players/Player.js';
+import User from '@/models/auth/User.js';
+import Creator from '@/models/credits/Creator.js';
+import Team from '@/models/credits/Team.js';
+import Song from '@/models/songs/Song.js';
+import Artist from '@/models/artists/Artist.js';
 
 export function initializeSubmissionsAssociations() {
   // PassSubmission <-> Player associations

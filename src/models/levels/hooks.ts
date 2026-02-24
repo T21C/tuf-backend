@@ -1,19 +1,19 @@
 import Level from './Level.js';
-import Pass from '../passes/Pass.js';
+import Pass from '@/models/passes/Pass.js';
 import Rating from './Rating.js';
-import Curation from '../curations/Curation.js';
+import Curation from '@/models/curations/Curation.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
 import LevelTag from './LevelTag.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
 import LevelLikes from './LevelLikes.js';
-import Song from '../songs/Song.js';
-import Artist from '../artists/Artist.js';
-import SongCredit from '../songs/SongCredit.js';
-import SongAlias from '../songs/SongAlias.js';
-import ArtistAlias from '../artists/ArtistAlias.js';
-import { CacheInvalidation } from '../../server/middleware/cache.js';
-import { logger } from '../../server/services/LoggerService.js';
+import Song from '@/models/songs/Song.js';
+import Artist from '@/models/artists/Artist.js';
+import SongCredit from '@/models/songs/SongCredit.js';
+import SongAlias from '@/models/songs/SongAlias.js';
+import ArtistAlias from '@/models/artists/ArtistAlias.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { Op } from 'sequelize';
 
 /**

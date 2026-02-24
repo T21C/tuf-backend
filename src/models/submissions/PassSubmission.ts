@@ -1,10 +1,10 @@
 import {DataTypes} from 'sequelize';
-import BaseModel from '../BaseModel.js';
-import Player from '../players/Player.js';
-import Level from '../levels/Level.js';
-import { calcAcc } from '../../misc/utils/pass/CalcAcc.js';
-import User from '../auth/User.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import BaseModel from '@/models/BaseModel.js';
+import Player from '@/models/players/Player.js';
+import Level from '@/models/levels/Level.js';
+import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
+import User from '@/models/auth/User.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('submissions');
 
 class PassSubmission extends BaseModel {

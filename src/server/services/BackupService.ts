@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { CronJob } from 'cron';
-import config from '../../config/backup.config.js';
+import config from '@/config/backup.config.js';
 import dotenv from 'dotenv';
 import { logger } from './LoggerService.js';
 import ElasticsearchService from './ElasticsearchService.js';

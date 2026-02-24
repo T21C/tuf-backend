@@ -1,12 +1,12 @@
 import {Model} from 'sequelize';
-import {UserAttributes} from '../../../models/auth/User.js';
-import DirectiveAction from '../../../models/announcements/DirectiveAction.js';
-import { CreatorAlias } from '../../../models/credits/CreatorAlias.js';
-import { TeamAlias } from '../../../models/credits/TeamAlias.js';
-import LevelAlias from '../../../models/levels/LevelAlias.js';
-import LevelCredit from '../../../models/levels/LevelCredit.js';
-import Team from '../../../models/credits/Team.js';
-import TeamMember from '../../../models/credits/TeamMember.js';
+import {UserAttributes} from '@/models/auth/User.js';
+import DirectiveAction from '@/models/announcements/DirectiveAction.js';
+import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
+import { TeamAlias } from '@/models/credits/TeamAlias.js';
+import LevelAlias from '@/models/levels/LevelAlias.js';
+import LevelCredit from '@/models/levels/LevelCredit.js';
+import Team from '@/models/credits/Team.js';
+import TeamMember from '@/models/credits/TeamMember.js';
 
 // Base interface for common fields
 export interface IBaseModel {

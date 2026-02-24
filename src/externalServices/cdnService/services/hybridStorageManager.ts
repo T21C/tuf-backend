@@ -1,4 +1,4 @@
-import { logger } from '../../../server/services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { storageManager } from './storageManager.js';
 import { spacesStorage } from './spacesStorage.js';
 import path from 'path';

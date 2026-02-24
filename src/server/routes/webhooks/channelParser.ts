@@ -1,16 +1,16 @@
-import Pass from '../../../models/passes/Pass.js';
-import Level from '../../../models/levels/Level.js';
-import AnnouncementDirective from '../../../models/announcements/AnnouncementDirective.js';
-import DirectiveConditionHistory from '../../../models/announcements/DirectiveConditionHistory.js';
-import {ConditionOperator, DirectiveCondition, DirectiveConditionType} from '../../../server/interfaces/models/index.js';
-import AnnouncementChannel from '../../../models/announcements/AnnouncementChannel.js';
-import AnnouncementRole from '../../../models/announcements/AnnouncementRole.js';
-import DirectiveAction from '../../../models/announcements/DirectiveAction.js';
-import { evaluateDirectiveCondition } from '../../../misc/utils/data/directiveParser.js';
+import Pass from '@/models/passes/Pass.js';
+import Level from '@/models/levels/Level.js';
+import AnnouncementDirective from '@/models/announcements/AnnouncementDirective.js';
+import DirectiveConditionHistory from '@/models/announcements/DirectiveConditionHistory.js';
+import {ConditionOperator, DirectiveCondition, DirectiveConditionType} from '@/server/interfaces/models/index.js';
+import AnnouncementChannel from '@/models/announcements/AnnouncementChannel.js';
+import AnnouncementRole from '@/models/announcements/AnnouncementRole.js';
+import DirectiveAction from '@/models/announcements/DirectiveAction.js';
+import { evaluateDirectiveCondition } from '@/misc/utils/data/directiveParser.js';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
-import Judgement from '../../../models/passes/Judgement.js';
-import { logger } from '../../../server/services/LoggerService.js';
+import Judgement from '@/models/passes/Judgement.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 export interface MessageFormatConfig {
   messageFormat: string;

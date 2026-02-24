@@ -1,6 +1,6 @@
 import Pass from './Pass.js';
 import Judgement from './Judgement.js';
-import Player from '../players/Player.js';
+import Player from '@/models/players/Player.js';
 
 export function initializePassesAssociations() {
   // Player <-> Pass associations

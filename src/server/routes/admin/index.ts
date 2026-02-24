@@ -4,7 +4,7 @@ import submissionRoutes from './submissions.js';
 import backupRoutes from './backup.js';
 import usersRoutes from './users.js';
 import statisticsRoutes from './statistics.js';
-import { Auth } from '../../middleware/auth.js';
+import { Auth } from '@/server/middleware/auth.js';
 import auditLogRoutes from './auditLog.js';
 import curationRoutes from './curations.js';
 import discordRolesRoutes from './discordRoles.js';

@@ -1,14 +1,14 @@
 import express, { Request, Response, Router } from 'express';
-import { Auth } from '../../middleware/auth.js';
+import { Auth } from '@/server/middleware/auth.js';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { logger } from '../../services/LoggerService.js';
+import { logger } from '@/server/services/LoggerService.js';
 import cors from 'cors';
-import { corsOptions } from '../../../config/app.config.js';
-import sequelize from '../../../config/db.js';
-import Level from '../../../models/levels/Level.js';
-import { checkLevelOwnership } from '../database/levels/modification.js';
+import { corsOptions } from '@/config/app.config.js';
+import sequelize from '@/config/db.js';
+import Level from '@/models/levels/Level.js';
+import { checkLevelOwnership } from '@/server/routes/database/levels/modification.js';
 
 const router: Router = express.Router();
 

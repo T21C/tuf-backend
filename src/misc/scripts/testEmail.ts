@@ -1,4 +1,4 @@
-import { emailService } from '../utils/auth/email.js';
+import { emailService } from '@/misc/utils/auth/email.js';
 import { Command } from 'commander';
 
 async function testEmail(email: string) {

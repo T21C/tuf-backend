@@ -1,4 +1,4 @@
-import Difficulty from '../../../models/levels/Difficulty.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 
 // Cache for difficulties to avoid repeated DB queries
 let difficultyCache: {

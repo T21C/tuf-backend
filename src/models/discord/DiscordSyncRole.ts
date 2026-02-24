@@ -1,9 +1,9 @@
 import {Model, DataTypes} from 'sequelize';
 import { now } from 'sequelize/lib/utils';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import DiscordGuild from './DiscordGuild.js';
-import Difficulty from '../levels/Difficulty.js';
-import CurationType from '../curations/CurationType.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import CurationType from '@/models/curations/CurationType.js';
 
 const sequelize = getSequelizeForModelGroup('discord');
 

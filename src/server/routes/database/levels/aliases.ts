@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
-import sequelize from '../../../../config/db.js';
-import LevelAlias from '../../../../models/levels/LevelAlias.js';
-import Level from '../../../../models/levels/Level.js';
-import { Auth } from '../../../middleware/auth.js';
+import sequelize from '@/config/db.js';
+import LevelAlias from '@/models/levels/LevelAlias.js';
+import Level from '@/models/levels/Level.js';
+import { Auth } from '@/server/middleware/auth.js';
 import { Op } from 'sequelize';
-import { logger } from '../../../services/LoggerService.js';
-import { safeTransactionRollback, sanitizeTextInput } from '../../../../misc/utils/Utility.js';
+import { logger } from '@/server/services/LoggerService.js';
+import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 
 const router = Router();
 

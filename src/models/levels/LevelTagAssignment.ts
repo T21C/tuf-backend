@@ -8,7 +8,7 @@ import {
 } from 'sequelize';
 import Level from './Level.js';
 import LevelTag from './LevelTag.js';
-import { getSequelizeForModelGroup } from '../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 class LevelTagAssignment extends Model<

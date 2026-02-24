@@ -5,8 +5,8 @@
  * Usage: ts-node server/src/externalServices/scripts/reindexLevelsWithNormalizedData.ts
  */
 
-import ElasticsearchService from '../../server/services/ElasticsearchService.js';
-import { logger } from '../../server/services/LoggerService.js';
+import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 async function reindexAllLevels() {
   try {

@@ -1,9 +1,9 @@
-import { EndpointDefinition } from '../../services/DocumentationService.js';
+import { EndpointDefinition } from '@/externalServices/apiDocsService/services/DocumentationService.js';
 
 export const eventsEndpoints: EndpointDefinition[] = [
   {
     method: 'GET',
-    path: '/events',
+    path: '/v2/events',
     category: 'UTILS',
     description: 'Server-Sent Events (SSE) endpoint for real-time updates',
     parameters: {

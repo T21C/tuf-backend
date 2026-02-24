@@ -1,16 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
-import CdnFile from '../../../models/cdn/CdnFile.js';
-import { logger } from '../../../server/services/LoggerService.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
+import { logger } from '@/server/services/LoggerService.js';
 import { storageManager } from './storageManager.js';
 import { hybridStorageManager } from './hybridStorageManager.js';
 import LevelDict from 'adofai-lib';
-import { getSequelizeForModelGroup } from '../../../config/db.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
-import { safeTransactionRollback } from '../../../misc/utils/Utility.js';
+import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { decodeFilename } from '../misc/utils.js';
 
 /** Max level file size (bytes) to parse with LevelDict. Node string limit is ~0x1fffffe8 (~512MB); use 400MB to stay safe. */

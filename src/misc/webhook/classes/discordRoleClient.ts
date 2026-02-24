@@ -1,5 +1,5 @@
-import { addDiscordRole, removeDiscordRole, getDiscordMember } from '../api/sendRoleRequest.js';
-import { logger } from '../../../server/services/LoggerService.js';
+import { addDiscordRole, removeDiscordRole, getDiscordMember } from '@/misc/webhook/api/sendRoleRequest.js';
+import { logger } from '@/server/services/LoggerService.js';
 
 export interface DiscordMember {
   user: {

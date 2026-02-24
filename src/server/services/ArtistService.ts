@@ -1,15 +1,15 @@
 import { Op } from 'sequelize';
-import Artist from '../../models/artists/Artist.js';
-import ArtistAlias from '../../models/artists/ArtistAlias.js';
-import ArtistLink from '../../models/artists/ArtistLink.js';
-import ArtistEvidence from '../../models/artists/ArtistEvidence.js';
-import ArtistRelation from '../../models/artists/ArtistRelation.js';
-import SongCredit from '../../models/songs/SongCredit.js';
-import LevelSubmissionArtistRequest from '../../models/submissions/LevelSubmissionArtistRequest.js';
+import Artist from '@/models/artists/Artist.js';
+import ArtistAlias from '@/models/artists/ArtistAlias.js';
+import ArtistLink from '@/models/artists/ArtistLink.js';
+import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
+import ArtistRelation from '@/models/artists/ArtistRelation.js';
+import SongCredit from '@/models/songs/SongCredit.js';
+import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
 import { logger } from './LoggerService.js';
-import { getFileIdFromCdnUrl, isCdnUrl } from '../../misc/utils/Utility.js';
+import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnServiceInstance from './CdnService.js';
-import sequelize from '../../config/db.js';
+import sequelize from '@/config/db.js';
 
 class ArtistService {
   private static instance: ArtistService;
