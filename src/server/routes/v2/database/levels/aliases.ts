@@ -3,6 +3,12 @@ import sequelize from '@/config/db.js';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import Level from '@/models/levels/Level.js';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import {
+  levelAliasesResponseSchema,
+  errorResponseSchema,
+  successMessageSchema,
+} from '@/server/schemas/index.js';
 import { Op } from 'sequelize';
 import { logger } from '@/server/services/LoggerService.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
@@ -10,7 +16,22 @@ import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility
 const router = Router();
 
 // Get all aliases for a level
-router.get('/:id/aliases', async (req: Request, res: Response) => {
+router.get(
+  '/:id/aliases',
+  ApiDoc({
+    deprecated: true,
+    operationId: 'getLevelAliases',
+    summary: 'Get level aliases',
+    description: 'Returns all song/artist aliases for a level',
+    tags: ['Levels'],
+    params: { id: { description: 'Level ID', schema: { type: 'string', pattern: '^[0-9]{1,20}$' } } },
+    responses: {
+      200: { description: 'List of aliases', schema: levelAliasesResponseSchema },
+      400: { description: 'Invalid level ID', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const levelId = parseInt(req.params.id);
       if (isNaN(levelId)) {
@@ -26,10 +47,42 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
       logger.error('Error fetching level aliases:', error);
       return res.status(500).json({error: 'Failed to fetch level aliases'});
     }
-  });
+  }
+);
 
-  // Add new alias(es) for a level with optional propagation
-  router.post('/:id/aliases', Auth.superAdmin(), async (req: Request, res: Response) => {
+// Add new alias(es) for a level with optional propagation
+router.post(
+  '/:id/aliases',
+  Auth.superAdmin(),
+  ApiDoc({
+    deprecated: true,
+    operationId: 'postLevelAliases',
+    summary: 'Add level alias(es)',
+    description: 'Add song/artist alias for a level; optionally propagate to other levels',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: { description: 'Level ID', schema: { type: 'string', pattern: '^[0-9]{1,20}$' } } },
+    requestBody: {
+      description: 'field (song|artist), alias, matchType, propagate',
+      schema: {
+        type: 'object',
+        properties: {
+          field: { type: 'string', enum: ['song', 'artist'] },
+          alias: { type: 'string' },
+          matchType: { type: 'string', enum: ['exact'] },
+          propagate: { type: 'boolean' },
+        },
+        required: ['field', 'alias'],
+      },
+    },
+    responses: {
+      200: { description: 'Alias(es) added', schema: successMessageSchema },
+      400: { description: 'Invalid input', schema: errorResponseSchema },
+      404: { description: 'Level not found', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
 
       try {
@@ -159,11 +212,33 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         logger.error('Error adding level alias:', error);
         return res.status(500).json({error: 'Failed to add level alias'});
       }
-    },
-  );
+  }
+);
 
-  // Update an alias
-  router.put('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
+// Update an alias
+router.put(
+  '/:levelId/aliases/:aliasId',
+  Auth.superAdmin(),
+  ApiDoc({
+    deprecated: true,
+    operationId: 'putLevelAlias',
+    summary: 'Update level alias',
+    description: 'Update an existing alias by levelId and aliasId',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: {
+      levelId: { description: 'Level ID', schema: { type: 'string' } },
+      aliasId: { description: 'Alias ID', schema: { type: 'string' } },
+    },
+    requestBody: { description: 'New alias value', schema: { type: 'object', properties: { alias: { type: 'string' } }, required: ['alias'] } },
+    responses: {
+      200: { description: 'Alias updated', schema: successMessageSchema },
+      400: { description: 'Invalid input', schema: errorResponseSchema },
+      404: { description: 'Alias not found', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
 
       try {
@@ -207,11 +282,32 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         logger.error('Error updating level alias:', error);
         return res.status(500).json({error: 'Failed to update level alias'});
       }
-    },
-  );
+  }
+);
 
-  // Delete an alias
-  router.delete('/:levelId/aliases/:aliasId', Auth.superAdmin(), async (req: Request, res: Response) => {
+// Delete an alias
+router.delete(
+  '/:levelId/aliases/:aliasId',
+  Auth.superAdmin(),
+  ApiDoc({
+    deprecated: true,
+    operationId: 'deleteLevelAlias',
+    summary: 'Delete level alias',
+    description: 'Remove an alias by levelId and aliasId',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: {
+      levelId: { description: 'Level ID', schema: { type: 'string' } },
+      aliasId: { description: 'Alias ID', schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Alias deleted', schema: successMessageSchema },
+      400: { description: 'Invalid ID', schema: errorResponseSchema },
+      404: { description: 'Alias not found', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
 
       try {
@@ -245,11 +341,31 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
         logger.error('Error deleting level alias:', error);
         return res.status(500).json({error: 'Failed to delete level alias'});
       }
-    },
-  );
+  }
+);
 
-  // Get count of levels that would be affected by alias propagation
-  router.get('/alias-propagation-count/:levelId', async (req: Request, res: Response) => {
+// Get count of levels that would be affected by alias propagation
+router.get(
+  '/alias-propagation-count/:levelId',
+  ApiDoc({
+    deprecated: true,
+    operationId: 'getLevelAliasPropagationCount',
+    summary: 'Get alias propagation count',
+    description: 'Count levels that would be affected when propagating an alias',
+    tags: ['Levels'],
+    params: { levelId: { description: 'Level ID', schema: { type: 'string' } } },
+    query: {
+      field: { description: 'song or artist', schema: { type: 'string', enum: ['song', 'artist'] }, required: true },
+      matchType: { description: 'exact or partial', schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Count and metadata', schema: { type: 'object', properties: { count: { type: 'integer' }, fieldValue: { type: 'string' }, matchType: { type: 'string' } } } },
+      400: { description: 'Invalid field or level ID', schema: errorResponseSchema },
+      404: { description: 'Level not found', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
       try {
         const {field, matchType = 'exact'} = req.query;
         const levelId = parseInt(req.params.levelId);
@@ -295,7 +411,7 @@ router.get('/:id/aliases', async (req: Request, res: Response) => {
           .status(500)
           .json({error: 'Failed to get alias propagation count'});
       }
-    },
-  );
+  }
+);
 
-  export default router;
+export default router;

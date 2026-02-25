@@ -80,3 +80,23 @@ export const loginErrorResponseSchema: JsonSchema = {
     requireCaptcha: { type: 'boolean' },
   },
 };
+
+/** Session item (for GET /auth/sessions) */
+export const sessionItemSchema: JsonSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    userId: { type: 'string' },
+    createdAt: { type: 'string' },
+    lastUsedAt: { type: 'string' },
+    userAgent: { type: 'string' },
+    ip: { type: 'string' },
+  },
+};
+
+/** GET /auth/sessions response */
+export const sessionsListResponseSchema: JsonSchema = {
+  type: 'array',
+  items: sessionItemSchema,
+  description: 'List of active sessions',
+};

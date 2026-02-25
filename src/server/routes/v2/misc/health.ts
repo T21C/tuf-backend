@@ -14,6 +14,7 @@ const router: Router = express.Router();
 router.get(
   '/',
   ApiDoc({
+    operationId: 'getHealth',
     summary: 'Health check',
     description: 'Returns status of database, socket server, and system info',
     tags: ['Health'],

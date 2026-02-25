@@ -168,28 +168,88 @@ export function collectDocSpecsFromRouter(appOrRouter: Express | IRouter): Colle
   return collectFromStack(stack, []);
 }
 
+/** Extract path param names from route path (e.g. /levels/:id/aliases -> ['id']) */
+function getPathParamNames(routePath: string): string[] {
+  const names: string[] = [];
+  const segments = routePath.split('/').filter(Boolean);
+  for (const seg of segments) {
+    if (seg.startsWith(':')) {
+      const name = seg.replace(/^:(.+?)(?:\(.*\))?$/, '$1');
+      if (name && !names.includes(name)) names.push(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Convert Express path to OpenAPI path. OpenAPI uses {param} for path parameters;
+ * Swagger UI "Try it out" substitutes {id} with the user's value. Express uses :id or :id(regex).
+ */
+function toOpenApiPath(routePath: string): string {
+  return routePath
+    .split('/')
+    .map((seg) => {
+      if (!seg.startsWith(':')) return seg;
+      const name = seg.replace(/^:(.+?)(?:\(.*\))?$/, '$1');
+      return name ? `{${name}}` : seg;
+    })
+    .join('/');
+}
+
 /**
  * Build OpenAPI 3.0 paths and components from collected route docs.
- * Uses inline JSON Schema from the spec (no $ref for request/response bodies).
+ * Supports Nest-like operationId, params, security, deprecated.
  */
 export function buildOpenApiFromCollectedSpecs(
   collected: CollectedRouteDoc[],
   options: { title?: string; version?: string; description?: string } = {}
 ): Record<string, unknown> {
   const paths: Record<string, Record<string, unknown>> = {};
+  let needsBearerSecurity = false;
 
   for (const { path: routePath, method, spec } of collected) {
-    if (!paths[routePath]) paths[routePath] = {};
+    const openApiPath = toOpenApiPath(routePath);
+    if (!paths[openApiPath]) paths[openApiPath] = {};
 
     const operation: Record<string, unknown> = {
       summary: spec.summary,
       ...(spec.description && { description: spec.description }),
       ...(spec.tags?.length && { tags: spec.tags }),
+      ...(spec.operationId && { operationId: spec.operationId }),
+      ...(spec.deprecated === true && { deprecated: true }),
     };
+
+    const parameters: unknown[] = [];
+
+    // Path parameters: from spec.params and/or inferred from route path (e.g. :id)
+    const pathParamNames = getPathParamNames(routePath);
+    for (const name of pathParamNames) {
+      const paramSpec = spec.params?.[name];
+      parameters.push({
+        name,
+        in: 'path',
+        required: true,
+        ...(paramSpec?.description && { description: paramSpec.description }),
+        schema: paramSpec?.schema ?? { type: 'string', description: 'Resource identifier' },
+      });
+    }
+
+    if (spec.query && Object.keys(spec.query).length > 0) {
+      for (const [name, param] of Object.entries(spec.query)) {
+        parameters.push({
+          name,
+          in: 'query',
+          ...(param.description && { description: param.description }),
+          ...(param.required !== undefined && { required: param.required }),
+          schema: param.schema ?? { type: 'string' },
+        });
+      }
+    }
+    if (parameters.length > 0) operation.parameters = parameters;
 
     if (spec.requestBody?.schema || spec.requestBody?.description) {
       operation.requestBody = {
-        required: true,
+        required: spec.requestBody.required !== false,
         content: {
           'application/json': {
             ...(spec.requestBody.description && { description: spec.requestBody.description }),
@@ -197,18 +257,6 @@ export function buildOpenApiFromCollectedSpecs(
           },
         },
       };
-    }
-
-    if (spec.query && Object.keys(spec.query).length > 0) {
-      operation.parameters = (operation.parameters as unknown[]) ?? [];
-      for (const [name, param] of Object.entries(spec.query)) {
-        (operation.parameters as unknown[]).push({
-          name,
-          in: 'query',
-          ...(param.description && { description: param.description }),
-          schema: param.schema ?? { type: 'string' },
-        });
-      }
     }
 
     if (spec.responses && Object.keys(spec.responses).length > 0) {
@@ -225,8 +273,27 @@ export function buildOpenApiFromCollectedSpecs(
       }
     }
 
-    paths[routePath][method] = operation;
+    if (spec.security?.length) {
+      operation.security = spec.security.map((name) => ({ [name]: [] }));
+      if (spec.security.includes('bearerAuth')) needsBearerSecurity = true;
+    }
+
+    paths[openApiPath][method] = operation;
   }
+
+  const components: Record<string, unknown> = {
+    schemas: {},
+    ...(needsBearerSecurity && {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Session or access token',
+        },
+      },
+    }),
+  };
 
   return {
     openapi: '3.0.3',
@@ -236,7 +303,7 @@ export function buildOpenApiFromCollectedSpecs(
       description: options.description ?? '',
     },
     paths,
-    components: { schemas: {} },
+    components,
   };
 }
 

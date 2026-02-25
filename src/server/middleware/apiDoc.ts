@@ -1,10 +1,14 @@
 /**
- * ApiDoc middleware factory – documents the route for OpenAPI without duplicating path.
- * Use in the middleware array so the route is inferred when we walk the router.
+ * ApiDoc middleware factory – Nest-like API documentation for OpenAPI/Swagger.
+ * Use in the route middleware array; the collector infers path from the router stack.
+ *
+ * Nest-like options: summary, description, tags, operationId, deprecated,
+ * params (path params), query, requestBody, responses, security (e.g. ['bearerAuth']).
+ * Path params in the URL (e.g. :id) are auto-emitted; use params to add descriptions/schema.
  *
  * Example:
- *   router.get('/health', ApiDoc({ summary: 'Health check', ... }), handler);
- *   router.get('/passes', Auth.addUserToRequest(), ApiDoc({ summary: 'Search passes', ... }), handler);
+ *   router.get('/health', ApiDoc({ operationId: 'getHealth', summary: 'Health check', tags: ['Health'], responses: { 200: { schema: healthSchema } } }), handler);
+ *   router.get('/levels/:id', Auth.user(), ApiDoc({ summary: 'Get level', tags: ['Levels'], security: ['bearerAuth'], params: { id: { schema: idParamSchema } }, responses: { 200: { schema: levelSchema } } }), handler);
  */
 import { Request, Response, NextFunction } from 'express';
 
@@ -26,17 +30,33 @@ export interface ApiDocResponseSpec {
   schema?: JsonSchema;
 }
 
-/** Operation spec – summary/description/tags and optional body, query, responses */
+/** Path or query parameter spec (Nest-like) */
+export interface ApiDocParamSpec {
+  description?: string;
+  schema?: JsonSchema;
+  required?: boolean;
+}
+
+/** Operation spec – Nest-like: summary, description, tags, operationId, params, body, responses, security */
 export interface ApiDocOperationSpec {
   summary: string;
   description?: string;
+  /** Tags for grouping in Swagger (e.g. ['Auth'], ['Levels']) */
   tags?: string[];
+  /** Unique id for codegen / client SDK (e.g. 'getHealth', 'postAuthRefresh') */
+  operationId?: string;
+  /** Mark operation as deprecated */
+  deprecated?: boolean;
+  /** Path parameters (e.g. { id: { description: 'Level ID', schema: { type: 'integer' } } }) */
+  params?: Record<string, ApiDocParamSpec>;
   /** Request body schema (for POST/PUT etc.) */
-  requestBody?: { description?: string; schema?: JsonSchema };
-  /** Query parameters: name -> schema (we'll emit as parameters in: query) */
-  query?: Record<string, { description?: string; schema?: JsonSchema }>;
+  requestBody?: { description?: string; schema?: JsonSchema; required?: boolean };
+  /** Query parameters: name -> spec (emitted as parameters in: query) */
+  query?: Record<string, ApiDocParamSpec>;
   /** Response status -> spec */
   responses?: Record<number | string, ApiDocResponseSpec>;
+  /** Security requirement names (e.g. ['bearerAuth']). Emitted as security on the operation. */
+  security?: string[];
 }
 
 /** Symbol to attach spec to the middleware function so the router walk can find it */

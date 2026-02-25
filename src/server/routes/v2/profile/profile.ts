@@ -1,5 +1,7 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema } from '@/server/schemas/common.js';
 import {OAuthProvider, User} from '@/models/index.js';
 import bcrypt from 'bcryptjs';
 import sequelize from '@/config/db.js';
@@ -38,10 +40,46 @@ const upload = multer({
 });
 
 // Get current user profile
-router.get('/me', Auth.user(), Cache({
-  varyByUser: true,
-  tags: (req: Request) => [`user:${req.user?.id}`]
-}), async (req: Request, res: Response) => {
+router.get(
+  '/me',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getProfileMe',
+    summary: 'Get current user profile',
+    description: 'Returns the authenticated user profile with player and OAuth providers',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {
+        description: 'User profile',
+        schema: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                username: { type: 'string' },
+                email: { type: 'string' },
+                avatarUrl: { type: 'string' },
+                isRater: { type: 'boolean' },
+                isSuperAdmin: { type: 'boolean' },
+                playerId: { type: 'string' },
+                player: { type: 'object' },
+              },
+            },
+          },
+        },
+      },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  Cache({
+    varyByUser: true,
+    tags: (req: Request) => [`user:${req.user?.id}`]
+  }),
+  async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
@@ -84,7 +122,8 @@ router.get('/me', Auth.user(), Cache({
     logger.error('Error fetching user profile:', error);
     return res.status(500).json({error: 'Failed to fetch user profile'});
   }
-});
+  }
+);
 
 // Update user profile
 router.put('/me', Auth.user(), async (req: Request, res: Response) => {
