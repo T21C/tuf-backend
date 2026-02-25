@@ -44,11 +44,32 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
     );
     if (response.status !== 200) return res.status(500).json({ error: 'Failed to autorate level', response: response.data })
 
+    logger.debug('Autorate response:', response.data);
     const result = response.data;
-    const normalRatingRange = (result.normal.tuf_diff_id_range as [number, number])
-    const techRatingRange = (result.tech.tuf_diff_id_range as [number, number])
-    const comment = 'Normal [' + result.normal.range.join('-') + '] similar to ' + (result.normal.similar_level as [string])[0]
-     + '\nTech [' + result.tech.range.join('-') + '] similar to ' + (result.tech.similar_level as [string])[0];
+    const normal = result.normal;
+    const tech = result.tech;
+
+    const normalRatingRange = (normal.tuf_diff_id_range as [number, number]);
+    const techRatingRange = (tech.tuf_diff_id_range as [number, number]);
+
+    // Build a detailed comment including all requested fields for both normal and tech autoresponses
+    const getComment = (input: any) => {
+      
+      return [
+      `  Range: [${input.range.join('-')}] (${input.difficulty} raw diff)`,
+      `  Key Count:`,
+      `  Index: [${input.index_key_count.join(', ')}] | Roll: [${input.roll_key_count.join(', ')}]`,
+      `  Warnings: ${input.warnings.length || 'None'}`,
+      `  Similar Level: ${input.similar_level?.[0] ?? ''} (${input.similar_raw_diff} raw diff)`,
+      ];
+    }
+    const comment = [
+      `Normal`,
+      ...getComment(normal),
+      ``,
+      `Tech`,
+      ...getComment(tech),
+    ].join('\n');
 
 
     const idRatingRanges = [...normalRatingRange, ...techRatingRange];
