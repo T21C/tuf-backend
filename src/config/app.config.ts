@@ -65,6 +65,7 @@ export const corsOptions = {
   ],
   exposedHeaders: [
     'Content-Type',
+    'Content-Length',
     'Authorization',
     'Cache-Control',
     'Pragma',

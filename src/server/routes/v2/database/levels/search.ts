@@ -290,58 +290,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
         where: { id: level.diffId }
       });
     });
-    // Passes query with nested Player, User, and Judgement
-    const passesPromise = Pass.findAll({
-      where: {
-        levelId: levelId,
-        isDeleted: false,
-        isHidden: false
-      }
-    }).then(async (passes) => {
-      if (passes.length === 0) return [];
-      const playerIds = passes.map(p => p.playerId).filter(Boolean);
-      const playersPromise = Player.findAll({
-        where: {
-          id: { [Op.in]: playerIds },
-          isBanned: false
-        },
-        include: [
-          {
-            model: User,
-            as: 'user',
-            required: false,
-            attributes: ['avatarUrl', 'username'],
-          },
-        ],
-      });
-      const judgementsPromise = Judgement.findAll({
-        where: {
-          id: { [Op.in]: passes.map(p => p.id) }
-        },
-      });
-      const [players, judgements] = await Promise.all([playersPromise, judgementsPromise]);
-      // Map judgements by id (Judgement.id = Pass.id, one-to-one relationship)
-      const judgementsByPassId = judgements.reduce((acc, j) => {
-        acc[j.id] = j;
-        return acc;
-      }, {} as Record<number, typeof judgements[0]>);
-      // Group players by id
-      const playersById = players.reduce((acc, p) => {
-        acc[p.id] = p;
-        return acc;
-      }, {} as Record<number, typeof players[0]>);
-      // Assemble passes with nested data and filter out passes with null players (banned players or missing playerId)
-      return passes
-        .map(pass => {
-          const player = pass.playerId ? playersById[pass.playerId] : null;
-          return {
-            ...pass.toJSON(),
-            player: player || null,
-            judgements: judgementsByPassId[pass.id] || null
-          };
-        })
-        .filter(pass => pass.player !== null); // Exclude passes where player is null (banned or missing playerId)
-    });
+
     // LevelAlias query
     const aliasesPromise = LevelAlias.findAll({
       where: { levelId: levelId },
@@ -404,26 +353,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
       ],
     });
     // Rating query
-    const ratingsPromise = Rating.findOne({
-      where: {
-        levelId: levelId,
-        [Op.not]: {confirmedAt: null}
-      },
-      include: [
-        {
-          model: RatingDetail,
-          as: 'details',
-          include: [
-            {
-              model: User,
-              as: 'user',
-              attributes: ['username', 'avatarUrl'],
-            },
-          ],
-        },
-      ],
-      order: [['confirmedAt', 'DESC']],
-    });
+ 
     // LevelRerateHistory query
     const rerateHistoryPromise = LevelRerateHistory.findAll({
       where: { levelId: levelId },
@@ -440,40 +370,25 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
       },
       order: [['name', 'ASC']],
     });
-    const metadataPromise = levelPromise.then(async (level) => {
-      if (!level) return undefined;
-      try {
-        return (await cdnService.getLevelMetadata(level))?.metadata || undefined;
-      } catch (error) {
-        logger.debug('Level file metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
-        return undefined;
-      }
-    });
     // Execute all queries concurrently
     const [
       level,
       difficulty,
-      passes,
       aliases,
       levelCredits,
       teamObject,
       curation,
-      ratings,
       rerateHistory,
-      tags,
-      metadata
+      tags
     ] = await Promise.all([
       levelPromise,
       difficultyPromise,
-      passesPromise,
       aliasesPromise,
       levelCreditsPromise,
       teamPromise,
       curationPromise,
-      ratingsPromise,
       rerateHistoryPromise,
-      tagsPromise,
-      metadataPromise
+      tagsPromise
     ]);
     if (!level) {
       return res.status(404).json({ error: 'Level not found' });
@@ -486,7 +401,6 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
     const assembledLevel = {
       ...level.toJSON(),
       difficulty,
-      passes,
       aliases,
       levelCredits,
       teamObject,
@@ -497,9 +411,7 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
     };
     return res.json({
       level: assembledLevel,
-      ratings,
       rerateHistory,
-      metadata,
     });
 
   } catch (error) {
@@ -533,10 +445,12 @@ router.get('/:id([0-9]{1,20})/cdnData', Auth.addUserToRequest(), async (req: Req
     }
 
     try {
-      const fileResponse = await cdnService.getLevelData(level, ['settings','tilecount','accessCount']);
+      const [fileResponse, metadata] = await Promise.all([cdnService.getLevelData(level, ['settings','tilecount','accessCount']),
+      cdnService.getLevelMetadata(level).then(metadata => metadata?.metadata || undefined)])
       return res.json({
         bpm: fileResponse?.settings?.bpm,
         tilecount: fileResponse?.tilecount,
+        metadata,
         accessCount: fileResponse?.accessCount || 0
       });
     } catch (error) {
@@ -574,6 +488,38 @@ router.get('/:id([0-9]{1,20})/isLiked', Auth.addUserToRequest(), Cache({
     return res.status(500).json({ error: 'Failed to check if level is liked' });
   }
 });
+
+router.get('/:id([0-9]{1,20})/ratings', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+  try {
+    const levelId = parseInt(req.params.id);
+    const ratings = await Rating.findOne({
+      where: {
+        levelId: levelId,
+        [Op.not]: {confirmedAt: null}
+      },
+      include: [
+        {
+          model: RatingDetail,
+          as: 'details',
+          include: [
+            {
+              model: User,
+              as: 'user',
+              attributes: ['username', 'avatarUrl'],
+            },
+          ],
+        },
+      ],
+      order: [['confirmedAt', 'DESC']],
+    });
+    return res.json(ratings);
+  }
+  catch (error) {
+    logger.error('Error fetching level ratings:', error);
+    return res.status(500).json({ error: 'Failed to fetch level ratings' });
+  }
+});
+
 
 router.get('/:id([0-9]{1,20})/level.adofai', Auth.addUserToRequest(), async (req: Request, res: Response) => {
   try {
