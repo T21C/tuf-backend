@@ -64,6 +64,7 @@
     "node-fetch": "^3.3.2",
     "nodemon": "^3.1.9",
     "object-hash": "^3.0.0",
+    "punycode": "^2.3.0",
     "puppeteer": "^24.7.1",
     "redis": "^5.10.0",
     "sequelize": "^6.37.5",
@@ -91,5 +92,8 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.7.0",
     "typescript": "~5.1.6"
+  },   
+  "overrides": {
+    "punycode": "npm:punycode@^2.3.0"
   }
 }
