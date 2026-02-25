@@ -2,6 +2,8 @@ import express, { Request, Response, Router } from 'express';
 import sequelize from '@/config/db.js';
 import { getIO } from '@/misc/utils/server/socket.js';
 import { logger } from '@/server/services/LoggerService.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { healthCheckResponseSchema, healthErrorResponseSchema } from '@/server/schemas/health.js';
 
 const router: Router = express.Router();
 
@@ -9,7 +11,18 @@ const router: Router = express.Router();
  * Health check endpoint
  * Returns the status of various system components
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    summary: 'Health check',
+    description: 'Returns status of database, socket server, and system info',
+    tags: ['Health'],
+    responses: {
+      200: { description: 'Service status and checks', schema: healthCheckResponseSchema },
+      500: { description: 'Service offline or error', schema: healthErrorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   try {
     // Check database connection
     const dbStatus = await checkDatabase();

@@ -8,7 +8,9 @@ import db from '@/models/index.js';
 import {setIO} from '@/misc/utils/server/socket.js';
 import {htmlMetaMiddleware} from '@/server/middleware/html-meta.js';
 import path from 'path';
+import swaggerUi from 'swagger-ui-express';
 import routes from '@/server/routes/index.js';
+import { generateOpenApiFromApp } from '@/server/middleware/apiDocCollector.js';
 import {PlayerStatsService} from './server/services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import { logger } from './server/services/LoggerService.js';
@@ -252,6 +254,34 @@ export async function startServer() {
 
     // Set up API routes first
     app.use('/', routes);
+
+    // Build OpenAPI from ApiDoc() routes and expose at {baseurl}/docs and {baseurl}/openapi.json
+    try {
+      const openApiSpec = await generateOpenApiFromApp(app, {
+        title: 'TUF API',
+        version: '2.0.0',
+        description: 'API documentation for The Universal Forums (TUF)',
+      });
+      (app as Express & { locals: { openApiSpec?: Record<string, unknown> } }).locals.openApiSpec = openApiSpec;
+
+      app.get('/openapi.json', (_req: Request, res: Response) => {
+        const spec = (app as Express & { locals: { openApiSpec?: Record<string, unknown> } }).locals.openApiSpec;
+        if (!spec) return res.status(503).json({ error: 'OpenAPI spec not built' });
+        res.setHeader('Content-Type', 'application/json');
+        return res.json(spec);
+      });
+      app.use(
+        '/docs',
+        swaggerUi.serve,
+        swaggerUi.setup(undefined, {
+          swaggerOptions: { url: '/openapi.json', persistAuthorization: true },
+        })
+      );
+      logger.debug('OpenAPI spec built; /docs and /openapi.json available');
+    } catch (err) {
+      logger.warn('OpenAPI spec build from routes failed (non-fatal):', err);
+    }
+
     // HTML meta tags middleware for specific routes BEFORE static files
     app.get(['/passes/:id', '/levels/:id', '/profile/:id', '/packs/:id'], htmlMetaMiddleware);
 
