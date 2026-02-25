@@ -92,8 +92,5 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.7.0",
     "typescript": "~5.1.6"
-  },   
-  "overrides": {
-    "punycode": "npm:punycode@^2.3.0"
   }
 }
