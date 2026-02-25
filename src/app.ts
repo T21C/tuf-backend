@@ -210,14 +210,15 @@ export async function startServer() {
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
     // Endpoints excluded from slow logging (supports wildcards with *)
     const SLOW_LOG_EXCLUDED_ROUTES = [
-      '/v2/webhook/*',                            
-      '/v2/database/levels',                               
+      '/v2/webhook/*',
+      '/v2/database/levels',
       '/v2/database/levels/packs/*/download-link',
-      '/v2/form/form-submit',                     
-      '/v2/media/thumbnail/*',                    
-      '/v2/media/image-proxy',                    
-      '/v2/chunked-upload/*',                     
-      '/health',                                  
+      '/v2/form/form-submit',
+      '/v2/media/thumbnail/*',
+      '/v2/media/image-proxy',
+      '/v2/chunked-upload/*',
+      '/health',
+      '/v2/external/autorate/*'
     ];
 
     const isExcludedRoute = (path: string): boolean => {

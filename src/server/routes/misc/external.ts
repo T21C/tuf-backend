@@ -9,6 +9,7 @@ import RatingDetail from '@/models/levels/RatingDetail.js';
 import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
 import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import Difficulty from '@/models/levels/Difficulty.js';
 
 
 const AUTORATER_UUID = process.env.AUTORATER_UUID;
@@ -34,16 +35,34 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
 
     const requestBody = {
         "Content": levelFile,
-        "techMode": false
+        "techMode": "both"
     }
 
-    const response = await axios.post(`${process.env.OWOSEAN_API_URL}/rate`, requestBody);
+    const response = await axios.post(`${process.env.OWOSEAN_API_URL}/rate`,
+       requestBody,
+       { timeout: 20000 }
+    );
     if (response.status !== 200) return res.status(500).json({ error: 'Failed to autorate level', response: response.data })
 
-    const result = response.data.result;
-    const ratingRange = (result.range as [string, string]).join('-');
-    const comment = "Similar to " + (result.similar_level as [string])[0];
+    const result = response.data;
+    const normalRatingRange = (result.normal.tuf_diff_id_range as [number, number])
+    const techRatingRange = (result.tech.tuf_diff_id_range as [number, number])
+    const comment = "Normal similar to " + (result.normal.similar_level as [string])[0] + "\nTech similar to " + (result.tech.similar_level as [string])[0];
 
+
+    const idRatingRanges = [...normalRatingRange, ...techRatingRange];
+    const [minId, maxId] = [Math.min(...idRatingRanges), Math.max(...idRatingRanges)];
+    const [minDifficulty, maxDifficulty] = await Promise.all([
+      minId ? Difficulty.findByPk(minId): Difficulty.findOne({ where: { name: 'Qq' } }), 
+      maxId ? Difficulty.findByPk(maxId): Difficulty.findOne({ where: { name: 'Qq' } })]
+    );
+
+    if (!minDifficulty || !maxDifficulty) {
+      logger.warn('Difficulty not found', { minId, maxId });
+      return res.status(502).json({ error: 'Failed to autorate level', detail: 'Difficulty not found' });
+    }
+
+    const ratingRange = `${minDifficulty.name}-${maxDifficulty.name}`;
 
     await RatingDetail.upsert({
         ratingId: ratingId,
