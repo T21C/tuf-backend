@@ -15,7 +15,7 @@ import {getIO} from '@/misc/utils/server/socket.js';
 import sequelize from '@/config/db.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
-import {updateWorldsFirstStatus} from '@/server/routes/database/passes/index.js';
+import {updateWorldsFirstStatus} from '@/server/routes/v2/database/passes/index.js';
 import {IPassSubmissionJudgements} from '@/server/interfaces/models/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import Rating from '@/models/levels/Rating.js';

@@ -6,7 +6,7 @@ import {
   PassSubmissionJudgements,
   PassSubmissionFlags,
 } from '@/models/submissions/PassSubmission.js';
-import {levelSubmissionHook, passSubmissionHook} from '@/server/routes/webhooks/webhook.js';
+import {levelSubmissionHook, passSubmissionHook} from '@/server/routes/v2/webhooks/webhook.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';

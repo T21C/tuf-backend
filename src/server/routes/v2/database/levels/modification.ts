@@ -31,7 +31,7 @@ import cdnService from '@/server/services/CdnService.js';
 import {CDN_CONFIG} from '@/externalServices/cdnService/config.js';
 import fs from 'fs';
 import path from 'path';
-import {cleanupUserUploads} from '@/server/routes/misc/chunkedUpload.js';
+import {cleanupUserUploads} from '@/server/routes/v2/misc/chunkedUpload.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import {permissionFlags} from '@/config/constants.js';
@@ -44,7 +44,7 @@ import {
   logLevelFileDeleteHook,
   logLevelTargetUpdateHook,
   logLevelMetadataUpdateHook,
-} from '@/server/routes/webhooks/misc.js';
+} from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { getSongDisplayName } from '@/utils/levelHelpers.js';
 import Song from '@/models/songs/Song.js';

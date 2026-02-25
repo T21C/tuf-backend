@@ -8,7 +8,7 @@ import cors from 'cors';
 import { corsOptions } from '@/config/app.config.js';
 import sequelize from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
-import { checkLevelOwnership } from '@/server/routes/database/levels/modification.js';
+import { checkLevelOwnership } from '@/server/routes/v2/database/levels/modification.js';
 
 const router: Router = express.Router();
 

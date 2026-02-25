@@ -24,7 +24,7 @@ import CdnService from '@/server/services/CdnService.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { formatCredits } from '@/misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
-import { formatNumber } from '@/server/routes/webhooks/embeds.js';
+import { formatNumber } from '@/server/routes/v2/webhooks/embeds.js';
 import dotenv from 'dotenv';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/utils/levelHelpers.js';

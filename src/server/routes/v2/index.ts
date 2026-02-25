@@ -1,0 +1,35 @@
+import {Router} from 'express';
+import authRoutes from './auth/index.js';
+import adminRoutes from './admin/index.js';
+import databaseRoutes from './database/index.js';
+import webhookRoutes from './webhooks/index.js';
+import miscRoutes from './misc/index.js';
+import healthRoutes from './misc/health.js';
+import cdnProgressRoutes from './misc/cdnProgress.js';
+import eventsRoutes from './misc/events.js';
+import utilsRoutes from './misc/utils.js';
+
+const router: Router = Router();
+
+// Auth routes
+router.use('/auth', authRoutes);
+
+// Admin routes
+router.use('/admin', adminRoutes);
+
+// Database routes
+router.use('/database', databaseRoutes());
+
+// Webhook routes
+router.use('/webhooks', webhookRoutes);
+
+// Misc routes
+router.use('/', miscRoutes);
+
+// CDN Progress routes
+router.use('/cdn', cdnProgressRoutes);
+
+// Health check endpoint
+router.use('/health', healthRoutes);
+
+export default router;
