@@ -11,7 +11,7 @@
     "build-clear": "rimraf dist.tmp tsconfig.tsbuildinfo",
     "build-tsc": "tsc --project tsconfig.json --noEmit false --outDir dist.tmp",
     "build-alias": "tsc-alias -p tsconfig.json --dir dist.tmp",
-    "build-copy-html": "node dist.tmp/misc/scripts/copyHtml.js",
+    "build-copy-html": "cross-env COPY_HTML_SRC=src COPY_HTML_DEST=dist.tmp node dist.tmp/misc/scripts/copyHtml.js",
     "build-swap": "node scripts/swap-dist.mjs",
     "build": "npm run build-clear && npm run build-tsc && npm run build-alias && npm run build-copy-html && npm run build-swap",
     "dev": "cross-env NODE_ENV=development tsx watch --inspect --trace-deprecation --max-old-space-size=1024 src/app.ts",

@@ -1,41 +1,34 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-// Get the directory name of the current module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const cwd = process.cwd();
 
-// Define source and destination directories
-const srcDir = path.join(__dirname, '..', '..', '..', 'src');
-const distDir = path.join(__dirname, '..', '..', '..', 'dist');
+// Source/dest from env; relative paths resolved from cwd
+const srcDir = path.resolve(cwd, process.env.COPY_HTML_SRC ?? 'src');
+const destDir = path.resolve(cwd, process.env.COPY_HTML_DEST ?? 'dist');
 
-// Function to copy HTML files
 function copyHtmlFiles() {
-
-  // Read all files in the src directory
-  const files = fs.readdirSync(srcDir);
-
-  // Filter for HTML files
-  const htmlFiles = files.filter(file => file.endsWith('.html'));
-  // Create dist directory if it doesn't exist
-  if (!fs.existsSync(distDir)) {
-    fs.mkdirSync(distDir, { recursive: true });
+  if (!fs.existsSync(srcDir)) {
+    console.error(`copyHtml: source directory not found: ${srcDir}`);
+    process.exit(1);
   }
 
-  // Copy each HTML file to the dist directory
-  let count = 0;
-  htmlFiles.forEach(file => {
-    const srcPath = path.join(srcDir, file);
-    const destPath = path.join(distDir, file);
+  const files = fs.readdirSync(srcDir);
+  const htmlFiles = files.filter((file) => file.endsWith('.html'));
 
+  if (!fs.existsSync(destDir)) {
+    fs.mkdirSync(destDir, { recursive: true });
+  }
+
+  let count = 0;
+  for (const file of htmlFiles) {
+    const srcPath = path.join(srcDir, file);
+    const destPath = path.join(destDir, file);
     fs.copyFileSync(srcPath, destPath);
     count++;
-  });
+  }
 
-  console.log(`Copied ${count} HTML files to dist directory`);
-  return;
+  console.log(`Copied ${count} HTML file(s) to ${destDir}`);
 }
 
-// Execute the function
 copyHtmlFiles();
