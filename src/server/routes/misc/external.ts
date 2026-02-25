@@ -47,7 +47,8 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
     const result = response.data;
     const normalRatingRange = (result.normal.tuf_diff_id_range as [number, number])
     const techRatingRange = (result.tech.tuf_diff_id_range as [number, number])
-    const comment = "Normal similar to " + (result.normal.similar_level as [string])[0] + "\nTech similar to " + (result.tech.similar_level as [string])[0];
+    const comment = "Normal [" + result.normal.range.join('-') + "] similar to " + (result.normal.similar_level as [string])[0]
+     + "\nTech [" + result.tech.range.join('-') + "] similar to " + (result.tech.similar_level as [string])[0];
 
 
     const idRatingRanges = [...normalRatingRange, ...techRatingRange];
