@@ -14,13 +14,13 @@ export interface RateLimiterConfig {
 }
 
 export function RateLimiter(innerConfig: Partial<RateLimiterConfig> = {}) {
-  const { 
-    windowMs = 24 * 60 * 60 * 1000, 
-    maxAttempts = 3, 
-    blockDuration = 7 * 24 * 60 * 60 * 1000, 
-    type = 'default', 
-    incrementOnFailure = true, 
-    incrementOnSuccess = false 
+  const {
+    windowMs = 24 * 60 * 60 * 1000,
+    maxAttempts = 3,
+    blockDuration = 7 * 24 * 60 * 60 * 1000,
+    type = 'default',
+    incrementOnFailure = true,
+    incrementOnSuccess = false
   } = { ...defaultConfig, ...innerConfig };
 
 

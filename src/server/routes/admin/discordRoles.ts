@@ -78,7 +78,7 @@ router.get('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response)
  */
 router.post('/guilds', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { guildId, name, botToken, isActive = true } = req.body;
 
@@ -132,7 +132,7 @@ router.post('/guilds', Auth.superAdminPassword(), async (req: Request, res: Resp
  */
 router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
     const { guildId, name, botToken, isActive } = req.body;
@@ -158,12 +158,12 @@ router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: R
     // Update fields
     // Only update botToken if it's provided and not the masked placeholder value
     // This prevents accidentally overwriting a valid token with the masked placeholder
-    const botTokenUpdated = botToken !== undefined && 
-                           botToken !== null && 
-                           botToken !== '' && 
+    const botTokenUpdated = botToken !== undefined &&
+                           botToken !== null &&
+                           botToken !== '' &&
                            botToken !== '••••••••' &&
                            (typeof botToken === 'string' ? botToken.trim() !== '••••••••' : true);
-    
+
     if (guildId !== undefined) guild.guildId = guildId;
     if (name !== undefined) guild.name = name;
     if (botTokenUpdated) {
@@ -208,7 +208,7 @@ router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: R
  */
 router.delete('/guilds/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { id } = req.params;
 
@@ -272,7 +272,7 @@ router.get('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdmin(), async (req:
  */
 router.post('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { guildId } = req.params;
     const {
@@ -372,7 +372,7 @@ router.post('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdminPassword(), as
  */
 router.put('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { guildId, roleId } = req.params;
     const {
@@ -437,7 +437,7 @@ router.put('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.supe
  */
 router.delete('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { guildId, roleId } = req.params;
 
@@ -466,7 +466,7 @@ router.delete('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.s
  */
 router.put('/guilds/:guildId([0-9]{1,20})/roles/reorder', Auth.superAdminPassword(), async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-  
+
   try {
     const { guildId } = req.params;
     const { roleIds } = req.body;
@@ -516,9 +516,9 @@ router.put('/guilds/:guildId([0-9]{1,20})/roles/reorder', Auth.superAdminPasswor
       await safeTransactionRollback(transaction);
       const foundIds = existingRoles.map(r => r.id);
       const missingIds = parsedRoleIds.filter(id => !foundIds.includes(id));
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Some role IDs do not exist or do not belong to this guild',
-        missingIds 
+        missingIds
       });
     }
 
@@ -546,12 +546,12 @@ router.put('/guilds/:guildId([0-9]{1,20})/roles/reorder', Auth.superAdminPasswor
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error reordering Discord roles:', error);
-    
+
     // Return more specific error messages
     if (error.message && error.message.includes('Invalid role ID')) {
       return res.status(400).json({ error: error.message });
     }
-    
+
     return res.status(500).json({ error: 'Failed to reorder roles' });
   }
 });

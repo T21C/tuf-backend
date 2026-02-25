@@ -1183,7 +1183,7 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
 router.get('/:discordId([0-9]{1,20})/role-data', async (req, res) => {
   try {
     const discordId = req.params.discordId;
-    
+
     // Get user by discordId
     const provider = await OAuthProvider.findOne({
       where: {

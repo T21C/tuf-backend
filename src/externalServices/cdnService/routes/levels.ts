@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
-import FileAccessLog from '@/models/cdn/FileAccessLog.js';
 import fs from 'fs';
 import path from 'path';
 import { PROTECTED_EVENT_TYPES, transformLevel } from '@/externalServices/cdnService/services/levelTransformer.js';
@@ -344,7 +343,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             action: 'transform'
         });
         */
-       
+
         await file.increment('accessCount');
 
         // Handle different response formats

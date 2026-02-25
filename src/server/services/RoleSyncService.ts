@@ -45,14 +45,14 @@ class RoleSyncService {
     if (statusCode === 404) {
       return true;
     }
-    
+
     // Check for specific non-critical error messages
     const nonCriticalPatterns = [
       /user not found in guild/i,
       /member not found/i,
       /role not found/i,
     ];
-    
+
     return nonCriticalPatterns.some(pattern => pattern.test(errorMsg));
   }
 
@@ -123,12 +123,12 @@ class RoleSyncService {
   async notifyBotOfRoleSyncByDiscordIds(discordIds: string[]): Promise<void> {
     try {
       if (!discordIds || discordIds.length === 0) {
-        logger.debug(`[RoleSyncService] No Discord IDs provided, skipping bot notification`);
+        logger.debug('[RoleSyncService] No Discord IDs provided, skipping bot notification');
         return;
       }
 
       logger.debug(`[RoleSyncService] Sending notification for ${discordIds.length} Discord ID(s)`);
-      
+
       await axios.post(`${process.env.HYONSU_BOT_URL}`, {
         discordIds,
       }, {
@@ -149,7 +149,7 @@ class RoleSyncService {
   async notifyBotOfRoleSyncByCreatorIds(creatorIds: number[]): Promise<void> {
     try {
       if (!creatorIds || creatorIds.length === 0) {
-        logger.debug(`[RoleSyncService] No creator IDs provided, skipping bot notification`);
+        logger.debug('[RoleSyncService] No creator IDs provided, skipping bot notification');
         return;
       }
 
@@ -166,7 +166,7 @@ class RoleSyncService {
         .filter((userId): userId is string => userId !== null && userId !== undefined);
 
       if (userIds.length === 0) {
-        logger.debug(`[RoleSyncService] No userIds found for provided creatorIds, skipping bot notification`);
+        logger.debug('[RoleSyncService] No userIds found for provided creatorIds, skipping bot notification');
         return;
       }
 
@@ -180,7 +180,7 @@ class RoleSyncService {
       }
 
       if (discordIds.length === 0) {
-        logger.debug(`[RoleSyncService] No Discord IDs found for creators, skipping bot notification`);
+        logger.debug('[RoleSyncService] No Discord IDs found for creators, skipping bot notification');
         return;
       }
 
@@ -201,7 +201,7 @@ class RoleSyncService {
   ): Promise<void> {
     try {
       if (!playerIds || playerIds.length === 0) {
-        logger.debug(`[RoleSyncService] No player IDs provided, skipping bot notification`);
+        logger.debug('[RoleSyncService] No player IDs provided, skipping bot notification');
         return;
       }
 
@@ -234,7 +234,7 @@ class RoleSyncService {
         .map(stat => stat.id);
 
       if (changedPlayerIds.length === 0) {
-        logger.debug(`[RoleSyncService] No topDiffId changes detected, skipping bot notification`);
+        logger.debug('[RoleSyncService] No topDiffId changes detected, skipping bot notification');
         return;
       }
 
@@ -250,7 +250,7 @@ class RoleSyncService {
       }
 
       if (discordIds.length === 0) {
-        logger.debug(`[RoleSyncService] No Discord IDs found for players with changed topDiffId, skipping bot notification`);
+        logger.debug('[RoleSyncService] No Discord IDs found for players with changed topDiffId, skipping bot notification');
         return;
       }
 
@@ -269,19 +269,19 @@ class RoleSyncService {
     try {
       // Normalize input to array
       const items = Array.isArray(userIdOrPlayerId) ? userIdOrPlayerId : [userIdOrPlayerId];
-      
+
       logger.debug(`[RoleSyncService] Notifying bot of role sync for ${items.length} item(s)`);
-      
+
       // Process each item to get Discord IDs
       const discordIds: string[] = [];
-      
+
       for (const item of items) {
         // Check if input is a UUID pattern (userId) or a number (playerId)
-        const isUUID = typeof item === 'string' && 
+        const isUUID = typeof item === 'string' &&
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item);
-        
+
         let discordId: string | null;
-        
+
         if (isUUID) {
           logger.debug(`[RoleSyncService] Getting Discord ID for user ${item}`);
           discordId = await this.getDiscordIdForUser(item);
@@ -300,10 +300,10 @@ class RoleSyncService {
           logger.error(`[RoleSyncService] Invalid input for notifyBotOfRoleSync: ${item} (must be UUID string or number)`);
           continue;
         }
-        
+
         discordIds.push(discordId);
       }
-      
+
       // Call main function
       await this.notifyBotOfRoleSyncByDiscordIds(discordIds);
     } catch (error: any) {
@@ -318,7 +318,7 @@ class RoleSyncService {
     try {
       logger.debug(`[RoleSyncService] Getting highest difficulty clear for player ${playerId}`);
       const stats = await PlayerStatsService.getInstance().getPlayerStats(playerId);
-      
+
       if (!stats || stats.length === 0) {
         logger.debug(`[RoleSyncService] No stats found for player ${playerId}`);
         return null;
@@ -396,7 +396,7 @@ class RoleSyncService {
    */
   async getCreatorsCurationTypeSets(creatorIds: number[]): Promise<Map<number, Set<number>>> {
     const result = new Map<number, Set<number>>();
-    
+
     if (!creatorIds || creatorIds.length === 0) {
       return result;
     }
@@ -469,7 +469,7 @@ class RoleSyncService {
     // Get highest difficulty clear
     const highestDifficulty = await this.getHighestDifficultyClear(playerId);
     logger.debug(`[RoleSyncService] Player ${playerId} highest difficulty: ${highestDifficulty?.name || 'none'}`);
-    
+
     // Get all active guilds
     const guilds = await DiscordGuild.findAll({
       where: { isActive: true },
@@ -585,7 +585,7 @@ class RoleSyncService {
       logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Target roles: ${targetRoleIds.length}, Managed roles: ${managedRoleIds.length}`);
 
       // Sync roles
-      logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Calling Discord API to sync roles`);
+      logger.debug('[RoleSyncService] syncDifficultyRolesForGuild: Calling Discord API to sync roles');
       const syncResult = await client.syncRoles(
         guild.guildId,
         discordId,
@@ -596,14 +596,14 @@ class RoleSyncService {
       logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Sync completed - Added: ${syncResult.added.length}, Removed: ${syncResult.removed.length}`);
 
       // Track results
-      logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Processing sync results`);
+      logger.debug('[RoleSyncService] syncDifficultyRolesForGuild: Processing sync results');
       const criticalErrors: string[] = [];
-      
+
       for (let i = 0; i < syncResult.added.length; i++) {
         const roleId = targetRoleIds[i];
         const role = roles.find(r => r.roleId === roleId);
         const roleLabel = role?.label || roleId || 'unknown';
-        
+
         if (syncResult.added[i].success) {
           result.rolesAdded.push(roleId || 'unknown');
           logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Successfully added role ${roleLabel} (${roleId})`);
@@ -611,7 +611,7 @@ class RoleSyncService {
           const errorMsg = syncResult.added[i].error || 'Unknown error adding role';
           const statusCode = syncResult.added[i].statusCode;
           const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
-          
+
           if (isNonCritical) {
             logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: User not in guild or role not found - Role: ${roleLabel} (${roleId}), Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
           } else {
@@ -626,12 +626,12 @@ class RoleSyncService {
       for (let i = 0; i < syncResult.removed.length; i++) {
         const removed = syncResult.removed[i];
         if (removed.success) {
-          logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Successfully removed role`);
+          logger.debug('[RoleSyncService] syncDifficultyRolesForGuild: Successfully removed role');
         } else {
           const errorMsg = removed.error || 'Unknown error removing role';
           const statusCode = removed.statusCode;
           const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
-          
+
           if (isNonCritical) {
             logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: User not in guild - Role removal skipped, Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
           } else {
@@ -649,7 +649,7 @@ class RoleSyncService {
         logger.error(`[RoleSyncService] syncDifficultyRolesForGuild: Critical errors: ${criticalErrors.join('; ')}`);
         logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Full error details - Guild: ${guild.name}, User: ${discordId}, Errors: ${JSON.stringify(result.errors)}`);
       } else {
-        logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Sync completed successfully (non-critical errors ignored)`);
+        logger.debug('[RoleSyncService] syncDifficultyRolesForGuild: Sync completed successfully (non-critical errors ignored)');
       }
     } catch (error: any) {
       result.success = false;
@@ -706,10 +706,6 @@ class RoleSyncService {
       };
     }
 
-    // Get highest curation type
-    const highestCurationType = await this.getHighestCurationTypeForCreator(creatorId);
-    logger.debug(`[RoleSyncService] Creator ${creatorId} highest curation type: ${highestCurationType?.name || 'none'}`);
-
     // Get all curation types the creator has
     const allCurationTypes = await this.getCreatorCurationTypes(creatorId);
     const curationTypeIds = allCurationTypes.map(ct => ct.id);
@@ -741,7 +737,6 @@ class RoleSyncService {
         guild,
         discordId,
         curationTypeIds,
-        highestCurationType
       );
       results.push(result);
       logger.debug(`[RoleSyncService] Guild ${guild.name} sync result: ${result.success ? 'success' : 'failed'} - Added: ${result.rolesAdded.length}, Removed: ${result.rolesRemoved.length}, Errors: ${result.errors.length}`);
@@ -758,7 +753,6 @@ class RoleSyncService {
     guild: DiscordGuild,
     discordId: string,
     userCurationTypeIds: number[],
-    highestCurationType: CurationType | null
   ): Promise<RoleSyncResult> {
     logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Starting sync for user ${discordId} in guild ${guild.name}`);
     const result: RoleSyncResult = {
@@ -799,7 +793,7 @@ class RoleSyncService {
       const targetRoleIds: string[] = [];
 
       // Process conflict groups - only assign the highest qualifying role
-      for (const [groupName, groupRoles] of conflictGroups) {
+      for (const groupRoles of conflictGroups.values()) {
         // Sort by curation type sortOrder descending
         groupRoles.sort((a, b) => {
           const aOrder = a.curationType?.sortOrder || 0;
@@ -828,7 +822,7 @@ class RoleSyncService {
       logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Target roles: ${targetRoleIds.length}, Managed roles: ${managedRoleIds.length}`);
 
       // Sync roles
-      logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Calling Discord API to sync roles`);
+      logger.debug('[RoleSyncService] syncCurationRolesForGuild: Calling Discord API to sync roles');
       const syncResult = await client.syncRoles(
         guild.guildId,
         discordId,
@@ -840,7 +834,7 @@ class RoleSyncService {
 
       // Track detailed errors (only critical ones)
       const criticalErrors: string[] = [];
-      
+
       syncResult.added.forEach((r, i) => {
         if (!r.success) {
           const roleId = targetRoleIds[i];
@@ -849,7 +843,7 @@ class RoleSyncService {
           const errorMsg = r.error || 'Unknown error';
           const statusCode = r.statusCode;
           const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
-          
+
           if (isNonCritical) {
             logger.debug(`[RoleSyncService] syncCurationRolesForGuild: User not in guild or role not found - Role: ${roleLabel} (${roleId}), Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
           } else {
@@ -866,7 +860,7 @@ class RoleSyncService {
           const errorMsg = r.error || 'Unknown error';
           const statusCode = r.statusCode;
           const isNonCritical = this.isNonCriticalError(errorMsg, statusCode);
-          
+
           if (isNonCritical) {
             logger.debug(`[RoleSyncService] syncCurationRolesForGuild: User not in guild - Role removal skipped, Guild: ${guild.name} (${guild.guildId}), User: ${discordId}`);
           } else {
@@ -884,7 +878,7 @@ class RoleSyncService {
         logger.error(`[RoleSyncService] syncCurationRolesForGuild: Critical errors: ${criticalErrors.join('; ')}`);
         logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Full error details - Guild: ${guild.name}, User: ${discordId}, Errors: ${JSON.stringify(result.errors)}`);
       } else {
-        logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Sync completed successfully (non-critical errors ignored)`);
+        logger.debug('[RoleSyncService] syncCurationRolesForGuild: Sync completed successfully (non-critical errors ignored)');
       }
     } catch (error: any) {
       result.success = false;
@@ -1015,7 +1009,7 @@ class RoleSyncService {
           canManageRoles: false,
         };
       }
-      
+
       // Get guild info to check bot's permissions
       const guildResponse = await fetch(`${DISCORD_API_BASE}/guilds/${guildId}`, {
         headers: {
@@ -1128,12 +1122,12 @@ class RoleSyncService {
 
       // Check if bot already has this role
       const hasRole = await client.hasRole(guildId, botUser.id, roleId);
-      
+
       if (hasRole) {
         // Bot already has the role, try removing and re-adding it
         logger.debug(`[RoleSyncService] Bot already has role ${roleId}, testing remove/add cycle`);
         const removeResult = await client.removeRole(guildId, botUser.id, roleId, 'Permission test');
-        
+
         if (!removeResult.success) {
           const error = removeResult.error || 'Failed to remove role';
           logger.debug(`[RoleSyncService] Role assignment test failed: Cannot remove role - ${error}`);
@@ -1146,7 +1140,7 @@ class RoleSyncService {
 
         // Try to add it back
         const addResult = await client.addRole(guildId, botUser.id, roleId, 'Permission test');
-        
+
         if (!addResult.success) {
           const error = addResult.error || 'Failed to add role';
           logger.debug(`[RoleSyncService] Role assignment test failed: Cannot add role - ${error}`);
@@ -1166,7 +1160,7 @@ class RoleSyncService {
         // Bot doesn't have the role, try adding it
         logger.debug(`[RoleSyncService] Bot does not have role ${roleId}, testing add operation`);
         const addResult = await client.addRole(guildId, botUser.id, roleId, 'Permission test');
-        
+
         if (!addResult.success) {
           const error = addResult.error || 'Failed to add role';
           logger.debug(`[RoleSyncService] Role assignment test failed: Cannot add role - ${error}`);
@@ -1179,7 +1173,7 @@ class RoleSyncService {
 
         // Remove it immediately to clean up
         await client.removeRole(guildId, botUser.id, roleId, 'Permission test cleanup');
-        
+
         logger.debug(`[RoleSyncService] Role assignment test passed: Bot can manage role ${roleId}`);
         return {
           success: true,

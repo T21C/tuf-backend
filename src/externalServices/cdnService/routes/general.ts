@@ -7,7 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
 import { hybridStorageManager, StorageType } from '@/externalServices/cdnService/services/hybridStorageManager.js';
-import { Op } from 'sequelize';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 

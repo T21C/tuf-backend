@@ -326,7 +326,7 @@ export async function calculateAverageRating(
       return pguDifficulties[0];
     }
   }
-  
+
 
   return null;
 }

@@ -67,7 +67,7 @@ function extractSuffix(songName: string, targetSuffix: string): ParsedSuffix | n
   if (suffixStart === -1) {
     return null;
   }
-  
+
   // Extract the suffix with original capitalization from the song name
   const actualSuffix = songName.substring(suffixStart, suffixStart + targetSuffix.length);
 
@@ -77,7 +77,7 @@ function extractSuffix(songName: string, targetSuffix: string): ParsedSuffix | n
   const actualEscapedSuffix = actualSuffix.replace(/[[\]()]/g, '\\$&');
   // Use matchAll to find all occurrences, then we'll replace only the last one
   const allMatches = [...songName.matchAll(new RegExp(`\\s*${actualEscapedSuffix}\\s*`, 'gi'))];
-  
+
   if (allMatches.length === 0) {
     return null;
   }
@@ -93,7 +93,7 @@ function extractSuffix(songName: string, targetSuffix: string): ParsedSuffix | n
 
   // Clean up any remaining bad whitespaces in base name
   baseName = baseName.replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\uFEFF]/g, ' ').trim();
-  
+
   // Clean up any bad whitespaces in the extracted suffix
   const cleanedSuffix = actualSuffix.replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\uFEFF]/g, ' ').trim();
 
@@ -219,10 +219,10 @@ async function migrateSuffixBatch(
           }
           for (const level of levels) {
             const newSuffix = updateLevelSuffix(level.suffix, parsed.suffix);
-            levelsToUpdateByTarget.get(targetSong.id)!.push({ 
-              levelId: level.id, 
+            levelsToUpdateByTarget.get(targetSong.id)!.push({
+              levelId: level.id,
               suffix: newSuffix,
-              songName: targetSong.name 
+              songName: targetSong.name
             });
             logger.info(`    Level ${level.id} suffix: ${level.suffix ? `"${level.suffix}"` : 'null'} -> "${newSuffix}"`);
           }
@@ -238,8 +238,8 @@ async function migrateSuffixBatch(
           levelsToUpdateBySong.set(song.id, []);
           for (const level of levels) {
             const newSuffix = updateLevelSuffix(level.suffix, parsed.suffix);
-            levelsToUpdateBySong.get(song.id)!.push({ 
-              levelId: level.id, 
+            levelsToUpdateBySong.get(song.id)!.push({
+              levelId: level.id,
               suffix: newSuffix,
               songName: parsed.baseName // This will be the new song name after rename
             });
@@ -249,7 +249,7 @@ async function migrateSuffixBatch(
           stats.songsRenamed++;
         } else {
           // Same song (shouldn't happen, but handle it)
-          logger.info(`  Skipped: Base name matches current song`);
+          logger.info('  Skipped: Base name matches current song');
           stats.skippedSongs++;
           continue;
         }
@@ -297,7 +297,7 @@ async function migrateSuffixBatch(
       // Batch update level suffixes and song fields
       // Updates are done by levelId, so they work regardless of songId changes from merge
       // First, update levels for renamed songs (songId stays the same)
-      for (const [songId, levelUpdates] of levelsToUpdateBySong.entries()) {
+      for (const levelUpdates of levelsToUpdateBySong.values()) {
         // Group by (suffix, songName) combination for efficient updates
         const updatesByKey = new Map<string, { levelIds: number[]; suffix: string; songName: string }>();
         levelUpdates.forEach(({ levelId, suffix, songName }) => {
@@ -313,7 +313,7 @@ async function migrateSuffixBatch(
           // Update both suffix and song field: "{songName} {suffix}"
           const songValue = suffix ? `${songName} ${suffix}` : songName;
           await Level.update(
-            { 
+            {
               suffix,
               song: songValue
             },
@@ -327,7 +327,7 @@ async function migrateSuffixBatch(
       }
 
       // Then, update levels for merged songs (levels now point to target song)
-      for (const [targetSongId, levelUpdates] of levelsToUpdateByTarget.entries()) {
+      for (const levelUpdates of levelsToUpdateByTarget.values()) {
         // Group by (suffix, songName) combination for efficient updates
         const updatesByKey = new Map<string, { levelIds: number[]; suffix: string; songName: string }>();
         levelUpdates.forEach(({ levelId, suffix, songName }) => {
@@ -343,7 +343,7 @@ async function migrateSuffixBatch(
           // Update both suffix and song field: "{songName} {suffix}"
           const songValue = suffix ? `${songName} ${suffix}` : songName;
           await Level.update(
-            { 
+            {
               suffix,
               song: songValue
             },
@@ -360,7 +360,7 @@ async function migrateSuffixBatch(
                                  Array.from(levelsToUpdateByTarget.values()).reduce((sum, arr) => sum + arr.length, 0);
       if (totalLevelsUpdated > 0) {
         logger.info(`  Batch updated ${totalLevelsUpdated} levels`);
-        
+
         // Collect all level IDs that were updated for reindexing
         const allUpdatedLevelIds: number[] = [];
         for (const levelUpdates of levelsToUpdateBySong.values()) {
@@ -369,7 +369,7 @@ async function migrateSuffixBatch(
         for (const levelUpdates of levelsToUpdateByTarget.values()) {
           allUpdatedLevelIds.push(...levelUpdates.map(u => u.levelId));
         }
-        
+
         // Return level IDs for reindexing after transaction commits
         return allUpdatedLevelIds;
       }
@@ -378,7 +378,7 @@ async function migrateSuffixBatch(
                                    Array.from(levelsToUpdateByTarget.values()).reduce((sum, arr) => sum + arr.length, 0);
       logger.info(`  [DRY RUN] Would rename ${songsToRename.length} songs, merge ${songsToMerge.length} songs, update ${totalLevelsToUpdate} levels`);
     }
-    
+
     return [];
 
   } catch (error: any) {
@@ -500,7 +500,7 @@ async function migrateSuffix(
         if (!dryRun) {
           await batchTransaction.commit();
           logger.info(`Batch ${batchNumber} committed successfully`);
-          
+
           // Reindex updated levels in Elasticsearch after transaction commits
           if (updatedLevelIds.length > 0) {
             logger.info(`  Reindexing ${updatedLevelIds.length} levels in Elasticsearch...`);
@@ -510,7 +510,7 @@ async function migrateSuffix(
               stats.levelsReindexed += updatedLevelIds.length;
               allUpdatedLevelIds.push(...updatedLevelIds);
             } catch (error: any) {
-              logger.error(`  Error reindexing levels:`, error);
+              logger.error('  Error reindexing levels:', error);
               // Continue with next batch even if reindexing fails
             }
           }
@@ -611,7 +611,7 @@ async function previewSuffix(suffix: string, limit = 10): Promise<void> {
       } else if (!targetSong) {
         logger.info(`  Action: RENAME to "${parsed.baseName}"`);
       } else {
-        logger.info(`  Action: SKIP (base name matches current song)`);
+        logger.info('  Action: SKIP (base name matches current song)');
       }
       logger.info('');
     }
@@ -625,7 +625,7 @@ async function previewSuffix(suffix: string, limit = 10): Promise<void> {
     }
   });
 
-  logger.info(`\n=== Preview Summary ===`);
+  logger.info('\n=== Preview Summary ===');
   logger.info(`Total songs that would be migrated: ${totalCount}`);
 }
 

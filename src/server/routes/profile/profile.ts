@@ -1,7 +1,7 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
 import {OAuthProvider, User} from '@/models/index.js';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
 import UsernameChange from '@/models/auth/UsernameChange.js';
@@ -10,8 +10,6 @@ import { logger } from '@/server/services/LoggerService.js';
 import multer from 'multer';
 import cdnService from '@/server/services/CdnService.js';
 import { CdnError } from '@/server/services/CdnService.js';
-import PlayerStats from '@/models/players/PlayerStats.js';
-import Difficulty from '@/models/levels/Difficulty.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
@@ -40,8 +38,8 @@ const upload = multer({
 });
 
 // Get current user profile
-router.get('/me', Auth.user(), Cache({ 
-  varyByUser: true, 
+router.get('/me', Auth.user(), Cache({
+  varyByUser: true,
   tags: (req: Request) => [`user:${req.user?.id}`]
 }), async (req: Request, res: Response) => {
   try {

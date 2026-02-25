@@ -491,7 +491,7 @@ export class PlayerStatsService {
     logger.debug(`[PlayerStatsService] Starting stats update for ${playerIds.length} players`);
 
     this.updating = true;
-    
+
     // Fetch old topDiffIds before updating (for change detection)
     const oldStats = await PlayerStats.findAll({
       where: { id: playerIds },

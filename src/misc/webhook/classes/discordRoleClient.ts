@@ -217,13 +217,13 @@ export default class DiscordRoleClient {
   ): Promise<{ added: RoleOperationResult[]; removed: RoleOperationResult[] }> {
     // Get current roles
     const currentRoles = await this.getMemberRoles(guildId, userId);
-    
+
     // Filter to only managed roles that user currently has
     const currentManagedRoles = currentRoles.filter(r => managedRoleIds.includes(r));
-    
+
     // Determine roles to add (in target but not in current)
     const rolesToAdd = targetRoleIds.filter(r => !currentManagedRoles.includes(r));
-    
+
     // Determine roles to remove (in current managed but not in target)
     const rolesToRemove = currentManagedRoles.filter(r => !targetRoleIds.includes(r));
 

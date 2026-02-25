@@ -82,6 +82,7 @@ DiscordGuild.prototype.toJSON = function() {
   // Use getDataValue to access the raw token value (only accessible internally)
   const hasToken = !!this.getDataValue('botToken');
   // Create new object without exposing the actual token
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { botToken: _botToken, ...safeValues } = values as any;
   return {
     ...safeValues,

@@ -83,7 +83,7 @@ export class PoolManager {
 
     // Apply CDN-specific dialectOptions to prevent "packets out of order" errors
     // This setting ensures each connection handles only one query at a time
-    const dialectOptions = poolName === 'cdn' 
+    const dialectOptions = poolName === 'cdn'
       ? {
           ...this.baseConfig.dialectOptions,
           multipleStatements: false, // Prevent concurrent queries on same connection
@@ -129,10 +129,10 @@ export class PoolManager {
 
     // Store pool first so it's available immediately
     this.pools.set(poolName, sequelize);
-    
+
     // Add connection health check and reconnection logic
     this.setupConnectionHealthCheck(sequelize, poolName);
-    
+
     logger.debug(`Created isolated pool '${poolName}' with max ${config.maxConnections} connections`);
     return sequelize;
   }
@@ -148,7 +148,7 @@ export class PoolManager {
 
     const performHealthCheck = async () => {
       if (isCheckingHealth) return;
-      
+
       isCheckingHealth = true;
       try {
         // Try to authenticate - this will create a new connection if needed
@@ -168,7 +168,7 @@ export class PoolManager {
 
     // Start health checking
     healthCheckTimer = setInterval(performHealthCheck, HEALTH_CHECK_INTERVAL);
-    
+
     // Store timer reference for cleanup (if needed in the future)
     (sequelize as any)._healthCheckTimer = healthCheckTimer;
   }

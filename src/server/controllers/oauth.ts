@@ -354,10 +354,10 @@ export const OAuthController = {
       }
 
       const success = await OAuthService.unlinkProvider(req.user!.id, provider);
-      
+
       // Invalidate user-specific cache
       await CacheInvalidation.invalidateUser(req.user!.id);
-      
+
       return res.json({success});
     } catch (error) {
       logger.error('Provider unlinking error:', error);

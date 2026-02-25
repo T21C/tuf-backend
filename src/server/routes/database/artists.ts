@@ -44,10 +44,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     // Normalize and validate limit first
     const normalizedLimit = Math.min(Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string) || 50)), 200);
-    
+
     // Normalize and validate page (must be at least 1)
     const normalizedPage = Math.max(1, parseInt(page as string) || 1);
-    
+
     // Calculate offset using normalized values
     const offset = (normalizedPage - 1) * normalizedLimit;
 

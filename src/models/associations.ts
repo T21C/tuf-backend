@@ -26,7 +26,7 @@ export function initializeAssociations() {
   initializeArtistsAssociations();
   initializeSongsAssociations();
   initializeDiscordAssociations();
-  
+
   // Initialize cache hooks after associations
   initializeLevelCacheHooks();
 }

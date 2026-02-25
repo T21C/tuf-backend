@@ -135,7 +135,7 @@ const syncRolesForLevel = async (
   if (!levelId) {
     return;
   }
-  
+
   const level = await Level.findByPk(levelId, {
     include: [
       {
@@ -156,7 +156,7 @@ const syncRolesForLevel = async (
   const creatorIds = level.levelCredits
     .map(credit => credit.creator?.id)
     .filter((id): id is number => id !== null && id !== undefined);
-  
+
   if (creatorIds.length === 0) {
     return;
   }
@@ -170,26 +170,26 @@ const syncRolesForLevel = async (
     const changedCreatorIds = creatorIds.filter(creatorId => {
       const oldTypes = oldCurationTypeSets.get(creatorId) ?? new Set<number>();
       const newTypes = newCurationTypeSets.get(creatorId) ?? new Set<number>();
-      
+
       // Compare sets - if sizes differ or sets are not equal, there's a change
       if (oldTypes.size !== newTypes.size) {
         return true;
       }
-      
+
       // Check if all types in old set exist in new set
       for (const typeId of oldTypes) {
         if (!newTypes.has(typeId)) {
           return true; // Type was removed
         }
       }
-      
+
       // Check if any new types were added
       for (const typeId of newTypes) {
         if (!oldTypes.has(typeId)) {
           return true; // Type was added
         }
       }
-      
+
       return false; // Sets are identical
     });
 
@@ -751,7 +751,7 @@ router.get('/', async (req, res) => {
     const creatorIds = levelWithCreators?.levelCredits
       ?.map(credit => credit.creator?.id)
       .filter((id): id is number => id !== null && id !== undefined) ?? [];
-    
+
     const oldCurationTypeSets = creatorIds.length > 0
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
@@ -804,6 +804,7 @@ router.get('/', async (req, res) => {
     } : null;
 
     // Trigger Discord role sync for creators whose curation types changed
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
 
     return res.status(201).json({ curation: serializedCuration });
@@ -844,7 +845,7 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     const creatorIds = levelWithCreators?.levelCredits
       ?.map(credit => credit.creator?.id)
       .filter((id): id is number => id !== null && id !== undefined) ?? [];
-    
+
     const oldCurationTypeSets = creatorIds.length > 0
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
@@ -890,6 +891,7 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     });
 
     await transaction.commit();
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
     // Serialize BigInt abilities to string
     const serializedCuration = completeCuration ? {
@@ -997,7 +999,7 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
     const creatorIds = levelWithCreators?.levelCredits
       ?.map(credit => credit.creator?.id)
       .filter((id): id is number => id !== null && id !== undefined) ?? [];
-    
+
     const oldCurationTypeSets = creatorIds.length > 0
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
@@ -1011,8 +1013,9 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
 
     // Reindex the level
     await elasticsearchService.indexLevel(curation.levelId);
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
     syncRolesForLevel(curation.levelId, oldCurationTypeSets);
-    
+
 
     logger.debug(`Successfully deleted curation ${id} and cleaned up related resources`);
     return res.status(200).json({

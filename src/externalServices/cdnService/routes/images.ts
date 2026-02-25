@@ -5,7 +5,6 @@ import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
-import FileAccessLog from '@/models/cdn/FileAccessLog.js';
 import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
 
 const router = Router();

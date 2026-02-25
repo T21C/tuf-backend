@@ -402,7 +402,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
     logger.warn('LEVEL_SUBMISSION_HOOK environment variable is not set, skipping webhook');
     return;
   }
-  
+
   const hook = new Webhook(process.env.LEVEL_SUBMISSION_HOOK);
   hook.setUsername('TUF Level Submissions');
   hook.setAvatar(botAvatar);
@@ -471,7 +471,7 @@ export async function passSubmissionHook(
     logger.warn('PASS_SUBMISSION_HOOK environment variable is not set, skipping webhook');
     return;
   }
-  
+
   const hook = new Webhook(process.env.PASS_SUBMISSION_HOOK);
   hook.setUsername('TUF Pass Submissions');
   hook.setAvatar(botAvatar);
@@ -751,7 +751,7 @@ router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) =
         .split(',')
         .map(url => url.trim())
         .filter(url => url.length > 0);
-      
+
       const pingRoleIds = (process.env.RERATE_PING_ROLE_ID || '')
         .split(',')
         .map(id => id.trim())
@@ -778,7 +778,7 @@ router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) =
 
       // Create channel messages for each webhook URL with its corresponding ping role
       const rerateChannels: ChannelMessages[] = [];
-      
+
       for (let i = 0; i < webhookUrls.length; i++) {
         const webhookUrl = webhookUrls[i];
         const pingRoleId = pingRoleIds[i];

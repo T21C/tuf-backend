@@ -102,9 +102,9 @@ export default class Webhook {
         rateLimitRetries++;
         const body: any = await res.json();
         const waitUntil = (body['retry_after'] || 1) * 1000; // Convert to ms, default 1 second
-        
+
         logger.warn(`[Webhook] Rate limited, retrying in ${waitUntil}ms (attempt ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})`);
-        
+
         await new Promise(resolve => setTimeout(resolve, waitUntil));
         res = await sendWebhook(this.hookURL, endPayload);
       }

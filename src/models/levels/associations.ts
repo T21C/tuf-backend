@@ -7,7 +7,6 @@ import LevelAlias from './LevelAlias.js';
 import Reference from './References.js';
 import Team from '@/models/credits/Team.js';
 import Pass from '@/models/passes/Pass.js';
-import Curation from '@/models/curations/Curation.js';
 import { PassSubmission } from '@/models/submissions/PassSubmission.js';
 import LevelPackItem from '@/models/packs/LevelPackItem.js';
 import LevelPack from '@/models/packs/LevelPack.js';

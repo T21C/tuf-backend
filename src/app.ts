@@ -63,8 +63,8 @@ process.on('unhandledRejection', (reason: any, promise) => {
   // Handle database connection errors gracefully
   // Sequelize will attempt to reconnect automatically on next query
   if (reason && (
-    reason.code === 'ECONNREFUSED' || 
-    reason.code === 'PROTOCOL_CONNECTION_LOST' || 
+    reason.code === 'ECONNREFUSED' ||
+    reason.code === 'PROTOCOL_CONNECTION_LOST' ||
     reason.code === 'ETIMEDOUT' ||
     (reason.name === 'SequelizeConnectionRefusedError') ||
     (reason.name === 'SequelizeConnectionError') ||

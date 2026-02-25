@@ -48,10 +48,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
     // Normalize and validate limit first
     const normalizedLimit = Math.min(Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string) || 50)), 200);
-    
+
     // Normalize and validate page (must be at least 1)
     const normalizedPage = Math.max(1, parseInt(page as string) || 1);
-    
+
     // Calculate offset using normalized values
     const offset = (normalizedPage - 1) * normalizedLimit;
 
@@ -60,23 +60,23 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     // Parse search query to extract both general search terms and artist count filters
     let artistCountFilter: { min?: number; max?: number; exact?: number } | null = null;
     let searchString = '';
-    
+
     if (originalSearchString) {
       const searchGroups = parseSearchQuery(originalSearchString, queryParserConfigs.song);
       logger.debug(`Search groups: ${JSON.stringify(searchGroups)}`);
-      
+
       // Extract general search terms (field === 'any')
       const generalSearchTerms = extractGeneralSearchTerms(searchGroups);
       // Combine general search terms with spaces for text search
       searchString = generalSearchTerms.join(' ').trim();
-      
+
       // Extract artist count filter values
       const artistCountValues = extractFieldValues(searchGroups, 'artists');
-      
+
       if (artistCountValues.length > 0) {
         // Parse artist count value (supports: "2+", "3", "2-5")
         const artistCountValue = artistCountValues[0];
-        
+
         // Handle "2+" format (2 or more)
         if (artistCountValue.endsWith('+')) {
           const minCount = parseInt(artistCountValue.slice(0, -1));
@@ -276,10 +276,10 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     if (artistCountFilter) {
       // Store in const to preserve type narrowing after async operations
       const filter = artistCountFilter;
-      
+
       // Get songs with their artist counts
       const songIdsToCheck = allMatchingIds.length > 0 ? allMatchingIds : null;
-      
+
       // Build query options for counting artists per song
       const countQueryOptions: any = {
         attributes: [
@@ -289,13 +289,13 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
         group: ['songId'],
         raw: true
       };
-      
+
       if (songIdsToCheck && songIdsToCheck.length > 0) {
         countQueryOptions.where = { songId: { [Op.in]: songIdsToCheck } };
       }
 
       const songArtistCounts = await SongCredit.findAll(countQueryOptions) as any[];
-      
+
       // Create a map of songId -> artistCount
       const artistCountMap = new Map<number, number>();
       songArtistCounts.forEach((item: any) => {
@@ -321,21 +321,24 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
 
       // Filter songs based on artist count criteria
       let filteredByArtistCount: number[] = [];
-      
+
       if (filter.exact !== undefined) {
         // Exact count match (including 0 artists)
         filteredByArtistCount = Array.from(artistCountMap.entries())
-          .filter(([songId, count]) => count === filter.exact)
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          .filter(([_, count]) => count === filter.exact)
           .map(([songId]) => songId);
       } else if (filter.min !== undefined && filter.max !== undefined) {
         // Range match
         filteredByArtistCount = Array.from(artistCountMap.entries())
-          .filter(([songId, count]) => count >= filter.min! && count <= filter.max!)
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          .filter(([_, count]) => count >= filter.min! && count <= filter.max!)
           .map(([songId]) => songId);
       } else if (filter.min !== undefined) {
         // Minimum count match (e.g., "2+")
         filteredByArtistCount = Array.from(artistCountMap.entries())
-          .filter(([songId, count]) => count >= filter.min!)
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          .filter(([_, count]) => count >= filter.min!)
           .map(([songId]) => songId);
       }
 

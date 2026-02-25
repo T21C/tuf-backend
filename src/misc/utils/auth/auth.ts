@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { Op } from 'sequelize';
@@ -9,10 +9,7 @@ import { permissionFlags } from '@/config/constants.js';
 
 const SALT_ROUNDS = 10;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'; // Should be in env
-/** @deprecated Use JWT_ACCESS_EXPIRES_IN and refresh tokens */
-const JWT_EXPIRES_IN = 4 * 24 * 60 * 60; // 4 days in seconds (legacy)
 
-const JWT_ACCESS_EXPIRES_IN = process.env.JWT_ACCESS_EXPIRES_IN || '15m';
 const JWT_REFRESH_EXPIRES_IN_DAYS = 7;
 const JWT_REFRESH_EXPIRES_IN_SEC = JWT_REFRESH_EXPIRES_IN_DAYS * 24 * 60 * 60;
 
@@ -65,7 +62,7 @@ export const tokenUtils = {
    * Generate short-lived access JWT for a user
    */
   generateAccessToken: (user: User): string => {
-    const expiresInSec = 15 * 60;
+    const expiresInSec = 15 * 60; // static 15 minutes
     return jwt.sign(
       getAccessTokenPayload(user),
       JWT_SECRET,

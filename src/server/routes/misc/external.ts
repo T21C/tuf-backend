@@ -30,12 +30,12 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
     const level = await Level.findByPk(rating.levelId);
     if (!level || level.isDeleted || level.isHidden) return res.status(404).json({ error: 'Level not found' })
 
-    const levelFile = await cdnService.getLevelAdofai(level) || await fetch("https://api.tuforums.com/v2/database/levels/" + rating.levelId + "/level.adofai").then(res => res.json());
+    const levelFile = await cdnService.getLevelAdofai(level) || await fetch('https://api.tuforums.com/v2/database/levels/' + rating.levelId + '/level.adofai').then(res => res.json());
     if (!levelFile) return res.status(404).json({ error: 'No level file available' })
 
     const requestBody = {
-        "Content": levelFile,
-        "techMode": "both"
+        'Content': levelFile,
+        'techMode': 'both'
     }
 
     const response = await axios.post(`${process.env.OWOSEAN_API_URL}/rate`,
@@ -47,14 +47,14 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
     const result = response.data;
     const normalRatingRange = (result.normal.tuf_diff_id_range as [number, number])
     const techRatingRange = (result.tech.tuf_diff_id_range as [number, number])
-    const comment = "Normal [" + result.normal.range.join('-') + "] similar to " + (result.normal.similar_level as [string])[0]
-     + "\nTech [" + result.tech.range.join('-') + "] similar to " + (result.tech.similar_level as [string])[0];
+    const comment = 'Normal [' + result.normal.range.join('-') + '] similar to ' + (result.normal.similar_level as [string])[0]
+     + '\nTech [' + result.tech.range.join('-') + '] similar to ' + (result.tech.similar_level as [string])[0];
 
 
     const idRatingRanges = [...normalRatingRange, ...techRatingRange];
     const [minId, maxId] = [Math.min(...idRatingRanges), Math.max(...idRatingRanges)];
     const [minDifficulty, maxDifficulty] = await Promise.all([
-      minId ? Difficulty.findByPk(minId): Difficulty.findOne({ where: { name: 'Qq' } }), 
+      minId ? Difficulty.findByPk(minId): Difficulty.findOne({ where: { name: 'Qq' } }),
       maxId ? Difficulty.findByPk(maxId): Difficulty.findOne({ where: { name: 'Qq' } })]
     );
 
@@ -72,7 +72,7 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
         comment: comment,
         isCommunityRating: false,
     })
-    
+
 
     const details = await RatingDetail.findAll({
       where: {ratingId: ratingId},

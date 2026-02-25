@@ -89,7 +89,7 @@ const canEditPack = (pack: LevelPack, user: any): boolean => {
 };
 
 // Helper function to build tree recursively from items
-const buildItemTree = (items: any[], parentId: number = 0): any[] => {
+const buildItemTree = (items: any[], parentId = 0): any[] => {
   const children = items.filter(item => {
     // Handle both Sequelize model instances and plain objects
     const itemParentId = item.parentId;
@@ -846,7 +846,7 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
       packItemId?: number;
     };
 
-    const buildDownloadTree = (parentId: number = 0): DownloadTreeNode[] => {
+    const buildDownloadTree = (parentId = 0): DownloadTreeNode[] => {
       const children = itemsByParent.get(parentId) ?? [];
 
       return children.map(child => {
@@ -1464,9 +1464,9 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
 
       // Use ignoreDuplicates to handle race conditions from concurrent requests
       // This prevents errors when the same level is added by parallel requests
-      const createdItems = await LevelPackItem.bulkCreate(itemsToCreate, { 
+      const createdItems = await LevelPackItem.bulkCreate(itemsToCreate, {
         transaction,
-        ignoreDuplicates: true 
+        ignoreDuplicates: true
       });
 
       await transaction.commit();
@@ -1605,7 +1605,7 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     }
 
     // Flatten the tree structure to get all updates
-    const flattenTreeUpdates = (treeItems: any[], parentId: number = 0, updates: any[] = []) => {
+    const flattenTreeUpdates = (treeItems: any[], parentId = 0, updates: any[] = []) => {
       treeItems.forEach((item, index) => {
         updates.push({
           id: item.id,

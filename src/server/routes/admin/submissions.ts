@@ -169,10 +169,10 @@ async function approvePassSubmission(
   );
 
   if (!isValidNumber(accuracy)) {
-    throw new Error(`Failed to calculate valid accuracy from judgements`);
+    throw new Error('Failed to calculate valid accuracy from judgements');
   }
   if (!isValidNumber(scoreV2)) {
-    throw new Error(`Failed to calculate valid score - check level base score and difficulty`);
+    throw new Error('Failed to calculate valid score - check level base score and difficulty');
   }
 
   const passData = {
@@ -249,7 +249,7 @@ async function approvePassSubmission(
       { levelId: submission.levelId, lowDiff: false, requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared' },
       { transaction },
     );
-    await Level.update({ toRate: true, rerateNum: reqFr.substring(0, 60) || '', rerateReason: "cleared"}, { where: { id: submission.levelId }, transaction });
+    await Level.update({ toRate: true, rerateNum: reqFr.substring(0, 60) || '', rerateReason: 'cleared'}, { where: { id: submission.levelId }, transaction });
   }
 
   return { pass, newPass: newPass as Pass, playerStats };
@@ -646,7 +646,7 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
         if (submission.songRequest) {
           const hasSongId = !!submission.songRequest.songId;
           const hasNewSongRequest = submission.songRequest.isNewRequest && !!submission.songRequest.songName;
-          
+
           if (!hasSongId && !hasNewSongRequest) {
             rollbackReason = 'Song request exists but is incomplete: must have either songId or (isNewRequest=true and songName)';
             await safeTransactionRollback(transaction, logger);
@@ -686,12 +686,12 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
             for (const artistRequest of submission.artistRequests) {
               const hasArtistId = !!artistRequest.artistId;
               const hasNewArtistRequest = artistRequest.isNewRequest && !!artistRequest.artistName;
-              
+
               if (!hasArtistId && !hasNewArtistRequest) {
                 rollbackReason = `Artist request is incomplete: must have either artistId or (isNewRequest=true and artistName). Artist: ${artistRequest.artistName || 'unknown'}`;
                 await safeTransactionRollback(transaction, logger);
                 return res.status(400).json({
-                  error: `Artist request is incomplete. Please either assign an existing artist or mark it as a new artist request with a name.`
+                  error: 'Artist request is incomplete. Please either assign an existing artist or mark it as a new artist request with a name.'
                 });
               }
             }

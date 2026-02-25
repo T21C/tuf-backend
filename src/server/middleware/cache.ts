@@ -55,12 +55,12 @@ function getUserRoleGroup(req: Request): string {
   if (!req.user) {
     return 'anonymous';
   }
-  
+
   // Super admins see deleted/hidden content, so they need separate cache
   if (hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
     return 'admin';
   }
-  
+
   // All other authenticated users can share cache
   return 'authenticated';
 }
@@ -196,15 +196,15 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
       const pendingPromise = pendingPromises.get(cacheKey);
       if (pendingPromise) {
         logger.debug(`Cache MISS (awaiting pending): ${cacheKey}`);
-        
+
         // Wait for the pending request to complete and cache the result
         await pendingPromise;
-        
+
         // Try cache again - it should be populated now
         const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
         if (cachedAfterWait) {
           logger.debug(`Cache HIT (after pending): ${cacheKey}`);
-          
+
           if (mergedConfig.addHeaders) {
             res.setHeader('X-Cache', 'HIT');
             const ttl = await redis.ttl(cacheKey);
@@ -212,11 +212,11 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
               res.setHeader('X-Cache-TTL', ttl);
             }
           }
-          
+
           res.status(cachedAfterWait.statusCode).json(cachedAfterWait.body);
           return;
         }
-        
+
         // If still not cached (shouldn't happen, but handle gracefully)
         logger.warn(`Cache still MISS after pending promise: ${cacheKey}`);
       }
@@ -254,7 +254,7 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
 
       res.json = function (body: unknown): Response {
         clearTimeout(timeout);
-        
+
         // Only cache successful responses
         if (res.statusCode >= 200 && res.statusCode < 300) {
           redis.set(cacheKey, { body, statusCode: res.statusCode }, mergedConfig.ttl)
@@ -274,7 +274,7 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
                   );
                 }
               }
-              
+
               // Remove from pending promises and resolve
               cleanup();
             })
@@ -370,15 +370,15 @@ export function Cached(config: CacheConfig = {}) {
         const pendingPromise = pendingPromises.get(cacheKey);
         if (pendingPromise) {
           logger.debug(`Cache MISS (awaiting pending, decorator): ${cacheKey}`);
-          
+
           // Wait for the pending request to complete and cache the result
           await pendingPromise;
-          
+
           // Try cache again - it should be populated now
           const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
           if (cachedAfterWait) {
             logger.debug(`Cache HIT (after pending, decorator): ${cacheKey}`);
-            
+
             if (mergedConfig.addHeaders) {
               res.setHeader('X-Cache', 'HIT');
               const ttl = await redis.ttl(cacheKey);
@@ -386,10 +386,10 @@ export function Cached(config: CacheConfig = {}) {
                 res.setHeader('X-Cache-TTL', ttl);
               }
             }
-            
+
             return res.status(cachedAfterWait.statusCode).json(cachedAfterWait.body);
           }
-          
+
           logger.warn(`Cache still MISS after pending promise (decorator): ${cacheKey}`);
         }
 
@@ -426,7 +426,7 @@ export function Cached(config: CacheConfig = {}) {
 
         res.json = function (body: unknown): Response {
           clearTimeout(timeout);
-          
+
           if (res.statusCode >= 200 && res.statusCode < 300) {
             redis.set(cacheKey, { body, statusCode: res.statusCode }, mergedConfig.ttl)
               .then(() => {
@@ -445,7 +445,7 @@ export function Cached(config: CacheConfig = {}) {
                     );
                   }
                 }
-                
+
                 cleanup();
               })
               .catch(err => {

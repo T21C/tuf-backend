@@ -4,7 +4,6 @@ import Rating from './Rating.js';
 import Curation from '@/models/curations/Curation.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
-import LevelTag from './LevelTag.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
 import LevelLikes from './LevelLikes.js';
 import Song from '@/models/songs/Song.js';
@@ -34,7 +33,7 @@ const invalidateLevelCache = async (levelId: number): Promise<void> => {
  */
 const invalidateLevelsCache = async (levelIds: number[]): Promise<void> => {
   if (levelIds.length === 0) return;
-  
+
   try {
     const tags = ['levels:all'];
     const levelTags = levelIds.map(id => `level:${id}`);
