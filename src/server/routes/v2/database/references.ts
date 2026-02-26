@@ -1,4 +1,6 @@
 import {Request, Response, Router} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/index.js';
 import {Op, Transaction} from 'sequelize';
 import Reference from '@/models/levels/References.js';
 import Difficulty from '@/models/levels/Difficulty.js';
@@ -25,10 +27,20 @@ interface IReferenceUpdate {
 const router: Router = Router();
 
 // Get all references grouped by difficulty
-router.get('/', Cache({
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getReferences',
+    summary: 'List all references',
+    description: 'Returns references grouped by PGU difficulty (cached).',
+    tags: ['Database', 'References'],
+    responses: { 200: { description: 'References by difficulty' }, ...standardErrorResponses500 },
+  }),
+  Cache({
   ttl: 60*60*24*7, // week
   tags: ['references:all'] // Tag all list queries
-}), async (req: Request, res: Response) => {
+}),
+  async (req: Request, res: Response) => {
   try {
     // First get all difficulties with their references
     const difficulties = await Difficulty.findAll({
@@ -84,13 +96,25 @@ router.get('/', Cache({
     logger.error('Error fetching references:', error);
     return res.status(500).json({error: 'Failed to fetch references'});
   }
-});
+  }
+);
 
 // Get references for a specific difficulty
-router.get('/difficulty/:difficultyId([0-9]{1,20})', Cache({
+router.get(
+  '/difficulty/:difficultyId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getReferencesByDifficulty',
+    summary: 'References by difficulty',
+    description: 'Returns reference levels for a difficulty (cached).',
+    tags: ['Database', 'References'],
+    params: { difficultyId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Reference levels' }, ...standardErrorResponses404500 },
+  }),
+  Cache({
   ttl: 60*60*24*7, // week
   tags: ['references:difficulty'] // Tag all list queries
-}), async (req: Request, res: Response) => {
+}),
+  async (req: Request, res: Response) => {
   try {
     const {difficultyId} = req.params;
 
@@ -141,13 +165,25 @@ router.get('/difficulty/:difficultyId([0-9]{1,20})', Cache({
     logger.error('Error fetching references by difficulty:', error);
     return res.status(500).json({error: 'Failed to fetch references'});
   }
-});
+  }
+);
 
 // Get references by level ID
-router.get('/level/:levelId([0-9]{1,20})', Cache({
+router.get(
+  '/level/:levelId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getReferencesByLevel',
+    summary: 'References by level',
+    description: 'Returns references (difficulty links) for a level (cached).',
+    tags: ['Database', 'References'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'References list' }, ...standardErrorResponses500 },
+  }),
+  Cache({
   ttl: 60*60*24*7, // week
-  tags: ['references:level'] // Tag all list queries
-}), async (req: Request, res: Response) => {
+  tags: ['references:level']
+}),
+  async (req: Request, res: Response) => {
   try {
     const {levelId} = req.params;
     const references = await Reference.findAll({
@@ -164,10 +200,23 @@ router.get('/level/:levelId([0-9]{1,20})', Cache({
     logger.error('Error fetching references by level:', error);
     return res.status(500).json({error: 'Failed to fetch references'});
   }
-});
+  }
+);
 
 // Create a new reference
-router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postReference',
+    summary: 'Create reference',
+    description: 'Create a difficulty reference level (super admin).',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'difficultyId, levelId, type', schema: { type: 'object', properties: { difficultyId: { type: 'integer' }, levelId: { type: 'integer' }, type: { type: 'string' } }, required: ['difficultyId', 'levelId', 'type'] }, required: true },
+    responses: { 201: { description: 'Created reference' }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {difficultyId, levelId, type} = req.body;
 
@@ -197,10 +246,24 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
     logger.error('Error creating reference:', error);
     return res.status(500).json({error: 'Failed to create reference'});
   }
-});
+  }
+);
 
 // Update a reference
-router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putReference',
+    summary: 'Update reference',
+    description: 'Update a reference by ID (super admin).',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'difficultyId, levelId, type', schema: { type: 'object', properties: { difficultyId: { type: 'integer' }, levelId: { type: 'integer' }, type: { type: 'string' } } }, required: true },
+    responses: { 200: { description: 'Updated reference' }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const {difficultyId, levelId, type} = req.body;
@@ -237,12 +300,22 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     logger.error('Error updating reference:', error);
     return res.status(500).json({error: 'Failed to update reference'});
   }
-});
+  }
+);
 
 // Delete a reference
 router.delete(
   '/:id([0-9]{1,20})',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteReference',
+    summary: 'Delete reference',
+    description: 'Delete a reference by ID (super admin).',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Reference deleted' }, ...standardErrorResponses404500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
@@ -262,7 +335,20 @@ router.delete(
 );
 
 // Bulk update references for a difficulty
-router.put('/bulk/:difficultyId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/bulk/:difficultyId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putReferencesBulk',
+    summary: 'Bulk update references',
+    description: 'Replace references for a difficulty with the given list (super admin).',
+    tags: ['Database', 'References'],
+    security: ['bearerAuth'],
+    params: { difficultyId: { schema: { type: 'string' } } },
+    requestBody: { description: 'references: array of { levelId, type }', schema: { type: 'object', properties: { references: { type: 'array', items: { type: 'object', properties: { levelId: { type: 'integer' }, type: { type: 'string' } } } } }, required: ['references'] }, required: true },
+    responses: { 200: { description: 'added, removed, updated counts' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { difficultyId } = req.params;
     const { references } = req.body as { references: IReferenceUpdate[] };
@@ -321,7 +407,8 @@ router.put('/bulk/:difficultyId([0-9]{1,20})', Auth.superAdmin(), async (req: Re
     logger.error('Error bulk updating references:', error);
     return res.status(500).json({ error: 'Failed to bulk update references' });
   }
-});
+  }
+);
 
 
 // =============== CACHE CONTROL =================

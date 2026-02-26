@@ -1,5 +1,7 @@
 import { Op } from 'sequelize';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses500 } from '@/server/schemas/v2/database/levels/index.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
 import { Router, Request, Response } from 'express';
@@ -7,10 +9,20 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { logger } from '@/server/services/LoggerService.js';
 
-// Get unannounced new levels
 const router: Router = Router();
 
-router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/unannounced/new',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getLevelsUnannouncedNew',
+    summary: 'List unannounced new levels',
+    description: 'Levels with diff but not yet announced (super admin)',
+    tags: ['Levels', 'Admin'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'List of levels' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const levels = await Level.findAll({
         where: {
@@ -39,10 +51,21 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
         .status(500)
         .json({error: 'Failed to fetch unannounced new levels'});
     }
-  });
+  }
+);
 
-  // Get unannounced rerates
-  router.get('/unannounced/rerates', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/unannounced/rerates',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getLevelsUnannouncedRerates',
+    summary: 'List unannounced rerates',
+    description: 'Rerated levels not yet announced (super admin)',
+    tags: ['Levels', 'Admin'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'List of levels' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const levels = await Level.findAll({
         where: {
@@ -81,6 +104,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
       logger.error('Error fetching unannounced rerates:', error);
       return res.status(500).json({error: 'Failed to fetch unannounced rerates'});
     }
-  });
+  }
+);
 
-  export default router;
+export default router;

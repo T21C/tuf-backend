@@ -1,4 +1,6 @@
 import express, {Request, Response, Router} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses400500, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
@@ -142,6 +144,18 @@ function addFilesToZip(currentPath: string, baseDir: string, zip: AdmZip) {
 // Verify translations endpoint
 router.post(
   '/verify-translations',
+  ApiDoc({
+    operationId: 'postUtilsVerifyTranslations',
+    summary: 'Verify translation ZIP',
+    description: 'Upload a ZIP of translation JSON files; returns validation result (missing keys, structure).',
+    tags: ['Utils'],
+    requestBody: { description: 'Multipart form with translationZip file', required: true },
+    responses: {
+      200: { description: 'Validation result (valid, missingKeys, etc.)' },
+      400: { description: 'No file or invalid ZIP', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
   upload.single('translationZip'),
   async (req: MulterRequest, res: Response) => {
     let tempDir: string | null = null;
@@ -254,7 +268,19 @@ router.post(
 );
 
 // Download English translations endpoint
-router.get('/download-translations', async (req: Request, res: Response) => {
+router.get(
+  '/download-translations',
+  ApiDoc({
+    operationId: 'getUtilsDownloadTranslationsEn',
+    summary: 'Download English translations ZIP',
+    description: 'Returns a ZIP of all English translation JSON files.',
+    tags: ['Utils'],
+    responses: {
+      200: { description: 'ZIP file (en-translations.zip)' },
+      500: { description: 'Failed to create ZIP', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   let tempZipPath: string | null = null;
 
   try {
@@ -291,7 +317,8 @@ router.get('/download-translations', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
 // Language configuration - now dynamic based on directory check
 const languages: {[key: string]: {display: string; countryCode: string; folder: string; status: number}} = {};
@@ -378,7 +405,16 @@ initializeLanguages().catch(error => {
 });
 
 // Get list of available languages
-router.get('/languages', async (req: Request, res: Response) => {
+router.get(
+  '/languages',
+  ApiDoc({
+    operationId: 'getUtilsLanguages',
+    summary: 'List languages (raw)',
+    description: 'Returns available translation languages with completion status (raw object).',
+    tags: ['Utils'],
+    responses: { 200: { description: 'Languages map (code -> display, countryCode, folder, status)' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     res.json(languages);
   } catch (error) {
@@ -388,7 +424,8 @@ router.get('/languages', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
 // Type for languages
 type LanguageCode = keyof typeof languages;
@@ -396,6 +433,18 @@ type LanguageCode = keyof typeof languages;
 // Download translations for a specific language
 router.get(
   '/download-translations/:lang',
+  ApiDoc({
+    operationId: 'getUtilsDownloadTranslationsByLang',
+    summary: 'Download translations ZIP by language',
+    description: 'Returns a ZIP of translation JSON files for the given language code (e.g. en, pl, kr).',
+    tags: ['Utils'],
+    params: { lang: { description: 'Language code', schema: { type: 'string' } } },
+    responses: {
+      200: { description: 'ZIP file ({lang}-translations.zip)' },
+      404: { description: 'Language or translations not found', schema: errorResponseSchema },
+      500: { description: 'Failed to create ZIP', schema: errorResponseSchema },
+    },
+  }),
   async (req: Request, res: Response) => {
     const {lang} = req.params;
     let tempZipPath: string | null = null;
@@ -445,7 +494,16 @@ router.get(
   },
 );
 
-router.get('/languages', async (req: Request, res: Response) => {
+router.get(
+  '/languages',
+  ApiDoc({
+    operationId: 'getUtilsLanguagesInfo',
+    summary: 'List languages (array)',
+    description: 'Returns available translation languages as an array of { code, display, countryCode, folder, status }.',
+    tags: ['Utils'],
+    responses: { 200: { description: 'Array of language info' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const languagesInfo = Object.entries(languages).map(([code, info]) => ({
       code,
@@ -463,11 +521,20 @@ router.get('/languages', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
-
+  }
+);
 
 // Serve the utility navigation page
-router.get('/', (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getUtilsIndex',
+    summary: 'Utils index page',
+    description: 'Returns HTML navigation page for translation and utility tools.',
+    tags: ['Utils'],
+    responses: { 200: { description: 'HTML page' } },
+  }),
+  (req: Request, res: Response) => {
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -949,6 +1016,7 @@ router.get('/', (req: Request, res: Response) => {
     </body>
     </html>
   `);
-});
+  }
+);
 
 export default router;

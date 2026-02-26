@@ -12,7 +12,8 @@ import {
   successMessageSchema,
   errorResponseSchema,
   sessionsListResponseSchema,
-} from '@/server/schemas/index.js';
+  stringIdParamSpec,
+} from '@/server/schemas/v2/auth/index.js';
 
 const router: Router = Router();
 
@@ -74,7 +75,7 @@ router.delete(
     description: 'Revoke a specific session by id',
     tags: ['Auth'],
     security: ['bearerAuth'],
-    params: { id: { description: 'Session ID', schema: { type: 'string' } } },
+    params: { id: stringIdParamSpec },
     responses: {
       200: { description: 'Session revoked', schema: successMessageSchema },
       401: { description: 'Unauthorized', schema: errorResponseSchema },

@@ -6,8 +6,6 @@ import webhookRoutes from './webhooks/index.js';
 import miscRoutes from './misc/index.js';
 import healthRoutes from './misc/health.js';
 import cdnProgressRoutes from './misc/cdnProgress.js';
-import eventsRoutes from './misc/events.js';
-import utilsRoutes from './misc/utils.js';
 
 const router: Router = Router();
 
@@ -21,7 +19,7 @@ router.use('/admin', adminRoutes);
 router.use('/database', databaseRoutes());
 
 // Webhook routes
-router.use('/webhooks', webhookRoutes);
+router.use('/webhook', webhookRoutes);
 
 // Misc routes
 router.use('/', miscRoutes);

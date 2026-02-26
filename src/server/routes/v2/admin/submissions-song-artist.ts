@@ -1,5 +1,7 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses, standardErrorResponses400500, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import LevelSubmissionSongRequest from '@/models/submissions/LevelSubmissionSongRequest.js';
 import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionArtistRequest.js';
@@ -25,7 +27,20 @@ const upload = multer({
 });
 
 // Change song selection (similar to creator selection)
-router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/song',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionSong',
+    summary: 'Change song on submission',
+    description: 'Set or create song request for level submission. Body: songId?, isNewRequest?, songName?, verificationState?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'songId, isNewRequest, songName, verificationState', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {songId, isNewRequest, songName, verificationState} = req.body;
@@ -114,7 +129,20 @@ router.put('/levels/:id/song', Auth.superAdmin(), async (req: Request, res: Resp
 });
 
 // Change artist selection (updates a specific artist request by ID, or adds new one)
-router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/artist',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionArtist',
+    summary: 'Change artist on submission',
+    description: 'Update or add artist request. Body: artistId?, artistRequestId?, isNewRequest?, artistName?, verificationState?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'artistId, artistRequestId, isNewRequest, artistName, verificationState', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {artistId, artistRequestId, isNewRequest, artistName, verificationState} = req.body;
@@ -239,10 +267,25 @@ router.put('/levels/:id/artist', Auth.superAdmin(), async (req: Request, res: Re
     logger.error('Error changing artist:', error);
     return res.status(500).json({error: 'Failed to change artist'});
   }
-});
+  }
+);
 
 // Upload evidence images for submission (up to 10)
-router.post('/levels/:id/evidence', Auth.superAdmin(), upload.array('evidence', 10), async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/evidence',
+  Auth.superAdmin(),
+  upload.array('evidence', 10),
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionEvidence',
+    summary: 'Upload evidence',
+    description: 'Upload evidence images (up to 10). Body: type (song|artist), requestId?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'multipart: evidence files, type, requestId', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Evidences' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {type, requestId} = req.body; // type: 'song' or 'artist'
     const files = req.files as Express.Multer.File[];
@@ -267,10 +310,23 @@ router.post('/levels/:id/evidence', Auth.superAdmin(), upload.array('evidence', 
     logger.error('Error uploading evidence:', error);
     return res.status(500).json({error: 'Failed to upload evidence'});
   }
-});
+  }
+);
 
 // Delete evidence image
-router.delete('/levels/:id/evidence/:evidenceId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/levels/:id/evidence/:evidenceId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteAdminLevelSubmissionEvidence',
+    summary: 'Delete evidence',
+    description: 'Delete evidence image by id. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec, evidenceId: stringIdParamSpec },
+    responses: { 200: { description: 'Evidence deleted' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     await evidenceService.deleteEvidenceImage(parseInt(req.params.evidenceId));
     return res.json({success: true});
@@ -278,10 +334,23 @@ router.delete('/levels/:id/evidence/:evidenceId', Auth.superAdmin(), async (req:
     logger.error('Error deleting evidence:', error);
     return res.status(500).json({error: 'Failed to delete evidence'});
   }
-});
+  }
+);
 
 // Get evidence for submission
-router.get('/levels/:id/evidence', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/levels/:id/evidence',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminLevelSubmissionEvidence',
+    summary: 'Get evidence',
+    description: 'Get evidence for a level submission. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Evidence list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const evidences = await evidenceService.getEvidenceForSubmission(parseInt(req.params.id));
     return res.json(evidences);
@@ -289,10 +358,24 @@ router.get('/levels/:id/evidence', Auth.superAdmin(), async (req: Request, res: 
     logger.error('Error fetching evidence:', error);
     return res.status(500).json({error: 'Failed to fetch evidence'});
   }
-});
+  }
+);
 
 // Assign existing song to submission request
-router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/assign-song',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionAssignSong',
+    summary: 'Assign song to submission',
+    description: 'Assign existing song to submission; replaces artist requests with song credits. Body: songId. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'songId', schema: { type: 'object', properties: { songId: { type: 'number' } }, required: ['songId'] }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -439,10 +522,24 @@ router.put('/levels/:id/assign-song', Auth.superAdmin(), async (req: Request, re
     logger.error('Error assigning song:', error);
     return res.status(500).json({ error: 'Failed to assign song' });
   }
-});
+  }
+);
 
 // Assign existing artist to submission request (adds to array)
-router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/assign-artist',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionAssignArtist',
+    summary: 'Assign artist to submission',
+    description: 'Add existing artist to submission. Body: artistId. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'artistId', schema: { type: 'object', properties: { artistId: { type: 'number' } }, required: ['artistId'] }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -553,10 +650,24 @@ router.put('/levels/:id/assign-artist', Auth.superAdmin(), async (req: Request, 
     logger.error('Error assigning artist:', error);
     return res.status(500).json({ error: 'Failed to assign artist' });
   }
-});
+  }
+);
 
 // Create and assign song in one step
-router.post('/levels/:id/songs', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/songs',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionSongs',
+    summary: 'Create and assign song',
+    description: 'Create or find song and assign to submission. Body: name, aliases?, songRequestId?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'name, aliases, songRequestId', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, songRequestId: { type: 'number' } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -664,10 +775,24 @@ router.post('/levels/:id/songs', Auth.superAdmin(), async (req: Request, res: Re
     logger.error('Error creating and assigning song:', error);
     return res.status(500).json({ error: 'Failed to create and assign song' });
   }
-});
+  }
+);
 
 // Create and assign artist in one step (adds to array)
-router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/artists',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionArtists',
+    summary: 'Create and assign artist',
+    description: 'Create or find artist and add to submission. Body: name, aliases?, artistRequestId?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'name, aliases, artistRequestId', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, artistRequestId: { type: 'number' } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -789,10 +914,24 @@ router.post('/levels/:id/artists', Auth.superAdmin(), async (req: Request, res: 
     logger.error('Error creating and assigning artist:', error);
     return res.status(500).json({ error: 'Failed to create and assign artist' });
   }
-});
+  }
+);
 
 // Add a new song request
-router.post('/levels/:id/song-requests', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/song-requests',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionSongRequests',
+    summary: 'Add song request',
+    description: 'Add new song request placeholder to submission. Body: verificationState?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'verificationState', schema: { type: 'object' }, required: false },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -854,10 +993,24 @@ router.post('/levels/:id/song-requests', Auth.superAdmin(), async (req: Request,
     logger.error('Error creating song request:', error);
     return res.status(500).json({ error: 'Failed to create song request' });
   }
-});
+  }
+);
 
 // Add a new artist request
-router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/artist-requests',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionArtistRequests',
+    summary: 'Add artist request',
+    description: 'Add new artist request placeholder. Body: verificationState?. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'verificationState', schema: { type: 'object' }, required: false },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
@@ -942,10 +1095,23 @@ router.post('/levels/:id/artist-requests', Auth.superAdmin(), async (req: Reques
     logger.error('Error creating artist request:', error);
     return res.status(500).json({ error: 'Failed to create artist request' });
   }
-});
+  }
+);
 
 // Delete an artist request
-router.delete('/levels/:id/artist-requests/:requestId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/levels/:id/artist-requests/:requestId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteAdminLevelSubmissionArtistRequest',
+    summary: 'Delete artist request',
+    description: 'Remove artist request from submission. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec, requestId: stringIdParamSpec },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { id, requestId } = req.params;
@@ -1035,10 +1201,24 @@ router.delete('/levels/:id/artist-requests/:requestId', Auth.superAdmin(), async
     logger.error('Error deleting artist request:', error);
     return res.status(500).json({ error: 'Failed to delete artist request' });
   }
-});
+  }
+);
 
 // Update suffix field
-router.put('/levels/:id/suffix', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/suffix',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionSuffix',
+    summary: 'Update submission suffix',
+    description: 'Update suffix field. Body: suffix. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'suffix', schema: { type: 'object', properties: { suffix: { type: 'string' } } }, required: true },
+    responses: { 200: { description: 'Updated suffix' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {suffix} = req.body;
@@ -1070,6 +1250,7 @@ router.put('/levels/:id/suffix', Auth.superAdmin(), async (req: Request, res: Re
     logger.error('Error updating suffix:', error);
     return res.status(500).json({error: 'Failed to update suffix'});
   }
-});
+  }
+);
 
 export default router;

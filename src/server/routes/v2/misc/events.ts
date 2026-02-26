@@ -1,4 +1,5 @@
 import {Router} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {Request, Response} from 'express';
 import User from '@/models/auth/User.js';
@@ -17,9 +18,24 @@ interface SSERequest extends Request {
 }
 
 // SSE endpoint
-router.get('/', async (req: SSERequest, res: Response) => {
-  // Get environment-specific client URL
-
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getEventsSSE',
+    summary: 'SSE stream',
+    description: 'Server-Sent Events stream for real-time updates (pack download progress, level upload progress, etc.). Query: userId, source, isManager. Response is text/event-stream; connection stays open.',
+    tags: ['Events'],
+    query: {
+      userId: { description: 'User ID for scoped events', schema: { type: 'string' } },
+      source: { description: 'Client source identifier', schema: { type: 'string' } },
+      isManager: { description: 'Manager flag', schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Event stream (text/event-stream)' },
+      204: { description: 'OPTIONS preflight' },
+    },
+  }),
+  async (req: SSERequest, res: Response) => {
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -90,6 +106,7 @@ router.get('/', async (req: SSERequest, res: Response) => {
     clearInterval(keepAlive);
     sseManager.removeClient(clientId);
   });
-});
+  }
+);
 
 export default router;

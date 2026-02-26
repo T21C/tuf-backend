@@ -5,16 +5,29 @@ import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/database/index.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
 
-router.get('/', Cache({
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getLeaderboard',
+    summary: 'Leaderboard',
+    description: 'Paginated player leaderboard with sort, filters, and optional query (#discordId or @username). Cached.',
+    tags: ['Database', 'Leaderboard'],
+    query: { sortBy: { schema: { type: 'string' } }, order: { schema: { type: 'string' } }, showBanned: { schema: { type: 'string' } }, query: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, filters: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Leaderboard results' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  Cache({
   ttl: 300,
   varyByQuery: ['sortBy', 'order', 'showBanned', 'query', 'offset', 'limit', 'filters'],
-  tags: ['leaderboard:all'] // Tag all list queries
-}), async (req: Request, res: Response) => {
+  tags: ['leaderboard:all']
+}),
+  async (req: Request, res: Response) => {
   try {
     const {
       sortBy = 'rankedScore',
@@ -139,7 +152,8 @@ router.get('/', Cache({
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
 // =============== CACHE CONTROL =================
 

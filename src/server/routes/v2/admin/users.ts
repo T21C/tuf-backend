@@ -1,5 +1,7 @@
 import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
 import {User, OAuthProvider} from '@/models/index.js';
 import Player from '@/models/players/Player.js';
 import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
@@ -28,7 +30,16 @@ const requireGrantRole = (req: Request, res: Response, next: NextFunction) => {
   return next();
 };
 
-router.get('/raters', async (req: Request, res: Response) => {
+router.get(
+  '/raters',
+  ApiDoc({
+    operationId: 'getAdminRaters',
+    summary: 'List raters',
+    description: 'List all users with rater or super admin role.',
+    tags: ['Admin', 'Users'],
+    responses: { 200: { description: 'Raters list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const raters = await User.findAll({
       where: {
@@ -65,10 +76,22 @@ router.get('/raters', async (req: Request, res: Response) => {
     logger.error('Failed to fetch raters:', error);
     return res.status(500).json({error: 'Failed to fetch raters'});
   }
-});
+  }
+);
 
 // Get all users with roles (raters and admins)
-router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminUsers',
+    summary: 'List admin users',
+    description: 'List all users with rater or super admin role. Super admin.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Users list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const users = await User.findAll({
       where: {
@@ -105,10 +128,20 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
     logger.error('Failed to fetch users:', error);
     return res.status(500).json({error: 'Failed to fetch users'});
   }
-});
+  }
+);
 
 // Get all curators
-router.get('/curators', async (req: Request, res: Response) => {
+router.get(
+  '/curators',
+  ApiDoc({
+    operationId: 'getAdminCurators',
+    summary: 'List curators',
+    description: 'List all users with curator or head curator role.',
+    tags: ['Admin', 'Users'],
+    responses: { 200: { description: 'Curators list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const curators = await User.findAll({
       where: {
@@ -145,12 +178,22 @@ router.get('/curators', async (req: Request, res: Response) => {
     logger.error('Failed to fetch curators:', error);
     return res.status(500).json({error: 'Failed to fetch curators'});
   }
-});
+  }
+);
 
 // Grant role to user
 router.post(
   '/grant-role',
   [Auth.headCurator(), requireGrantRole],
+  ApiDoc({
+    operationId: 'postAdminGrantRole',
+    summary: 'Grant role',
+    description: 'Grant a role (rater/superadmin/curator/headcurator) to a user by username. Body: username, role.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'username, role', schema: { type: 'object', properties: { username: { type: 'string' }, role: { type: 'string' } }, required: ['username', 'role'] }, required: true },
+    responses: { 200: { description: 'Role granted' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {username, role} = req.body;
@@ -220,13 +263,22 @@ router.post(
       });
       return res.status(500).json({error: 'Failed to grant role'});
     }
-  },
+  }
 );
 
 // Revoke role from user
 router.post(
   '/revoke-role',
   [Auth.superAdmin(), requireGrantRole],
+  ApiDoc({
+    operationId: 'postAdminRevokeRole',
+    summary: 'Revoke role',
+    description: 'Revoke a role (rater/superadmin/curator/headcurator) from a user. Body: userId or username, role.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'userId or username, role', schema: { type: 'object', properties: { userId: { type: 'string' }, username: { type: 'string' }, role: { type: 'string' } }, required: ['role'] }, required: true },
+    responses: { 200: { description: 'Role revoked' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {userId, username, role} = req.body;
@@ -310,13 +362,21 @@ router.post(
       });
       return res.status(500).json({error: 'Failed to revoke role'});
     }
-  },
+  }
 );
 
 // Update user's Discord info
 router.post(
   '/sync-discord',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminSyncDiscord',
+    summary: 'Sync Discord info',
+    description: 'Sync Discord usernames for all users with Discord provider. Super admin.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Sync result' }, ...standardErrorResponses500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const users = await User.findAll({
@@ -368,13 +428,23 @@ router.post(
       });
       return res.status(500).json({error: 'Failed to sync Discord info'});
     }
-  },
+  }
 );
 
 // Toggle rating ban for user
 router.patch(
   '/:playerId/rating-ban',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchAdminRatingBan',
+    summary: 'Toggle rating ban',
+    description: 'Set or clear rating ban for a player. Body: isRatingBanned (boolean). Super admin.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    params: { playerId: { schema: { type: 'string' } } },
+    requestBody: { description: 'isRatingBanned', schema: { type: 'object', properties: { isRatingBanned: { type: 'boolean' } }, required: ['isRatingBanned'] }, required: true },
+    responses: { 200: { description: 'Rating ban updated' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {playerId} = req.params;
@@ -420,11 +490,21 @@ router.patch(
       });
       return res.status(500).json({error: 'Failed to update rating ban status'});
     }
-  },
+  }
 );
 
 // Check user roles
-router.get('/check/:discordId', async (req: Request, res: Response) => {
+router.get(
+  '/check/:discordId',
+  ApiDoc({
+    operationId: 'getAdminCheckDiscord',
+    summary: 'Check roles by Discord ID',
+    description: 'Get rater/super admin flags for a user by Discord ID.',
+    tags: ['Admin', 'Users'],
+    params: { discordId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Role flags' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {discordId} = req.params;
 
@@ -461,12 +541,22 @@ router.get('/check/:discordId', async (req: Request, res: Response) => {
     });
     return res.status(500).json({error: 'Failed to check roles'});
   }
-});
+  }
+);
 
 // Get user by Discord ID
 router.get(
   '/discord/:discordId',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminUserByDiscord',
+    summary: 'Get user by Discord ID',
+    description: 'Get user by Discord ID. Super admin.',
+    tags: ['Admin', 'Users'],
+    security: ['bearerAuth'],
+    params: { discordId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'User' }, ...standardErrorResponses404500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {discordId} = req.params;
@@ -505,7 +595,7 @@ router.get(
       });
       return res.status(500).json({error: 'Failed to fetch user'});
     }
-  },
+  }
 );
 
 export default router;

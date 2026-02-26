@@ -1,5 +1,7 @@
 import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, docRequestBody, standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import {Op} from 'sequelize';
 import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '@/misc/utils/Utility.js';
 import multer from 'multer';
@@ -225,7 +227,16 @@ const upload = multer({
 });
 
 // Get all curation types
-router.get('/types', async (req, res) => {
+router.get(
+  '/types',
+  ApiDoc({
+    operationId: 'getAdminCurationTypes',
+    summary: 'List curation types',
+    description: 'List all curation types ordered by sortOrder and name.',
+    tags: ['Admin', 'Curations'],
+    responses: { 200: { description: 'Curation types' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     const types = await CurationType.findAll({
       order: [['sortOrder', 'ASC'], ['name', 'ASC']],
@@ -242,10 +253,23 @@ router.get('/types', async (req, res) => {
     logger.error('Error fetching curation types:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Create curation type
-router.post('/types', Auth.superAdminPassword(), async (req, res) => {
+router.post(
+  '/types',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postAdminCurationType',
+    summary: 'Create curation type',
+    description: 'Create a curation type. Body: name, color?, abilities?. Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name, color, abilities', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, abilities: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 201: { description: 'Curation type created' }, ...standardErrorResponses400500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req, res) => {
   try {
     const {name, color, abilities} = req.body;
 
@@ -284,10 +308,24 @@ router.post('/types', Auth.superAdminPassword(), async (req, res) => {
     logger.error('Error creating curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Update curation type
-router.put('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
+router.put(
+  '/types/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putAdminCurationType',
+    summary: 'Update curation type',
+    description: 'Update curation type by id. Body: name?, color?, abilities?. Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'name, color, abilities', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Curation type updated' }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req, res) => {
   try {
     const {id} = req.params;
     const {name, color, abilities} = req.body;
@@ -338,10 +376,23 @@ router.put('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res
     logger.error('Error updating curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Delete curation type
-router.delete('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
+router.delete(
+  '/types/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteAdminCurationType',
+    summary: 'Delete curation type',
+    description: 'Delete curation type and cascade delete related curations. Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 204: { description: 'Curation type deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -384,10 +435,25 @@ router.delete('/types/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, 
     logger.error('Error deleting curation type:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Upload curation icon
-router.post('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), upload.single('icon'), async (req, res) => {
+router.post(
+  '/types/:id([0-9]{1,20})/icon',
+  Auth.superAdminPassword(),
+  upload.single('icon'),
+  ApiDoc({
+    operationId: 'postAdminCurationTypeIcon',
+    summary: 'Upload curation type icon',
+    description: 'Upload icon for curation type. Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'multipart/form-data with icon file', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Icon uploaded' }, ...standardErrorResponses },
+  }),
+  async (req, res) => {
   try {
     const {id} = req.params;
 
@@ -418,10 +484,23 @@ router.post('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), upload.si
     logger.error('Error uploading curation icon:', error);
     return res.status(500).json({error: 'Failed to upload icon'});
   }
-});
+  }
+);
 
 // Delete curation icon
-router.delete('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), async (req, res) => {
+router.delete(
+  '/types/:id([0-9]{1,20})/icon',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteAdminCurationTypeIcon',
+    summary: 'Delete curation type icon',
+    description: 'Remove icon from curation type. Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Icon removed' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -447,10 +526,23 @@ router.delete('/types/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), async (
     logger.error('Error deleting curation icon:', error);
     return res.status(500).json({error: 'Failed to delete icon'});
   }
-});
+  }
+);
 
 // Update curation type sort orders
-router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => {
+router.put(
+  '/types/sort-orders',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putAdminCurationTypesSortOrders',
+    summary: 'Update curation type sort orders',
+    description: 'Body: sortOrders (array of { id, sortOrder }). Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'sortOrders', schema: { type: 'object', properties: { sortOrders: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, sortOrder: { type: 'number' } } } } }, required: ['sortOrders'] }, required: true },
+    responses: { 200: { description: 'Sort orders updated' }, ...standardErrorResponses400500 },
+  }),
+  async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -478,10 +570,21 @@ router.put('/types/sort-orders', Auth.superAdminPassword(), async (req, res) => 
     logger.error('Error updating curation type sort orders:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Get all curations with pagination and filters
-router.get('/', async (req, res) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getAdminCurations',
+    summary: 'List curations',
+    description: 'Paginated curations. Query: page, limit, typeId, levelId, search, excludeIds.',
+    tags: ['Admin', 'Curations'],
+    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, typeId: { schema: { type: 'string' } }, levelId: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, excludeIds: { schema: { type: 'array', items: { type: 'string' } } } },
+    responses: { 200: { description: 'Curations list' }, ...standardErrorResponses400500 },
+  }),
+  async (req, res) => {
   try {
     const {page = 1, limit = 20, typeId, levelId, search, excludeIds} = req.query;
     const offset = (Number(page) - 1) * Number(limit);
@@ -668,10 +771,23 @@ router.get('/', async (req, res) => {
     logger.error('Error fetching curations:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Create curation
-  router.post('/', requireCuratorOrRater, async (req: Request, res: Response) => {
+router.post(
+  '/',
+  requireCuratorOrRater,
+  ApiDoc({
+    operationId: 'postAdminCuration',
+    summary: 'Create curation',
+    description: 'Create curation for a level. Body: levelId. Curator or rater.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'levelId', schema: { type: 'object', properties: { levelId: { type: 'number' } }, required: ['levelId'] }, required: true },
+    responses: { 201: { description: 'Curation created' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {levelId} = req.body;
     const assignedBy = req.user?.id || 'unknown';
@@ -812,10 +928,24 @@ router.get('/', async (req, res) => {
     logger.error('Error creating curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Update curation
-router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  requireCurationManagementPermission,
+  ApiDoc({
+    operationId: 'putAdminCuration',
+    summary: 'Update curation',
+    description: 'Update curation. Body: shortDescription?, description?, customCSS?, customColor?, typeId?. Requires curation permission.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'shortDescription, description, customCSS, customColor, typeId', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Curation updated' }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
@@ -909,10 +1039,21 @@ router.put('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req:
     await safeTransactionRollback(transaction);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Get single curation
-router.get('/:id([0-9]{1,20})', async (req, res) => {
+router.get(
+  '/:id([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getAdminCuration',
+    summary: 'Get curation',
+    description: 'Get single curation by id.',
+    tags: ['Admin', 'Curations'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Curation' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   try {
     const {id} = req.params;
 
@@ -965,10 +1106,23 @@ router.get('/:id([0-9]{1,20})', async (req, res) => {
     logger.error('Error fetching curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Delete curation
-router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})',
+  requireCurationManagementPermission,
+  ApiDoc({
+    operationId: 'deleteAdminCuration',
+    summary: 'Delete curation',
+    description: 'Delete curation. Requires curation management permission.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Curation deleted' }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1027,11 +1181,22 @@ router.delete('/:id([0-9]{1,20})', requireCurationManagementPermission, async (r
     logger.error('Error deleting curation:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Get curation schedules
 // All dates are handled in UTC to avoid timezone issues
-router.get('/schedules', async (req, res) => {
+router.get(
+  '/schedules',
+  ApiDoc({
+    operationId: 'getAdminCurationSchedules',
+    summary: 'List curation schedules',
+    description: 'Get schedules for a week. Query: weekStart (optional).',
+    tags: ['Admin', 'Curations'],
+    query: { weekStart: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Schedules' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     const { weekStart } = req.query;
 
@@ -1117,11 +1282,24 @@ router.get('/schedules', async (req, res) => {
     logger.error('Error fetching curation schedules:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Create curation schedule
 // All dates are handled in UTC to avoid timezone issues
-router.post('/schedules', Auth.headCurator(), async (req, res) => {
+router.post(
+  '/schedules',
+  Auth.headCurator(),
+  ApiDoc({
+    operationId: 'postAdminCurationSchedule',
+    summary: 'Create curation schedule',
+    description: 'Schedule a curation for a week. Body: curationId, weekStart, listType (primary|secondary). Head curator.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'curationId, weekStart, listType', schema: { type: 'object', properties: { curationId: { type: 'number' }, weekStart: { type: 'string' }, listType: { type: 'string' } }, required: ['curationId', 'weekStart', 'listType'] }, required: true },
+    responses: { 201: { description: 'Schedule created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req, res) => {
   try {
     const { curationId, weekStart, listType } = req.body;
     const scheduledBy = req.user?.id || 'unknown';
@@ -1243,10 +1421,24 @@ router.post('/schedules', Auth.headCurator(), async (req, res) => {
     logger.error('Error creating curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Update curation schedule
-router.put('/schedules/:id([0-9]{1,20})', Auth.headCurator(), async (req, res) => {
+router.put(
+  '/schedules/:id([0-9]{1,20})',
+  Auth.headCurator(),
+  ApiDoc({
+    operationId: 'putAdminCurationSchedule',
+    summary: 'Update curation schedule',
+    description: 'Update schedule. Body: isActive?. Head curator.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'isActive', schema: { type: 'object', properties: { isActive: { type: 'boolean' } } }, required: true },
+    responses: { 200: { description: 'Schedule updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive } = req.body;
@@ -1265,10 +1457,23 @@ router.put('/schedules/:id([0-9]{1,20})', Auth.headCurator(), async (req, res) =
     logger.error('Error updating curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Delete curation schedule
-router.delete('/schedules/:id([0-9]{1,20})', Auth.headCurator(), async (req, res) => {
+router.delete(
+  '/schedules/:id([0-9]{1,20})',
+  Auth.headCurator(),
+  ApiDoc({
+    operationId: 'deleteAdminCurationSchedule',
+    summary: 'Delete curation schedule',
+    description: 'Delete schedule. Head curator.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 204: { description: 'Schedule deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1283,10 +1488,24 @@ router.delete('/schedules/:id([0-9]{1,20})', Auth.headCurator(), async (req, res
     logger.error('Error deleting curation schedule:', error);
     return res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Upload level thumbnail
-router.post('/:id([0-9]{1,20})/thumbnail', [requireCurationManagementPermission, upload.single('thumbnail')], async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/thumbnail',
+  [requireCurationManagementPermission, upload.single('thumbnail')],
+  ApiDoc({
+    operationId: 'postAdminCurationThumbnail',
+    summary: 'Upload curation thumbnail',
+    description: 'Upload thumbnail for curation. Requires curation management permission.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'multipart/form-data with thumbnail file', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Thumbnail uploaded' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
 
@@ -1335,10 +1554,23 @@ router.post('/:id([0-9]{1,20})/thumbnail', [requireCurationManagementPermission,
     logger.error('Error uploading level thumbnail:', error);
     return res.status(500).json({error: 'Failed to upload thumbnail'});
   }
-});
+  }
+);
 
 // Delete level thumbnail
-router.delete('/:id([0-9]{1,20})/thumbnail', requireCurationManagementPermission, async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})/thumbnail',
+  requireCurationManagementPermission,
+  ApiDoc({
+    operationId: 'deleteAdminCurationThumbnail',
+    summary: 'Delete curation thumbnail',
+    description: 'Remove thumbnail from curation. Requires curation management permission.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Thumbnail removed' }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1364,6 +1596,7 @@ router.delete('/:id([0-9]{1,20})/thumbnail', requireCurationManagementPermission
     logger.error('Error deleting level thumbnail:', error);
     return res.status(500).json({error: 'Failed to delete thumbnail'});
   }
-});
+  }
+);
 
 export default router;

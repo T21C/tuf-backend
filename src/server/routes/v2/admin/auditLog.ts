@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
 import { AuditLog, User } from '@/models/index.js';
 import { Op } from 'sequelize';
 import { logger } from '@/server/services/LoggerService.js';
@@ -7,8 +9,19 @@ import { logger } from '@/server/services/LoggerService.js';
 const router = Router();
 
 // GET /admin/audit-logs
-// Query params: userId, action, method, route, startDate, endDate, q (search), page, pageSize, sort, order
-router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminAuditLogs',
+    summary: 'Audit logs',
+    description: 'Paginated audit logs. Query: userId, action, method, route, startDate, endDate, q, page, pageSize, sort, order. Super admin.',
+    tags: ['Admin', 'Audit'],
+    security: ['bearerAuth'],
+    query: { userId: { schema: { type: 'string' } }, action: { schema: { type: 'string' } }, method: { schema: { type: 'string' } }, route: { schema: { type: 'string' } }, startDate: { schema: { type: 'string' } }, endDate: { schema: { type: 'string' } }, q: { schema: { type: 'string' } }, page: { schema: { type: 'string' } }, pageSize: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, order: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Audit logs' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {
       userId,
@@ -64,6 +77,7 @@ router.get('/', Auth.superAdmin(), async (req: Request, res: Response) => {
     logger.error('Failed to fetch audit logs:', error);
     res.status(500).json({ error: 'Failed to fetch audit logs', details: error });
   }
-});
+  }
+);
 
 export default router;

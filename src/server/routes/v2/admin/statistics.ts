@@ -1,5 +1,7 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses401500, standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
@@ -13,7 +15,19 @@ import { validateAndClampDate } from '@/misc/utils/server/dateUtils.js';
 import { Cache } from '@/server/middleware/cache.js';
 const router: Router = Router();
 
-router.get('/', Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }), Auth.rater(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getAdminStatistics',
+    summary: 'Admin statistics',
+    description: 'Pending level/pass submission counts. Rater auth. Cached.',
+    tags: ['Admin', 'Statistics'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Pending counts' }, ...standardErrorResponses401500 },
+  }),
+  Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }),
+  Auth.rater(),
+  async (req: Request, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
@@ -46,9 +60,21 @@ router.get('/', Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }
     logger.error('Error fetching statistics:', error);
     return res.status(500).json({error: 'Failed to fetch statistics'});
   }
-});
+  }
+);
 
-router.get('/ratings-per-user', Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'limit'], prefix: 'admin:statistics:ratings-per-user' }), async (req: Request, res: Response) => {
+router.get(
+  '/ratings-per-user',
+  ApiDoc({
+    operationId: 'getAdminStatisticsRatingsPerUser',
+    summary: 'Ratings per user',
+    description: 'Ratings per rater in date range. Query: startDate, endDate, date, page, limit. Cached.',
+    tags: ['Admin', 'Statistics'],
+    query: { startDate: { schema: { type: 'string' } }, endDate: { schema: { type: 'string' } }, date: { schema: { type: 'string' } }, page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Ratings per user' }, ...standardErrorResponses500 },
+  }),
+  Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'limit'], prefix: 'admin:statistics:ratings-per-user' }),
+  async (req: Request, res: Response) => {
   try {
     // Get the date parameters from query string
     // Support both 'date' and 'startDate' for backwards compatibility
@@ -212,6 +238,7 @@ router.get('/ratings-per-user', Cache({ ttl: 300, varyByQuery: ['startDate', 'en
     logger.error('Error fetching ratings per user:', error);
     return res.status(500).json({error: 'Failed to fetch ratings per user'});
   }
-});
+  }
+);
 
 export default router;

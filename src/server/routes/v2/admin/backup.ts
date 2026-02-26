@@ -1,5 +1,7 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
 import {BackupService} from '@/server/services/BackupService.js';
 import fs from 'fs/promises';
 import { createReadStream } from 'fs';
@@ -27,6 +29,15 @@ backupService.initializeSchedules().catch(logger.error);
 router.head(
   '/upload/:type/validate',
   Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'headAdminBackupUploadValidate',
+    summary: 'Validate backup upload',
+    description: 'Validate backup upload credentials. type: mysql | files. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { type: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Valid' }, ...standardErrorResponses400500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type} = req.params;
@@ -46,6 +57,16 @@ router.post(
   '/upload/:type',
   Auth.superAdminPassword(),
   upload.single('backup'),
+  ApiDoc({
+    operationId: 'postAdminBackupUpload',
+    summary: 'Upload backup',
+    description: 'Upload backup file. type: mysql | files. Multipart: backup. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { type: { schema: { type: 'string' } } },
+    requestBody: { description: 'multipart backup file', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Uploaded' }, ...standardErrorResponses400500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type} = req.params;
@@ -79,6 +100,16 @@ router.post(
 router.post(
   '/create/:target',
   Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postAdminBackupCreate',
+    summary: 'Create backup',
+    description: 'Trigger manual backup. target: all | mysql | files. Body: type?. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { target: { schema: { type: 'string' } } },
+    requestBody: { description: 'type (optional)', schema: { type: 'object', properties: { type: { type: 'string' } } }, required: false },
+    responses: { 200: { description: 'Backups created' }, ...standardErrorResponses500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type = 'manual'} = req.body;
@@ -104,7 +135,18 @@ router.post(
 );
 
 // List available backups
-router.get('/list', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/list',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminBackupList',
+    summary: 'List backups',
+    description: 'List available mysql and files backups. Super admin.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Backup list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const config = backupService.getConfig();
     const mysqlBackups = await fs.readdir(config.mysql.backupPath);
@@ -147,12 +189,22 @@ router.get('/list', Auth.superAdmin(), async (req: Request, res: Response) => {
     logger.error('Failed to list backups:', error);
     res.status(500).json({error: 'Failed to list backups'});
   }
-});
+  }
+);
 
 // Restore backup
 router.post(
   '/restore/:type/:filename',
   Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postAdminBackupRestore',
+    summary: 'Restore backup',
+    description: 'Restore backup by type and filename. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Restored' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type, filename} = req.params;
@@ -191,6 +243,15 @@ router.post(
 router.delete(
   '/delete/:type/:filename',
   Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteAdminBackup',
+    summary: 'Delete backup',
+    description: 'Delete backup file. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Deleted' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type, filename} = req.params;
@@ -223,6 +284,16 @@ router.delete(
 router.post(
   '/rename/:type/:filename',
   Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postAdminBackupRename',
+    summary: 'Rename backup',
+    description: 'Rename backup file. Body: newName. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    requestBody: { description: 'newName', schema: { type: 'object', properties: { newName: { type: 'string' } }, required: ['newName'] }, required: true },
+    responses: { 200: { description: 'Renamed' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type, filename} = req.params;
@@ -271,6 +342,15 @@ router.post(
 router.get(
   '/download/:type/:filename',
   Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'getAdminBackupDownload',
+    summary: 'Download backup',
+    description: 'Stream backup file download. Super admin password.',
+    tags: ['Admin', 'Backup'],
+    security: ['bearerAuth'],
+    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'File stream' }, ...standardErrorResponses },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {type, filename} = req.params;

@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import { Op } from 'sequelize';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { DiscordGuild, DiscordSyncRole } from '@/models/discord/index.js';
@@ -15,9 +17,19 @@ const router: Router = Router();
 
 /**
  * GET /admin/discord/guilds
- * List all Discord guilds
  */
-router.get('/guilds', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/guilds',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminDiscordGuilds',
+    summary: 'List Discord guilds',
+    description: 'List all Discord guilds with roles. Super admin.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Guilds' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const guilds = await DiscordGuild.findAll({
       include: [{
@@ -39,13 +51,25 @@ router.get('/guilds', Auth.superAdmin(), async (req: Request, res: Response) => 
     logger.error('Error fetching Discord guilds:', error);
     return res.status(500).json({ error: 'Failed to fetch guilds' });
   }
-});
+  }
+);
 
 /**
  * GET /admin/discord/guilds/:id
- * Get a single Discord guild with its roles
  */
-router.get('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/guilds/:id',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminDiscordGuild',
+    summary: 'Get Discord guild',
+    description: 'Get single guild with roles. Super admin.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Guild' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const guild = await DiscordGuild.findByPk(id, {
@@ -70,13 +94,25 @@ router.get('/guilds/:id', Auth.superAdmin(), async (req: Request, res: Response)
     logger.error('Error fetching Discord guild:', error);
     return res.status(500).json({ error: 'Failed to fetch guild' });
   }
-});
+  }
+);
 
 /**
  * POST /admin/discord/guilds
- * Create a new Discord guild
  */
-router.post('/guilds', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.post(
+  '/guilds',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postAdminDiscordGuild',
+    summary: 'Create Discord guild',
+    description: 'Create guild. Body: guildId, name, botToken, isActive?. Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'guildId, name, botToken, isActive', schema: { type: 'object', properties: { guildId: { type: 'string' }, name: { type: 'string' }, botToken: { type: 'string' }, isActive: { type: 'boolean' } }, required: ['guildId', 'name', 'botToken'] }, required: true },
+    responses: { 201: { description: 'Guild created' }, ...standardErrorResponses400500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -124,13 +160,26 @@ router.post('/guilds', Auth.superAdminPassword(), async (req: Request, res: Resp
     logger.error('Error creating Discord guild:', error);
     return res.status(500).json({ error: 'Failed to create guild' });
   }
-});
+  }
+);
 
 /**
  * PUT /admin/discord/guilds/:id
- * Update a Discord guild
  */
-router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put(
+  '/guilds/:id',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putAdminDiscordGuild',
+    summary: 'Update Discord guild',
+    description: 'Update guild. Body: guildId, name, botToken?, isActive?. Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'guildId, name, botToken, isActive', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Guild updated' }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -200,13 +249,25 @@ router.put('/guilds/:id', Auth.superAdminPassword(), async (req: Request, res: R
     logger.error('Error updating Discord guild:', error);
     return res.status(500).json({ error: 'Failed to update guild' });
   }
-});
+  }
+);
 
 /**
  * DELETE /admin/discord/guilds/:id
- * Delete a Discord guild and all its roles
  */
-router.delete('/guilds/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete(
+  '/guilds/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteAdminDiscordGuild',
+    summary: 'Delete Discord guild',
+    description: 'Delete guild and its roles. Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 204: { description: 'Guild deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -233,15 +294,27 @@ router.delete('/guilds/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req:
     logger.error('Error deleting Discord guild:', error);
     return res.status(500).json({ error: 'Failed to delete guild' });
   }
-});
+  }
+);
 
 // ==================== ROLE ROUTES ====================
 
 /**
  * GET /admin/discord/guilds/:guildId/roles
- * List all roles for a guild
  */
-router.get('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/guilds/:guildId([0-9]{1,20})/roles',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminDiscordGuildRoles',
+    summary: 'List guild roles',
+    description: 'List Discord sync roles for a guild. Super admin.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { guildId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Roles' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { guildId } = req.params;
 
@@ -264,13 +337,26 @@ router.get('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdmin(), async (req:
     logger.error('Error fetching Discord roles:', error);
     return res.status(500).json({ error: 'Failed to fetch roles' });
   }
-});
+  }
+);
 
 /**
  * POST /admin/discord/guilds/:guildId/roles
- * Create a new role for a guild
  */
-router.post('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.post(
+  '/guilds/:guildId([0-9]{1,20})/roles',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postAdminDiscordGuildRole',
+    summary: 'Create guild role',
+    description: 'Create sync role. Body: roleId, label, type (DIFFICULTY|CURATION), minDifficultyId?, curationTypeId?, etc. Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { guildId: { schema: { type: 'string' } } },
+    requestBody: { description: 'roleId, label, type, minDifficultyId, curationTypeId, conflictGroup, isActive, sortOrder', schema: { type: 'object' }, required: true },
+    responses: { 201: { description: 'Role created' }, ...standardErrorResponses, 403: { schema: errorResponseSchema } },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -364,13 +450,26 @@ router.post('/guilds/:guildId([0-9]{1,20})/roles', Auth.superAdminPassword(), as
     logger.error('Error creating Discord role:', error);
     return res.status(500).json({ error: 'Failed to create role' });
   }
-});
+  }
+);
 
 /**
  * PUT /admin/discord/guilds/:guildId/roles/:roleId
- * Update a role
  */
-router.put('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put(
+  '/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putAdminDiscordGuildRole',
+    summary: 'Update guild role',
+    description: 'Update sync role. Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { guildId: { schema: { type: 'string' } }, roleId: { schema: { type: 'string' } } },
+    requestBody: { description: 'roleId, label, type, minDifficultyId, curationTypeId, conflictGroup, isActive, sortOrder', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Role updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -429,13 +528,25 @@ router.put('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.supe
     logger.error('Error updating Discord role:', error);
     return res.status(500).json({ error: 'Failed to update role' });
   }
-});
+  }
+);
 
 /**
  * DELETE /admin/discord/guilds/:guildId/roles/:roleId
- * Delete a role
  */
-router.delete('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete(
+  '/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteAdminDiscordGuildRole',
+    summary: 'Delete guild role',
+    description: 'Delete sync role. Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { guildId: { schema: { type: 'string' } }, roleId: { schema: { type: 'string' } } },
+    responses: { 204: { description: 'Role deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -456,15 +567,26 @@ router.delete('/guilds/:guildId([0-9]{1,20})/roles/:roleId([0-9]{1,20})', Auth.s
     logger.error('Error deleting Discord role:', error);
     return res.status(500).json({ error: 'Failed to delete role' });
   }
-});
+  }
+);
 
 /**
  * PUT /admin/discord/guilds/:guildId/roles/reorder
- * Reorder roles in a guild
- * Expects: { roleIds: [6, 8, 4, 5] } - array of role IDs in desired order
- * Sets sortOrder based on array index (0, 1, 2, 3...)
  */
-router.put('/guilds/:guildId([0-9]{1,20})/roles/reorder', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put(
+  '/guilds/:guildId([0-9]{1,20})/roles/reorder',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putAdminDiscordGuildRolesReorder',
+    summary: 'Reorder guild roles',
+    description: 'Body: roleIds (array of role IDs in desired order). Super admin password.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { guildId: { schema: { type: 'string' } } },
+    requestBody: { description: 'roleIds', schema: { type: 'object', properties: { roleIds: { type: 'array', items: { type: 'integer' } } }, required: ['roleIds'] }, required: true },
+    responses: { 200: { description: 'Roles reordered' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -554,15 +676,27 @@ router.put('/guilds/:guildId([0-9]{1,20})/roles/reorder', Auth.superAdminPasswor
 
     return res.status(500).json({ error: 'Failed to reorder roles' });
   }
-});
+  }
+);
 
 // ==================== SYNC ROUTES ====================
 
 /**
  * POST /admin/discord/sync/user/:userId
- * Manually trigger role sync for a user
  */
-router.post('/sync/user/:userId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/sync/user/:userId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminDiscordSyncUser',
+    summary: 'Sync user roles',
+    description: 'Manually trigger Discord role sync for a user. Super admin.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { userId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Sync result' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
 
@@ -576,13 +710,25 @@ router.post('/sync/user/:userId', Auth.superAdmin(), async (req: Request, res: R
     logger.error('Error syncing Discord roles:', error);
     return res.status(500).json({ error: 'Failed to sync roles' });
   }
-});
+  }
+);
 
 /**
  * POST /admin/discord/sync/player/:playerId
- * Manually trigger difficulty role sync for a player
  */
-router.post('/sync/player/:playerId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/sync/player/:playerId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminDiscordSyncPlayer',
+    summary: 'Sync player roles',
+    description: 'Trigger difficulty role sync for a player. Super admin.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { playerId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Sync result' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { playerId } = req.params;
 
@@ -596,13 +742,25 @@ router.post('/sync/player/:playerId', Auth.superAdmin(), async (req: Request, re
     logger.error('Error syncing Discord difficulty roles:', error);
     return res.status(500).json({ error: 'Failed to sync difficulty roles' });
   }
-});
+  }
+);
 
 /**
  * POST /admin/discord/sync/creator/:creatorId
- * Manually trigger curation role sync for a creator
  */
-router.post('/sync/creator/:creatorId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/sync/creator/:creatorId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminDiscordSyncCreator',
+    summary: 'Sync creator roles',
+    description: 'Trigger curation role sync for a creator. Super admin.',
+    tags: ['Admin', 'Discord'],
+    security: ['bearerAuth'],
+    params: { creatorId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Sync result' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { creatorId } = req.params;
 
@@ -616,6 +774,7 @@ router.post('/sync/creator/:creatorId', Auth.superAdmin(), async (req: Request, 
     logger.error('Error syncing Discord curation roles:', error);
     return res.status(500).json({ error: 'Failed to sync curation roles' });
   }
-});
+  }
+);
 
 export default router;

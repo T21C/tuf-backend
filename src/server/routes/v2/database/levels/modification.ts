@@ -3,6 +3,8 @@ import sequelize from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import {Transaction} from 'sequelize';
 import Rating from '@/models/levels/Rating.js';
 import Pass from '@/models/passes/Pass.js';
@@ -408,7 +410,20 @@ const handleScoreRecalculations = async (
   return passes.map(pass => pass.playerId);
 };
 
-router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: Response) => {
+router.put(
+  '/own/:id([0-9]{1,20})',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'putLevelOwn',
+    summary: 'Update own level',
+    description: 'Update level metadata (song, artist, links, etc.) when user owns the level.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'song, artist, videoLink, dlLink, suffix, workshopLink, songId', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Level updated' }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const levelId = parseInt(req.params.id);
@@ -512,9 +527,23 @@ router.put('/own/:id([0-9]{1,20})', Auth.verified(), async (req: Request, res: R
     logger.error('Error updating level:', error);
     return res.status(500).json({error: 'Failed to update level'});
   }
-});
+  }
+);
 
-router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putLevel',
+    summary: 'Update level (admin)',
+    description: 'Full level update by super admin (scores, difficulty, metadata, etc.).',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'Various level fields', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Level updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   // Validate numerical fields before starting transaction
   const numericFields = ['baseScore', 'diffId', 'previousDiffId', 'previousBaseScore', 'ppBaseScore'];
   for (const field of numericFields) {
@@ -848,9 +877,22 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     logger.error('Error updating level:', error);
     return res.status(500).json({error: 'Failed to update level'});
   }
-});
+  }
+);
 
-router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteLevel',
+    summary: 'Soft delete level',
+    description: 'Soft delete a level (super admin).',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Level soft deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const levelId = parseInt(req.params.id);
@@ -939,10 +981,22 @@ router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: 
       logger.error('Error soft deleting level:', error);
       return res.status(500).json({error: 'Failed to soft delete level'});
     }
-  },
+  }
 );
 
-router.patch('/:id([0-9]{1,20})/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch(
+  '/:id([0-9]{1,20})/restore',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchLevelRestore',
+    summary: 'Restore level',
+    description: 'Restore a soft-deleted level (super admin).',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Level restored' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1020,11 +1074,23 @@ router.patch('/:id([0-9]{1,20})/restore', Auth.superAdmin(), async (req: Request
       logger.error('Error restoring level:', error);
       return res.status(500).json({error: 'Failed to restore level'});
     }
-  },
+  }
 );
 
 // Toggle hidden status
-router.patch('/:id([0-9]{1,20})/toggle-hidden', Auth.verified(), async (req: Request, res: Response) => {
+router.patch(
+  '/:id([0-9]{1,20})/toggle-hidden',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'patchLevelToggleHidden',
+    summary: 'Toggle level hidden',
+    description: 'Toggle hidden status (creator or super admin).',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Hidden toggled' }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1088,10 +1154,23 @@ router.patch('/:id([0-9]{1,20})/toggle-hidden', Auth.verified(), async (req: Req
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
-router.put('/:id([0-9]{1,20})/like', Auth.verified(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})/like',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'putLevelLike',
+    summary: 'Like/unlike level',
+    description: 'Like or unlike a level (action: "like" | "unlike").',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'action: "like" | "unlike"', schema: { type: 'object', properties: { action: { type: 'string', enum: ['like', 'unlike'] } }, required: ['action'] }, required: true },
+    responses: { 200: { description: 'Like updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     if (!req.user) {
       await safeTransactionRollback(transaction);
@@ -1174,10 +1253,23 @@ router.put('/:id([0-9]{1,20})/like', Auth.verified(), async (req: Request, res: 
       logger.error('Error toggling level like:', error);
       return res.status(500).json({error: 'Failed to toggle level like'});
     }
-  },
+  }
 );
 
-router.put('/:id([0-9]{1,20})/rating-accuracy-vote', Auth.verified(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})/rating-accuracy-vote',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'putLevelRatingAccuracyVote',
+    summary: 'Vote on rating accuracy',
+    description: 'Submit or update a rating-accuracy vote for a PGU level (-5 to 5). Must have passed the level.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'vote: number -5..5', schema: { type: 'object', properties: { vote: { type: 'integer' } }, required: ['vote'] }, required: true },
+    responses: { 200: { description: 'Vote submitted' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1308,11 +1400,24 @@ router.put('/:id([0-9]{1,20})/rating-accuracy-vote', Auth.verified(), async (req
       logger.error('Error voting on rating accuracy:', error);
       return res.status(500).json({error: 'Failed to vote on rating accuracy'});
     }
-  },
+  }
 );
 
 // Upload management endpoints
-router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/upload',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postLevelUpload',
+    summary: 'Upload level file',
+    description: 'Upload or replace level file (chunked upload fileId). Creator or super admin.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'fileId, fileName, fileSize (from chunked upload)', schema: { type: 'object', properties: { fileId: { type: 'string' }, fileName: { type: 'string' }, fileSize: { type: 'integer' } }, required: ['fileId', 'fileName', 'fileSize'] }, required: true },
+    responses: { 200: { description: 'Upload success' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, 499: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1687,10 +1792,23 @@ router.post('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, re
       if (statusCode === 500) logger.error('Error uploading level file:', error);
       return res.status(statusCode).json(error);
     }
-  },
+  }
 );
 
-router.post('/:id([0-9]{1,20})/select-level', Auth.verified(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/select-level',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postLevelSelectLevel',
+    summary: 'Select level file',
+    description: 'Set target level index for a CDN level file. Creator or super admin.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'selectedLevel: number', schema: { type: 'object', properties: { selectedLevel: { type: 'integer' } }, required: ['selectedLevel'] }, required: true },
+    responses: { 200: { description: 'Level selected' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1746,10 +1864,22 @@ router.post('/:id([0-9]{1,20})/select-level', Auth.verified(), async (req: Reque
       if (statusCode === 500) logger.error('Error selecting level file:', error);
       return res.status(statusCode).json(error);
     }
-  },
+  }
 );
 
-router.delete('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})/upload',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'deleteLevelUpload',
+    summary: 'Delete level file',
+    description: 'Remove CDN level file and clear dlLink. Creator or super admin.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'File removed' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1814,11 +1944,23 @@ router.delete('/:id([0-9]{1,20})/upload', Auth.verified(), async (req: Request, 
       if (statusCode === 500) logger.error('Error deleting level file:', error);
       return res.status(statusCode).json(error);
     }
-  },
+  }
 );
 
 // Refresh auto-assigned tags for a level
-router.post('/:id([0-9]{1,20})/refresh-tags', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/refresh-tags',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postLevelRefreshTags',
+    summary: 'Refresh level tags',
+    description: 'Re-run auto tag assignment for a level (super admin).',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Tags refreshed' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
 
@@ -1849,6 +1991,7 @@ router.post('/:id([0-9]{1,20})/refresh-tags', Auth.superAdmin(), async (req: Req
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
 export default router;

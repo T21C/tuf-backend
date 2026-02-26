@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import Level from '@/models/levels/Level.js';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, successMessageSchema, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import { logger } from '@/server/services/LoggerService.js';
 import cdnService from '@/server/services/CdnService.js';
 import axios from 'axios';
@@ -18,7 +20,19 @@ if (!AUTORATER_UUID) {
 }
 const router = Router();
 
-router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, res) => {
+router.post(
+  '/autorate/:ratingId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postExternalAutorate',
+    summary: 'Trigger autorate',
+    description: 'Trigger external autorater for a rating (super admin)',
+    tags: ['Admin', 'External'],
+    security: ['bearerAuth'],
+    params: { ratingId: { schema: { type: 'string' } } },
+    responses: { 200: { schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
     const transaction = await sequelize.transaction();
     try {
     const ratingId = parseInt(req.params.ratingId);
@@ -128,6 +142,7 @@ router.post('/autorate/:ratingId([0-9]{1,20})', Auth.superAdmin(), async (req, r
     logger.error('Error autorating level:', error);
     return res.status(500).json({ error: 'Failed to autorate level' });
 }
-});
+  }
+);
 
 export default router;

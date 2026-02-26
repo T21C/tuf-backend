@@ -8,7 +8,11 @@ import {
   levelAliasesResponseSchema,
   errorResponseSchema,
   successMessageSchema,
-} from '@/server/schemas/index.js';
+  standardErrorResponses,
+  standardErrorResponses400500,
+  standardErrorResponses500,
+  idParamSpec,
+} from '@/server/schemas/v2/database/levels/index.js';
 import { Op } from 'sequelize';
 import { logger } from '@/server/services/LoggerService.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
@@ -24,11 +28,10 @@ router.get(
     summary: 'Get level aliases',
     description: 'Returns all song/artist aliases for a level',
     tags: ['Levels'],
-    params: { id: { description: 'Level ID', schema: { type: 'string', pattern: '^[0-9]{1,20}$' } } },
+    params: { id: idParamSpec },
     responses: {
       200: { description: 'List of aliases', schema: levelAliasesResponseSchema },
-      400: { description: 'Invalid level ID', schema: errorResponseSchema },
-      500: { description: 'Server error', schema: errorResponseSchema },
+      ...standardErrorResponses400500,
     },
   }),
   async (req: Request, res: Response) => {
@@ -61,7 +64,7 @@ router.post(
     description: 'Add song/artist alias for a level; optionally propagate to other levels',
     tags: ['Levels'],
     security: ['bearerAuth'],
-    params: { id: { description: 'Level ID', schema: { type: 'string', pattern: '^[0-9]{1,20}$' } } },
+    params: { id: idParamSpec },
     requestBody: {
       description: 'field (song|artist), alias, matchType, propagate',
       schema: {
@@ -77,9 +80,7 @@ router.post(
     },
     responses: {
       200: { description: 'Alias(es) added', schema: successMessageSchema },
-      400: { description: 'Invalid input', schema: errorResponseSchema },
-      404: { description: 'Level not found', schema: errorResponseSchema },
-      500: { description: 'Server error', schema: errorResponseSchema },
+      ...standardErrorResponses,
     },
   }),
   async (req: Request, res: Response) => {
@@ -233,9 +234,7 @@ router.put(
     requestBody: { description: 'New alias value', schema: { type: 'object', properties: { alias: { type: 'string' } }, required: ['alias'] } },
     responses: {
       200: { description: 'Alias updated', schema: successMessageSchema },
-      400: { description: 'Invalid input', schema: errorResponseSchema },
-      404: { description: 'Alias not found', schema: errorResponseSchema },
-      500: { description: 'Server error', schema: errorResponseSchema },
+      ...standardErrorResponses,
     },
   }),
   async (req: Request, res: Response) => {
@@ -302,9 +301,7 @@ router.delete(
     },
     responses: {
       200: { description: 'Alias deleted', schema: successMessageSchema },
-      400: { description: 'Invalid ID', schema: errorResponseSchema },
-      404: { description: 'Alias not found', schema: errorResponseSchema },
-      500: { description: 'Server error', schema: errorResponseSchema },
+      ...standardErrorResponses,
     },
   }),
   async (req: Request, res: Response) => {
@@ -360,9 +357,7 @@ router.get(
     },
     responses: {
       200: { description: 'Count and metadata', schema: { type: 'object', properties: { count: { type: 'integer' }, fieldValue: { type: 'string' }, matchType: { type: 'string' } } } },
-      400: { description: 'Invalid field or level ID', schema: errorResponseSchema },
-      404: { description: 'Level not found', schema: errorResponseSchema },
-      500: { description: 'Server error', schema: errorResponseSchema },
+      ...standardErrorResponses,
     },
   }),
   async (req: Request, res: Response) => {

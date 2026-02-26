@@ -4,6 +4,8 @@ import Level from '@/models/levels/Level.js';
 import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses404500, standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/index.js';
 import {Op} from 'sequelize';
 import {ConditionOperator, DirectiveCondition, DirectiveConditionType, IDifficulty} from '@/server/interfaces/models/index.js';
 import axios from 'axios';
@@ -181,17 +183,38 @@ function validateCustomDirective(condition: DirectiveCondition): { isValid: bool
 const router: Router = express.Router();
 
 // Get the current hash of difficulties
-router.get('/hash', async (req, res) => {
+router.get(
+  '/hash',
+  ApiDoc({
+    operationId: 'getDifficultiesHash',
+    summary: 'Difficulties hash',
+    description: 'Get current hash of difficulties (for cache busting).',
+    tags: ['Database', 'Difficulties'],
+    responses: { 200: { description: 'Hash' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     res.json({ hash: difficultiesHash });
   } catch (error) {
     logger.error('Error fetching difficulties hash:', error);
     res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Get available channels
-router.get('/channels', Auth.superAdminPassword(), async (req, res) => {
+router.get(
+  '/channels',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'getDifficultyChannels',
+    summary: 'List channels',
+    description: 'List announcement channels. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Channels' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     const channels = await AnnouncementChannel.findAll({
       where: { isActive: true },
@@ -202,10 +225,23 @@ router.get('/channels', Auth.superAdminPassword(), async (req, res) => {
     logger.error('Error fetching channels:', error);
     res.status(500).json({ error: 'Failed to fetch channels' });
   }
-});
+  }
+);
 
 // Create a new channel
-router.post('/channels', Auth.superAdminPassword(), async (req, res) => {
+router.post(
+  '/channels',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postDifficultyChannel',
+    summary: 'Create channel',
+    description: 'Create announcement channel. Body: webhookUrl, label. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'webhookUrl, label', schema: { type: 'object', properties: { webhookUrl: { type: 'string' }, label: { type: 'string' } }, required: ['webhookUrl', 'label'] }, required: true },
+    responses: { 201: { description: 'Channel created' }, ...standardErrorResponses400500 },
+  }),
+  async (req, res) => {
   try {
     const { webhookUrl, label } = req.body;
 
@@ -227,7 +263,20 @@ router.post('/channels', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update a channel
-router.put('/channels/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
+router.put(
+  '/channels/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putDifficultyChannel',
+    summary: 'Update channel',
+    description: 'Update announcement channel. Body: webhookUrl, label. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'webhookUrl, label', schema: { type: 'object', properties: { webhookUrl: { type: 'string' }, label: { type: 'string' } }, required: ['webhookUrl', 'label'] }, required: true },
+    responses: { 200: { description: 'Channel updated' }, ...standardErrorResponses },
+  }),
+  async (req, res) => {
   try {
     const channelId = req.params.id;
     const { webhookUrl, label } = req.body;
@@ -257,10 +306,23 @@ router.put('/channels/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, 
     logger.error('Error updating channel:', error);
     return res.status(500).json({ error: 'Failed to update channel' });
   }
-});
+  }
+);
 
 // Delete a channel
-router.delete('/channels/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
+router.delete(
+  '/channels/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteDifficultyChannel',
+    summary: 'Delete channel',
+    description: 'Soft-delete announcement channel. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Channel deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   try {
     const channelId = req.params.id;
 
@@ -283,10 +345,22 @@ router.delete('/channels/:id([0-9]{1,20})', Auth.superAdminPassword(), async (re
     logger.error('Error deleting channel:', error);
     return res.status(500).json({ error: 'Failed to delete channel' });
   }
-});
+  }
+);
 
 // Get available roles
-router.get('/roles', Auth.superAdminPassword(), async (req, res) => {
+router.get(
+  '/roles',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'getDifficultyRoles',
+    summary: 'List roles',
+    description: 'List announcement roles. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Roles' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     const roles = await AnnouncementRole.findAll({
       where: { isActive: true },
@@ -297,10 +371,23 @@ router.get('/roles', Auth.superAdminPassword(), async (req, res) => {
     logger.error('Error fetching roles:', error);
     res.status(500).json({ error: 'Failed to fetch roles' });
   }
-});
+  }
+);
 
 // Create a new role
-router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
+router.post(
+  '/roles',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postDifficultyRole',
+    summary: 'Create role',
+    description: 'Create announcement role. Body: roleId, label, messageFormat?. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'roleId, label, messageFormat', schema: { type: 'object', properties: { roleId: { type: 'string' }, label: { type: 'string' }, messageFormat: { type: 'string' } }, required: ['roleId', 'label'] }, required: true },
+    responses: { 201: { description: 'Role created' }, ...standardErrorResponses400500 },
+  }),
+  async (req, res) => {
   try {
     const { roleId, label, messageFormat } = req.body;
 
@@ -335,10 +422,24 @@ router.post('/roles', Auth.superAdminPassword(), async (req, res) => {
     logger.error('Error creating role:', error);
     return res.status(500).json({ error: 'Failed to create role' });
   }
-});
+  }
+);
 
 // Update a role
-router.put('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
+router.put(
+  '/roles/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putDifficultyRole',
+    summary: 'Update role',
+    description: 'Update announcement role. Body: roleId, label, messageFormat?. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'roleId, label, messageFormat', schema: { type: 'object', properties: { roleId: { type: 'string' }, label: { type: 'string' }, messageFormat: { type: 'string' } }, required: ['roleId', 'label'] }, required: true },
+    responses: { 200: { description: 'Role updated' }, ...standardErrorResponses },
+  }),
+  async (req, res) => {
   try {
     const roleId = req.params.id;
     const { roleId: newRoleId, label, messageFormat } = req.body;
@@ -386,10 +487,23 @@ router.put('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res
     logger.error('Error updating role:', error);
     return res.status(500).json({ error: 'Failed to update role' });
   }
-});
+  }
+);
 
 // Delete a role
-router.delete('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, res) => {
+router.delete(
+  '/roles/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteDifficultyRole',
+    summary: 'Delete role',
+    description: 'Soft-delete announcement role. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Role deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   try {
     const roleId = req.params.id;
 
@@ -412,10 +526,20 @@ router.delete('/roles/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req, 
     logger.error('Error deleting role:', error);
     return res.status(500).json({ error: 'Failed to delete role' });
   }
-});
+  }
+);
 
 // Get all difficulties
-router.get('/', async (req, res) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getDifficulties',
+    summary: 'List difficulties',
+    description: 'Get all difficulties (for cache/list).',
+    tags: ['Database', 'Difficulties'],
+    responses: { 200: { description: 'Difficulties list' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     const diffs = await Difficulty.findAll();
     const diffsList = diffs.map(diff => diff.toJSON());
@@ -424,10 +548,24 @@ router.get('/', async (req, res) => {
     logger.error('Error fetching difficulties:', error);
     res.status(500).json({error: 'Internal server error'});
   }
-});
+  }
+);
 
 // Upload difficulty icon
-router.post('/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), difficultyIconUpload.single('icon'), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/icon',
+  Auth.superAdminPassword(),
+  difficultyIconUpload.single('icon'),
+  ApiDoc({
+    operationId: 'postDifficultyIcon',
+    summary: 'Upload difficulty icon',
+    description: 'Upload icon for a difficulty. Multipart: icon file. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Icon uploaded' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const diffId = parseInt(req.params.id);
 
@@ -463,10 +601,24 @@ router.post('/:id([0-9]{1,20})/icon', Auth.superAdminPassword(), difficultyIconU
     logger.error('Error uploading difficulty icon:', error);
     return res.status(500).json({error: 'Failed to upload icon'});
   }
-});
+  }
+);
 
 // Upload difficulty legacy icon
-router.post('/:id([0-9]{1,20})/legacy-icon', Auth.superAdminPassword(), difficultyIconUpload.single('icon'), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/legacy-icon',
+  Auth.superAdminPassword(),
+  difficultyIconUpload.single('icon'),
+  ApiDoc({
+    operationId: 'postDifficultyLegacyIcon',
+    summary: 'Upload difficulty legacy icon',
+    description: 'Upload legacy icon for a difficulty. Multipart: icon file. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Legacy icon uploaded' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const diffId = parseInt(req.params.id);
 
@@ -502,7 +654,8 @@ router.post('/:id([0-9]{1,20})/legacy-icon', Auth.superAdminPassword(), difficul
     logger.error('Error uploading difficulty legacy icon:', error);
     return res.status(500).json({error: 'Failed to upload legacy icon'});
   }
-});
+  }
+);
 
 // Helper function to find the smallest unoccupied ID
 async function findSmallestUnoccupiedId(): Promise<number> {
@@ -523,10 +676,23 @@ async function findSmallestUnoccupiedId(): Promise<number> {
 }
 
 // Create new difficulty
-router.post('/', Auth.superAdminPassword(), difficultyIconUpload.fields([
-  { name: 'icon', maxCount: 1 },
-  { name: 'legacyIcon', maxCount: 1 }
-]), async (req: Request, res: Response) => {
+router.post(
+  '/',
+  Auth.superAdminPassword(),
+  difficultyIconUpload.fields([
+    { name: 'icon', maxCount: 1 },
+    { name: 'legacyIcon', maxCount: 1 }
+  ]),
+  ApiDoc({
+    operationId: 'postDifficulty',
+    summary: 'Create difficulty',
+    description: 'Create a difficulty. Body: id?, name, type, icon?, emoji?, color?, baseScore?, legacy?, legacyIcon?, legacyEmoji?. Multipart: icon, legacyIcon. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'id, name, type, icon, emoji, color, baseScore, legacy, legacyIcon, legacyEmoji', schema: { type: 'object', properties: { id: { type: 'number' }, name: { type: 'string' }, type: { type: 'string' }, icon: { type: 'string' }, emoji: { type: 'string' }, color: { type: 'string' }, baseScore: { type: 'number' }, legacy: { type: 'boolean' }, legacyIcon: { type: 'string' }, legacyEmoji: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 201: { description: 'Difficulty created' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {
         id,
@@ -631,14 +797,28 @@ router.post('/', Auth.superAdminPassword(), difficultyIconUpload.fields([
       logger.error('Error creating difficulty:', error);
       return res.status(500).json({error: 'Failed to create difficulty'});
     }
-  },
+  }
 );
 
 // Update difficulty
-router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), difficultyIconUpload.fields([
-  { name: 'icon', maxCount: 1 },
-  { name: 'legacyIcon', maxCount: 1 }
-]), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  difficultyIconUpload.fields([
+    { name: 'icon', maxCount: 1 },
+    { name: 'legacyIcon', maxCount: 1 }
+  ]),
+  ApiDoc({
+    operationId: 'putDifficulty',
+    summary: 'Update difficulty',
+    description: 'Update a difficulty. Body: name?, type?, icon?, emoji?, color?, baseScore?, sortOrder?, legacy?, legacyIcon?, legacyEmoji?. Multipart: icon, legacyIcon. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name, type, icon, emoji, color, baseScore, sortOrder, legacy, legacyIcon, legacyEmoji', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Difficulty updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const diffId = parseInt(req.params.id);
@@ -899,11 +1079,24 @@ router.put('/:id([0-9]{1,20})', Auth.superAdminPassword(), difficultyIconUpload.
       logger.error('Error updating difficulty:', error);
       return res.status(500).json({error: 'Failed to update difficulty'});
     }
-  },
+  }
 );
 
 // Delete difficulty with fallback
-router.delete('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteDifficulty',
+    summary: 'Delete difficulty',
+    description: 'Mark difficulty as LEGACY and migrate levels to fallback. Query: fallbackId. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    query: { fallbackId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Difficulty marked LEGACY' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const diffId = parseInt(req.params.id);
       const fallbackDiffId = parseInt(req.query.fallbackId as string);
@@ -985,7 +1178,7 @@ router.delete('/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Reques
       logger.error('Error deleting difficulty:', error);
       return res.status(500).json({error: 'Failed to delete difficulty'});
     }
-  },
+  }
 );
 
 interface DirectiveInput {
@@ -1010,7 +1203,19 @@ interface DirectiveInput {
 }
 
 // Get announcement directives for a difficulty
-router.get('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})/directives',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'getDifficultyDirectives',
+    summary: 'Get directives',
+    description: 'Get announcement directives for a difficulty. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Directives' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const diffId = parseInt(req.params.id);
 
@@ -1050,10 +1255,24 @@ router.get('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req
     logger.error('Error fetching announcement directives:', error);
     return res.status(500).json({ error: 'Failed to fetch announcement directives' });
   }
-});
+  }
+);
 
 // Configure announcement directives for a difficulty
-router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (req, res) => {
+router.post(
+  '/:id([0-9]{1,20})/directives',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'postDifficultyDirectives',
+    summary: 'Set directives',
+    description: 'Replace announcement directives for a difficulty. Body: directives[]. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'directives array', schema: { type: 'object', properties: { directives: { type: 'array', items: { type: 'object' } } }, required: ['directives'] }, required: true },
+    responses: { 200: { description: 'Directives updated' }, ...standardErrorResponses },
+  }),
+  async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const id = parseInt(req.params.id);
@@ -1216,7 +1435,8 @@ router.post('/:id([0-9]{1,20})/directives', Auth.superAdminPassword(), async (re
     logger.error('Error creating directives:', error);
     return res.status(500).json({ error: 'Failed to create directives' });
   }
-});
+  }
+);
 
 // Verify super admin password
 router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
@@ -1224,7 +1444,19 @@ router.head('/verify-password', Auth.superAdminPassword(), async (req, res) => {
 });
 
 // Update difficulty sort orders in bulk
-router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put(
+  '/sort-orders',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putDifficultySortOrders',
+    summary: 'Update difficulty sort orders',
+    description: 'Bulk update difficulty sort orders. Body: sortOrders[{ id, sortOrder }]. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'sortOrders', schema: { type: 'object', properties: { sortOrders: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, sortOrder: { type: 'number' } } } } }, required: ['sortOrders'] }, required: true },
+    responses: { 200: { description: 'Sort orders updated' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { sortOrders } = req.body;
@@ -1277,12 +1509,25 @@ router.put('/sort-orders', Auth.superAdminPassword(), async (req: Request, res: 
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
+  }
+);
 
 // ==================== TAG MANAGEMENT ENDPOINTS ====================
 
 // Update tag sort orders in bulk
-router.put('/tags/sort-orders', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put(
+  '/tags/sort-orders',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putTagSortOrders',
+    summary: 'Update tag sort orders',
+    description: 'Bulk update tag sort orders. Body: sortOrders[{ id, sortOrder }]. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'sortOrders', schema: { type: 'object', properties: { sortOrders: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, sortOrder: { type: 'number' } } } } }, required: ['sortOrders'] }, required: true },
+    responses: { 200: { description: 'Tag sort orders updated' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { sortOrders } = req.body;
@@ -1335,10 +1580,23 @@ router.put('/tags/sort-orders', Auth.superAdminPassword(), async (req: Request, 
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
+  }
+);
 
 // Update group sort orders in bulk
-router.put('/tags/group-sort-orders', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.put(
+  '/tags/group-sort-orders',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putTagGroupSortOrders',
+    summary: 'Update tag group sort orders',
+    description: 'Bulk update tag group sort orders. Body: groups[{ name, sortOrder }]. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'groups', schema: { type: 'object', properties: { groups: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, sortOrder: { type: 'number' } } } } }, required: ['groups'] }, required: true },
+    responses: { 200: { description: 'Group sort orders updated' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { groups } = req.body;
@@ -1395,10 +1653,20 @@ router.put('/tags/group-sort-orders', Auth.superAdminPassword(), async (req: Req
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
+  }
+);
 
 // Get all tags
-router.get('/tags', async (req: Request, res: Response) => {
+router.get(
+  '/tags',
+  ApiDoc({
+    operationId: 'getDifficultyTags',
+    summary: 'List tags',
+    description: 'Get all level tags (ordered by group and sort order).',
+    tags: ['Database', 'Difficulties'],
+    responses: { 200: { description: 'Tags list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const tags = await LevelTag.findAll({
       order: [['groupSortOrder', 'ASC'], ['sortOrder', 'ASC'], ['name', 'ASC']],
@@ -1408,10 +1676,24 @@ router.get('/tags', async (req: Request, res: Response) => {
     logger.error('Error fetching tags:', error);
     res.status(500).json({ error: 'Failed to fetch tags' });
   }
-});
+  }
+);
 
 // Create new tag
-router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), async (req: Request, res: Response) => {
+router.post(
+  '/tags',
+  Auth.superAdminPassword(),
+  tagIconUpload.single('icon'),
+  ApiDoc({
+    operationId: 'postDifficultyTag',
+    summary: 'Create tag',
+    description: 'Create level tag. Body: name, color, icon?, group?. Multipart: icon. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name, color, icon, group', schema: { type: 'object', properties: { name: { type: 'string' }, color: { type: 'string' }, icon: { type: 'string' }, group: { type: 'string' } }, required: ['name', 'color'] }, required: true },
+    responses: { 201: { description: 'Tag created' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { name, color, icon, group } = req.body;
@@ -1540,10 +1822,25 @@ router.post('/tags', Auth.superAdminPassword(), tagIconUpload.single('icon'), as
     logger.error('Error creating tag:', error);
     return res.status(500).json({ error: 'Failed to create tag' });
   }
-});
+  }
+);
 
 // Update tag
-router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.single('icon'), async (req: Request, res: Response) => {
+router.put(
+  '/tags/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  tagIconUpload.single('icon'),
+  ApiDoc({
+    operationId: 'putDifficultyTag',
+    summary: 'Update tag',
+    description: 'Update level tag. Body: name?, color?, icon?, group?. Multipart: icon. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name, color, icon, group', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Tag updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const tagId = parseInt(req.params.id);
@@ -1720,10 +2017,23 @@ router.put('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), tagIconUpload.si
     logger.error('Error updating tag:', error);
     return res.status(500).json({ error: 'Failed to update tag' });
   }
-});
+  }
+);
 
 // Delete tag
-router.delete('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: Request, res: Response) => {
+router.delete(
+  '/tags/:id([0-9]{1,20})',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'deleteDifficultyTag',
+    summary: 'Delete tag',
+    description: 'Delete level tag and its assignments. Super admin password.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Tag deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const tagId = parseInt(req.params.id);
@@ -1786,10 +2096,21 @@ router.delete('/tags/:id([0-9]{1,20})', Auth.superAdminPassword(), async (req: R
     logger.error('Error deleting tag:', error);
     return res.status(500).json({ error: 'Failed to delete tag' });
   }
-});
+  }
+);
 
 // Get tags for a level
-router.get('/levels/:levelId([0-9]{1,20})/tags', async (req: Request, res: Response) => {
+router.get(
+  '/levels/:levelId([0-9]{1,20})/tags',
+  ApiDoc({
+    operationId: 'getLevelTags',
+    summary: 'Get level tags',
+    description: 'Get tags assigned to a level.',
+    tags: ['Database', 'Difficulties'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Tags for level' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.levelId);
 
@@ -1814,10 +2135,24 @@ router.get('/levels/:levelId([0-9]{1,20})/tags', async (req: Request, res: Respo
     logger.error('Error fetching level tags:', error);
     return res.status(500).json({ error: 'Failed to fetch level tags' });
   }
-});
+  }
+);
 
 // Assign tags to level
-router.post('/levels/:levelId([0-9]{1,20})/tags', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/levels/:levelId([0-9]{1,20})/tags',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postLevelTags',
+    summary: 'Assign tags to level',
+    description: 'Replace tags assigned to a level. Body: tagIds[]. Super admin.',
+    tags: ['Database', 'Difficulties'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    requestBody: { description: 'tagIds', schema: { type: 'object', properties: { tagIds: { type: 'array', items: { type: 'number' } } }, required: ['tagIds'] }, required: true },
+    responses: { 200: { description: 'Tags assigned' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const levelId = parseInt(req.params.levelId);
@@ -1885,6 +2220,7 @@ router.post('/levels/:levelId([0-9]{1,20})/tags', Auth.superAdmin(), async (req:
     logger.error('Error assigning tags to level:', error);
     return res.status(500).json({ error: 'Failed to assign tags to level' });
   }
-});
+  }
+);
 
 export default router;

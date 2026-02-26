@@ -25,6 +25,13 @@ import {getVideoDetails} from '@/misc/utils/data/videoDetailParser.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {calcAcc, IJudgements} from '@/misc/utils/pass/CalcAcc.js';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import {
+  docRequestBody,
+  levelIdsBodySchema,
+  passIdsBodySchema,
+  standardErrorResponses400500,
+} from '@/server/schemas/v2/webhooks/index.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 import { User } from '@/models/index.js';
@@ -434,7 +441,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const embed = new MessageBuilder()
     .setColor('#000000')
     .setAuthor('New level submission', submitter?.avatarUrl || '', '')
-    .setTitle(`${song || 'Unknown Song'} ‚Äî ${artist || 'Unknown Artist'}`)
+    .setTitle(`${song || 'Unknown Song'} ù ${artist || 'Unknown Artist'}`)
     .addField('', `${discordId ? `<@${discordId}>` : `@${submitter?.nickname}`} #${submitter?.playerId}`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
     .addField('', '', false);
@@ -506,7 +513,7 @@ export async function passSubmissionHook(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} ‚Äî ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} ù ${trim(level?.artist || 'Unknown Artist', 30)}`,
       level?.difficulty?.icon || '',
       levelLink,
     )
@@ -556,7 +563,19 @@ export async function passSubmissionHook(
   return embed;
 }
 
-router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/passes',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksPasses',
+    summary: 'Send pass webhooks',
+    description: 'Send Discord webhook announcements for passes. Body: passIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('passIds', passIdsBodySchema),
+    responses: { 200: { description: 'Webhooks sent' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {passIds} = req.body;
 
@@ -641,10 +660,22 @@ router.post('/passes', Auth.superAdmin(), async (req: Request, res: Response) =>
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
-router.post('/levels', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/levels',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksLevels',
+    summary: 'Send level webhooks',
+    description: 'Send Discord webhook announcements for new levels. Body: levelIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    responses: { 200: { description: 'Webhooks sent' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {levelIds} = req.body;
 
@@ -700,10 +731,22 @@ router.post('/levels', Auth.superAdmin(), async (req: Request, res: Response) =>
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
-router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/rerates',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksRerates',
+    summary: 'Send rerate webhooks',
+    description: 'Send Discord webhook announcements for rerated levels. Body: levelIds (array). Uses RERATE_ANNOUNCEMENT_HOOK. Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    responses: { 200: { description: 'Webhooks sent' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {levelIds} = req.body;
 
@@ -829,12 +872,21 @@ router.post('/rerates', Auth.superAdmin(), async (req: Request, res: Response) =
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
 router.post(
   '/silent-remove/passes',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksSilentRemovePasses',
+    summary: 'Silent remove passes',
+    description: 'Mark passes as announced without sending webhooks. Body: passIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('passIds', passIdsBodySchema),
+    responses: { 200: { description: 'Passes marked' }, ...standardErrorResponses400500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {passIds} = req.body;
@@ -857,12 +909,21 @@ router.post(
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
 router.post(
   '/silent-remove/levels',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksSilentRemoveLevels',
+    summary: 'Silent remove levels',
+    description: 'Mark levels as announced without sending webhooks. Body: levelIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    responses: { 200: { description: 'Levels marked' }, ...standardErrorResponses400500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {levelIds} = req.body;
@@ -885,12 +946,21 @@ router.post(
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
 router.post(
   '/silent-remove/rerates',
   Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postWebhooksSilentRemoveRerates',
+    summary: 'Silent remove rerates',
+    description: 'Mark levels as announced (rerates) without sending webhooks. Body: levelIds (array). Super admin.',
+    tags: ['Webhooks'],
+    security: ['bearerAuth'],
+    requestBody: docRequestBody('levelIds', levelIdsBodySchema),
+    responses: { 200: { description: 'Rerates marked' }, ...standardErrorResponses400500 },
+  }),
   async (req: Request, res: Response) => {
     try {
       const {levelIds} = req.body;
@@ -913,7 +983,7 @@ router.post(
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
 export default router;

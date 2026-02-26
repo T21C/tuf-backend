@@ -1,4 +1,6 @@
 import {Router} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses500 } from '@/server/schemas/v2/database/index.js';
 import {Op, fn, col, literal, Sequelize} from 'sequelize';
 import Level from '@/models/levels/Level.js';
 import Pass from '@/models/passes/Pass.js';
@@ -11,7 +13,16 @@ import { logger } from '@/server/services/LoggerService.js';
 const router: Router = Router();
 
 // Get overall statistics
-router.get('/', async (req, res) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getStatistics',
+    summary: 'Overall statistics',
+    description: 'Returns overview stats: total levels, passes, players, difficulties, submissions.',
+    tags: ['Database', 'Statistics'],
+    responses: { 200: { description: 'Statistics object' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     try {
       const totalLevels = await Level.count({
@@ -193,10 +204,20 @@ router.get('/', async (req, res) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
 // Get player statistics
-router.get('/players', async (req, res) => {
+router.get(
+  '/players',
+  ApiDoc({
+    operationId: 'getStatisticsPlayers',
+    summary: 'Player statistics',
+    description: 'Returns player stats: by country, top players by passes.',
+    tags: ['Database', 'Statistics'],
+    responses: { 200: { description: 'Player statistics' }, ...standardErrorResponses500 },
+  }),
+  async (req, res) => {
   try {
     const [playerCountByCountry, topPlayersByPasses] = await Promise.all([
       // Players by country
@@ -245,6 +266,7 @@ router.get('/players', async (req, res) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
 export default router;

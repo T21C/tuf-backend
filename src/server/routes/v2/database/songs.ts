@@ -1,6 +1,8 @@
 import {Router, Request, Response} from 'express';
 import {Op} from 'sequelize';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import Song from '@/models/songs/Song.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import SongLink from '@/models/songs/SongLink.js';
@@ -35,7 +37,19 @@ const upload = multer({
 const MAX_LIMIT = 200;
 
 // Get public song list (paginated, searchable)
-router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getSongs',
+    summary: 'List songs',
+    description: 'Paginated, searchable song list. Query: page, limit, search, artistId, sort, verificationState.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, artistId: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, verificationState: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Songs list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {
       page = '1',
@@ -481,11 +495,24 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     logger.error('Error fetching songs:', error);
     return res.status(500).json({error: 'Failed to fetch songs'});
   }
-});
+  }
+);
 
 // Get level info (count and suffix distribution) for a song
 // Must be before the general GET /:id route
-router.get('/:id([0-9]{1,20})/levels/info', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})/levels/info',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getSongLevelsInfo',
+    summary: 'Song levels info',
+    description: 'Level count and suffix distribution for a song. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Levels info' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const songId = parseInt(req.params.id);
 
@@ -509,10 +536,23 @@ router.get('/:id([0-9]{1,20})/levels/info', Auth.superAdmin(), async (req: Reque
     logger.error('Error fetching level info:', error);
     return res.status(500).json({error: 'Failed to fetch level info'});
   }
-});
+  }
+);
 
 // Get public song detail page
-router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getSong',
+    summary: 'Get song',
+    description: 'Get song by ID with aliases, links, evidences, credits, and levels.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Song detail' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const song = await Song.findByPk(req.params.id, {
       include: [
@@ -563,10 +603,23 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
     logger.error('Error fetching song:', error);
     return res.status(500).json({error: 'Failed to fetch song'});
   }
-});
+  }
+);
 
 // Get evidence images (public read-only)
-router.get('/:id([0-9]{1,20})/evidences', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})/evidences',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getSongEvidences',
+    summary: 'Song evidences',
+    description: 'Get evidence images/links for a song.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Evidences list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const evidences = await evidenceService.getEvidenceForSong(parseInt(req.params.id));
     return res.json(evidences);
@@ -574,10 +627,23 @@ router.get('/:id([0-9]{1,20})/evidences', Auth.addUserToRequest(), async (req: R
     logger.error('Error fetching evidence:', error);
     return res.status(500).json({error: 'Failed to fetch evidence'});
   }
-});
+  }
+);
 
 // Create new song
-router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSong',
+    summary: 'Create song',
+    description: 'Create a song. Body: name, verificationState?, aliases?. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name, verificationState, aliases', schema: { type: 'object', properties: { name: { type: 'string' }, verificationState: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Song created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {name, verificationState, aliases} = req.body;
@@ -616,10 +682,24 @@ router.post('/', Auth.superAdmin(), async (req: Request, res: Response) => {
     logger.error('Error creating song:', error);
     return res.status(500).json({error: 'Failed to create song'});
   }
-});
+  }
+);
 
 // Update song
-router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putSong',
+    summary: 'Update song',
+    description: 'Update song name, verificationState, extraInfo. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name, verificationState, extraInfo', schema: { type: 'object', properties: { name: { type: 'string' }, verificationState: { type: 'string' }, extraInfo: { type: 'string' } } }, required: true },
+    responses: { 200: { description: 'Song updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const song = await Song.findByPk(req.params.id, {transaction});
@@ -649,10 +729,23 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
     logger.error('Error updating song:', error);
     return res.status(500).json({error: 'Failed to update song'});
   }
-});
+  }
+);
 
 // Delete song (with checks)
-router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteSong',
+    summary: 'Delete song',
+    description: 'Delete song if not used by any level. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Song deleted' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const song = await Song.findByPk(req.params.id, {transaction});
@@ -683,10 +776,24 @@ router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: 
     logger.error('Error deleting song:', error);
     return res.status(500).json({error: 'Failed to delete song'});
   }
-});
+  }
+);
 
 // Merge song into another
-router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/merge',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSongMerge',
+    summary: 'Merge songs',
+    description: 'Merge this song into target song. Body: targetId. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'targetId', schema: { type: 'object', properties: { targetId: { type: 'integer' } }, required: ['targetId'] }, required: true },
+    responses: { 200: { description: 'Merge success' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {targetId} = req.body;
@@ -704,10 +811,24 @@ router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, r
     logger.error('Error merging songs:', error);
     return res.status(500).json({error: 'Failed to merge songs'});
   }
-});
+  }
+);
 
 // Add alias
-router.post('/:id([0-9]{1,20})/aliases', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/aliases',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSongAlias',
+    summary: 'Add song alias',
+    description: 'Add alias for a song. Body: alias. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'alias', schema: { type: 'object', properties: { alias: { type: 'string' } }, required: ['alias'] }, required: true },
+    responses: { 200: { description: 'Alias created' }, 400: { schema: errorResponseSchema }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {alias} = req.body;
@@ -742,10 +863,23 @@ router.post('/:id([0-9]{1,20})/aliases', Auth.superAdmin(), async (req: Request,
     logger.error('Error adding alias:', error);
     return res.status(500).json({error: 'Failed to add alias'});
   }
-});
+  }
+);
 
 // Delete alias
-router.delete('/:id([0-9]{1,20})/aliases/:aliasId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})/aliases/:aliasId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteSongAlias',
+    summary: 'Delete song alias',
+    description: 'Delete alias by id. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, aliasId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Alias deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const alias = await SongAlias.findOne({
       where: {
@@ -764,10 +898,24 @@ router.delete('/:id([0-9]{1,20})/aliases/:aliasId([0-9]{1,20})', Auth.superAdmin
     logger.error('Error deleting alias:', error);
     return res.status(500).json({error: 'Failed to delete alias'});
   }
-});
+  }
+);
 
 // Add link
-router.post('/:id([0-9]{1,20})/links', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/links',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSongLink',
+    summary: 'Add song link',
+    description: 'Add link for a song. Body: link. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'link', schema: { type: 'object', properties: { link: { type: 'string' } }, required: ['link'] }, required: true },
+    responses: { 200: { description: 'Link created' }, 400: { schema: errorResponseSchema }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {link} = req.body;
@@ -802,10 +950,23 @@ router.post('/:id([0-9]{1,20})/links', Auth.superAdmin(), async (req: Request, r
     logger.error('Error adding link:', error);
     return res.status(500).json({error: 'Failed to add link'});
   }
-});
+  }
+);
 
 // Delete link
-router.delete('/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteSongLink',
+    summary: 'Delete song link',
+    description: 'Delete link by id. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, linkId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Link deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const link = await SongLink.findOne({
       where: {
@@ -824,10 +985,24 @@ router.delete('/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})', Auth.superAdmin(),
     logger.error('Error deleting link:', error);
     return res.status(500).json({error: 'Failed to delete link'});
   }
-});
+  }
+);
 
 // Add evidence (managers only)
-router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/evidences',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSongEvidence',
+    summary: 'Add song evidence',
+    description: 'Add evidence link for a song. Body: link. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'link', schema: { type: 'object', properties: { link: { type: 'string' } }, required: ['link'] }, required: true },
+    responses: { 200: { description: 'Evidence created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {link} = req.body;
@@ -849,10 +1024,25 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
     logger.error('Error adding evidence:', error);
     return res.status(500).json({error: 'Failed to add evidence'});
   }
-});
+  }
+);
 
 // Upload evidence images (managers only)
-router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.array('evidence', 10), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/evidences/upload',
+  Auth.superAdmin(),
+  upload.array('evidence', 10),
+  ApiDoc({
+    operationId: 'postSongEvidencesUpload',
+    summary: 'Upload evidence images',
+    description: 'Upload evidence images (multipart, up to 10). Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'multipart evidence files', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Evidences created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const files = req.files as Express.Multer.File[];
@@ -901,10 +1091,24 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
     logger.error('Error uploading evidence:', error);
     return res.status(500).json({error: 'Failed to upload evidence'});
   }
-});
+  }
+);
 
 // Update evidence (managers only) - only for external links
-router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putSongEvidence',
+    summary: 'Update song evidence',
+    description: 'Update evidence link (external links only). Body: link. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, evidenceId: { schema: { type: 'string' } } },
+    requestBody: { description: 'link', schema: { type: 'object', properties: { link: { type: 'string' } }, required: ['link'] }, required: true },
+    responses: { 200: { description: 'Evidence updated' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {link} = req.body;
@@ -928,10 +1132,23 @@ router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdm
     }
     return res.status(500).json({error: 'Failed to update evidence'});
   }
-});
+  }
+);
 
 // Delete evidence
-router.delete('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteSongEvidence',
+    summary: 'Delete song evidence',
+    description: 'Delete evidence by id. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, evidenceId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Evidence deleted' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     await evidenceService.deleteSongEvidence(parseInt(req.params.evidenceId));
     return res.json({success: true});
@@ -939,10 +1156,24 @@ router.delete('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.super
     logger.error('Error deleting evidence:', error);
     return res.status(500).json({error: 'Failed to delete evidence'});
   }
-});
+  }
+);
 
 // Add artist credit
-router.post('/:id([0-9]{1,20})/credits', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/credits',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSongCredit',
+    summary: 'Add song credit',
+    description: 'Add artist credit. Body: artistId, role?. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'artistId, role', schema: { type: 'object', properties: { artistId: { type: 'integer' }, role: { type: 'string' } }, required: ['artistId'] }, required: true },
+    responses: { 200: { description: 'Credit created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {artistId, role} = req.body;
@@ -964,10 +1195,23 @@ router.post('/:id([0-9]{1,20})/credits', Auth.superAdmin(), async (req: Request,
     logger.error('Error adding credit:', error);
     return res.status(500).json({error: 'Failed to add credit'});
   }
-});
+  }
+);
 
 // Remove credit
-router.delete('/:id([0-9]{1,20})/credits/:creditId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})/credits/:creditId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteSongCredit',
+    summary: 'Delete song credit',
+    description: 'Remove artist credit by id. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, creditId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Credit deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const credit = await SongCredit.findOne({
       where: {
@@ -986,10 +1230,24 @@ router.delete('/:id([0-9]{1,20})/credits/:creditId([0-9]{1,20})', Auth.superAdmi
     logger.error('Error deleting credit:', error);
     return res.status(500).json({error: 'Failed to delete credit'});
   }
-});
+  }
+);
 
 // Bulk update level suffix for all levels with this song
-router.post('/:id([0-9]{1,20})/levels/suffix', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/levels/suffix',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postSongLevelsSuffix',
+    summary: 'Bulk update level suffix',
+    description: 'Set suffix for all levels with this song. Body: suffix. Super admin.',
+    tags: ['Database', 'Songs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'suffix', schema: { type: 'object', properties: { suffix: { type: 'string' } } }, required: true },
+    responses: { 200: { description: 'Updated count' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const songId = parseInt(req.params.id);
@@ -1027,6 +1285,7 @@ router.post('/:id([0-9]{1,20})/levels/suffix', Auth.superAdmin(), async (req: Re
     logger.error('Error updating level suffix:', error);
     return res.status(500).json({error: 'Failed to update level suffix'});
   }
-});
+  }
+);
 
 export default router;

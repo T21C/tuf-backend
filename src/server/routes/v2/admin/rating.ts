@@ -1,4 +1,6 @@
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses401404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import Rating from '@/models/levels/Rating.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import Level from '@/models/levels/Level.js';
@@ -56,7 +58,16 @@ function fullRatingIncludeOptions(transaction: any) {
 }
 
 
-router.get('/', async (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getAdminRatings',
+    summary: 'Unconfirmed ratings',
+    description: 'List ratings with null confirmedAt (pending confirmation).',
+    tags: ['Admin', 'Rating'],
+    responses: { 200: { description: 'Ratings list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const ratings = await Rating.findAll({
       where: {
@@ -112,10 +123,24 @@ router.get('/', async (req: Request, res: Response) => {
     logger.error('Error fetching ratings:', error);
     return res.status(500).json({error: 'Internal Server Error'});
   }
-});
+  }
+);
 
 // Update rating
-router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
+router.put(
+  '/:id',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'putAdminRating',
+    summary: 'Update rating',
+    description: 'Submit or update rating detail. Body: rating, comment?, isCommunityRating?. Verified; rater for non-community.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'rating, comment, isCommunityRating', schema: { type: 'object', properties: { rating: { type: 'string' }, comment: { type: 'string' }, isCommunityRating: { type: 'boolean' } } }, required: true },
+    responses: { 200: { description: 'Rating updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -239,11 +264,21 @@ router.put('/:id', Auth.verified(), async (req: Request, res: Response) => {
     logger.error('Error updating rating:', error);
     return res.status(500).json({error: 'Failed to update rating'});
   }
-});
+  }
+);
 
 // Delete rating detail
 router.delete(
   '/:id/detail/:userId',
+  ApiDoc({
+    operationId: 'deleteAdminRatingDetail',
+    summary: 'Delete rating detail',
+    description: 'Remove a user\'s rating detail. Rater (own) or super admin.',
+    tags: ['Admin', 'Rating'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec, userId: stringIdParamSpec },
+    responses: { 200: { description: 'Detail deleted' }, ...standardErrorResponses401404500 },
+  }),
   [
     Auth.rater(),
     async (req: Request, res: Response, next: NextFunction) => {

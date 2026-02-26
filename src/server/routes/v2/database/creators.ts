@@ -1,5 +1,7 @@
 import {Op} from 'sequelize';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import Creator from '@/models/credits/Creator.js';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
@@ -31,7 +33,17 @@ const MAX_LIMIT = 200;
 
 
 // Get all creators with their aliases and level counts
-router.get('/', async (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getCreators',
+    summary: 'List creators',
+    description: 'Paginated creators with search. Query: page, limit, search, hideVerified, excludeAliases, sort.',
+    tags: ['Database', 'Creators'],
+    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Creators list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {
         page = '1',
@@ -140,10 +152,20 @@ router.get('/', async (req: Request, res: Response) => {
       logger.error('Error fetching creators:', error);
       return res.status(500).json({error: 'Failed to fetch creators'});
     }
-  },
+  }
 );
 
-router.get('/byId/:creatorId([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get(
+  '/byId/:creatorId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getCreatorById',
+    summary: 'Get creator by ID',
+    description: 'Get creator with credits and aliases.',
+    tags: ['Database', 'Creators'],
+    params: { creatorId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Creator' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {creatorId} = req.params;
     const creator = await Creator.findByPk(creatorId, {
@@ -173,7 +195,17 @@ router.get('/byId/:creatorId([0-9]{1,20})', async (req: Request, res: Response) 
 });
 
 // Get team by ID with members and levels
-router.get('/teams/byId/:teamId([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get(
+  '/teams/byId/:teamId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getTeamById',
+    summary: 'Get team by ID',
+    description: 'Get team with members, levels, and aliases.',
+    tags: ['Database', 'Creators'],
+    params: { teamId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Team' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {teamId} = req.params;
     const team = await Team.findByPk(teamId, {
@@ -225,10 +257,21 @@ router.get('/teams/byId/:teamId([0-9]{1,20})', async (req: Request, res: Respons
     logger.error('Error fetching team:', error);
     return res.status(500).json({ error: 'Failed to fetch team details' });
   }
-});
+  }
+);
 
 // Get levels with their legacy and current creators
-router.get('/levels-audit', async (req: Request, res: Response) => {
+router.get(
+  '/levels-audit',
+  ApiDoc({
+    operationId: 'getCreatorsLevelsAudit',
+    summary: 'Levels audit',
+    description: 'Paginated levels with creator/team audit. Query: offset, limit, search, hideVerified, excludeAliases.',
+    tags: ['Database', 'Creators'],
+    query: { offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Audit results' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const offset = parseInt(req.query.offset as string) || 0;
       const limit = parseInt(req.query.limit as string) || 50;
@@ -308,11 +351,21 @@ router.get('/levels-audit', async (req: Request, res: Response) => {
       logger.error('Error fetching levels audit:', error);
       return res.status(500).json({error: 'Failed to fetch levels audit'});
     }
-  },
+  }
 );
 
 // Create new creator
-router.post('/', async (req: Request, res: Response) => {
+router.post(
+  '/',
+  ApiDoc({
+    operationId: 'postCreator',
+    summary: 'Create creator',
+    description: 'Create a creator. Body: name, aliases?.',
+    tags: ['Database', 'Creators'],
+    requestBody: { description: 'name, aliases', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Creator created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { name, aliases = [] } = req.body;
@@ -357,10 +410,24 @@ router.post('/', async (req: Request, res: Response) => {
     logger.error('Error creating creator:', error);
     return res.status(500).json({ error: 'Failed to create creator' });
   }
-});
+  }
+);
 
 // Update level creators
-router.put('/level/:levelId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/level/:levelId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putLevelCreators',
+    summary: 'Update level creators',
+    description: 'Replace creators for a level. Body: creators[{ id, role, isOwner }]. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    requestBody: { description: 'creators', schema: { type: 'object', properties: { creators: { type: 'array', items: { type: 'object', properties: { id: { type: 'number' }, role: { type: 'string' }, isOwner: { type: 'boolean' } } } } } }, required: true },
+    responses: { 200: { description: 'Level creators updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -403,11 +470,23 @@ router.put('/level/:levelId([0-9]{1,20})', Auth.superAdmin(), async (req: Reques
       logger.error('Error updating level creators:', error);
       return res.status(500).json({error: 'Failed to update level creators'});
     }
-  },
+  }
 );
 
 // Verify level credits
-router.post('/level/:levelId([0-9]{1,20})/verify', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/level/:levelId([0-9]{1,20})/verify',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postLevelVerify',
+    summary: 'Verify level credits',
+    description: 'Mark level and its credits as verified. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Level verified' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -443,11 +522,23 @@ router.post('/level/:levelId([0-9]{1,20})/verify', Auth.superAdmin(), async (req
       logger.error('Error verifying level credits:', error);
       return res.status(500).json({error: 'Failed to verify level credits'});
     }
-  },
+  }
 );
 
 // Unverify level credits
-router.post('/level/:levelId([0-9]{1,20})/unverify', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/level/:levelId([0-9]{1,20})/unverify',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postLevelUnverify',
+    summary: 'Unverify level credits',
+    description: 'Mark level and its credits as unverified. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Level unverified' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -483,11 +574,23 @@ router.post('/level/:levelId([0-9]{1,20})/unverify', Auth.superAdmin(), async (r
       logger.error('Error unverifying level credits:', error);
       return res.status(500).json({error: 'Failed to unverify level credits'});
     }
-  },
+  }
 );
 
 // Merge creators
-router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/merge',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postCreatorsMerge',
+    summary: 'Merge creators',
+    description: 'Merge source creator into target. Body: sourceId, targetId. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'sourceId, targetId', schema: { type: 'object', properties: { sourceId: { type: 'number' }, targetId: { type: 'number' } }, required: ['sourceId', 'targetId'] }, required: true },
+    responses: { 200: { description: 'Merge success' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {sourceId, targetId} = req.body;
@@ -627,11 +730,23 @@ router.post('/merge', Auth.superAdmin(), async (req: Request, res: Response) => 
       logger.error('Error merging creators:', error);
       return res.status(500).json({error: 'Failed to merge creators'});
     }
-  },
+  }
 );
 
 // Split creator
-router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/split',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postCreatorSplit',
+    summary: 'Split creator',
+    description: 'Split creator into multiple creators. Body: creatorId, newNames[], roles?. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'creatorId, newNames, roles', schema: { type: 'object', properties: { creatorId: { type: 'number' }, newNames: { type: 'array', items: { type: 'string' } }, roles: { type: 'array', items: { type: 'string' } } }, required: ['creatorId', 'newNames'] }, required: true },
+    responses: { 200: { description: 'Creator split' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {creatorId, newNames, roles} = req.body;
@@ -762,11 +877,22 @@ router.post('/split', Auth.superAdmin(), async (req: Request, res: Response) => 
       logger.error('Error splitting creator:', error);
       return res.status(500).json({error: 'Failed to split creator'});
     }
-  },
+  }
 );
 
 // Update creator
-router.put('/:id([0-9]{1,20})', async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'putCreator',
+    summary: 'Update creator',
+    description: 'Update creator. Body: name?, aliases?, userId?, isVerified?.',
+    tags: ['Database', 'Creators'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name, aliases, userId, isVerified', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, userId: { type: 'string' }, isVerified: { type: 'boolean' } } }, required: true },
+    responses: { 200: { description: 'Creator updated' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -882,10 +1008,21 @@ router.put('/:id([0-9]{1,20})', async (req: Request, res: Response) => {
     logger.error('Error updating creator:', error);
     return res.status(500).json({error: 'Failed to update creator'});
   }
-});
+  }
+);
 
 // Get all teams with search
-router.get('/teams', async (req: Request, res: Response) => {
+router.get(
+  '/teams',
+  ApiDoc({
+    operationId: 'getCreatorsTeams',
+    summary: 'List teams',
+    description: 'List teams with optional search. Query: search.',
+    tags: ['Database', 'Creators'],
+    query: { search: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Teams list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {search} = req.query;
 
@@ -957,10 +1094,24 @@ router.get('/teams', async (req: Request, res: Response) => {
     logger.error('Error fetching teams:', error);
     return res.status(500).json({error: 'Failed to fetch teams'});
   }
-});
+  }
+);
 
 // Create or update team for level
-router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/level/:levelId([0-9]+)/team',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putLevelTeam',
+    summary: 'Set level team',
+    description: 'Create/update team for level. Body: teamId?, name?, members?. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    requestBody: { description: 'teamId, name, members', schema: { type: 'object', properties: { teamId: { type: 'number' }, name: { type: 'string' }, members: { type: 'array', items: { type: 'number' } } } }, required: true },
+    responses: { 200: { description: 'Team updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -1141,11 +1292,23 @@ router.put('/level/:levelId([0-9]+)/team', Auth.superAdmin(), async (req: Reques
       logger.error('Error updating team:', error);
       return res.status(500).json({error: 'Failed to update team'});
     }
-  },
+  }
 );
 
 // Delete team association from level
-router.delete('/level/:levelId([0-9]{1,20})/team', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/level/:levelId([0-9]{1,20})/team',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteLevelTeam',
+    summary: 'Remove level team',
+    description: 'Remove team association from level. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Team removed' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {levelId} = req.params;
@@ -1191,11 +1354,24 @@ router.delete('/level/:levelId([0-9]{1,20})/team', Auth.superAdmin(), async (req
       logger.error('Error removing team:', error);
       return res.status(500).json({error: 'Failed to remove team'});
     }
-  },
+  }
 );
 
 // Delete team
-router.delete('/team/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/team/:teamId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteCreatorTeam',
+    summary: 'Delete team',
+    description: 'Delete team or remove from level. Query: levelId. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { teamId: { schema: { type: 'string' } } },
+    query: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Team deleted' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {teamId} = req.params;
@@ -1243,11 +1419,21 @@ router.delete('/team/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Reque
       logger.error('Error deleting team:', error);
       return res.status(500).json({error: 'Failed to delete team'});
     }
-  },
+  }
 );
 
 // Get team details
-router.get('/team/:teamId([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get(
+  '/team/:teamId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getCreatorTeam',
+    summary: 'Get team',
+    description: 'Get team by ID with members and aliases.',
+    tags: ['Database', 'Creators'],
+    params: { teamId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Team' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {teamId} = req.params;
     const team = await Team.findByPk(teamId, {
@@ -1286,10 +1472,23 @@ router.get('/team/:teamId([0-9]{1,20})', async (req: Request, res: Response) => 
     logger.error('Error fetching team:', error);
     return res.status(500).json({error: 'Failed to fetch team'});
   }
-});
+  }
+);
 
 // Link Discord account to creator
-router.put('/:creatorId([0-9]{1,20})/discord/:userId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:creatorId([0-9]{1,20})/discord/:userId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putCreatorDiscord',
+    summary: 'Link Discord to creator',
+    description: 'Link user to creator (Discord account). Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { creatorId: { schema: { type: 'string' } }, userId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Discord linked' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {creatorId, userId} = req.params;
@@ -1318,11 +1517,23 @@ router.put('/:creatorId([0-9]{1,20})/discord/:userId', Auth.superAdmin(), async 
       logger.error('Error linking Discord account:', error);
       return res.status(500).json({error: 'Failed to link Discord account'});
     }
-  },
+  }
 );
 
 // Unlink Discord account from creator
-router.delete('/:creatorId([0-9]{1,20})/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:creatorId([0-9]{1,20})/discord',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteCreatorDiscord',
+    summary: 'Unlink Discord from creator',
+    description: 'Unlink user from creator. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { creatorId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Discord unlinked' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {creatorId} = req.params;
@@ -1344,11 +1555,23 @@ router.delete('/:creatorId([0-9]{1,20})/discord', Auth.superAdmin(), async (req:
       logger.error('Error unlinking Discord account:', error);
       return res.status(500).json({error: 'Failed to unlink Discord account'});
     }
-  },
+  }
 );
 
 // Assign creator to user (supports both UUID and playerId)
-router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/assign-creator-to-user/:userOrPlayerId/:creatorId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAssignCreatorToUser',
+    summary: 'Assign creator to user',
+    description: 'Assign creator to user or player. Params: userOrPlayerId (UUID or playerId), creatorId. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { userOrPlayerId: { schema: { type: 'string' } }, creatorId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Creator assigned' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { userOrPlayerId, creatorId } = req.params;
@@ -1422,10 +1645,23 @@ router.put('/assign-creator-to-user/:userOrPlayerId/:creatorId', Auth.superAdmin
     logger.error('Error assigning creator to user:', error);
     return res.status(500).json({ error: 'Failed to assign creator to user' });
   }
-});
+  }
+);
 
 // Remove creator from user (supports both UUID and playerId)
-router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/remove-creator-from-user/:userOrPlayerId',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteRemoveCreatorFromUser',
+    summary: 'Remove creator from user',
+    description: 'Remove creator from user or player. Params: userOrPlayerId (UUID or playerId). Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { userOrPlayerId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Creator removed' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { userOrPlayerId } = req.params;
@@ -1486,10 +1722,21 @@ router.delete('/remove-creator-from-user/:userOrPlayerId', Auth.superAdmin(), as
     logger.error('Error removing creator from user:', error);
     return res.status(500).json({ error: 'Failed to remove creator from user' });
   }
-});
+  }
+);
 
 // Add search endpoint for creators
-router.get('/search/:name', async (req: Request, res: Response) => {
+router.get(
+  '/search/:name',
+  ApiDoc({
+    operationId: 'getCreatorsSearch',
+    summary: 'Search creators',
+    description: 'Search creators by name (URI-encoded).',
+    tags: ['Database', 'Creators'],
+    params: { name: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Creators list' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     // Safely decode the URI encoded search term
     let name: string;
@@ -1542,10 +1789,23 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
+  }
+);
 
 // Create new team
-router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/teams',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postCreatorsTeam',
+    summary: 'Create team',
+    description: 'Create team. Body: name, aliases?, description?. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name, aliases, description', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, description: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Team created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { name, aliases, description } = req.body;
@@ -1682,10 +1942,24 @@ router.post('/teams', Auth.superAdmin(), async (req: Request, res: Response) => 
     logger.error('Error creating team:', error);
     return res.status(500).json({ error: 'Failed to create team' });
   }
-});
+  }
+);
 
 // Update team
-router.put('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/teams/:teamId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putCreatorsTeam',
+    summary: 'Update team',
+    description: 'Update team. Body: name?, aliases?, description?. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { teamId: { schema: { type: 'string' } } },
+    requestBody: { description: 'name, aliases, description', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, description: { type: 'string' } } }, required: true },
+    responses: { 200: { description: 'Team updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { teamId } = req.params;
@@ -1833,10 +2107,23 @@ router.put('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request
     logger.error('Error updating team:', error);
     return res.status(500).json({ error: 'Failed to update team' });
   }
-});
+  }
+);
 
 // Delete team (only if not assigned to any levels)
-router.delete('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/teams/:teamId([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deleteCreatorsTeam',
+    summary: 'Delete team',
+    description: 'Delete team if not assigned to any levels. Super admin.',
+    tags: ['Database', 'Creators'],
+    security: ['bearerAuth'],
+    params: { teamId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Team deleted' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const { teamId } = req.params;
@@ -1884,10 +2171,21 @@ router.delete('/teams/:teamId([0-9]{1,20})', Auth.superAdmin(), async (req: Requ
     logger.error('Error deleting team:', error);
     return res.status(500).json({ error: 'Failed to delete team' });
   }
-});
+  }
+);
 
 // Add search endpoint for teams
-router.get('/teams/search/:name', async (req: Request, res: Response) => {
+router.get(
+  '/teams/search/:name',
+  ApiDoc({
+    operationId: 'getTeamsSearch',
+    summary: 'Search teams',
+    description: 'Search teams by name.',
+    tags: ['Database', 'Creators'],
+    params: { name: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Teams list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
 
@@ -1958,6 +2256,7 @@ router.get('/teams/search/:name', async (req: Request, res: Response) => {
     logger.error('Error searching teams:', error);
     return res.status(500).json({ error: 'Failed to search teams' });
   }
-});
+  }
+);
 
 export default router;

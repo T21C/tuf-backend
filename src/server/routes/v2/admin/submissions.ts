@@ -1,5 +1,7 @@
 import {Request, Response, Router} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import {
   PassSubmission,
   PassSubmissionFlags,
@@ -279,7 +281,18 @@ interface CreatorRequest {
 }
 
 // Get all level submissions
-router.get('/levels', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/levels',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminLevelSubmissions',
+    summary: 'List level submissions',
+    description: 'List all level submissions. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Level submissions' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const levelSubmissions = await LevelSubmission.findAll();
       return res.json(levelSubmissions);
@@ -287,11 +300,22 @@ router.get('/levels', Auth.superAdmin(), async (req: Request, res: Response) => 
       logger.error('Error fetching level submissions:', error);
       return res.status(500).json({error: 'Failed to fetch level submissions'});
     }
-  },
+  }
 );
 
 // Get pending level submissions
-router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/levels/pending',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminLevelSubmissionsPending',
+    summary: 'List pending level submissions',
+    description: 'List pending level submissions with full includes. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Pending level submissions' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const pendingLevelSubmissions = await LevelSubmission.findAll({
       where: { status: 'pending' },
@@ -435,10 +459,22 @@ router.get('/levels/pending', Auth.superAdmin(), async (req: Request, res: Respo
     logger.error('Error fetching pending level submissions:', error);
     return res.status(500).json({ error: 'Failed to fetch pending level submissions' });
   }
-});
+  }
+);
 
 // Get all pass submissions
-router.get('/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/passes',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminPassSubmissions',
+    summary: 'List pass submissions',
+    description: 'List all pass submissions. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Pass submissions' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const passSubmissions = await PassSubmission.findAll({
         include: [
@@ -457,11 +493,22 @@ router.get('/passes', Auth.superAdmin(), async (req: Request, res: Response) => 
       logger.error('Error fetching pass submissions:', error);
       return res.status(500).json({error: 'Failed to fetch pass submissions'});
     }
-  },
+  }
 );
 
 // Get pending pass submissions
-router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/passes/pending',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getAdminPassSubmissionsPending',
+    summary: 'List pending pass submissions',
+    description: 'List pending pass submissions with includes. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Pending pass submissions' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const submissions = await PassSubmission.findAll({
         where: {status: 'pending'},
@@ -504,11 +551,23 @@ router.get('/passes/pending', Auth.superAdmin(), async (req: Request, res: Respo
         .status(500)
         .json({error: 'Failed to fetch pending pass submissions'});
     }
-  },
+  }
 );
 
 // Handle level submission actions (approve/reject)
-router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/approve',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionApprove',
+    summary: 'Approve level submission',
+    description: 'Approve pending level submission; creates level and rating. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Submission approved' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     let rollbackReason = '';
     try {
@@ -987,7 +1046,19 @@ router.put('/levels/:id/approve', Auth.superAdmin(), async (req: Request, res: R
 );
 
 
-router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/decline',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionDecline',
+    summary: 'Decline level submission',
+    description: 'Decline pending level submission. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Submission declined' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     let rollbackReason = '';
     try {
@@ -1065,7 +1136,19 @@ router.put('/levels/:id/decline', Auth.superAdmin(), async (req: Request, res: R
 
 
 // Split pass submission actions into specific endpoints
-router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/passes/:id/approve',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminPassSubmissionApprove',
+    summary: 'Approve pass submission',
+    description: 'Approve pending pass submission; creates pass. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Pass submission approved' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     const submissionId = req.params.id;
 
@@ -1143,7 +1226,19 @@ router.put('/passes/:id/approve', Auth.superAdmin(), async (req: Request, res: R
   }
 );
 
-router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/passes/:id/decline',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminPassSubmissionDecline',
+    summary: 'Decline pass submission',
+    description: 'Decline pending pass submission. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    responses: { 200: { description: 'Pass submission declined' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       await PassSubmission.update(
@@ -1185,7 +1280,20 @@ router.put('/passes/:id/decline', Auth.superAdmin(), async (req: Request, res: R
   }
 );
 
-router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/passes/:id/assign-player',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminPassSubmissionAssignPlayer',
+    summary: 'Assign player to pass submission',
+    description: 'Assign a player to a pending pass submission. Body: playerId. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'playerId', schema: { type: 'object', properties: { playerId: { type: 'number' } }, required: ['playerId'] }, required: true },
+    responses: { 200: { description: 'Player assigned' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {playerId} = req.body;
@@ -1304,7 +1412,18 @@ router.put('/passes/:id/assign-player', Auth.superAdmin(), async (req: Request, 
 );
 
 // Auto-approve pass submissions
-router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/auto-approve/passes',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postAdminAutoApprovePasses',
+    summary: 'Auto-approve pass submissions',
+    description: 'Approve all pending pass submissions that have an assigned player. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Results per submission' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const pendingSubmissions = await PassSubmission.findAll({
       where: { status: 'pending' },
@@ -1439,7 +1558,18 @@ router.post('/auto-approve/passes', Auth.superAdmin(), async (req: Request, res:
 
 
 // Add endpoint to update profiles
-router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/profiles',
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionProfiles',
+    summary: 'Update level submission profiles',
+    description: 'Update creator requests and team request data for a submission. Body: creatorRequests?, teamRequestData?.',
+    tags: ['Admin', 'Submissions'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'creatorRequests, teamRequestData', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1565,7 +1695,20 @@ router.put('/levels/:id/profiles', async (req: Request, res: Response) => {
 });
 
 // Assign creator to submission
-router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/levels/:id/assign-creator',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminLevelSubmissionAssignCreator',
+    summary: 'Assign creator to submission',
+    description: 'Assign existing creator to a creator request. Body: creatorId, role, creditRequestId. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'creatorId, role, creditRequestId', schema: { type: 'object', properties: { creatorId: { type: 'number' }, role: { type: 'string' }, creditRequestId: { type: 'number' } }, required: ['creatorId', 'role', 'creditRequestId'] }, required: true },
+    responses: { 200: { description: 'Creator assigned' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
 
     try {
@@ -1638,7 +1781,18 @@ router.put('/levels/:id/assign-creator', Auth.superAdmin(), async (req: Request,
 );
 
 // Add endpoint to create and assign creator in one step
-router.post('/levels/:id/creators', async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/creators',
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionCreators',
+    summary: 'Create and assign creator',
+    description: 'Create creator/team and assign to submission. Body: name, aliases?, role, creditRequestId.',
+    tags: ['Admin', 'Submissions'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'name, aliases, role, creditRequestId', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, role: { type: 'string' }, creditRequestId: { type: 'number' } }, required: ['name', 'role', 'creditRequestId'] }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1812,7 +1966,18 @@ router.post('/levels/:id/creators', async (req: Request, res: Response) => {
 });
 
 // Add a new creator request
-router.post('/levels/:id/creator-requests', async (req: Request, res: Response) => {
+router.post(
+  '/levels/:id/creator-requests',
+  ApiDoc({
+    operationId: 'postAdminLevelSubmissionCreatorRequests',
+    summary: 'Add creator request',
+    description: 'Add a new creator/team request to submission. Body: role.',
+    tags: ['Admin', 'Submissions'],
+    params: { id: stringIdParamSpec },
+    requestBody: { description: 'role', schema: { type: 'object', properties: { role: { type: 'string' } }, required: ['role'] }, required: true },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1913,7 +2078,17 @@ router.post('/levels/:id/creator-requests', async (req: Request, res: Response) 
 });
 
 // Remove a creator request
-router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, res: Response) => {
+router.delete(
+  '/levels/:id/creator-requests/:requestId',
+  ApiDoc({
+    operationId: 'deleteAdminLevelSubmissionCreatorRequest',
+    summary: 'Remove creator request',
+    description: 'Remove a creator or team request from submission.',
+    tags: ['Admin', 'Submissions'],
+    params: { id: stringIdParamSpec, requestId: stringIdParamSpec },
+    responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -2003,7 +2178,7 @@ router.delete('/levels/:id/creator-requests/:requestId', async (req: Request, re
   }
 });
 
-// Mount song/artist management routes
+// Mount song/artist management routes (submissions-song-artist.ts)
 router.use('/', submissionSongArtistRoutes);
 
 export default router;

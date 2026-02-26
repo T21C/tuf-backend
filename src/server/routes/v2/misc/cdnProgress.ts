@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import { logger } from '@/server/services/LoggerService.js';
 
@@ -24,7 +26,38 @@ interface LevelUploadProgressPayload {
 }
 
 // POST /v2/cdn/pack-progress - Receive progress updates from CDN service
-router.post('/pack-progress', async (req: Request, res: Response) => {
+router.post(
+    '/pack-progress',
+    ApiDoc({
+        operationId: 'postCdnPackProgress',
+        summary: 'Report pack download progress',
+        description: 'Called by CDN service to push pack download progress to SSE subscribers (packDownload:{downloadId}).',
+        tags: ['CDN'],
+        requestBody: {
+            description: 'Pack download progress payload',
+            schema: {
+                type: 'object',
+                required: ['downloadId', 'cacheKey', 'status'],
+                properties: {
+                    downloadId: { type: 'string' },
+                    cacheKey: { type: 'string' },
+                    status: { type: 'string', enum: ['pending', 'processing', 'zipping', 'uploading', 'completed', 'failed'] },
+                    totalLevels: { type: 'number' },
+                    processedLevels: { type: 'number' },
+                    currentLevel: { type: 'string' },
+                    progressPercent: { type: 'number' },
+                    error: { type: 'string' },
+                },
+            },
+            required: true,
+        },
+        responses: {
+            200: { description: 'Progress forwarded to SSE', schema: { type: 'object', properties: { success: { type: 'boolean' } }, required: ['success'] } },
+            400: { description: 'Missing required fields', schema: errorResponseSchema },
+            500: { description: 'Failed to process update', schema: errorResponseSchema },
+        },
+    }),
+    async (req: Request, res: Response) => {
     try {
         const payload = req.body as PackProgressPayload;
 
@@ -54,10 +87,39 @@ router.post('/pack-progress', async (req: Request, res: Response) => {
         });
         return res.status(500).json({ error: 'Failed to process progress update' });
     }
-});
+    }
+);
 
 // POST /v2/cdn/level-upload-progress - Receive progress updates from CDN service for level uploads
-router.post('/level-upload-progress', async (req: Request, res: Response) => {
+router.post(
+    '/level-upload-progress',
+    ApiDoc({
+        operationId: 'postCdnLevelUploadProgress',
+        summary: 'Report level upload progress',
+        description: 'Called by CDN service to push level upload progress to SSE subscribers (levelUpload:{uploadId}).',
+        tags: ['CDN'],
+        requestBody: {
+            description: 'Level upload progress payload',
+            schema: {
+                type: 'object',
+                required: ['uploadId', 'status'],
+                properties: {
+                    uploadId: { type: 'string' },
+                    status: { type: 'string', enum: ['uploading', 'processing', 'caching', 'completed', 'failed'] },
+                    progressPercent: { type: 'number' },
+                    currentStep: { type: 'string' },
+                    error: { type: 'string' },
+                },
+            },
+            required: true,
+        },
+        responses: {
+            200: { description: 'Progress forwarded to SSE', schema: { type: 'object', properties: { success: { type: 'boolean' } }, required: ['success'] } },
+            400: { description: 'Missing required fields', schema: errorResponseSchema },
+            500: { description: 'Failed to process update', schema: errorResponseSchema },
+        },
+    }),
+    async (req: Request, res: Response) => {
     try {
         const payload = req.body as LevelUploadProgressPayload;
 
@@ -80,7 +142,8 @@ router.post('/level-upload-progress', async (req: Request, res: Response) => {
         });
         return res.status(500).json({ error: 'Failed to process progress update' });
     }
-});
+    }
+);
 
 export default router;
 

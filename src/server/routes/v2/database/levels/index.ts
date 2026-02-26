@@ -1,4 +1,5 @@
 import {Router, Request, Response} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { logger } from '@/server/services/LoggerService.js';
 import aliases from './aliases.js';
 import modification from './modification.js';
@@ -12,8 +13,17 @@ import { permissionFlags } from '@/config/constants.js';
 
 const router: Router = Router();
 
-// Add HEAD endpoint for permission check
-router.head('/:id', async (req: Request, res: Response) => {
+router.head(
+  '/:id',
+  ApiDoc({
+    operationId: 'headLevelPermissionCheck',
+    summary: 'Check level access',
+    description: 'Returns 200 if level exists and user may access; 403/404 otherwise. No body.',
+    tags: ['Levels'],
+    params: { id: { description: 'Level ID', schema: { type: 'string' } } },
+    responses: { 200: { description: 'OK' }, 400: { description: 'Invalid ID' }, 403: { description: 'Forbidden' }, 404: { description: 'Not found' }, 500: { description: 'Server error' } },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
     if (isNaN(levelId)) {
@@ -39,7 +49,8 @@ router.head('/:id', async (req: Request, res: Response) => {
     logger.error('Error checking level permissions:', error);
     return res.status(500).end();
   }
-});
+  }
+);
 
 
 router.use('/', aliases);

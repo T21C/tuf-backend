@@ -3,6 +3,8 @@ import Player from '@/models/players/Player.js';
 import Pass from '@/models/passes/Pass.js';
 import {getIO} from '@/misc/utils/server/socket.js';
 import {Auth} from '@/server/middleware/auth.js';
+import {ApiDoc} from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import sequelize from '@/config/db.js';
 import {updateWorldsFirstStatus} from './passes/index.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
@@ -95,7 +97,16 @@ const getRemainingCooldown = (playerId: number, targetPlayerId: number): number 
   return Math.ceil(remaining / 1000); // Convert to seconds
 };
 
-router.get('/', async (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getPlayers',
+    summary: 'List players',
+    description: 'Get leaderboard-style player list (simple).',
+    tags: ['Database', 'Players'],
+    responses: { 200: { description: 'Players list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const players = await playerStatsService.getLeaderboard();
     return res.json(players);
@@ -106,9 +117,22 @@ router.get('/', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
-router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPlayer',
+    summary: 'Get player',
+    description: 'Get player by ID with stats and profile. Auth adds extra fields.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Player detail' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {id} = req.params;
     const user = req.user;
@@ -191,9 +215,20 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 
-router.get('/search/:name', async (req: Request, res: Response) => {
+router.get(
+  '/search/:name',
+  ApiDoc({
+    operationId: 'getPlayersSearch',
+    summary: 'Search players',
+    description: 'Search players by name (player name or username).',
+    tags: ['Database', 'Players'],
+    params: { name: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Player stats list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const name = req.params.name; // Exp  ress has already decoded this
     const escapedName = escapeForMySQL(name);
@@ -246,7 +281,8 @@ router.get('/search/:name', async (req: Request, res: Response) => {
       details: error instanceof Error ? error.message : String(error),
     });
   }
-});
+  }
+);
 /*
 DISCORD SHOULD ONLY BE MANAGED BY USERS
 router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
@@ -418,7 +454,19 @@ router.delete('/:id([0-9]+)/discord', Auth.superAdmin(), async (req: Request, re
 );
 */
 
-router.post('/create', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/create',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postPlayerCreate',
+    summary: 'Create player',
+    description: 'Create a new player. Body: name. Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name', schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 201: { description: 'Player created' }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {name} = req.body;
 
@@ -607,7 +655,20 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
 );
 */
 
-router.put('/:id([0-9]{1,20})/name', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})/name',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putPlayerName',
+    summary: 'Update player name',
+    description: 'Update player display name. Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name', schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }, required: true },
+    responses: { 200: { description: 'Name updated' }, 400: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {name} = req.body;
@@ -667,10 +728,23 @@ router.put('/:id([0-9]{1,20})/name', Auth.superAdmin(), async (req: Request, res
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
-router.put('/:id([0-9]{1,20})/country', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})/country',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putPlayerCountry',
+    summary: 'Update player country',
+    description: 'Update player country code (2 chars). Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'country', schema: { type: 'object', properties: { country: { type: 'string' } }, required: ['country'] }, required: true },
+    responses: { 200: { description: 'Country updated' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {id} = req.params;
       const {country} = req.body;
@@ -703,7 +777,7 @@ router.put('/:id([0-9]{1,20})/country', Auth.superAdmin(), async (req: Request, 
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
 // Add helper function to update all affected levels
@@ -729,7 +803,20 @@ async function updateAffectedLevelsWorldsFirst(
 }
 
 // Update the ban/unban endpoint
-router.patch('/:id([0-9]{1,20})/ban', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch(
+  '/:id([0-9]{1,20})/ban',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchPlayerBan',
+    summary: 'Ban/unban player',
+    description: 'Set player ban status. Body: isBanned. Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'isBanned', schema: { type: 'object', properties: { isBanned: { type: 'boolean' } }, required: ['isBanned'] }, required: true },
+    responses: { 200: { description: 'Ban updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -779,11 +866,24 @@ router.patch('/:id([0-9]{1,20})/ban', Auth.superAdmin(), async (req: Request, re
         .status(500)
         .json({error: 'Failed to update player ban status'});
     }
-  },
+  }
 );
 
 // Add this new endpoint after the ban endpoint
-router.patch('/:id([0-9]{1,20})/pause-submissions', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch(
+  '/:id([0-9]{1,20})/pause-submissions',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'patchPlayerPauseSubmissions',
+    summary: 'Pause/resume submissions',
+    description: 'Set player submissions paused. Body: isSubmissionsPaused. Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'isSubmissionsPaused', schema: { type: 'object', properties: { isSubmissionsPaused: { type: 'boolean' } }, required: ['isSubmissionsPaused'] }, required: true },
+    responses: { 200: { description: 'Updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -822,10 +922,23 @@ router.patch('/:id([0-9]{1,20})/pause-submissions', Auth.superAdmin(), async (re
         .status(500)
         .json({error: 'Failed to update player submission pause status'});
     }
-  },
+  }
 );
 
-router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.post(
+  '/:id([0-9]{1,20})/merge',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'postPlayerMerge',
+    summary: 'Merge players',
+    description: 'Merge source player into target. Body: targetPlayerId. Super admin.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'targetPlayerId', schema: { type: 'object', properties: { targetPlayerId: { type: 'integer' } }, required: ['targetPlayerId'] }, required: true },
+    responses: { 200: { description: 'Merge success' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -1052,11 +1165,23 @@ router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, r
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  },
+  }
 );
 
 // Add profile request endpoint
-router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.post(
+  '/request',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'postPlayerRequest',
+    summary: 'Request player profile',
+    description: 'Create player profile request. Body: name, discordId, country.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name, discordId, country', schema: { type: 'object', properties: { name: { type: 'string' }, discordId: { type: 'string' }, country: { type: 'string' } }, required: ['name', 'discordId', 'country'] }, required: true },
+    responses: { 201: { description: 'Player created' }, 400: { schema: errorResponseSchema }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { name, discordId, country } = req.body;
 
@@ -1096,9 +1221,22 @@ router.post('/request', Auth.addUserToRequest(), async (req: Request, res: Respo
     logger.error('Error creating player profile:', error);
     return res.status(500).json({ error: 'Failed to create player profile' });
   }
-});
+  }
+);
 
-router.get('/:playerId([0-9]{1,20})/modifiers', Auth.addUserToRequest(), async (req, res) => {
+router.get(
+  '/:playerId([0-9]{1,20})/modifiers',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPlayerModifiers',
+    summary: 'Get player modifiers',
+    description: 'Get active modifiers and cooldown for a player.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    params: { playerId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Modifiers and cooldown' }, ...standardErrorResponses500, 727: { schema: errorResponseSchema } },
+  }),
+  async (req, res) => {
   try {
     if (!modifierService) {
       return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
@@ -1131,10 +1269,23 @@ router.get('/:playerId([0-9]{1,20})/modifiers', Auth.addUserToRequest(), async (
     logger.error('Error fetching modifiers:', error);
     return res.status(500).json({ error: 'Failed to fetch modifiers' });
   }
-});
+  }
+);
 
 // Generate a new random modifier for the player
-router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
+router.post(
+  '/modifiers/generate',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postPlayerModifiersGenerate',
+    summary: 'Generate modifier',
+    description: 'Roll a new random modifier for a player. Body: targetPlayerId.',
+    tags: ['Database', 'Players'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'targetPlayerId', schema: { type: 'object', properties: { targetPlayerId: { type: 'integer' } }, required: ['targetPlayerId'] }, required: true },
+    responses: { 200: { description: 'Modifier generated' }, 400: { schema: errorResponseSchema }, 429: { schema: errorResponseSchema }, ...standardErrorResponses500, 727: { schema: errorResponseSchema } },
+  }),
+  async (req, res) => {
   if (!modifierService) {
     return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
   }
@@ -1178,9 +1329,20 @@ router.post('/modifiers/generate', Auth.verified(), async (req, res) => {
     logger.error('Error generating modifier:', error);
     return res.status(500).json({ error: 'Failed to generate modifier' });
   }
-});
+  }
+);
 
-router.get('/:discordId([0-9]{1,20})/role-data', async (req, res) => {
+router.get(
+  '/:discordId([0-9]{1,20})/role-data',
+  ApiDoc({
+    operationId: 'getPlayerRoleData',
+    summary: 'Role data by Discord ID',
+    description: 'Get user/player/creator and role data by Discord ID (e.g. for bot).',
+    tags: ['Database', 'Players'],
+    params: { discordId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Role data' }, ...standardErrorResponses404500 },
+  }),
+  async (req, res) => {
   try {
     const discordId = req.params.discordId;
 
@@ -1281,6 +1443,7 @@ router.get('/:discordId([0-9]{1,20})/role-data', async (req, res) => {
     logger.error('Error fetching role data:', error);
     return res.status(500).json({ error: 'Failed to fetch role data' });
   }
-});
+  }
+);
 
 export default router;

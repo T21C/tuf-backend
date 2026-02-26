@@ -1,5 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, successMessageSchema, standardErrorResponses400500, standardErrorResponses404500, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -73,12 +75,34 @@ router.use(Auth.verified());
 // Apply CORS with the shared options
 router.use(cors(corsOptions));
 
-router.get('/', (req: Request, res: Response) => {
+router.get(
+  '/',
+  ApiDoc({
+    operationId: 'getChunkedUpload',
+    summary: 'Chunked upload status',
+    description: 'Returns status message for chunked upload API',
+    tags: ['Upload'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'OK', schema: successMessageSchema } },
+  }),
+  (req: Request, res: Response) => {
   return res.json({ message: 'Chunked upload API is running' });
-});
+  }
+);
 
-// Update the upload endpoint
-router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Request, res: Response) => {
+router.post(
+  '/chunk',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postChunkedUploadChunk',
+    summary: 'Upload a chunk',
+    description: 'Upload one chunk of a file (multipart; headers: x-file-id, x-chunk-index, x-total-chunks, optional x-level-id)',
+    tags: ['Upload'],
+    security: ['bearerAuth'],
+    responses: { 200: { schema: successMessageSchema }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  upload.single('chunk'),
+  async (req: Request, res: Response) => {
   try {
     const fileId = req.headers['x-file-id'] as string;
     const chunkIndex = parseInt(req.headers['x-chunk-index'] as string);
@@ -244,11 +268,22 @@ router.post('/chunk', Auth.verified(), upload.single('chunk'), async (req: Reque
     logger.error('Chunk upload error:', error);
     res.status(500).json({ error: 'Failed to process upload' });
   }
-  return
-});
+  }
+);
 
-// Validate upload status
-router.post('/validate', Auth.verified(), async (req: Request, res: Response) => {
+router.post(
+  '/validate',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postChunkedUploadValidate',
+    summary: 'Validate chunked upload',
+    description: 'Check upload status by fileId; optional levelId for ownership',
+    tags: ['Upload'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'fileId, optional levelId', schema: { type: 'object', properties: { fileId: { type: 'string' }, levelId: { type: 'integer' } }, required: ['fileId'] }, required: true },
+    responses: { 200: { description: 'Upload status' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const { fileId, levelId } = req.body;
 
@@ -334,7 +369,8 @@ router.post('/validate', Auth.verified(), async (req: Request, res: Response) =>
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
+  }
+);
 
 // Add cleanup function
 const cleanupUserUploads = async (userId: string, excludeFileId?: string) => {
@@ -401,8 +437,18 @@ const cleanupUserUploads = async (userId: string, excludeFileId?: string) => {
   }
 };
 
-// Add cleanup endpoint
-router.post('/cleanup', Auth.verified(), async (req: Request, res: Response) => {
+router.post(
+  '/cleanup',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postChunkedUploadCleanup',
+    summary: 'Cleanup uploads',
+    description: 'Remove all chunked uploads for the current user',
+    tags: ['Upload'],
+    security: ['bearerAuth'],
+    responses: { 200: { schema: successMessageSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -418,7 +464,8 @@ router.post('/cleanup', Auth.verified(), async (req: Request, res: Response) => 
       details: error instanceof Error ? error.message : String(error)
     });
   }
-});
+  }
+);
 
 // Export the cleanup function
 export { cleanupUserUploads };

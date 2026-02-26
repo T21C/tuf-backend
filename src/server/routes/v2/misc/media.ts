@@ -1,4 +1,6 @@
 import express, {Request, Response, Router} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import fetch from 'node-fetch';
 import axios from 'axios';
 import path from 'path';
@@ -389,7 +391,21 @@ setInterval(async () => {
 
 const router: Router = express.Router();
 
-router.get('/image-proxy', async (req: Request, res: Response) => {
+router.get(
+  '/image-proxy',
+  ApiDoc({
+    operationId: 'getMediaImageProxy',
+    summary: 'Proxy image by URL',
+    description: 'Fetches an image from a given URL and returns it (avoids CORS).',
+    tags: ['Media'],
+    query: { url: { description: 'Image URL to fetch', schema: { type: 'string' }, required: true } },
+    responses: {
+      200: { description: 'Image binary (Content-Type from source)' },
+      400: { description: 'Invalid or missing URL' },
+      500: { description: 'Error fetching image', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   const imageUrl = req.query.url;
   const maxAttempts = 5;
   let attempt = 1;
@@ -439,9 +455,23 @@ router.get('/image-proxy', async (req: Request, res: Response) => {
     logger.error(`Unexpected error in image proxy for link ${imageUrl}:`, error);
     return res.status(500).send('Error fetching image.');
   }
-});
+  }
+);
 
-router.get('/bilibili', async (req: Request, res: Response) => {
+router.get(
+  '/bilibili',
+  ApiDoc({
+    operationId: 'getMediaBilibili',
+    summary: 'Bilibili video info',
+    description: 'Fetches video metadata from Bilibili API by bvid.',
+    tags: ['Media'],
+    query: { bvid: { description: 'Bilibili video ID (bvid)', schema: { type: 'string' }, required: true } },
+    responses: {
+      200: { description: 'Bilibili API response (video view data)' },
+      500: { description: 'Internal server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   const bvid = req.query.bvid;
   const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
   const maxAttempts = 5;
@@ -469,9 +499,24 @@ router.get('/bilibili', async (req: Request, res: Response) => {
     }
   }
   return res.status(500).json({error: 'Internal Server Error'});
-});
+  }
+);
 
-router.get('/avatar/:userId', async (req: Request, res: Response) => {
+router.get(
+  '/avatar/:userId',
+  ApiDoc({
+    operationId: 'getMediaAvatar',
+    summary: 'User avatar image',
+    description: 'Returns the avatar image for a user by ID (cached).',
+    tags: ['Media'],
+    params: { userId: { description: 'User ID', schema: { type: 'string' } } },
+    responses: {
+      200: { description: 'Avatar image' },
+      404: { description: 'User or avatar not found' },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   const {userId} = req.params;
   try {
     const user = await User.findByPk(userId);
@@ -502,9 +547,25 @@ router.get('/avatar/:userId', async (req: Request, res: Response) => {
     logger.error('Error serving avatar:', formatAxiosError(error));
     return res.status(500).send('Error serving avatar');
   }
-});
+  }
+);
 
-router.get('/github-asset', async (req: Request, res: Response) => {
+router.get(
+  '/github-asset',
+  ApiDoc({
+    deprecated: true,
+    operationId: 'getMediaGithubAsset',
+    summary: 'GitHub asset proxy',
+    description: 'Fetches a file from T21C-assets GitHub repo by path.',
+    tags: ['Media'],
+    query: { path: { description: 'Path within repo (e.g. path/to/file.png)', schema: { type: 'string' }, required: true } },
+    responses: {
+      200: { description: 'Asset binary' },
+      400: { description: 'Invalid path' },
+      500: { description: 'Error fetching asset', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   const assetPath = req.query.path;
   try {
     if (!assetPath || typeof assetPath !== 'string') {
@@ -524,9 +585,30 @@ router.get('/github-asset', async (req: Request, res: Response) => {
     res.status(500).send('Error fetching asset.');
     return;
   }
-});
+  }
+);
 
-router.get('/image/:type/:path', async (req: Request, res: Response) => {
+router.get(
+  '/image/:type/:path',
+  ApiDoc({
+    operationId: 'getMediaImage',
+    summary: 'Cached image by type and path',
+    description: 'Serves a cached image. type: "icon" or other; path: relative path within cache.',
+    tags: ['Media'],
+    params: {
+      type: { description: 'Cache type (e.g. icon)', schema: { type: 'string' } },
+      path: { description: 'Relative image path', schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Image file' },
+      304: { description: 'Not modified' },
+      400: { description: 'Invalid path' },
+      403: { description: 'Access denied' },
+      404: { description: 'Image not found' },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   const {type, path: imagePath} = req.params;
   try {
     if (!imagePath || typeof imagePath !== 'string') {
@@ -597,7 +679,8 @@ router.get('/image/:type/:path', async (req: Request, res: Response) => {
     logger.error('Error serving cached image:', error);
     return res.status(500).send('Error serving image');
   }
-});
+  }
+);
 
 
 // Enhanced caching with TTL and cleanup
@@ -635,7 +718,21 @@ setInterval(() => {
   }
 }, CACHE_CLEANUP_INTERVAL);
 
-router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
+router.get(
+  '/video-details/:videoLink',
+  ApiDoc({
+    operationId: 'getMediaVideoDetails',
+    summary: 'Video metadata',
+    description: 'Fetches video details (title, thumbnail, etc.) from a video URL. Supports YouTube, Bilibili, etc. Response is cached.',
+    tags: ['Media'],
+    params: { videoLink: { description: 'URL-encoded video link', schema: { type: 'string' } } },
+    responses: {
+      200: { description: 'Video details object' },
+      400: { description: 'Malformed or missing link', schema: errorResponseSchema },
+      500: { description: 'Failed to fetch details', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   try {
     let videoLink: string;
     try {
@@ -745,8 +842,22 @@ router.get('/video-details/:videoLink', async (req: Request, res: Response) => {
   }
 });
 
-// Add wheel image generation endpoint
-router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
+router.get(
+  '/wheel-image/:seed',
+  ApiDoc({
+    deprecated: true,
+    operationId: 'getMediaWheelImage',
+    summary: 'Wheel image',
+    description: 'Generates a PNG image of a level wheel (colored segments by difficulty) using a seed for reproducible shuffle.',
+    tags: ['Media'],
+    params: { seed: { description: 'Numeric seed for wheel order', schema: { type: 'integer' } } },
+    responses: {
+      200: { description: 'PNG image' },
+      400: { description: 'Invalid seed' },
+      500: { description: 'Error generating image', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const seed = parseInt(req.params.seed);
     if (isNaN(seed)) {
@@ -847,7 +958,8 @@ router.get('/wheel-image/:seed', async (req: Request, res: Response) => {
     logger.error('Error generating wheel image:', error);
     return res.status(500).send('Error generating wheel image');
   }
-});
+  }
+);
 
 router.use('/', thumbnailsRouter);
 export default router;

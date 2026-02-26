@@ -1,7 +1,7 @@
 import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { errorResponseSchema } from '@/server/schemas/common.js';
+import { errorResponseSchema, successMessageSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/profile/index.js';
 import {OAuthProvider, User} from '@/models/index.js';
 import bcrypt from 'bcryptjs';
 import sequelize from '@/config/db.js';
@@ -126,7 +126,29 @@ router.get(
 );
 
 // Update user profile
-router.put('/me', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/me',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putProfileMe',
+    summary: 'Update profile',
+    description: 'Update username, nickname, or country for the current user',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Optional username, nickname, country',
+      schema: { type: 'object', properties: { username: { type: 'string' }, nickname: { type: 'string' }, country: { type: 'string' } } },
+      required: false,
+    },
+    responses: {
+      200: { description: 'Profile updated', schema: successMessageSchema },
+      400: { description: 'Validation error', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      429: { description: 'Username change rate limit', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -322,10 +344,35 @@ router.put('/me', Auth.user(), async (req: Request, res: Response) => {
     }
     return res.status(error.code || 500).json(error || 'Failed to update profile');
   }
-});
+  }
+);
 
 // Update password
-router.put('/password', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/password',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putProfilePassword',
+    summary: 'Change password',
+    description: 'Update password for the authenticated user',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Current and new password',
+      schema: {
+        type: 'object',
+        properties: { currentPassword: { type: 'string' }, newPassword: { type: 'string' } },
+        required: ['newPassword'],
+      },
+    },
+    responses: {
+      200: { description: 'Password updated', schema: successMessageSchema },
+      400: { description: 'Validation error', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {currentPassword, newPassword} = req.body;
     const user = req.user;
@@ -360,10 +407,29 @@ router.put('/password', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error updating password:', error);
     return res.status(500).json({error: 'Failed to update password'});
   }
-});
+  }
+);
 
 // Upload avatar
-router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request, res: Response) => {
+router.post(
+  '/avatar',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postProfileAvatar',
+    summary: 'Upload avatar',
+    description: 'Upload profile avatar image (JPEG, PNG, WebP; max 10MB)',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'Multipart form with avatar file', required: true },
+    responses: {
+      200: { description: 'Avatar URL updated', schema: { type: 'object', properties: { avatarUrl: { type: 'string' } } } },
+      400: { description: 'No file or invalid type', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  upload.single('avatar'),
+  async (req: Request, res: Response) => {
     try {
         const user = req.user;
         if (!user) {
@@ -427,10 +493,27 @@ router.post('/avatar', Auth.user(), upload.single('avatar'), async (req: Request
             details: error instanceof Error ? error.message : String(error)
         });
     }
-});
+  }
+);
 
 // Remove avatar
-router.delete('/avatar', Auth.user(), async (req: Request, res: Response) => {
+router.delete(
+  '/avatar',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteProfileAvatar',
+    summary: 'Remove avatar',
+    description: 'Remove the current user profile avatar',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Avatar removed', schema: successMessageSchema },
+      400: { description: 'No avatar to remove', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
     try {
         const user = req.user;
         if (!user) {
@@ -469,6 +552,7 @@ router.delete('/avatar', Auth.user(), async (req: Request, res: Response) => {
         logger.error('Error removing avatar:', error);
         return res.status(500).json({error: 'Failed to remove avatar'});
     }
-});
+  }
+);
 
 export default router;

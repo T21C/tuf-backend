@@ -31,14 +31,33 @@ import SongAlias from '@/models/songs/SongAlias.js';
 import Artist from '@/models/artists/Artist.js';
 import { getArtistDisplayName, getSongDisplayName } from '@/utils/levelHelpers.js';
 import { Cache } from '@/server/middleware/cache.js';
-
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 
 const MAX_LIMIT = 200;
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();
 
-router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelsSearch',
+    summary: 'Search levels',
+    description: 'Search levels with filters (query, pguRange, sort, tags, etc.)',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    query: {
+      query: { description: 'Search text', schema: { type: 'string' } },
+      pguRange: { description: 'PGU range', schema: { type: 'string' } },
+      sort: { schema: { type: 'string' } },
+      offset: { schema: { type: 'integer' } },
+      limit: { schema: { type: 'integer' } },
+    },
+    responses: { 200: { description: 'Paginated level list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {
       query,
@@ -145,7 +164,19 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
   }
 });
 
-router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
+router.get(
+  '/byId/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelById',
+    summary: 'Get level by ID',
+    description: 'Fetch a single level by numeric ID (cached)',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: { description: 'Level ID', schema: { type: 'string' } } },
+    responses: { 200: { description: 'Level details' }, ...standardErrorResponses404500 },
+  }),
+  Cache({
   ttl: 300, // 5 minutes
   varyByRole: true, // Different cache for admin vs regular users (due to isDeleted check)
   tags: (req) => [`level:${req.params.id}`, 'levels:all']
@@ -221,7 +252,19 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
 });
 
 // Add HEAD endpoint for byId permission check
-router.head('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.head(
+  '/byId/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'headLevelById',
+    summary: 'Check level by ID',
+    description: 'HEAD request to check if level exists (no body)',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Exists' }, 404: { description: 'Not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
 
@@ -250,7 +293,19 @@ router.head('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reque
   }
 });
 
-router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
+router.get(
+  '/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelDetails',
+    summary: 'Get level by ID (slug)',
+    description: 'Fetch level by ID with full details (cached)',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: { description: 'Level ID', schema: { type: 'string' } } },
+    responses: { 200: { description: 'Level' }, ...standardErrorResponses404500 },
+  }),
+  Cache({
   ttl: 60*60*24,
   varyByRole: true, // isliked checked in other endpoint
   tags: (req) => [`level:${req.params.id}`, 'levels:all']
@@ -420,7 +475,19 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), Cache({
   }
 });
 
-router.get('/:id([0-9]{1,20})/cdnData', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})/cdnData',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelCdnData',
+    summary: 'Get level CDN data',
+    description: 'Returns CDN-related data for a level',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'CDN data' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     if (!req.params.id || isNaN(parseInt(req.params.id)) || parseInt(req.params.id) <= 0) {
       return res.status(400).json({ error: 'Invalid level ID' });
@@ -463,7 +530,19 @@ router.get('/:id([0-9]{1,20})/cdnData', Auth.addUserToRequest(), async (req: Req
   }
 });
 
-router.get('/:id([0-9]{1,20})/isLiked', Auth.addUserToRequest(), Cache({
+router.get(
+  '/:id([0-9]{1,20})/isLiked',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelIsLiked',
+    summary: 'Check if level is liked',
+    description: 'Returns whether the current user has liked the level',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Liked status' }, ...standardErrorResponses500 },
+  }),
+  Cache({
   ttl: 300,
   varyByUser: true, // User-specific, so must vary by user
   tags: (req) => [`level:${req.params.id}:isLiked`, 'levels:all']
@@ -489,7 +568,19 @@ router.get('/:id([0-9]{1,20})/isLiked', Auth.addUserToRequest(), Cache({
   }
 });
 
-router.get('/:id([0-9]{1,20})/ratings', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})/ratings',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelRatings',
+    summary: 'Get level ratings',
+    description: 'Returns ratings for a level',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Ratings list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
     const ratings = await Rating.findOne({
@@ -521,7 +612,19 @@ router.get('/:id([0-9]{1,20})/ratings', Auth.addUserToRequest(), async (req: Req
 });
 
 
-router.get('/:id([0-9]{1,20})/level.adofai', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})/level.adofai',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getLevelAdofai',
+    summary: 'Get level .adofai file',
+    description: 'Returns the level chart file content',
+    tags: ['Levels'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'File content or redirect' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const levelId = parseInt(req.params.id);
     const level = await Level.findOne({

@@ -1,5 +1,7 @@
 import express, {Request, Response, Router} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { errorResponseSchema, standardErrorResponses400500, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {
   PassSubmission,
@@ -180,6 +182,14 @@ const uploadWithEvidence = multer({
 router.post(
   '/form-submit',
   Auth.user(),
+  ApiDoc({
+    operationId: 'postFormSubmit',
+    summary: 'Submit level/pass form',
+    description: 'Multipart form: levelZip, evidence files; creates or updates submission',
+    tags: ['Form'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Submission created/updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
   uploadWithEvidence,
   express.json(),
   async (req: Request, res: Response) => {
@@ -993,7 +1003,19 @@ router.post(
 );
 
 // Level selection endpoint
-router.post('/select-level', Auth.verified(), async (req: Request, res: Response) => {
+router.post(
+  '/select-level',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postFormSelectLevel',
+    summary: 'Select level for submission',
+    description: 'Link a selected level to a submission',
+    tags: ['Form'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'submissionId, selectedLevel', schema: { type: 'object', properties: { submissionId: { type: 'integer' }, selectedLevel: { type: 'integer' } }, required: ['submissionId', 'selectedLevel'] }, required: true },
+    responses: { 200: { description: 'OK' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     const { submissionId, selectedLevel } = req.body;
 
     // Enhanced input validation
@@ -1118,6 +1140,7 @@ router.post('/select-level', Auth.verified(), async (req: Request, res: Response
             error: 'Failed to process level selection'
         });
     }
-});
+  }
+);
 
 export default router;

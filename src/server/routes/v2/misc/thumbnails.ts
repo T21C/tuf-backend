@@ -1,4 +1,6 @@
 import express, {Request, Response, Router} from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { idParamSpec } from '@/server/schemas/v2/misc/index.js';
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs';
@@ -210,7 +212,17 @@ async function downloadImageWithRetry(url: string, maxRetries = 5, delayMs = 500
 const router: Router = express.Router();
 
 // Level thumbnail route
-router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get(
+  '/thumbnail/level/:levelId([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'getThumbnailLevel',
+    summary: 'Level thumbnail',
+    description: 'Returns thumbnail image for a level',
+    tags: ['Media'],
+    params: { levelId: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } },
+  }),
+  async (req: Request, res: Response) => {
   const levelId = parseInt(req.params.levelId);
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
@@ -765,7 +777,10 @@ router.get('/thumbnail/level/:levelId([0-9]{1,20})', async (req: Request, res: R
 });
 
 // Player thumbnail route
-router.get('/thumbnail/player/:id([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get(
+  '/thumbnail/player/:id([0-9]{1,20})',
+  ApiDoc({ operationId: 'getThumbnailPlayer', summary: 'Player thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } } }),
+  async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const playerId = parseInt(req.params.id);
@@ -1007,7 +1022,10 @@ router.get('/thumbnail/player/:id([0-9]{1,20})', async (req: Request, res: Respo
 });
 
 // Pass thumbnail route
-router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Response) => {
+router.get(
+  '/thumbnail/pass/:id([0-9]{1,20})',
+  ApiDoc({ operationId: 'getThumbnailPass', summary: 'Pass thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } } }),
+  async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const passId = parseInt(req.params.id);
@@ -1281,7 +1299,10 @@ router.get('/thumbnail/pass/:id([0-9]{1,20})', async (req: Request, res: Respons
 });
 
 // Pack thumbnail route
-router.get('/thumbnail/pack/:id([0-9A-Za-z]+)', async (req: Request, res: Response) => {
+router.get(
+  '/thumbnail/pack/:id([0-9A-Za-z]+)',
+  ApiDoc({ operationId: 'getThumbnailPack', summary: 'Pack thumbnail', tags: ['Media'], params: { id: idParamSpec }, responses: { 200: { description: 'Image' }, 404: { description: 'Not found' } } }),
+  async (req: Request, res: Response) => {
   try {
     const size = (req.query.size as keyof typeof THUMBNAIL_SIZES) || 'MEDIUM';
     const param = req.params.id;

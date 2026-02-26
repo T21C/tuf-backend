@@ -23,6 +23,8 @@ import LevelTag from '@/models/levels/LevelTag.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { getSongDisplayName } from '@/utils/levelHelpers.js';
 
 const router: Router = Router();
@@ -259,12 +261,25 @@ const sortableFields = {
   'LEVELS': 'levelCount'
 };
 // GET /packs - List all packs
-router.get('/', Auth.addUserToRequest(), Cache({
+router.get(
+  '/',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPacks',
+    summary: 'List packs',
+    description: 'List level packs with optional search, filters, and pagination. Cached.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    query: { query: { schema: { type: 'string' } }, viewMode: { schema: { type: 'string' } }, pinned: { schema: { type: 'string' } }, myLikesOnly: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, order: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Packs list' }, ...standardErrorResponses500 },
+  }),
+  Cache({
   ttl: 300,
   varyByUser: true,
   varyByQuery: ['query', 'viewMode', 'pinned', 'myLikesOnly', 'offset', 'limit', 'sort', 'order'],
-  tags: ['packs:all'] // Tag all list queries
-}), async (req: Request, res: Response) => {
+  tags: ['packs:all']
+}),
+  async (req: Request, res: Response) => {
   try {
     const {
       query,
@@ -448,11 +463,23 @@ router.get('/', Auth.addUserToRequest(), Cache({
     logger.error('Error fetching packs:', error);
     return res.status(500).json({ error: 'Failed to fetch packs' });
   }
-});
+  }
+);
 
 // GET /packs/favorites - Get user's favorited packs
 // NOTE: This must be before GET /:id to avoid route collision
-router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
+router.get(
+  '/favorites',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getPacksFavorites',
+    summary: 'User favorites',
+    description: 'Get current user\'s favorited packs.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Favorited packs' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const packs = await LevelPack.findAll({
       include: [
@@ -479,19 +506,30 @@ router.get('/favorites', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error fetching favorited packs:', error);
     return res.status(500).json({ error: 'Failed to fetch favorited packs' });
   }
-});
+  }
+);
 
 // GET /packs/:id - Get specific pack with its content tree
-router.get('/:id', Auth.addUserToRequest(), Cache({
-  ttl: 60*60*24, // 24 hours
+router.get(
+  '/:id',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPack',
+    summary: 'Get pack',
+    description: 'Get a pack by ID or link code with optional tree. Cached.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    query: { tree: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Pack details' }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  Cache({
+  ttl: 60*60*24,
   varyByUser: true,
   varyByQuery: ['tree'],
-  tags: (req) => {
-    // Tag with pack ID - we'll resolve it in the handler
-    // For now, tag with the param (could be ID or linkCode)
-    return [`pack:${req.params.id}`, 'packs:all'];
-  }
-}), async (req: Request, res: Response) => {
+  tags: (req) => [`pack:${req.params.id}`, 'packs:all']
+}),
+  async (req: Request, res: Response) => {
   try {
     const param = req.params.id;
     const { tree = 'true' } = req.query;
@@ -770,9 +808,23 @@ router.get('/:id', Auth.addUserToRequest(), Cache({
     logger.error('Error fetching pack:', error);
     return res.status(500).json({ error: 'Failed to fetch pack' });
   }
-});
+  }
+);
 
-router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Response) => {
+router.post(
+  '/:id/download-link',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postPackDownloadLink',
+    summary: 'Generate download link',
+    description: 'Generate a CDN download link (zip) for a pack or folder.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'folderId, downloadId (optional)', schema: { type: 'object', properties: { folderId: { type: 'integer' }, downloadId: { type: 'string' } } }, required: false },
+    responses: { 200: { description: 'Download link payload' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const param = req.params.id;
     const { folderId, downloadId } = req.body ?? {};
@@ -924,10 +976,23 @@ router.post('/:id/download-link', Auth.verified(), async (req: Request, res: Res
     });
     return res.status(500).json({ error: 'Failed to generate download link' });
   }
-});
+  }
+);
 
 // POST /packs - Create new pack
-router.post('/', Auth.user(), async (req: Request, res: Response) => {
+router.post(
+  '/',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postPack',
+    summary: 'Create pack',
+    description: 'Create a new level pack. Name required; viewMode, iconUrl, cssFlags, isPinned optional.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    requestBody: { description: 'name, iconUrl, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, iconUrl: { type: 'string' }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } }, required: ['name'] }, required: true },
+    responses: { 201: { description: 'Pack created' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1040,10 +1105,24 @@ router.post('/', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error creating pack:', error);
     return res.status(500).json({ error: 'Failed to create pack' });
   }
-});
+  }
+);
 
 // PUT /packs/:id - Update pack
-router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/:id',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putPack',
+    summary: 'Update pack',
+    description: 'Update pack name, viewMode, cssFlags, isPinned (admin for some fields).',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'name, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } } }, required: true },
+    responses: { 200: { description: 'Pack updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1117,10 +1196,23 @@ router.put('/:id', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error updating pack:', error);
     return res.status(500).json({ error: 'Failed to update pack' });
   }
-});
+  }
+);
 
 // DELETE /packs/:id - Delete pack
-router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deletePack',
+    summary: 'Delete pack',
+    description: 'Delete a pack. Owner or admin.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Pack deleted' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1152,10 +1244,25 @@ router.delete('/:id', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error deleting pack:', error);
     return res.status(500).json({ error: 'Failed to delete pack' });
   }
-});
+  }
+);
 
 // POST /packs/:id/icon - Upload pack icon
-router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request, res: Response) => {
+router.post(
+  '/:id/icon',
+  Auth.user(),
+  upload.single('icon'),
+  ApiDoc({
+    operationId: 'postPackIcon',
+    summary: 'Upload pack icon',
+    description: 'Upload pack icon (JPEG/PNG/WebP, max 5MB).',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'multipart/form-data with icon file (JPEG/PNG/WebP, max 5MB)', schema: { type: 'object', properties: { icon: { type: 'string', format: 'binary' } } }, required: true },
+    responses: { 200: { description: 'Icon uploaded' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
         const resolvedPackId = await resolvePackId(req.params.id);
         if (!resolvedPackId) {
@@ -1223,10 +1330,23 @@ router.post('/:id/icon', Auth.user(), upload.single('icon'), async (req: Request
             details: error instanceof Error ? error.message : String(error)
         });
     }
-});
+  }
+);
 
 // DELETE /packs/:id/icon - Remove pack icon
-router.delete('/:id/icon', Auth.user(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id/icon',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deletePackIcon',
+    summary: 'Remove pack icon',
+    description: 'Remove pack icon from CDN.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Icon removed' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
         const resolvedPackId = await resolvePackId(req.params.id);
         if (!resolvedPackId) {
@@ -1265,12 +1385,26 @@ router.delete('/:id/icon', Auth.user(), async (req: Request, res: Response) => {
         logger.error('Error removing pack icon:', error);
         return res.status(500).json({ error: 'Failed to remove pack icon' });
     }
-});
+  }
+);
 
 // ==================== PACK ITEM OPERATIONS ====================
 
 // POST /packs/:id/items - Add item (folder or level) to pack
-router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
+router.post(
+  '/:id/items',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postPackItems',
+    summary: 'Add pack items',
+    description: 'Add folder(s) or level(s) to a pack. type, name/levelIds, parentId, sortOrder.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'type, name (folder), levelIds (level), parentId, sortOrder', schema: { type: 'object' }, required: true },
+    responses: { 200: { description: 'Items added' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1499,10 +1633,24 @@ router.post('/:id/items', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error adding item to pack:', error);
     return res.status(500).json({ error: 'Failed to add item to pack' });
   }
-});
+  }
+);
 
 // PUT /packs/:id/items/:itemId - Update item
-router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/:id/items/:itemId',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putPackItem',
+    summary: 'Update pack item',
+    description: 'Update pack item (e.g. folder name).',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, itemId: { schema: { type: 'string' } } },
+    requestBody: { description: 'name (for folders)', schema: { type: 'object', properties: { name: { type: 'string' } } }, required: true },
+    responses: { 200: { description: 'Item updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1574,10 +1722,24 @@ router.put('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response
     logger.error('Error updating pack item:', error);
     return res.status(500).json({ error: 'Failed to update pack item' });
   }
-});
+  }
+);
 
 // PUT /packs/:id/tree - Update entire pack tree structure
-router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/:id/tree',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putPackTree',
+    summary: 'Update pack tree',
+    description: 'Update full pack tree (items array with id, parentId, sortOrder, children).',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'items: nested tree', schema: { type: 'object', properties: { items: { type: 'array' } }, required: ['items'] }, required: true },
+    responses: { 200: { description: 'Tree updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1793,12 +1955,25 @@ router.put('/:id/tree', Auth.user(), async (req: Request, res: Response) => {
     logger.error('Error updating pack tree:', error);
     return res.status(500).json({ error: 'Failed to update pack tree' });
   }
-});
+  }
+);
 
 // ==================== PACK OWNERSHIP TRANSFER ====================
 
 // GET /packs/users/search/:query - Search for users by username (admin only)
-router.get('/users/search/:query', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/users/search/:query',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getPacksUsersSearch',
+    summary: 'Search users (admin)',
+    description: 'Search users by username/nickname for pack transfer. Super admin only.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { query: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Users list' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const query = req.params.query;
     if (!query || query.length < 1) {
@@ -1822,10 +1997,24 @@ router.get('/users/search/:query', Auth.superAdmin(), async (req: Request, res: 
     logger.error('Error searching users:', error);
     return res.status(500).json({ error: 'Failed to search users' });
   }
-});
+  }
+);
 
 // PUT /packs/:id/transfer-ownership - Transfer pack ownership to another user (admin only)
-router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id/transfer-ownership',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putPackTransferOwnership',
+    summary: 'Transfer pack ownership',
+    description: 'Transfer pack to another user. Super admin only.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'newOwnerId', schema: { type: 'object', properties: { newOwnerId: { type: 'string' } }, required: ['newOwnerId'] }, required: true },
+    responses: { 200: { description: 'Ownership transferred' }, ...standardErrorResponses },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -1889,12 +2078,25 @@ router.put('/:id/transfer-ownership', Auth.superAdmin(), async (req: Request, re
     logger.error('Error transferring pack ownership:', error);
     return res.status(500).json({ error: 'Failed to transfer pack ownership' });
   }
-});
+  }
+);
 
 // ==================== PACK FAVORITES OPERATIONS ====================
 
 // GET /packs/:id/favorite - Check if pack is favorited by current user
-router.get('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
+router.get(
+  '/:id/favorite',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'getPackFavorite',
+    summary: 'Check favorite',
+    description: 'Check if current user has favorited the pack.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'isFavorited' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const resolvedPackId = await resolvePackId(req.params.id);
     if (!resolvedPackId) {
@@ -1913,10 +2115,24 @@ router.get('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     logger.error('Error checking favorite status:', error);
     return res.status(500).json({ error: 'Failed to check favorite status' });
   }
-});
+  }
+);
 
 // PUT /packs/:id/favorite - Set pack favorite status explicitly
-router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/:id/favorite',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putPackFavorite',
+    summary: 'Set favorite',
+    description: 'Set or clear pack favorite (favorited: boolean).',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'favorited: boolean', schema: { type: 'object', properties: { favorited: { type: 'boolean' } }, required: ['favorited'] }, required: true },
+    responses: { 200: { description: 'Favorite updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   if (!req.user) {
     await safeTransactionRollback(transaction);
@@ -1994,10 +2210,23 @@ router.put('/:id/favorite', Auth.user(), async (req: Request, res: Response) => 
     logger.error('Error setting pack favorite status:', error);
     return res.status(500).json({ error: 'Failed to set pack favorite status' });
   }
-});
+  }
+);
 
 // DELETE /packs/:id/items/:itemId - Delete item
-router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id/items/:itemId',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deletePackItem',
+    summary: 'Delete pack item',
+    description: 'Remove a folder or level from a pack.',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: { schema: { type: 'string' } }, itemId: { schema: { type: 'string' } } },
+    responses: { 204: { description: 'Item deleted' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -2045,10 +2274,24 @@ router.delete('/:id/items/:itemId', Auth.user(), async (req: Request, res: Respo
     logger.error('Error deleting pack item:', error);
     return res.status(500).json({ error: 'Failed to delete pack item' });
   }
-});
+  }
+);
 
 // PUT /packs/:id/items/reorder - Reorder multiple items
-router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response) => {
+router.put(
+  '/:id/items/reorder',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'putPackItemsReorder',
+    summary: 'Reorder pack items',
+    description: 'Update parentId/sortOrder for multiple items. Body: items: [{ id, parentId?, sortOrder? }].',
+    tags: ['Database', 'Packs'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'items: array of { id, parentId?, sortOrder? }', schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: { id: { type: 'integer' }, parentId: { type: 'integer' }, sortOrder: { type: 'integer' } } } } }, required: ['items'] }, required: true },
+    responses: { 200: { description: 'Items reordered' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -2161,7 +2404,8 @@ router.put('/:id/items/reorder', Auth.user(), async (req: Request, res: Response
     logger.error('Error reordering pack items:', error);
     return res.status(500).json({ error: 'Failed to reorder pack items' });
   }
-});
+  }
+);
 
 // ==================== CACHE INVALIDATION HOOKS ====================
 // Set up model listeners to automatically invalidate cache on database changes

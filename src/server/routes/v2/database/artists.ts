@@ -1,6 +1,8 @@
 import {Router, Request, Response} from 'express';
 import {Op} from 'sequelize';
 import {Auth} from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses404500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/index.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import ArtistLink from '@/models/artists/ArtistLink.js';
@@ -32,7 +34,19 @@ const upload = multer({
 const MAX_LIMIT = 200;
 
 // Get artist list (paginated, searchable, filterable by verification state)
-router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getArtists',
+    summary: 'List artists',
+    description: 'Paginated, searchable list of artists',
+    tags: ['Database', 'Artists'],
+    security: ['bearerAuth'],
+    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
+    responses: { 200: { description: 'Paginated artists' }, 500: { schema: errorResponseSchema } },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const {
       page = '1',
@@ -290,10 +304,23 @@ router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => 
     logger.error('Error fetching artists:', error);
     return res.status(500).json({error: 'Failed to fetch artists'});
   }
-});
+  }
+);
 
 // Get public artist detail page
-router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getArtistById',
+    summary: 'Get artist by ID',
+    description: 'Returns artist details by ID',
+    tags: ['Database', 'Artists'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Artist' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
   try {
     const artistId = parseInt(req.params.id);
     const artist = await Artist.findByPk(artistId, {
@@ -345,7 +372,8 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
     logger.error('Error fetching artist:', error);
     return res.status(500).json({error: 'Failed to fetch artist'});
   }
-});
+  }
+);
 
 // Get evidence images (public read-only)
 router.get('/:id([0-9]{1,20})/evidences', Auth.addUserToRequest(), async (req: Request, res: Response) => {
