@@ -1,6 +1,7 @@
-
 import { Router, Request, Response } from 'express';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses404500, standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/passes/index.js';
 import { Op } from 'sequelize';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
@@ -22,7 +23,19 @@ const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
 
 
-router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/byId/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPassById',
+    summary: 'Get pass by ID (byId)',
+    description: 'Fetch a single pass by numeric ID with player, level, and judgements. Super admins see deleted passes.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: { description: 'Pass ID', schema: { type: 'string' } } },
+    responses: { 200: { description: 'Pass with count and results array' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
     const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId) || passId <= 0) {
@@ -142,13 +155,24 @@ router.get('/byId/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Reques
   },
 );
 
-router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/:id([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPassDetails',
+    summary: 'Get pass details by ID',
+    description: 'Fetch pass by ID with full details via PlayerStatsService. Returns 404 for missing or hidden (non-owner).',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Pass details' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const passId = parseInt(req.params.id);
       if (!passId || isNaN(passId)) {
         return res.status(400).json({error: 'Invalid pass ID'});
       }
-
 
       const pass = await playerStatsService.getPassDetails(passId, req.user);
       if (!pass) {
@@ -163,9 +187,22 @@ router.get('/:id([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, re
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  });
+  },
+);
 
-router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/level/:levelId([0-9]{1,20})',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'getPassesByLevelId',
+    summary: 'Get passes by level ID',
+    description: 'List all non-deleted passes for a level with players and judgements. Hidden passes visible only to owner or super admin.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { levelId: { description: 'Level ID', schema: { type: 'string' } } },
+    responses: { 200: { description: 'Array of passes' }, 404: { description: 'Level not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {levelId} = req.params;
       const level = await Level.findByPk(levelId);
@@ -263,10 +300,34 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
       logger.error('Error fetching passes:', error);
       return res.status(500).json({error: 'Failed to fetch passes'});
     }
-  });
+  },
+);
 
-  // Update the GET endpoint to use the unified search
-  router.get('/', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.get(
+  '/',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'searchPasses',
+    summary: 'Search passes',
+    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, levelId, player, specialDifficulties, sort). Uses Elasticsearch.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    query: {
+      query: { description: 'Search text', schema: { type: 'string' } },
+      deletedFilter: { schema: { type: 'string' } },
+      minDiff: { schema: { type: 'string' } },
+      maxDiff: { schema: { type: 'string' } },
+      keyFlag: { schema: { type: 'string' } },
+      levelId: { schema: { type: 'string' } },
+      player: { schema: { type: 'string' } },
+      specialDifficulties: { schema: { type: 'string' } },
+      sort: { schema: { type: 'string' } },
+      offset: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+    },
+    responses: { 200: { description: 'Paginated pass list (count, results)' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const {
         deletedFilter,
@@ -304,6 +365,7 @@ router.get('/level/:levelId([0-9]{1,20})', Auth.addUserToRequest(), async (req: 
       logger.error('Error fetching passes:', error);
       return res.status(500).json({error: 'Failed to fetch passes'});
     }
-  });
+  },
+);
 
 export default router;

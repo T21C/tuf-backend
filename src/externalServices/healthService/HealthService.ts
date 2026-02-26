@@ -21,11 +21,12 @@ export class HealthService {
   };
   private checkInterval: NodeJS.Timeout | null = null;
   private mainServerInfo: any = null;
-
+  private healthEndpoint: string;
   private constructor() {
     this.app = express();
     this.mainServerPort = process.env.NODE_ENV === 'production' ? 3000 : 3002;
     this.mainServerUrl = `http://localhost:${this.mainServerPort}`;
+    this.healthEndpoint = '/v2/health';
     this.setupRoutes();
   }
 
@@ -320,7 +321,7 @@ export class HealthService {
 
   private async checkMainServer(): Promise<boolean> {
     try {
-      const response = await axios.get(`${this.mainServerUrl}/health`, {
+      const response = await axios.get(`${this.mainServerUrl}${this.healthEndpoint}`, {
         timeout: 5000 // 5 second timeout
       });
 

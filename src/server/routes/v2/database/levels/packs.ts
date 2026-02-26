@@ -1736,7 +1736,7 @@ router.put(
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'items: nested tree', schema: { type: 'object', properties: { items: { type: 'array' } }, required: ['items'] }, required: true },
+    requestBody: { description: 'items: nested tree', schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object' } } }, required: ['items'] }, required: true },
     responses: { 200: { description: 'Tree updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {

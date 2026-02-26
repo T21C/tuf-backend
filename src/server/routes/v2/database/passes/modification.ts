@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/passes/index.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
 import Level from '@/models/levels/Level.js';
@@ -24,7 +26,20 @@ const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 const router = Router();
 
-router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.put(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'updatePass',
+    summary: 'Update pass',
+    description: 'Update a pass by ID (super admin). Body: levelId, vidUploadTime, speed, feelingRating, vidTitle, videoLink, is12K, is16K, isNoHoldTap, accuracy, scoreV2, isDeleted, judgements, playerId, isAnnounced, isDuplicate. Recalculates accuracy/score when judgements provided.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    requestBody: { description: 'Pass fields to update', schema: { type: 'object' } },
+    responses: { 200: { description: 'Updated pass' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const {id} = req.params;
@@ -379,9 +394,22 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
         details: error instanceof Error ? error.message : String(error),
       });
     }
-  });
+  },
+);
 
-  router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.delete(
+  '/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'deletePass',
+    summary: 'Soft-delete pass',
+    description: 'Soft-delete a pass by ID (super admin). Sets isDeleted = true; world\'s first and player stats are updated.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Deleted pass and message' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
 
       try {
@@ -506,9 +534,21 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
         return res.status(500).json({error: 'Failed to soft delete pass'});
       }
     },
-  );
+);
 
-  router.patch('/:id([0-9]{1,20})/restore', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.patch(
+  '/:id([0-9]{1,20})/restore',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'restorePass',
+    summary: 'Restore pass',
+    description: 'Restore a soft-deleted pass by ID (super admin). Sets isDeleted = false; world\'s first and player stats updated.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Restored pass and message' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
       const transaction = await sequelize.transaction();
 
       try {
@@ -600,10 +640,21 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
         return res.status(500).json({error: 'Failed to restore pass'});
       }
     },
-  );
+);
 
-  // Toggle isHidden flag for own passes only
-  router.patch('/:id([0-9]{1,20})/toggle-hidden', Auth.addUserToRequest(), async (req: Request, res: Response) => {
+router.patch(
+  '/:id([0-9]{1,20})/toggle-hidden',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'togglePassHidden',
+    summary: 'Toggle pass visibility',
+    description: 'Toggle isHidden for a pass. Caller must own the pass (same playerId as authenticated user).',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: { 200: { description: 'Updated pass with isHidden toggled' }, 401: { description: 'Authentication required' }, 403: { description: 'Not pass owner' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
     try {
       const id = parseInt(req.params.id);
@@ -662,6 +713,7 @@ router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Res
       logger.error('Error toggling pass hidden status:', error);
       return res.status(500).json({ error: 'Failed to toggle pass hidden status' });
     }
-  });
+  },
+);
 
-  export default router;
+export default router;

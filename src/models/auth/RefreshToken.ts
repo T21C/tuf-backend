@@ -13,12 +13,13 @@ export interface RefreshTokenAttributes {
   label?: string | null;
   expiresAt: Date;
   replacedBy?: string | null;
+  revokedAt?: Date | null;
   createdAt: Date;
 }
 
 type RefreshTokenCreationAttributes = Optional<
   RefreshTokenAttributes,
-  'id' | 'userAgent' | 'ip' | 'label' | 'replacedBy' | 'createdAt'
+  'id' | 'userAgent' | 'ip' | 'label' | 'replacedBy' | 'revokedAt' | 'createdAt'
 >;
 
 class RefreshToken
@@ -33,6 +34,7 @@ class RefreshToken
   declare label?: string | null;
   declare expiresAt: Date;
   declare replacedBy?: string | null;
+  declare revokedAt?: Date | null;
   declare createdAt: Date;
 
   declare user?: User;
@@ -84,6 +86,10 @@ RefreshToken.init(
       },
       onUpdate: 'CASCADE',
       onDelete: 'SET NULL',
+    },
+    revokedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

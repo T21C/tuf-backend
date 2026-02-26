@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { Op } from 'sequelize';
 import { Auth } from '@/server/middleware/auth.js';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import { standardErrorResponses500 } from '@/server/schemas/v2/database/passes/index.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
 import Level from '@/models/levels/Level.js';
@@ -12,7 +14,18 @@ import User from '@/models/auth/User.js';
 const router = Router();
 
 
-router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Response) => {
+router.get(
+  '/unannounced/new',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'getUnannouncedPasses',
+    summary: 'List unannounced passes',
+    description: 'List passes that are not yet announced (isAnnounced: false, non-deleted, non-deleted level, ranked difficulty). Super admin only.',
+    tags: ['Passes'],
+    security: ['bearerAuth'],
+    responses: { 200: { description: 'Array of unannounced passes' }, ...standardErrorResponses500 },
+  }),
+  async (req: Request, res: Response) => {
     try {
       const passes = await Pass.findAll({
         where: {
@@ -71,6 +84,7 @@ router.get('/unannounced/new', Auth.superAdmin(), async (req: Request, res: Resp
       logger.error('Error fetching unannounced passes:', error);
       return res.status(500).json({error: 'Failed to fetch unannounced passes'});
     }
-  });
+  },
+);
 
 export default router;

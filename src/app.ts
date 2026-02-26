@@ -192,6 +192,10 @@ export async function startServer() {
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     playerStatsService.initialize();
 
+    // Start refresh token cleanup job (hourly; deletes revoked/expired rows)
+    const { RefreshTokenCleanupService } = await import('@/server/services/RefreshTokenCleanupService.js');
+    RefreshTokenCleanupService.getInstance();
+
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
 

@@ -249,10 +249,10 @@ export function buildOpenApiFromCollectedSpecs(
 
     if (spec.requestBody?.schema || spec.requestBody?.description) {
       operation.requestBody = {
+        ...(spec.requestBody.description && { description: spec.requestBody.description }),
         required: spec.requestBody.required !== false,
         content: {
           'application/json': {
-            ...(spec.requestBody.description && { description: spec.requestBody.description }),
             ...(spec.requestBody.schema && { schema: spec.requestBody.schema }),
           },
         },
