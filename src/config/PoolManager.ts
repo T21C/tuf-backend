@@ -54,6 +54,8 @@ export class PoolManager {
       connectTimeout: 60000,
       timezone: '+00:00', // Force UTC timezone
     },
+    queueLimit: 0,
+    waitForConnections: true,
     retry: {
       max: 3,
       backoffBase: 1000,
