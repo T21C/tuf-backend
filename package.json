@@ -44,7 +44,7 @@
     "@types/uuid": "^10.0.0",
     "adm-zip": "^0.5.16",
     "adofai-lib": "^1.2.4",
-    "aws-sdk": "^2.1692.0",
+    "aws-sdk": "^2.1693.0",
     "axios": "^1.7.7",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
@@ -94,5 +94,9 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.7.0",
     "typescript": "~5.1.6"
+  },
+  "overrides": {
+    "tmp": "^0.2.5",
+    "minimatch": "^9.0.6"
   }
 }
