@@ -258,7 +258,7 @@ router.post(
       }
     }
 
-    res.json({
+    return res.json({
       message: 'Chunk uploaded successfully',
       fileId,
       receivedChunks: metadata.receivedChunks.size,
@@ -266,7 +266,7 @@ router.post(
     });
   } catch (error) {
     logger.error('Chunk upload error:', error);
-    res.status(500).json({ error: 'Failed to process upload' });
+    return res.status(500).json({ error: 'Failed to process upload' });
   }
   }
 );
