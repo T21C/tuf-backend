@@ -42,7 +42,7 @@ export class RefreshTokenCleanupService {
       // MySQL: DELETE ... WHERE (revokedAt IS NOT NULL OR expiresAt < NOW()) LIMIT N
       // Run in batches to avoid holding locks for too long
       for (;;) {
-        const [result] = await sequelize.query(
+        const queryResult = await sequelize.query(
           `DELETE FROM refresh_tokens
            WHERE revokedAt IS NOT NULL OR expiresAt < NOW()
            LIMIT :limit`,
@@ -51,6 +51,8 @@ export class RefreshTokenCleanupService {
             type: 'DELETE',
           }
         );
+        // Sequelize may return [rows, meta] or a single value depending on dialect/version
+        const result = Array.isArray(queryResult) ? queryResult[0] : queryResult;
         const raw = result as { affectedRows?: number } | number;
         const affected = typeof raw === 'number' ? raw : (raw?.affectedRows ?? 0);
         totalDeleted += affected;
@@ -59,13 +61,15 @@ export class RefreshTokenCleanupService {
       }
 
       if (totalDeleted > 0) {
-        logger.info('[RefreshTokenCleanup] Cleaned up refresh_tokens', {
+        logger.debug('[RefreshTokenCleanup] Cleaned up refresh_tokens', {
           deleted: totalDeleted,
           batches,
         });
       }
     } catch (err) {
-      logger.error('[RefreshTokenCleanup] Cleanup failed', { error: err });
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      logger.error('[RefreshTokenCleanup] Cleanup failed', { message, stack });
     }
 
     return { deleted: totalDeleted, batches };
