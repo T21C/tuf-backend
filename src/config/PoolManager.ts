@@ -1,18 +1,10 @@
 import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
 import { logger } from '../server/services/LoggerService.js';
+import { PoolConfig } from './poolConfig.js';
+import { AuditLog } from '@/models/index.js';
 
 dotenv.config();
-
-export interface PoolConfig {
-  name: string;
-  maxConnections: number;
-  minConnections?: number;
-  acquireTimeout?: number;
-  idleTimeout?: number;
-  evict?: number;
-  database?: string;
-}
 
 export interface ModelPoolMapping {
   [modelGroup: string]: string; // Maps model group name to pool name
@@ -70,7 +62,7 @@ export class PoolManager {
       maxConnections: defaultMaxConnections,
       minConnections: 2,
       acquireTimeout: 60000,
-      idleTimeout: 10000,
+      idleTimeout: 10000
     });
   }
 
@@ -132,47 +124,8 @@ export class PoolManager {
     // Store pool first so it's available immediately
     this.pools.set(poolName, sequelize);
 
-    // Add connection health check and reconnection logic
-    this.setupConnectionHealthCheck(sequelize, poolName);
-
     logger.debug(`Created isolated pool '${poolName}' with max ${config.maxConnections} connections`);
     return sequelize;
-  }
-
-  /**
-   * Sets up connection health checking and automatic reconnection
-   */
-  private setupConnectionHealthCheck(sequelize: Sequelize, poolName: string): void {
-    // Health check interval - test connection every 30 seconds
-    const HEALTH_CHECK_INTERVAL = 30000;
-    let healthCheckTimer: NodeJS.Timeout | null = null;
-    let isCheckingHealth = false;
-
-    const performHealthCheck = async () => {
-      if (isCheckingHealth) return;
-
-      isCheckingHealth = true;
-      try {
-        // Try to authenticate - this will create a new connection if needed
-        await sequelize.authenticate();
-      } catch (error: any) {
-        if (error.code === 'ECONNREFUSED' || error.code === 'PROTOCOL_CONNECTION_LOST' || error.code === 'ETIMEDOUT') {
-          logger.warn(`Database connection lost for pool ${poolName}: ${error.code}. Will retry on next query.`);
-          // Sequelize will automatically attempt to reconnect on the next query
-          // The validate function will remove dead connections from the pool
-        } else {
-          logger.error(`Database health check failed for pool ${poolName}:`, error);
-        }
-      } finally {
-        isCheckingHealth = false;
-      }
-    };
-
-    // Start health checking
-    healthCheckTimer = setInterval(performHealthCheck, HEALTH_CHECK_INTERVAL);
-
-    // Store timer reference for cleanup (if needed in the future)
-    (sequelize as any)._healthCheckTimer = healthCheckTimer;
   }
 
   /**

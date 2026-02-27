@@ -20,6 +20,16 @@ import { initializeDatabasePools } from './db.js';
  * - Default pool: Remaining connections for unmapped models
  */
 
+export interface PoolConfig {
+  name: string;
+  maxConnections: number;
+  minConnections?: number;
+  acquireTimeout?: number;
+  idleTimeout?: number;
+  evict?: number;
+  database?: string;
+}
+
 export interface PoolConfiguration {
   pools: Array<{
     name: string;
