@@ -861,7 +861,7 @@ router.put(
 
         const newLevel = await Level.create(
           {
-            song: submission.song,
+            song: submission.song + (submission.suffix ? " " + submission.suffix : ''),
             artist: finalArtistString || submission.artist || '',
             suffix: submission.suffix || null,
             songId: finalSongId,
