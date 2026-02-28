@@ -44,16 +44,16 @@ export class BackupService {
     await fs.mkdir(this.config.mysql.backupPath, {recursive: true});
 
     let cmd: string;
+    const dumpFlags = '--single-transaction --quick';
     if (this.isWindows) {
       const mysqlDumpPath = path.join(
         process.env.MYSQL_PATH || '',
         'mysqldump.exe',
       );
       const outputPath = filePath.replace(/\\/g, '/');
-      cmd = `"${mysqlDumpPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
+      cmd = `"${mysqlDumpPath}" ${dumpFlags} -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${outputPath}"`;
     } else {
-      // Linux command
-      cmd = `mysqldump -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${filePath}"`;
+      cmd = `mysqldump ${dumpFlags} -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} > "${filePath}"`;
     }
 
     return new Promise((resolve, reject) => {
