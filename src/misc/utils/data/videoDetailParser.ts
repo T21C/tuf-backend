@@ -236,7 +236,6 @@ async function getDriveFromYt(link: string, response: YouTubeResponse | null = n
       if (!desc) {
         return { drive: null, desc: null };
       }
-      logger.debug(`Description for link ${link}:`, desc);
       const format = desc.split('\n').join(',').split('/').join(',').split(',');
       dsc = desc;
 

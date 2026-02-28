@@ -305,14 +305,20 @@ const handleFlagChanges = (level: Level, req: Request) => {
 
   if (req.body.isAnnounced !== undefined) {
     isAnnounced = req.body.isAnnounced;
-  } else {
+  } 
+  else {
     if (req.body.toRate === true && level.toRate === false) {
       isAnnounced = true;
-    } else if (req.body.toRate === false && level.toRate === true) {
-      const hasChanges =
+    } 
+    else if (req.body.toRate === false && level.toRate === true) {
+      const hasRunningChanges =
         level.diffId !== (req.body.diffId || level.diffId || 0) ||
         level.baseScore !== (req.body.baseScore || level.baseScore || 0);
+      const hasFrozenChanges = 
+        level.diffId !== level.previousDiffId ||
+        level.baseScore !== level.previousBaseScore;
 
+      const hasChanges = hasRunningChanges || hasFrozenChanges;
       isAnnounced = !hasChanges;
     }
   }
@@ -632,7 +638,6 @@ router.put(
 
     if (
       req.body.previousDiffId !== undefined &&
-      !req.body.toRate &&
       !isNaN(Number(req.body.previousDiffId))
     ) {
       previousDiffId = Number(req.body.previousDiffId || 0);
@@ -643,7 +648,6 @@ router.put(
 
     if (
       req.body.previousBaseScore !== undefined &&
-      !req.body.toRate &&
       !isNaN(Number(req.body.previousBaseScore))
     ) {
       previousBaseScore = Number(req.body.previousBaseScore);
