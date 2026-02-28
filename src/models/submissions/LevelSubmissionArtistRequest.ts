@@ -69,7 +69,7 @@ LevelSubmissionArtistRequest.init(
       defaultValue: false,
     },
     verificationState: {
-      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly_declined', 'mostly_allowed', 'allowed', 'tuf_verified'),
+      type: DataTypes.ENUM('unverified', 'pending', 'declined', 'mostly_declined', 'mostly_allowed', 'allowed', 'ysmod_only', 'tuf_verified'),
       allowNull: true,
       defaultValue: null,
     },
