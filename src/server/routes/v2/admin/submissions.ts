@@ -118,13 +118,24 @@ interface ApprovePassSubmissionResult {
  * Throws on validation or processing errors.
  */
 async function approvePassSubmission(
-  submission: PassSubmission & {
-    level: Level & { difficulty: Difficulty; levelCredits?: unknown[] };
-    flags: PassSubmissionFlags;
-    judgements: PassSubmissionJudgements;
-  },
+  submissionId: number,
   transaction: Transaction,
 ): Promise<ApprovePassSubmissionResult> {
+
+  const submission = await PassSubmission.findByPk(submissionId, 
+    { include: [
+      { model: Level, as: 'level', 
+        include: [ 
+          { model: Difficulty, as: 'difficulty' } 
+        ] 
+      },
+      { model: Player, as: 'assignedPlayer' },
+      { model: PassSubmissionJudgements, as: 'judgements' },
+      { model: PassSubmissionFlags, as: 'flags' },
+    ],
+    transaction,
+  });
+  if (!submission) throw new Error('Submission not found');
   const submissionData = submission.toJSON() as { passId?: number };
   if (submissionData.passId) {
     throw new Error(`Pass already exists for this submission (passId: ${submissionData.passId})`);
@@ -251,7 +262,14 @@ async function approvePassSubmission(
       { levelId: submission.levelId, lowDiff: false, requesterFR: submission.feelingDifficulty?.substring(0, 60) || 'cleared' },
       { transaction },
     );
-    await Level.update({ toRate: true, rerateNum: reqFr.substring(0, 60) || '', rerateReason: 'cleared'}, { where: { id: submission.levelId }, transaction });
+    await Level.update({ 
+      toRate: true, 
+      previousDiffId: level.diffId,
+      previousBaseScore: level.baseScore || difficulty.baseScore || 0,
+      rerateNum: reqFr.substring(0, 60) || '', 
+      rerateReason: 'cleared'}, 
+      { where: { id: submission.levelId }, 
+      transaction });
   }
 
   return { pass, newPass: newPass as Pass, playerStats };
@@ -1165,7 +1183,7 @@ router.put(
         return res.status(404).json({error: 'Submission not found or already processed'});
       }
 
-      const { pass, newPass, playerStats } = await approvePassSubmission(submission as any, transaction);
+      const { pass, newPass, playerStats } = await approvePassSubmission(submission.id, transaction);
 
       await transaction.commit();
 
@@ -1467,7 +1485,7 @@ router.post(
           throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
         }
 
-        const { newPass, playerStats } = await approvePassSubmission(lockedSubmission as any, transaction);
+        const { newPass, playerStats } = await approvePassSubmission(lockedSubmission.id, transaction);
 
         await transaction.commit();
 

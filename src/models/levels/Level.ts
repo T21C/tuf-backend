@@ -61,7 +61,7 @@ class Level
   declare firstPass: IPass | null;
   // Virtual fields from associations
   declare passes?: IPass[];
-  declare difficulty?: IDifficulty;
+  declare difficulty: IDifficulty;
   declare previousDifficulty?: IDifficulty;
   declare levelCreators?: ICreator[];
   declare levelCredits?: LevelCredit[];
