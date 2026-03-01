@@ -212,6 +212,8 @@ export async function startServer() {
     const SLOW_LOG_EXCLUDED_ROUTES = [
       '/v2/webhook/*',
       '/v2/database/levels',
+      '/v2/database/levels/*/cdnData',
+      '/v2/database/levels/*/upload',
       '/v2/database/levels/packs/*/download-link',
       '/v2/form/form-submit',
       '/v2/media/thumbnail/*',
