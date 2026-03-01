@@ -1,8 +1,11 @@
 import express from 'express';
 import http from 'http';
 import axios from 'axios';
-import sequelize from '@/config/db.js';
+import { QueryTypes } from 'sequelize';
+import { getPoolManager } from '@/config/PoolManager.js';
 import v8 from 'v8';
+
+const DB_CHECK_TIMEOUT_MS = 5000;
 
 export class HealthService {
   private static instance: HealthService;
@@ -336,15 +339,39 @@ export class HealthService {
     }
   }
 
-  private async runHealthChecks(): Promise<void> {
-    // Check database connection
+  private async checkDatabase(): Promise<boolean> {
+    let sequelize;
     try {
-      await sequelize.authenticate();
-      this.checks.database = true;
-    } catch (error) {
-      console.error('Database health check failed:', error);
-      this.checks.database = false;
+      sequelize = getPoolManager().getDefaultPool();
+    } catch {
+      return false;
     }
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Database check timeout')), DB_CHECK_TIMEOUT_MS)
+    );
+    try {
+      await Promise.race([
+        sequelize.query<{ result: number }>('SELECT 1 AS result', {
+          type: QueryTypes.SELECT,
+          raw: true,
+        }),
+        timeout,
+      ]);
+      return true;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const isClosedState =
+        msg.includes('closed state') ||
+        (error as { parent?: { message?: string } })?.parent?.message?.includes('closed state');
+      if (!isClosedState) {
+        console.error('Database health check failed:', error);
+      }
+      return false;
+    }
+  }
+
+  private async runHealthChecks(): Promise<void> {
+    this.checks.database = await this.checkDatabase();
 
     // Check main server
     this.checks.mainServer = await this.checkMainServer();
