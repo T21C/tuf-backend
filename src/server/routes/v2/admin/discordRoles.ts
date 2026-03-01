@@ -288,7 +288,7 @@ router.delete(
     await guild.destroy({ transaction });
     await transaction.commit();
 
-    return res.status(204).send({ success: true, message: 'Guild deleted successfully' });
+    return res.status(204).end();
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting Discord guild:', error);
@@ -561,7 +561,7 @@ router.delete(
     await role.destroy({ transaction });
     await transaction.commit();
 
-    return res.status(204).send({ success: true, message: 'Role deleted successfully' });
+    return res.status(204).end();
   } catch (error: any) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting Discord role:', error);

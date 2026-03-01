@@ -429,7 +429,7 @@ router.delete(
     await elasticsearchService.reindexLevels(affectedLevelIds);
 
     logger.debug(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
-    return res.status(204).send({ success: true, message: 'Curation type deleted successfully' });
+    return res.status(204).end();
   } catch (error) {
     await safeTransactionRollback(transaction);
     logger.error('Error deleting curation type:', error);
