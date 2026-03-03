@@ -552,6 +552,7 @@ class CdnService {
         cacheKey: string;
         tree: any;
         downloadId?: string; // Client-provided downloadId for progress tracking
+        trimFolderNames?: boolean; // When true, shortens folder names for path length compatibility
     }): Promise<{
         downloadId: string;
         url: string;

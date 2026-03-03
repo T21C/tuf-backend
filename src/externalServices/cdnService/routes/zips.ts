@@ -31,8 +31,10 @@ const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
-const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 25GB hard limit
-const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 30GB total concurrent limit
+const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
+const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
+/** Max path length for extraction (e.g. Windows MAX_PATH 260; extract folder + sep + path inside zip). */
+const MAX_PATH_LENGTH = 140;
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -562,10 +564,9 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
                 });
             }
 
-            const derivedName = originalZip.originalFilename || originalZip.name;
-            const baseFolderName = derivedName
-                ? path.parse(derivedName).name
-                : node.name || `Level-${node.levelId ?? 'unknown'}`;
+            const derivedFromZip = originalZip.originalFilename || originalZip.name;
+            const zipBaseName = derivedFromZip ? path.parse(derivedFromZip).name : null;
+            const baseFolderName = node.name || zipBaseName || `Level-${node.levelId ?? 'unknown'}`;
             finalFolderName = buildLevelFolderName(node, baseFolderName);
             const targetFolder = parentPath
                 ? path.join(context.extractRoot, parentPath, finalFolderName)
@@ -733,7 +734,12 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             }
         })();
 
-        const rawName = dispositionFilename || urlFilename || defaultName;
+        const fromUrl = dispositionFilename || urlFilename;
+        const urlBaseName = fromUrl ? path.parse(fromUrl).name || fromUrl : null;
+        const isGenericName = (s: string) =>
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ||
+            /^(download|level|file|zip)$/i.test(s);
+        const rawName = (urlBaseName && !isGenericName(urlBaseName)) ? fromUrl! : defaultName;
         const baseFolderName = path.parse(rawName).name || rawName;
         const finalFolderName = buildLevelFolderName(node, baseFolderName);
         const targetFolder = parentPath
@@ -833,6 +839,208 @@ function countTotalLevels(node: PackDownloadNode): number {
     return 1; // Level node
 }
 
+const PATH_SEP = path.win32.sep;
+
+/** Compute path length with trimmable segments (folders) capped at maxSegLen; files are included as-is. */
+function pathLengthWithCap(relPath: string, trimmableSet: Set<string>, maxSegLen: number): number {
+    const norm = path.win32.normalize(relPath);
+    const segments = norm.split(PATH_SEP);
+    let acc = '';
+    let len = 0;
+    for (const seg of segments) {
+        acc = acc ? `${acc}${PATH_SEP}${seg}` : seg;
+        const segLen = trimmableSet.has(acc) ? Math.min(seg.length, maxSegLen) : seg.length;
+        len += (len > 0 ? 1 : 0) + segLen;
+    }
+    return len;
+}
+
+/** Returns max relative path length over all paths, and the path that achieved it. */
+async function getMaxRelativePathAndLength(dir: string, root: string): Promise<{ maxLen: number; maxPath: string }> {
+    let maxLen = 0;
+    let maxPath = '';
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+        const fullPath = path.join(dir, e.name);
+        const rel = path.relative(root, fullPath);
+        const relNormalized = path.win32.normalize(rel);
+        if (relNormalized.length > maxLen) {
+            maxLen = relNormalized.length;
+            maxPath = relNormalized;
+        }
+        if (e.isDirectory()) {
+            const sub = await getMaxRelativePathAndLength(fullPath, root);
+            if (sub.maxLen > maxLen) {
+                maxLen = sub.maxLen;
+                maxPath = sub.maxPath;
+            }
+        }
+    }
+    return { maxLen, maxPath };
+}
+
+/** Returns max path length when all folder-only segment lengths are capped at maxSegLen. */
+async function getMaxPathLengthWithCap(
+    dir: string,
+    root: string,
+    folderOnlySet: Set<string>,
+    maxSegLen: number
+): Promise<number> {
+    let maxLen = 0;
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+        const fullPath = path.join(dir, e.name);
+        const rel = path.relative(root, fullPath);
+        const relNorm = path.win32.normalize(rel);
+        const len = pathLengthWithCap(relNorm, folderOnlySet, maxSegLen);
+        if (len > maxLen) maxLen = len;
+        if (e.isDirectory()) {
+            const subMax = await getMaxPathLengthWithCap(fullPath, root, folderOnlySet, maxSegLen);
+            if (subMax > maxLen) maxLen = subMax;
+        }
+    }
+    return maxLen;
+}
+
+interface FolderInfo {
+    relativePath: string;
+    name: string;
+    isPureFolderOfFolders: boolean;
+}
+
+/** Recursively collect all folders; marks which are pure folders-of-folders (no files). */
+async function collectFolders(dir: string, root: string): Promise<FolderInfo[]> {
+    const result: FolderInfo[] = [];
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const rel = path.relative(root, dir);
+    const isPureFolderOfFolders = entries.length > 0 && entries.every((e) => e.isDirectory());
+
+    if (rel && rel !== '.') {
+        result.push({
+            relativePath: rel,
+            name: path.basename(dir),
+            isPureFolderOfFolders: isPureFolderOfFolders
+        });
+    }
+
+    for (const e of entries) {
+        if (e.isDirectory()) {
+            const sub = await collectFolders(path.join(dir, e.name), root);
+            result.push(...sub);
+        }
+    }
+    return result;
+}
+
+/**
+ * After unpack: find the deepest path (to files), identify pure folders-of-folders in it, and apply
+ * a uniform ceiling to minimize the total path length (including files) so extractFolderName + sep +
+ * pathInsideZip stays under MAX_PATH_LENGTH. Uses pure folders-of-folders first; if still
+ * over budget, also trims level folders (containing files).
+ */
+async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string): Promise<void> {
+    const allFolders = await collectFolders(extractRoot, extractRoot);
+    if (allFolders.length === 0) {
+        return;
+    }
+
+    const extractFolderName = path.parse(zipName).name || 'pack';
+    const pathBudget = Math.max(1, MAX_PATH_LENGTH - 1 - extractFolderName.length);
+
+    const { maxLen } = await getMaxRelativePathAndLength(extractRoot, extractRoot);
+    if (maxLen <= pathBudget) {
+        return;
+    }
+
+    const pureFolderList = allFolders.filter((f) => f.isPureFolderOfFolders);
+    const trimmableList =
+        pureFolderList.length > 0 ? pureFolderList : allFolders;
+    const trimmableSet = new Set(trimmableList.map((f) => path.win32.normalize(f.relativePath)));
+    const maxNameLen = Math.max(...trimmableList.map((f) => f.name.length), 1);
+
+    let low = 1;
+    let high = maxNameLen;
+    let bestCap = 1;
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const simulatedMax = await getMaxPathLengthWithCap(extractRoot, extractRoot, trimmableSet, mid);
+        if (simulatedMax <= pathBudget) {
+            bestCap = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    let finalList = trimmableList;
+    if (pureFolderList.length > 0) {
+        const pureSet = new Set(pureFolderList.map((f) => path.win32.normalize(f.relativePath)));
+        const afterPure = await getMaxPathLengthWithCap(extractRoot, extractRoot, pureSet, bestCap);
+        if (afterPure > pathBudget && allFolders.length > pureFolderList.length) {
+            const combinedSet = new Set(allFolders.map((f) => path.win32.normalize(f.relativePath)));
+            let low2 = 1;
+            let high2 = Math.max(...allFolders.map((f) => f.name.length), 1);
+            let bestCap2 = 1;
+            while (low2 <= high2) {
+                const mid = Math.floor((low2 + high2) / 2);
+                const sim = await getMaxPathLengthWithCap(extractRoot, extractRoot, combinedSet, mid);
+                if (sim <= pathBudget) {
+                    bestCap2 = mid;
+                    low2 = mid + 1;
+                } else {
+                    high2 = mid - 1;
+                }
+            }
+            bestCap = bestCap2;
+            finalList = allFolders;
+        }
+    }
+
+    const cappedNames = finalList.map((f) => {
+        const capped = f.name.length > bestCap ? f.name.slice(0, bestCap) : f.name;
+        return capped || 'pack';
+    });
+
+    const parentToChildren = new Map<string, { index: number; newName: string }[]>();
+    for (let i = 0; i < finalList.length; i++) {
+        const f = finalList[i];
+        const parent = path.dirname(f.relativePath) || '';
+        const arr = parentToChildren.get(parent) ?? [];
+        arr.push({ index: i, newName: cappedNames[i] });
+        parentToChildren.set(parent, arr);
+    }
+
+    const uniqueNewNames: string[] = [];
+    for (let i = 0; i < finalList.length; i++) {
+        const f = finalList[i];
+        const parent = path.dirname(f.relativePath) || '';
+        const siblings = parentToChildren.get(parent) ?? [];
+        const sameCapped = siblings.filter((s) => s.newName === cappedNames[i]);
+        const idx = sameCapped.findIndex((s) => s.index === i) + 1;
+        uniqueNewNames.push(idx > 1 ? `${cappedNames[i]}_${idx}` : cappedNames[i]);
+    }
+
+    const renames: { oldPath: string; newPath: string }[] = [];
+    for (let i = 0; i < finalList.length; i++) {
+        const f = finalList[i];
+        const newName = uniqueNewNames[i];
+        if (f.name === newName) {
+            continue;
+        }
+        const parentRel = path.dirname(f.relativePath);
+        const newRel = parentRel ? path.join(parentRel, newName) : newName;
+        renames.push({
+            oldPath: path.join(extractRoot, f.relativePath),
+            newPath: path.join(extractRoot, newRel)
+        });
+    }
+
+    renames.sort((a, b) => b.oldPath.length - a.oldPath.length);
+    for (const { oldPath, newPath } of renames) {
+        await fs.promises.rename(oldPath, newPath);
+    }
+}
+
 async function processPackNode(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<void> {
     if (node.type === 'folder') {
         const folderName = sanitizePathSegment(node.name || 'Folder');
@@ -878,8 +1086,11 @@ async function generatePackDownloadZip(
     zipName: string,
     tree: PackDownloadNode,
     cacheKey: string,
-    clientDownloadId?: string // Client-provided downloadId for progress tracking
+    clientDownloadId?: string, // Client-provided downloadId for progress tracking
+    trimFolderNames = true // When true, shortens folder names for path length compatibility
 ): Promise<PackDownloadResponse> {
+    logger.debug('Generating pack download zip', { zipName, cacheKey, clientDownloadId });
+    logger.debug('Tree', { tree });
     await ensurePackDownloadDirs();
     await cleanupExpiredDownloads();
 
@@ -920,6 +1131,11 @@ async function generatePackDownloadZip(
     try {
         // Process all nodes and extract to disk
         await processPackNode(tree, '', context);
+
+        // Optionally trim root + folder-only children so extractFolder + path stays under path limit
+        if (trimFolderNames) {
+            await trimRootFoldersForPathLimit(extractRoot, zipName);
+        }
 
         // Update progress: processing complete, now zipping
         await updateProgress(downloadId, cacheKey, {
@@ -1333,7 +1549,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
 
 router.post('/packs/generate', async (req: Request, res: Response) => {
     try {
-        const { zipName, tree, cacheKey, packCode, downloadId: clientDownloadId } = req.body ?? {};
+        const { zipName, tree, cacheKey, packCode, downloadId: clientDownloadId, trimFolderNames } = req.body ?? {};
 
         if (!zipName || typeof zipName !== 'string') {
             return res.status(400).json({ error: 'zipName is required' });
@@ -1373,7 +1589,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         });
 
         // Format zip name with pack code if provided
-        let finalZipName = zipName;
+        let finalZipName = zipName.slice(0, 40);
         if (packCode && typeof packCode === 'string' && packCode.trim().length > 0) {
             // Check if pack code is already in the name (to avoid duplication)
             if (!zipName.includes(` - ${packCode}`)) {
@@ -1460,7 +1676,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             const sanitizedZipName = sanitizePathSegment(finalZipName);
             const generationPromise = (async () => {
                 try {
-                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId);
+                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId, trimFolderNames !== false);
                 } finally {
                     // Unregister from active generations and process queue
                     unregisterGeneration(normalizedCacheKey);

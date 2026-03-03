@@ -821,13 +821,13 @@ router.post(
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'folderId, downloadId (optional)', schema: { type: 'object', properties: { folderId: { type: 'integer' }, downloadId: { type: 'string' } } }, required: false },
+    requestBody: { description: 'folderId, downloadId, trimFolderNames (optional)', schema: { type: 'object', properties: { folderId: { type: 'integer' }, downloadId: { type: 'string' }, trimFolderNames: { type: 'boolean' } } }, required: false },
     responses: { 200: { description: 'Download link payload' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
   try {
     const param = req.params.id;
-    const { folderId, downloadId } = req.body ?? {};
+    const { folderId, downloadId, trimFolderNames } = req.body ?? {};
 
     const resolvedPackId = await resolvePackId(param);
     if (!resolvedPackId) {
@@ -949,7 +949,10 @@ router.post(
       children: rootChildren
     };
 
-    const cacheKey = createHash('sha256').update(JSON.stringify(treePayload)).digest('hex');
+    const cacheKey = createHash('sha256').update(JSON.stringify({
+      ...treePayload,
+      trimFolderNames: trimFolderNames !== false
+    })).digest('hex');
 
     const cdnResponse = await cdnService.generatePackDownload({
       zipName: zipDisplayName || 'Missing pack name',
@@ -958,7 +961,8 @@ router.post(
       folderId: targetFolder ? targetFolder.id : null,
       cacheKey,
       tree: treePayload,
-      downloadId: downloadId || undefined // Client-provided downloadId for progress tracking
+      downloadId: downloadId || undefined, // Client-provided downloadId for progress tracking
+      trimFolderNames: trimFolderNames !== false
     });
 
     return res.json(cdnResponse);
