@@ -1227,6 +1227,7 @@ router.post(
 router.get(
   '/:playerId([0-9]{1,20})/modifiers',
   Auth.addUserToRequest(),
+  /*
   ApiDoc({
     operationId: 'getPlayerModifiers',
     summary: 'Get player modifiers',
@@ -1234,8 +1235,11 @@ router.get(
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     params: { playerId: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Modifiers and cooldown' }, ...standardErrorResponses500, 727: { schema: errorResponseSchema } },
+    responses: { 200: { description: 'Modifiers and cooldown' },
+    ...standardErrorResponses500
+    },
   }),
+  */
   async (req, res) => {
   try {
     if (!modifierService) {
@@ -1276,6 +1280,7 @@ router.get(
 router.post(
   '/modifiers/generate',
   Auth.verified(),
+  /*
   ApiDoc({
     operationId: 'postPlayerModifiersGenerate',
     summary: 'Generate modifier',
@@ -1283,8 +1288,12 @@ router.post(
     tags: ['Database', 'Players'],
     security: ['bearerAuth'],
     requestBody: { description: 'targetPlayerId', schema: { type: 'object', properties: { targetPlayerId: { type: 'integer' } }, required: ['targetPlayerId'] }, required: true },
-    responses: { 200: { description: 'Modifier generated' }, 400: { schema: errorResponseSchema }, 429: { schema: errorResponseSchema }, ...standardErrorResponses500, 727: { schema: errorResponseSchema } },
+    responses: { 200: { description: 'Modifier generated' }, 400: { schema: errorResponseSchema },
+    429: { schema: errorResponseSchema },
+    ...standardErrorResponses500
+    },
   }),
+  */
   async (req, res) => {
   if (!modifierService) {
     return res.status(727).json({ error: 'April fools over, modifiers are disabled' });
@@ -1419,19 +1428,27 @@ router.get(
           }],
         });
 
-        // Extract unique curation types
-        const curationTypeMap = new Map<number, CurationType>();
+        // Extract unique curation types, accumulating roles from all credits per type
+        const curationTypeMap = new Map<number, {type: CurationType, roles: Set<string>}>();
         for (const credit of credits) {
           const curation = (credit.level as any)?.curation;
           if (curation?.type) {
-            curationTypeMap.set(curation.type.id, curation.type);
+            const existing = curationTypeMap.get(curation.type.id);
+            if (existing) {
+              if (credit.role) existing.roles.add(credit.role);
+            } else {
+              const roles = new Set<string>();
+              if (credit.role) roles.add(credit.role);
+              curationTypeMap.set(curation.type.id, {type: curation.type, roles});
+            }
           }
         }
 
         result.curationTypes = Array.from(curationTypeMap.values()).map(ct => ({
-          id: ct.id,
-          name: ct.name,
-          sortOrder: ct.sortOrder,
+          id: ct.type.id,
+          name: ct.type.name,
+          sortOrder: ct.type.sortOrder,
+          roles: Array.from(ct.roles),
         })).sort((a, b) => (b.sortOrder || 0) - (a.sortOrder || 0)); // Sort descending
       } catch (error: any) {
         logger.debug(`Error fetching curation types for creator ${user.creatorId}: ${error.message}`);

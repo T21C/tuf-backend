@@ -20,8 +20,8 @@ class LevelCredit extends Model {
   declare isVerified: boolean;
 
   // Associations
-  declare level?: Level;
-  declare creator?: Creator;
+  declare level: Level;
+  declare creator: Creator;
 }
 
 LevelCredit.init(

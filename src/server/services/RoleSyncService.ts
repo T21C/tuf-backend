@@ -430,7 +430,7 @@ class RoleSyncService {
       // Build sets of curation type IDs for each creator
       for (const credit of credits) {
         const creatorId = credit.creatorId;
-        const curation = (credit.level as any)?.curation;
+        const curation = credit.level.curation;
         if (curation?.type?.id) {
           const typeSet = result.get(creatorId);
           if (typeSet) {
