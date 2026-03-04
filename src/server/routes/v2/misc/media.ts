@@ -396,65 +396,102 @@ router.get(
   ApiDoc({
     operationId: 'getMediaImageProxy',
     summary: 'Proxy image by URL',
-    description: 'Fetches an image from a given URL and returns it (avoids CORS).',
+    description: 'Fetches an image from a given URL and returns it (avoids CORS). Only allows image formats.',
     tags: ['Media'],
     query: { url: { description: 'Image URL to fetch', schema: { type: 'string' }, required: true } },
     responses: {
       200: { description: 'Image binary (Content-Type from source)' },
       400: { description: 'Invalid or missing URL' },
+      415: { description: 'Unsupported Media Type (not an image)' },
       500: { description: 'Error fetching image', schema: errorResponseSchema },
     },
   }),
   async (req: Request, res: Response) => {
-  const imageUrl = req.query.url;
-  const maxAttempts = 5;
-  let attempt = 1;
+    const imageUrl = req.query.url;
+    const maxAttempts = 5;
+    let attempt = 1;
 
-  try {
-    if (!imageUrl || typeof imageUrl !== 'string') {
-      return res.status(400).send('Invalid image URL');
+    const ALLOWED_IMAGE_MIME = [
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/webp',
+      'image/gif',
+      'image/apng',
+      'image/svg+xml',
+      'image/bmp',
+      'image/x-icon',
+      'image/vnd.microsoft.icon',
+      'image/heic',
+      'image/heif',
+      'image/avif',
+      'image/tiff'
+    ];
+
+    // Quick file extension check, just as a first non-authoritative filter
+    function isValidImageUrl(url: string): boolean {
+      const allowedExts = /\.(png|jpg|jpeg|webp|gif|apng|svg|bmp|ico|icon|heic|heif|avif|tiff?)$/i;
+      return allowedExts.test(url.split('?')[0]);
     }
 
-    while (attempt <= maxAttempts) {
-      try {
-        const response = await axios.get(imageUrl, {
-          responseType: 'arraybuffer',
-          timeout: 10000, // 10 second timeout
-        });
-
-        const contentType = response.headers['content-type'];
-        res.set('Content-Type', contentType);
-
-        return res.send(response.data);
-      } catch (error) {
-        // Handle 4XX errors - these are client errors and should not be retried
-        if (axios.isAxiosError(error) && error.response) {
-          const status = error.response.status;
-          if (status >= 400 && status < 500) {
-            logger.debug(`Client error (${status}) fetching image from ${imageUrl}`);
-            return res.status(status).send(`Error fetching image: ${error.message}`);
-          }
-        }
-
-        // For 5XX errors, network errors, or timeouts, retry
-        if (attempt >= maxAttempts) {
-          logger.debug(`Error fetching image after ${maxAttempts} attempts for link ${imageUrl}:`, error);
-          return res.status(500).send('Error fetching image.');
-        }
-
-        logger.debug(`Image proxy attempt #${attempt} failed for ${imageUrl}, retrying...`);
-        attempt++;
-        // Wait 1 second before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      if (!imageUrl || typeof imageUrl !== 'string' || !isValidImageUrl(imageUrl)) {
+        return res.status(400).send('Invalid or unsupported image URL');
       }
-    }
 
-    // This should never be reached, but satisfy TypeScript
-    return res.status(500).send('Error fetching image.');
-  } catch (error) {
-    logger.error(`Unexpected error in image proxy for link ${imageUrl}:`, error);
-    return res.status(500).send('Error fetching image.');
-  }
+      while (attempt <= maxAttempts) {
+        try {
+          const response = await axios.get(imageUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000, // 10 second timeout
+            // Forward a generic browser User-Agent for privacy/compat
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Image Proxy)'
+            }
+          });
+
+          const contentType = response.headers['content-type'];
+
+          if (
+            !contentType ||
+            !contentType.startsWith('image/') ||
+            !ALLOWED_IMAGE_MIME.includes(contentType.split(';')[0].trim())
+          ) {
+            logger.debug(`Rejected proxied resource with unsupported content-type (${contentType}) for URL: ${imageUrl}`);
+            return res.status(415).send('Unsupported Media Type: Only images may be proxied.');
+          }
+
+          res.set('Content-Type', contentType);
+          return res.send(response.data);
+        } catch (error) {
+          // Handle 4XX errors - these are client errors and should not be retried
+          if (axios.isAxiosError(error) && error.response) {
+            const status = error.response.status;
+            if (status >= 400 && status < 500) {
+              logger.debug(`Client error (${status}) fetching image from ${imageUrl}`);
+              return res.status(status).send(`Error fetching image: ${error.message}`);
+            }
+          }
+
+          // For 5XX errors, network errors, or timeouts, retry
+          if (attempt >= maxAttempts) {
+            logger.debug(`Error fetching image after ${maxAttempts} attempts for link ${imageUrl}:`, error);
+            return res.status(500).send('Error fetching image.');
+          }
+
+          logger.debug(`Image proxy attempt #${attempt} failed for ${imageUrl}, retrying...`);
+          attempt++;
+          // Wait 1 second before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      // This should never be reached, but satisfy TypeScript
+      return res.status(500).send('Error fetching image.');
+    } catch (error) {
+      logger.error(`Unexpected error in image proxy for link ${imageUrl}:`, error);
+      return res.status(500).send('Error fetching image.');
+    }
   }
 );
 
