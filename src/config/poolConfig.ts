@@ -1,4 +1,5 @@
-import { initializeDatabasePools } from './db.js';
+
+import { initializePools } from './PoolManager.js';
 
 /**
  * Pool configuration for isolating model groups.
@@ -159,7 +160,7 @@ const defaultPoolConfig: PoolConfiguration = {
  * Call this during application startup, before models are initialized.
  */
 export function initializeDefaultPools(): void {
-  initializeDatabasePools(defaultPoolConfig);
+  initializePools(defaultPoolConfig);
 }
 
 /**
@@ -167,7 +168,7 @@ export function initializeDefaultPools(): void {
  * Use this if you want to override the default configuration.
  */
 export function initializeCustomPools(config: PoolConfiguration): void {
-  initializeDatabasePools(config);
+  initializePools(config);
 }
 
 /**
