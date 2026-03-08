@@ -48,7 +48,7 @@ import {
   logLevelMetadataUpdateHook,
 } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
-import { getSongDisplayName } from '@/utils/levelHelpers.js';
+import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();

@@ -14,7 +14,7 @@ import Creator from '@/models/credits/Creator.js';
 import LevelPack from '@/models/packs/LevelPack.js';
 import { LevelPackViewModes } from '@/models/packs/index.js';
 import { Op } from 'sequelize';
-import { getArtistDisplayName, getSongDisplayName } from '@/utils/levelHelpers.js';
+import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 
 // Add type for manifest entries
 type ManifestEntry = {

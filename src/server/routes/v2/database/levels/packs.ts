@@ -25,7 +25,7 @@ import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
-import { getSongDisplayName } from '@/utils/levelHelpers.js';
+import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 
 const router: Router = Router();
 

@@ -29,7 +29,7 @@ import CurationSchedule from '@/models/curations/CurationSchedule.js';
 import Song from '@/models/songs/Song.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import Artist from '@/models/artists/Artist.js';
-import { getArtistDisplayName, getSongDisplayName } from '@/utils/levelHelpers.js';
+import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { Cache } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';

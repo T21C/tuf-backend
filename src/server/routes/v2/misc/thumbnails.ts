@@ -29,7 +29,7 @@ import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '@/server/routes/v2/webhooks/embeds.js';
 import dotenv from 'dotenv';
 import LevelTag from '@/models/levels/LevelTag.js';
-import { getSongDisplayName, getArtistDisplayName } from '@/utils/levelHelpers.js';
+import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 
