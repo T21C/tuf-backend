@@ -24,9 +24,6 @@ RUN npm ci --omit=dev
 # Copy pre-built dist folder
 COPY dist/ ./dist/
 
-# Copy assets if needed
-COPY assets/ ./assets/
-
 # Create directories for runtime data
 RUN mkdir -p uploads cache backups logs
 
