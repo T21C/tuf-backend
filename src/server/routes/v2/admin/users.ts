@@ -6,7 +6,6 @@ import {User, OAuthProvider} from '@/models/index.js';
 import Player from '@/models/players/Player.js';
 import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
 import {Op} from 'sequelize';
-import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '@/misc/utils/auth/auth.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -337,9 +336,6 @@ router.post(
       // Invalidate user-specific cache
       await CacheInvalidation.invalidateUser(userToUpdate.id);
 
-      const newAccessToken = tokenUtils.generateAccessToken(userToUpdate);
-      cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
-
       return res.json({
         message: 'Role revoked successfully',
         user: {
@@ -350,8 +346,7 @@ router.post(
           isCurator: hasFlag(userToUpdate, permissionFlags.CURATOR),
           isHeadCurator: hasFlag(userToUpdate, permissionFlags.HEAD_CURATOR),
           permissionFlags: userToUpdate.permissionFlags.toString(), // Convert BigInt to string
-        },
-        token: newAccessToken,
+        }
       });
     } catch (error: any) {
       logger.error('Failed to revoke role:', error);
