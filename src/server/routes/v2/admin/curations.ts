@@ -919,6 +919,7 @@ router.post(
       } : null
     } : null;
 
+    elasticsearchService.indexLevel(levelId);
     // Trigger Discord role sync for creators whose curation types changed
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
