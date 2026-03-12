@@ -19,6 +19,7 @@ import ArtistService from '@/server/services/ArtistService.js';
 import EvidenceService from '@/server/services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '@/server/services/CdnService.js';
 import multer from 'multer';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router();
 const artistService = ArtistService.getInstance();
@@ -31,8 +32,6 @@ const upload = multer({
   }
 });
 
-const MAX_LIMIT = 200;
-
 // Get artist list (paginated, searchable, filterable by verification state)
 router.get(
   '/',
@@ -40,30 +39,20 @@ router.get(
   ApiDoc({
     operationId: 'getArtists',
     summary: 'List artists',
-    description: 'Paginated, searchable list of artists',
+    description: 'Paginated, searchable list of artists. Query: page, offset, limit, search, sort.',
     tags: ['Database', 'Artists'],
     security: ['bearerAuth'],
-    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Paginated artists' }, 500: { schema: errorResponseSchema } },
   }),
   async (req: Request, res: Response) => {
   try {
+    const { page, limit, offset } = req.query as unknown as PaginationQuery;
     const {
-      page = '1',
-      limit = '50',
       search = '',
       sort = 'NAME_ASC',
       verificationState,
     } = req.query;
-
-    // Normalize and validate limit first
-    const normalizedLimit = Math.min(Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string) || 50)), 200);
-
-    // Normalize and validate page (must be at least 1)
-    const normalizedPage = Math.max(1, parseInt(page as string) || 1);
-
-    // Calculate offset using normalized values
-    const offset = (normalizedPage - 1) * normalizedLimit;
 
     const searchString = (search as string).trim();
 
@@ -199,7 +188,7 @@ router.get(
 
     // Step 2: Paginate the IDs array
     const totalCount = allMatchingIds.length;
-    const paginatedIds = allMatchingIds.slice(offset, offset + normalizedLimit);
+    const paginatedIds = allMatchingIds.slice(offset, offset + limit);
 
     // Step 3: Query with paginated IDs (or normal query if no search)
     let finalWhere: any = {};
@@ -233,8 +222,9 @@ router.get(
       return res.json({
         artists: [],
         total: 0,
-        page: normalizedPage,
-        limit: normalizedLimit,
+        page,
+        offset,
+        limit,
         hasMore: false
       });
     } else {
@@ -243,7 +233,7 @@ router.get(
         finalWhere.verificationState = verificationState;
       }
       queryOptions.where = finalWhere;
-      queryOptions.limit = normalizedLimit;
+      queryOptions.limit = limit;
       queryOptions.offset = offset;
     }
 
@@ -296,9 +286,10 @@ router.get(
     return res.json({
       artists: serializedArtists,
       total: finalCount,
-      page: normalizedPage,
-      limit: normalizedLimit,
-      hasMore: sortedRows.length > 0 && offset + normalizedLimit < finalCount
+      page,
+      offset,
+      limit,
+      hasMore: sortedRows.length > 0 && offset + limit < finalCount
     });
   } catch (error) {
     logger.error('Error fetching artists:', error);

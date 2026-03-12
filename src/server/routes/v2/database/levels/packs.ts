@@ -24,8 +24,10 @@ import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
+import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { stringIdParamSpec } from '@/server/schemas/common.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router();
 
@@ -267,10 +269,10 @@ router.get(
   ApiDoc({
     operationId: 'getPacks',
     summary: 'List packs',
-    description: 'List level packs with optional search, filters, and pagination. Cached.',
+    description: 'List level packs with optional search, filters, and pagination. Query: page, offset, limit, query, viewMode, pinned, myLikesOnly, sort, order. Cached.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    query: { query: { schema: { type: 'string' } }, viewMode: { schema: { type: 'string' } }, pinned: { schema: { type: 'string' } }, myLikesOnly: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, order: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, query: { schema: { type: 'string' } }, viewMode: { schema: { type: 'string' } }, pinned: { schema: { type: 'string' } }, myLikesOnly: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, order: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Packs list' }, ...standardErrorResponses500 },
   }),
   Cache({
@@ -281,19 +283,17 @@ router.get(
 }),
   async (req: Request, res: Response) => {
   try {
+    let { page, offset, limit } = req.query as unknown as PaginationQuery;
     const {
       query,
       viewMode,
       pinned,
       myLikesOnly,
-      offset = 0,
-      limit = DEFAULT_LIMIT,
       sort = 'RECENT',
       order: orderQuery = 'DESC'
     } = req.query;
 
-    const parsedLimit = Math.min(parseInt(limit as string) || DEFAULT_LIMIT, MAX_LIMIT);
-    const parsedOffset = parseInt(offset as string) || 0;
+    limit = Math.min(limit, MAX_LIMIT);
 
     const whereConditions: any = {};
 
@@ -332,8 +332,9 @@ router.get(
         return res.json({
           packs: [],
           total: 0,
-          offset: parsedOffset,
-          limit: parsedLimit
+          page,
+          offset,
+          limit
         });
       }
     }
@@ -348,8 +349,9 @@ router.get(
         return res.json({
           packs: [],
           total: 0,
-          offset: parsedOffset,
-          limit: parsedLimit
+          page,
+          offset,
+          limit
         });
       }
     }
@@ -389,7 +391,7 @@ router.get(
 
     // Step 5: Apply pagination to the sorted ID list
     const totalCount = validPackIds.length;
-    const paginatedPackIds = validPackIds.slice(parsedOffset, parsedOffset + parsedLimit);
+    const paginatedPackIds = validPackIds.slice(offset, offset + limit);
     // Step 6: Fetch full pack data for paginated IDs with same sorting
     let packs: LevelPack[] = [];
     if (paginatedPackIds.length > 0) {
@@ -455,8 +457,9 @@ router.get(
         totalLevelCount: pack.packItems?.length
       })),
       total: totalCount,
-      offset: parsedOffset,
-      limit: parsedLimit
+      page,
+      offset,
+      limit
     });
 
   } catch (error) {
@@ -519,7 +522,7 @@ router.get(
     description: 'Get a pack by ID or link code with optional tree. Cached.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     query: { tree: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Pack details' }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -820,7 +823,7 @@ router.post(
     description: 'Generate a CDN download link (zip) for a pack or folder.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'folderId, downloadId, trimFolderNames (optional)', schema: { type: 'object', properties: { folderId: { type: 'integer' }, downloadId: { type: 'string' }, trimFolderNames: { type: 'boolean' } } }, required: false },
     responses: { 200: { description: 'Download link payload' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -1122,7 +1125,7 @@ router.put(
     description: 'Update pack name, viewMode, cssFlags, isPinned (admin for some fields).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'name, cssFlags, viewMode, isPinned', schema: { type: 'object', properties: { name: { type: 'string' }, cssFlags: { type: 'integer' }, viewMode: { type: 'integer' }, isPinned: { type: 'boolean' } } }, required: true },
     responses: { 200: { description: 'Pack updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -1213,7 +1216,7 @@ router.delete(
     description: 'Delete a pack. Owner or admin.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     responses: { 200: { description: 'Pack deleted' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1262,7 +1265,7 @@ router.post(
     description: 'Upload pack icon (JPEG/PNG/WebP, max 5MB).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'multipart/form-data with icon file (JPEG/PNG/WebP, max 5MB)', schema: { type: 'object', properties: { icon: { type: 'string', format: 'binary' } } }, required: true },
     responses: { 200: { description: 'Icon uploaded' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -1347,7 +1350,7 @@ router.delete(
     description: 'Remove pack icon from CDN.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     responses: { 200: { description: 'Icon removed' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
@@ -1404,7 +1407,7 @@ router.post(
     description: 'Add folder(s) or level(s) to a pack. type, name/levelIds, parentId, sortOrder.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'type, name (folder), levelIds (level), parentId, sortOrder', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Items added' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -1739,7 +1742,7 @@ router.put(
     description: 'Update full pack tree (items array with id, parentId, sortOrder, children).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'items: nested tree', schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object' } } }, required: ['items'] }, required: true },
     responses: { 200: { description: 'Tree updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -2014,7 +2017,7 @@ router.put(
     description: 'Transfer pack to another user. Super admin only.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'newOwnerId', schema: { type: 'object', properties: { newOwnerId: { type: 'string' } }, required: ['newOwnerId'] }, required: true },
     responses: { 200: { description: 'Ownership transferred' }, ...standardErrorResponses },
   }),
@@ -2097,7 +2100,7 @@ router.get(
     description: 'Check if current user has favorited the pack.',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     responses: { 200: { description: 'isFavorited' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -2132,7 +2135,7 @@ router.put(
     description: 'Set or clear pack favorite (favorited: boolean).',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'favorited: boolean', schema: { type: 'object', properties: { favorited: { type: 'boolean' } }, required: ['favorited'] }, required: true },
     responses: { 200: { description: 'Favorite updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
@@ -2291,7 +2294,7 @@ router.put(
     description: 'Update parentId/sortOrder for multiple items. Body: items: [{ id, parentId?, sortOrder? }].',
     tags: ['Database', 'Packs'],
     security: ['bearerAuth'],
-    params: { id: idParamSpec },
+    params: { id: stringIdParamSpec },
     requestBody: { description: 'items: array of { id, parentId?, sortOrder? }', schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: { id: { type: 'integer' }, parentId: { type: 'integer' }, sortOrder: { type: 'integer' } } } } }, required: ['items'] }, required: true },
     responses: { 200: { description: 'Items reordered' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),

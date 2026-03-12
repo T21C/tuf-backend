@@ -18,6 +18,7 @@ import { permissionFlags } from '@/config/constants.js';
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 const router = Router();
@@ -309,7 +310,7 @@ router.get(
   ApiDoc({
     operationId: 'searchPasses',
     summary: 'Search passes',
-    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, levelId, player, specialDifficulties, sort). Uses Elasticsearch.',
+    description: 'Search passes with filters (query, deletedFilter, minDiff, maxDiff, keyFlag, levelId, player, specialDifficulties, sort). Query: page, offset, limit. Uses Elasticsearch.',
     tags: ['Passes'],
     security: ['bearerAuth'],
     query: {
@@ -322,6 +323,7 @@ router.get(
       player: { schema: { type: 'string' } },
       specialDifficulties: { schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
+      page: { schema: { type: 'string' } },
       offset: { schema: { type: 'string' } },
       limit: { schema: { type: 'string' } },
     },
@@ -329,6 +331,7 @@ router.get(
   }),
   async (req: Request, res: Response) => {
     try {
+      const { page, offset, limit } = req.query as unknown as PaginationQuery;
       const {
         deletedFilter,
         minDiff,
@@ -338,8 +341,6 @@ router.get(
         player,
         specialDifficulties,
         query: searchQuery,
-        offset = '0',
-        limit = '30',
         sort,
       } = req.query;
 
@@ -360,7 +361,7 @@ router.get(
         sort: ensureString(sort)
       }, userPlayerId, hasFlag(req.user, permissionFlags.SUPER_ADMIN));
 
-      return res.json(result);
+      return res.json({ ...result, page, offset, limit });
     } catch (error) {
       logger.error('Error fetching passes:', error);
       return res.status(500).json({error: 'Failed to fetch passes'});

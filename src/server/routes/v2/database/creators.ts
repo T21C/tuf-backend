@@ -20,6 +20,7 @@ import { TeamAlias } from '@/models/credits/TeamAlias.js';
 import { logger } from '@/server/services/LoggerService.js';
 import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -29,33 +30,26 @@ interface LevelCountResult {
   count: string;
 }
 
-const MAX_LIMIT = 200;
-
-
 // Get all creators with their aliases and level counts
 router.get(
   '/',
   ApiDoc({
     operationId: 'getCreators',
     summary: 'List creators',
-    description: 'Paginated creators with search. Query: page, limit, search, hideVerified, excludeAliases, sort.',
+    description: 'Paginated creators with search. Query: page, offset, limit, search, hideVerified, excludeAliases, sort.',
     tags: ['Database', 'Creators'],
-    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Creators list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
     try {
+      const { page, limit, offset } = req.query as unknown as PaginationQuery;
       const {
-        page = '1',
-        limit = '100',
         search = '',
         hideVerified = 'false',
         excludeAliases = 'false',
         sort = 'NAME_ASC',
       } = req.query;
-
-      const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
-      const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string)));
 
       const startTime = Date.now();
       const where: any = {};
@@ -136,7 +130,7 @@ router.get(
         ],
         order,
         offset,
-        limit: normalizedLimit,
+        limit,
       });
 
       const delay = Date.now() - startTime
@@ -147,6 +141,9 @@ router.get(
       return res.json({
         count: totalCount,
         results: creators,
+        page,
+        offset,
+        limit,
       });
     } catch (error) {
       logger.error('Error fetching creators:', error);
@@ -266,26 +263,24 @@ router.get(
   ApiDoc({
     operationId: 'getCreatorsLevelsAudit',
     summary: 'Levels audit',
-    description: 'Paginated levels with creator/team audit. Query: offset, limit, search, hideVerified, excludeAliases.',
+    description: 'Paginated levels with creator/team audit. Query: page, offset, limit, search, hideVerified, excludeAliases.',
     tags: ['Database', 'Creators'],
-    query: { offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Audit results' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const offset = parseInt(req.query.offset as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 50;
-      const searchQuery = (req.query.search as string) || '';
-      const hideVerified = req.query.hideVerified;
-      const excludeAliases = req.query.excludeAliases;
-
-      const normalizedOffset = Math.max(0, offset);
-      const normalizedLimit = Math.max(1, Math.min(MAX_LIMIT, limit));
+      const { page, offset, limit } = req.query as unknown as PaginationQuery;
+      const {
+        search: searchQuery,
+        hideVerified,
+        excludeAliases,
+      } = req.query;
 
       // Use ElasticsearchService to search levels
-      const { hits, total } = await elasticsearchService.searchLevels(searchQuery, {
-        offset: normalizedOffset,
-        limit: normalizedLimit,
+      const { hits, total } = await elasticsearchService.searchLevels((searchQuery as string).trim(), {
+        offset,
+        limit,
         hideVerified,
         excludeAliases
       });
@@ -346,6 +341,9 @@ router.get(
       return res.json({
         count: total,
         results: audit,
+        page,
+        offset,
+        limit,
       });
     } catch (error) {
       logger.error('Error fetching levels audit:', error);

@@ -11,6 +11,7 @@ import path from 'path';
 import swaggerUi from 'swagger-ui-express';
 import routes from '@/server/routes/index.js';
 import { generateOpenApiFromApp } from '@/server/middleware/apiDocCollector.js';
+import queryValidator from '@/server/middleware/queryValidator.js';
 import {PlayerStatsService} from './server/services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import { logger } from './server/services/LoggerService.js';
@@ -205,6 +206,7 @@ export async function startServer() {
     app.use(express.json());
     app.use(express.urlencoded({extended: true}));
     app.use(cookieParser());
+    app.use(queryValidator);
 
     // Response time logging middleware - logs slow endpoints
     const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;

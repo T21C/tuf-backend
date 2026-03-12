@@ -33,8 +33,7 @@ import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/leve
 import { Cache } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
-
-const MAX_LIMIT = 200;
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -45,13 +44,14 @@ router.get(
   ApiDoc({
     operationId: 'getLevelsSearch',
     summary: 'Search levels',
-    description: 'Search levels with filters (query, pguRange, sort, tags, etc.)',
+    description: 'Search levels with filters (query, pguRange, sort, tags, etc.). Query: page, offset, limit.',
     tags: ['Levels'],
     security: ['bearerAuth'],
     query: {
       query: { description: 'Search text', schema: { type: 'string' } },
       pguRange: { description: 'PGU range', schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
+      page: { schema: { type: 'integer' } },
       offset: { schema: { type: 'integer' } },
       limit: { schema: { type: 'integer' } },
     },
@@ -59,13 +59,12 @@ router.get(
   }),
   async (req: Request, res: Response) => {
   try {
+    const { page, limit, offset } = req.query as unknown as PaginationQuery;
     const {
       query,
       pguRange,
       specialDifficulties,
       sort,
-      offset = 0,
-      limit = 30,
       deletedFilter,
       clearedFilter,
       availableDlFilter,
@@ -75,9 +74,6 @@ router.get(
     } = req.query;
 
     const startTime = Date.now();
-    // Normalize pagination parameters
-    const normalizedLimit = Math.min(Math.max(Number(limit), 1), MAX_LIMIT);
-    const normalizedOffset = Math.max(Number(offset), 0);
 
     // Parse pguRange from comma-separated string
     let parsedPguRange;
@@ -141,8 +137,9 @@ router.get(
         tagGroups,
         userId: req.user?.id,
         creatorId: req.user?.creatorId,
-        offset: normalizedOffset,
-        limit: normalizedLimit,
+        offset,
+        page,
+        limit,
         likedLevelIds
       },
       hasFlag(req.user, permissionFlags.SUPER_ADMIN)
@@ -155,7 +152,10 @@ router.get(
 
     res.json({
       results: hits || [],
-      hasMore: normalizedOffset + normalizedLimit < total,
+      page,
+      offset,
+      limit,
+      hasMore: offset + limit < total,
       total
     });
   } catch (error) {

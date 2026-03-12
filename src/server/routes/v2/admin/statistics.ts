@@ -13,6 +13,7 @@ import { permissionFlags } from '@/config/constants.js';
 import { wherehasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import { validateAndClampDate } from '@/misc/utils/server/dateUtils.js';
 import { Cache } from '@/server/middleware/cache.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 const router: Router = Router();
 
 router.get(
@@ -68,23 +69,19 @@ router.get(
   ApiDoc({
     operationId: 'getAdminStatisticsRatingsPerUser',
     summary: 'Ratings per user',
-    description: 'Ratings per rater in date range. Query: startDate, endDate, date, page, limit. Cached.',
+    description: 'Ratings per rater in date range. Query: startDate, endDate, date, page, offset, limit. Cached.',
     tags: ['Admin', 'Statistics'],
-    query: { startDate: { schema: { type: 'string' } }, endDate: { schema: { type: 'string' } }, date: { schema: { type: 'string' } }, page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } } },
+    query: { startDate: { schema: { type: 'string' } }, endDate: { schema: { type: 'string' } }, date: { schema: { type: 'string' } }, page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Ratings per user' }, ...standardErrorResponses500 },
   }),
-  Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'limit'], prefix: 'admin:statistics:ratings-per-user' }),
+  Cache({ ttl: 300, varyByQuery: ['startDate', 'endDate', 'date', 'page', 'offset', 'limit'], prefix: 'admin:statistics:ratings-per-user' }),
   async (req: Request, res: Response) => {
   try {
-    // Get the date parameters from query string
-    // Support both 'date' and 'startDate' for backwards compatibility
-    const { startDate, endDate, date, page = '1', limit = '20' } = req.query;
+    const { page, limit, offset } = req.query as unknown as PaginationQuery;
+    const { startDate, endDate, date } = req.query;
     const startDateParam = (startDate || date) as string | undefined;
 
     // Parse pagination parameters
-    const pageNum = parseInt(page as string) || 1;
-    const limitNum = parseInt(limit as string) || 20;
-    const offset = (pageNum - 1) * limitNum;
 
     // Parse the start date
     let selectedStartDate: Date;
@@ -219,7 +216,7 @@ router.get(
     const totalCount = allRaters.length;
 
     // Apply pagination to the combined list
-    const paginatedRaters = allRaters.slice(offset, offset + limitNum);
+    const paginatedRaters = allRaters.slice(offset, offset + limit);
 
     return res.json({
       startDate: selectedStartDate.toISOString(),
@@ -227,10 +224,13 @@ router.get(
       totalUsers: totalCount,
       totalRatings: totalRatingsCount,
       averageRatingsPerDay: overallAverageRatingsPerDay,
-      currentPage: pageNum,
-      totalPages: Math.ceil(totalCount / limitNum),
-      hasNextPage: pageNum < Math.ceil(totalCount / limitNum),
-      hasPrevPage: pageNum > 1,
+      page,
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit),
+      hasNextPage: page < Math.ceil(totalCount / limit),
+      hasPrevPage: page > 1,
+      offset,
+      limit,
       ratingsPerUser: paginatedRaters
     });
 

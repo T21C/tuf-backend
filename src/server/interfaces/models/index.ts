@@ -8,6 +8,13 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import TeamMember from '@/models/credits/TeamMember.js';
 
+export interface PaginationQuery {
+  page: number;
+  offset: number;
+  limit: number;
+}
+
+
 // Base interface for common fields
 export interface IBaseModel {
   id: number;

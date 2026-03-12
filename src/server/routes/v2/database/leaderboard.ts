@@ -8,6 +8,7 @@ import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/database/index.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -17,9 +18,9 @@ router.get(
   ApiDoc({
     operationId: 'getLeaderboard',
     summary: 'Leaderboard',
-    description: 'Paginated player leaderboard with sort, filters, and optional query (#discordId or @username). Cached.',
+    description: 'Paginated player leaderboard with sort, filters, and optional query (#discordId or @username). Query: page, offset, limit, sortBy, order, showBanned, query, filters. Cached.',
     tags: ['Database', 'Leaderboard'],
-    query: { sortBy: { schema: { type: 'string' } }, order: { schema: { type: 'string' } }, showBanned: { schema: { type: 'string' } }, query: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, filters: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, sortBy: { schema: { type: 'string' } }, order: { schema: { type: 'string' } }, showBanned: { schema: { type: 'string' } }, query: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, filters: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Leaderboard results' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   Cache({
@@ -29,13 +30,12 @@ router.get(
 }),
   async (req: Request, res: Response) => {
   try {
+    const { page, offset, limit } = req.query as unknown as PaginationQuery;
     const {
       sortBy = 'rankedScore',
       order = 'desc',
       showBanned = 'show',
       query,
-      offset = '0',
-      limit = '30',
       filters: filtersParam
     } = req.query;
 
@@ -44,10 +44,6 @@ router.get(
         error: `Invalid sortBy option. Valid options are: ${validSortOptions.join(', ')}`,
       });
     }
-
-    // Parse offset and limit to numbers
-    const offsetNum = Math.max(0, parseInt(offset as string) || 0);
-    const limitNum = Math.max(1, Math.min(100, parseInt(limit as string) || 30));
 
     // Parse filters from query params: try JSON.parse once, use only if it yields a plain object
     let filters: Record<string, [number, number]> | undefined;
@@ -71,7 +67,7 @@ router.get(
     if (query && typeof query === 'string' && query.startsWith('#')) {
       const idQuery = parseInt(query.slice(1)); // Remove the # prefix
       if (isNaN(idQuery) || idQuery < 1) {
-        return res.json({ count: 0, results: [] });
+        return res.json({ count: 0, results: [], page, offset, limit, maxFields });
       }
       // Find the user with this Discord OAuth provider
       const userWithDiscord = await User.findOne({
@@ -92,12 +88,12 @@ router.get(
         order as 'asc' | 'desc',
         showBanned as 'show' | 'hide' | 'only',
         lookupId,
-        offsetNum,
-        limitNum,
+        offset,
+        limit,
         undefined,
         filters
       );
-      return res.json({ count: total, results: players, maxFields });
+      return res.json({ count: total, results: players, page, offset, limit, maxFields });
     }
 
 
@@ -124,12 +120,12 @@ router.get(
         order as 'asc' | 'desc',
         showBanned as 'show' | 'hide' | 'only',
         userWithDiscord?.playerId || 0,
-        offsetNum,
-        limitNum,
+        offset,
+        limit,
         undefined,
         filters
       );
-      return res.json({ count: total, results: players, maxFields });
+      return res.json({ count: total, results: players, page, offset, limit, maxFields });
     }
 
     // Regular leaderboard fetch without Discord ID filter
@@ -138,13 +134,13 @@ router.get(
       order as 'asc' | 'desc',
       showBanned as 'show' | 'hide' | 'only',
       undefined,
-      offsetNum,
-      limitNum,
+      offset,
+      limit,
       query as string, // Pass the query string for name search
       filters
     );
 
-    return res.json({ count: total, results: players, maxFields });
+    return res.json({ count: total, results: players, page, offset, limit, maxFields });
   } catch (error) {
     logger.error('Error fetching leaderboard:', error);
     return res.status(500).json({

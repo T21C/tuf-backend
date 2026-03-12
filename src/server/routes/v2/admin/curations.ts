@@ -21,6 +21,7 @@ import { canAssignCurationType } from '@/misc/utils/data/curationTypeUtils.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { roleSyncService } from '@/server/services/RoleSyncService.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router();
 
@@ -579,15 +580,16 @@ router.get(
   ApiDoc({
     operationId: 'getAdminCurations',
     summary: 'List curations',
-    description: 'Paginated curations. Query: page, limit, typeId, levelId, search, excludeIds.',
+    description: 'Paginated curations. Query: page, offset, limit, typeId, levelId, search, excludeIds.',
     tags: ['Admin', 'Curations'],
-    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, typeId: { schema: { type: 'string' } }, levelId: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, excludeIds: { schema: { type: 'array', items: { type: 'string' } } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, typeId: { schema: { type: 'string' } }, levelId: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, excludeIds: { schema: { type: 'array', items: { type: 'string' } } } },
     responses: { 200: { description: 'Curations list' }, ...standardErrorResponses400500 },
   }),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
   try {
-    const {page = 1, limit = 20, typeId, levelId, search, excludeIds} = req.query;
-    const offset = (Number(page) - 1) * Number(limit);
+    const { page, limit, offset } = req.query as unknown as PaginationQuery;
+    const { typeId, levelId, search, excludeIds} = req.query;
+    
 
     const where: any = {};
     if (typeId) where.typeId = typeId;
@@ -764,8 +766,10 @@ router.get(
     return res.json({
       curations: serializedCurations,
       total: curations.count,
-      page: Number(page),
-      totalPages: Math.ceil(curations.count / Number(limit)),
+      page,
+      offset,
+      limit,
+      totalPages: Math.ceil(curations.count / limit),
     });
   } catch (error) {
     logger.error('Error fetching curations:', error);

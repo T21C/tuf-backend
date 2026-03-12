@@ -20,6 +20,7 @@ import cdnServiceInstance, { CdnError } from '@/server/services/CdnService.js';
 import multer from 'multer';
 import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import { parseSearchQuery, queryParserConfigs, extractFieldValues, extractGeneralSearchTerms } from '@/misc/utils/data/queryParser.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 
 const router: Router = Router();
@@ -34,8 +35,6 @@ const upload = multer({
   }
 });
 
-const MAX_LIMIT = 200;
-
 // Get public song list (paginated, searchable)
 router.get(
   '/',
@@ -43,31 +42,22 @@ router.get(
   ApiDoc({
     operationId: 'getSongs',
     summary: 'List songs',
-    description: 'Paginated, searchable song list. Query: page, limit, search, artistId, sort, verificationState.',
+    description: 'Paginated, searchable song list. Query: page, offset, limit, search, artistId, sort, verificationState.',
     tags: ['Database', 'Songs'],
     security: ['bearerAuth'],
-    query: { page: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, artistId: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, verificationState: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, artistId: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } }, verificationState: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Songs list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
+    const { page, limit, offset } = req.query as unknown as PaginationQuery;
     const {
-      page = '1',
-      limit = '50',
       search = '',
       artistId,
       sort = 'NAME_ASC',
       verificationState,
     } = req.query;
 
-    // Normalize and validate limit first
-    const normalizedLimit = Math.min(Math.max(1, Math.min(MAX_LIMIT, parseInt(limit as string) || 50)), 200);
-
-    // Normalize and validate page (must be at least 1)
-    const normalizedPage = Math.max(1, parseInt(page as string) || 1);
-
-    // Calculate offset using normalized values
-    const offset = (normalizedPage - 1) * normalizedLimit;
 
     const originalSearchString = (search as string).trim();
 
@@ -397,7 +387,7 @@ router.get(
 
     // Step 2: Paginate the IDs array
     const totalCount = allMatchingIds.length;
-    const paginatedIds = allMatchingIds.slice(offset, offset + normalizedLimit);
+    const paginatedIds = allMatchingIds.slice(offset, offset + limit);
 
     // Step 3: Query with paginated IDs (or normal query if no search)
     let finalWhere: any = {};
@@ -437,8 +427,9 @@ router.get(
       return res.json({
         songs: [],
         total: 0,
-        page: normalizedPage,
-        limit: normalizedLimit,
+        page,
+        offset,
+        limit,
         hasMore: false
       });
     } else {
@@ -457,7 +448,7 @@ router.get(
           finalWhere.id = {[Op.in]: artistSongIds};
         }
         queryOptions.where = finalWhere;
-        queryOptions.limit = normalizedLimit;
+        queryOptions.limit = limit;
         queryOptions.offset = offset;
       }
     }
@@ -487,9 +478,10 @@ router.get(
     return res.json({
       songs: sortedRows,
       total: finalCount,
-      page: normalizedPage,
-      limit: normalizedLimit,
-      hasMore: sortedRows.length > 0 && offset + normalizedLimit < finalCount
+      page,
+      offset,
+      limit,
+      hasMore: sortedRows.length > 0 && offset + limit < finalCount
     });
   } catch (error) {
     logger.error('Error fetching songs:', error);
