@@ -91,6 +91,9 @@ const safeParseJSON = (input: string | object | null | undefined): any => {
   }
 };
 
+const isYsmodOnlyVerificationState = (value: unknown): boolean =>
+  typeof value === 'string' && value.toLowerCase() === 'ysmod_only';
+
 // Validate creator request structure
 const validateCreatorRequest = (request: any): boolean => {
   return request &&
@@ -354,9 +357,19 @@ router.post(
         const artistName = sanitizeTextInput(req.body.artist);
         const isNewSongRequest = req.body.isNewSongRequest === true || req.body.isNewSongRequest === 'true';
         const isNewArtistRequest = req.body.isNewArtistRequest === true || req.body.isNewArtistRequest === 'true';
-        // New songs always require evidence
-        const requiresSongEvidence = isNewSongRequest || (req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true');
-        const requiresArtistEvidence = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
+        const parsedArtistRequests = safeParseJSON(req.body.artistRequests);
+        const songVerificationState = sanitizeTextInput(req.body.songVerificationState, 50).toLowerCase();
+        const requiresSongEvidenceFlag = req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true';
+        const requiresArtistEvidenceFlag = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
+        const requiresSongEvidence = (isNewSongRequest && !isYsmodOnlyVerificationState(songVerificationState)) || requiresSongEvidenceFlag;
+        const requiresArtistEvidenceFromRequests = Array.isArray(parsedArtistRequests)
+          && parsedArtistRequests.some((request: any) => {
+            const isNewRequest = request?.isNewRequest === true || request?.isNewRequest === 'true';
+            return isNewRequest && !isYsmodOnlyVerificationState(request?.verificationState);
+          });
+        const requiresArtistEvidence = requiresArtistEvidenceFromRequests
+          || (isNewArtistRequest && !isYsmodOnlyVerificationState(req.body.verificationState))
+          || requiresArtistEvidenceFlag;
 
         // Set songId: null if new request, otherwise validate and use provided ID
         let songId: number | null = null;
@@ -457,7 +470,6 @@ router.post(
         }
 
         // Create artist request records (multiple artists supported)
-        const parsedArtistRequests = safeParseJSON(req.body.artistRequests);
         let artistRequestId: number | null = null;
 
         if (Array.isArray(parsedArtistRequests) && parsedArtistRequests.length > 0) {
@@ -495,10 +507,10 @@ router.post(
         // Handle evidence image uploads (up to 10 images)
         const evidenceFiles = files?.evidence || [];
 
-        // Evidence is required when new song/artist requests exist
+        // Evidence is required when at least one new request is not ysmod_only
         const requiresEvidence = requiresSongEvidence || requiresArtistEvidence;
         if (requiresEvidence && evidenceFiles.length === 0) {
-          throw {code: 400, error: 'Evidence is required for new song/artist requests'};
+          throw {code: 400, error: 'Evidence is required for non-ysmod_only song/artist requests'};
         }
 
         if (evidenceFiles.length > 0 && evidenceFiles.length <= 10) {
