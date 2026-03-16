@@ -1604,6 +1604,7 @@ router.get(
                   .level-item {
                     display: flex;
                     align-items: center;
+                    max-height: ${32*multiplier}px;
                     gap: ${12*multiplier}px;
                     padding: ${6*multiplier}px ${12*multiplier}px;
                     background-color: rgba(255, 255, 255, 0.1);
