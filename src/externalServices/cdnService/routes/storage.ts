@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/LoggerService.js';
 import { hybridStorageManager } from '../services/hybridStorageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
+import { copyToSpacesWithFallback, getCopyToSpacesFallbackReport, migrateStorageTypes, verifyMigration } from '../scripts/migrateStorageTypes.js';
 
 const router = Router();
 
@@ -156,8 +157,6 @@ router.get('/spaces/test', async (req: Request, res: Response) => {
 // Run storage type migration
 router.post('/migrate-storage-types', async (req: Request, res: Response) => {
     try {
-        const { migrateStorageTypes, verifyMigration } = await import('../scripts/migrateStorageTypes.js');
-
         logger.info('Starting storage type migration via API');
 
         // Run migration
@@ -183,7 +182,6 @@ router.post('/migrate-storage-types', async (req: Request, res: Response) => {
 
 router.post('/copy-to-spaces', async (req: Request, res: Response) => {
     try {
-        const { copyToSpacesWithFallback } = await import('../scripts/migrateStorageTypes.js');
         const batchSize = Number(req.body?.batchSize || 100);
         const fileType = req.body?.fileType ? String(req.body.fileType) : undefined;
         const dryRun = req.body?.dryRun === true;
@@ -203,7 +201,6 @@ router.post('/copy-to-spaces', async (req: Request, res: Response) => {
 
 router.get('/copy-to-spaces/report', async (req: Request, res: Response) => {
     try {
-        const { getCopyToSpacesFallbackReport } = await import('../scripts/migrateStorageTypes.js');
         const sampleSize = Number(req.query.sampleSize || 200);
         const report = await getCopyToSpacesFallbackReport(sampleSize);
         res.json({ success: true, report });
