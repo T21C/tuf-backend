@@ -239,16 +239,17 @@ export class SpacesStorageManager {
      */
     public async deleteFile(key: string): Promise<void> {
         try {
+            const normalizedKey = this.assertSafeDeleteKey(key);
             const deleteParams: AWS.S3.DeleteObjectRequest = {
                 Bucket: this.config.bucket,
-                Key: key
+                Key: normalizedKey
             };
 
-            logger.debug('Deleting file from Spaces', { key, bucket: this.config.bucket });
+            logger.debug('Deleting file from Spaces', { key: normalizedKey, bucket: this.config.bucket });
 
             await this.s3.deleteObject(deleteParams).promise();
 
-            logger.debug('File deleted from Spaces successfully', { key });
+            logger.debug('File deleted from Spaces successfully', { key: normalizedKey });
         } catch (error) {
             logger.error('Failed to delete file from Spaces', {
                 error: error instanceof Error ? error.message : String(error),
@@ -265,16 +266,17 @@ export class SpacesStorageManager {
         if (keys.length === 0) return;
 
         try {
+            const normalizedKeys = keys.map((key) => this.assertSafeDeleteKey(key));
             const deleteParams: AWS.S3.DeleteObjectsRequest = {
                 Bucket: this.config.bucket,
                 Delete: {
-                    Objects: keys.map(key => ({ Key: key }))
+                    Objects: normalizedKeys.map(key => ({ Key: key }))
                 }
             };
 
             logger.debug('Deleting multiple files from Spaces', {
-                count: keys.length,
-                keys: keys.slice(0, 5), // Log first 5 keys
+                count: normalizedKeys.length,
+                keys: normalizedKeys.slice(0, 5), // Log first 5 keys
                 bucket: this.config.bucket
             });
 
@@ -298,6 +300,34 @@ export class SpacesStorageManager {
             });
             throw error;
         }
+    }
+
+    private assertSafeDeleteKey(key: string): string {
+        const normalizedKey = String(key || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+        const protectedRootPrefixes = new Set(['levels', 'zips', 'images', 'songs', 'files', 'temp']);
+
+        if (!normalizedKey) {
+            throw new Error('Unsafe Spaces delete key rejected: empty key');
+        }
+
+        if (normalizedKey.endsWith('/')) {
+            throw new Error(`Unsafe Spaces delete key rejected: directory-like key "${normalizedKey}"`);
+        }
+
+        const segments = normalizedKey.split('/');
+        if (segments.some(segment => segment.length === 0)) {
+            throw new Error(`Unsafe Spaces delete key rejected: malformed key "${normalizedKey}"`);
+        }
+
+        if (segments.length === 1 && protectedRootPrefixes.has(segments[0])) {
+            throw new Error(`Unsafe Spaces delete key rejected: broad root key "${normalizedKey}"`);
+        }
+
+        if (segments.length === 2 && protectedRootPrefixes.has(segments[0])) {
+            throw new Error(`Unsafe Spaces delete key rejected: broad prefix key "${normalizedKey}"`);
+        }
+
+        return normalizedKey;
     }
 
     /**

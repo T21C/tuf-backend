@@ -460,6 +460,9 @@ class CdnService {
 
     async getLevelFiles(fileId: string): Promise<Array<{
         name: string;
+        relativePath?: string;
+        fullPath?: string;
+        storagePath?: string;
         size: number;
         hasYouTubeStream: boolean;
         songFilename?: string;

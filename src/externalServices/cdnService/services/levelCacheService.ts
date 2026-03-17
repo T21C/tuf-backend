@@ -6,6 +6,7 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import dotenv from 'dotenv';
 import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
+import { spacesStorage } from './spacesStorage.js';
 import { PROTECTED_EVENT_TYPES } from './levelTransformer.js';
 
 dotenv.config();
@@ -85,8 +86,67 @@ class LevelCacheService {
      * Get the source.copy path for a target level file
      */
     private getSourceCopyPath(targetLevelPath: string): string {
-        const dir = path.dirname(targetLevelPath);
-        return path.join(dir, 'source.copy');
+        if (path.isAbsolute(targetLevelPath)) {
+            const parsed = path.parse(targetLevelPath);
+            return path.join(parsed.dir, `${parsed.name}.copy`);
+        }
+        const safePath = targetLevelPath.replace(/[\\/]/g, '_').replace(/\.adofai$/i, '');
+        return path.join(process.cwd(), 'cache', 'level-cache-temp', `${safePath}.copy`);
+    }
+
+    private getTargetLevelMetadataEntry(metadata: any, targetLevelPath: string): any | null {
+        const allLevelFiles = metadata?.allLevelFiles || [];
+        const normalizedTargetPath = String(targetLevelPath).replace(/\\/g, '/').replace(/^\/+/, '');
+        for (const levelFile of allLevelFiles) {
+            const filePath = String(levelFile?.path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            const relativePath = String(levelFile?.relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            if (filePath === normalizedTargetPath || relativePath === normalizedTargetPath) {
+                return levelFile;
+            }
+        }
+        return null;
+    }
+
+    private async resolveReadableLevelPath(
+        file: CdnFile,
+        levelPath: string,
+        metadata: any
+    ): Promise<{
+        localPath: string;
+        storageType: StorageType;
+        cleanup: () => Promise<void>;
+    }> {
+        const fileRef = {
+            path: levelPath,
+            storageType: (metadata?.levelStorageType as StorageType) || (metadata?.storageType as StorageType),
+            fallbackPath: metadata?.targetLevelFallbackPath,
+            fallbackStorageType: metadata?.targetLevelFallbackStorageType as StorageType
+        };
+        const resolved = await hybridStorageManager.resolveFileReference(fileRef);
+        if (!resolved.exists) {
+            throw new Error(`Target level file not found in storage: ${levelPath}`);
+        }
+
+        if (resolved.storageType === StorageType.LOCAL) {
+            return {
+                localPath: resolved.actualPath,
+                storageType: StorageType.LOCAL,
+                cleanup: async () => Promise.resolve()
+            };
+        }
+
+        const tempDir = path.join(process.cwd(), 'cache', 'level-cache-temp', file.id);
+        await fs.promises.mkdir(tempDir, { recursive: true });
+        const tempPath = path.join(tempDir, `level_${Date.now()}_${path.basename(levelPath)}`);
+        await hybridStorageManager.downloadFile(resolved.actualPath, StorageType.SPACES, tempPath);
+
+        return {
+            localPath: tempPath,
+            storageType: StorageType.SPACES,
+            cleanup: async () => {
+                await fs.promises.unlink(tempPath).catch(() => Promise.resolve());
+            }
+        };
     }
 
     /**
@@ -99,6 +159,29 @@ class LevelCacheService {
         metadata: any
     ): Promise<string | null> {
         try {
+            const targetLevelEntry = this.getTargetLevelMetadataEntry(metadata, targetLevelPath);
+
+            // Newer uploads persist per-level source copy in storage. Use it directly.
+            if (targetLevelEntry?.sourceCopyPath) {
+                const sourceCheck = await hybridStorageManager.resolveFileReference({
+                    path: targetLevelEntry.sourceCopyPath,
+                    storageType: targetLevelEntry.sourceCopyStorageType || metadata?.levelStorageType || metadata?.storageType,
+                    fallbackPath: targetLevelEntry.sourceCopyFallbackPath,
+                    fallbackStorageType: targetLevelEntry.sourceCopyFallbackStorageType
+                });
+
+                if (sourceCheck.exists) {
+                    if (sourceCheck.storageType === StorageType.LOCAL) {
+                        return sourceCheck.actualPath;
+                    }
+                    const tempDir = path.join(process.cwd(), 'cache', 'level-cache-temp', file.id);
+                    await fs.promises.mkdir(tempDir, { recursive: true });
+                    const targetCopyPath = path.join(tempDir, path.basename(targetLevelEntry.sourceCopyPath));
+                    await hybridStorageManager.downloadFile(sourceCheck.actualPath, StorageType.SPACES, targetCopyPath);
+                    return targetCopyPath;
+                }
+            }
+
             const sourceCopyPath = this.getSourceCopyPath(targetLevelPath);
 
             // Get the original zip info from metadata
@@ -113,10 +196,11 @@ class LevelCacheService {
             // Determine storage type for the zip
             const zipStorageType = (originalZip.storageType as StorageType) ||
                                    (metadata.storageInfo?.zip as StorageType) ||
-                                   StorageType.LOCAL;
+                                   StorageType.SPACES;
 
             // Download the zip to a temporary location
-            const tempDir = path.dirname(targetLevelPath);
+            const tempDir = path.join(process.cwd(), 'cache', 'level-cache-temp', file.id);
+            await fs.promises.mkdir(tempDir, { recursive: true });
             const tempZipPath = path.join(tempDir, `temp_${file.id}.zip`);
 
             logger.debug('Downloading zip for source copy extraction', {
@@ -131,33 +215,28 @@ class LevelCacheService {
             // Find the target level file name in the zip
             // The targetLevelPath might be a Spaces key or local path, we need the original filename
             const allLevelFiles = metadata?.allLevelFiles || [];
-            let targetLevelName: string | null = null;
-
-            for (const levelFile of allLevelFiles) {
-                if (levelFile.path === targetLevelPath) {
-                    targetLevelName = levelFile.name;
-                    break;
-                }
-            }
-
-            if (!targetLevelName) {
-                // Fallback: try to extract basename from path
-                targetLevelName = path.basename(targetLevelPath);
-                logger.debug('Using basename as target level name fallback', {
-                    targetLevelName,
-                    targetLevelPath
-                });
-            }
+            const levelEntry = targetLevelEntry || this.getTargetLevelMetadataEntry(metadata, targetLevelPath);
+            const targetLevelName: string = levelEntry?.name || path.basename(targetLevelPath);
+            const targetRelativePath: string | null = levelEntry?.relativePath
+                ? String(levelEntry.relativePath).replace(/\\/g, '/').replace(/^\/+/, '')
+                : null;
 
             // Open the zip and find the target .adofai file
             const zip = new AdmZip(tempZipPath);
             const entries = zip.getEntries();
 
             let foundEntry: AdmZip.IZipEntry | null = null;
-            for (const entry of entries) {
-                if (entry.name === targetLevelName || entry.entryName.endsWith(targetLevelName)) {
-                    foundEntry = entry;
-                    break;
+            if (targetRelativePath) {
+                foundEntry = entries.find(entry =>
+                    entry.entryName.replace(/\\/g, '/').replace(/^\/+/, '') === targetRelativePath
+                ) || null;
+            }
+            if (!foundEntry) {
+                for (const entry of entries) {
+                    if (entry.name === targetLevelName || entry.entryName.endsWith(targetLevelName)) {
+                        foundEntry = entry;
+                        break;
+                    }
                 }
             }
 
@@ -217,68 +296,78 @@ class LevelCacheService {
             throw new Error('Level file is too large to parse (oversized); cache and level data are not available');
         }
 
+        const preferredStorageType = (fileMetadata?.levelStorageType as StorageType) || (fileMetadata?.storageType as StorageType);
+        const resolvedLevel = await this.resolveReadableLevelPath(file, levelPath, fileMetadata);
+
         const safeToParse = fileMetadata?.targetSafeToParse || false;
         const versionCurrent = this.isVersionCurrent(fileMetadata);
 
         // Determine if we need to re-parse from original source
         const needsReparse = !safeToParse || !versionCurrent;
+        try {
+            if (needsReparse) {
+                let sourceToUse = resolvedLevel.localPath;
 
-        if (needsReparse) {
-            let sourceToUse = levelPath;
+                // If version is outdated, we need to use the original source
+                if (safeToParse && !versionCurrent) {
+                    logger.debug('SafeToParse version outdated, extracting original source', {
+                        fileId: file.id,
+                        storedVersion: fileMetadata?.targetSafeToParseVersion,
+                        currentVersion: SAFE_TO_PARSE_VERSION
+                    });
 
-            // If version is outdated, we need to use the original source
-            if (safeToParse && !versionCurrent) {
-                logger.debug('SafeToParse version outdated, extracting original source', {
-                    fileId: file.id,
-                    storedVersion: fileMetadata?.targetSafeToParseVersion,
-                    currentVersion: SAFE_TO_PARSE_VERSION
-                });
-
-                // Check if source.copy already exists
-                const sourceCopyPath = this.getSourceCopyPath(levelPath);
-                if (fs.existsSync(sourceCopyPath)) {
-                    sourceToUse = sourceCopyPath;
-                    logger.debug('Using existing source.copy', { sourceCopyPath });
-                } else {
-                    // Extract source.copy from the original zip
-                    const extractedPath = await this.extractSourceCopy(file, levelPath, fileMetadata);
-                    if (extractedPath) {
-                        sourceToUse = extractedPath;
+                    // Check if source.copy already exists
+                    const sourceCopyPath = this.getSourceCopyPath(resolvedLevel.localPath);
+                    if (fs.existsSync(sourceCopyPath)) {
+                        sourceToUse = sourceCopyPath;
+                        logger.debug('Using existing source.copy', { sourceCopyPath });
                     } else {
-                        // Fallback: use the existing (potentially modified) level file
-                        logger.warn('Could not extract source.copy, using existing level file', {
-                            fileId: file.id
-                        });
+                        // Extract source.copy from the original zip
+                        const extractedPath = await this.extractSourceCopy(file, levelPath, fileMetadata);
+                        if (extractedPath) {
+                            sourceToUse = extractedPath;
+                        } else {
+                            // Fallback: use the existing (potentially modified) level file
+                            logger.warn('Could not extract source.copy, using existing level file', {
+                                fileId: file.id
+                            });
+                        }
                     }
                 }
-            }
 
-            // Parse from the source file
-            const levelData = new LevelDict(sourceToUse);
+                // Parse from the source file
+                const levelData = new LevelDict(sourceToUse);
 
-            // Write the processed version back to the target level path
-            levelData.writeToFile(levelPath);
+                // Write the processed version back to the target level path
+                levelData.writeToFile(resolvedLevel.localPath);
 
-            // Update targetSafeToParse flag AND version in metadata
-            await file.update({
-                metadata: {
-                    ...fileMetadata,
-                    targetSafeToParse: true,
-                    targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
+                // If the primary storage is Spaces, sync the updated level back to its key.
+                if (preferredStorageType === StorageType.SPACES) {
+                    await spacesStorage.uploadFile(resolvedLevel.localPath, levelPath, 'application/json');
                 }
-            });
 
-            logger.debug('Level file loaded and version updated', {
-                fileId: file.id,
-                version: SAFE_TO_PARSE_VERSION,
-                sourceUsed: sourceToUse
-            });
+                // Update targetSafeToParse flag AND version in metadata
+                await file.update({
+                    metadata: {
+                        ...fileMetadata,
+                        targetSafeToParse: true,
+                        targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
+                    }
+                });
 
-            return { levelData, wasReparsed: true };
-        } else {
-            // Safe to parse and version is current - use the cached processed file
-            const levelData = LevelDict.fromJSON(fs.readFileSync(levelPath, 'utf8'));
-            return { levelData, wasReparsed: false };
+                logger.debug('Level file loaded and version updated', {
+                    fileId: file.id,
+                    version: SAFE_TO_PARSE_VERSION,
+                    sourceUsed: sourceToUse
+                });
+                return { levelData, wasReparsed: true };
+            } else {
+                // Safe to parse and version is current - use the cached processed file
+                const levelData = LevelDict.fromJSON(fs.readFileSync(resolvedLevel.localPath, 'utf8'));
+                return { levelData, wasReparsed: false };
+            }
+        } finally {
+            await resolvedLevel.cleanup();
         }
     }
 
@@ -387,9 +476,12 @@ class LevelCacheService {
             // Parse existing cache - will return null if version mismatch or dev mode
             const existingCache = this.parseCacheData(file.cacheData, fileMetadata);
 
-            // Check if file exists
-            if (!fs.existsSync(levelPath)) {
-                throw new Error(`Level file not found at path: ${levelPath}`);
+            const levelCheck = await hybridStorageManager.fileExistsWithFallback(
+                levelPath,
+                fileMetadata?.levelStorageType || fileMetadata?.storageType
+            );
+            if (!levelCheck.exists) {
+                throw new Error(`Level file not found in storage: ${levelPath}`);
             }
 
             // Use provided levelData or load it using the unified method
@@ -548,6 +640,8 @@ class LevelCacheService {
                 }>;
                 targetLevel?: string | null;
                 targetLevelOversized?: boolean;
+                levelStorageType?: StorageType;
+                storageType?: StorageType;
             };
 
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
@@ -563,7 +657,11 @@ class LevelCacheService {
             // Determine target level
             const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
 
-            if (!fs.existsSync(targetLevel)) {
+            const levelCheck = await hybridStorageManager.fileExistsWithFallback(
+                targetLevel,
+                metadata.levelStorageType || metadata.storageType
+            );
+            if (!levelCheck.exists) {
                 logger.error('Target level file not found:', { fileId, targetLevel });
                 return null;
             }

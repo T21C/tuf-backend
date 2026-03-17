@@ -525,7 +525,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             return { folderName: parentPath, success: false };
         }
 
-        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.LOCAL;
+        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.SPACES;
         const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
         if (!existence.exists) {
             logger.warn('Original zip not found in storage for pack download', {
@@ -1346,7 +1346,7 @@ async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
         }
 
         // If not in metadata, try to get from file system/storage
-        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.LOCAL;
+        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.SPACES;
         const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
 
         if (!existence.exists) {
@@ -1477,6 +1477,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         const { allLevelFiles } = levelEntry.metadata as {
             allLevelFiles: Array<{
                 name: string;
+                relativePath?: string;
                 path: string;
                 size: number;
                 hasYouTubeStream?: boolean;
@@ -1492,15 +1493,28 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         // Get fresh analysis for each level file
         const levelFiles = await Promise.all(allLevelFiles.map(async (file) => {
             try {
-                // Normalize the path to use forward slashes and ensure it's absolute
-                const normalizedPath = path.isAbsolute(file.path)
-                    ? file.path.replace(/\\/g, '/')
-                    : path.resolve(file.path).replace(/\\/g, '/');
+                const preferredStorageType = (levelEntry.metadata as any)?.levelStorageType || (levelEntry.metadata as any)?.storageType;
+                const levelCheck = await hybridStorageManager.fileExistsWithFallback(file.path, preferredStorageType);
+                if (!levelCheck.exists) {
+                    throw new Error('Level file not found in storage');
+                }
 
-                const levelDict = new LevelDict(normalizedPath);
+                let levelDict: LevelDict;
+                if (levelCheck.storageType === StorageType.SPACES) {
+                    const tempPath = path.join(PACK_DOWNLOAD_TEMP_DIR, `inspect_${fileId}_${Date.now()}.adofai`);
+                    await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
+                    await hybridStorageManager.downloadFile(levelCheck.actualPath, StorageType.SPACES, tempPath);
+                    levelDict = new LevelDict(tempPath);
+                    await fs.promises.unlink(tempPath).catch(() => {});
+                } else {
+                    levelDict = new LevelDict(levelCheck.actualPath);
+                }
 
                 return {
                     name: file.name,
+                    relativePath: file.relativePath,
+                    fullPath: file.relativePath || file.path,
+                    storagePath: file.path,
                     size: file.size,
                     hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
                     songFilename: levelDict.getSetting('songFilename'),
@@ -1513,13 +1527,13 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
             } catch (error) {
                 logger.error('Failed to analyze level file:', {
                     error: error instanceof Error ? error.message : String(error),
-                    path: file.path,
-                    normalizedPath: path.isAbsolute(file.path)
-                        ? file.path.replace(/\\/g, '/')
-                        : path.resolve(file.path).replace(/\\/g, '/')
+                    path: file.path
                 });
                 return {
                     name: file.name,
+                    relativePath: file.relativePath,
+                    fullPath: file.relativePath || file.path,
+                    storagePath: file.path,
                     size: file.size,
                     error: 'Failed to analyze level file'
                 };
@@ -2000,42 +2014,58 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
         const metadata = levelEntry.metadata as {
             allLevelFiles: Array<{
                 name: string;
+                relativePath?: string;
                 path: string;
                 size: number;
                 hasYouTubeStream?: boolean;
                 songFilename?: string;
             }>;
             targetLevel: string | null;
+            targetLevelRelativePath?: string | null;
             pathConfirmed: boolean;
         };
 
         // Get the target filename regardless of path
         const targetFilename = path.basename(targetLevel);
+        const normalizedTargetPath = String(targetLevel).replace(/\\/g, '/').replace(/^\/+/, '');
 
-        // Find matching level file by recursively checking paths
-        const matchingLevel = metadata.allLevelFiles.find(file => {
+        const directMatches = metadata.allLevelFiles.filter(file => {
             const filePath = file.path.replace(/\\/g, '/');
-            const targetPath = targetLevel.replace(/\\/g, '/');
-
-            // Direct path match
-            if (filePath === targetPath) {
-                return true;
-            }
-
-            // Filename match
-            if (path.basename(filePath) === targetFilename) {
-                return true;
-            }
-
-            // Check if target is a relative path and matches any subdirectory
-            if (!path.isAbsolute(targetPath)) {
-                const fileDir = path.dirname(filePath);
-                const targetDir = path.dirname(targetPath);
-                return fileDir.endsWith(targetDir) && path.basename(filePath) === targetFilename;
-            }
-
-            return false;
+            return filePath === normalizedTargetPath || filePath === String(targetLevel).replace(/\\/g, '/');
         });
+
+        const relativeMatches = metadata.allLevelFiles.filter(file => {
+            const relativePath = (file.relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            return relativePath.length > 0 && (
+                relativePath === normalizedTargetPath ||
+                relativePath.endsWith(`/${normalizedTargetPath}`)
+            );
+        });
+
+        const basenameMatches = metadata.allLevelFiles.filter(file =>
+            path.basename((file.relativePath || file.path).replace(/\\/g, '/')) === targetFilename
+        );
+
+        let matchingLevel: (typeof metadata.allLevelFiles)[number] | undefined;
+        if (directMatches.length > 0) {
+            matchingLevel = directMatches[0];
+        } else if (relativeMatches.length === 1) {
+            matchingLevel = relativeMatches[0];
+        } else if (relativeMatches.length > 1) {
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+                error: 'Target level path is ambiguous',
+                candidates: relativeMatches.map(level => level.relativePath || level.path)
+            });
+        } else if (basenameMatches.length === 1) {
+            matchingLevel = basenameMatches[0];
+        } else if (basenameMatches.length > 1) {
+            await safeTransactionRollback(transaction);
+            return res.status(400).json({
+                error: 'Target filename is ambiguous across subfolders',
+                candidates: basenameMatches.map(level => level.relativePath || level.path)
+            });
+        }
 
         if (!matchingLevel) {
             await safeTransactionRollback(transaction);
@@ -2057,6 +2087,7 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             metadata: {
                 ...metadata,
                 targetLevel: matchingLevel.path,
+                targetLevelRelativePath: matchingLevel.relativePath || null,
                 pathConfirmed: true,
                 targetSafeToParse: false
             },

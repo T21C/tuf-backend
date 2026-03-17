@@ -181,4 +181,41 @@ router.post('/migrate-storage-types', async (req: Request, res: Response) => {
     }
 });
 
+router.post('/copy-to-spaces', async (req: Request, res: Response) => {
+    try {
+        const { copyToSpacesWithFallback } = await import('../scripts/migrateStorageTypes.js');
+        const batchSize = Number(req.body?.batchSize || 100);
+        const fileType = req.body?.fileType ? String(req.body.fileType) : undefined;
+        const dryRun = req.body?.dryRun === true;
+
+        const result = await copyToSpacesWithFallback(batchSize, fileType, dryRun);
+        res.json({ success: true, result });
+    } catch (error) {
+        logger.error('Copy-to-spaces migration failed:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        res.status(500).json({
+            error: 'Copy-to-spaces migration failed',
+            details: error instanceof Error ? error.message : String(error)
+        });
+    }
+});
+
+router.get('/copy-to-spaces/report', async (req: Request, res: Response) => {
+    try {
+        const { getCopyToSpacesFallbackReport } = await import('../scripts/migrateStorageTypes.js');
+        const sampleSize = Number(req.query.sampleSize || 200);
+        const report = await getCopyToSpacesFallbackReport(sampleSize);
+        res.json({ success: true, report });
+    } catch (error) {
+        logger.error('Copy-to-spaces report failed:', {
+            error: error instanceof Error ? error.message : String(error)
+        });
+        res.status(500).json({
+            error: 'Copy-to-spaces report failed',
+            details: error instanceof Error ? error.message : String(error)
+        });
+    }
+});
+
 export default router;

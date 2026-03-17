@@ -2,18 +2,21 @@ import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config();
 
-if (!process.env.USER_CDN_ROOT || !process.env.CDN_URL || !process.env.LOCAL_CDN_URL) {
-    throw new Error('USER_CDN_ROOT, CDN_URL, and LOCAL_CDN_URL must be set');
+if (!process.env.CDN_URL) {
+    throw new Error('CDN_URL must be set');
 }
 
+const localCdnUrl = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
+const configuredUserRoot = process.env.USER_CDN_ROOT || path.join(process.cwd(), 'cache', 'cdn-local-fallback');
+
 export const CDN_CONFIG = {
-    user_root: process.env.USER_CDN_ROOT,
-    pack_root: process.env.PACK_CDN_ROOT || path.join(process.env.USER_CDN_ROOT, 'packs'),
+    user_root: configuredUserRoot,
+    pack_root: process.env.PACK_CDN_ROOT || path.join(configuredUserRoot, 'packs'),
     maxFileSize: 4000 * 1024 * 1024, // 4GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
     cacheControl: 'public, max-age=604800', // 1 week
     baseUrl: process.env.CDN_URL,
-    port: process.env.LOCAL_CDN_URL.split(':')[2]
+    port: process.env.CDN_PORT || localCdnUrl.split(':')[2]
 } as const;
 // Image type configurations
 export const IMAGE_TYPES = {

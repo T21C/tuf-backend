@@ -5,6 +5,8 @@ import { logger } from '@/server/services/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
 import { processImage } from './imageProcessor.js';
 import { storageManager } from './storageManager.js';
+import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
+import { spacesStorage } from './spacesStorage.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
@@ -69,14 +71,58 @@ export class ImageFactory {
             // Process variants
             await processImage(originalPath, imageType, fileId);
 
+            const variantNames = Object.keys(imageConfig.sizes);
+            const useSpacesForImages = hybridStorageManager.shouldUseSpacesFor('images');
+            const variantStorage: Record<string, {
+                path: string;
+                storageType: StorageType;
+                fallbackPath?: string;
+                fallbackStorageType?: StorageType;
+                url?: string;
+            }> = {};
+
+            for (const variantName of variantNames) {
+                const localVariantPath = path.join(imageDir, `${variantName}.png`);
+
+                if (useSpacesForImages) {
+                    const spacesKey = `images/${imageConfig.name}/${fileId}/${variantName}.png`;
+                    const uploadResult = await spacesStorage.uploadFile(localVariantPath, spacesKey, 'image/png', {
+                        fileId,
+                        imageType,
+                        variant: variantName,
+                        uploadedAt: new Date().toISOString()
+                    });
+                    variantStorage[variantName] = {
+                        path: spacesKey,
+                        storageType: StorageType.SPACES,
+                        fallbackPath: localVariantPath,
+                        fallbackStorageType: StorageType.LOCAL,
+                        url: uploadResult.url
+                    };
+                } else {
+                    variantStorage[variantName] = {
+                        path: localVariantPath,
+                        storageType: StorageType.LOCAL
+                    };
+                }
+            }
+
             // Start transaction for database operations
             transaction = await cdnSequelize.transaction();
 
             // Create database entry with absolute path within transaction
+            const primaryStorageType = useSpacesForImages ? StorageType.SPACES : StorageType.LOCAL;
+            const originalVariant = variantStorage.original;
             await CdnFile.create({
                 id: fileId,
                 type: imageType,
-                filePath: imageDir, // Store absolute path
+                filePath: originalVariant?.path || imageDir,
+                metadata: {
+                    storageType: primaryStorageType,
+                    imageStorageType: primaryStorageType,
+                    variants: variantStorage,
+                    localDirectory: imageDir
+                }
             }, { transaction });
 
             // Commit the transaction

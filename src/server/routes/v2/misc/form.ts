@@ -1093,19 +1093,28 @@ router.post(
 
         // Get available level files first to validate the selection
         const levelFiles = await cdnService.getLevelFiles(fileId);
-        const selectedFile = levelFiles.find(file => file.name === selectedLevel);
+        const normalizedSelectedLevel = String(selectedLevel).replace(/\\/g, '/').replace(/^\/+/, '');
+        const selectedFile = levelFiles.find(file => {
+            const normalizedFullPath = (file.fullPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            const normalizedRelativePath = (file.relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            return (
+                normalizedFullPath === normalizedSelectedLevel ||
+                normalizedRelativePath === normalizedSelectedLevel ||
+                file.name === selectedLevel
+            );
+        });
 
         if (!selectedFile) {
             logger.error('Selected level file not found:', {
                 fileId,
                 selectedLevel,
-                availableFiles: levelFiles.map(f => f.name),
+                availableFiles: levelFiles.map(f => f.fullPath || f.relativePath || f.name),
                 timestamp: new Date().toISOString()
             });
             return res.status(400).json({
                 success: false,
                 error: 'Selected level file not found',
-                availableFiles: levelFiles.map(f => f.name)
+                availableFiles: levelFiles.map(f => f.fullPath || f.relativePath || f.name)
             });
         }
 

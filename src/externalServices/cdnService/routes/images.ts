@@ -6,6 +6,8 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
 import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
+import { hybridStorageManager, StorageType } from '@/externalServices/cdnService/services/hybridStorageManager.js';
+import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 
 const router = Router();
 
@@ -32,9 +34,40 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Image not found' });
         }
 
-        // Use the absolute path directly
-        const fsPath = path.join(file.filePath, `${imageSize}.png`);
+        const metadata = (file.metadata || {}) as any;
+        const variantRef = metadata?.variants?.[imageSize];
 
+        if (variantRef?.path) {
+            const fileRef = await hybridStorageManager.resolveFileReference({
+                path: variantRef.path,
+                storageType: variantRef.storageType,
+                fallbackPath: variantRef.fallbackPath,
+                fallbackStorageType: variantRef.fallbackStorageType
+            });
+
+            if (!fileRef.exists) {
+                logger.error('Image variant not found in hybrid storage', {
+                    fileId,
+                    imageType,
+                    imageSize,
+                    variantRef
+                });
+                return res.status(404).json({ error: 'Image file not found' });
+            }
+
+            if (fileRef.storageType === StorageType.SPACES) {
+                const url = await spacesStorage.getPresignedUrl(fileRef.actualPath);
+                return res.redirect(302, url);
+            }
+
+            res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);
+            res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+            fs.createReadStream(fileRef.actualPath).pipe(res);
+            return;
+        }
+
+        // Legacy fallback for pre-migration image records.
+        const fsPath = path.join(file.filePath, `${imageSize}.png`);
         if (!fs.existsSync(fsPath)) {
             logger.error(`File not found on disk: ${fsPath}`);
             return res.status(404).json({ error: 'Image file not found' });

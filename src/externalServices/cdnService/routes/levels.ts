@@ -593,8 +593,25 @@ router.get('/transform-options', async (req: Request, res: Response) => {
             });
         }
 
-        // Read the level file
-        const parsedLevel = await new LevelDict(metadata.targetLevel);
+        const preferredStorageType = (metadata as any).levelStorageType || (metadata as any).storageType;
+        const levelCheck = await hybridStorageManager.fileExistsWithFallback(
+            metadata.targetLevel,
+            preferredStorageType
+        );
+        if (!levelCheck.exists) {
+            return res.status(400).json({ error: 'Target level file not found in storage' });
+        }
+
+        let parsedLevel: LevelDict;
+        if (levelCheck.storageType === StorageType.SPACES) {
+            const tempPath = path.join(REPACK_FOLDER, fileId, `temp_options_${Date.now()}.adofai`);
+            await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
+            await hybridStorageManager.downloadFile(metadata.targetLevel, StorageType.SPACES, tempPath);
+            parsedLevel = await new LevelDict(tempPath);
+            await fs.promises.unlink(tempPath).catch(() => {});
+        } else {
+            parsedLevel = await new LevelDict(levelCheck.actualPath);
+        }
 
         // Extract available types from the level
         const availableTypes = extractLevelTypes(parsedLevel);
@@ -675,7 +692,11 @@ router.get('/:fileId/levelData', async (req: Request, res: Response) => {
         throw { error: 'Level data is not available for this file (level too large to parse)', code: 400 };
     }
     const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
-    if (!fs.existsSync(targetLevel)) {
+    const levelCheck = await hybridStorageManager.fileExistsWithFallback(
+        targetLevel,
+        (metadata as any).levelStorageType || (metadata as any).storageType
+    );
+    if (!levelCheck.exists) {
         throw { error: 'Target level file not found', code: 400 };
     }
 

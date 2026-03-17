@@ -1809,7 +1809,7 @@ router.post(
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'selectedLevel: number', schema: { type: 'object', properties: { selectedLevel: { type: 'integer' } }, required: ['selectedLevel'] }, required: true },
+    requestBody: { description: 'selectedLevel: full path or relative path string', schema: { type: 'object', properties: { selectedLevel: { type: 'string' } }, required: ['selectedLevel'] }, required: true },
     responses: { 200: { description: 'Level selected' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {

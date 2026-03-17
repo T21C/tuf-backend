@@ -40,11 +40,11 @@ export class HybridStorageManager {
     }
 
     private loadConfig(): StorageConfig {
-        const storageType = (process.env.STORAGE_TYPE as StorageType) || StorageType.HYBRID;
-        const useSpacesForLevels = process.env.USE_SPACES_FOR_LEVELS === 'true';
-        const useSpacesForSongs = process.env.USE_SPACES_FOR_SONGS === 'true';
-        const useSpacesForImages = process.env.USE_SPACES_FOR_IMAGES === 'true';
-        const useSpacesForZips = process.env.USE_SPACES_FOR_ZIPS === 'true';
+        const storageType = (process.env.STORAGE_TYPE as StorageType) || StorageType.SPACES;
+        const useSpacesForLevels = process.env.USE_SPACES_FOR_LEVELS !== 'false';
+        const useSpacesForSongs = process.env.USE_SPACES_FOR_SONGS !== 'false';
+        const useSpacesForImages = process.env.USE_SPACES_FOR_IMAGES !== 'false';
+        const useSpacesForZips = process.env.USE_SPACES_FOR_ZIPS !== 'false';
         const fallbackToLocal = process.env.SPACES_FALLBACK_TO_LOCAL !== 'false';
 
         return {
@@ -55,6 +55,29 @@ export class HybridStorageManager {
             useSpacesForZips,
             fallbackToLocal
         };
+    }
+
+    public shouldUseSpacesFor(asset: 'levels' | 'songs' | 'images' | 'zips'): boolean {
+        if (this.config.type === StorageType.LOCAL) {
+            return false;
+        }
+
+        switch (asset) {
+            case 'levels':
+                return this.config.useSpacesForLevels;
+            case 'songs':
+                return this.config.useSpacesForSongs;
+            case 'images':
+                return this.config.useSpacesForImages;
+            case 'zips':
+                return this.config.useSpacesForZips;
+            default:
+                return false;
+        }
+    }
+
+    public isLocalFallbackEnabled(): boolean {
+        return this.config.fallbackToLocal;
     }
 
     /**
@@ -164,6 +187,7 @@ export class HybridStorageManager {
         }>;
     }> {
         try {
+            const shouldUseSpaces = this.shouldUseSpacesFor('songs');
             const results: Array<{
                 filename: string;
                 path: string;
@@ -173,40 +197,81 @@ export class HybridStorageManager {
                 key?: string;
             }> = [];
 
-            // Upload all song files to Spaces
-            for (const file of files) {
-                const spacesKey = `zips/${fileId}/${file.filename}`;
+            if (shouldUseSpaces) {
+                try {
+                    for (const file of files) {
+                        const spacesKey = `zips/${fileId}/${file.filename}`;
 
-                const result = await spacesStorage.uploadFile(
-                    file.sourcePath,
-                    spacesKey,
-                    `audio/${file.type}`,
-                    {
-                        fileId,
-                        originalFilename: encodeURIComponent(file.filename),
-                        uploadType: 'song',
-                        uploadedAt: new Date().toISOString()
+                        const result = await spacesStorage.uploadFile(
+                            file.sourcePath,
+                            spacesKey,
+                            `audio/${file.type}`,
+                            {
+                                fileId,
+                                originalFilename: encodeURIComponent(file.filename),
+                                uploadType: 'song',
+                                uploadedAt: new Date().toISOString()
+                            }
+                        );
+
+                        results.push({
+                            filename: file.filename,
+                            path: result.key,
+                            size: file.size,
+                            type: file.type,
+                            url: result.url,
+                            key: result.key
+                        });
                     }
-                );
 
+                    logger.debug('All song files uploaded to Spaces', {
+                        fileId,
+                        fileCount: files.length,
+                        totalSize: files.reduce((sum, f) => sum + f.size, 0)
+                    });
+
+                    return {
+                        storageType: StorageType.SPACES,
+                        files: results
+                    };
+                } catch (error) {
+                    logger.error('Failed to upload song files to Spaces, falling back to local storage', {
+                        error: error instanceof Error ? error.message : String(error),
+                        fileId,
+                        fileCount: files.length
+                    });
+
+                    if (!this.config.fallbackToLocal) {
+                        throw error;
+                    }
+                }
+            }
+
+            // Local storage fallback
+            const storageRoot = await storageManager.getDrive();
+            const songDir = path.join(storageRoot, 'zips', fileId);
+            await fs.promises.mkdir(songDir, { recursive: true });
+
+            for (const file of files) {
+                const localPath = path.join(songDir, file.filename);
+                await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+                await fs.promises.copyFile(file.sourcePath, localPath);
                 results.push({
                     filename: file.filename,
-                    path: result.key,
+                    path: localPath,
                     size: file.size,
-                    type: file.type,
-                    url: result.url,
-                    key: result.key
+                    type: file.type
                 });
             }
 
-            logger.debug('All song files uploaded to Spaces', {
+            logger.debug('All song files stored locally', {
                 fileId,
                 fileCount: files.length,
                 totalSize: files.reduce((sum, f) => sum + f.size, 0)
             });
 
             return {
-                storageType: StorageType.SPACES,
+                storageType: StorageType.LOCAL,
                 files: results
             };
         } catch (error) {
@@ -302,6 +367,7 @@ export class HybridStorageManager {
 
             for (const file of files) {
                 const localPath = path.join(levelDir, file.filename);
+                await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
                 await fs.promises.copyFile(file.sourcePath, localPath);
 
                 results.push({
@@ -799,7 +865,7 @@ export class HybridStorageManager {
             logger.debug('File not found in any storage', { filePath });
             return {
                 exists: false,
-                storageType: preferredStorageType || StorageType.LOCAL,
+                storageType: preferredStorageType || StorageType.SPACES,
                 actualPath: filePath
             };
         } catch (error) {
@@ -810,10 +876,54 @@ export class HybridStorageManager {
             });
             return {
                 exists: false,
-                storageType: preferredStorageType || StorageType.LOCAL,
+                storageType: preferredStorageType || StorageType.SPACES,
                 actualPath: filePath
             };
         }
+    }
+
+    public async resolveFileReference(fileRef: {
+        path: string;
+        storageType?: StorageType;
+        fallbackPath?: string;
+        fallbackStorageType?: StorageType;
+    }): Promise<{
+        exists: boolean;
+        storageType: StorageType;
+        actualPath: string;
+        usedFallback: boolean;
+    }> {
+        const primaryCheck = await this.fileExistsWithFallback(fileRef.path, fileRef.storageType);
+        if (primaryCheck.exists) {
+            return {
+                exists: true,
+                storageType: primaryCheck.storageType,
+                actualPath: primaryCheck.actualPath,
+                usedFallback: false
+            };
+        }
+
+        if (fileRef.fallbackPath) {
+            const fallbackCheck = await this.fileExistsWithFallback(
+                fileRef.fallbackPath,
+                fileRef.fallbackStorageType
+            );
+            if (fallbackCheck.exists) {
+                return {
+                    exists: true,
+                    storageType: fallbackCheck.storageType,
+                    actualPath: fallbackCheck.actualPath,
+                    usedFallback: true
+                };
+            }
+        }
+
+        return {
+            exists: false,
+            storageType: fileRef.storageType || StorageType.SPACES,
+            actualPath: fileRef.path,
+            usedFallback: false
+        };
     }
 
     /**

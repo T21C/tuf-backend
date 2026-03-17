@@ -5,6 +5,7 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { storageManager } from './storageManager.js';
 import { hybridStorageManager } from './hybridStorageManager.js';
+import { spacesStorage } from './spacesStorage.js';
 import LevelDict from 'adofai-lib';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
@@ -21,6 +22,16 @@ interface ZipEntry {
     relativePath: string;
     size: number;
     isDirectory: boolean;
+}
+
+function normalizeRelativePath(relativePath: string): string {
+    return relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function toCopyRelativePath(relativePath: string): string {
+    const normalized = normalizeRelativePath(relativePath);
+    const parsed = path.posix.parse(normalized);
+    return path.posix.join(parsed.dir, `${parsed.name}.copy`);
 }
 
 async function extractZipEntries(zipFilePath: string): Promise<ZipEntry[]> {
@@ -97,7 +108,11 @@ export async function processZipFile(
         const levelFiles: { [key: string]: any } = {};
         const allLevelFiles: Array<{
             name: string;
+            relativePath: string;
             path: string;
+            sourceCopyPath?: string;
+            sourceCopyRelativePath?: string;
+            sourceCopyStorageType?: string;
             size: number;
             hasYouTubeStream?: boolean;
             songFilename?: string;
@@ -146,16 +161,22 @@ export async function processZipFile(
         let processedLevels = 0;
         for (const entry of levelEntries) {
             // Extract to temp first for analysis
-            const tempPath = path.join(storageRoot, 'temp', entry.relativePath);
+            const normalizedRelativePath = normalizeRelativePath(entry.relativePath);
+            const tempPath = path.join(storageRoot, 'temp', zipFileId, 'levels', normalizedRelativePath);
             await extractFile(zipFilePath, entry, tempPath);
 
             try {
                 const levelFilename = path.basename(entry.relativePath);
+                const sourceCopyRelativePath = toCopyRelativePath(normalizedRelativePath);
                 const tooLargeToParse = entry.size > MAX_LEVEL_FILE_SIZE_FOR_PARSE;
 
                 let levelFile: {
                     name: string;
+                    relativePath: string;
                     path: string;
+                    sourceCopyPath?: string;
+                    sourceCopyRelativePath?: string;
+                    sourceCopyStorageType?: string;
                     size: number;
                     hasYouTubeStream?: boolean;
                     songFilename?: string;
@@ -175,7 +196,9 @@ export async function processZipFile(
                     });
                     levelFile = {
                         name: levelFilename,
+                        relativePath: normalizedRelativePath,
                         path: tempPath,
+                        sourceCopyRelativePath,
                         size: entry.size,
                         hasYouTubeStream: false,
                         songFilename: undefined,
@@ -185,7 +208,9 @@ export async function processZipFile(
                     const levelDict = new LevelDict(tempPath);
                     levelFile = {
                         name: levelFilename,
+                        relativePath: normalizedRelativePath,
                         path: tempPath, // Keep temp path for now, will be uploaded later
+                        sourceCopyRelativePath,
                         size: entry.size,
                         hasYouTubeStream: levelDict.getSetting('requiredMods')?.includes('YouTubeStream'),
                         songFilename: levelDict.getSetting('songFilename'),
@@ -267,17 +292,36 @@ export async function processZipFile(
         const levelUploadResult = await hybridStorageManager.uploadLevelFiles(
             allLevelFiles.map(file => ({
                 sourcePath: file.path,
-                filename: file.name,
+                filename: file.relativePath,
                 size: file.size
             })),
             zipFileId
         );
         await sendProgress('uploading', 65, 'Level files uploaded');
 
+        const sourceCopyResults: Array<{ path: string; storageType: string }> = [];
+        for (const file of allLevelFiles) {
+            const sourceCopyRelativePath = file.sourceCopyRelativePath || toCopyRelativePath(file.relativePath);
+            const sourceCopyKey = `levels/${zipFileId}/${sourceCopyRelativePath}`;
+            await spacesStorage.uploadFile(file.path, sourceCopyKey, 'application/octet-stream', {
+                fileId: zipFileId,
+                sourceType: 'original-level-copy',
+                originalRelativePath: encodeURIComponent(file.relativePath),
+                uploadedAt: new Date().toISOString()
+            });
+            sourceCopyResults.push({
+                path: sourceCopyKey,
+                storageType: 'spaces'
+            });
+        }
+
         // Update file paths in metadata
         allLevelFiles.forEach((file, index) => {
             const uploadedFile = levelUploadResult.files[index];
+            const uploadedSourceCopy = sourceCopyResults[index];
             file.path = uploadedFile.path;
+            file.sourceCopyPath = uploadedSourceCopy.path;
+            file.sourceCopyStorageType = uploadedSourceCopy.storageType;
         });
 
         // Upload song files using hybrid storage manager
@@ -321,6 +365,7 @@ export async function processZipFile(
 
         // Determine target level
         let targetLevel: string | null = null;
+        let targetLevelRelativePath: string | null = null;
         let targetLevelOversized = false;
         const pathConfirmed = false;
 
@@ -339,6 +384,7 @@ export async function processZipFile(
             });
 
             targetLevel = largestLevel.path; // Use storage path (Spaces key or local path)
+            targetLevelRelativePath = largestLevel.relativePath;
             targetLevelOversized = !!largestLevel.oversizedUnparsed;
 
             logger.debug('Selected largest level file as target:', {
@@ -367,6 +413,7 @@ export async function processZipFile(
                 allLevelFiles,
                 songFiles: updatedSongFiles,
                 targetLevel,
+                targetLevelRelativePath,
                 targetLevelOversized,
                 pathConfirmed,
                 // Always include storage type at the root level for easy access
