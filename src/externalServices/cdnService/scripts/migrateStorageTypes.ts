@@ -197,13 +197,21 @@ async function migrateLevelZip(
     }
 
     if (updated) {
-        metadata.storageType = StorageType.SPACES;
-        metadata.levelStorageType = StorageType.SPACES;
-        metadata.songStorageType = StorageType.SPACES;
-        metadata.migratedToSpacesAt = new Date().toISOString();
-        metadata.migrationMode = 'copy_with_fallback';
+        const updatedMetadata: AnyRecord = {
+            storageType: StorageType.SPACES,
+            levelStorageType: StorageType.SPACES,
+            songStorageType: StorageType.SPACES,
+            migratedToSpacesAt: new Date().toISOString(),
+            migrationMode: 'copy_with_fallback'
+        };
         if (!dryRun) {
-            await file.update({ filePath: file.filePath, metadata });
+            await file.update({
+                filePath: file.filePath,
+                metadata: {
+                    ...metadata,
+                    ...updatedMetadata
+                }
+            });
         }
     }
 
@@ -254,15 +262,23 @@ async function migrateImage(
     }
 
     if (updated) {
-        metadata.variants = variants;
-        metadata.storageType = StorageType.SPACES;
-        metadata.imageStorageType = StorageType.SPACES;
-        metadata.localDirectory = localDirectory;
-        metadata.migratedToSpacesAt = new Date().toISOString();
-        metadata.migrationMode = 'copy_with_fallback';
+        const updatedMetadata: AnyRecord = {
+            variants,
+            storageType: StorageType.SPACES,
+            imageStorageType: StorageType.SPACES,
+            localDirectory,
+            migratedToSpacesAt: new Date().toISOString(),
+            migrationMode: 'copy_with_fallback'
+        };
         file.filePath = variants.original?.path || file.filePath;
         if (!dryRun) {
-            await file.update({ filePath: file.filePath, metadata });
+            await file.update({
+                filePath: file.filePath,
+                metadata: {
+                    ...metadata,
+                    ...updatedMetadata
+                }
+            });
         }
     }
 
@@ -336,11 +352,19 @@ async function migrateGeneric(
     }
 
     if (updated) {
-        metadata.storageType = StorageType.SPACES;
-        metadata.migratedToSpacesAt = new Date().toISOString();
-        metadata.migrationMode = 'copy_with_fallback';
+        const updatedMetadata: AnyRecord = {
+            storageType: StorageType.SPACES,
+            migratedToSpacesAt: new Date().toISOString(),
+            migrationMode: 'copy_with_fallback'
+        };
         if (!dryRun) {
-            await file.update({ filePath: file.filePath, metadata });
+            await file.update({
+                filePath: file.filePath,
+                metadata: {
+                    ...metadata,
+                    ...updatedMetadata
+                }
+            });
         }
     }
 
