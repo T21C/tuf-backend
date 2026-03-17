@@ -372,6 +372,10 @@ class CdnService {
                     });
                     return; // Success, exit retry loop
                 } else {
+                    logger.debug('File does not exist in CDN, skipping deletion', {
+                        fileId,
+                        attempt: attempt + 1
+                    });
                     return; // File doesn't exist, no need to retry
                 }
             } catch (error) {

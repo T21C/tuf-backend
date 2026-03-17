@@ -177,8 +177,6 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
       const cached = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
 
       if (cached) {
-        logger.debug(`Cache HIT: ${cacheKey}`);
-
         if (mergedConfig.addHeaders) {
           res.setHeader('X-Cache', 'HIT');
           const ttl = await redis.ttl(cacheKey);
@@ -203,8 +201,6 @@ export function Cache(config: CacheConfig = {}): (req: Request, res: Response, n
         // Try cache again - it should be populated now
         const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
         if (cachedAfterWait) {
-          logger.debug(`Cache HIT (after pending): ${cacheKey}`);
-
           if (mergedConfig.addHeaders) {
             res.setHeader('X-Cache', 'HIT');
             const ttl = await redis.ttl(cacheKey);
@@ -353,8 +349,6 @@ export function Cached(config: CacheConfig = {}) {
         const cached = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
 
         if (cached) {
-          logger.debug(`Cache HIT (decorator): ${cacheKey}`);
-
           if (mergedConfig.addHeaders) {
             res.setHeader('X-Cache', 'HIT');
             const ttl = await redis.ttl(cacheKey);
@@ -377,8 +371,6 @@ export function Cached(config: CacheConfig = {}) {
           // Try cache again - it should be populated now
           const cachedAfterWait = await redis.get<{ body: unknown; statusCode: number }>(cacheKey);
           if (cachedAfterWait) {
-            logger.debug(`Cache HIT (after pending, decorator): ${cacheKey}`);
-
             if (mergedConfig.addHeaders) {
               res.setHeader('X-Cache', 'HIT');
               const ttl = await redis.ttl(cacheKey);

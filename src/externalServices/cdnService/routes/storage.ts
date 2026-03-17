@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/LoggerService.js';
 import { hybridStorageManager } from '../services/hybridStorageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
-import { copyToSpacesWithFallback, getCopyToSpacesFallbackReport, migrateStorageTypes, verifyMigration } from '../scripts/migrateStorageTypes.js';
 
 const router = Router();
 
@@ -149,67 +148,6 @@ router.get('/spaces/test', async (req: Request, res: Response) => {
         });
         res.status(500).json({
             error: 'Spaces connection test failed',
-            details: error instanceof Error ? error.message : String(error)
-        });
-    }
-});
-
-// Run storage type migration
-router.post('/migrate-storage-types', async (req: Request, res: Response) => {
-    try {
-        logger.info('Starting storage type migration via API');
-
-        // Run migration
-        await migrateStorageTypes();
-
-        // Run verification
-        await verifyMigration();
-
-        res.json({
-            success: true,
-            message: 'Storage type migration completed successfully'
-        });
-    } catch (error) {
-        logger.error('Storage type migration failed:', {
-            error: error instanceof Error ? error.message : String(error)
-        });
-        res.status(500).json({
-            error: 'Storage type migration failed',
-            details: error instanceof Error ? error.message : String(error)
-        });
-    }
-});
-
-router.post('/copy-to-spaces', async (req: Request, res: Response) => {
-    try {
-        const batchSize = Number(req.body?.batchSize || 100);
-        const fileType = req.body?.fileType ? String(req.body.fileType) : undefined;
-        const dryRun = req.body?.dryRun === true;
-
-        const result = await copyToSpacesWithFallback(batchSize, fileType, dryRun);
-        res.json({ success: true, result });
-    } catch (error) {
-        logger.error('Copy-to-spaces migration failed:', {
-            error: error instanceof Error ? error.message : String(error)
-        });
-        res.status(500).json({
-            error: 'Copy-to-spaces migration failed',
-            details: error instanceof Error ? error.message : String(error)
-        });
-    }
-});
-
-router.get('/copy-to-spaces/report', async (req: Request, res: Response) => {
-    try {
-        const sampleSize = Number(req.query.sampleSize || 200);
-        const report = await getCopyToSpacesFallbackReport(sampleSize);
-        res.json({ success: true, report });
-    } catch (error) {
-        logger.error('Copy-to-spaces report failed:', {
-            error: error instanceof Error ? error.message : String(error)
-        });
-        res.status(500).json({
-            error: 'Copy-to-spaces report failed',
             details: error instanceof Error ? error.message : String(error)
         });
     }

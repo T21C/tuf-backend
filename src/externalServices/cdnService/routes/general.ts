@@ -224,9 +224,10 @@ router.head('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).end();
         }
 
+        const metadata = (file.metadata || {}) as any;
+
         // For LEVELZIP files, check if the file exists in storage using fallback logic
         if (file.type === 'LEVELZIP') {
-            const metadata = file.metadata as any;
             const originalZip = metadata?.originalZip;
 
             if (originalZip?.path) {
@@ -239,11 +240,45 @@ router.head('/:fileId', async (req: Request, res: Response) => {
                     return res.status(404).end();
                 }
             }
+        } else if (IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES]) {
+            const originalVariant = metadata?.variants?.original;
+
+            if (originalVariant?.path) {
+                const imageRef = await hybridStorageManager.resolveFileReference({
+                    path: originalVariant.path,
+                    storageType: originalVariant.storageType,
+                    fallbackPath: originalVariant.fallbackPath,
+                    fallbackStorageType: originalVariant.fallbackStorageType
+                });
+                if (!imageRef.exists) {
+                    return res.status(404).end();
+                }
+            } else {
+                // Backward-compatible image existence check for records without variants metadata.
+                const imageTypeConfig = IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES];
+                const canonicalKey = `images/${imageTypeConfig.name}/${fileId}/original.png`;
+                const canonicalCheck = await hybridStorageManager.fileExistsWithFallback(
+                    canonicalKey,
+                    StorageType.SPACES
+                );
+                if (!canonicalCheck.exists) {
+                    const legacyLocalPath = path.join(file.filePath, 'original.png');
+                    const legacyCheck = await hybridStorageManager.fileExistsWithFallback(
+                        legacyLocalPath,
+                        StorageType.LOCAL
+                    );
+                    if (!legacyCheck.exists) {
+                        return res.status(404).end();
+                    }
+                }
+            }
         } else {
-            // For other file types, check if file exists on disk
-            try {
-                await fs.promises.access(file.filePath, fs.constants.F_OK);
-            } catch (error) {
+            // For other file types, check via hybrid storage (Spaces-first with local fallback).
+            const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                file.filePath,
+                metadata?.storageType || StorageType.SPACES
+            );
+            if (!fileCheck.exists) {
                 return res.status(404).end();
             }
         }
@@ -423,77 +458,76 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     fileType,
                     timestamp: new Date().toISOString()
                 });
-            } else {
+            } 
+            else {
                 // For other file types, determine storage type and delete appropriately
                 const storageType = metadata?.storageType || StorageType.SPACES;
 
                 if (IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES]) {
+                    const imageTypeConfig = IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES];
+                    const spacesImagePrefix = imageTypeConfig
+                        ? `images/${imageTypeConfig.name}/${fileId}/`
+                        : null;
                     const variants = metadata?.variants as Record<string, {
                         path: string;
                         storageType?: StorageType;
                         fallbackPath?: string;
                         fallbackStorageType?: StorageType;
                     }> | undefined;
-
-                    if (variants && Object.keys(variants).length > 0) {
-                        const filesToDelete: Array<{ path: string; storageType: StorageType }> = [];
-                        for (const variant of Object.values(variants)) {
-                            if (variant.path) {
-                                filesToDelete.push({
-                                    path: variant.path,
-                                    storageType: variant.storageType || storageType
+                    // Primary strategy: remove whole Spaces UUID folder since it should only contain
+                    // this image's variants.
+                    if (spacesImagePrefix) {
+                        try {
+                            const folderObjects = await spacesStorage.listFiles(spacesImagePrefix, 10000);
+                            const folderKeys = folderObjects
+                                .map((entry) => entry.key)
+                                .filter((key) => typeof key === 'string' && key.length > 0);
+                            if (folderKeys.length > 0) {
+                                await spacesStorage.deleteFiles(folderKeys);
+                                logger.debug('Image Spaces UUID folder deleted by prefix', {
+                                    fileId,
+                                    prefix: spacesImagePrefix,
+                                    deletedCount: folderKeys.length
                                 });
                             }
-                            if (variant.fallbackPath) {
-                                filesToDelete.push({
-                                    path: variant.fallbackPath,
-                                    storageType: variant.fallbackStorageType || StorageType.LOCAL
-                                });
-                            }
-                        }
-                        await hybridStorageManager.deleteFilesComprehensive(filesToDelete);
-
-                        const localDirectory = metadata?.localDirectory;
-                        if (localDirectory) {
-                            storageManager.cleanupImageDirectory(localDirectory, fileId, fileType);
-                        }
-
-                        logger.debug('Image variants deleted from hybrid storage successfully:', {
-                            fileId,
-                            variantCount: Object.keys(variants).length,
-                            timestamp: new Date().toISOString()
-                        });
-                    } else if (storageType === StorageType.LOCAL) {
-                        // Use specialized cleanup for image directories (legacy local storage)
-                        const cleanupSuccess = storageManager.cleanupImageDirectory(filePath, fileId, fileType);
-                        if (cleanupSuccess) {
-                            logger.debug('Image file deleted successfully:', {
+                        } catch (prefixCleanupError) {
+                            logger.warn('Image Spaces prefix cleanup failed', {
                                 fileId,
-                                filePath,
-                                type: fileType,
-                                storageType,
-                                timestamp: new Date().toISOString()
-                            });
-                        } else {
-                            logger.error('Failed to cleanup image directory, but database entry was removed:', {
-                                fileId,
-                                filePath,
-                                type: fileType,
-                                storageType,
-                                timestamp: new Date().toISOString()
+                                prefix: spacesImagePrefix,
+                                error: prefixCleanupError instanceof Error
+                                    ? prefixCleanupError.message
+                                    : String(prefixCleanupError)
                             });
                         }
-                    } else {
-                        // Use hybrid storage manager for cloud-stored images
-                        await hybridStorageManager.deleteFile(filePath, storageType);
-                        logger.debug('Image file deleted from hybrid storage successfully:', {
-                            fileId,
-                            filePath,
-                            type: fileType,
-                            storageType,
-                            timestamp: new Date().toISOString()
-                        });
                     }
+
+                    // Secondary cleanup: remove any local fallback directories/files.
+                    const localDirectories = new Set<string>();
+                    if (typeof metadata?.localDirectory === 'string' && metadata.localDirectory.length > 0) {
+                        localDirectories.add(metadata.localDirectory);
+                    }
+                    if (typeof filePath === 'string' && path.isAbsolute(filePath)) {
+                        localDirectories.add(filePath);
+                    }
+                    if (variants && typeof variants === 'object') {
+                        for (const variant of Object.values(variants)) {
+                            if (typeof variant?.fallbackPath === 'string' && path.isAbsolute(variant.fallbackPath)) {
+                                localDirectories.add(path.dirname(variant.fallbackPath));
+                            }
+                        }
+                    }
+
+                    for (const localDir of localDirectories) {
+                        storageManager.cleanupImageDirectory(localDir, fileId, fileType);
+                    }
+
+                    logger.debug('Image cleanup completed', {
+                        fileId,
+                        type: fileType,
+                        spacesPrefix: spacesImagePrefix,
+                        localDirectoriesChecked: localDirectories.size,
+                        timestamp: new Date().toISOString()
+                    });
                 } else {
                     // Use hybrid storage manager for other file types
                     await hybridStorageManager.deleteFile(filePath, storageType);
