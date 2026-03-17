@@ -396,7 +396,17 @@ export async function copyToSpacesWithFallback(
         failures: []
     };
 
-    for (const file of files) {
+    logger.info('Starting copy-to-spaces migration batch', {
+        total: files.length,
+        fileType: fileType || 'ALL',
+        dryRun
+    });
+
+    for (const [index, file] of files.entries()) {
+        const progressCurrent = index + 1;
+        const progressPercent = files.length > 0
+            ? Math.round((progressCurrent / files.length) * 100)
+            : 100;
         try {
             let result = { updated: false, copied: 0, skipped: 0 };
             if (file.type === 'LEVELZIP') {
@@ -410,14 +420,41 @@ export async function copyToSpacesWithFallback(
             if (result.updated) summary.migrated++;
             summary.copiedObjects += result.copied;
             summary.skippedObjects += result.skipped;
+
+            logger.info('Migration progress entry', {
+                fileId: file.id,
+                type: file.type,
+                status: result.updated ? 'migrated' : 'skipped',
+                copiedObjects: result.copied,
+                skippedObjects: result.skipped,
+                progress: `${progressCurrent}/${files.length}`,
+                progressPercent
+            });
         } catch (error) {
             summary.failed++;
             summary.failures.push({
                 fileId: file.id,
                 error: error instanceof Error ? error.message : String(error)
             });
+
+            logger.error('Migration progress entry failed', {
+                fileId: file.id,
+                type: file.type,
+                status: 'failed',
+                error: error instanceof Error ? error.message : String(error),
+                progress: `${progressCurrent}/${files.length}`,
+                progressPercent
+            });
         }
     }
+
+    logger.info('Finished copy-to-spaces migration batch', {
+        processed: summary.processed,
+        migrated: summary.migrated,
+        failed: summary.failed,
+        copiedObjects: summary.copiedObjects,
+        skippedObjects: summary.skippedObjects
+    });
 
     return summary;
 }
