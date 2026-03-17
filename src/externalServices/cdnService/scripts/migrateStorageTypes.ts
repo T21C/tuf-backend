@@ -93,6 +93,39 @@ function setSpacesPrimaryRef(target: AnyRecord, key: string): void {
     target.storageType = StorageType.SPACES;
 }
 
+function isAlreadyMigrated(file: any): boolean {
+    const metadata: AnyRecord = (file?.metadata || {}) as AnyRecord;
+
+    if (metadata.storageType !== StorageType.SPACES) {
+        return false;
+    }
+    if (metadata.migrationMode !== 'copy_with_fallback') {
+        return false;
+    }
+
+    if (file.type === 'LEVELZIP') {
+        const originalZip = metadata.originalZip as AnyRecord | undefined;
+        if (!originalZip?.path || originalZip.storageType !== StorageType.SPACES) {
+            return false;
+        }
+        return true;
+    }
+
+    if (IMAGE_TYPE_SET.has(file.type)) {
+        const variants = metadata.variants as AnyRecord | undefined;
+        if (!variants || typeof variants !== 'object' || Object.keys(variants).length === 0) {
+            return false;
+        }
+        return Object.values(variants).every((variant: any) =>
+            typeof variant?.path === 'string'
+            && variant.storageType === StorageType.SPACES
+            && typeof variant.fallbackPath === 'string'
+        );
+    }
+
+    return true;
+}
+
 async function migrateLevelZip(
     file: any,
     dryRun: boolean
@@ -408,6 +441,19 @@ export async function copyToSpacesWithFallback(
             ? Math.round((progressCurrent / files.length) * 100)
             : 100;
         try {
+            if (isAlreadyMigrated(file)) {
+                logger.info('Migration progress entry', {
+                    fileId: file.id,
+                    type: file.type,
+                    status: 'already_migrated',
+                    copiedObjects: 0,
+                    skippedObjects: 0,
+                    progress: `${progressCurrent}/${files.length}`,
+                    progressPercent
+                });
+                continue;
+            }
+
             let result = { updated: false, copied: 0, skipped: 0 };
             if (file.type === 'LEVELZIP') {
                 result = await migrateLevelZip(file, dryRun);
