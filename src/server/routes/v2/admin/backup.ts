@@ -3,9 +3,6 @@ import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
 import {BackupService} from '@/server/services/BackupService.js';
-import fs from 'fs/promises';
-import { createReadStream } from 'fs';
-import path from 'path';
 import multer from 'multer';
 import os from 'os';
 import { logger } from '@/server/services/LoggerService.js';
@@ -27,23 +24,18 @@ backupService.initializeSchedules().catch(logger.error);
 
 // Validate upload credentials
 router.head(
-  '/upload/:type/validate',
+  '/upload/validate',
   Auth.superAdminPassword(),
   ApiDoc({
     operationId: 'headAdminBackupUploadValidate',
-    summary: 'Validate backup upload',
-    description: 'Validate backup upload credentials. type: mysql | files. Super admin password.',
+    summary: 'Validate MySQL backup upload',
+    description: 'Validate MySQL backup upload credentials. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { type: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Valid' }, ...standardErrorResponses400500 },
   }),
-  async (req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
-      const {type} = req.params;
-      if (!['mysql', 'files'].includes(type)) {
-        return res.status(400).json({error: 'Invalid backup type'});
-      }
       return res.status(200).end();
     } catch (error) {
       logger.error('Upload validation failed:', error);
@@ -54,35 +46,25 @@ router.head(
 
 // Upload backup
 router.post(
-  '/upload/:type',
+  '/upload',
   Auth.superAdminPassword(),
   upload.single('backup'),
   ApiDoc({
     operationId: 'postAdminBackupUpload',
-    summary: 'Upload backup',
-    description: 'Upload backup file. type: mysql | files. Multipart: backup. Super admin password.',
+    summary: 'Upload MySQL backup',
+    description: 'Upload MySQL backup file. Multipart: backup. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { type: { schema: { type: 'string' } } },
     requestBody: { description: 'multipart backup file', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Uploaded' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {type} = req.params;
-
       if (!req.file) {
         return res.status(400).json({error: 'No file uploaded'});
       }
 
-      if (!['mysql', 'files'].includes(type)) {
-        return res.status(400).json({error: 'Invalid backup type'});
-      }
-
-      const newFileName = await backupService.uploadBackup(
-        req.file,
-        type as 'mysql' | 'files',
-      );
+      const newFileName = await backupService.uploadBackup(req.file);
 
       return res.json({
         success: true,
@@ -98,35 +80,22 @@ router.post(
 
 // Trigger manual backup
 router.post(
-  '/create/:target',
+  '/create',
   Auth.superAdminPassword(),
   ApiDoc({
     operationId: 'postAdminBackupCreate',
-    summary: 'Create backup',
-    description: 'Trigger manual backup. target: all | mysql | files. Body: type?. Super admin password.',
+    summary: 'Create MySQL backup',
+    description: 'Trigger manual MySQL backup. Body: type?. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { target: { schema: { type: 'string' } } },
     requestBody: { description: 'type (optional)', schema: { type: 'object', properties: { type: { type: 'string' } } }, required: false },
     responses: { 200: { description: 'Backups created' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
     try {
       const {type = 'manual'} = req.body;
-      const {target} = req.params;
-      const results = [];
-
-      if (target === 'all' || target === 'mysql') {
-        const mysqlBackup = await backupService.createMySQLBackup(type);
-        results.push({type: 'mysql', path: mysqlBackup});
-      }
-
-      if (target === 'all' || target === 'files') {
-        const fileBackup = await backupService.createFileBackup();
-        results.push({type: 'files', path: fileBackup});
-      }
-
-      res.json({success: true, backups: results});
+      const mysqlBackup = await backupService.createMySQLBackup(type);
+      res.json({success: true, backups: [{type: 'mysql', path: mysqlBackup}]});
     } catch (error) {
       logger.error('Backup creation failed:', error);
       res.status(500).json({error: 'Backup creation failed'});
@@ -140,51 +109,16 @@ router.get(
   Auth.superAdmin(),
   ApiDoc({
     operationId: 'getAdminBackupList',
-    summary: 'List backups',
-    description: 'List available mysql and files backups. Super admin.',
+    summary: 'List MySQL backups',
+    description: 'List available MySQL backups. Super admin.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
     responses: { 200: { description: 'Backup list' }, ...standardErrorResponses500 },
   }),
-  async (req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
   try {
-    const config = backupService.getConfig();
-    const mysqlBackups = await fs.readdir(config.mysql.backupPath);
-    const fileBackups = await fs.readdir(config.files.backupPath);
-
-    // Get file stats for each backup
-    const mysqlBackupStats = await Promise.all(
-      mysqlBackups.map(async filename => {
-        const stats = await fs.stat(
-          path.join(config.mysql.backupPath, filename),
-        );
-        return {
-          filename,
-          type: 'mysql',
-          size: stats.size,
-          created: stats.mtime,
-        };
-      }),
-    );
-
-    const fileBackupStats = await Promise.all(
-      fileBackups.map(async filename => {
-        const stats = await fs.stat(
-          path.join(config.files.backupPath, filename),
-        );
-        return {
-          filename,
-          type: 'files',
-          size: stats.size,
-          created: stats.mtime,
-        };
-      }),
-    );
-
-    res.json({
-      mysql: mysqlBackupStats,
-      files: fileBackupStats,
-    });
+    const mysqlBackups = await backupService.listMySQLBackups();
+    res.json({mysql: mysqlBackups});
   } catch (error) {
     logger.error('Failed to list backups:', error);
     res.status(500).json({error: 'Failed to list backups'});
@@ -194,42 +128,25 @@ router.get(
 
 // Restore backup
 router.post(
-  '/restore/:type/:filename',
+  '/restore/:filename',
   Auth.superAdminPassword(),
   ApiDoc({
     operationId: 'postAdminBackupRestore',
-    summary: 'Restore backup',
-    description: 'Restore backup by type and filename. Super admin password.',
+    summary: 'Restore MySQL backup',
+    description: 'Restore MySQL backup by filename. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    params: { filename: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Restored' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {type, filename} = req.params;
-      const config = backupService.getConfig();
-
-      if (!['mysql', 'files'].includes(type)) {
-        return res.status(400).json({error: 'Invalid backup type'});
-      }
-
-      const backupPath =
-        type === 'mysql' ? config.mysql.backupPath : config.files.backupPath;
-      const filePath = path.join(backupPath, filename);
-
-      // Check if backup exists
-      try {
-        await fs.access(filePath);
-      } catch {
+      const {filename} = req.params;
+      const backupExists = await backupService.hasBackup(filename);
+      if (!backupExists) {
         return res.status(404).json({error: 'Backup file not found'});
       }
-
-      if (type === 'mysql') {
-        await backupService.restoreMySQLBackup(filePath);
-      } else {
-        await backupService.restoreFileBackup(filePath);
-      }
+      await backupService.restoreMySQLBackup(filename);
 
       return res.json({success: true, message: 'Backup restored successfully'});
     } catch (error) {
@@ -241,37 +158,26 @@ router.post(
 
 // Delete backup
 router.delete(
-  '/delete/:type/:filename',
+  '/delete/:filename',
   Auth.superAdminPassword(),
   ApiDoc({
     operationId: 'deleteAdminBackup',
-    summary: 'Delete backup',
-    description: 'Delete backup file. Super admin password.',
+    summary: 'Delete MySQL backup',
+    description: 'Delete MySQL backup file. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    params: { filename: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Deleted' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {type, filename} = req.params;
-      const config = backupService.getConfig();
-
-      if (!['mysql', 'files'].includes(type)) {
-        return res.status(400).json({error: 'Invalid backup type'});
-      }
-
-      const backupPath =
-        type === 'mysql' ? config.mysql.backupPath : config.files.backupPath;
-      const filePath = path.join(backupPath, filename);
-
-      try {
-        await fs.access(filePath);
-      } catch {
+      const {filename} = req.params;
+      const backupExists = await backupService.hasBackup(filename);
+      if (!backupExists) {
         return res.status(404).json({error: 'Backup file not found'});
       }
 
-      await fs.unlink(filePath);
+      await backupService.deleteBackup(filename);
       return res.json({success: true, message: 'Backup deleted successfully'});
     } catch (error) {
       logger.error('Failed to delete backup:', error);
@@ -282,50 +188,36 @@ router.delete(
 
 // Rename backup
 router.post(
-  '/rename/:type/:filename',
+  '/rename/:filename',
   Auth.superAdminPassword(),
   ApiDoc({
     operationId: 'postAdminBackupRename',
-    summary: 'Rename backup',
-    description: 'Rename backup file. Body: newName. Super admin password.',
+    summary: 'Rename MySQL backup',
+    description: 'Rename MySQL backup file. Body: newName. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    params: { filename: { schema: { type: 'string' } } },
     requestBody: { description: 'newName', schema: { type: 'object', properties: { newName: { type: 'string' } }, required: ['newName'] }, required: true },
     responses: { 200: { description: 'Renamed' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {type, filename} = req.params;
+      const {filename} = req.params;
       const {newName} = req.body;
 
-      if (!['mysql', 'files'].includes(type)) {
-        return res.status(400).json({error: 'Invalid backup type'});
-      }
-
-      const config = backupService.getConfig();
-      const backupPath =
-        type === 'mysql' ? config.mysql.backupPath : config.files.backupPath;
-      const oldPath = path.join(backupPath, filename);
-      const newPath = path.join(backupPath, newName);
-
-      try {
-        await fs.access(oldPath);
-      } catch {
+      const hasSource = await backupService.hasBackup(filename);
+      if (!hasSource) {
         return res.status(404).json({error: 'Backup file not found'});
       }
 
-      // Check if new name already exists
-      try {
-        await fs.access(newPath);
+      const targetExists = await backupService.hasBackup(newName);
+      if (targetExists) {
         return res
           .status(400)
           .json({error: 'A backup with this name already exists'});
-      } catch {
-        // This is good - the file doesn't exist
       }
 
-      await fs.rename(oldPath, newPath);
+      await backupService.renameBackup(filename, newName);
       return res.json({
         success: true,
         message: 'Backup renamed successfully',
@@ -340,46 +232,30 @@ router.post(
 
 // Download backup
 router.get(
-  '/download/:type/:filename',
+  '/download/:filename',
   Auth.superAdminPassword(),
   ApiDoc({
     operationId: 'getAdminBackupDownload',
-    summary: 'Download backup',
-    description: 'Stream backup file download. Super admin password.',
+    summary: 'Download MySQL backup',
+    description: 'Stream MySQL backup file download. Super admin password.',
     tags: ['Admin', 'Backup'],
     security: ['bearerAuth'],
-    params: { type: { schema: { type: 'string' } }, filename: { schema: { type: 'string' } } },
+    params: { filename: { schema: { type: 'string' } } },
     responses: { 200: { description: 'File stream' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
     try {
-      const {type, filename} = req.params;
-      const config = backupService.getConfig();
-
-      if (!['mysql', 'files'].includes(type)) {
-        return res.status(400).json({error: 'Invalid backup type'});
-      }
-
-      const backupPath =
-        type === 'mysql' ? config.mysql.backupPath : config.files.backupPath;
-      const filePath = path.join(backupPath, filename);
-
-      try {
-        await fs.access(filePath);
-      } catch {
+      const {filename} = req.params;
+      const backupExists = await backupService.hasBackup(filename);
+      if (!backupExists) {
         return res.status(404).json({error: 'Backup file not found'});
       }
 
       // Set appropriate headers to prevent double compression
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'application/sql');
 
-      // For file backups, set the content type to application/zip
-      if (type === 'files') {
-        res.setHeader('Content-Type', 'application/zip');
-      }
-
-      // Stream the file directly instead of using res.download
-      const fileStream = createReadStream(filePath);
+      const fileStream = await backupService.getBackupReadStream(filename);
       fileStream.pipe(res);
       return;
     } catch (error) {
