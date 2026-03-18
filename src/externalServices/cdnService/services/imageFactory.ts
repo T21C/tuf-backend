@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
@@ -50,6 +51,7 @@ export class ImageFactory {
     ): Promise<ImageUploadResult> {
         let transaction: Transaction | undefined;
         let imageDir: string | null = null;
+        let shouldCleanupImageDir = false;
 
         try {
             // Validate image
@@ -58,7 +60,11 @@ export class ImageFactory {
 
             const fileId = path.parse(filePath).name;
             const imageConfig = IMAGE_TYPES[imageType];
-            imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
+            const useSpacesForImages = hybridStorageManager.shouldUseSpacesFor('images');
+            imageDir = useSpacesForImages
+                ? path.join(os.tmpdir(), 'tuf-image-processing', imageConfig.name, fileId)
+                : path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
+            shouldCleanupImageDir = useSpacesForImages;
 
             // Create directory for this image's versions
             fs.mkdirSync(imageDir, { recursive: true });
@@ -72,7 +78,6 @@ export class ImageFactory {
             await processImage(originalPath, imageType, fileId);
 
             const variantNames = Object.keys(imageConfig.sizes);
-            const useSpacesForImages = hybridStorageManager.shouldUseSpacesFor('images');
             const variantStorage: Record<string, {
                 path: string;
                 storageType: StorageType;
@@ -95,8 +100,6 @@ export class ImageFactory {
                     variantStorage[variantName] = {
                         path: spacesKey,
                         storageType: StorageType.SPACES,
-                        fallbackPath: localVariantPath,
-                        fallbackStorageType: StorageType.LOCAL,
                         url: uploadResult.url
                     };
                 } else {
@@ -121,12 +124,16 @@ export class ImageFactory {
                     storageType: primaryStorageType,
                     imageStorageType: primaryStorageType,
                     variants: variantStorage,
-                    localDirectory: imageDir
+                    ...(useSpacesForImages ? {} : { localDirectory: imageDir })
                 }
             }, { transaction });
 
             // Commit the transaction
             await transaction.commit();
+
+            if (shouldCleanupImageDir && imageDir && fs.existsSync(imageDir)) {
+                storageManager.cleanupFiles(imageDir);
+            }
 
             logger.debug('Image uploaded successfully:', {
                 fileId,
