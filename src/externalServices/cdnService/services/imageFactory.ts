@@ -45,6 +45,21 @@ export class ImageFactory {
         return ImageFactory.instance;
     }
 
+    private cleanupTempProcessingDirectory(imageDir: string): void {
+        const absoluteImageDir = path.resolve(imageDir);
+        const tempRoot = path.resolve(path.join(os.tmpdir(), 'tuf-image-processing'));
+
+        if (!absoluteImageDir.startsWith(tempRoot + path.sep) && absoluteImageDir !== tempRoot) {
+            logger.error('Refusing to cleanup directory outside temp processing root:', {
+                imageDir: absoluteImageDir,
+                tempRoot
+            });
+            return;
+        }
+
+        fs.rmSync(absoluteImageDir, { recursive: true, force: true });
+    }
+
     async processImageUpload(
         filePath: string,
         imageType: ImageType
@@ -75,7 +90,7 @@ export class ImageFactory {
             storageManager.cleanupFiles(filePath);
 
             // Process variants
-            await processImage(originalPath, imageType, fileId);
+            await processImage(originalPath, imageType, fileId, imageDir);
 
             const variantNames = Object.keys(imageConfig.sizes);
             const variantStorage: Record<string, {
@@ -132,7 +147,7 @@ export class ImageFactory {
             await transaction.commit();
 
             if (shouldCleanupImageDir && imageDir && fs.existsSync(imageDir)) {
-                storageManager.cleanupFiles(imageDir);
+                this.cleanupTempProcessingDirectory(imageDir);
             }
 
             logger.debug('Image uploaded successfully:', {
@@ -171,7 +186,11 @@ export class ImageFactory {
             // Clean up created files if database operation failed
             if (imageDir && fs.existsSync(imageDir)) {
                 try {
-                    storageManager.cleanupFiles(imageDir);
+                    if (shouldCleanupImageDir) {
+                        this.cleanupTempProcessingDirectory(imageDir);
+                    } else {
+                        storageManager.cleanupFiles(imageDir);
+                    }
                     logger.debug('Cleaned up image directory after failed upload:', {
                         imageDir,
                         timestamp: new Date().toISOString()

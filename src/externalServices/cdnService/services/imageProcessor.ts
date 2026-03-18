@@ -3,13 +3,18 @@ import path from 'path';
 import sharp from 'sharp';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
 
-export async function processImage(filePath: string, imageType: ImageType, fileId: string) {
+export async function processImage(
+    filePath: string,
+    imageType: ImageType,
+    fileId: string,
+    outputDirectory?: string
+) {
     const imageConfig = IMAGE_TYPES[imageType];
     const image = sharp(filePath);
     const processedFiles: Record<string, { path: string; mimeType: string }> = {};
 
     // Create directory for this image's versions
-    const imageDir = path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
+    const imageDir = outputDirectory || path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
     fs.mkdirSync(imageDir, { recursive: true });
 
     // Process each size
