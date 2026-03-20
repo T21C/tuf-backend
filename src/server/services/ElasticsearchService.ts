@@ -34,6 +34,7 @@ import SongAlias from '@/models/songs/SongAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
+import { ownUrl } from '@/config/app.config.js';
 
 const MAX_BATCH_SIZE = 2000;
 const BATCH_SIZE = 500;
@@ -923,11 +924,16 @@ class ElasticsearchService {
       }
     ];
 
+  private passPlayerAvatarProxyUrl(playerId: number): string {
+    const base = (ownUrl || '').replace(/\/$/, '');
+    return `${base}/v2/media/player-avatar/${playerId}`;
+  }
+
   private passIncludes = [
     {
     model: Player,
     as: 'player',
-    attributes: ['name', 'country', 'isBanned'],
+    attributes: ['id', 'name', 'country', 'isBanned'],
     include: [
       {
         model: User,
@@ -1139,7 +1145,9 @@ class ElasticsearchService {
       videoLink: pass.videoLink ? convertToPUA(pass.videoLink) : null,
       player: pass.player ? {
         ...pass.player.get({ plain: true }),
-        name: convertToPUA(pass.player.name)
+        name: convertToPUA(pass.player.name),
+        username: pass.player.user?.username,
+        avatarUrl: this.passPlayerAvatarProxyUrl(pass.player.id),
       } : null,
       level: pass.level ? {
         ...pass.level.get({ plain: true }),
@@ -1240,7 +1248,7 @@ class ElasticsearchService {
           ...pass.player.get({ plain: true }),
           name: convertToPUA(pass.player.name),
           username: pass.player.user?.username,
-          avatarUrl: pass.player.user?.avatarUrl || null
+          avatarUrl: this.passPlayerAvatarProxyUrl(pass.player.id),
         } : null,
         level: pass.level ? {
           ...pass.level.get({ plain: true }),
@@ -1283,7 +1291,7 @@ class ElasticsearchService {
               ...pass.player.get({ plain: true }),
               name: convertToPUA(pass.player.name),
               username: pass.player.user?.username,
-              avatarUrl: pass.player.user?.avatarUrl || null
+              avatarUrl: this.passPlayerAvatarProxyUrl(pass.player.id),
             } : null,
             level: pass.level ? {
               ...pass.level.get({ plain: true }),

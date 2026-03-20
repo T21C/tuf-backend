@@ -10,6 +10,7 @@ import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {getVideoDetails,} from '@/misc/utils/data/videoDetailParser.js';
 import User from '@/models/auth/User.js';
+import Player from '@/models/players/Player.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
@@ -23,6 +24,15 @@ dotenv.config();
 const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
 
 const execAsync = promisify(exec);
+
+function isSafeHttpRedirectUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
 
 // Helper function to format axios errors for cleaner logging
 export function formatAxiosError(error: unknown): string {
@@ -540,15 +550,55 @@ router.get(
 );
 
 router.get(
+  '/player-avatar/:playerId',
+  ApiDoc({
+    operationId: 'getMediaPlayerAvatar',
+    summary: 'Player profile picture (redirect)',
+    description:
+      'Redirects to the current profile image URL for a player. Use this stable link in search indexes and clients so avatar CDN URLs can change without breaking references.',
+    tags: ['Media'],
+    params: { playerId: { description: 'Player ID', schema: { type: 'string' } } },
+    responses: {
+      302: { description: 'Redirect to current avatar URL' },
+      404: { description: 'Player or avatar not found' },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    const playerId = parseInt(req.params.playerId, 10);
+    if (!Number.isFinite(playerId) || playerId < 1) {
+      return res.status(400).send('Invalid player ID');
+    }
+    try {
+      const player = await Player.findByPk(playerId, {
+        attributes: ['id', 'pfp'],
+        include: [{ model: User, as: 'user', attributes: ['avatarUrl'] }],
+      });
+      if (!player) {
+        return res.status(404).send('Player not found');
+      }
+      const targetUrl = player.user?.avatarUrl || player.getDataValue('pfp') || null;
+      if (!targetUrl || !isSafeHttpRedirectUrl(targetUrl)) {
+        return res.status(404).send('Avatar not found');
+      }
+      return res.redirect(302, targetUrl);
+    } catch (error) {
+      logger.error('Error redirecting player avatar:', error instanceof Error ? error.message : error);
+      return res.status(500).send('Error resolving avatar');
+    }
+  }
+);
+
+router.get(
   '/avatar/:userId',
   ApiDoc({
     operationId: 'getMediaAvatar',
     summary: 'User avatar image',
-    description: 'Returns the avatar image for a user by ID (cached).',
+    description: 'Redirects to the user’s current avatar URL (always up to date; no stale disk cache).',
     tags: ['Media'],
     params: { userId: { description: 'User ID', schema: { type: 'string' } } },
     responses: {
-      200: { description: 'Avatar image' },
+      302: { description: 'Redirect to current avatar URL' },
       404: { description: 'User or avatar not found' },
       500: { description: 'Server error', schema: errorResponseSchema },
     },
@@ -560,26 +610,10 @@ router.get(
     if (!user || !user.avatarUrl) {
       return res.status(404).send('Avatar not found');
     }
-
-    // Create cache directory if it doesn't exist
-    const cacheDir = path.join(CACHE_PATH, 'avatars');
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, {recursive: true});
+    if (!isSafeHttpRedirectUrl(user.avatarUrl)) {
+      return res.status(404).send('Avatar not found');
     }
-
-    const avatarPath = path.join(cacheDir, `${userId}.png`);
-
-    // If avatar is not cached, download it
-    if (!fs.existsSync(avatarPath)) {
-      const response = await axios.get(user.avatarUrl, {
-        responseType: 'arraybuffer',
-      });
-
-      // Save the image directly
-      fs.writeFileSync(avatarPath, response.data);
-    }
-
-    return res.sendFile(avatarPath);
+    return res.redirect(302, user.avatarUrl);
   } catch (error) {
     logger.error('Error serving avatar:', formatAxiosError(error));
     return res.status(500).send('Error serving avatar');

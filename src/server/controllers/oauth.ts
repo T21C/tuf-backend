@@ -247,7 +247,9 @@ export const OAuthController = {
       const providers = await OAuthService.getUserProviders(req.user!.id);
 
       const avatarUrl = req.user!.avatarUrl
-        ? `${ownUrl}/v2/media/avatar/${req.user!.id}`
+        ? req.user!.playerId
+          ? `${ownUrl}/v2/media/player-avatar/${req.user!.playerId}`
+          : `${ownUrl}/v2/media/avatar/${req.user!.id}`
         : null;
 
       const response: ProfileResponse = {
