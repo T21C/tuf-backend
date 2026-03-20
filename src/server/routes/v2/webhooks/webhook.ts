@@ -441,7 +441,7 @@ export async function levelSubmissionHook(levelSubmission: LevelSubmission) {
   const embed = new MessageBuilder()
     .setColor('#000000')
     .setAuthor('New level submission', submitter?.avatarUrl || '', '')
-    .setTitle(`${song || 'Unknown Song'} ù ${artist || 'Unknown Artist'}`)
+    .setTitle(`${song || 'Unknown Song'} - ${artist || 'Unknown Artist'}`)
     .addField('', `${discordId ? `<@${discordId}>` : `@${submitter?.nickname}`} #${submitter?.playerId}`, false)
     .addField('Suggested Difficulty', `**${diff || 'None'}**`, true)
     .addField('', '', false);
@@ -513,7 +513,7 @@ export async function passSubmissionHook(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} ù ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} ÔøΩ ${trim(level?.artist || 'Unknown Artist', 30)}`,
       level?.difficulty?.icon || '',
       levelLink,
     )
