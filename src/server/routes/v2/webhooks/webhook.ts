@@ -513,7 +513,7 @@ export async function passSubmissionHook(
 
   const embed = new MessageBuilder()
     .setAuthor(
-      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} � ${trim(level?.artist || 'Unknown Artist', 30)}`,
+      `${trim(level?.song || 'Unknown Song', 27)}${pass.speed !== 1 ? ` (${pass.speed}x)` : ''} - ${trim(level?.artist || 'Unknown Artist', 30)}`,
       level?.difficulty?.icon || '',
       levelLink,
     )
