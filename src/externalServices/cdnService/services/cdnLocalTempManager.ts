@@ -17,7 +17,7 @@ export class CdnLocalTempManager {
     private readonly localRoot: string;
 
     private constructor() {
-        this.localRoot = path.resolve(CDN_CONFIG.user_root);
+        this.localRoot = path.resolve(CDN_CONFIG.localRoot);
         if (!fs.existsSync(this.localRoot)) {
             fs.mkdirSync(this.localRoot, { recursive: true });
         }
@@ -32,6 +32,19 @@ export class CdnLocalTempManager {
 
     public getLocalRoot(): string {
         return this.localRoot;
+    }
+
+    /**
+     * Create `absPath` only if it lies under {@link getLocalRoot}; throws otherwise.
+     */
+    public ensureDirUnderLocalRoot(absPath: string): void {
+        const resolved = path.resolve(absPath);
+        if (!this.isPathUnderLocalRoot(resolved)) {
+            throw new Error(`Refusing to create directory outside local CDN root: ${resolved}`);
+        }
+        if (!fs.existsSync(resolved)) {
+            fs.mkdirSync(resolved, { recursive: true });
+        }
     }
 
     private isPathUnderLocalRoot(absolutePath: string): boolean {
@@ -104,9 +117,7 @@ export class CdnLocalTempManager {
         destination: (req, file, cb) => {
             try {
                 const uploadDir = path.join(this.getLocalRoot(), 'temp');
-                if (!fs.existsSync(uploadDir)) {
-                    fs.mkdirSync(uploadDir, { recursive: true });
-                }
+                this.ensureDirUnderLocalRoot(uploadDir);
                 cb(null, uploadDir);
             } catch (error) {
                 cb(error as Error, '');
@@ -126,10 +137,8 @@ export class CdnLocalTempManager {
                 if (!IMAGE_TYPES[imageType]) {
                     throw new Error('Invalid image type');
                 }
-                const uploadDir = path.join(CDN_CONFIG.user_root, 'images', IMAGE_TYPES[imageType].name);
-                if (!fs.existsSync(uploadDir)) {
-                    fs.mkdirSync(uploadDir, { recursive: true });
-                }
+                const uploadDir = path.join(this.getLocalRoot(), 'images', IMAGE_TYPES[imageType].name);
+                this.ensureDirUnderLocalRoot(uploadDir);
                 cb(null, uploadDir);
             } catch (error) {
                 cb(error as Error, '');

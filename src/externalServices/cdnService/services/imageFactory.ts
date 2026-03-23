@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
@@ -13,7 +12,6 @@ import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-
 
 export interface ImageUploadResult {
     success: boolean;
@@ -44,21 +42,6 @@ export class ImageFactory {
         return ImageFactory.instance;
     }
 
-    private cleanupTempProcessingDirectory(imageDir: string): void {
-        const absoluteImageDir = path.resolve(imageDir);
-        const tempRoot = path.resolve(path.join(process.env.CDN_TEMP_ROOT || os.tmpdir(), 'tuf-image-processing'));
-
-        if (!absoluteImageDir.startsWith(tempRoot + path.sep) && absoluteImageDir !== tempRoot) {
-            logger.error('Refusing to cleanup directory outside temp processing root:', {
-                imageDir: absoluteImageDir,
-                tempRoot
-            });
-            return;
-        }
-
-        fs.rmSync(absoluteImageDir, { recursive: true, force: true });
-    }
-
     async processImageUpload(
         filePath: string,
         imageType: ImageType
@@ -66,7 +49,12 @@ export class ImageFactory {
         let transaction: Transaction | undefined;
         const imageConfig = IMAGE_TYPES[imageType];
         const fileId = path.parse(filePath).name;
-        const imageDir: string = path.join(process.env.CDN_TEMP_ROOT || os.tmpdir(), 'temp-image-processing', imageConfig.name, fileId);
+        const imageDir = path.join(
+            cdnLocalTemp.getLocalRoot(),
+            'temp-image-processing',
+            imageConfig.name,
+            fileId
+        );
 
         try {
             // Validate image
@@ -75,7 +63,7 @@ export class ImageFactory {
 
 
             // Create directory for this image's versions
-            fs.mkdirSync(imageDir, { recursive: true });
+            cdnLocalTemp.ensureDirUnderLocalRoot(imageDir);
 
             // Save original file
             const originalPath = path.join(imageDir, 'original.png');
@@ -178,9 +166,9 @@ export class ImageFactory {
                 { originalError: error instanceof Error ? error.message : String(error) }
             );
         } finally {
-            if (imageDir && fs.existsSync(imageDir)) {
+            if (imageDir) {
                 try {
-                    this.cleanupTempProcessingDirectory(imageDir);
+                    cdnLocalTemp.cleanupFiles(imageDir);
                 } catch (cleanupError) {
                     logger.error('Failed to clean up temp image processing directory:', {
                         error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),

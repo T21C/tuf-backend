@@ -6,12 +6,19 @@ if (!process.env.CDN_URL) {
     throw new Error('CDN_URL must be set');
 }
 
+if (process.env.NODE_ENV === 'production' && !process.env.CDN_TEMP_ROOT?.trim()) {
+    throw new Error('CDN_TEMP_ROOT must be set in production');
+}
+
 const localCdnUrl = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
-const configuredUserRoot = process.env.USER_CDN_ROOT || path.join(process.cwd(), 'cache', 'cdn-local-fallback');
+/** Single on-disk root for CDN temp, multer, zip scratch, image staging, and tuf-cdn-spaces (via config). Set `CDN_TEMP_ROOT`. */
+const localRoot = path.resolve(
+    process.env.CDN_TEMP_ROOT?.trim() || path.join(process.cwd(), 'cache', 'cdn-local-fallback')
+);
 
 export const CDN_CONFIG = {
-    user_root: configuredUserRoot,
-    pack_root: process.env.PACK_CDN_ROOT || path.join(configuredUserRoot, 'packs'),
+    localRoot,
+    pack_root: process.env.PACK_CDN_ROOT || path.join(localRoot, 'packs'),
     maxFileSize: 4000 * 1024 * 1024, // 4GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
     cacheControl: 'public, max-age=604800', // 1 week

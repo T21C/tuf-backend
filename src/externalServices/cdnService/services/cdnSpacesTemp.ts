@@ -1,15 +1,15 @@
 import crypto from 'crypto';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { CDN_CONFIG } from '../config.js';
 
 /** Random segment for per-invocation isolation under a CDN file (default for {@link withCdnFileDomainWorkspace}). */
 export function createCdnTempRunId(): string {
     return crypto.randomBytes(8).toString('hex');
 }
 
-/** Root for all CDN Spaces temp workspaces: `os.tmpdir()/tuf-cdn-spaces`. */
-export const CDN_SPACES_TEMP_ROOT = path.join(process.env.CDN_TEMP_ROOT || os.tmpdir(), 'tuf-cdn-spaces');
+/** Root for all CDN Spaces temp workspaces: under {@link CDN_CONFIG.localRoot}/tuf-cdn-spaces. */
+export const CDN_SPACES_TEMP_ROOT = path.join(path.resolve(CDN_CONFIG.localRoot), 'tuf-cdn-spaces');
 
 /**
  * Operation-type scope under `tuf-cdn-spaces/<scope>/...` so different features never share a tree.

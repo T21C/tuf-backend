@@ -30,8 +30,8 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Ensure CDN root directory exists
-if (!fs.existsSync(CDN_CONFIG.user_root)) {
-    fs.mkdirSync(CDN_CONFIG.user_root, { recursive: true });
+if (!fs.existsSync(CDN_CONFIG.localRoot)) {
+    fs.mkdirSync(CDN_CONFIG.localRoot, { recursive: true });
 }
 
 // Middleware
