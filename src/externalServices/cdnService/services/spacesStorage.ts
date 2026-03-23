@@ -3,7 +3,7 @@ import { logger } from '@/server/services/LoggerService.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, validate as validateUuid } from 'uuid';
 
 dotenv.config();
 
@@ -31,8 +31,9 @@ interface SpacesFile {
     url: string;
 }
 
-export class SpacesStorageManager {
-    private static instance: SpacesStorageManager;
+/** Single Spaces (S3) facade: low-level API + CDN domain uploads/deletes. No local disk staging. */
+export class CdnSpacesStorage {
+    private static instance: CdnSpacesStorage;
     private s3: AWS.S3 = new AWS.S3();
     private config: SpacesConfig;
 
@@ -41,11 +42,11 @@ export class SpacesStorageManager {
         this.initializeS3();
     }
 
-    public static getInstance(): SpacesStorageManager {
-        if (!SpacesStorageManager.instance) {
-            SpacesStorageManager.instance = new SpacesStorageManager();
+    public static getInstance(): CdnSpacesStorage {
+        if (!CdnSpacesStorage.instance) {
+            CdnSpacesStorage.instance = new CdnSpacesStorage();
         }
-        return SpacesStorageManager.instance;
+        return CdnSpacesStorage.instance;
     }
 
     private loadConfig(): SpacesConfig {
@@ -232,6 +233,49 @@ export class SpacesStorageManager {
             });
             throw error;
         }
+    }
+
+    /**
+     * Stream a file from Spaces to a local path without buffering the whole object in memory.
+     */
+    public async downloadFileToPathStreaming(key: string, localPath: string): Promise<void> {
+        await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
+
+        const params: AWS.S3.GetObjectRequest = {
+            Bucket: this.config.bucket,
+            Key: key
+        };
+
+        logger.debug('Downloading file from Spaces (streaming)', { key, localPath, bucket: this.config.bucket });
+
+        const stream = this.s3.getObject(params).createReadStream();
+        const writeStream = fs.createWriteStream(localPath);
+
+        return new Promise<void>((resolve, reject) => {
+            const cleanupOnError = async (error: Error) => {
+                stream.destroy();
+                writeStream.destroy();
+                try {
+                    if (fs.existsSync(localPath)) {
+                        await fs.promises.unlink(localPath);
+                    }
+                } catch (cleanupError) {
+                    logger.warn('Failed to cleanup partial file after stream error', {
+                        localPath,
+                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+                    });
+                }
+                reject(error);
+            };
+
+            stream.pipe(writeStream);
+            writeStream.on('finish', () => {
+                logger.debug('File downloaded from Spaces (streaming)', { key, localPath });
+                resolve();
+            });
+            writeStream.on('error', cleanupOnError);
+            stream.on('error', cleanupOnError);
+        });
     }
 
     /**
@@ -605,6 +649,323 @@ export class SpacesStorageManager {
             throw error;
         }
     }
+
+    /** Legacy HTTP shape: `{ spaces: detailedStats | null }`. */
+    public async getStatsDashboard(): Promise<{
+        spaces: {
+            totalFiles: number;
+            totalSize: number;
+            byPrefix: Record<string, { count: number; size: number }>;
+        } | null;
+    }> {
+        try {
+            const spacesStats = await this.getStorageStats();
+            return { spaces: spacesStats };
+        } catch (error) {
+            logger.warn('Failed to get Spaces storage stats', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return { spaces: null };
+        }
+    }
+
+    private parseSpacesFolderKey(raw: string): string | null {
+        if (!raw || raw.trim() === '') {
+            return null;
+        }
+
+        let normalized = raw.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+        try {
+            if (/^https?:\/\//i.test(normalized)) {
+                const u = new URL(normalized);
+                normalized = u.pathname.replace(/^\/+/, '');
+            }
+        } catch {
+            // treat as plain key
+        }
+
+        const trimmed = normalized.replace(/\/+$/, '');
+        const segments = trimmed.split('/').filter(Boolean);
+
+        if (segments.length < 2) {
+            return null;
+        }
+
+        const leafName = segments[segments.length - 1];
+        if (!validateUuid(leafName)) {
+            return null;
+        }
+
+        return trimmed;
+    }
+
+    private async deleteSpacesTreeAtPrefix(trimmedPrefix: string): Promise<boolean> {
+        try {
+            const listPrefix = `${trimmedPrefix}/`;
+            const files = await this.listFiles(listPrefix, 10000);
+
+            if (files.length > 0) {
+                await this.deleteFiles(files.map(f => f.key));
+            }
+
+            logger.debug('deleteSpacesTreeAtPrefix: removed Spaces objects', {
+                prefix: listPrefix,
+                count: files.length
+            });
+            return true;
+        } catch (error) {
+            logger.error('deleteSpacesTreeAtPrefix failed:', {
+                error: error instanceof Error ? error.message : String(error),
+                trimmedPrefix
+            });
+            return false;
+        }
+    }
+
+    /**
+     * Delete all objects under validated Spaces folder keys (last segment must be a UUID).
+     */
+    public async cleanupPaths(...paths: (string | undefined | null)[]): Promise<boolean> {
+        let allOk = true;
+
+        for (const raw of paths) {
+            if (raw == null || raw === '') {
+                continue;
+            }
+
+            const spacesPrefix = this.parseSpacesFolderKey(raw);
+            if (spacesPrefix === null) {
+                logger.error('cleanupPaths: not a valid Spaces folder key', { raw });
+                allOk = false;
+                continue;
+            }
+
+            const ok = await this.deleteSpacesTreeAtPrefix(spacesPrefix);
+            if (!ok) {
+                allOk = false;
+            }
+        }
+
+        return allOk;
+    }
+
+    public async deleteFolder(folderKey: string): Promise<boolean> {
+        return this.cleanupPaths(folderKey);
+    }
+
+    public async deleteCdnLevelZipClustersByFileId(fileId: string): Promise<boolean> {
+        if (!validateUuid(fileId)) {
+            logger.error('deleteCdnLevelZipClustersByFileId: fileId must be a UUID', { fileId });
+            return false;
+        }
+
+        const prefixes = [`levels/${fileId}`, `zips/${fileId}`] as const;
+        let allOk = true;
+
+        for (const trimmed of prefixes) {
+            const ok = await this.deleteSpacesTreeAtPrefix(trimmed);
+            if (!ok) {
+                logger.warn('Level zip cluster folder deletion failed', { fileId, prefix: `${trimmed}/` });
+                allOk = false;
+            }
+        }
+
+        logger.debug('Level zip cluster deletion completed', { fileId, allOk });
+        return allOk;
+    }
+
+    public async deleteLevelZipFiles(fileId: string): Promise<void> {
+        try {
+            logger.debug('Deleting level zip Spaces clusters (levels + zips)', { fileId });
+            await this.deleteCdnLevelZipClustersByFileId(fileId);
+            logger.debug('Successfully completed level zip cluster deletion', { fileId });
+        } catch (error) {
+            logger.error('Failed to delete level zip files', {
+                error: error instanceof Error ? error.message : String(error),
+                fileId
+            });
+            throw error;
+        }
+    }
+
+    public async uploadLevelFile(
+        filePath: string,
+        fileId: string,
+        originalFilename: string,
+        isZip = false
+    ): Promise<{
+        filePath: string;
+        url?: string;
+        key?: string;
+        originalFilename?: string;
+    }> {
+        try {
+            const keyResult = isZip
+                ? this.generateZipKey(fileId, originalFilename)
+                : this.generateLevelKey(fileId, originalFilename);
+
+            const contentType = isZip ? 'application/zip' : 'application/json';
+
+            const result = await this.uploadFile(filePath, keyResult.key, contentType, {
+                fileId,
+                originalFilename: encodeURIComponent(keyResult.originalFilename),
+                uploadType: isZip ? 'zip' : 'level',
+                uploadedAt: new Date().toISOString()
+            });
+
+            logger.debug('Level file uploaded to Spaces', {
+                fileId,
+                originalFilename: keyResult.originalFilename,
+                isZip,
+                key: result.key,
+                size: result.size
+            });
+
+            return {
+                filePath: result.key,
+                url: result.url,
+                key: result.key,
+                originalFilename: keyResult.originalFilename
+            };
+        } catch (error) {
+            logger.error('Failed to upload level file to Spaces', {
+                error: error instanceof Error ? error.message : String(error),
+                fileId,
+                originalFilename,
+                isZip
+            });
+            throw error;
+        }
+    }
+
+    public async uploadSongFiles(
+        files: Array<{ sourcePath: string; filename: string; size: number; type: string }>,
+        fileId: string
+    ): Promise<{
+        files: Array<{
+            filename: string;
+            path: string;
+            size: number;
+            type: string;
+            url?: string;
+            key?: string;
+        }>;
+    }> {
+        try {
+            const results: Array<{
+                filename: string;
+                path: string;
+                size: number;
+                type: string;
+                url?: string;
+                key?: string;
+            }> = [];
+
+            for (const file of files) {
+                const spacesKey = `zips/${fileId}/${file.filename}`;
+                const result = await this.uploadFile(
+                    file.sourcePath,
+                    spacesKey,
+                    `audio/${file.type}`,
+                    {
+                        fileId,
+                        originalFilename: encodeURIComponent(file.filename),
+                        uploadType: 'song',
+                        uploadedAt: new Date().toISOString()
+                    }
+                );
+                results.push({
+                    filename: file.filename,
+                    path: result.key,
+                    size: file.size,
+                    type: file.type,
+                    url: result.url,
+                    key: result.key
+                });
+            }
+
+            logger.debug('All song files uploaded to Spaces', {
+                fileId,
+                fileCount: files.length,
+                totalSize: files.reduce((sum, f) => sum + f.size, 0)
+            });
+            return {
+                files: results
+            };
+        } catch (error) {
+            logger.error('Failed to upload song files to Spaces', {
+                error: error instanceof Error ? error.message : String(error),
+                fileId,
+                fileCount: files.length
+            });
+            throw error;
+        }
+    }
+
+    public async uploadLevelFiles(
+        files: Array<{ sourcePath: string; filename: string; size: number }>,
+        fileId: string
+    ): Promise<{
+        files: Array<{
+            filename: string;
+            path: string;
+            size: number;
+            url?: string;
+            key?: string;
+        }>;
+    }> {
+        try {
+            const results: Array<{
+                filename: string;
+                path: string;
+                size: number;
+                url?: string;
+                key?: string;
+            }> = [];
+
+            for (const file of files) {
+                const keyResult = this.generateLevelKey(fileId, file.filename);
+
+                const result = await this.uploadFile(
+                    file.sourcePath,
+                    keyResult.key,
+                    'application/json',
+                    {
+                        fileId,
+                        originalFilename: encodeURIComponent(keyResult.originalFilename),
+                        uploadType: 'level',
+                        uploadedAt: new Date().toISOString()
+                    }
+                );
+
+                results.push({
+                    filename: file.filename,
+                    path: result.key,
+                    size: file.size,
+                    url: result.url,
+                    key: result.key
+                });
+            }
+
+            logger.debug('All level files uploaded to Spaces', {
+                fileId,
+                fileCount: files.length,
+                totalSize: files.reduce((sum, f) => sum + f.size, 0)
+            });
+
+            return {
+                files: results
+            };
+        } catch (error) {
+            logger.error('Failed to upload level files to Spaces', {
+                error: error instanceof Error ? error.message : String(error),
+                fileId,
+                fileCount: files.length
+            });
+            throw error;
+        }
+    }
+
 }
 
-export const spacesStorage = SpacesStorageManager.getInstance();
+export const spacesStorage = CdnSpacesStorage.getInstance();

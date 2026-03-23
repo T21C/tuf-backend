@@ -5,8 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
 import dotenv from 'dotenv';
-import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
 import { spacesStorage } from './spacesStorage.js';
+import { CdnSpacesTempDomain, withCdnFileDomainWorkspace } from './cdnSpacesTemp.js';
 import { PROTECTED_EVENT_TYPES } from './levelTransformer.js';
 
 dotenv.config();
@@ -29,6 +29,23 @@ export const SAFE_TO_PARSE_VERSION = 2;
  */
 export const ANALYSIS_FORMAT_VERSION = 4;
 
+/**
+ * Analysis object keys that must be present on a fully populated cache entry
+ * (increment ANALYSIS_FORMAT_VERSION when this set changes).
+ */
+const REQUIRED_ANALYSIS_KEYS = [
+    'containsDLC',
+    'dlcEvents',
+    'autoTile',
+    'canDecorationsKill',
+    'isJudgementLimited',
+    'levelLengthInMs',
+    'nonGameplayEventCounts',
+    'vfxEventCounts',
+    'decoEventCounts',
+    'requiredMods'
+] as const;
+
 // Analysis data structure
 export interface AnalysisCacheData {
     _version: number; // Format version for invalidation
@@ -46,17 +63,15 @@ export interface AnalysisCacheData {
 
 // Cache data structure
 export interface LevelCacheData {
+    _metadataSignature?: string;
     tilecount?: number;
     settings?: any;
     analysis?: AnalysisCacheData;
-}
-
-// Cache hit result for checking what data is available
-export interface CacheHitResult {
-    tilecount: boolean;
-    settings: boolean;
-    analysis: boolean;
-    accessCount: boolean; // Always available from file record
+    transformOptions?: {
+        eventTypes: string[];
+        filterTypes: string[];
+        advancedFilterTypes: string[];
+    };
 }
 
 /**
@@ -83,15 +98,57 @@ class LevelCacheService {
     }
 
     /**
-     * Get the source.copy path for a target level file
+     * Stable signature for metadata fields that affect level cache semantics.
+     * Extend the picked object when new metadata drives parse/cache behavior.
      */
-    private getSourceCopyPath(targetLevelPath: string): string {
-        if (path.isAbsolute(targetLevelPath)) {
-            const parsed = path.parse(targetLevelPath);
-            return path.join(parsed.dir, `${parsed.name}.copy`);
+    private computeCacheMetadataSignature(metadata: any): string {
+        const relevant = {
+            targetLevel: metadata?.targetLevel ?? null,
+            targetLevelOversized: metadata?.targetLevelOversized ?? false,
+            targetSafeToParse: metadata?.targetSafeToParse ?? false,
+            targetSafeToParseVersion: metadata?.targetSafeToParseVersion
+        };
+        return JSON.stringify(relevant, Object.keys(relevant).sort());
+    }
+
+    private analysisHasExpectedShape(analysis: AnalysisCacheData | undefined): boolean {
+        if (!analysis || analysis._version !== ANALYSIS_FORMAT_VERSION) {
+            return false;
         }
-        const safePath = targetLevelPath.replace(/[\\/]/g, '_').replace(/\.adofai$/i, '');
-        return path.join(process.cwd(), 'cache', 'level-cache-temp', `${safePath}.copy`);
+        for (const key of REQUIRED_ANALYSIS_KEYS) {
+            if (!Object.prototype.hasOwnProperty.call(analysis, key)) {
+                return false;
+            }
+        }
+        const ng = analysis.nonGameplayEventCounts;
+        if (typeof ng !== 'object' || ng === null || typeof (ng as { total?: unknown }).total !== 'number') {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Single gate for whether persisted cache matches current contract (metadata + shape + versions).
+     */
+    private isLevelCacheFullyValid(cacheData: LevelCacheData, metadata: any): boolean {
+        if (!this.isVersionCurrent(metadata)) {
+            return false;
+        }
+        if (cacheData._metadataSignature !== this.computeCacheMetadataSignature(metadata)) {
+            return false;
+        }
+        if (cacheData.tilecount === undefined || cacheData.settings === undefined) {
+            return false;
+        }
+        if (
+            !cacheData.transformOptions ||
+            !Array.isArray(cacheData.transformOptions.eventTypes) ||
+            !Array.isArray(cacheData.transformOptions.filterTypes) ||
+            !Array.isArray(cacheData.transformOptions.advancedFilterTypes)
+        ) {
+            return false;
+        }
+        return this.analysisHasExpectedShape(cacheData.analysis);
     }
 
     private getTargetLevelMetadataEntry(metadata: any, targetLevelPath: string): any | null {
@@ -110,81 +167,44 @@ class LevelCacheService {
     private async resolveReadableLevelPath(
         file: CdnFile,
         levelPath: string,
-        metadata: any
-    ): Promise<{
-        localPath: string;
-        storageType: StorageType;
-        cleanup: () => Promise<void>;
-    }> {
-        const fileRef = {
-            path: levelPath,
-            storageType: (metadata?.levelStorageType as StorageType) || (metadata?.storageType as StorageType),
-            fallbackPath: metadata?.targetLevelFallbackPath,
-            fallbackStorageType: metadata?.targetLevelFallbackStorageType as StorageType
-        };
-        const resolved = await hybridStorageManager.resolveFileReference(fileRef);
-        if (!resolved.exists) {
+        join: (...parts: string[]) => string
+    ): Promise<{ localPath: string }> {
+        const levelExists = await spacesStorage.fileExists(levelPath);
+        if (!levelExists) {
             throw new Error(`Target level file not found in storage: ${levelPath}`);
         }
 
-        if (resolved.storageType === StorageType.LOCAL) {
-            return {
-                localPath: resolved.actualPath,
-                storageType: StorageType.LOCAL,
-                cleanup: async () => Promise.resolve()
-            };
-        }
+        const ext = path.extname(levelPath) || '.adofai';
+        const tempPath = join(`level_${Date.now()}${ext}`);
+        await spacesStorage.downloadFileToPathStreaming(levelPath, tempPath);
 
-        const tempDir = path.join(process.cwd(), 'cache', 'level-cache-temp', file.id);
-        await fs.promises.mkdir(tempDir, { recursive: true });
-        const tempPath = path.join(tempDir, `level_${Date.now()}_${path.basename(levelPath)}`);
-        await hybridStorageManager.downloadFile(resolved.actualPath, StorageType.SPACES, tempPath);
-
-        return {
-            localPath: tempPath,
-            storageType: StorageType.SPACES,
-            cleanup: async () => {
-                await fs.promises.unlink(tempPath).catch(() => Promise.resolve());
-            }
-        };
+        return { localPath: tempPath };
     }
 
     /**
-     * Extract the original .adofai file from the zip and save as source.copy
-     * This preserves the untouched original before LevelDict modifies it
+     * Download original .adofai bytes from Spaces (stored copy or zip) into the current workspace.
      */
     private async extractSourceCopy(
         file: CdnFile,
         targetLevelPath: string,
-        metadata: any
-    ): Promise<string | null> {
+        metadata: any,
+        join: (...parts: string[]) => string
+    ): Promise<{ localPath: string } | null> {
         try {
             const targetLevelEntry = this.getTargetLevelMetadataEntry(metadata, targetLevelPath);
 
-            // Newer uploads persist per-level source copy in storage. Use it directly.
             if (targetLevelEntry?.sourceCopyPath) {
-                const sourceCheck = await hybridStorageManager.resolveFileReference({
-                    path: targetLevelEntry.sourceCopyPath,
-                    storageType: targetLevelEntry.sourceCopyStorageType || metadata?.levelStorageType || metadata?.storageType,
-                    fallbackPath: targetLevelEntry.sourceCopyFallbackPath,
-                    fallbackStorageType: targetLevelEntry.sourceCopyFallbackStorageType
-                });
-
-                if (sourceCheck.exists) {
-                    if (sourceCheck.storageType === StorageType.LOCAL) {
-                        return sourceCheck.actualPath;
-                    }
-                    const tempDir = path.join(process.cwd(), 'cache', 'level-cache-temp', file.id);
-                    await fs.promises.mkdir(tempDir, { recursive: true });
-                    const targetCopyPath = path.join(tempDir, path.basename(targetLevelEntry.sourceCopyPath));
-                    await hybridStorageManager.downloadFile(sourceCheck.actualPath, StorageType.SPACES, targetCopyPath);
-                    return targetCopyPath;
+                const sourceCheck = await spacesStorage.fileExists(targetLevelEntry.sourceCopyPath);
+                if (!sourceCheck) {
+                    throw new Error(`Source copy file not found in storage: ${targetLevelEntry.sourceCopyPath}`);
                 }
+
+                const ext = path.extname(String(targetLevelEntry.sourceCopyPath)) || '.adofai';
+                const targetCopyPath = join(`source_copy${ext}`);
+                await spacesStorage.downloadFileToPathStreaming(targetLevelEntry.sourceCopyPath, targetCopyPath);
+                return { localPath: targetCopyPath };
             }
 
-            const sourceCopyPath = this.getSourceCopyPath(targetLevelPath);
-
-            // Get the original zip info from metadata
             const originalZip = metadata?.originalZip;
             if (!originalZip?.path) {
                 logger.warn('No original zip path in metadata, cannot extract source copy', {
@@ -193,79 +213,64 @@ class LevelCacheService {
                 return null;
             }
 
-            // Determine storage type for the zip
-            const zipStorageType = (originalZip.storageType as StorageType) ||
-                                   (metadata.storageInfo?.zip as StorageType) ||
-                                   StorageType.SPACES;
-
-            // Download the zip to a temporary location
-            const tempDir = path.join(process.cwd(), 'cache', 'level-cache-temp', file.id);
-            await fs.promises.mkdir(tempDir, { recursive: true });
-            const tempZipPath = path.join(tempDir, `temp_${file.id}.zip`);
+            const tempZipPath = join(`original_${Date.now()}.zip`);
 
             logger.debug('Downloading zip for source copy extraction', {
                 fileId: file.id,
                 zipPath: originalZip.path,
-                storageType: zipStorageType,
                 tempZipPath
             });
 
-            await hybridStorageManager.downloadFile(originalZip.path, zipStorageType, tempZipPath);
+            await spacesStorage.downloadFileToPathStreaming(originalZip.path, tempZipPath);
 
-            // Find the target level file name in the zip
-            // The targetLevelPath might be a Spaces key or local path, we need the original filename
-            const allLevelFiles = metadata?.allLevelFiles || [];
             const levelEntry = targetLevelEntry || this.getTargetLevelMetadataEntry(metadata, targetLevelPath);
             const targetLevelName: string = levelEntry?.name || path.basename(targetLevelPath);
             const targetRelativePath: string | null = levelEntry?.relativePath
                 ? String(levelEntry.relativePath).replace(/\\/g, '/').replace(/^\/+/, '')
                 : null;
 
-            // Open the zip and find the target .adofai file
-            const zip = new AdmZip(tempZipPath);
-            const entries = zip.getEntries();
+            try {
+                const zip = new AdmZip(tempZipPath);
+                const entries = zip.getEntries();
 
-            let foundEntry: AdmZip.IZipEntry | null = null;
-            if (targetRelativePath) {
-                foundEntry = entries.find(entry =>
-                    entry.entryName.replace(/\\/g, '/').replace(/^\/+/, '') === targetRelativePath
-                ) || null;
-            }
-            if (!foundEntry) {
-                for (const entry of entries) {
-                    if (entry.name === targetLevelName || entry.entryName.endsWith(targetLevelName)) {
-                        foundEntry = entry;
-                        break;
+                let foundEntry: AdmZip.IZipEntry | null = null;
+                if (targetRelativePath) {
+                    foundEntry = entries.find(entry =>
+                        entry.entryName.replace(/\\/g, '/').replace(/^\/+/, '') === targetRelativePath
+                    ) || null;
+                }
+                if (!foundEntry) {
+                    for (const entry of entries) {
+                        if (entry.name === targetLevelName || entry.entryName.endsWith(targetLevelName)) {
+                            foundEntry = entry;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (!foundEntry) {
-                logger.warn('Target level file not found in zip', {
+                if (!foundEntry) {
+                    logger.warn('Target level file not found in zip', {
+                        fileId: file.id,
+                        targetLevelName,
+                        availableEntries: entries.map(e => e.name)
+                    });
+                    return null;
+                }
+
+                const originalContent = foundEntry.getData();
+                const extractedPath = join(`extracted_${Date.now()}.adofai`);
+                await fs.promises.writeFile(extractedPath, originalContent);
+
+                logger.debug('Source copy extracted successfully', {
                     fileId: file.id,
-                    targetLevelName,
-                    availableEntries: entries.map(e => e.name)
+                    extractedPath,
+                    size: originalContent.length
                 });
-                // Clean up temp zip
-                await fs.promises.unlink(tempZipPath).catch(() => {});
-                return null;
+
+                return { localPath: extractedPath };
+            } finally {
+                await fs.promises.unlink(tempZipPath).catch(() => Promise.resolve());
             }
-
-            // Extract the original content and save as source.copy
-            const originalContent = foundEntry.getData();
-            await fs.promises.mkdir(path.dirname(sourceCopyPath), { recursive: true });
-            await fs.promises.writeFile(sourceCopyPath, originalContent);
-
-            logger.debug('Source copy extracted successfully', {
-                fileId: file.id,
-                sourceCopyPath,
-                size: originalContent.length
-            });
-
-            // Clean up temp zip
-            await fs.promises.unlink(tempZipPath).catch(() => {});
-
-            return sourceCopyPath;
         } catch (error) {
             logger.error('Failed to extract source copy', {
                 fileId: file.id,
@@ -296,103 +301,76 @@ class LevelCacheService {
             throw new Error('Level file is too large to parse (oversized); cache and level data are not available');
         }
 
-        const preferredStorageType = (fileMetadata?.levelStorageType as StorageType) || (fileMetadata?.storageType as StorageType);
-        const resolvedLevel = await this.resolveReadableLevelPath(file, levelPath, fileMetadata);
+        return withCdnFileDomainWorkspace(
+            CdnSpacesTempDomain.LevelCache,
+            file.id,
+            async ({ join }) => {
+                const resolvedLevel = await this.resolveReadableLevelPath(file, levelPath, join);
 
-        const safeToParse = fileMetadata?.targetSafeToParse || false;
-        const versionCurrent = this.isVersionCurrent(fileMetadata);
+                const safeToParse = fileMetadata?.targetSafeToParse || false;
+                const versionCurrent = this.isVersionCurrent(fileMetadata);
 
-        // Determine if we need to re-parse from original source
-        const needsReparse = !safeToParse || !versionCurrent;
-        try {
-            if (needsReparse) {
-                let sourceToUse = resolvedLevel.localPath;
+                const needsReparse = !safeToParse || !versionCurrent;
 
-                // If version is outdated, we need to use the original source
-                if (safeToParse && !versionCurrent) {
-                    logger.debug('SafeToParse version outdated, extracting original source', {
-                        fileId: file.id,
-                        storedVersion: fileMetadata?.targetSafeToParseVersion,
-                        currentVersion: SAFE_TO_PARSE_VERSION
-                    });
+                if (needsReparse) {
+                    let sourceToUse = resolvedLevel.localPath;
 
-                    // Check if source.copy already exists
-                    const sourceCopyPath = this.getSourceCopyPath(resolvedLevel.localPath);
-                    if (fs.existsSync(sourceCopyPath)) {
-                        sourceToUse = sourceCopyPath;
-                        logger.debug('Using existing source.copy', { sourceCopyPath });
-                    } else {
-                        // Extract source.copy from the original zip
-                        const extractedPath = await this.extractSourceCopy(file, levelPath, fileMetadata);
-                        if (extractedPath) {
-                            sourceToUse = extractedPath;
+                    if (safeToParse && !versionCurrent) {
+                        logger.debug('SafeToParse version outdated, extracting original source', {
+                            fileId: file.id,
+                            storedVersion: fileMetadata?.targetSafeToParseVersion,
+                            currentVersion: SAFE_TO_PARSE_VERSION
+                        });
+
+                        const extracted = await this.extractSourceCopy(file, levelPath, fileMetadata, join);
+                        if (extracted) {
+                            sourceToUse = extracted.localPath;
                         } else {
-                            // Fallback: use the existing (potentially modified) level file
-                            logger.warn('Could not extract source.copy, using existing level file', {
+                            logger.warn('Could not extract original source from Spaces, using downloaded level file', {
                                 fileId: file.id
                             });
                         }
                     }
-                }
 
-                // Parse from the source file
-                const levelData = new LevelDict(sourceToUse);
+                    const levelData = new LevelDict(sourceToUse);
 
-                // Write the processed version back to the target level path
-                levelData.writeToFile(resolvedLevel.localPath);
+                    levelData.writeToFile(resolvedLevel.localPath);
 
-                // If the primary storage is Spaces, sync the updated level back to its key.
-                if (preferredStorageType === StorageType.SPACES) {
                     await spacesStorage.uploadFile(resolvedLevel.localPath, levelPath, 'application/json');
+
+                    await file.update({
+                        metadata: {
+                            ...fileMetadata,
+                            targetSafeToParse: true,
+                            targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
+                        }
+                    });
+
+                    logger.debug('Level file loaded and version updated', {
+                        fileId: file.id,
+                        version: SAFE_TO_PARSE_VERSION,
+                        sourceUsed: sourceToUse
+                    });
+                    return { levelData, wasReparsed: true };
                 }
 
-                // Update targetSafeToParse flag AND version in metadata
-                await file.update({
-                    metadata: {
-                        ...fileMetadata,
-                        targetSafeToParse: true,
-                        targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
-                    }
-                });
-
-                logger.debug('Level file loaded and version updated', {
-                    fileId: file.id,
-                    version: SAFE_TO_PARSE_VERSION,
-                    sourceUsed: sourceToUse
-                });
-                return { levelData, wasReparsed: true };
-            } else {
-                // Safe to parse and version is current - use the cached processed file
-                const levelData = LevelDict.fromJSON(fs.readFileSync(resolvedLevel.localPath, 'utf8'));
+                const raw = await fs.promises.readFile(resolvedLevel.localPath, 'utf8');
+                const levelData = LevelDict.fromJSON(raw);
                 return { levelData, wasReparsed: false };
             }
-        } finally {
-            await resolvedLevel.cleanup();
-        }
+        );
     }
 
     /**
-     * Parse cache data from string, with optional version validation.
-     * Returns null if:
-     * - cacheDataString is null/empty
-     * - JSON parsing fails
-     * - metadata is provided and version doesn't match (cache invalidation)
-     * - running in development mode
-     *
-     * @param cacheDataString - The cached JSON string
-     * @param metadata - Optional metadata to check version against
+     * Deserialize DB `cacheData` JSON and apply safe-to-parse / dev invalidation.
      */
-    parseCacheData(cacheDataString: string | null, metadata?: any): LevelCacheData | null {
-        // In development, always invalidate cache
-        if (process.env.NODE_ENV === 'development') {
-            return null;
-        }
+    private parseStoredCacheJson(cacheDataString: string | null, metadata?: any): LevelCacheData | null {
+        //if (process.env.NODE_ENV === 'development') return null;
 
         if (!cacheDataString) {
             return null;
         }
 
-        // If metadata provided, check version - return null if outdated
         if (metadata !== undefined && !this.isVersionCurrent(metadata)) {
             logger.debug('Cache invalidated due to version mismatch', {
                 storedVersion: metadata?.targetSafeToParseVersion,
@@ -402,142 +380,149 @@ class LevelCacheService {
         }
 
         try {
-            return JSON.parse(cacheDataString);
+            return JSON.parse(cacheDataString) as LevelCacheData;
         } catch (error) {
             logger.error('Failed to parse cache data:', error);
             return null;
         }
     }
 
-    /**
-     * Check if the analysis format version is current
-     */
-    private isAnalysisVersionCurrent(analysis: AnalysisCacheData | undefined): boolean {
-        if (!analysis) return false;
-        return analysis._version === ANALYSIS_FORMAT_VERSION;
+    private buildFullAnalysis(parsedLevelData: LevelDict): AnalysisCacheData {
+        const eventCounts = analysisUtils.getEventCounts(parsedLevelData);
+        const nonGameplayEventCounts = Object.keys(eventCounts).filter(event => !PROTECTED_EVENT_TYPES.has(event)).reduce((acc: { [key: string]: number, total: number }, event: string) => {
+            acc[event] = eventCounts[event] || 0;
+            return acc;
+        }, { total: 0 });
+        nonGameplayEventCounts.total = Object.values(nonGameplayEventCounts).reduce((acc, count) => acc + count, 0);
+
+        return {
+            _version: ANALYSIS_FORMAT_VERSION,
+            containsDLC: analysisUtils.containsDLC(parsedLevelData),
+            dlcEvents: analysisUtils.getDLCEvents(parsedLevelData),
+            autoTile: parsedLevelData.getTiles().some(tile => tile.actions.some(action => action.eventType === 'AutoPlayTiles')),
+            canDecorationsKill: analysisUtils.canDecorationsKill(parsedLevelData),
+            isJudgementLimited: analysisUtils.isJudgementLimited(parsedLevelData),
+            levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),
+            vfxEventCounts: analysisUtils.getVfxEventCounts(parsedLevelData),
+            decoEventCounts: analysisUtils.getDecoEventCounts(parsedLevelData),
+            requiredMods: analysisUtils.getRequiredMods(parsedLevelData),
+            nonGameplayEventCounts
+        };
     }
 
-    /**
-     * Check which requested modes are available in cache.
-     * Note: parseCacheData should be called first with metadata to handle version/dev checks.
-     */
-    checkCacheHits(cacheData: LevelCacheData | null, requestedModes: string[]): CacheHitResult {
-        const hits: CacheHitResult = {
-            tilecount: false,
-            settings: false,
-            analysis: false,
-            accessCount: true // accessCount is always available from file record
+    private buildTransformOptions(parsedLevelData: LevelDict): {
+        eventTypes: string[];
+        filterTypes: string[];
+        advancedFilterTypes: string[];
+    } {
+        const eventTypes = new Set<string>();
+        const filterTypes = new Set<string>();
+        const advancedFilterTypes = new Set<string>();
+
+        const actions = parsedLevelData.getActions();
+        for (const action of actions) {
+            const eventType = action.eventType || '';
+            if (PROTECTED_EVENT_TYPES.has(eventType)) {
+                continue;
+            }
+
+            if (eventType) {
+                eventTypes.add(eventType);
+            }
+
+            if (eventType === 'SetFilter' && action.filter) {
+                filterTypes.add(action.filter);
+            } else if (eventType === 'SetFilterAdvanced' && action.filter) {
+                advancedFilterTypes.add(action.filter);
+            }
+        }
+
+        return {
+            eventTypes: Array.from(eventTypes).sort(),
+            filterTypes: Array.from(filterTypes).sort(),
+            advancedFilterTypes: Array.from(advancedFilterTypes).sort()
+        };
+    }
+
+    private async buildAndPersistFullCache(
+        file: CdnFile,
+        levelPath: string,
+        metadata: any,
+        parsedLevelData: LevelDict
+    ): Promise<LevelCacheData> {
+        const cacheData: LevelCacheData = {
+            _metadataSignature: this.computeCacheMetadataSignature(metadata),
+            tilecount: parsedLevelData.getAngles().length,
+            settings: parsedLevelData.getSettings(),
+            analysis: this.buildFullAnalysis(parsedLevelData),
+            transformOptions: this.buildTransformOptions(parsedLevelData)
         };
 
-        if (!cacheData) {
-            return hits;
-        }
+        logger.debug('dlc events', { dlcEvents: analysisUtils.getDLCEvents(parsedLevelData) });
 
-        for (const mode of requestedModes) {
-            if (mode === 'tilecount' && cacheData.tilecount !== undefined) {
-                hits.tilecount = true;
-            }
-            if (mode === 'settings' && cacheData.settings !== undefined) {
-                hits.settings = true;
-            }
-            // Analysis is only a cache hit if present AND version matches
-            if (mode === 'analysis' && cacheData.analysis !== undefined && this.isAnalysisVersionCurrent(cacheData.analysis)) {
-                hits.analysis = true;
-            }
-        }
+        await file.update({ cacheData: JSON.stringify(cacheData) });
 
-        return hits;
+        logger.debug('Cache populated successfully:', {
+            fileId: file.id,
+            tilecount: cacheData.tilecount,
+            hasSettings: !!cacheData.settings,
+            hasAnalysis: !!cacheData.analysis
+        });
+
+        return cacheData;
     }
 
     /**
-     * Populate cache for a level file
-     * @param file - CdnFile instance
-     * @param levelPath - Path to the level file
-     * @param metadata - Optional metadata object to update
-     * @param requestedModes - Optional array of requested modes (to compute analysis only if needed)
-     * @param levelData - Optional pre-loaded LevelDict to avoid re-parsing
-     * @returns Updated cache data
+     * Single entry: return valid cache from DB or load level, build full cache, persist, return.
+     */
+    async getLevelCache(
+        file: CdnFile,
+        levelPath: string,
+        metadata?: any,
+        preloadedLevelData?: LevelDict
+    ): Promise<{ cacheData: LevelCacheData; levelData?: LevelDict; refreshed: boolean }> {
+        const fileMetadata = metadata || file.metadata as any;
+        if (fileMetadata?.targetLevelOversized) {
+            throw new Error('Level file is too large to parse (oversized); cannot populate cache');
+        }
+
+        const levelCheck = await spacesStorage.fileExists(levelPath);
+        if (!levelCheck) {
+            throw new Error(`Level file not found in storage: ${levelPath}`);
+        }
+
+        const parsed = this.parseStoredCacheJson(file.cacheData, fileMetadata);
+        if (parsed && this.isLevelCacheFullyValid(parsed, fileMetadata)) {
+            return { cacheData: parsed, refreshed: false };
+        }
+
+        let levelData: LevelDict;
+        if (preloadedLevelData) {
+            levelData = preloadedLevelData;
+        } else {
+            const result = await this.loadLevelData(file, levelPath, metadata);
+            levelData = result.levelData;
+        }
+
+        await file.reload();
+        const metaForSignature = file.metadata as any;
+
+        const cacheData = await this.buildAndPersistFullCache(file, levelPath, metaForSignature, levelData);
+        return { cacheData, levelData, refreshed: true };
+    }
+
+    /**
+     * Populate cache for a level file (full tilecount, settings, analysis). Prefer {@link getLevelCache}.
      */
     async populateCache(
         file: CdnFile,
         levelPath: string,
         metadata?: any,
-        requestedModes?: string[],
         levelData?: LevelDict
     ): Promise<LevelCacheData> {
         try {
-            const fileMetadata = metadata || file.metadata as any;
-            if (fileMetadata?.targetLevelOversized) {
-                throw new Error('Level file is too large to parse (oversized); cannot populate cache');
-            }
-
-            logger.debug('Populating cache for file:', { fileId: file.id, levelPath, requestedModes });
-
-            // Parse existing cache - will return null if version mismatch or dev mode
-            const existingCache = this.parseCacheData(file.cacheData, fileMetadata);
-
-            const levelCheck = await hybridStorageManager.fileExistsWithFallback(
-                levelPath,
-                fileMetadata?.levelStorageType || fileMetadata?.storageType
-            );
-            if (!levelCheck.exists) {
-                throw new Error(`Level file not found in storage: ${levelPath}`);
-            }
-
-            // Use provided levelData or load it using the unified method
-            let parsedLevelData: LevelDict;
-            if (levelData) {
-                parsedLevelData = levelData;
-            } else {
-                const result = await this.loadLevelData(file, levelPath, metadata);
-                parsedLevelData = result.levelData;
-            }
-
-            // Build cache data, preserving existing values
-            // Only preserve analysis if version matches, otherwise it needs recomputation
-            const existingAnalysisValid = existingCache?.analysis && this.isAnalysisVersionCurrent(existingCache.analysis);
-
-            const cacheData: LevelCacheData = {
-                tilecount: existingCache?.tilecount ?? parsedLevelData.getAngles().length,
-                settings: existingCache?.settings ?? parsedLevelData.getSettings(),
-                analysis: existingAnalysisValid ? existingCache.analysis : undefined
-            };
-
-            // Compute analysis if requested and not already cached with current version
-            const needsAnalysis = requestedModes?.includes('analysis') && !cacheData.analysis;
-            const eventCounts = analysisUtils.getEventCounts(parsedLevelData);
-            const nonGameplayEventCounts = Object.keys(eventCounts).filter(event => !PROTECTED_EVENT_TYPES.has(event)).reduce((acc: { [key: string]: number, total: number }, event: string) => {
-                acc[event] = eventCounts[event] || 0;
-                return acc;
-            }, { total: 0 });
-            nonGameplayEventCounts.total = Object.values(nonGameplayEventCounts).reduce((acc, count) => acc + count, 0);
-            if (needsAnalysis) {
-                cacheData.analysis = {
-                    _version: ANALYSIS_FORMAT_VERSION,
-                    containsDLC: analysisUtils.containsDLC(parsedLevelData),
-                    dlcEvents: analysisUtils.getDLCEvents(parsedLevelData),
-                    autoTile: parsedLevelData.getTiles().some(tile => tile.actions.some(action => action.eventType === 'AutoPlayTiles')),
-                    canDecorationsKill: analysisUtils.canDecorationsKill(parsedLevelData),
-                    isJudgementLimited: analysisUtils.isJudgementLimited(parsedLevelData),
-                    levelLengthInMs: analysisUtils.getLevelLengthInMs(parsedLevelData),
-                    vfxEventCounts: analysisUtils.getVfxEventCounts(parsedLevelData),
-                    decoEventCounts: analysisUtils.getDecoEventCounts(parsedLevelData),
-                    requiredMods: analysisUtils.getRequiredMods(parsedLevelData),
-                    nonGameplayEventCounts: nonGameplayEventCounts
-                };
-            }
-            logger.debug('dlc events', {dlcEvents: analysisUtils.getDLCEvents(parsedLevelData)});
-
-            // Update cache in database
-            await file.update({ cacheData: JSON.stringify(cacheData) });
-
-            logger.debug('Cache populated successfully:', {
-                fileId: file.id,
-                tilecount: cacheData.tilecount,
-                hasSettings: !!cacheData.settings,
-                hasAnalysis: !!cacheData.analysis
-            });
-
+            logger.debug('Populating cache for file:', { fileId: file.id, levelPath });
+            const { cacheData } = await this.getLevelCache(file, levelPath, metadata, levelData);
             return cacheData;
         } catch (error) {
             logger.error('Failed to populate cache:', {
@@ -567,53 +552,6 @@ class LevelCacheService {
     }
 
     /**
-     * Get cached data with automatic population if missing
-     * @param file - CdnFile instance
-     * @param levelPath - Path to the level file
-     * @param requestedModes - Array of requested data modes
-     * @param metadata - Optional metadata object
-     * @param levelData - Optional pre-loaded LevelDict to avoid re-parsing
-     * @returns Cache data and whether it was populated
-     */
-    async getCacheWithPopulation(
-        file: CdnFile,
-        levelPath: string,
-        requestedModes: string[],
-        metadata?: any,
-        levelData?: LevelDict
-    ): Promise<{ cacheData: LevelCacheData; wasPopulated: boolean }> {
-        const fileMetadata = metadata || file.metadata as any;
-
-        // Parse existing cache - returns null if version mismatch or dev mode
-        let cacheData = this.parseCacheData(file.cacheData, fileMetadata);
-
-        // Strip outdated analysis from cache before checking hits
-        if (cacheData?.analysis && !this.isAnalysisVersionCurrent(cacheData.analysis)) {
-            logger.debug('Stripping outdated analysis from cache', {
-                storedVersion: cacheData.analysis._version,
-                currentVersion: ANALYSIS_FORMAT_VERSION
-            });
-            cacheData = { ...cacheData, analysis: undefined };
-        }
-
-        // Check if cache needs population
-        const cacheHits = this.checkCacheHits(cacheData, requestedModes);
-        const needsPopulation = requestedModes.some(mode =>
-            (mode === 'settings' && !cacheHits.settings) ||
-            (mode === 'tilecount' && !cacheHits.tilecount) ||
-            (mode === 'analysis' && !cacheHits.analysis)
-        );
-
-        if (needsPopulation || !cacheData) {
-            // Populate cache (will also handle version update and cache invalidation)
-            cacheData = await this.populateCache(file, levelPath, metadata, requestedModes, levelData);
-            return { cacheData, wasPopulated: true };
-        }
-
-        return { cacheData, wasPopulated: false };
-    }
-
-    /**
      * Ensure cache is up-to-date for a file
      * Populates cache if missing or incomplete
      * @param fileId - File UUID
@@ -640,8 +578,6 @@ class LevelCacheService {
                 }>;
                 targetLevel?: string | null;
                 targetLevelOversized?: boolean;
-                levelStorageType?: StorageType;
-                storageType?: StorageType;
             };
 
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
@@ -657,23 +593,13 @@ class LevelCacheService {
             // Determine target level
             const targetLevel = metadata.targetLevel || metadata.allLevelFiles[0].path;
 
-            const levelCheck = await hybridStorageManager.fileExistsWithFallback(
-                targetLevel,
-                metadata.levelStorageType || metadata.storageType
-            );
-            if (!levelCheck.exists) {
+            const levelCheck = await spacesStorage.fileExists(targetLevel);
+            if (!levelCheck) {
                 logger.error('Target level file not found:', { fileId, targetLevel });
                 return null;
             }
 
-            // Parse cache - returns null if version mismatch or dev mode
-            const cacheData = this.parseCacheData(file.cacheData, metadata);
-
-            if (!cacheData || cacheData.tilecount === undefined || cacheData.settings === undefined) {
-                // Populate cache (will also update version if outdated)
-                return await this.populateCache(file, targetLevel, metadata);
-            }
-
+            const { cacheData } = await this.getLevelCache(file, targetLevel, metadata);
             return cacheData;
         } catch (error) {
             logger.error('Failed to ensure cache populated:', {
@@ -682,72 +608,6 @@ class LevelCacheService {
             });
             return null;
         }
-    }
-
-    /**
-     * Get cache data for specific modes without automatic population
-     * @param file - CdnFile instance
-     * @param requestedModes - Array of requested data modes
-     * @returns Partial response object with available cached data
-     */
-    getCachedDataForModes(
-        file: CdnFile,
-        requestedModes: string[],
-        metadata?: any
-    ): Partial<{
-        tilecount: number;
-        settings: any;
-        analysis: AnalysisCacheData;
-        accessCount: number;
-    }> {
-        const response: Partial<{
-            tilecount: number;
-            settings: any;
-            analysis: AnalysisCacheData;
-            accessCount: number;
-        }> = {};
-
-        const fileMetadata = metadata || file.metadata as any;
-
-        // Parse cache - returns null if version mismatch or dev mode
-        const cacheData = this.parseCacheData(file.cacheData, fileMetadata);
-
-        // If cache is null (version mismatch, dev mode, or empty), only return accessCount
-        if (!cacheData) {
-            if (requestedModes.includes('accessCount')) {
-                response.accessCount = file.accessCount || 0;
-            }
-            return response;
-        }
-
-        // Check for outdated analysis and log if found
-        if (cacheData.analysis && !this.isAnalysisVersionCurrent(cacheData.analysis)) {
-            logger.debug('Cached analysis has outdated version, will not return it', {
-                storedVersion: cacheData.analysis._version,
-                currentVersion: ANALYSIS_FORMAT_VERSION
-            });
-        }
-
-        const cacheHits = this.checkCacheHits(cacheData, requestedModes);
-
-        if (requestedModes.includes('tilecount') && cacheHits.tilecount) {
-            response.tilecount = cacheData.tilecount;
-        }
-
-        if (requestedModes.includes('settings') && cacheHits.settings) {
-            response.settings = cacheData.settings;
-        }
-
-        // Only return analysis if version is current (checked in cacheHits)
-        if (requestedModes.includes('analysis') && cacheHits.analysis && cacheData.analysis) {
-            response.analysis = cacheData.analysis;
-        }
-
-        if (requestedModes.includes('accessCount')) {
-            response.accessCount = file.accessCount || 0;
-        }
-
-        return response;
     }
 
     /**
@@ -771,12 +631,8 @@ class LevelCacheService {
             const levelPath = metadata.targetLevel;
 
             // Check if file exists
-            const fileCheck = await hybridStorageManager.fileExistsWithFallback(
-                levelPath,
-                metadata.levelStorageType || metadata.storageType
-            );
-
-            if (!fileCheck.exists) {
+            const fileCheck = await spacesStorage.fileExists(levelPath);
+            if (!fileCheck) {
                 return null;
             }
 

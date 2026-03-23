@@ -5,14 +5,12 @@ import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '@/externalServices/cdnServi
 //import FileAccessLog from '@/models/cdn/FileAccessLog.js';
 import fs from 'fs';
 import path from 'path';
-import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
-import { hybridStorageManager, StorageType } from '@/externalServices/cdnService/services/hybridStorageManager.js';
+import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 
 const router = Router();
 
@@ -67,7 +65,6 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
             }>;
             targetLevel?: string | null;
             pathConfirmed?: boolean;
-            storageType?: StorageType;
         };
 
         if (!metadata.originalZip) {
@@ -77,140 +74,42 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         const { originalZip } = metadata;
 
         // Check if file exists and get file stats
-        let stats: fs.Stats;
-        let fileStream: fs.ReadStream | NodeJS.ReadableStream;
-
-        let fileCheck: { exists: boolean; storageType: StorageType; actualPath: string };
+        let fileExists: boolean;
 
         try {
             // Use fallback logic to find the file
-            fileCheck = await hybridStorageManager.fileExistsWithFallback(
+            fileExists = await spacesStorage.fileExists(
                 originalZip.path,
             );
 
-            if (!fileCheck.exists) {
+            if (!fileExists) {
                 logger.error('Zip file not found in any storage:', {
                     fileId,
                     path: originalZip.path,
-                    preferredStorageType: metadata.storageType,
-                    checkedStorageType: fileCheck.storageType
                 });
                 return res.status(404).json({ error: 'Zip file not found' });
             }
 
-            logger.debug('File found using fallback logic:', {
+            // Generate presigned URL for direct download (expires in 1 hour)
+            const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path);
+
+            logger.debug('Redirecting to Spaces presigned URL:', {
                 fileId,
                 path: originalZip.path,
-                foundInStorage: fileCheck.storageType,
-                preferredStorage: metadata.storageType
+                url: presignedUrl
             });
 
-            if (fileCheck.storageType === StorageType.SPACES) {
-
-                // Generate presigned URL for direct download (expires in 1 hour)
-                const presignedUrl = await spacesStorage.getPresignedUrl(originalZip.path);
-
-                logger.debug('Redirecting to Spaces presigned URL:', {
-                    fileId,
-                    path: originalZip.path,
-                    url: presignedUrl
-                });
-
-                // Redirect to the presigned URL
-                res.redirect(302, presignedUrl);
-                return;
-            } else {
-                // For local storage, use the actual path found
-                stats = await fs.promises.stat(fileCheck.actualPath);
-                fileStream = fs.createReadStream(fileCheck.actualPath);
-            }
+            // Redirect to the presigned URL
+            res.redirect(302, presignedUrl);
+            return;
         } catch (error) {
             logger.error('Zip file access error:', {
                 fileId,
                 path: originalZip.path,
-                preferredStorageType: metadata.storageType,
                 error: error instanceof Error ? error.message : String(error)
             });
             return res.status(404).json({ error: 'Zip file not found' });
         }
-
-        // Only continue with local file streaming (Spaces files are redirected above)
-        if (fileCheck.storageType === StorageType.LOCAL) {
-            logger.debug('Setting headers for local zip file:', {
-                fileId,
-                path: originalZip.path,
-                baseName: originalZip.name
-            });
-
-            // Handle range requests for better streaming support
-            const range = req.headers.range;
-            let start = 0;
-            let end = stats.size - 1;
-            let statusCode = 200;
-
-            if (range) {
-                const ranges = range.replace(/bytes=/, '').split('-');
-                start = parseInt(ranges[0], 10);
-                end = ranges[1] ? parseInt(ranges[1], 10) : stats.size - 1;
-
-                if (start >= stats.size) {
-                    res.status(416).setHeader('Content-Range', `bytes */${stats.size}`);
-                    return res.end();
-                }
-
-                statusCode = 206; // Partial Content
-                fileStream = fs.createReadStream(fileCheck.actualPath, { start, end });
-            }
-
-            // Set basic headers
-            res.setHeader('Content-Type', 'application/zip');
-            res.setHeader('Content-Length', end - start + 1);
-
-            if (statusCode === 206) {
-                res.setHeader('Content-Range', `bytes ${start}-${end}/${stats.size}`);
-                res.setHeader('Accept-Ranges', 'bytes');
-            }
-
-            // Set filename in Content-Disposition (decode only when sending to user)
-            const displayFilename = metadata.originalZip?.originalFilename || originalZip.name;
-            res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(displayFilename)}`);
-
-            // Set encoded metadata headers
-            setSafeHeader(res, 'X-Level-FileId', fileId);
-            setSafeHeader(res, 'X-Level-Name', displayFilename);
-            setSafeHeader(res, 'X-Level-Size', originalZip.size);
-            setSafeHeader(res, 'X-Level-Files', {
-                levelFiles: metadata.allLevelFiles,
-                songFiles: metadata.songFiles
-            });
-            setSafeHeader(res, 'X-Level-Target', {
-                targetLevel: metadata.targetLevel,
-                pathConfirmed: metadata.pathConfirmed
-            });
-
-
-            await file.increment('accessCount');
-
-            // Set status code for range requests
-            res.status(statusCode);
-
-            // Stream the file
-            fileStream.pipe(res);
-
-            // Handle errors during streaming
-            (fileStream as any).on('error', (error: any) => {
-                logger.error('Error streaming zip file:', {
-                    fileId,
-                    path: originalZip.path,
-                    storageType: metadata.storageType || StorageType.SPACES,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                if (!res.headersSent) {
-                    res.status(500).json({ error: 'Error streaming file' });
-                }
-            });
-        }
-        return;
     }
 
 
@@ -231,12 +130,11 @@ router.head('/:fileId', async (req: Request, res: Response) => {
             const originalZip = metadata?.originalZip;
 
             if (originalZip?.path) {
-                const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+                const fileExists = await spacesStorage.fileExists(
                     originalZip.path,
-                    originalZip.storageType
                 );
 
-                if (!fileCheck.exists) {
+                if (!fileExists) {
                     return res.status(404).end();
                 }
             }
@@ -244,41 +142,27 @@ router.head('/:fileId', async (req: Request, res: Response) => {
             const originalVariant = metadata?.variants?.original;
 
             if (originalVariant?.path) {
-                const imageRef = await hybridStorageManager.resolveFileReference({
-                    path: originalVariant.path,
-                    storageType: originalVariant.storageType,
-                    fallbackPath: originalVariant.fallbackPath,
-                    fallbackStorageType: originalVariant.fallbackStorageType
-                });
-                if (!imageRef.exists) {
+                const imageExists = await spacesStorage.fileExists(originalVariant.path);
+                if (!imageExists) {
                     return res.status(404).end();
                 }
             } else {
                 // Backward-compatible image existence check for records without variants metadata.
                 const imageTypeConfig = IMAGE_TYPES[file.type as keyof typeof IMAGE_TYPES];
                 const canonicalKey = `images/${imageTypeConfig.name}/${fileId}/original.png`;
-                const canonicalCheck = await hybridStorageManager.fileExistsWithFallback(
+                const canonicalCheck = await spacesStorage.fileExists(
                     canonicalKey,
-                    StorageType.SPACES
                 );
-                if (!canonicalCheck.exists) {
-                    const legacyLocalPath = path.join(file.filePath, 'original.png');
-                    const legacyCheck = await hybridStorageManager.fileExistsWithFallback(
-                        legacyLocalPath,
-                        StorageType.LOCAL
-                    );
-                    if (!legacyCheck.exists) {
-                        return res.status(404).end();
-                    }
+                if (!canonicalCheck) {
+                    return res.status(404).end();
                 }
             }
         } else {
             // For other file types, check via hybrid storage (Spaces-first with local fallback).
-            const fileCheck = await hybridStorageManager.fileExistsWithFallback(
+            const fileExists = await spacesStorage.fileExists(
                 file.filePath,
-                metadata?.storageType || StorageType.SPACES
             );
-            if (!fileCheck.exists) {
+            if (!fileExists) {
                 return res.status(404).end();
             }
         }
@@ -302,8 +186,6 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'File not found' });
         }
 
-        let filePath = file.filePath;
-
         if (file.type === 'LEVELZIP') {
             return handleZipRequest(req, res, file);
         }
@@ -313,77 +195,16 @@ router.get('/:fileId', async (req: Request, res: Response) => {
             const imageMetadata = (file.metadata || {}) as any;
             const originalVariant = imageMetadata?.variants?.original;
             if (originalVariant?.path) {
-                const imageRef = await hybridStorageManager.resolveFileReference({
-                    path: originalVariant.path,
-                    storageType: originalVariant.storageType,
-                    fallbackPath: originalVariant.fallbackPath,
-                    fallbackStorageType: originalVariant.fallbackStorageType
-                });
-                if (!imageRef.exists) {
+                const imageExists = await spacesStorage.fileExists(originalVariant.path);
+                if (!imageExists) {
                     return res.status(404).json({ error: 'File not found' });
                 }
-                if (imageRef.storageType === StorageType.SPACES) {
-                    const url = await spacesStorage.getPresignedUrl(imageRef.actualPath);
-                    return res.redirect(302, url);
-                }
-                filePath = imageRef.actualPath;
-            } else {
-                filePath = path.join(file.filePath, 'original.png');
+                const url = await spacesStorage.getPresignedUrl(originalVariant.path);
+                return res.redirect(302, url);
             }
         }
-
-        /* just no
-        await FileAccessLog.create({
-            fileId: fileId,
-            ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
-            userAgent: req.get('user-agent') || null
-        });
-        */
 
         await file.increment('accessCount');
-
-        // Check if file exists
-        try {
-            await fs.promises.access(filePath, fs.constants.F_OK);
-        } catch (error) {
-            logger.error('File not found on disk:', {
-                fileId,
-                path: file.filePath,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            return res.status(404).json({ error: 'File not found' });
-        }
-
-        // Get file stats
-        const stats = await fs.promises.stat(filePath);
-
-        // Set headers
-        res.setHeader('Content-Type', MIME_TYPES[file.type as keyof typeof MIME_TYPES]);
-        res.setHeader('Content-Length', stats.size);
-        res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-
-        // Create read stream with error handling
-        const fileStream = fs.createReadStream(filePath);
-
-        // Handle stream errors
-        fileStream.on('error', (error) => {
-            logger.error('Error streaming file:', {
-                fileId,
-                path: filePath,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Error streaming file' });
-            }
-        });
-
-        // Handle client disconnect
-        req.on('close', () => {
-            fileStream.destroy();
-        });
-
-        // Pipe the file to response
-        fileStream.pipe(res);
     } catch (error) {
         logger.error('File delivery error:', {
             error: error instanceof Error ? error.message : String(error),
@@ -451,7 +272,7 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                     hasMetadata: !!metadata
                 });
 
-                await hybridStorageManager.deleteLevelZipFiles(fileId);
+                await spacesStorage.deleteCdnLevelZipClustersByFileId(fileId);
 
                 logger.debug('Level zip and associated files deleted successfully:', {
                     fileId,
@@ -460,40 +281,29 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                 });
             } 
             else {
-                // For other file types, determine storage type and delete appropriately
-                const storageType = metadata?.storageType || StorageType.SPACES;
-
                 if (IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES]) {
                     const imageTypeConfig = IMAGE_TYPES[fileType as keyof typeof IMAGE_TYPES];
-                    const spacesImagePrefix = imageTypeConfig
-                        ? `images/${imageTypeConfig.name}/${fileId}/`
+                    const spacesImageFolderKey = imageTypeConfig
+                        ? `images/${imageTypeConfig.name}/${fileId}`
                         : null;
-                    const variants = metadata?.variants as Record<string, {
-                        path: string;
-                        storageType?: StorageType;
-                        fallbackPath?: string;
-                        fallbackStorageType?: StorageType;
-                    }> | undefined;
-                    // Primary strategy: remove whole Spaces UUID folder since it should only contain
-                    // this image's variants.
-                    if (spacesImagePrefix) {
+                    if (spacesImageFolderKey) {
                         try {
-                            const folderObjects = await spacesStorage.listFiles(spacesImagePrefix, 10000);
-                            const folderKeys = folderObjects
-                                .map((entry) => entry.key)
-                                .filter((key) => typeof key === 'string' && key.length > 0);
-                            if (folderKeys.length > 0) {
-                                await spacesStorage.deleteFiles(folderKeys);
-                                logger.debug('Image Spaces UUID folder deleted by prefix', {
+                            const ok = await spacesStorage.deleteFolder(spacesImageFolderKey);
+                            if (ok) {
+                                logger.debug('Image Spaces UUID folder deleted', {
                                     fileId,
-                                    prefix: spacesImagePrefix,
-                                    deletedCount: folderKeys.length
+                                    key: spacesImageFolderKey
+                                });
+                            } else {
+                                logger.warn('Image Spaces folder delete did not complete successfully', {
+                                    fileId,
+                                    key: spacesImageFolderKey
                                 });
                             }
                         } catch (prefixCleanupError) {
-                            logger.warn('Image Spaces prefix cleanup failed', {
+                            logger.warn('Image Spaces folder cleanup failed', {
                                 fileId,
-                                prefix: spacesImagePrefix,
+                                key: spacesImageFolderKey,
                                 error: prefixCleanupError instanceof Error
                                     ? prefixCleanupError.message
                                     : String(prefixCleanupError)
@@ -501,41 +311,19 @@ router.delete('/:fileId', async (req: Request, res: Response) => {
                         }
                     }
 
-                    // Secondary cleanup: remove any local fallback directories/files.
-                    const localDirectories = new Set<string>();
-                    if (typeof metadata?.localDirectory === 'string' && metadata.localDirectory.length > 0) {
-                        localDirectories.add(metadata.localDirectory);
-                    }
-                    if (typeof filePath === 'string' && path.isAbsolute(filePath)) {
-                        localDirectories.add(filePath);
-                    }
-                    if (variants && typeof variants === 'object') {
-                        for (const variant of Object.values(variants)) {
-                            if (typeof variant?.fallbackPath === 'string' && path.isAbsolute(variant.fallbackPath)) {
-                                localDirectories.add(path.dirname(variant.fallbackPath));
-                            }
-                        }
-                    }
-
-                    for (const localDir of localDirectories) {
-                        storageManager.cleanupImageDirectory(localDir, fileId, fileType);
-                    }
-
                     logger.debug('Image cleanup completed', {
                         fileId,
                         type: fileType,
-                        spacesPrefix: spacesImagePrefix,
-                        localDirectoriesChecked: localDirectories.size,
+                        spacesFolderKey: spacesImageFolderKey,
                         timestamp: new Date().toISOString()
                     });
                 } else {
                     // Use hybrid storage manager for other file types
-                    await hybridStorageManager.deleteFile(filePath, storageType);
+                    await spacesStorage.deleteFile(filePath);
                     logger.debug('File deleted from hybrid storage successfully:', {
                         fileId,
                         filePath,
                         type: fileType,
-                        storageType,
                         timestamp: new Date().toISOString()
                     });
                 }

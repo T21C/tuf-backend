@@ -7,15 +7,16 @@ export async function processImage(
     filePath: string,
     imageType: ImageType,
     fileId: string,
-    outputDirectory?: string
+    outputDirectory: string
 ) {
     const imageConfig = IMAGE_TYPES[imageType];
     const image = sharp(filePath);
     const processedFiles: Record<string, { path: string; mimeType: string }> = {};
 
     // Create directory for this image's versions
-    const imageDir = outputDirectory || path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
-    fs.mkdirSync(imageDir, { recursive: true });
+    if (!fs.existsSync(outputDirectory)) {
+        throw new Error('Output directory does not exist');
+    }
 
     // Process each size
     for (const [size, dimensions] of Object.entries(imageConfig.sizes)) {
@@ -27,7 +28,7 @@ export async function processImage(
             continue;
         }
 
-        const outputPath = path.join(imageDir, `${size}${path.extname(filePath)}`);
+        const outputPath = path.join(outputDirectory, `${size}${path.extname(filePath)}`);
 
         await image
             .clone()

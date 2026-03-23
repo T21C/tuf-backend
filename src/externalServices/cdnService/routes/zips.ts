@@ -3,7 +3,7 @@ import fs from 'fs';
 import AdmZip from 'adm-zip';
 import axios from 'axios';
 import { logger } from '@/server/services/LoggerService.js';
-import { storageManager } from '../services/storageManager.js';
+import { cdnLocalTemp } from '../services/cdnLocalTempManager.js';
 import { CDN_CONFIG } from '../config.js';
 import { processZipFile } from '../services/zipProcessor.js';
 import { Request, Response, Router } from 'express';
@@ -16,7 +16,6 @@ import { Transaction } from 'sequelize';
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
-import { hybridStorageManager, StorageType } from '../services/hybridStorageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -400,47 +399,7 @@ interface PackGenerationContext {
 }
 
 async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Promise<void> {
-    // Use S3's createReadStream directly to avoid loading into memory
-    // Access the S3 client and config through spacesStorage
-    const s3 = (spacesStorage as any).s3;
-    const bucket = (spacesStorage as any).config?.bucket;
-
-    if (!s3 || !bucket) {
-        throw new Error('Failed to access Spaces storage configuration');
-    }
-
-    const params = {
-        Bucket: bucket,
-        Key: spacesKey
-    };
-
-    // Create a true stream from S3 (not using .promise() which loads into memory)
-    const stream = s3.getObject(params).createReadStream();
-    const writeStream = fs.createWriteStream(targetPath);
-
-    return new Promise<void>((resolve, reject) => {
-        const cleanupOnError = async (error: Error) => {
-            stream.destroy();
-            writeStream.destroy();
-            // Clean up partial file on error
-            try {
-                if (fs.existsSync(targetPath)) {
-                    await fs.promises.unlink(targetPath);
-                }
-            } catch (cleanupError) {
-                logger.warn('Failed to cleanup partial file after stream error', {
-                    targetPath,
-                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-                });
-            }
-            reject(error);
-        };
-
-        stream.pipe(writeStream);
-        writeStream.on('finish', resolve);
-        writeStream.on('error', cleanupOnError);
-        stream.on('error', cleanupOnError);
-    });
+    await spacesStorage.downloadFileToPathStreaming(spacesKey, targetPath);
 }
 
 async function extractZipToFolder(zipPath: string, extractTo: string): Promise<void> {
@@ -525,9 +484,8 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             return { folderName: parentPath, success: false };
         }
 
-        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.SPACES;
-        const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
-        if (!existence.exists) {
+        const zipExists = await spacesStorage.fileExists(originalZip.path);
+        if (!zipExists) {
             logger.warn('Original zip not found in storage for pack download', {
                 fileId: node.fileId,
                 path: originalZip.path
@@ -541,7 +499,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
         let finalFolderName: string;
 
         try {
-            if (existence.storageType === StorageType.SPACES) {
+            if (zipExists) {
                 tempZipPath = path.join(context.tempDir, `level-${node.fileId}-${crypto.randomUUID()}.zip`);
                 logger.debug('Creating temp zip file from Spaces', {
                     tempZipPath,
@@ -557,11 +515,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
                 });
                 zipPath = tempZipPath;
             } else {
-                zipPath = existence.actualPath;
-                logger.debug('Using local zip file path (no temp file needed)', {
-                    zipPath,
-                    fileId: node.fileId
-                });
+                throw { error: 'Original zip file not found in storage', code: 400 };
             }
 
             const derivedFromZip = originalZip.originalFilename || originalZip.name;
@@ -577,12 +531,11 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
 
             // Delete temp zip file immediately after successful extraction to free up space
             // Only delete if it's a temp file we created (from Spaces), not the original source file
-            if (tempZipPath && existence.storageType === StorageType.SPACES) {
+            if (tempZipPath && zipExists) {
                 const fileExists = fs.existsSync(tempZipPath);
                 logger.debug('Attempting to delete temp zip file after extraction', {
                     tempZipPath,
                     fileExists,
-                    storageType: existence.storageType,
                     fileId: node.fileId
                 });
 
@@ -611,8 +564,6 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             } else {
                 logger.debug('Skipping temp zip deletion (not a temp file)', {
                     tempZipPath,
-                    storageType: existence.storageType,
-                    actualPath: existence.actualPath,
                     fileId: node.fileId
                 });
             }
@@ -632,7 +583,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
         } finally {
             // Clean up temp zip file if extraction failed (fallback cleanup)
             // Only delete if it's a temp file we created (from Spaces)
-            if (tempZipPath && existence && existence.storageType === StorageType.SPACES) {
+            if (tempZipPath && zipExists) {
                 const fileExists = fs.existsSync(tempZipPath);
                 logger.debug('Finally block: checking temp zip file for cleanup', {
                     tempZipPath,
@@ -659,8 +610,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
             } else if (tempZipPath) {
                 logger.debug('Finally block: skipping temp zip deletion', {
                     tempZipPath,
-                    hasExistence: !!existence,
-                    storageType: existence?.storageType,
+                    hasExistence: !!zipExists,
                     fileId: node.fileId
                 });
             }
@@ -1346,44 +1296,14 @@ async function getFileSizeFromCdn(fileId: string): Promise<number | null> {
         }
 
         // If not in metadata, try to get from file system/storage
-        const preferredStorage = originalZip.storageType || metadata.storageType || StorageType.SPACES;
-        const existence = await hybridStorageManager.fileExistsWithFallback(originalZip.path, preferredStorage);
+        const zipExists = await spacesStorage.fileExists(originalZip.path);
 
-        if (!existence.exists) {
+        if (!zipExists) {
             return null;
         }
 
-        // Try to get file size from local file system
-        if (existence.storageType === StorageType.LOCAL && existence.actualPath) {
-            try {
-                const stats = await fs.promises.stat(existence.actualPath);
-                return stats.size;
-            } catch {
-                return null;
-            }
-        }
-
-        // For Spaces, try to get size from S3 metadata
-        if (existence.storageType === StorageType.SPACES) {
-            try {
-                const s3 = (spacesStorage as any).s3;
-                const bucket = (spacesStorage as any).config?.bucket;
-                if (s3 && bucket) {
-                    const headResult = await s3.headObject({
-                        Bucket: bucket,
-                        Key: originalZip.path
-                    }).promise();
-                    if (headResult.ContentLength) {
-                        return headResult.ContentLength;
-                    }
-                }
-            } catch {
-                // If we can't get size from Spaces, return null
-                return null;
-            }
-        }
-
-        return null;
+        const headResult = await spacesStorage.getFileMetadata(originalZip.path);
+        return headResult?.ContentLength ?? null;
     } catch (error) {
         logger.debug('Failed to get file size from CDN', {
             fileId,
@@ -1494,20 +1414,20 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         const levelFiles = await Promise.all(allLevelFiles.map(async (file) => {
             try {
                 const preferredStorageType = (levelEntry.metadata as any)?.levelStorageType || (levelEntry.metadata as any)?.storageType;
-                const levelCheck = await hybridStorageManager.fileExistsWithFallback(file.path, preferredStorageType);
-                if (!levelCheck.exists) {
+                const levelExists = await spacesStorage.fileExists(file.path);
+                if (!levelExists) {
                     throw new Error('Level file not found in storage');
                 }
 
                 let levelDict: LevelDict;
-                if (levelCheck.storageType === StorageType.SPACES) {
+                if (levelExists) {
                     const tempPath = path.join(PACK_DOWNLOAD_TEMP_DIR, `inspect_${fileId}_${Date.now()}.adofai`);
                     await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
-                    await hybridStorageManager.downloadFile(levelCheck.actualPath, StorageType.SPACES, tempPath);
+                    await spacesStorage.downloadFileToPathStreaming(file.path, tempPath);
                     levelDict = new LevelDict(tempPath);
                     await fs.promises.unlink(tempPath).catch(() => {});
                 } else {
-                    levelDict = new LevelDict(levelCheck.actualPath);
+                    throw new Error('Level file not found in storage');
                 }
 
                 return {
@@ -1861,7 +1781,7 @@ async function sendLevelUploadProgress(
 router.post('/', (req: Request, res: Response) => {
     logger.debug('Received zip upload request');
 
-    storageManager.upload(req, res, async (err) => {
+    cdnLocalTemp.upload(req, res, async (err) => {
         if (err) {
             logger.error('Multer error during zip upload:', {
                 error: err.message,
@@ -1912,7 +1832,7 @@ router.post('/', (req: Request, res: Response) => {
 
             // Clean up the original zip file since we've extracted what we need
             logger.debug('Cleaning up original zip file');
-            storageManager.cleanupFiles(req.file.path);
+            cdnLocalTemp.cleanupFiles(req.file.path);
             logger.debug('Original zip file cleaned up');
 
             // Populate cache for the uploaded level
@@ -1961,7 +1881,7 @@ router.post('/', (req: Request, res: Response) => {
                 error instanceof Error ? error.message : String(error)
             );
 
-            storageManager.cleanupFiles(req.file.path);
+            cdnLocalTemp.cleanupFiles(req.file.path);
 
             // Try to parse error message if it's JSON
             let errorDetails;

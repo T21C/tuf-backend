@@ -1,0 +1,173 @@
+import fs from 'fs';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import multer from 'multer';
+import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
+import { logger } from '@/server/services/LoggerService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+/**
+ * Local CDN scratch only: multer upload targets and safe deletes under {@link getLocalRoot}.
+ * No Spaces / S3 — use `spacesStorage` (spacesStorage.ts) for permanent objects.
+ */
+export class CdnLocalTempManager {
+    private static instance: CdnLocalTempManager;
+    private readonly localRoot: string;
+
+    private constructor() {
+        this.localRoot = path.resolve(CDN_CONFIG.user_root);
+        if (!fs.existsSync(this.localRoot)) {
+            fs.mkdirSync(this.localRoot, { recursive: true });
+        }
+    }
+
+    public static getInstance(): CdnLocalTempManager {
+        if (!CdnLocalTempManager.instance) {
+            CdnLocalTempManager.instance = new CdnLocalTempManager();
+        }
+        return CdnLocalTempManager.instance;
+    }
+
+    public getLocalRoot(): string {
+        return this.localRoot;
+    }
+
+    private isPathUnderLocalRoot(absolutePath: string): boolean {
+        const root = path.resolve(this.localRoot);
+        const candidate = path.resolve(absolutePath);
+        const rootNorm = root.replace(/\\/g, '/');
+        const candNorm = candidate.replace(/\\/g, '/');
+        const prefix = rootNorm.endsWith('/') ? rootNorm : `${rootNorm}/`;
+        return candNorm === rootNorm || candNorm.startsWith(prefix);
+    }
+
+    public cleanupFiles(...paths: (string | undefined | null)[]): void {
+        for (const rawPath of paths) {
+            if (!rawPath) {
+                continue;
+            }
+            const normalizedPath = rawPath.replace(/\\/g, '/');
+
+            try {
+                if (!normalizedPath || normalizedPath === '/' || normalizedPath === '') {
+                    logger.error('Invalid path provided for cleanup:', normalizedPath);
+                    continue;
+                }
+
+                const absolutePath = path.resolve(normalizedPath);
+                const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/');
+
+                if (!this.isPathUnderLocalRoot(absolutePath)) {
+                    logger.error('Attempted to delete file outside of local CDN root:', {
+                        path: normalizedAbsolutePath,
+                        localRoot: this.localRoot
+                    });
+                    continue;
+                }
+
+                logger.debug(`Deleting file/directory: ${normalizedAbsolutePath}`);
+                if (fs.existsSync(normalizedAbsolutePath)) {
+                    const stats = fs.statSync(normalizedAbsolutePath);
+                    if (stats.isDirectory()) {
+                        if (normalizedAbsolutePath.includes('/images/')) {
+                            try {
+                                const contents = fs.readdirSync(normalizedAbsolutePath);
+                                logger.debug(`Deleting image directory with ${contents.length} files:`, {
+                                    directory: normalizedAbsolutePath,
+                                    files: contents
+                                });
+                            } catch (readdirError) {
+                                logger.warn('Could not read directory contents before deletion:', readdirError);
+                            }
+                        }
+                        fs.rmSync(normalizedAbsolutePath, { recursive: true, force: true });
+                        logger.debug(`Successfully deleted directory: ${normalizedAbsolutePath}`);
+                    } else {
+                        fs.unlinkSync(normalizedAbsolutePath);
+                        logger.debug(`Successfully deleted file: ${normalizedAbsolutePath}`);
+                    }
+                } else {
+                    logger.warn(`File/directory does not exist: ${normalizedAbsolutePath}`);
+                }
+            } catch (error) {
+                logger.error(`Failed to cleanup path ${normalizedPath}:`, {
+                    error: error instanceof Error ? error.message : String(error),
+                    path: normalizedPath
+                });
+            }
+        }
+    }
+
+    private storage = multer.diskStorage({
+        destination: (req, file, cb) => {
+            try {
+                const uploadDir = path.join(this.getLocalRoot(), 'temp');
+                if (!fs.existsSync(uploadDir)) {
+                    fs.mkdirSync(uploadDir, { recursive: true });
+                }
+                cb(null, uploadDir);
+            } catch (error) {
+                cb(error as Error, '');
+            }
+        },
+        filename: (req, file, cb) => {
+            const uniqueId = uuidv4();
+            const ext = path.extname(file.originalname);
+            cb(null, `${uniqueId}${ext}`);
+        }
+    });
+
+    private imageStorage = multer.diskStorage({
+        destination: (req, file, cb) => {
+            try {
+                const imageType = (req.params.type || '').toUpperCase() as ImageType;
+                if (!IMAGE_TYPES[imageType]) {
+                    throw new Error('Invalid image type');
+                }
+                const uploadDir = path.join(CDN_CONFIG.user_root, 'images', IMAGE_TYPES[imageType].name);
+                if (!fs.existsSync(uploadDir)) {
+                    fs.mkdirSync(uploadDir, { recursive: true });
+                }
+                cb(null, uploadDir);
+            } catch (error) {
+                cb(error as Error, '');
+            }
+        },
+        filename: (req, file, cb) => {
+            const uniqueId = uuidv4();
+            const ext = path.extname(file.originalname);
+            cb(null, `${uniqueId}${ext}`);
+        }
+    });
+
+    public upload = multer({
+        storage: this.storage,
+        limits: {
+            fileSize: CDN_CONFIG.maxFileSize
+        }
+    }).single('file');
+
+    public imageUpload = multer({
+        storage: this.imageStorage,
+        limits: {
+            fileSize: CDN_CONFIG.maxImageSize
+        },
+        fileFilter: (req, file, cb) => {
+            const imageType = (req.params.type || '').toUpperCase() as ImageType;
+            if (!IMAGE_TYPES[imageType]) {
+                return cb(new Error('Invalid image type'));
+            }
+
+            const ext = path.extname(file.originalname).toLowerCase().slice(1) as typeof IMAGE_TYPES[ImageType]['formats'][number];
+            if (!IMAGE_TYPES[imageType].formats.includes(ext)) {
+                return cb(new Error(`Invalid file type. Allowed types: ${IMAGE_TYPES[imageType].formats.join(', ')}`));
+            }
+
+            cb(null, true);
+        }
+    }).single('image');
+}
+
+export const cdnLocalTemp = CdnLocalTempManager.getInstance();

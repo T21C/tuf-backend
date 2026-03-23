@@ -5,8 +5,7 @@ import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
-import { storageManager } from '@/externalServices/cdnService/services/storageManager.js';
-import { hybridStorageManager, StorageType } from '@/externalServices/cdnService/services/hybridStorageManager.js';
+import { cdnLocalTemp } from '@/externalServices/cdnService/services/cdnLocalTempManager.js';
 import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 
 const router = Router();
@@ -38,14 +37,9 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
         const variantRef = metadata?.variants?.[imageSize];
 
         if (variantRef?.path) {
-            const fileRef = await hybridStorageManager.resolveFileReference({
-                path: variantRef.path,
-                storageType: variantRef.storageType,
-                fallbackPath: variantRef.fallbackPath,
-                fallbackStorageType: variantRef.fallbackStorageType
-            });
+            const fileExists = await spacesStorage.fileExists(variantRef.path);
 
-            if (!fileRef.exists) {
+            if (!fileExists) {
                 logger.error('Image variant not found in hybrid storage', {
                     fileId,
                     imageType,
@@ -55,14 +49,14 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
                 return res.status(404).json({ error: 'Image file not found' });
             }
 
-            if (fileRef.storageType === StorageType.SPACES) {
-                const url = await spacesStorage.getPresignedUrl(fileRef.actualPath);
+            if (fileExists) {
+                const url = await spacesStorage.getPresignedUrl(variantRef.path);
                 return res.redirect(302, url);
             }
 
             res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);
             res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
-            fs.createReadStream(fileRef.actualPath).pipe(res);
+            fs.createReadStream(variantRef.path).pipe(res);
             return;
         }
 
@@ -116,7 +110,7 @@ router.post('/:type', (req: Request, res: Response) => {
         });
     }
 
-    storageManager.imageUpload(req, res, async (err) => {
+    cdnLocalTemp.imageUpload(req, res, async (err) => {
         if (err) {
             logger.error('Image upload error:', err);
             return res.status(400).json({
@@ -141,7 +135,7 @@ router.post('/:type', (req: Request, res: Response) => {
             res.json(result);
         } catch (error) {
             logger.error('Image processing error:', error);
-            storageManager.cleanupFiles(req.file.path);
+            cdnLocalTemp.cleanupFiles(req.file.path);
 
             if (error instanceof ImageProcessingError) {
                 return res.status(400).json({

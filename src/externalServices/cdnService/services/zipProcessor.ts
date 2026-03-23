@@ -3,10 +3,10 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { logger } from '@/server/services/LoggerService.js';
-import { storageManager } from './storageManager.js';
-import { hybridStorageManager } from './hybridStorageManager.js';
+import { cdnLocalTemp } from './cdnLocalTempManager.js';
 import { spacesStorage } from './spacesStorage.js';
 import LevelDict from 'adofai-lib';
+import { levelCacheService, SAFE_TO_PARSE_VERSION } from './levelCacheService.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
@@ -88,6 +88,13 @@ export async function processZipFile(
 ): Promise<void> {
     let transaction: Transaction | undefined;
     let permanentDir: string | null = null;
+    // Preloaded LevelDict for the eventual cache target.
+    // When available, we can populate cache without re-downloading the target from Spaces.
+    let selectedPreloadedTargetLevelData: LevelDict | null = null;
+    let preloadedNonBackupLevelData: LevelDict | null = null;
+    let preloadedBackupLevelData: LevelDict | null = null;
+    let bestNonBackupSize = -1;
+    let bestBackupSize = -1;
 
     logger.debug('Starting zip file processing:', {
         zipFilePath,
@@ -121,7 +128,7 @@ export async function processZipFile(
         const songFiles: { [key: string]: any } = {};
 
         // Reserve a drive for temporary operations
-        const storageRoot = await storageManager.getDrive();
+        const storageRoot = cdnLocalTemp.getLocalRoot();
         logger.debug('Processing zip file on drive:', {
             drive: storageRoot,
             fileId: zipFileId,
@@ -206,6 +213,18 @@ export async function processZipFile(
                     };
                 } else {
                     const levelDict = new LevelDict(tempPath);
+                    const isBackup = levelFilename.toLowerCase() === 'backup.adofai';
+                    if (isBackup) {
+                        if (entry.size > bestBackupSize) {
+                            bestBackupSize = entry.size;
+                            preloadedBackupLevelData = levelDict;
+                        }
+                    } else {
+                        if (entry.size > bestNonBackupSize) {
+                            bestNonBackupSize = entry.size;
+                            preloadedNonBackupLevelData = levelDict;
+                        }
+                    }
                     levelFile = {
                         name: levelFilename,
                         relativePath: normalizedRelativePath,
@@ -289,7 +308,7 @@ export async function processZipFile(
 
         // Upload level files
         await sendProgress('uploading', 50, 'Uploading level files');
-        const levelUploadResult = await hybridStorageManager.uploadLevelFiles(
+        const levelUploadResult = await spacesStorage.uploadLevelFiles(
             allLevelFiles.map(file => ({
                 sourcePath: file.path,
                 filename: file.relativePath,
@@ -326,7 +345,7 @@ export async function processZipFile(
 
         // Upload song files using hybrid storage manager
         await sendProgress('uploading', 65, 'Uploading song files');
-        const songUploadResult = await hybridStorageManager.uploadSongFiles(
+        const songUploadResult = await spacesStorage.uploadSongFiles(
             Object.values(songFiles).map(songFile => ({
                 sourcePath: songFile.path,
                 filename: songFile.name,
@@ -344,7 +363,6 @@ export async function processZipFile(
             updatedSongFiles[uploadedFile.filename] = {
                 ...originalSongFile,
                 path: uploadedFile.path,
-                storageType: songUploadResult.storageType,
                 url: uploadedFile.url,
                 key: uploadedFile.key
             };
@@ -352,7 +370,7 @@ export async function processZipFile(
 
         // Upload original zip file
         await sendProgress('uploading', 80, 'Uploading original zip file');
-        const zipUploadResult = await hybridStorageManager.uploadLevelFile(
+        const zipUploadResult = await spacesStorage.uploadLevelFile(
             originalZipPath,
             zipFileId,
             finalZipName,
@@ -361,7 +379,7 @@ export async function processZipFile(
         await sendProgress('uploading', 90, 'Original zip file uploaded');
 
         // Clean up temporary files
-        storageManager.cleanupFiles(permanentDir);
+        cdnLocalTemp.cleanupFiles(permanentDir);
 
         // Determine target level
         let targetLevel: string | null = null;
@@ -386,6 +404,8 @@ export async function processZipFile(
             targetLevel = largestLevel.path; // Use storage path (Spaces key or local path)
             targetLevelRelativePath = largestLevel.relativePath;
             targetLevelOversized = !!largestLevel.oversizedUnparsed;
+            selectedPreloadedTargetLevelData =
+                nonBackupFiles.length > 0 ? preloadedNonBackupLevelData : preloadedBackupLevelData;
 
             logger.debug('Selected largest level file as target:', {
                 selectedLevel: largestLevel.name,
@@ -394,7 +414,6 @@ export async function processZipFile(
                 totalLevels: allLevelFiles.length,
                 nonBackupCount: nonBackupFiles.length,
                 isBackup: largestLevel.name.toLowerCase() === 'backup.adofai',
-                storageType: levelUploadResult.storageType,
                 targetLevelOversized
             });
         }
@@ -404,7 +423,7 @@ export async function processZipFile(
         transaction = await cdnSequelize.transaction();
 
         // Create database entry with comprehensive storage information
-        await CdnFile.create({
+        const cdnFile = await CdnFile.create({
             id: zipFileId,
             type: 'LEVELZIP',
             filePath: zipUploadResult.filePath, // Use the actual storage path
@@ -417,30 +436,53 @@ export async function processZipFile(
                 targetLevelOversized,
                 pathConfirmed,
                 // Always include storage type at the root level for easy access
-                storageType: levelUploadResult.storageType,
                 originalZip: {
                     name: finalZipName,
                     path: zipUploadResult.filePath, // Use the actual storage path
                     size: originalZipSize,
-                    storageType: zipUploadResult.storageType,
                     originalFilename: finalZipName
                 },
-                levelStorageType: levelUploadResult.storageType,
-                songStorageType: songUploadResult.storageType,
                 // Add timestamp for debugging
                 uploadedAt: new Date().toISOString(),
-                storageInfo: {
-                    primary: levelUploadResult.storageType,
-                    levels: levelUploadResult.storageType,
-                    songs: songUploadResult.storageType,
-                    zip: zipUploadResult.storageType
-                }
             }
         }, { transaction });
 
         // Commit the transaction
         await transaction.commit();
         await sendProgress('processing', 95, 'Database entry created');
+
+        // Populate cache immediately using the extracted/parsed target LevelDict, when available.
+        // This avoids the redundant download/parse roundtrip in `ensureCachePopulated`.
+        if (targetLevel && !targetLevelOversized && selectedPreloadedTargetLevelData) {
+            try {
+                await sendProgress('caching', 96, 'Populating cache from extracted level');
+                await levelCacheService.populateCache(
+                    cdnFile,
+                    targetLevel,
+                    undefined,
+                    selectedPreloadedTargetLevelData
+                );
+
+                // Also normalize the stored .adofai JSON immediately so future loads can safely parse it
+                // without extracting/re-writing from the original source.
+                // (We already have the parsed LevelDict; no Spaces download is needed.)
+                const normalizedJson = JSON.stringify(selectedPreloadedTargetLevelData.toJSON(), null, 4);
+                await spacesStorage.uploadBuffer(Buffer.from(normalizedJson, 'utf8'), targetLevel, 'application/json');
+
+                await cdnFile.update({
+                    metadata: {
+                        ...(cdnFile.metadata as any),
+                        targetSafeToParse: true,
+                        targetSafeToParseVersion: SAFE_TO_PARSE_VERSION
+                    }
+                });
+            } catch (cacheError) {
+                logger.warn('Failed to populate cache from extracted level (non-critical):', {
+                    fileId: zipFileId,
+                    error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+                });
+            }
+        }
 
         logger.debug('Successfully processed zip file:', {
             fileId: zipFileId,
@@ -453,10 +495,6 @@ export async function processZipFile(
             totalSize: totalLevelSize + totalSongSize + originalZipSize,
             targetLevel,
             pathConfirmed,
-            storageType: levelUploadResult.storageType,
-            levelStorageType: levelUploadResult.storageType,
-            songStorageType: songUploadResult.storageType,
-            zipStorageType: zipUploadResult.storageType,
             hasOriginalZip: true
         });
     } catch (error) {
@@ -472,7 +510,7 @@ export async function processZipFile(
         // Clean up created files if database operation failed
         if (permanentDir && fs.existsSync(permanentDir)) {
             try {
-                storageManager.cleanupFiles(permanentDir);
+                cdnLocalTemp.cleanupFiles(permanentDir);
                 logger.debug('Cleaned up permanent directory after failed processing:', {
                     permanentDir,
                     timestamp: new Date().toISOString()
@@ -530,7 +568,7 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
                 'repacked_' + Date.now() + '_' + Math.random().toString(36).substring(7) + '.zip'
             );
         } else {
-            const storageRoot = await storageManager.getDrive();
+            const storageRoot = cdnLocalTemp.getLocalRoot();
             tempZipPath = path.join(
                 storageRoot,
                 'temp',
@@ -581,7 +619,7 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
             logger.debug('Cleaning up temporary zip file due to error:', { tempZipPath });
             // Only cleanup if it's in the temp folder, not in the repack folder
             if (!outputDir) {
-                storageManager.cleanupFiles(tempZipPath);
+                cdnLocalTemp.cleanupFiles(tempZipPath);
             }
         }
         throw new Error('Failed to repack zip file');

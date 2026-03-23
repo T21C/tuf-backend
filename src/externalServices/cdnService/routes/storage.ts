@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/LoggerService.js';
-import { hybridStorageManager } from '../services/hybridStorageManager.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 
 const router = Router();
@@ -8,7 +7,7 @@ const router = Router();
 // Get storage statistics
 router.get('/stats', async (req: Request, res: Response) => {
     try {
-        const stats = await hybridStorageManager.getStorageStats();
+        const stats = await spacesStorage.getStatsDashboard();
         res.json({
             success: true,
             stats

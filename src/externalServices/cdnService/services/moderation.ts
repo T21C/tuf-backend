@@ -3,7 +3,7 @@ import path from 'path';
 import sharp from 'sharp';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { logger } from '@/server/services/LoggerService.js';
-import { storageManager } from './storageManager.js';
+import { cdnLocalTemp } from './cdnLocalTempManager.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
@@ -158,7 +158,7 @@ export async function moderateImage(fileId: string, approved: boolean, moderator
 
             // Clean up files from disk after successful database deletion
             try {
-                storageManager.cleanupFiles(filePath);
+                cdnLocalTemp.cleanupFiles(filePath);
                 logger.debug('Image rejected and cleaned up successfully:', {
                     fileId,
                     filePath,

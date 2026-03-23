@@ -5,8 +5,7 @@ import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
 import { logger } from '@/server/services/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
 import { processImage } from './imageProcessor.js';
-import { storageManager } from './storageManager.js';
-import { hybridStorageManager, StorageType } from './hybridStorageManager.js';
+import { cdnLocalTemp } from './cdnLocalTempManager.js';
 import { spacesStorage } from './spacesStorage.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
@@ -47,7 +46,7 @@ export class ImageFactory {
 
     private cleanupTempProcessingDirectory(imageDir: string): void {
         const absoluteImageDir = path.resolve(imageDir);
-        const tempRoot = path.resolve(path.join(os.tmpdir(), 'tuf-image-processing'));
+        const tempRoot = path.resolve(path.join(process.env.CDN_TEMP_ROOT || os.tmpdir(), 'tuf-image-processing'));
 
         if (!absoluteImageDir.startsWith(tempRoot + path.sep) && absoluteImageDir !== tempRoot) {
             logger.error('Refusing to cleanup directory outside temp processing root:', {
@@ -65,21 +64,15 @@ export class ImageFactory {
         imageType: ImageType
     ): Promise<ImageUploadResult> {
         let transaction: Transaction | undefined;
-        let imageDir: string | null = null;
-        let shouldCleanupImageDir = false;
+        const imageConfig = IMAGE_TYPES[imageType];
+        const fileId = path.parse(filePath).name;
+        const imageDir: string = path.join(process.env.CDN_TEMP_ROOT || os.tmpdir(), 'temp-image-processing', imageConfig.name, fileId);
 
         try {
             // Validate image
             const validationOptions = getValidationOptionsForType(imageType);
             await validateImage(filePath, imageType, validationOptions);
 
-            const fileId = path.parse(filePath).name;
-            const imageConfig = IMAGE_TYPES[imageType];
-            const useSpacesForImages = hybridStorageManager.shouldUseSpacesFor('images');
-            imageDir = useSpacesForImages
-                ? path.join(os.tmpdir(), 'tuf-image-processing', imageConfig.name, fileId)
-                : path.join(CDN_CONFIG.user_root, 'images', imageConfig.name, fileId);
-            shouldCleanupImageDir = useSpacesForImages;
 
             // Create directory for this image's versions
             fs.mkdirSync(imageDir, { recursive: true });
@@ -87,7 +80,7 @@ export class ImageFactory {
             // Save original file
             const originalPath = path.join(imageDir, 'original.png');
             fs.copyFileSync(filePath, originalPath);
-            storageManager.cleanupFiles(filePath);
+            cdnLocalTemp.cleanupFiles(filePath);
 
             // Process variants
             await processImage(originalPath, imageType, fileId, imageDir);
@@ -95,60 +88,37 @@ export class ImageFactory {
             const variantNames = Object.keys(imageConfig.sizes);
             const variantStorage: Record<string, {
                 path: string;
-                storageType: StorageType;
-                fallbackPath?: string;
-                fallbackStorageType?: StorageType;
                 url?: string;
             }> = {};
 
-            for (const variantName of variantNames) {
-                const localVariantPath = path.join(imageDir, `${variantName}.png`);
-
-                if (useSpacesForImages) {
+            await Promise.all(
+                variantNames.map(async (variantName) => {
+                    const localVariantPath = path.join(imageDir, `${variantName}.png`);
                     const spacesKey = `images/${imageConfig.name}/${fileId}/${variantName}.png`;
-                    const uploadResult = await spacesStorage.uploadFile(localVariantPath, spacesKey, 'image/png', {
-                        fileId,
-                        imageType,
-                        variant: variantName,
-                        uploadedAt: new Date().toISOString()
-                    });
+                    const uploadResult = await spacesStorage.uploadFile(localVariantPath, spacesKey, 'image/png');
                     variantStorage[variantName] = {
                         path: spacesKey,
-                        storageType: StorageType.SPACES,
-                        url: uploadResult.url
+                        url: uploadResult.url,
                     };
-                } else {
-                    variantStorage[variantName] = {
-                        path: localVariantPath,
-                        storageType: StorageType.LOCAL
-                    };
-                }
-            }
+                })
+            );
 
             // Start transaction for database operations
             transaction = await cdnSequelize.transaction();
 
             // Create database entry with absolute path within transaction
-            const primaryStorageType = useSpacesForImages ? StorageType.SPACES : StorageType.LOCAL;
             const originalVariant = variantStorage.original;
             await CdnFile.create({
                 id: fileId,
                 type: imageType,
                 filePath: originalVariant?.path || imageDir,
                 metadata: {
-                    storageType: primaryStorageType,
-                    imageStorageType: primaryStorageType,
                     variants: variantStorage,
-                    ...(useSpacesForImages ? {} : { localDirectory: imageDir })
                 }
             }, { transaction });
 
             // Commit the transaction
             await transaction.commit();
-
-            if (shouldCleanupImageDir && imageDir && fs.existsSync(imageDir)) {
-                this.cleanupTempProcessingDirectory(imageDir);
-            }
 
             logger.debug('Image uploaded successfully:', {
                 fileId,
@@ -183,27 +153,6 @@ export class ImageFactory {
                 }
             }
 
-            // Clean up created files if database operation failed
-            if (imageDir && fs.existsSync(imageDir)) {
-                try {
-                    if (shouldCleanupImageDir) {
-                        this.cleanupTempProcessingDirectory(imageDir);
-                    } else {
-                        storageManager.cleanupFiles(imageDir);
-                    }
-                    logger.debug('Cleaned up image directory after failed upload:', {
-                        imageDir,
-                        timestamp: new Date().toISOString()
-                    });
-                } catch (cleanupError) {
-                    logger.error('Failed to clean up image directory after failed upload:', {
-                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-                        imageDir,
-                        timestamp: new Date().toISOString()
-                    });
-                }
-            }
-
             logger.error('Image processing error:', {
                 error: error instanceof Error ? error.message : String(error),
                 filePath,
@@ -228,6 +177,18 @@ export class ImageFactory {
                 'PROCESSING_ERROR',
                 { originalError: error instanceof Error ? error.message : String(error) }
             );
+        } finally {
+            if (imageDir && fs.existsSync(imageDir)) {
+                try {
+                    this.cleanupTempProcessingDirectory(imageDir);
+                } catch (cleanupError) {
+                    logger.error('Failed to clean up temp image processing directory:', {
+                        error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+                        imageDir,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            }
         }
     }
 }
