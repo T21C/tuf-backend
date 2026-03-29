@@ -2,6 +2,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config();
 
+/** Cache-Control for versioned CDN assets (Spaces objects + long-lived static responses). */
+export const CDN_IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable' as const;
+
 if (!process.env.CDN_URL) {
     throw new Error('CDN_URL must be set');
 }
@@ -21,7 +24,7 @@ export const CDN_CONFIG = {
     pack_root: process.env.PACK_CDN_ROOT || path.join(localRoot, 'packs'),
     maxFileSize: 4000 * 1024 * 1024, // 4GB
     maxImageSize: 10 * 1024 * 1024, // 10MB
-    cacheControl: 'public, max-age=604800', // 1 week
+    cacheControl: CDN_IMMUTABLE_CACHE_CONTROL,
     baseUrl: process.env.CDN_URL,
     port: process.env.CDN_PORT || localCdnUrl.split(':')[2]
 } as const;

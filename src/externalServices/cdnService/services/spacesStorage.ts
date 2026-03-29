@@ -1,5 +1,6 @@
 import AWS from 'aws-sdk';
 import { logger } from '@/server/services/LoggerService.js';
+import { CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
@@ -94,7 +95,8 @@ export class CdnSpacesStorage {
         filePath: string,
         key: string,
         contentType?: string,
-        metadata?: Record<string, string>
+        metadata?: Record<string, string>,
+        cacheControl: string = CDN_IMMUTABLE_CACHE_CONTROL
     ): Promise<UploadResult> {
         try {
             const fileStats = await fs.promises.stat(filePath);
@@ -109,6 +111,7 @@ export class CdnSpacesStorage {
                 Key: key,
                 Body: fileStream,
                 ContentType: contentType || this.getContentType(key),
+                CacheControl: cacheControl,
                 Metadata: metadata || {},
                 ACL: 'private' // Keep files private by default
             };
@@ -152,7 +155,8 @@ export class CdnSpacesStorage {
         buffer: Buffer,
         key: string,
         contentType?: string,
-        metadata?: Record<string, string>
+        metadata?: Record<string, string>,
+        cacheControl: string = CDN_IMMUTABLE_CACHE_CONTROL
     ): Promise<UploadResult> {
         try {
             const uploadParams: AWS.S3.PutObjectRequest = {
@@ -160,6 +164,7 @@ export class CdnSpacesStorage {
                 Key: key,
                 Body: buffer,
                 ContentType: contentType || this.getContentType(key),
+                CacheControl: cacheControl,
                 Metadata: metadata || {},
                 ACL: 'private'
             };
