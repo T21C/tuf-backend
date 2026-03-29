@@ -33,4 +33,29 @@ router.post(
   authController.resendVerification
 );
 
+router.post(
+  '/change-email',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postAuthChangeEmail',
+    summary: 'Change account email',
+    description: 'Change authenticated user email and send a new verification email',
+    tags: ['Auth'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'New email',
+      schema: { type: 'object', properties: { email: { type: 'string' } }, required: ['email'] },
+      required: true,
+    },
+    responses: {
+      200: { schema: successMessageSchema },
+      400: { schema: errorResponseSchema },
+      401: { schema: errorResponseSchema },
+      429: { schema: errorResponseSchema },
+      500: { schema: errorResponseSchema },
+    },
+  }),
+  authController.changeEmail
+);
+
 export default router;

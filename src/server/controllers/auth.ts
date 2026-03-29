@@ -18,7 +18,8 @@ import { logger } from '@/server/services/LoggerService.js';
 import CaptchaService from '@/server/services/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
 import { permissionFlags } from '@/config/constants.js';
-import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
+import { hasFlag, setUserPermission, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 // Create a singleton instance of CaptchaService
 const captchaService = new CaptchaService();
@@ -271,6 +272,7 @@ class AuthController {
 
       // Check if already verified
       if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
+        await CacheInvalidation.invalidateUser(user.id);
         return res.status(200).json({message: 'Email already verified'});
       }
 
@@ -282,6 +284,7 @@ class AuthController {
       });
       // Force update ranks
       await PlayerStatsService.getInstance().updateRanks();
+      await CacheInvalidation.invalidateUser(user.id);
 
       return res.json({message: 'Email verified successfully'});
     } catch (error) {
@@ -302,18 +305,20 @@ class AuthController {
   })
   public async resendVerification(req: Request, res: Response): Promise<Response> {
     try {
-      const {email} = req.body;
-
-      if (!email) {
-        return res.status(400).json({message: 'Email is required'});
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({message: 'User not authenticated'});
       }
 
       const user = await User.findOne({
-        where: {email},
+        where: { id: userId },
       });
 
       if (!user) {
         return res.status(404).json({message: 'User not found'});
+      }
+      if (!user.email) {
+        return res.status(400).json({message: 'User does not have an email set'});
       }
 
       if (hasFlag(user, permissionFlags.EMAIL_VERIFIED)) {
@@ -330,7 +335,7 @@ class AuthController {
       });
 
       // Send verification email
-      const emailSent = await emailService.sendVerificationEmail(email, verificationToken);
+      const emailSent = await emailService.sendVerificationEmail(user.email, verificationToken);
 
       if (!emailSent) {
         return res.status(500).json({message: 'Failed to send verification email'});
@@ -342,6 +347,98 @@ class AuthController {
       return res
         .status(500)
         .json({message: 'Failed to resend verification email'});
+    }
+  }
+
+  /**
+   * Change authenticated user's email and re-initiate verification.
+   */
+  @RateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxAttempts: 3,
+    blockDuration: 30 * 60 * 1000, // 30 minutes block
+    type: 'email-change',
+    incrementOnFailure: true,
+    incrementOnSuccess: true,
+  })
+  public async changeEmail(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.id;
+      const nextEmailRaw = req.body?.email;
+      const nextEmail = typeof nextEmailRaw === 'string' ? nextEmailRaw.trim().toLowerCase() : '';
+
+      if (!userId) {
+        return res.status(401).json({ message: 'User not authenticated' });
+      }
+
+      if (!nextEmail) {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(nextEmail)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+
+      const user = await User.findByPk(userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      if (!user.email) {
+        return res.status(400).json({ message: 'User does not have an email set' });
+      }
+
+      if (user.email.toLowerCase() === nextEmail) {
+        return res.status(200).json({
+          message: 'Email is unchanged',
+          user: {
+            id: user.id,
+            email: user.email,
+            isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
+            permissionFlags: user.permissionFlags.toString(),
+          }
+        });
+      }
+
+      const existingUser = await User.findOne({
+        where: {
+          email: nextEmail,
+          id: { [Op.ne]: userId }
+        }
+      });
+      if (existingUser) {
+        return res.status(400).json({ message: 'Email already registered' });
+      }
+
+      const verificationToken = tokenUtils.generateRandomToken();
+      const nextPermissionFlags = setUserPermission(user, permissionFlags.EMAIL_VERIFIED, false);
+
+      await user.update({
+        email: nextEmail,
+        passwordResetToken: verificationToken,
+        passwordResetExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        permissionFlags: nextPermissionFlags,
+        permissionVersion: (user.permissionVersion || 0) + 1,
+      });
+      await CacheInvalidation.invalidateUser(userId);
+
+      const emailSent = await emailService.sendVerificationEmail(nextEmail, verificationToken);
+      if (!emailSent) {
+        return res.status(500).json({ message: 'Failed to send verification email' });
+      }
+
+      return res.status(200).json({
+        message: 'Email changed. Please verify your new email address.',
+        user: {
+          id: user.id,
+          email: nextEmail,
+          isEmailVerified: false,
+          permissionFlags: nextPermissionFlags.toString(),
+        }
+      });
+    } catch (error) {
+      logger.error('Change email error:', error);
+      return res.status(500).json({ message: 'Failed to change email' });
     }
   }
 
