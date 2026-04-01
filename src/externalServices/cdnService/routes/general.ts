@@ -99,8 +99,9 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
                 url: presignedUrl
             });
 
-            // Redirect to the presigned URL
-            res.redirect(302, presignedUrl);
+            // Cache the redirect itself aggressively since the target URL is immutable.
+            res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+            res.redirect(301, presignedUrl);
             return;
         } catch (error) {
             logger.error('Zip file access error:', {
@@ -200,7 +201,9 @@ router.get('/:fileId', async (req: Request, res: Response) => {
                     return res.status(404).json({ error: 'File not found' });
                 }
                 const url = await spacesStorage.getPresignedUrl(originalVariant.path);
-                return res.redirect(302, url);
+                // Cache the redirect itself aggressively since the target URL is immutable.
+                res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+                return res.redirect(301, url);
             }
         }
 

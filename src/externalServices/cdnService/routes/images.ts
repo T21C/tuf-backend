@@ -51,7 +51,9 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
 
             if (fileExists) {
                 const url = await spacesStorage.getPresignedUrl(variantRef.path);
-                return res.redirect(302, url);
+                // Cache the redirect itself aggressively since the target URL is immutable.
+                res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);
+                return res.redirect(301, url);
             }
 
             res.setHeader('Content-Type', MIME_TYPES[file.type as ImageType]);

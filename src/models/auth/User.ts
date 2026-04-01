@@ -25,6 +25,9 @@ export interface UserAttributes {
   avatarUrl?: string | null;
   permissionFlags: bigint | number;
   permissionVersion: number;
+  deletionScheduledAt?: Date | null;
+  deletionExecuteAt?: Date | null;
+  deletionSnapshotPermissionFlags?: bigint | number | null;
   lastUsernameChange?: Date | null;
   previousUsername?: string | null;
   createdAt: Date;
@@ -54,6 +57,9 @@ class User extends Model<UserAttributes> implements UserAttributes {
   declare avatarUrl?: string | null;
   declare permissionFlags: bigint | number;
   declare permissionVersion: number;
+  declare deletionScheduledAt?: Date | null;
+  declare deletionExecuteAt?: Date | null;
+  declare deletionSnapshotPermissionFlags?: bigint | number | null;
   declare lastUsernameChange?: Date | null;
   declare previousUsername?: string | null;
   declare createdAt: Date;
@@ -163,6 +169,21 @@ User.init(
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 1,
+    },
+    deletionScheduledAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    deletionExecuteAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    deletionSnapshotPermissionFlags: {
+      type: DataTypes.BIGINT,
+      allowNull: true,
+      defaultValue: null,
     },
     lastUsernameChange: {
       type: DataTypes.DATE,

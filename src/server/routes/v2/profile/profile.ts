@@ -17,9 +17,11 @@ import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
+import { AccountDeletionService } from '@/server/services/AccountDeletionService.js';
 
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
+const accountDeletionService = AccountDeletionService.getInstance();
 
 const usernameChangeCooldown = 1 * 24 * 60 * 60 * 1000; // 1 day
 
@@ -112,6 +114,8 @@ router.get(
         player,
         lastUsernameChange: user.lastUsernameChange,
         previousUsername: user.previousUsername,
+        deletionScheduledAt: user.deletionScheduledAt ?? null,
+        deletionExecuteAt: user.deletionExecuteAt ?? null,
         providers: providers.map((p: OAuthProvider) => ({
           name: p.provider,
           profile: p.profile,
@@ -553,6 +557,89 @@ router.delete(
         return res.status(500).json({error: 'Failed to remove avatar'});
     }
   }
+);
+
+// Schedule account deletion (3-day grace period)
+router.post(
+  '/me/delete',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postProfileDeleteMe',
+    summary: 'Schedule account deletion',
+    description:
+      'Schedules account deletion with a 3-day grace period. Immediately hides the player from the leaderboard.',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {
+        description: 'Deletion scheduled',
+        schema: {
+          type: 'object',
+          properties: {
+            message: { type: 'string' },
+            deletionScheduledAt: { type: 'string' },
+            deletionExecuteAt: { type: 'string' },
+          },
+        },
+      },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) return res.status(401).json({ error: 'User not authenticated' });
+
+      const { deletionScheduledAt, deletionExecuteAt } =
+        await accountDeletionService.scheduleDeletion(user.id);
+
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({
+        message: 'Account deletion scheduled',
+        deletionScheduledAt: deletionScheduledAt.toISOString(),
+        deletionExecuteAt: deletionExecuteAt.toISOString(),
+      });
+    } catch (error) {
+      logger.error('Error scheduling account deletion:', error);
+      return res.status(500).json({ error: 'Failed to schedule account deletion' });
+    }
+  },
+);
+
+// Cancel scheduled account deletion
+router.post(
+  '/me/delete/cancel',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'postProfileCancelDeleteMe',
+    summary: 'Cancel account deletion',
+    description:
+      'Cancels a scheduled account deletion and restores permission flags and leaderboard ban state safely.',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Deletion canceled', schema: successMessageSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user) return res.status(401).json({ error: 'User not authenticated' });
+
+      await accountDeletionService.cancelDeletion(user.id);
+
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ message: 'Account deletion canceled' });
+    } catch (error) {
+      logger.error('Error canceling account deletion:', error);
+      return res.status(500).json({ error: 'Failed to cancel account deletion' });
+    }
+  },
 );
 
 export default router;

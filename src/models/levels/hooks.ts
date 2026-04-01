@@ -44,6 +44,16 @@ const invalidateLevelsCache = async (levelIds: number[]): Promise<void> => {
   }
 };
 
+/** Level detail + pass search/list caches (pass routes tag `Passes`). */
+const invalidateLevelCacheAndPassListings = async (levelId: number): Promise<void> => {
+  try {
+    await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all', 'Passes']);
+    logger.debug(`Cache invalidated for level ${levelId} (including pass listings)`);
+  } catch (error) {
+    logger.error(`Error invalidating level/pass cache for level ${levelId}:`, error);
+  }
+};
+
 /**
  * Get all level IDs that use a specific song
  */
@@ -159,24 +169,24 @@ export function initializeLevelCacheHooks(): void {
     }
   });
 
-  // Pass hooks - invalidate cache when passes are created/updated/deleted (affects level display)
+  // Pass hooks - invalidate cache when passes are created/updated/deleted (affects level display + pass search)
   Pass.addHook('afterCreate', 'cacheInvalidationPassCreate', async (pass: Pass, options: any) => {
     if (options.transaction) {
       await options.transaction.afterCommit(async () => {
-        if (pass.levelId) await invalidateLevelCache(pass.levelId);
+        if (pass.levelId) await invalidateLevelCacheAndPassListings(pass.levelId);
       });
     } else {
-      if (pass.levelId) await invalidateLevelCache(pass.levelId);
+      if (pass.levelId) await invalidateLevelCacheAndPassListings(pass.levelId);
     }
   });
 
   Pass.addHook('afterUpdate', 'cacheInvalidationPassUpdate', async (pass: Pass, options: any) => {
     if (options.transaction) {
       await options.transaction.afterCommit(async () => {
-        if (pass.levelId) await invalidateLevelCache(pass.levelId);
+        if (pass.levelId) await invalidateLevelCacheAndPassListings(pass.levelId);
       });
     } else {
-      if (pass.levelId) await invalidateLevelCache(pass.levelId);
+      if (pass.levelId) await invalidateLevelCacheAndPassListings(pass.levelId);
     }
   });
 
@@ -184,10 +194,10 @@ export function initializeLevelCacheHooks(): void {
     const levelId = pass.levelId;
     if (options.transaction) {
       await options.transaction.afterCommit(async () => {
-        if (levelId) await invalidateLevelCache(levelId);
+        if (levelId) await invalidateLevelCacheAndPassListings(levelId);
       });
     } else {
-      if (levelId) await invalidateLevelCache(levelId);
+      if (levelId) await invalidateLevelCacheAndPassListings(levelId);
     }
   });
 

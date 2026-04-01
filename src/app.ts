@@ -197,6 +197,10 @@ export async function startServer() {
     const { RefreshTokenCleanupService } = await import('@/server/services/RefreshTokenCleanupService.js');
     RefreshTokenCleanupService.getInstance();
 
+    // Start account deletion cleanup job (scheduled hard-deletes after grace period)
+    const { AccountDeletionCleanupService } = await import('@/server/services/AccountDeletionCleanupService.js');
+    AccountDeletionCleanupService.getInstance();
+
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
 

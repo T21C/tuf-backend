@@ -210,6 +210,7 @@ class ElasticsearchService {
   private setupChangeListeners() {
     // Remove existing hooks first to prevent duplicates
     Pass.removeHook('beforeSave', 'elasticsearchPassUpdate');
+    Pass.removeHook('afterDestroy', 'elasticsearchPassDestroy');
     LevelLikes.removeHook('beforeSave', 'elasticsearchLevelLikesUpdate');
     Level.removeHook('beforeSave', 'elasticsearchLevelUpdate');
     Pass.removeHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate');
@@ -234,6 +235,24 @@ class ElasticsearchService {
     SongCredit.removeHook('afterSave', 'elasticsearchSongCreditUpdate');
     SongCredit.removeHook('afterCreate', 'elasticsearchSongCreditCreate');
     SongCredit.removeHook('afterDestroy', 'elasticsearchSongCreditDestroy');
+
+    Pass.addHook('afterDestroy', 'elasticsearchPassDestroy', async (pass: Pass, options: any) => {
+      try {
+        const run = async () => {
+          await this.deletePassDocumentById(pass.id);
+          if (pass.levelId) {
+            await this.indexLevel(pass.levelId);
+          }
+        };
+        if (options.transaction) {
+          await options.transaction.afterCommit(run);
+        } else {
+          await run();
+        }
+      } catch (error) {
+        logger.error(`Error in elasticsearch pass afterDestroy for pass ${pass.id}:`, error);
+      }
+    });
 
     // Add hooks with unique names
     Pass.addHook('beforeSave', 'elasticsearchPassUpdate', async (pass: Pass, options: any) => {
@@ -1317,13 +1336,46 @@ class ElasticsearchService {
   }
 
   public async deletePass(pass: Pass): Promise<void> {
+    await this.deletePassDocumentById(pass.id);
+  }
+
+  /**
+   * Remove a pass document from the passes index (e.g. after destroy or DB CASCADE where hooks do not run).
+   */
+  public async deletePassDocumentById(passId: number): Promise<void> {
     try {
       await client.delete({
         index: passIndexName,
-        id: pass.id.toString()
+        id: passId.toString(),
       });
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) {
+        return;
+      }
+      logger.error(`Error deleting pass ${passId} from index:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Bulk-delete pass documents (used when many passes are removed without per-row Sequelize hooks).
+   */
+  public async bulkDeletePassDocumentsFromIndex(passIds: number[]): Promise<void> {
+    if (passIds.length === 0) return;
+    try {
+      for (let i = 0; i < passIds.length; i += BATCH_SIZE) {
+        const batch = passIds.slice(i, i + BATCH_SIZE);
+        const operations = batch.flatMap((id) => [
+          { delete: { _index: passIndexName, _id: String(id) } },
+        ]);
+        if (operations.length > 0) {
+          await client.bulk({ operations, refresh: false });
+        }
+      }
+      logger.debug(`Removed ${passIds.length} pass documents from Elasticsearch`);
     } catch (error) {
-      logger.error(`Error deleting pass ${pass.id} from index:`, error);
+      logger.error('Error bulk deleting passes from index:', error);
       throw error;
     }
   }
