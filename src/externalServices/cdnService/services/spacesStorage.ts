@@ -1,108 +1,13 @@
 import AWS from 'aws-sdk';
 import { logger } from '@/server/services/LoggerService.js';
 import { CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
+import { requireCdnR2StorageConfig } from '@/externalServices/cdnService/services/r2Client.js';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
 
 dotenv.config();
-
-interface SpacesConfig {
-    accessKeyId: string;
-    secretAccessKey: string;
-    endpoint: string;
-    cdnEndpoint: string;
-    region: string;
-    bucket: string;
-}
-
-/** Cloudflare R2 (S3 API). */
-interface R2Config {
-    accessKeyId: string;
-    secretAccessKey: string;
-    endpoint: string;
-    bucket: string;
-}
-
-function envFlagTrue(raw: string | undefined): boolean {
-    const v = String(raw ?? '').trim().toLowerCase();
-    return v === '1' || v === 'true' || v === 'yes';
-}
-
-function normalizeCdnBase(url: string): string {
-    return url.trim().replace(/\/+$/, '');
-}
-
-// --- DigitalOcean Spaces env (remove after R2 cutover) ---
-function loadDigitalOceanConfig(): SpacesConfig | null {
-    const accessKeyId = process.env.DIGITAL_OCEAN_KEY;
-    const secretAccessKey = process.env.DIGITAL_OCEAN_SECRET;
-    const region = process.env.DIGITAL_OCEAN_REGION || 'sgp1';
-    const bucket = process.env.DIGITAL_OCEAN_BUCKET;
-    const cdnEndpoint = process.env.DIGITAL_OCEAN_CDN_ENDPOINT;
-
-    if (!accessKeyId || !secretAccessKey || !bucket || !cdnEndpoint) {
-        return null;
-    }
-
-    return {
-        accessKeyId,
-        secretAccessKey,
-        endpoint: `https://${region}.digitaloceanspaces.com`,
-        cdnEndpoint,
-        region,
-        bucket
-    };
-}
-
-function loadR2Config(): R2Config | null {
-    const accessKeyId = process.env.CF_ACCESS_KEY;
-    const secretAccessKey = process.env.CF_SECRET_KEY;
-    const bucket = process.env.CF_BUCKET;
-    const endpointFromEnv = process.env.CF_R2_S3_ENDPOINT?.trim();
-    const accountId = process.env.CF_ACCOUNT_ID?.trim();
-
-    let endpoint: string | undefined;
-    if (endpointFromEnv) {
-        endpoint = endpointFromEnv.replace(/\/+$/, '');
-    } else if (accountId) {
-        endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
-    }
-
-    if (!accessKeyId || !secretAccessKey || !bucket || !endpoint) {
-        return null;
-    }
-
-    return {
-        accessKeyId,
-        secretAccessKey,
-        endpoint,
-        bucket
-    };
-}
-
-function createDoS3Client(cfg: SpacesConfig): AWS.S3 {
-    return new AWS.S3({
-        accessKeyId: cfg.accessKeyId,
-        secretAccessKey: cfg.secretAccessKey,
-        endpoint: cfg.endpoint,
-        region: cfg.region,
-        s3ForcePathStyle: true,
-        signatureVersion: 'v4'
-    });
-}
-
-function createR2S3Client(cfg: R2Config): AWS.S3 {
-    return new AWS.S3({
-        accessKeyId: cfg.accessKeyId,
-        secretAccessKey: cfg.secretAccessKey,
-        endpoint: cfg.endpoint,
-        region: 'auto',
-        s3ForcePathStyle: true,
-        signatureVersion: 'v4'
-    });
-}
 
 interface UploadResult {
     key: string;
@@ -119,95 +24,24 @@ interface SpacesFile {
     url: string;
 }
 
-/**
- * Object storage facade: DigitalOcean Spaces and/or Cloudflare R2 (S3 API).
- * When STORAGE_DUAL_WRITE=true, writes go to both; reads use DO until R2-only mode.
- */
+/** Cloudflare R2 (S3 API) for CDN objects: uploads, deletes, public URLs. */
 export class CdnSpacesStorage {
     private static instance: CdnSpacesStorage;
 
-    /** Head/get/list/download — DO while dual-write; R2 when R2-only. */
-    private s3Read: AWS.S3;
-    private readBucket: string;
+    private s3: AWS.S3;
+    private bucket: string;
     private publicCdnBase: string;
-    private dualWrite: boolean;
-
-    // --- DigitalOcean (remove after R2 cutover) ---
-    private s3Do: AWS.S3 | null = null;
-    private doBucket: string | null = null;
-
-    // --- R2 ---
-    private s3R2: AWS.S3 | null = null;
-    private r2Bucket: string | null = null;
 
     constructor() {
-        const dualWrite = envFlagTrue(process.env.STORAGE_DUAL_WRITE);
-        const doCfg = loadDigitalOceanConfig();
-        const r2Cfg = loadR2Config();
-        const publicOverride = process.env.STORAGE_PUBLIC_CDN_BASE?.trim();
+        const cfg = requireCdnR2StorageConfig();
+        this.s3 = cfg.s3;
+        this.bucket = cfg.bucket;
+        this.publicCdnBase = cfg.publicCdnBase;
 
-        if (dualWrite) {
-            if (!doCfg || !r2Cfg) {
-                throw new Error(
-                    'STORAGE_DUAL_WRITE requires both DigitalOcean (DIGITAL_OCEAN_KEY, DIGITAL_OCEAN_SECRET, DIGITAL_OCEAN_BUCKET, DIGITAL_OCEAN_CDN_ENDPOINT) and R2 (CF_ACCESS_KEY, CF_SECRET_KEY, CF_BUCKET, CF_ACCOUNT_ID or CF_R2_S3_ENDPOINT)'
-                );
-            }
-            this.dualWrite = true;
-            this.s3Do = createDoS3Client(doCfg);
-            this.doBucket = doCfg.bucket;
-            this.s3R2 = createR2S3Client(r2Cfg);
-            this.r2Bucket = r2Cfg.bucket;
-            this.s3Read = this.s3Do;
-            this.readBucket = doCfg.bucket;
-            this.publicCdnBase = normalizeCdnBase(publicOverride || doCfg.cdnEndpoint);
-
-            logger.info('Object storage: dual-write DO + R2', {
-                doEndpoint: doCfg.endpoint,
-                doBucket: doCfg.bucket,
-                r2Endpoint: r2Cfg.endpoint,
-                r2Bucket: r2Cfg.bucket,
-                publicCdnBase: this.publicCdnBase
-            });
-            return;
-        }
-
-        if (doCfg) {
-            this.dualWrite = false;
-            this.s3Do = createDoS3Client(doCfg);
-            this.s3Read = this.s3Do;
-            this.readBucket = doCfg.bucket;
-            this.publicCdnBase = normalizeCdnBase(publicOverride || doCfg.cdnEndpoint);
-            logger.info('DigitalOcean Spaces S3 client initialized', {
-                endpoint: doCfg.endpoint,
-                region: doCfg.region,
-                bucket: doCfg.bucket
-            });
-            return;
-        }
-
-        if (r2Cfg) {
-            if (!publicOverride) {
-                throw new Error(
-                    'R2-only mode requires STORAGE_PUBLIC_CDN_BASE (and CF_ACCESS_KEY, CF_SECRET_KEY, CF_BUCKET, CF_ACCOUNT_ID or CF_R2_S3_ENDPOINT)'
-                );
-            }
-            this.dualWrite = false;
-            this.s3R2 = createR2S3Client(r2Cfg);
-            this.s3Read = this.s3R2;
-            this.readBucket = r2Cfg.bucket;
-            this.publicCdnBase = normalizeCdnBase(publicOverride);
-
-            logger.info('Object storage: R2 only', {
-                endpoint: r2Cfg.endpoint,
-                bucket: r2Cfg.bucket,
-                publicCdnBase: this.publicCdnBase
-            });
-            return;
-        }
-
-        throw new Error(
-            'Missing object storage config: set DigitalOcean (DIGITAL_OCEAN_KEY, DIGITAL_OCEAN_SECRET, DIGITAL_OCEAN_BUCKET, DIGITAL_OCEAN_CDN_ENDPOINT) and/or R2 with STORAGE_DUAL_WRITE=true, or R2-only with STORAGE_PUBLIC_CDN_BASE'
-        );
+        logger.info('R2 object storage initialized', {
+            bucket: this.bucket,
+            publicCdnBase: this.publicCdnBase
+        });
     }
 
     public static getInstance(): CdnSpacesStorage {
@@ -217,33 +51,14 @@ export class CdnSpacesStorage {
         return CdnSpacesStorage.instance;
     }
 
-    private async putObjectDo(
-        params: Omit<AWS.S3.PutObjectRequest, 'Bucket'>
-    ): Promise<AWS.S3.ManagedUpload.SendData> {
-        if (!this.s3Do || !this.doBucket) {
-            throw new Error('DigitalOcean S3 client not configured');
-        }
-        return this.s3Do.upload({ ...params, Bucket: this.doBucket }).promise();
-    }
-
-    /** R2: no ACL (not supported like DO). */
-    private async putObjectR2(
+    private async putObject(
         params: Omit<AWS.S3.PutObjectRequest, 'Bucket' | 'ACL'>
     ): Promise<AWS.S3.ManagedUpload.SendData> {
-        if (!this.s3R2 || !this.r2Bucket) {
-            throw new Error('R2 S3 client not configured');
-        }
-        return this.s3R2.upload({ ...params, Bucket: this.r2Bucket }).promise();
-    }
-
-    private async putObjectPrimary(
-        params: Omit<AWS.S3.PutObjectRequest, 'Bucket'>
-    ): Promise<AWS.S3.ManagedUpload.SendData> {
-        return this.s3Read.upload({ ...params, Bucket: this.readBucket }).promise();
+        return this.s3.upload({ ...params, Bucket: this.bucket }).promise();
     }
 
     /**
-     * Upload a file to object storage (dual-write to DO + R2 when enabled).
+     * Upload a file to R2 (streaming).
      */
     public async uploadFile(
         filePath: string,
@@ -264,47 +79,17 @@ export class CdnSpacesStorage {
                 key,
                 size: fileStats.size,
                 contentType: resolvedContentType,
-                dualWrite: this.dualWrite,
-                readBucket: this.readBucket
+                bucket: this.bucket
             });
 
-            let result: AWS.S3.ManagedUpload.SendData;
-
-            if (this.dualWrite && this.s3Do && this.s3R2) {
-                const streamDo = fs.createReadStream(filePath);
-                const streamR2 = fs.createReadStream(filePath);
-                const [doResult] = await Promise.all([
-                    this.putObjectDo({
-                        Key: key,
-                        Body: streamDo,
-                        ContentType: resolvedContentType,
-                        CacheControl: cacheControl,
-                        Metadata: meta,
-                        ACL: 'private'
-                    }),
-                    this.putObjectR2({
-                        Key: key,
-                        Body: streamR2,
-                        ContentType: resolvedContentType,
-                        CacheControl: cacheControl,
-                        Metadata: meta
-                    })
-                ]);
-                result = doResult;
-            } else {
-                const fileStream = fs.createReadStream(filePath);
-                const uploadParams: Omit<AWS.S3.PutObjectRequest, 'Bucket'> = {
-                    Key: key,
-                    Body: fileStream,
-                    ContentType: resolvedContentType,
-                    CacheControl: cacheControl,
-                    Metadata: meta
-                };
-                if (this.s3Do !== null && this.s3Read === this.s3Do) {
-                    uploadParams.ACL = 'private';
-                }
-                result = await this.putObjectPrimary(uploadParams);
-            }
+            const fileStream = fs.createReadStream(filePath);
+            const result = await this.putObject({
+                Key: key,
+                Body: fileStream,
+                ContentType: resolvedContentType,
+                CacheControl: cacheControl,
+                Metadata: meta
+            });
 
             logger.debug('File uploaded successfully', {
                 key,
@@ -330,7 +115,7 @@ export class CdnSpacesStorage {
     }
 
     /**
-     * Upload a buffer directly to object storage (dual-write when enabled).
+     * Upload a buffer directly to R2.
      */
     public async uploadBuffer(
         buffer: Buffer,
@@ -346,44 +131,16 @@ export class CdnSpacesStorage {
             logger.debug('Uploading buffer', {
                 key,
                 size: buffer.length,
-                contentType: resolvedContentType,
-                dualWrite: this.dualWrite
+                contentType: resolvedContentType
             });
 
-            let result: AWS.S3.ManagedUpload.SendData;
-
-            if (this.dualWrite && this.s3Do && this.s3R2) {
-                const [doResult] = await Promise.all([
-                    this.putObjectDo({
-                        Key: key,
-                        Body: buffer,
-                        ContentType: resolvedContentType,
-                        CacheControl: cacheControl,
-                        Metadata: meta,
-                        ACL: 'private'
-                    }),
-                    this.putObjectR2({
-                        Key: key,
-                        Body: buffer,
-                        ContentType: resolvedContentType,
-                        CacheControl: cacheControl,
-                        Metadata: meta
-                    })
-                ]);
-                result = doResult;
-            } else {
-                const uploadParams: Omit<AWS.S3.PutObjectRequest, 'Bucket'> = {
-                    Key: key,
-                    Body: buffer,
-                    ContentType: resolvedContentType,
-                    CacheControl: cacheControl,
-                    Metadata: meta
-                };
-                if (this.s3Do !== null && this.s3Read === this.s3Do) {
-                    uploadParams.ACL = 'private';
-                }
-                result = await this.putObjectPrimary(uploadParams);
-            }
+            const result = await this.putObject({
+                Key: key,
+                Body: buffer,
+                ContentType: resolvedContentType,
+                CacheControl: cacheControl,
+                Metadata: meta
+            });
 
             logger.debug('Buffer uploaded successfully', {
                 key,
@@ -414,13 +171,13 @@ export class CdnSpacesStorage {
     public async downloadFile(key: string, localPath?: string): Promise<Buffer> {
         try {
             const downloadParams: AWS.S3.GetObjectRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Key: key
             };
 
-            logger.debug('Downloading file from Spaces', { key, bucket: this.readBucket });
+            logger.debug('Downloading file from Spaces', { key, bucket: this.bucket });
 
-            const result = await this.s3Read.getObject(downloadParams).promise();
+            const result = await this.s3.getObject(downloadParams).promise();
 
             if (!result.Body) {
                 throw new Error('No file content received from Spaces');
@@ -454,13 +211,13 @@ export class CdnSpacesStorage {
         await fs.promises.mkdir(path.dirname(localPath), { recursive: true });
 
         const params: AWS.S3.GetObjectRequest = {
-            Bucket: this.readBucket,
+            Bucket: this.bucket,
             Key: key
         };
 
-        logger.debug('Downloading file from Spaces (streaming)', { key, localPath, bucket: this.readBucket });
+        logger.debug('Downloading file from Spaces (streaming)', { key, localPath, bucket: this.bucket });
 
-        const stream = this.s3Read.getObject(params).createReadStream();
+        const stream = this.s3.getObject(params).createReadStream();
         const writeStream = fs.createWriteStream(localPath);
 
         return new Promise<void>((resolve, reject) => {
@@ -497,19 +254,13 @@ export class CdnSpacesStorage {
         try {
             const normalizedKey = this.assertSafeDeleteKey(key);
             const deleteParams: AWS.S3.DeleteObjectRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Key: normalizedKey
             };
 
-            logger.debug('Deleting file from object storage', { key: normalizedKey, bucket: this.readBucket });
+            logger.debug('Deleting file from object storage', { key: normalizedKey, bucket: this.bucket });
 
-            await this.s3Read.deleteObject(deleteParams).promise();
-
-            if (this.dualWrite && this.s3R2 && this.r2Bucket) {
-                await this.s3R2
-                    .deleteObject({ Bucket: this.r2Bucket, Key: normalizedKey })
-                    .promise();
-            }
+            await this.s3.deleteObject(deleteParams).promise();
 
             logger.debug('File deleted successfully', { key: normalizedKey });
         } catch (error) {
@@ -530,7 +281,7 @@ export class CdnSpacesStorage {
         try {
             const normalizedKeys = keys.map((key) => this.assertSafeDeleteKey(key));
             const deleteParams: AWS.S3.DeleteObjectsRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Delete: {
                     Objects: normalizedKeys.map(key => ({ Key: key }))
                 }
@@ -539,32 +290,16 @@ export class CdnSpacesStorage {
             logger.debug('Deleting multiple files from Spaces', {
                 count: normalizedKeys.length,
                 keys: normalizedKeys.slice(0, 5), // Log first 5 keys
-                bucket: this.readBucket
+                bucket: this.bucket
             });
 
-            const result = await this.s3Read.deleteObjects(deleteParams).promise();
+            const result = await this.s3.deleteObjects(deleteParams).promise();
 
             if (result.Errors && result.Errors.length > 0) {
-                logger.warn('Some files failed to delete from primary bucket', {
+                logger.warn('Some files failed to delete from bucket', {
                     errors: result.Errors,
                     deletedCount: result.Deleted?.length || 0
                 });
-            }
-
-            if (this.dualWrite && this.s3R2 && this.r2Bucket) {
-                const r2DeleteParams: AWS.S3.DeleteObjectsRequest = {
-                    Bucket: this.r2Bucket,
-                    Delete: {
-                        Objects: normalizedKeys.map((k) => ({ Key: k }))
-                    }
-                };
-                const r2Result = await this.s3R2.deleteObjects(r2DeleteParams).promise();
-                if (r2Result.Errors && r2Result.Errors.length > 0) {
-                    logger.warn('Some files failed to delete from R2', {
-                        errors: r2Result.Errors,
-                        deletedCount: r2Result.Deleted?.length || 0
-                    });
-                }
             }
 
             logger.debug('Files deleted from object storage', {
@@ -614,14 +349,14 @@ export class CdnSpacesStorage {
     public async listFiles(prefix: string, maxKeys = 1000): Promise<SpacesFile[]> {
         try {
             const listParams: AWS.S3.ListObjectsV2Request = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Prefix: prefix,
                 MaxKeys: maxKeys
             };
 
-            logger.debug('Listing files in Spaces', { prefix, maxKeys, bucket: this.readBucket });
+            logger.debug('Listing files in Spaces', { prefix, maxKeys, bucket: this.bucket });
 
-            const result = await this.s3Read.listObjectsV2(listParams).promise();
+            const result = await this.s3.listObjectsV2(listParams).promise();
 
             const files: SpacesFile[] = (result.Contents || []).map(obj => ({
                 key: obj.Key || '',
@@ -648,16 +383,42 @@ export class CdnSpacesStorage {
     }
 
     /**
+     * Paginate ListObjectsV2 and yield every object key (optional prefix). For maintenance scripts.
+     */
+    public async *iterateObjectKeys(prefix = ''): AsyncGenerator<string, void, undefined> {
+        let continuationToken: string | undefined;
+        do {
+            const params: AWS.S3.ListObjectsV2Request = {
+                Bucket: this.bucket,
+                Prefix: prefix,
+                MaxKeys: 1000,
+            };
+            if (continuationToken) {
+                params.ContinuationToken = continuationToken;
+            }
+            const result = await this.s3.listObjectsV2(params).promise();
+            for (const obj of result.Contents ?? []) {
+                if (obj.Key) {
+                    yield obj.Key;
+                }
+            }
+            continuationToken = result.IsTruncated
+                ? result.NextContinuationToken ?? undefined
+                : undefined;
+        } while (continuationToken);
+    }
+
+    /**
      * Check if a file exists in Spaces
      */
     public async fileExists(key: string): Promise<boolean> {
         try {
             const headParams: AWS.S3.HeadObjectRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Key: key
             };
 
-            await this.s3Read.headObject(headParams).promise();
+            await this.s3.headObject(headParams).promise();
             return true;
         } catch (error) {
             if ((error as any).statusCode === 404) {
@@ -677,11 +438,11 @@ export class CdnSpacesStorage {
     public async getFileMetadata(key: string): Promise<AWS.S3.HeadObjectOutput | null> {
         try {
             const headParams: AWS.S3.HeadObjectRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Key: key
             };
 
-            const result = await this.s3Read.headObject(headParams).promise();
+            const result = await this.s3.headObject(headParams).promise();
             return result;
         } catch (error) {
             if ((error as any).statusCode === 404) {
@@ -701,11 +462,11 @@ export class CdnSpacesStorage {
     public async getFileStream(key: string): Promise<NodeJS.ReadableStream> {
         try {
             const params: AWS.S3.GetObjectRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Key: key
             };
 
-            const response = await this.s3Read.getObject(params).promise();
+            const response = await this.s3.getObject(params).promise();
 
             if (!response.Body) {
                 throw new Error('No body in response');
@@ -737,12 +498,12 @@ export class CdnSpacesStorage {
     public async getFileStreamWithRange(key: string, start: number, end: number): Promise<NodeJS.ReadableStream> {
         try {
             const params: AWS.S3.GetObjectRequest = {
-                Bucket: this.readBucket,
+                Bucket: this.bucket,
                 Key: key,
                 Range: `bytes=${start}-${end}`
             };
 
-            const response = await this.s3Read.getObject(params).promise();
+            const response = await this.s3.getObject(params).promise();
 
             if (!response.Body) {
                 throw new Error('No body in response');

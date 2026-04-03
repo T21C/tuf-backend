@@ -1,9 +1,9 @@
 /**
- * List objects under a Spaces prefix and copy each object onto itself with MetadataDirective REPLACE,
+ * List objects under an R2 prefix and copy each object onto itself with MetadataDirective REPLACE,
  * preserving Content-Type, Content-* headers, and user Metadata from headObject; only Cache-Control changes.
  *
- * Requires in .env (same as CDN Spaces): DIGITAL_OCEAN_KEY, DIGITAL_OCEAN_SECRET, DIGITAL_OCEAN_BUCKET
- * Optional: DIGITAL_OCEAN_REGION (default sgp1), SPACES_CACHE_CONTROL, SPACES_CONCURRENCY (default 8)
+ * Requires in .env: CF_ACCESS_KEY, CF_SECRET_KEY, CF_BUCKET, CF_ACCOUNT_ID or CF_R2_S3_ENDPOINT
+ * Optional: SPACES_CACHE_CONTROL, SPACES_CONCURRENCY (default 8)
  *
  * Usage (from server/):
  *   npx tsx src/misc/scripts/spacesRefreshCacheControl.ts images/curation_icon/
@@ -14,6 +14,10 @@
 
 import AWS from 'aws-sdk';
 import dotenv from 'dotenv';
+import {
+    createR2S3,
+    loadR2CredentialsAndEndpoint
+} from '@/externalServices/cdnService/services/r2Client.js';
 
 dotenv.config();
 
@@ -74,28 +78,16 @@ function parseArgs(argv: string[]): {
 }
 
 function loadClient(): { s3: AWS.S3; bucket: string } {
-    const accessKeyId = process.env.DIGITAL_OCEAN_KEY;
-    const secretAccessKey = process.env.DIGITAL_OCEAN_SECRET;
-    const region = process.env.DIGITAL_OCEAN_REGION || 'sgp1';
-    const bucket = process.env.DIGITAL_OCEAN_BUCKET;
+    const creds = loadR2CredentialsAndEndpoint();
+    const bucket = process.env.CF_BUCKET?.trim();
 
-    if (!accessKeyId || !secretAccessKey || !bucket) {
+    if (!creds || !bucket) {
         throw new Error(
-            'Missing DIGITAL_OCEAN_KEY, DIGITAL_OCEAN_SECRET, or DIGITAL_OCEAN_BUCKET in environment / .env'
+            'Missing CF_ACCESS_KEY, CF_SECRET_KEY, CF_BUCKET, and CF_ACCOUNT_ID or CF_R2_S3_ENDPOINT in environment / .env'
         );
     }
 
-    const endpoint = `https://${region}.digitaloceanspaces.com`;
-    const s3 = new AWS.S3({
-        accessKeyId,
-        secretAccessKey,
-        endpoint,
-        region,
-        s3ForcePathStyle: true,
-        signatureVersion: 'v4'
-    });
-
-    return { s3, bucket };
+    return { s3: createR2S3(creds), bucket };
 }
 
 /** S3 CopySource: bucket + URL-encoded full key (slashes in key become %2F). */

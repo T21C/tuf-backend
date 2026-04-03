@@ -201,6 +201,9 @@ export async function startServer() {
     const { AccountDeletionCleanupService } = await import('@/server/services/AccountDeletionCleanupService.js');
     AccountDeletionCleanupService.getInstance();
 
+    const { AuditLogService } = await import('@/server/services/AuditLogService.js');
+    AuditLogService.startScheduledRetention();
+
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
 

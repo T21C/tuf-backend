@@ -10,6 +10,7 @@ import config from '@/config/backup.config.js';
 import dotenv from 'dotenv';
 import { logger } from './LoggerService.js';
 import ElasticsearchService from './ElasticsearchService.js';
+import { requireBackupR2Config } from '@/externalServices/cdnService/services/r2Client.js';
 dotenv.config();
 
 const DATABASE_NAME =
@@ -36,61 +37,22 @@ export class BackupService {
   constructor() {
     this.config = config;
     this.isWindows = process.env.OS === 'Windows_NT';
-    const backupEnv = this.loadBackupEnvConfig();
+    const backupEnv = requireBackupR2Config();
     this.backupBucket = backupEnv.bucket;
-    this.backupRegion = backupEnv.region;
-    this.backupS3 = new AWS.S3({
-      accessKeyId: backupEnv.accessKeyId,
-      secretAccessKey: backupEnv.secretAccessKey,
-      endpoint: backupEnv.endpoint,
-      region: backupEnv.region,
-      s3ForcePathStyle: true,
-      signatureVersion: 'v4',
-    });
+    this.backupRegion = 'auto';
+    this.backupS3 = backupEnv.s3;
     logger.info(
       `BackupService initialized for ${this.isWindows ? 'Windows' : 'Linux'}`,
     );
     logger.info('Backup storage mode', {
       useRemoteStorage: true,
       bucket: this.backupBucket,
-      region: this.backupRegion,
+      backend: 'r2',
     });
   }
 
   public getConfig() {
     return this.config;
-  }
-
-  private loadBackupEnvConfig(): {
-    accessKeyId: string;
-    secretAccessKey: string;
-    bucket: string;
-    region: string;
-    endpoint: string;
-  } {
-    const accessKeyId =
-      process.env.DIGITAL_OCEAN_BACKUP_KEY || process.env.DIGITAL_OCEAN_KEY || '';
-    const secretAccessKey =
-      process.env.DIGITAL_OCEAN_BACKUP_SECRET || process.env.DIGITAL_OCEAN_SECRET || '';
-    const bucket =
-      process.env.DIGITAL_OCEAN_BACKUP_BUCKET || process.env.DIGITAL_OCEAN_BUCKET || '';
-    const region =
-      process.env.DIGITAL_OCEAN_BACKUP_REGION || process.env.DIGITAL_OCEAN_REGION || 'sgp1';
-    const endpoint = `https://${region}.digitaloceanspaces.com`;
-
-    if (!accessKeyId || !secretAccessKey || !bucket) {
-      throw new Error(
-        'Missing required backup Spaces env vars: DIGITAL_OCEAN_BACKUP_KEY (or DIGITAL_OCEAN_KEY), DIGITAL_OCEAN_BACKUP_SECRET (or DIGITAL_OCEAN_SECRET), DIGITAL_OCEAN_BACKUP_BUCKET (or DIGITAL_OCEAN_BUCKET)',
-      );
-    }
-
-    return {
-      accessKeyId,
-      secretAccessKey,
-      bucket,
-      region,
-      endpoint,
-    };
   }
 
   private normalizeBackupFilename(filename: string): string {
