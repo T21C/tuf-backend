@@ -1,5 +1,6 @@
 export {default as CurationType} from './CurationType.js';
 export {default as Curation} from './Curation.js';
+export {default as CurationCurationType} from './CurationCurationType.js';
 export {default as CurationSchedule} from './CurationSchedule.js';
 
 export type {ICurationType} from './CurationType.js';

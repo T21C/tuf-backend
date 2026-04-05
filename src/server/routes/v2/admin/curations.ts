@@ -2,11 +2,12 @@ import {Router, Request, Response, NextFunction} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, docRequestBody, standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
-import {Op} from 'sequelize';
+import {Op, QueryTypes} from 'sequelize';
 import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '@/misc/utils/Utility.js';
 import multer from 'multer';
 import CdnService from '@/server/services/CdnService.js';
 import Curation from '@/models/curations/Curation.js';
+import CurationCurationType from '@/models/curations/CurationCurationType.js';
 import CurationType from '@/models/curations/CurationType.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
@@ -16,12 +17,21 @@ import { logger } from '@/server/services/LoggerService.js';
 import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import sequelize from '@/config/db.js';
 import { hasAnyFlag } from '@/misc/utils/auth/permissionUtils.js';
-import { permissionFlags } from '@/config/constants.js';
-import { canAssignCurationType } from '@/misc/utils/data/curationTypeUtils.js';
+import { permissionFlags, curationTypeAbilities } from '@/config/constants.js';
+import { canAssignCurationType, hasAbility } from '@/misc/utils/data/curationTypeUtils.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { roleSyncService } from '@/server/services/RoleSyncService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties.js';
+import { getIO } from '@/misc/utils/server/socket.js';
+import { sseManager } from '@/misc/utils/server/sse.js';
+import { serializeCurationJson, sortCurationsByTypeOrder } from '@/misc/utils/data/curationOrdering.js';
+import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
+import {
+  levelIdsForCurationFacetDomain,
+  mergeFacetLevelIds,
+} from '@/misc/utils/search/facetQueryCurationSql.js';
 
 const router: Router = Router();
 
@@ -39,18 +49,24 @@ const requireCurationPermission = (req: Request, res: Response, next: NextFuncti
   // Regular curators and raters need to check if they can assign the curation type
   if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
     return Curation.findByPk(id, {
-      include: [{ model: CurationType, as: 'type' }],
+      include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
     }).then((curation) => {
       if (!curation) {
         return res.status(404).json({error: 'Curation not found'});
       }
 
-      // Check if user can assign this curation type based on abilities
-      if (curation.type && canAssignCurationType(BigInt(req.user?.permissionFlags || 0), BigInt(curation.type.abilities))) {
+      const types = curation.types || [];
+      const flags = BigInt(req.user?.permissionFlags || 0);
+      if (types.length === 0) {
         return next();
       }
+      for (const t of types) {
+        if (!canAssignCurationType(flags, BigInt(t.abilities))) {
+          return res.status(403).json({error: 'You do not have permission to manage this curation'});
+        }
+      }
 
-      return res.status(403).json({error: 'You do not have permission to manage this curation'});
+      return next();
     }).catch((error) => {
       logger.error('Error checking curation permission:', error);
       return res.status(500).json({error: 'Internal server error'});
@@ -240,7 +256,7 @@ router.get(
   async (req, res) => {
   try {
     const types = await CurationType.findAll({
-      order: [['sortOrder', 'ASC'], ['name', 'ASC']],
+      order: [['groupSortOrder', 'ASC'], ['sortOrder', 'ASC'], ['name', 'ASC']],
     });
 
     // Convert BigInt abilities to string for JSON serialization
@@ -272,7 +288,7 @@ router.post(
   }),
   async (req, res) => {
   try {
-    const {name, color, abilities} = req.body;
+    const {name, color, abilities, group} = req.body;
 
     if (!name) {
       return res.status(400).json({error: 'Name is required'});
@@ -291,11 +307,15 @@ router.post(
       return res.status(409).json({error: 'A curation type with this name already exists'});
     }
 
+    const groupVal =
+      group !== undefined && group !== null ? String(group).trim() : '';
     const type = await CurationType.create({
       name: name.trim(),
       color: color || '#ffffff',
       abilities: abilities ? BigInt(abilities) : 0n,
       sortOrder: 0,
+      group: groupVal === '' ? null : groupVal,
+      groupSortOrder: 0,
     });
 
     // Convert BigInt abilities to string for JSON serialization
@@ -303,6 +323,8 @@ router.post(
       ...type.toJSON(),
       abilities: type.abilities.toString()
     };
+
+    await updateDifficultiesHash();
 
     return res.status(201).json(serializedType);
   } catch (error) {
@@ -329,7 +351,7 @@ router.put(
   async (req, res) => {
   try {
     const {id} = req.params;
-    const {name, color, abilities} = req.body;
+    const {name, color, abilities, group} = req.body;
 
     const type = await CurationType.findByPk(id);
     if (!type) {
@@ -364,6 +386,9 @@ router.put(
       name: name ? name.trim() : type.name,
       color,
       abilities: abilities ? BigInt(abilities) : type.abilities,
+      ...(group !== undefined
+        ? { group: String(group).trim() === '' ? null : String(group).trim() }
+        : {}),
     });
 
     // Convert BigInt abilities to string for JSON serialization
@@ -371,6 +396,8 @@ router.put(
       ...type.toJSON(),
       abilities: type.abilities.toString()
     };
+
+    await updateDifficultiesHash();
 
     return res.json(serializedType);
   } catch (error) {
@@ -405,31 +432,26 @@ router.delete(
       return res.status(404).json({error: 'Curation type not found'});
     }
 
-    // Find all curations of this type to clean up their CDN files
-    const curations = await Curation.findAll({
-      where: { typeId: id },
-      transaction
-    });
+    const levelRows = await sequelize.query<{ levelId: number }>(
+      `SELECT DISTINCT c.levelId FROM curations c
+       INNER JOIN curation_curation_types cct ON cct.curationId = c.id
+       WHERE cct.typeId = :typeId`,
+      { replacements: { typeId: id }, type: QueryTypes.SELECT, transaction }
+    );
+    const affectedLevelIds = levelRows.map((r) => r.levelId);
 
-    const affectedLevelIds = curations.map(curation => curation.levelId);
-
-    logger.debug(`Found ${curations.length} curations to clean up for curation type ${id}`);
-
-    // Clean up CDN files for all curations of this type
-    await cleanupCurationCdnFiles(curations);
-
-    // Clean up CDN files for the curation type itself
     await cleanupCurationTypeCdnFiles(type);
 
-    // Delete the curation type (this will cascade delete all related curations and schedules)
     await type.destroy({ transaction });
 
     await transaction.commit();
 
+    await updateDifficultiesHash();
+
     // Reindex affected levels after successful deletion
     await elasticsearchService.reindexLevels(affectedLevelIds);
 
-    logger.debug(`Successfully deleted curation type ${id} and cleaned up ${curations.length} related curations`);
+    logger.debug(`Successfully deleted curation type ${id}; reindexing ${affectedLevelIds.length} level(s)`);
     return res.status(204).end();
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -476,6 +498,8 @@ router.post(
       icon: cdnResult.urls.original || cdnResult.urls.medium
     });
 
+    await updateDifficultiesHash();
+
     return res.json({
       success: true,
       icon: type.icon,
@@ -521,6 +545,8 @@ router.delete(
 
     await transaction.commit();
 
+    await updateDifficultiesHash();
+
     return res.json({ success: true, message: 'Icon removed successfully' });
   } catch (error) {
     await safeTransactionRollback(transaction);
@@ -554,15 +580,41 @@ router.put(
       return res.status(400).json({error: 'Sort orders array is required'});
     }
 
-    // Update each curation type's sort order
+    const ids = [...new Set(sortOrders.map((s: { id: number }) => s.id))];
+    const loaded = await CurationType.findAll({
+      where: { id: { [Op.in]: ids } },
+      transaction,
+    });
+    if (loaded.length !== ids.length) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({ error: 'One or more curation type IDs are invalid' });
+    }
+
+    const normalizeGroup = (g: string | null | undefined) => (g || '').trim();
+    const groupKeys = new Set(loaded.map((t) => normalizeGroup(t.group)));
+    if (groupKeys.size > 1) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({
+        error: 'All sort orders must apply to curation types in the same group',
+      });
+    }
+
     for (const { id, sortOrder } of sortOrders) {
-      const type = await CurationType.findByPk(id, { transaction });
+      const type = loaded.find((t) => t.id === id);
       if (type) {
         await type.update({ sortOrder }, { transaction });
       }
     }
 
     await transaction.commit();
+
+    await updateDifficultiesHash();
+    const io = getIO();
+    io.emit('curationTypesReordered');
+    sseManager.broadcast({
+      type: 'curationTypesReordered',
+      data: { action: 'reorder', count: sortOrders.length },
+    });
 
     logger.debug(`Successfully updated sort orders for ${sortOrders.length} curation types`);
     return res.json({success: true, message: 'Sort orders updated successfully'});
@@ -574,194 +626,482 @@ router.put(
   }
 );
 
+// Update curation type group sort orders (same pattern as level tags)
+router.put(
+  '/types/group-sort-orders',
+  Auth.superAdminPassword(),
+  ApiDoc({
+    operationId: 'putAdminCurationTypeGroupSortOrders',
+    summary: 'Update curation type group sort orders',
+    description: 'Body: groups[{ name, sortOrder }]. Super admin password.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'groups',
+      schema: {
+        type: 'object',
+        properties: {
+          groups: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: { name: { type: 'string' }, sortOrder: { type: 'number' } },
+            },
+          },
+        },
+        required: ['groups'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'Group sort orders updated' }, ...standardErrorResponses400500 },
+  }),
+  async (req, res) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const { groups } = req.body;
+
+      if (!Array.isArray(groups)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'Invalid groups format' });
+      }
+
+      await Promise.all(
+        groups.map(async (item: { name: string | null; sortOrder: number }) => {
+          const { name, sortOrder } = item;
+          if (name === undefined || sortOrder === undefined) {
+            throw new Error('Missing name or sortOrder in groups array');
+          }
+
+          const whereClause =
+            name === '' || name === null
+              ? { [Op.or]: [{ group: null }, { group: '' }] }
+              : { group: name };
+
+          await CurationType.update({ groupSortOrder: sortOrder }, { where: whereClause, transaction });
+        })
+      );
+
+      await transaction.commit();
+
+      await updateDifficultiesHash();
+      const io = getIO();
+      io.emit('curationTypesReordered');
+      sseManager.broadcast({
+        type: 'curationTypesReordered',
+        data: { action: 'groupReorder', count: groups.length },
+      });
+
+      return res.json({ message: 'Group sort orders updated successfully' });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error updating curation type group sort orders:', error);
+      return res.status(500).json({
+        error: 'Failed to update group sort orders',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+);
+
+const serializeCurationRow = (curation: InstanceType<typeof Curation>) => serializeCurationJson(curation);
+
+const levelIncludeFull = [
+  { model: CurationType, as: 'types' as const, through: { attributes: [] } },
+  {
+    model: Level,
+    as: 'level' as const,
+    include: [
+      { model: Difficulty, as: 'difficulty' as const },
+      {
+        model: LevelCredit,
+        as: 'levelCredits' as const,
+        include: [{ model: Creator, as: 'creator' as const }],
+      },
+      { model: Team, as: 'teamObject' as const },
+    ],
+  },
+];
+
+const levelIncludeHashSearch = [
+  { model: CurationType, as: 'types' as const, through: { attributes: [] } },
+  {
+    model: Level,
+    as: 'level' as const,
+    include: [
+      { model: Difficulty, as: 'difficulty' as const },
+      {
+        model: LevelCredit,
+        as: 'levelCredits' as const,
+        include: [{ model: Creator, as: 'creator' as const }],
+      },
+    ],
+  },
+];
+
+function parseCurationTypeIdsFromQuery(req: Request): number[] {
+  const raw: number[] = [];
+  const push = (v: unknown) => {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) raw.push(n);
+  };
+  const { typeId, typeIds } = req.query;
+  if (typeId) push(Array.isArray(typeId) ? typeId[0] : typeId);
+  if (typeIds !== undefined && typeIds !== null) {
+    const parts = Array.isArray(typeIds) ? typeIds : String(typeIds).split(',');
+    for (const p of parts) push(String(p).trim());
+  }
+  return [...new Set(raw)];
+}
+
+function parseTypeIdQueryList(req: Request, param: string): number[] {
+  const v = req.query[param];
+  if (v === undefined || v === null) return [];
+  const parts = Array.isArray(v) ? v : String(v).split(',');
+  const raw: number[] = [];
+  for (const p of parts) {
+    const n = Number(String(p).trim());
+    if (Number.isFinite(n) && n > 0) raw.push(n);
+  }
+  return [...new Set(raw)];
+}
+
+/**
+ * Restrict curations to levels that have ALL mustHaveTypeIds (as curations) and NONE of excludeTypeIds.
+ * Intersects with any existing where.levelId constraint from search / levelId query param.
+ */
+async function applyLevelTypeFiltersForCurations(
+  where: Record<string, unknown>,
+  mustHaveTypeIds: number[],
+  excludeTypeIds: number[]
+): Promise<'ok' | 'empty'> {
+  if (mustHaveTypeIds.length === 0 && excludeTypeIds.length === 0) return 'ok';
+
+  let allowed: Set<number> | null = null;
+  const existing = where.levelId;
+
+  if (typeof existing === 'number') {
+    allowed = new Set([existing]);
+  } else if (typeof existing === 'string' && /^\d+$/.test(existing)) {
+    allowed = new Set([parseInt(existing, 10)]);
+  } else if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+    const arr = (existing as {[key: symbol]: unknown})[Op.in];
+    if (Array.isArray(arr)) allowed = new Set(arr as number[]);
+  }
+
+  if (mustHaveTypeIds.length > 0) {
+    const rows = await sequelize.query<{ levelId: number }>(
+      `SELECT c.levelId FROM curations c
+       INNER JOIN curation_curation_types cct ON cct.curationId = c.id
+       WHERE cct.typeId IN (:typeIds)
+       GROUP BY c.levelId
+       HAVING COUNT(DISTINCT cct.typeId) = :n`,
+      {
+        replacements: { typeIds: mustHaveTypeIds, n: mustHaveTypeIds.length },
+        type: QueryTypes.SELECT,
+      }
+    );
+    const must = new Set(rows.map((r) => r.levelId));
+    if (allowed === null) {
+      allowed = must;
+    } else {
+      allowed = new Set([...allowed].filter((id) => must.has(id)));
+    }
+    if (allowed.size === 0) return 'empty';
+  }
+
+  if (excludeTypeIds.length > 0) {
+    const withExcluded = await sequelize.query<{ levelId: number }>(
+      `SELECT DISTINCT c.levelId FROM curations c
+       INNER JOIN curation_curation_types cct ON cct.curationId = c.id
+       WHERE cct.typeId IN (:excludeIds)`,
+      { replacements: { excludeIds: excludeTypeIds }, type: QueryTypes.SELECT }
+    );
+    const bad = new Set(withExcluded.map((r) => r.levelId));
+    if (allowed === null) {
+      const allRows = await sequelize.query<{ levelId: number }>(
+        `SELECT DISTINCT levelId FROM curations`,
+        { type: QueryTypes.SELECT }
+      );
+      allowed = new Set(allRows.map((r) => r.levelId).filter((id) => !bad.has(id)));
+    } else {
+      allowed = new Set([...allowed].filter((id) => !bad.has(id)));
+    }
+    if (allowed.size === 0) return 'empty';
+  }
+
+  if (allowed === null || allowed.size === 0) return 'empty';
+  where.levelId = { [Op.in]: [...allowed] };
+  return 'ok';
+}
+
 // Get all curations with pagination and filters
 router.get(
   '/',
   ApiDoc({
     operationId: 'getAdminCurations',
     summary: 'List curations',
-    description: 'Paginated curations. Query: page, offset, limit, typeId, levelId, search, excludeIds.',
+    description:
+      'Paginated curations. Query: typeId/typeIds (row filter OR), mustHaveTypeIds (level must have ALL), excludeTypeIds (level must have NONE), groupByLevel, search, excludeIds. Optional facetQuery (JSON v1, curationTypes only; tags not supported).',
     tags: ['Admin', 'Curations'],
-    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, typeId: { schema: { type: 'string' } }, levelId: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, excludeIds: { schema: { type: 'array', items: { type: 'string' } } } },
+    query: {
+      page: { schema: { type: 'string' } },
+      offset: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+      facetQuery: { description: 'Facet filter JSON v1 (curationTypes only)', schema: { type: 'string' } },
+      typeId: { schema: { type: 'string' } },
+      typeIds: { schema: { type: 'string' } },
+      mustHaveTypeIds: { schema: { type: 'string' } },
+      excludeTypeIds: { schema: { type: 'string' } },
+      levelId: { schema: { type: 'string' } },
+      search: { schema: { type: 'string' } },
+      excludeIds: { schema: { type: 'array', items: { type: 'string' } } },
+      groupByLevel: { schema: { type: 'string' } },
+    },
     responses: { 200: { description: 'Curations list' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
   try {
     const { page, limit, offset } = req.query as unknown as PaginationQuery;
-    const { typeId, levelId, search, excludeIds} = req.query;
-    
+    const { levelId, search, excludeIds } = req.query;
 
-    const where: any = {};
-    if (typeId) where.typeId = typeId;
+    const groupByLevel =
+      req.query.groupByLevel === 'true' || req.query.groupByLevel === '1';
+
+    const facetQueryRaw = req.query.facetQuery;
+    const facetQueryParsed = parseFacetQueryString(
+      typeof facetQueryRaw === 'string' ? facetQueryRaw : undefined
+    );
+    if (facetQueryParsed?.tags) {
+      return res.status(400).json({
+        error: 'facetQuery.tags is not supported for the curations list endpoint',
+      });
+    }
+
+    const useFacetCurationTypes = Boolean(facetQueryParsed?.curationTypes);
+
+    const where: Record<string, unknown> = {};
+
+    if (useFacetCurationTypes && facetQueryParsed?.curationTypes) {
+      const allowed = await levelIdsForCurationFacetDomain(facetQueryParsed.curationTypes);
+      if (allowed !== null) {
+        if (allowed.size === 0) {
+          return res.json({
+            curations: [],
+            levelInstances: [],
+            total: 0,
+            page,
+            offset,
+            limit,
+            totalPages: 0,
+          });
+        }
+        if (mergeFacetLevelIds(where, allowed) === 'empty') {
+          return res.json({
+            curations: [],
+            levelInstances: [],
+            total: 0,
+            page,
+            offset,
+            limit,
+            totalPages: 0,
+          });
+        }
+      }
+    }
+
+    const typeIdsParsed = useFacetCurationTypes ? [] : parseCurationTypeIdsFromQuery(req);
+
+    const typesInclude: Record<string, unknown> = {
+      model: CurationType,
+      as: 'types',
+      through: { attributes: [] },
+    };
+    if (typeIdsParsed.length > 0) {
+      typesInclude.where =
+        typeIdsParsed.length === 1
+          ? { id: typeIdsParsed[0] }
+          : { id: { [Op.in]: typeIdsParsed } };
+      typesInclude.required = true;
+    }
+
+    const listIncludeBase = [typesInclude, levelIncludeFull[1]];
+
     if (levelId) where.levelId = levelId;
 
-    // Add excludeIds filter if provided
     if (excludeIds) {
       const excludeArray = Array.isArray(excludeIds) ? excludeIds : [excludeIds];
       where.id = { [Op.notIn]: excludeArray };
     }
 
-    // Handle search differently to avoid count inconsistencies
-    let curations;
+    type SearchMode = 'none' | 'hash' | 'text';
+    let searchMode: SearchMode = 'none';
+    let matchingLevelIds: number[] = [];
 
     if (search) {
       const searchStr = Array.isArray(search) ? String(search[0]) : String(search);
 
-      // Check if search starts with # for direct level ID lookup
       if (searchStr && searchStr.startsWith('#') && searchStr.length > 1) {
-        const levelId = searchStr.substring(1); // Remove the # and get the level ID
-
-        // Validate that the level ID is a number
-        if (!/^\d+$/.test(levelId)) {
-          return res.status(400).json({error: 'Invalid level ID format after hashtag'});
+        const idStr = searchStr.substring(1);
+        if (!/^\d+$/.test(idStr)) {
+          return res.status(400).json({ error: 'Invalid level ID format after hashtag' });
         }
-
-        // Direct lookup by level ID
-        where.levelId = parseInt(levelId);
-
-        const include = [
-          {
-            model: CurationType,
-            as: 'type',
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-            ],
-          },
-        ];
-
-        curations = await Curation.findAndCountAll({
-          where,
-          include,
-          limit: Number(limit),
-          offset,
-          order: [['createdAt', 'DESC']],
-          distinct: true,
-        });
-
-        logger.debug(`Direct level ID lookup for level ${levelId}: found ${curations.count} curations`);
+        searchMode = 'hash';
+        where.levelId = parseInt(idStr, 10);
+        logger.debug(`Direct level ID lookup for level ${idStr}`);
       } else {
-        // Regular text search
+        searchMode = 'text';
         const searchWhere = {
           [Op.or]: [
-            {song: {[Op.like]: `%${search}%`}},
-            {artist: {[Op.like]: `%${search}%`}},
-            {creator: {[Op.like]: `%${search}%`}},
+            { song: { [Op.like]: `%${searchStr}%` } },
+            { artist: { [Op.like]: `%${searchStr}%` } },
+            { creator: { [Op.like]: `%${searchStr}%` } },
           ],
         };
-
-        // First get the level IDs that match the search
         const matchingLevels = await Level.findAll({
           where: searchWhere,
           attributes: ['id'],
         });
-
-        const matchingLevelIds = matchingLevels.map(level => level.id);
-
-        // Update the where clause to filter by matching level IDs
+        matchingLevelIds = matchingLevels.map((level) => level.id);
         where.levelId = { [Op.in]: matchingLevelIds };
-
-        const include = [
-          {
-            model: CurationType,
-            as: 'type',
-          },
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-              {
-                model: Team,
-                as: 'teamObject',
-              },
-            ],
-          },
-        ];
-
-        curations = await Curation.findAndCountAll({
-          where,
-          include,
-          limit: Number(limit),
-          offset,
-          order: [['createdAt', 'DESC']],
-          distinct: true, // Add distinct to avoid duplicate counting from joins
-        });
       }
-    } else {
-      // No search - use original approach
-      const include = [
-        {
-          model: CurationType,
-          as: 'type',
-        },
-        {
-          model: Level,
-          as: 'level',
-          include: [
-            {
-              model: Difficulty,
-              as: 'difficulty',
-            },
-            {
-              model: LevelCredit,
-              as: 'levelCredits',
-              include: [{
-                model: Creator,
-                as: 'creator',
-              }],
-            },
-            {
-              model: Team,
-              as: 'teamObject',
-            },
-          ],
-        },
-      ];
+    }
 
-      curations = await Curation.findAndCountAll({
-        where,
-        include,
-        limit: Number(limit),
+    if (searchMode === 'text' && matchingLevelIds.length === 0) {
+      return res.json({
+        curations: [],
+        levelInstances: [],
+        total: 0,
+        page,
         offset,
-        order: [['createdAt', 'DESC']],
-        distinct: true, // Add distinct to avoid duplicate counting from joins
+        limit,
+        totalPages: 0,
       });
     }
 
-    // Serialize BigInt abilities to string for all curations
-    const serializedCurations = curations.rows.map(curation => ({
-      ...curation.toJSON(),
-      type: curation.type ? {
-        ...curation.type.toJSON(),
-        abilities: curation.type.abilities.toString()
-      } : null
-    }));
+    const mustHaveTypeIds = useFacetCurationTypes
+      ? []
+      : parseTypeIdQueryList(req, 'mustHaveTypeIds');
+    const excludeTypeIds = useFacetCurationTypes
+      ? []
+      : parseTypeIdQueryList(req, 'excludeTypeIds');
+    const levelTypeFilterResult = await applyLevelTypeFiltersForCurations(
+      where,
+      mustHaveTypeIds,
+      excludeTypeIds
+    );
+    if (levelTypeFilterResult === 'empty') {
+      return res.json({
+        curations: [],
+        levelInstances: [],
+        total: 0,
+        page,
+        offset,
+        limit,
+        totalPages: 0,
+      });
+    }
+
+    if (groupByLevel) {
+      const typeFilterInclude = typeIdsParsed.length ? [typesInclude] : undefined;
+      const totalLevelCount = await Curation.count({
+        where: where as any,
+        distinct: true,
+        col: 'levelId',
+        ...(typeFilterInclude ? { include: typeFilterInclude } : {}),
+      });
+
+      const levelGroupRows = await Curation.findAll({
+        attributes: [
+          'levelId',
+          [sequelize.fn('MAX', sequelize.col('createdAt')), 'maxCreated'],
+        ],
+        where: where as any,
+        group: ['levelId'],
+        order: [[sequelize.fn('MAX', sequelize.col('createdAt')), 'DESC']],
+        limit: Number(limit),
+        offset,
+        raw: !typeFilterInclude,
+        ...(typeFilterInclude ? { include: typeFilterInclude, subQuery: false } : {}),
+      });
+
+      const pageLevelIds = typeFilterInclude
+        ? (levelGroupRows as InstanceType<typeof Curation>[]).map((r) => r.levelId)
+        : (levelGroupRows as { levelId: number }[]).map((r) => r.levelId);
+
+      if (pageLevelIds.length === 0) {
+        const lim = Number(limit);
+        return res.json({
+          curations: [],
+          levelInstances: [],
+          total: totalLevelCount,
+          page,
+          offset,
+          limit,
+          totalPages: Math.ceil(totalLevelCount / lim) || 0,
+        });
+      }
+
+      const { levelId: _omitLevel, ...whereSansLevel } = where;
+      const fetchWhere = { ...whereSansLevel, levelId: { [Op.in]: pageLevelIds } };
+
+      const rows = await Curation.findAll({
+        where: fetchWhere as any,
+        include: listIncludeBase as any,
+        order: [['createdAt', 'DESC']],
+      });
+
+      const byLevel = new Map<number, InstanceType<typeof Curation>[]>();
+      for (const id of pageLevelIds) byLevel.set(id, []);
+      for (const c of rows) {
+        const list = byLevel.get(c.levelId);
+        if (list) list.push(c);
+      }
+
+      const levelInstances = pageLevelIds.map((lid) => {
+        const list = sortCurationsByTypeOrder(byLevel.get(lid) ?? []);
+        const first = list[0];
+        const levelJson = first?.level ? (first.level.toJSON() as unknown as Record<string, unknown>) : null;
+        return {
+          level: levelJson,
+          curations: list.map(serializeCurationRow),
+        };
+      });
+
+      const lim = Number(limit);
+      return res.json({
+        curations: [],
+        levelInstances,
+        total: totalLevelCount,
+        page,
+        offset,
+        limit,
+        totalPages: Math.ceil(totalLevelCount / lim) || 0,
+      });
+    }
+
+    let curations;
+    const hashInclude = [typesInclude, levelIncludeHashSearch[1]];
+    if (searchMode === 'hash') {
+      curations = await Curation.findAndCountAll({
+        where: where as any,
+        include: hashInclude as any,
+        limit: Number(limit),
+        offset,
+        order: [['createdAt', 'DESC']],
+        distinct: true,
+      });
+    } else {
+      curations = await Curation.findAndCountAll({
+        where: where as any,
+        include: listIncludeBase as any,
+        limit: Number(limit),
+        offset,
+        order: [['createdAt', 'DESC']],
+        distinct: true,
+      });
+    }
+
+    const serializedCurations = curations.rows.map(serializeCurationRow);
 
     return res.json({
       curations: serializedCurations,
@@ -769,7 +1109,7 @@ router.get(
       page,
       offset,
       limit,
-      totalPages: Math.ceil(curations.count / limit),
+      totalPages: Math.ceil(curations.count / Number(limit)),
     });
   } catch (error) {
     logger.error('Error fetching curations:', error);
@@ -841,16 +1181,19 @@ router.post(
       }
     }
 
-    // Check for existing curation with the same levelId and typeId combination
+    if (!assignableType) {
+      return res.status(500).json({ error: 'No assignable curation type' });
+    }
+
+    const typeForAssign = assignableType;
+
     const existingCuration = await Curation.findOne({
-      where: {
-        levelId,
-        typeId: assignableType.id
-      }
+      where: { levelId },
+      include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
     });
 
-    if (existingCuration) {
-      return res.status(409).json({error: `This level already has a curation of type "${assignableType.name}"`});
+    if (existingCuration?.types?.some((t) => t.id === typeForAssign.id)) {
+      return res.status(409).json({error: `This level already has a curation of type "${typeForAssign.name}"`});
     }
 
     // Get level with creators BEFORE creating curation to capture old state
@@ -876,18 +1219,25 @@ router.post(
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
 
-    const curation = await Curation.create({
-      levelId,
-      typeId: assignableType.id,
-      assignedBy
-    });
+    let curation: InstanceType<typeof Curation>;
+    if (existingCuration) {
+      await existingCuration.addType(typeForAssign.id);
+      curation = existingCuration;
+    } else {
+      curation = await Curation.create({
+        levelId,
+        assignedBy,
+      });
+      await curation.addType(typeForAssign.id);
+    }
 
     // Fetch the complete curation with related data
     const completeCuration = await Curation.findByPk(curation.id, {
       include: [
         {
           model: CurationType,
-          as: 'type',
+          as: 'types',
+          through: { attributes: [] },
         },
         {
           model: Level,
@@ -914,17 +1264,9 @@ router.post(
       ],
     });
 
-    // Serialize BigInt abilities to string
-    const serializedCuration = completeCuration ? {
-      ...completeCuration.toJSON(),
-      type: completeCuration.type ? {
-        ...completeCuration.type.toJSON(),
-        abilities: completeCuration.type.abilities.toString()
-      } : null
-    } : null;
+    const serializedCuration = completeCuration ? serializeCurationRow(completeCuration) : null;
 
     elasticsearchService.indexLevel(levelId);
-    // Trigger Discord role sync for creators whose curation types changed
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
 
@@ -936,6 +1278,233 @@ router.post(
   }
 );
 
+type PutLevelCurationBody = {
+  shortDescription?: string | null;
+  description?: string | null;
+  customCSS?: string | null;
+  customColor?: string | null;
+  /** Replace the set of curation types (required for PUT /level/:levelId) */
+  typeIds?: number[];
+};
+
+function userCanAssignCurationTypeAbilities(req: Request, typeAbilities: bigint): boolean {
+  if (!req.user) return false;
+  if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+    return true;
+  }
+  if (hasAnyFlag(req.user, [permissionFlags.CURATOR, permissionFlags.RATER])) {
+    return canAssignCurationType(BigInt(req.user.permissionFlags || 0), typeAbilities);
+  }
+  return false;
+}
+
+const curationIncludeForLevelResponse = [
+  { model: CurationType, as: 'types' as const, through: { attributes: [] } },
+  {
+    model: Level,
+    as: 'level' as const,
+    include: [
+      { model: Difficulty, as: 'difficulty' as const },
+      {
+        model: LevelCredit,
+        as: 'levelCredits' as const,
+        include: [{ model: Creator, as: 'creator' as const }],
+      },
+      { model: Team, as: 'teamObject' as const },
+    ],
+  },
+];
+
+// Replace all curations for a level (create / update / delete) in one request
+router.put(
+  '/level/:levelId([0-9]{1,20})',
+  requireCuratorOrRater,
+  ApiDoc({
+    operationId: 'putAdminCurationsForLevel',
+    summary: 'Bulk sync curations for a level',
+    description:
+      'Body: { shortDescription?, description?, customCSS?, customColor?, typeIds: number[] }. One curation per level; typeIds replaces linked types.',
+    tags: ['Admin', 'Curations'],
+    security: ['bearerAuth'],
+    params: { levelId: stringIdParamSpec },
+    requestBody: {
+      description: 'curation fields and typeIds',
+      schema: {
+        type: 'object',
+        properties: {
+          typeIds: { type: 'array', items: { type: 'number' } },
+          shortDescription: { type: 'string' },
+          description: { type: 'string' },
+          customCSS: { type: 'string' },
+          customColor: { type: 'string' },
+        },
+        required: ['typeIds'],
+      },
+      required: true,
+    },
+    responses: { 200: { description: 'Updated curations for level' }, ...standardErrorResponses400500 },
+  }),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const levelId = parseInt(req.params.levelId, 10);
+      const body = req.body as PutLevelCurationBody;
+      const { shortDescription, description, customCSS, customColor } = body;
+      const typeIdsRaw = body.typeIds;
+
+      if (!Array.isArray(typeIdsRaw)) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'typeIds must be an array' });
+      }
+
+      const uniqueTypeIds = [...new Set(typeIdsRaw.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
+
+      const level = await Level.findByPk(levelId, { transaction });
+      if (!level) {
+        await safeTransactionRollback(transaction);
+        return res.status(404).json({ error: 'Level not found' });
+      }
+
+      const assignedBy = req.user?.id || 'unknown';
+
+      const levelWithCreators = await Level.findByPk(levelId, {
+        transaction,
+        include: [
+          {
+            model: LevelCredit,
+            as: 'levelCredits',
+            include: [{ model: Creator, as: 'creator' }],
+          },
+        ],
+      });
+
+      const creatorIds =
+        levelWithCreators?.levelCredits
+          ?.map((credit) => credit.creator?.id)
+          .filter((id): id is number => id !== null && id !== undefined) ?? [];
+
+      const oldCurationTypeSets =
+        creatorIds.length > 0
+          ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
+          : undefined;
+
+      let existingRow = await Curation.findOne({
+        where: { levelId },
+        include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+        transaction,
+      });
+
+      const oldTypeIds = new Set((existingRow?.types || []).map((t) => t.id));
+      const newTypeIds = new Set(uniqueTypeIds);
+
+      const typeRows =
+        uniqueTypeIds.length > 0
+          ? await CurationType.findAll({
+              where: { id: { [Op.in]: uniqueTypeIds } },
+              transaction,
+            })
+          : [];
+      const typeById = new Map(typeRows.map((t) => [t.id, t]));
+      if (typeRows.length !== uniqueTypeIds.length) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'One or more curation types not found' });
+      }
+
+      for (const tid of uniqueTypeIds) {
+        const t = typeById.get(tid)!;
+        if (!userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({ error: 'You cannot assign one or more curation types' });
+        }
+      }
+
+      for (const tid of oldTypeIds) {
+        if (!newTypeIds.has(tid)) {
+          const t = await CurationType.findByPk(tid, { transaction });
+          if (t && !userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
+            await safeTransactionRollback(transaction);
+            return res.status(403).json({ error: 'You do not have permission to remove one or more curation types' });
+          }
+        }
+      }
+
+      const descVal = description !== undefined ? description : existingRow?.description;
+      for (const tid of uniqueTypeIds) {
+        const t = typeById.get(tid)!;
+        if (
+          hasAbility(t, curationTypeAbilities.FORCE_DESCRIPTION) &&
+          (!descVal || !String(descVal).trim())
+        ) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: `Description is required for curation type "${t.name}"`,
+          });
+        }
+      }
+
+      const hasContentFields =
+        shortDescription !== undefined ||
+        description !== undefined ||
+        customCSS !== undefined ||
+        customColor !== undefined;
+
+      if (!existingRow && uniqueTypeIds.length === 0 && !hasContentFields) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({
+          error: 'Provide typeIds and/or content fields to create or update the level curation',
+        });
+      }
+
+      if (!existingRow) {
+        existingRow = await Curation.create(
+          {
+            levelId,
+            assignedBy,
+            shortDescription: shortDescription ?? '',
+            description: description ?? null,
+            customCSS: customCSS ?? null,
+            customColor: customColor ?? null,
+          },
+          { transaction }
+        );
+      } else {
+        await existingRow.update(
+          {
+            ...(shortDescription !== undefined ? { shortDescription } : {}),
+            ...(description !== undefined ? { description } : {}),
+            ...(customCSS !== undefined ? { customCSS } : {}),
+            ...(customColor !== undefined ? { customColor } : {}),
+          },
+          { transaction }
+        );
+      }
+
+      await existingRow.setTypes(uniqueTypeIds, { transaction });
+
+      await transaction.commit();
+
+      const finalRows = await Curation.findAll({
+        where: { levelId },
+        include: curationIncludeForLevelResponse,
+        order: [['createdAt', 'ASC']],
+      });
+
+      const sorted = sortCurationsByTypeOrder(finalRows);
+      const curationsOut = sorted.map(serializeCurationRow);
+
+      await elasticsearchService.indexLevel(levelId);
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      syncRolesForLevel(levelId, oldCurationTypeSets);
+
+      return res.json({ levelId, curations: curationsOut });
+    } catch (error) {
+      await safeTransactionRollback(transaction);
+      logger.error('Error bulk-updating curations for level:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
 // Update curation
 router.put(
   '/:id([0-9]{1,20})',
@@ -943,20 +1512,23 @@ router.put(
   ApiDoc({
     operationId: 'putAdminCuration',
     summary: 'Update curation',
-    description: 'Update curation. Body: shortDescription?, description?, customCSS?, customColor?, typeId?. Requires curation permission.',
+    description: 'Update curation. Body: shortDescription?, description?, customCSS?, customColor?, typeIds?. Requires curation permission.',
     tags: ['Admin', 'Curations'],
     security: ['bearerAuth'],
     params: { id: stringIdParamSpec },
-    requestBody: { description: 'shortDescription, description, customCSS, customColor, typeId', schema: { type: 'object' }, required: true },
+    requestBody: { description: 'shortDescription, description, customCSS, customColor, typeIds', schema: { type: 'object' }, required: true },
     responses: { 200: { description: 'Curation updated' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
-    const {shortDescription, description, customCSS, customColor, typeId} = req.body;
+    const { shortDescription, description, customCSS, customColor, typeIds } = req.body as PutLevelCurationBody;
 
-    const curation = await Curation.findByPk(id, { transaction });
+    const curation = await Curation.findByPk(id, {
+      transaction,
+      include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+    });
     if (!curation) {
       return res.status(404).json({error: 'Curation not found'});
     }
@@ -985,20 +1557,71 @@ router.put(
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
 
-    await curation.update({
-      shortDescription,
-      description,
-      customCSS,
-      customColor,
-      typeId: typeId || curation.typeId,
-    }, { transaction });
-    // Fetch the complete curation with related data
+    await curation.update(
+      {
+        ...(shortDescription !== undefined ? { shortDescription } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(customCSS !== undefined ? { customCSS } : {}),
+        ...(customColor !== undefined ? { customColor } : {}),
+      },
+      { transaction }
+    );
+
+    if (Array.isArray(typeIds)) {
+      const uniqueTypeIds = [...new Set(typeIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
+      const typeRows =
+        uniqueTypeIds.length > 0
+          ? await CurationType.findAll({
+              where: { id: { [Op.in]: uniqueTypeIds } },
+              transaction,
+            })
+          : [];
+      const typeById = new Map(typeRows.map((t) => [t.id, t]));
+      if (typeRows.length !== uniqueTypeIds.length) {
+        await safeTransactionRollback(transaction);
+        return res.status(400).json({ error: 'One or more curation types not found' });
+      }
+      const oldTypeIds = new Set((curation.types || []).map((t) => t.id));
+      const newTypeIds = new Set(uniqueTypeIds);
+      for (const tid of uniqueTypeIds) {
+        const t = typeById.get(tid)!;
+        if (!userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({ error: 'You cannot assign one or more curation types' });
+        }
+      }
+      for (const tid of oldTypeIds) {
+        if (!newTypeIds.has(tid)) {
+          const t = await CurationType.findByPk(tid, { transaction });
+          if (t && !userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
+            await safeTransactionRollback(transaction);
+            return res.status(403).json({ error: 'You do not have permission to remove one or more curation types' });
+          }
+        }
+      }
+      const descVal = description !== undefined ? description : curation.description;
+      for (const tid of uniqueTypeIds) {
+        const t = typeById.get(tid)!;
+        if (
+          hasAbility(t, curationTypeAbilities.FORCE_DESCRIPTION) &&
+          (!descVal || !String(descVal).trim())
+        ) {
+          await safeTransactionRollback(transaction);
+          return res.status(400).json({
+            error: `Description is required for curation type "${t.name}"`,
+          });
+        }
+      }
+      await curation.setTypes(uniqueTypeIds, { transaction });
+    }
+
     const completeCuration = await Curation.findByPk(id, {
       transaction,
       include: [
         {
           model: CurationType,
-          as: 'type',
+          as: 'types',
+          through: { attributes: [] },
         },
         {
           model: Level,
@@ -1028,15 +1651,7 @@ router.put(
     await transaction.commit();
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     syncRolesForLevel(completeCuration?.levelId, oldCurationTypeSets);
-    // Serialize BigInt abilities to string
-    const serializedCuration = completeCuration ? {
-      ...completeCuration.toJSON(),
-      type: completeCuration.type ? {
-        ...completeCuration.type.toJSON(),
-        abilities: completeCuration.type.abilities.toString()
-      } : null
-    } : null;
-
+    const serializedCuration = completeCuration ? serializeCurationRow(completeCuration) : null;
 
     return res.json({ curation: serializedCuration });
   } catch (error) {
@@ -1066,7 +1681,8 @@ router.get(
       include: [
         {
           model: CurationType,
-          as: 'type',
+          as: 'types',
+          through: { attributes: [] },
         },
         {
           model: Level,
@@ -1097,16 +1713,7 @@ router.get(
       return res.status(404).json({error: 'Curation not found'});
     }
 
-    // Serialize BigInt abilities to string
-    const serializedCuration = {
-      ...curation.toJSON(),
-      type: curation.type ? {
-        ...curation.type.toJSON(),
-        abilities: curation.type.abilities.toString()
-      } : null
-    };
-
-    return res.json(serializedCuration);
+    return res.json(serializeCurationRow(curation));
   } catch (error) {
     logger.error('Error fetching curation:', error);
     return res.status(500).json({error: 'Internal server error'});
@@ -1242,7 +1849,8 @@ router.get(
           include: [
             {
               model: CurationType,
-              as: 'type',
+              as: 'types',
+              through: { attributes: [] },
             },
             {
               model: Level,
@@ -1268,17 +1876,46 @@ router.get(
       order: [['listType', 'ASC'], ['position', 'ASC']],
     });
 
-    // Serialize BigInt abilities to string for all schedules
-    const serializedSchedules = schedules.map(schedule => ({
-      ...schedule.toJSON(),
-      scheduledCuration: schedule.scheduledCuration ? {
-        ...schedule.scheduledCuration.toJSON(),
-        type: schedule.scheduledCuration.type ? {
-          ...schedule.scheduledCuration.type.toJSON(),
-          abilities: schedule.scheduledCuration.type.abilities.toString()
-        } : null
-      } : null
-    }));
+    const levelIds = [
+      ...new Set(
+        schedules
+          .map((s) => s.scheduledCuration?.levelId)
+          .filter((id): id is number => typeof id === 'number')
+      ),
+    ];
+
+    const allCurationsRows =
+      levelIds.length > 0
+        ? await Curation.findAll({
+            where: { levelId: { [Op.in]: levelIds } },
+            include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
+          })
+        : [];
+
+    const curationsByLevelId = new Map<number, typeof allCurationsRows>();
+    for (const c of allCurationsRows) {
+      if (!curationsByLevelId.has(c.levelId)) {
+        curationsByLevelId.set(c.levelId, []);
+      }
+      curationsByLevelId.get(c.levelId)!.push(c);
+    }
+
+    const serializedSchedules = schedules.map((schedule) => {
+      const lid = schedule.scheduledCuration?.levelId;
+      const allForLevel = lid
+        ? sortCurationsByTypeOrder(curationsByLevelId.get(lid) || []).map(serializeCurationRow)
+        : [];
+      const sc = schedule.scheduledCuration;
+      return {
+        ...schedule.toJSON(),
+        scheduledCuration: sc
+          ? {
+              ...serializeCurationRow(sc),
+              allCurationsForLevel: allForLevel,
+            }
+          : null,
+      };
+    });
 
     return res.json({
       schedules: serializedSchedules,
@@ -1383,7 +2020,8 @@ router.post(
           include: [
             {
               model: CurationType,
-              as: 'type',
+              as: 'types',
+              through: { attributes: [] },
             },
             {
               model: Level,
@@ -1409,17 +2047,14 @@ router.post(
       ],
     });
 
-    // Serialize BigInt abilities to string
-    const serializedSchedule = completeSchedule ? {
-      ...completeSchedule.toJSON(),
-      scheduledCuration: completeSchedule.scheduledCuration ? {
-        ...completeSchedule.scheduledCuration.toJSON(),
-        type: completeSchedule.scheduledCuration.type ? {
-          ...completeSchedule.scheduledCuration.type.toJSON(),
-          abilities: completeSchedule.scheduledCuration.type.abilities.toString()
-        } : null
-      } : null
-    } : null;
+    const serializedSchedule = completeSchedule
+      ? {
+          ...completeSchedule.toJSON(),
+          scheduledCuration: completeSchedule.scheduledCuration
+            ? serializeCurationRow(completeSchedule.scheduledCuration)
+            : null,
+        }
+      : null;
 
     return res.status(201).json(serializedSchedule);
   } catch (error) {

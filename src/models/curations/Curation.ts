@@ -1,4 +1,4 @@
-import {Model, DataTypes, Optional} from 'sequelize';
+import { Model, DataTypes, Optional } from 'sequelize';
 import CurationSchedule from './CurationSchedule.js';
 import CurationType from './CurationType.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
@@ -8,7 +8,6 @@ const sequelize = getSequelizeForModelGroup('curations');
 export interface ICuration {
   id: number;
   levelId: number;
-  typeId: number;
   shortDescription: string | null;
   description: string | null;
   previewLink: string | null;
@@ -31,7 +30,6 @@ class Curation
 {
   declare id: number;
   declare levelId: number;
-  declare typeId: number;
   declare shortDescription: string | null;
   declare description: string | null;
   declare previewLink: string | null;
@@ -42,8 +40,11 @@ class Curation
   declare updatedAt: Date;
 
   declare curationSchedules: CurationSchedule[];
-  declare type?: CurationType;
+  declare types?: CurationType[];
   declare level?: Level;
+
+  declare setTypes: (typeIds: readonly number[], options?: object) => Promise<void>;
+  declare addType: (type: number | CurationType, options?: object) => Promise<void>;
 }
 
 Curation.init(
@@ -56,17 +57,9 @@ Curation.init(
     levelId: {
       type: DataTypes.INTEGER,
       allowNull: false,
+      unique: true,
       references: {
         model: 'levels',
-        key: 'id',
-      },
-      onDelete: 'CASCADE',
-    },
-    typeId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: 'curation_types',
         key: 'id',
       },
       onDelete: 'CASCADE',
@@ -113,12 +106,6 @@ Curation.init(
     tableName: 'curations',
     timestamps: true,
     indexes: [
-      {
-        fields: ['levelId'],
-      },
-      {
-        fields: ['typeId'],
-      },
       {
         fields: ['assignedBy'],
       },

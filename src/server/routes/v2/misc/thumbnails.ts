@@ -28,6 +28,7 @@ import { formatCredits } from '@/misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '@/server/routes/v2/webhooks/embeds.js';
 import dotenv from 'dotenv';
+import { sortCurationTypesByOrder } from '@/misc/utils/data/curationOrdering.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
@@ -277,8 +278,8 @@ router.get(
           const level = await Level.findOne({
             where: {id: levelId},
             include: [
-              {model: Curation, as: 'curation', include: [
-                {model: CurationType, as: 'type', attributes: ['icon']}
+              {model: Curation, as: 'curations', include: [
+                {model: CurationType, as: 'types', attributes: ['icon', 'groupSortOrder', 'sortOrder', 'id'], through: { attributes: [] }}
               ]},
               {model: Difficulty, as: 'difficulty'},
               {model: LevelCredit, as: 'levelCredits',
@@ -417,6 +418,18 @@ router.get(
           ? 'VFX: ' + vfxers
           : '';
 
+          const curationRow = (level as { curations?: Curation[] }).curations?.[0];
+          const curationIconsSorted = curationRow?.types
+            ? sortCurationTypesByOrder(curationRow.types as CurationType[]).slice(0, 4)
+            : [];
+          const curationIconsHtml = curationIconsSorted
+            .map((t, i) =>
+              t.icon
+                ? `<img class="curation-icon curation-icon--${i + 1}" src="${t.icon}" alt="Curation">`
+                : ''
+            )
+            .join('');
+
           const html = `
             <html>
               <head>
@@ -483,13 +496,16 @@ router.get(
                   }
                   .curation-icon {
                   position: absolute;
-                  bottom: -10%;
-                  right: 15%;
                   width: ${Math.round(iconSize/2)}px;
                   height: ${Math.round(iconSize/2)}px;
                   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 1));
                   z-index: 3;
+                  border-radius: 50%;
                   }
+                  .curation-icon--1 { bottom: -11%; right: -11%; }
+                  .curation-icon--2 { bottom: -15%; right: -40%; }
+                  .curation-icon--3 { bottom: -40%; right: -18%; }
+                  .curation-icon--4 { bottom: -48%; right: -38%; }
                   .average-diff-icon {
                   position: absolute;
                   top: -10%;
@@ -614,7 +630,7 @@ router.get(
                       src="data:image/png;base64,${iconBuffer.toString('base64')}" 
                       alt="Difficulty Icon"
                     />
-                    ${level.curation?.type?.icon ? `<img class="curation-icon" src="${level.curation?.type?.icon}" alt="Curation Icon">` : ''}
+                    ${curationIconsHtml}
                     ${averageDifficulty ? `<img class="average-diff-icon" src="${averageDifficulty.icon}" alt="Average Difficulty Icon">` : ''}
                     </div>
                     <div class="song-info">

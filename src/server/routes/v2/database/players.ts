@@ -1418,11 +1418,12 @@ router.get(
             },
             include: [{
               model: Curation,
-              as: 'curation',
+              as: 'curations',
               required: true,
               include: [{
                 model: CurationType,
-                as: 'type',
+                as: 'types',
+                through: { attributes: [] },
               }],
             }],
           }],
@@ -1431,15 +1432,17 @@ router.get(
         // Extract unique curation types, accumulating roles from all credits per type
         const curationTypeMap = new Map<number, {type: CurationType, roles: Set<string>}>();
         for (const credit of credits) {
-          const curation = (credit.level as any)?.curation;
-          if (curation?.type) {
-            const existing = curationTypeMap.get(curation.type.id);
-            if (existing) {
-              if (credit.role) existing.roles.add(credit.role);
-            } else {
-              const roles = new Set<string>();
-              if (credit.role) roles.add(credit.role);
-              curationTypeMap.set(curation.type.id, {type: curation.type, roles});
+          const curations = (credit.level as { curations?: Array<{ types?: CurationType[] }> })?.curations || [];
+          for (const curation of curations) {
+            for (const t of curation?.types || []) {
+              const existing = curationTypeMap.get(t.id);
+              if (existing) {
+                if (credit.role) existing.roles.add(credit.role);
+              } else {
+                const roles = new Set<string>();
+                if (credit.role) roles.add(credit.role);
+                curationTypeMap.set(t.id, { type: t, roles });
+              }
             }
           }
         }

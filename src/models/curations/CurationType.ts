@@ -10,6 +10,8 @@ export interface ICurationType {
   color: string;
   abilities: bigint;
   sortOrder: number;
+  group: string | null;
+  groupSortOrder: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,7 +19,7 @@ export interface ICurationType {
 type CurationTypeAttributes = ICurationType;
 type CurationTypeCreationAttributes = Optional<
   CurationTypeAttributes,
-  'id' | 'createdAt' | 'updatedAt'
+  'id' | 'createdAt' | 'updatedAt' | 'group' | 'groupSortOrder'
 >;
 
 class CurationType
@@ -30,6 +32,8 @@ class CurationType
   declare color: string;
   declare abilities: bigint;
   declare sortOrder: number;
+  declare group: string | null;
+  declare groupSortOrder: number;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -75,6 +79,16 @@ CurationType.init(
       comment: 'Bit-based abilities for curation types',
     },
     sortOrder: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
+    group: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+    },
+    groupSortOrder: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,

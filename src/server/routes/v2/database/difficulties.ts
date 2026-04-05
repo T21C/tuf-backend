@@ -94,7 +94,7 @@ async function calculateDifficultiesHash(): Promise<string> {
   }
 }
 
-async function updateDifficultiesHash() {
+export async function updateDifficultiesHash() {
   difficultiesHash = await calculateDifficultiesHash();
 }
 // Initialize the hash

@@ -352,11 +352,12 @@ class RoleSyncService {
           },
           include: [{
             model: Curation,
-            as: 'curation',
+            as: 'curations',
             required: true,
             include: [{
               model: CurationType,
-              as: 'type',
+              as: 'types',
+              through: { attributes: [] },
             }],
           }],
         }],
@@ -365,9 +366,11 @@ class RoleSyncService {
       // Extract unique curation types
       const curationTypeMap = new Map<number, CurationType>();
       for (const credit of credits) {
-        const curation = (credit.level as any)?.curation;
-        if (curation?.type) {
-          curationTypeMap.set(curation.type.id, curation.type);
+        const curations = (credit.level as { curations?: Curation[] })?.curations || [];
+        for (const curation of curations) {
+          for (const t of curation?.types || []) {
+            curationTypeMap.set(t.id, t);
+          }
         }
       }
 
@@ -417,11 +420,12 @@ class RoleSyncService {
           },
           include: [{
             model: Curation,
-            as: 'curation',
+            as: 'curations',
             required: true,
             include: [{
               model: CurationType,
-              as: 'type',
+              as: 'types',
+              through: { attributes: [] },
             }],
           }],
         }],
@@ -430,11 +434,13 @@ class RoleSyncService {
       // Build sets of curation type IDs for each creator
       for (const credit of credits) {
         const creatorId = credit.creatorId;
-        const curation = credit.level.curation;
-        if (curation?.type?.id) {
-          const typeSet = result.get(creatorId);
-          if (typeSet) {
-            typeSet.add(curation.type.id);
+        const curations = (credit.level as { curations?: Curation[] }).curations || [];
+        for (const curation of curations) {
+          for (const t of curation?.types || []) {
+            const typeSet = result.get(creatorId);
+            if (typeSet) {
+              typeSet.add(t.id);
+            }
           }
         }
       }

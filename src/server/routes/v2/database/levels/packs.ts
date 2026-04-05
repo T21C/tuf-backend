@@ -28,6 +28,11 @@ import { standardErrorResponses, standardErrorResponses404500, standardErrorResp
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import {
+  enrichLevelCurationAliases,
+  serializeCurationJson,
+  sortCurationsByTypeOrder,
+} from '@/misc/utils/data/curationOrdering.js';
 
 const router: Router = Router();
 
@@ -577,8 +582,9 @@ router.get(
         where: { levelId: { [Op.in]: levelIds } },
         include: [{
           model: CurationType,
-          as: 'type',
-          required: false
+          as: 'types',
+          required: false,
+          through: { attributes: [] },
         }]
       }) : Promise.resolve([]),
       // Fetch level credits with creators
@@ -663,7 +669,13 @@ router.get(
     }
     // Build maps for efficient lookup
     const levelsMap = new Map(fetchedLevels.map(level => [level.id, level]));
-    const curationsMap = new Map(curations.map(curation => [curation.levelId, curation]));
+    const curationsByLevelId = new Map<number, Curation[]>();
+    for (const c of curations) {
+      if (!curationsByLevelId.has(c.levelId)) {
+        curationsByLevelId.set(c.levelId, []);
+      }
+      curationsByLevelId.get(c.levelId)!.push(c);
+    }
     const levelCreditsMap = new Map<number, LevelCredit[]>();
     const teamsMap = new Map(fetchedTeams.map(team => [team.id, team]));
 
@@ -684,10 +696,13 @@ router.get(
 
       const levelData: any = level.toJSON();
 
-      // Attach curation if exists
-      const curation = curationsMap.get(level.id);
-      if (curation) {
-        levelData.curation = curation.toJSON();
+      const list = sortCurationsByTypeOrder(curationsByLevelId.get(level.id) || []);
+      if (list.length > 0) {
+        levelData.curations = list.map((c) => serializeCurationJson(c));
+        enrichLevelCurationAliases(levelData);
+      } else {
+        levelData.curations = [];
+        levelData.curation = null;
       }
 
       // Attach level credits if exist
@@ -1919,11 +1934,12 @@ router.put(
         required: false,
         include: [{
           model: Curation,
-          as: 'curation',
+          as: 'curations',
           include: [{
             model: CurationType,
-            as: 'type',
-            required: false
+            as: 'types',
+            required: false,
+            through: { attributes: [] },
           }],
           required: false,
         },
@@ -1948,6 +1964,12 @@ router.put(
 
     // Convert Sequelize models to plain objects to avoid circular references
     const plainItems = updatedItems.map(item => item.toJSON());
+    for (const item of plainItems) {
+      const ref = (item as { referencedLevel?: Record<string, unknown> }).referencedLevel;
+      if (ref) {
+        enrichLevelCurationAliases(ref);
+      }
+    }
 
     const updatedTree = buildItemTree(plainItems);
 

@@ -66,7 +66,9 @@ class Level
   declare levelCreators?: ICreator[];
   declare levelCredits?: LevelCredit[];
   declare aliases?: LevelAlias[] | null;
+  /** @deprecated use curations; kept for API responses as theme curation alias */
   declare curation?: Curation | null;
+  declare curations?: Curation[];
   declare ratings?: Rating[] | null;
 
   declare charter: string;

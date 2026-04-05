@@ -2,6 +2,7 @@ import Level from './Level.js';
 import Pass from '@/models/passes/Pass.js';
 import Rating from './Rating.js';
 import Curation from '@/models/curations/Curation.js';
+import CurationCurationType from '@/models/curations/CurationCurationType.js';
 import LevelCredit from './LevelCredit.js';
 import LevelAlias from './LevelAlias.js';
 import LevelTagAssignment from './LevelTagAssignment.js';
@@ -263,6 +264,27 @@ export function initializeLevelCacheHooks(): void {
     } else {
       if (levelId) await invalidateLevelCache(levelId);
     }
+  });
+
+  const invalidateCacheByCurationId = async (curationId: number, options: any) => {
+    const c = await Curation.findByPk(curationId);
+    const levelId = c?.levelId;
+    if (!levelId) return;
+    if (options.transaction) {
+      await options.transaction.afterCommit(async () => {
+        await invalidateLevelCache(levelId);
+      });
+    } else {
+      await invalidateLevelCache(levelId);
+    }
+  };
+
+  CurationCurationType.addHook('afterCreate', 'cacheInvalidationCurationTypeLink', async (row: any, options: any) => {
+    await invalidateCacheByCurationId(row.curationId, options);
+  });
+
+  CurationCurationType.addHook('afterDestroy', 'cacheInvalidationCurationTypeUnlink', async (row: any, options: any) => {
+    await invalidateCacheByCurationId(row.curationId, options);
   });
 
   // LevelCredit hooks - invalidate cache when credits are created/updated/deleted

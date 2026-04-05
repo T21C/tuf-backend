@@ -26,6 +26,7 @@ import Rating from '@/models/levels/Rating.js';
 import { formatCreatorDisplay, safeTransactionRollback } from '@/misc/utils/Utility.js';
 import User from '@/models/auth/User.js';
 import Curation from '@/models/curations/Curation.js';
+import CurationCurationType from '@/models/curations/CurationCurationType.js';
 import CurationType from '@/models/curations/CurationType.js';
 import { parseSearchQuery, queryParserConfigs, type FieldSearch, type SearchGroup } from '@/misc/utils/data/queryParser.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
@@ -35,6 +36,14 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { ownUrl } from '@/config/app.config.js';
+import {
+  pickThemeCuration,
+  pickThemeTypeForCuration,
+  sortCurationTypesByOrder,
+  sortCurationsByTypeOrder,
+} from '@/misc/utils/data/curationOrdering.js';
+import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
+import { buildFacetDomainClause, combineFacetClauses } from '@/misc/utils/search/facetQuery.js';
 
 const MAX_BATCH_SIZE = 2000;
 const BATCH_SIZE = 500;
@@ -495,6 +504,45 @@ class ElasticsearchService {
       }
     });
 
+    const indexLevelForCurationId = async (curationId: number, transaction?: any) => {
+      const c = await Curation.findByPk(curationId);
+      if (!c) return;
+      if (transaction) {
+        await transaction.afterCommit(async () => {
+          await this.indexLevel(c.levelId);
+        });
+      } else {
+        await this.indexLevel(c.levelId);
+      }
+    };
+
+    CurationCurationType.addHook('afterCreate', 'elasticsearchCurationTypeLink', async (row: any, options: any) => {
+      try {
+        await indexLevelForCurationId(row.curationId, options.transaction);
+      } catch (error) {
+        logger.error('Error in CurationCurationType afterCreate hook:', error);
+      }
+    });
+
+    CurationCurationType.addHook('afterDestroy', 'elasticsearchCurationTypeUnlink', async (row: any, options: any) => {
+      try {
+        await indexLevelForCurationId(row.curationId, options.transaction);
+      } catch (error) {
+        logger.error('Error in CurationCurationType afterDestroy hook:', error);
+      }
+    });
+
+    CurationCurationType.addHook('afterBulkCreate', 'elasticsearchCurationTypeBulkCreate', async (rows: any[], options: any) => {
+      try {
+        const ids = [...new Set(rows.map((r) => r.curationId))];
+        for (const id of ids) {
+          await indexLevelForCurationId(id, options.transaction);
+        }
+      } catch (error) {
+        logger.error('Error in CurationCurationType afterBulkCreate hook:', error);
+      }
+    });
+
     LevelTagAssignment.addHook('afterBulkCreate', 'elasticsearchLevelTagAssignmentBulkCreate', async (options: any) => {
       logger.debug('LevelTagAssignment bulk create hook triggered', options[0].levelId);
       try {
@@ -880,14 +928,15 @@ class ElasticsearchService {
       },
       {
         model: Curation,
-        as: 'curation',
+        as: 'curations',
         include: [
           {
             model: CurationType,
-            as: 'type',
-            attributes: ['id', 'name']
-          }
-        ]
+            as: 'types',
+            attributes: ['id', 'name', 'icon', 'color', 'group', 'groupSortOrder', 'sortOrder', 'abilities'],
+            through: { attributes: [] },
+          },
+        ],
       },
       {
         model: Rating,
@@ -1041,7 +1090,8 @@ class ElasticsearchService {
         }
       ]
     });
-    logger.debug(`Level ${level.id} curationtype: ${level.curation?.type?.name}`);
+    const _curations = (level as { curations?: Curation[] }).curations;
+    logger.debug(`Level ${level.id} curationtype: ${_curations?.[0]?.types?.[0]?.name}`);
     level.clears = clears;
     logger.debug(`Level ${level.id} has ${clears} clears`);
     return level;
@@ -1118,10 +1168,50 @@ class ElasticsearchService {
             name: convertToPUA(alias.name)
           }))
         } : null,
-        curation: level.curation ? {
-          ...level.curation.get({ plain: true }),
-        } : null,
-        isCurated: !!level.curation,
+        curations: (() => {
+          const raw = ((level as unknown) as { curations?: Curation[] }).curations || [];
+          const sorted = sortCurationsByTypeOrder(raw);
+          return sorted.map((c) => {
+            const typesPlain = sortCurationTypesByOrder((c.types || []) as CurationType[]).map((t) => ({
+              ...t.get({ plain: true }),
+              abilities: (t.abilities as bigint).toString(),
+            }));
+            const typeIds = typesPlain.map((x) => x.id);
+            const plain = c.get({ plain: true }) as unknown as Record<string, unknown>;
+            delete plain.types;
+            return {
+              ...plain,
+              typeIds,
+              types: typesPlain,
+            };
+          });
+        })(),
+        curation: (() => {
+          const raw = ((level as unknown) as { curations?: Curation[] }).curations || [];
+          const sorted = sortCurationsByTypeOrder(raw);
+          const theme = pickThemeCuration(sorted);
+          if (!theme) return null;
+          const t = pickThemeTypeForCuration(theme);
+          const typesPlain = sortCurationTypesByOrder((theme.types || []) as CurationType[]).map((ty) => ({
+            ...ty.get({ plain: true }),
+            abilities: (ty.abilities as bigint).toString(),
+          }));
+          const typeIds = typesPlain.map((x) => x.id);
+          const plain = theme.get({ plain: true }) as unknown as Record<string, unknown>;
+          delete plain.types;
+          return {
+            ...plain,
+            typeIds,
+            types: typesPlain,
+            type: t
+              ? {
+                  ...t.get({ plain: true }),
+                  abilities: (t.abilities as bigint).toString(),
+                }
+              : null,
+          };
+        })(),
+        isCurated: (((level as unknown) as { curations?: Curation[] }).curations?.length ?? 0) > 0,
         tags: ((level as any).tags as LevelTag[] | undefined)?.map((tag: LevelTag) => ({
           id: tag.id,
           name: tag.name,
@@ -2176,24 +2266,32 @@ class ElasticsearchService {
         });
       }
 
-      // Handle curated types filter
+      const facetQueryV1 = filters.facetQueryV1 as FacetQueryV1 | undefined;
+      const hasFacetQuery =
+        facetQueryV1 && (facetQueryV1.tags !== undefined || facetQueryV1.curationTypes !== undefined);
+
+      // Handle curated types filter: isCurated only/hide
       if (filters.curatedTypesFilter === 'only') {
         must.push({ term: { isCurated: true } });
       } else if (filters.curatedTypesFilter === 'hide') {
         must.push({ term: { isCurated: false } });
-      } else if (filters.curatedTypesFilter && filters.curatedTypesFilter !== 'show') {
-        // Handle specific curation type names (comma-separated)
+      } else if (
+        !hasFacetQuery &&
+        filters.curatedTypesFilter &&
+        filters.curatedTypesFilter !== 'show'
+      ) {
+        // Legacy: specific curation type names (comma-separated)
         const curationTypeNames = filters.curatedTypesFilter.split(',').map((name: string) => name.trim());
         if (curationTypeNames.length > 0) {
           const curationTypeIds = await this.resolveCurationTypes(curationTypeNames);
           if (curationTypeIds.length > 0) {
             must.push({
               nested: {
-                path: 'curation',
+                path: 'curations',
                 query: {
                   bool: {
-                    should: curationTypeIds.map(typeId => ({
-                      term: { 'curation.typeId': typeId }
+                    should: curationTypeIds.map((typeId) => ({
+                      term: { 'curations.typeIds': typeId },
                     })),
                     minimum_should_match: 1
                   }
@@ -2204,12 +2302,22 @@ class ElasticsearchService {
         }
       }
 
-      // Handle tags filter
-      if (filters.tagGroups && Object.keys(filters.tagGroups).length > 0) {
-        // Use grouped tags: OR within groups, AND between groups
+      // Tags + curation type lists: facet query v1 or legacy
+      if (hasFacetQuery && facetQueryV1) {
+        const tagClause = facetQueryV1.tags
+          ? buildFacetDomainClause(facetQueryV1.tags, 'tags', 'tags.id')
+          : null;
+        const curationClause = facetQueryV1.curationTypes
+          ? buildFacetDomainClause(facetQueryV1.curationTypes, 'curations', 'curations.typeIds')
+          : null;
+        const combined = combineFacetClauses(tagClause, curationClause, facetQueryV1.combine);
+        if (combined) {
+          must.push(combined);
+        }
+      } else if (filters.tagGroups && Object.keys(filters.tagGroups).length > 0) {
+        // Legacy: grouped tags — OR within groups, AND between groups
         const tagGroups = filters.tagGroups as { [groupKey: string]: number[] };
         const groupQueries = Object.values(tagGroups).map((tagIds: number[]) => {
-          // If only one tag in the group, return a single nested query
           if (tagIds.length === 1) {
             return {
               nested: {
@@ -2221,7 +2329,6 @@ class ElasticsearchService {
             };
           }
 
-          // Multiple tags in group: use OR logic (should array)
           return {
             nested: {
               path: 'tags',
@@ -2237,20 +2344,17 @@ class ElasticsearchService {
           };
         });
 
-        // All groups must match (AND logic between groups)
         must.push({
           bool: {
             must: groupQueries
           }
         });
       } else if (filters.tagsFilter && filters.tagsFilter !== 'show') {
-        // Fallback to old behavior: handle specific tag names (comma-separated)
+        // Legacy: comma-separated tag names — ALL selected tags (AND)
         const tagNames = filters.tagsFilter.split(',').map((name: string) => name.trim());
         if (tagNames.length > 0) {
           const tagIds = await this.resolveTags(tagNames);
           if (tagIds.length > 0) {
-            // Require ALL selected tags to match (AND logic)
-            // Each tag requires a separate nested query since a single nested document can only have one tag ID
             const tagQueries = tagIds.map(tagId => ({
               nested: {
                 path: 'tags',
@@ -2260,7 +2364,6 @@ class ElasticsearchService {
               }
             }));
 
-            // All tag queries must match
             must.push({
               bool: {
                 must: tagQueries

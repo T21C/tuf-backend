@@ -34,6 +34,12 @@ import { Cache } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import {
+  pickThemeCuration,
+  serializeCurationJson,
+  sortCurationsByTypeOrder,
+} from '@/misc/utils/data/curationOrdering.js';
+import { parseFacetQueryString } from '@/misc/utils/search/facetQuery.js';
 
 const router: Router = Router()
 const elasticsearchService = ElasticsearchService.getInstance();
@@ -44,11 +50,13 @@ router.get(
   ApiDoc({
     operationId: 'getLevelsSearch',
     summary: 'Search levels',
-    description: 'Search levels with filters (query, pguRange, sort, tags, etc.). Query: page, offset, limit.',
+    description:
+      'Search levels with filters (query, pguRange, sort, tags, etc.). Optional facetQuery (JSON v1) replaces tagsFilter and curatedTypesFilter name lists when present. Query: page, offset, limit.',
     tags: ['Levels'],
     security: ['bearerAuth'],
     query: {
       query: { description: 'Search text', schema: { type: 'string' } },
+      facetQuery: { description: 'Facet filter JSON v1 (tags + curationTypes)', schema: { type: 'string' } },
       pguRange: { description: 'PGU range', schema: { type: 'string' } },
       sort: { schema: { type: 'string' } },
       page: { schema: { type: 'integer' } },
@@ -70,6 +78,7 @@ router.get(
       availableDlFilter,
       curatedTypesFilter,
       tagsFilter,
+      facetQuery,
       onlyMyLikes,
     } = req.query;
 
@@ -98,9 +107,13 @@ router.get(
       //logger.info('Liked level IDs:', likedLevelIds);
     }
 
-    // Group tags by their group field if tagsFilter is provided
+    const facetQueryV1 = parseFacetQueryString(
+      typeof facetQuery === 'string' ? facetQuery : undefined
+    );
+
+    // Group tags by their group field if tagsFilter is provided (ignored when facetQuery is set — handled in ES)
     let tagGroups: { [groupKey: string]: number[] } | undefined;
-    if (tagsFilter && tagsFilter !== 'show') {
+    if (!facetQueryV1 && tagsFilter && tagsFilter !== 'show') {
       const tagNames = (tagsFilter as string).split(',').map(s => s.trim());
       if (tagNames.length > 0) {
         const tags = await LevelTag.findAll({
@@ -133,8 +146,9 @@ router.get(
         clearedFilter: clearedFilter as string,
         availableDlFilter: availableDlFilter as string,
         curatedTypesFilter: curatedTypesFilter as string,
-        tagsFilter: tagsFilter as string,
+        tagsFilter: facetQueryV1 ? undefined : (tagsFilter as string),
         tagGroups,
+        facetQueryV1,
         userId: req.user?.id,
         creatorId: req.user?.creatorId,
         offset,
@@ -386,13 +400,13 @@ router.get(
         where: { id: level.teamId },
       });
     });
-    // Curation query with nested CurationType and User
-    const curationPromise = Curation.findOne({
+    const curationsPromise = Curation.findAll({
       where: { levelId: levelId },
       include: [
         {
           model: CurationType,
-          as: 'type',
+          as: 'types',
+          through: { attributes: [] },
         },
         {
           model: CurationSchedule,
@@ -432,7 +446,7 @@ router.get(
       aliases,
       levelCredits,
       teamObject,
-      curation,
+      curationsRows,
       rerateHistory,
       tags
     ] = await Promise.all([
@@ -441,7 +455,7 @@ router.get(
       aliasesPromise,
       levelCreditsPromise,
       teamPromise,
-      curationPromise,
+      curationsPromise,
       rerateHistoryPromise,
       tagsPromise
     ]);
@@ -452,6 +466,10 @@ router.get(
     if (level.isDeleted && (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN))) {
       return res.status(404).json({ error: 'Level not found' });
     }
+    const sortedCurations = sortCurationsByTypeOrder(curationsRows as Curation[]);
+    const themeCuration = pickThemeCuration(sortedCurations as Curation[]);
+    const mergedSchedules = sortedCurations.flatMap((c) => c.curationSchedules || []);
+
     // Assemble the level object with all related data
     const assembledLevel = {
       ...level.toJSON(),
@@ -459,7 +477,9 @@ router.get(
       aliases,
       levelCredits,
       teamObject,
-      curation,
+      curations: sortedCurations.map((c) => serializeCurationJson(c)),
+      curation: themeCuration ? serializeCurationJson(themeCuration) : null,
+      curationSchedules: mergedSchedules.map((s) => s.toJSON()),
       tags: tags || [],
       song: getSongDisplayName(level),
       artist: getArtistDisplayName(level) || null

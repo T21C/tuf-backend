@@ -40,7 +40,7 @@ router.get('/:type/:fileId/:size', async (req: Request, res: Response) => {
             const fileExists = await spacesStorage.fileExists(variantRef.path);
 
             if (!fileExists) {
-                logger.info('Image variant not found in hybrid storage', {
+                logger.debug('Image variant not found in hybrid storage', {
                     fileId,
                     imageType,
                     imageSize,

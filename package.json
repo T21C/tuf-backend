@@ -29,7 +29,8 @@
     "health:prod": "cross-env NODE_ENV=production tsx src/externalServices/healthService/startHealthService.ts",
     "cdn": "cross-env tsx watch src/externalServices/cdnService/app.ts",
     "cdn:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdnService/app.ts",
-    "api-docs": "cross-env tsx src/externalServices/apiDocsService/app.ts"
+    "api-docs": "cross-env tsx src/externalServices/apiDocsService/app.ts",
+    "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts"
   },
   "keywords": [],
   "author": "",
