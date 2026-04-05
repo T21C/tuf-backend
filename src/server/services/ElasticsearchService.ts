@@ -2770,6 +2770,7 @@ class ElasticsearchService {
       ...source,
       song: convertFromPUA(source.song as string),
       artist: convertFromPUA(source.artist as string),
+      creator: convertFromPUA(source.creator as string),
       suffix: source.suffix ? convertFromPUA(source.suffix as string) : null,
       team: convertFromPUA(source.team as string),
       videoLink: convertFromPUA(source.videoLink as string),
