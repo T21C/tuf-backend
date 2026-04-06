@@ -25,6 +25,41 @@ const router = Router();
 const execAsync = promisify(exec);
 const isWindows = process.platform === 'win32';
 
+/** Max chars of stdout/stderr to attach to logs (exec can buffer large output). */
+const MAX_EXEC_LOG_CHUNK = 32768;
+
+function trimForExecLog(s: string | undefined): string | undefined {
+    if (s == null || s === '') return undefined;
+    const t = s.trimEnd();
+    if (t.length <= MAX_EXEC_LOG_CHUNK) return t;
+    return `${t.slice(0, MAX_EXEC_LOG_CHUNK)}… [truncated, total ${t.length} chars]`;
+}
+
+/** child_process.exec sets stderr/stdout/code on the error; message alone hides the real failure. */
+function execErrorDetails(error: unknown): Record<string, unknown> {
+    if (!(error instanceof Error)) {
+        return { detail: String(error) };
+    }
+    const ex = error as Error & {
+        cmd?: string;
+        code?: number;
+        signal?: NodeJS.Signals;
+        killed?: boolean;
+        stderr?: string;
+        stdout?: string;
+    };
+    const out: Record<string, unknown> = { message: ex.message };
+    if (ex.cmd) out.cmd = ex.cmd;
+    if (ex.code !== undefined && ex.code !== null) out.exitCode = ex.code;
+    if (ex.signal) out.signal = ex.signal;
+    if (ex.killed) out.killed = true;
+    const stderr = trimForExecLog(ex.stderr);
+    const stdout = trimForExecLog(ex.stdout);
+    if (stderr) out.stderr = stderr;
+    if (stdout) out.stdout = stdout;
+    return out;
+}
+
 const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.pack_root, 'pack-downloads');
 const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
 const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -429,7 +464,6 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
     } catch (error: any) {
         // unzip exit codes: 0=success, 1=warnings but continued, 2=corrupt, 3=severe error
         // Exit code 1 often means filename encoding warnings but extraction succeeded
-        const exitCode = error?.code;
 
         // Check if extraction actually succeeded by verifying files/directories exist
         let extractedEntries: fs.Dirent[] = [];
@@ -449,9 +483,8 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
         logger.debug('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
             zipPath,
             extractTo,
-            error: error instanceof Error ? error.message : String(error),
-            exitCode,
-            stderr: error?.stderr?.substring(0, 500)
+            shellCommand: cmd,
+            ...execErrorDetails(error)
         });
         // Fallback to AdmZip if 7z/unzip fails
         // AdmZip reads zip entries directly and should preserve encoding
@@ -1125,7 +1158,8 @@ async function generatePackDownloadZip(
             });
         } catch (error) {
             logger.error('Failed to create zip using 7z/zip', {
-                error: error instanceof Error ? error.message : String(error),
+                ...execErrorDetails(error),
+                shellCommand: cmd,
                 extractRoot,
                 targetPath
             });
@@ -1628,7 +1662,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
         return res.json(responsePayload);
     } catch (error) {
         logger.error('Failed to generate pack download zip', {
-            error: error instanceof Error ? error.message : String(error)
+            ...execErrorDetails(error)
         });
         return res.status(500).json({
             error: 'Failed to generate pack download',
