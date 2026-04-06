@@ -1903,6 +1903,10 @@ router.delete(
         throw {error: errorMessage, code: 403};
       }
 
+      if (level.clears > 0 && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+        throw {error: 'You cannot delete a level with clears', code: 400};
+      }
+
       // Check if level has a CDN-managed file
       if (!level.dlLink || !isCdnUrl(level.dlLink)) {
         throw {error: 'Level does not have a CDN-managed file', code: 400};
