@@ -129,7 +129,8 @@ services:
       - ./logs:/app/logs
       - ./cdn:/app/cdn
       - ./translations:/app/translations
-      - ./mapping-hash.json:/app/mapping-hash.json
+      - ./mapping-hash-levels.json:/app/mapping-hash-levels.json
+      - ./mapping-hash-passes.json:/app/mapping-hash-passes.json
     depends_on:
       mysql:
         condition: service_healthy

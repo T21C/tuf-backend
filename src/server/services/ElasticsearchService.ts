@@ -78,29 +78,33 @@ class ElasticsearchService {
       logger.info('Starting ElasticsearchService initialization...');
 
       // Initialize Elasticsearch indices
-      const needsReindex = await initializeElasticsearch();
+      const { reindexedLevels, reindexedPasses } = await initializeElasticsearch();
 
       // Set up database change listeners
       this.setupChangeListeners()
       logger.info('Database change listeners set up successfully');
 
 
-      if (needsReindex) {
+      if (reindexedLevels || reindexedPasses) {
         logger.info('Starting data reindexing...');
         const start = Date.now();
         await Promise.all([
-          this.reindexLevels().catch(error => {
-            logger.error('Failed to reindex levels:', error);
-            throw error;
-          }),
-          this.reindexPasses().catch(error => {
-            logger.error('Failed to reindex passes:', error);
-            throw error;
-          }),
+          reindexedLevels
+            ? this.reindexLevels().catch(error => {
+                logger.error('Failed to reindex levels:', error);
+                throw error;
+              })
+            : Promise.resolve(),
+          reindexedPasses
+            ? this.reindexPasses().catch(error => {
+                logger.error('Failed to reindex passes:', error);
+                throw error;
+              })
+            : Promise.resolve(),
         ]);
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        updateMappingHash();
+        updateMappingHash({ reindexedLevels, reindexedPasses });
       }
 
       this.isInitialized = true;

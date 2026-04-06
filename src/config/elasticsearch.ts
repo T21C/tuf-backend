@@ -503,6 +503,21 @@ export const indices = {
   }
 };
 
+/** Payload hashed for levels index (settings + mappings only). */
+const levelMappingHashPayload = {
+  settings: levelMapping.settings,
+  mappings: levelMapping.mappings
+};
+
+/** Payload hashed for passes index (settings + mappings only). */
+const passMappingHashPayload = {
+  settings: passMapping.settings,
+  mappings: passMapping.mappings
+};
+
+const levelMappingHashPath = path.join(process.cwd(), 'mapping-hash-levels.json');
+const passMappingHashPath = path.join(process.cwd(), 'mapping-hash-passes.json');
+
 // Function to generate hash of mappings
 export function generateMappingHash(mappings: any): string {
   return hash(mappings, {
@@ -513,55 +528,99 @@ export function generateMappingHash(mappings: any): string {
   });
 }
 
-export function updateMappingHash(): void {
-  storeMappingHash(generateMappingHash(indices));
+export function updateMappingHash(opts: { reindexedLevels: boolean; reindexedPasses: boolean }): void {
+  if (opts.reindexedLevels) {
+    storeLevelMappingHash(generateMappingHash(levelMappingHashPayload));
+  }
+  if (opts.reindexedPasses) {
+    storePassMappingHash(generateMappingHash(passMappingHashPayload));
+  }
 }
 
-// Function to read stored mapping hash
-export function readStoredMappingHash(): string | null {
-  const hashPath = path.join(process.cwd(), 'mapping-hash.json');
+function readHashFromFile(filePath: string): string | null {
   try {
-    if (fs.existsSync(hashPath)) {
-      const data = JSON.parse(fs.readFileSync(hashPath, 'utf8'));
-      return data.hash;
+    if (fs.existsSync(filePath)) {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return typeof data.hash === 'string' ? data.hash : null;
     }
   } catch (error) {
-    logger.warn('Failed to read mapping hash file:', error);
+    logger.warn(`Failed to read mapping hash file ${filePath}:`, error);
   }
   return null;
 }
 
-// Function to store mapping hash
-export function storeMappingHash(hash: string): void {
-  const hashPath = path.join(process.cwd(), 'mapping-hash.json');
+function writeHashFile(filePath: string, hashValue: string): void {
   try {
-    fs.writeFileSync(hashPath, JSON.stringify({ hash, timestamp: new Date().toISOString() }));
+    fs.writeFileSync(filePath, JSON.stringify({ hash: hashValue, timestamp: new Date().toISOString() }));
   } catch (error) {
-    logger.error('Failed to store mapping hash:', error);
+    logger.error(`Failed to store mapping hash file ${filePath}:`, error);
   }
 }
 
-// Function to check if reindexing is needed
-export async function checkIfReindexingNeeded(): Promise<{ needsReindex: boolean }> {
+export function readStoredLevelMappingHash(): string | null {
+  return readHashFromFile(levelMappingHashPath);
+}
+
+export function readStoredPassMappingHash(): string | null {
+  return readHashFromFile(passMappingHashPath);
+}
+
+function storeLevelMappingHash(hashValue: string): void {
+  writeHashFile(levelMappingHashPath, hashValue);
+}
+
+function storePassMappingHash(hashValue: string): void {
+  writeHashFile(passMappingHashPath, hashValue);
+}
+
+export type ReindexFlags = {
+  levelNeedsReindex: boolean;
+  passNeedsReindex: boolean;
+};
+
+async function isLevelIndexReady(): Promise<boolean> {
+  const [idx, lvlAlias, credAlias] = await Promise.all([
+    client.indices.exists({ index: levelIndexName }),
+    client.indices.exists({ index: levelAlias }),
+    client.indices.exists({ index: creditsAlias })
+  ]);
+  return Boolean(idx && lvlAlias && credAlias);
+}
+
+async function isPassIndexReady(): Promise<boolean> {
+  const [idx, psAlias] = await Promise.all([
+    client.indices.exists({ index: passIndexName }),
+    client.indices.exists({ index: passAlias })
+  ]);
+  return Boolean(idx && psAlias);
+}
+
+// Function to check if reindexing is needed (per index)
+export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
   try {
-    // Generate hash of the current index configuration
-    const currentHash = generateMappingHash(indices);
+    const currentLevelHash = generateMappingHash(levelMappingHashPayload);
+    const currentPassHash = generateMappingHash(passMappingHashPayload);
+    const storedLevelHash = readStoredLevelMappingHash();
+    const storedPassHash = readStoredPassMappingHash();
 
-    // Get stored hash
-    const storedHash = readStoredMappingHash();
+    const levelHashMismatch = currentLevelHash !== storedLevelHash;
+    const passHashMismatch = currentPassHash !== storedPassHash;
 
-    // If hashes don't match, reindexing is needed
-    if (currentHash !== storedHash) {
-      logger.info('Index configuration has changed, reindexing needed');
-      return { needsReindex: true };
+    const [levelReady, passReady] = await Promise.all([isLevelIndexReady(), isPassIndexReady()]);
+
+    const levelNeedsReindex = levelHashMismatch || !levelReady;
+    const passNeedsReindex = passHashMismatch || !passReady;
+
+    if (levelNeedsReindex || passNeedsReindex) {
+      logger.info(
+        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady})`
+      );
     }
 
-    logger.info('No reindexing needed, index configuration matches stored hash');
-    return { needsReindex: false };
+    return { levelNeedsReindex, passNeedsReindex };
   } catch (error) {
     logger.error('Error checking if reindexing is needed:', error);
-    // If we can't determine, assume reindexing is needed
-    return { needsReindex: true };
+    return { levelNeedsReindex: true, passNeedsReindex: true };
   }
 }
 
@@ -582,64 +641,86 @@ async function waitForElasticsearch(retries = 5, delay = 5000): Promise<boolean>
   return false;
 }
 
-export async function initializeElasticsearch() {
+export type InitializeElasticsearchResult = {
+  reindexedLevels: boolean;
+  reindexedPasses: boolean;
+};
+
+export async function initializeElasticsearch(): Promise<InitializeElasticsearchResult> {
   try {
     const isReady = await waitForElasticsearch();
     if (!isReady) {
       throw new Error('Elasticsearch failed to initialize after multiple retries');
     }
 
-    const { needsReindex } = await checkIfReindexingNeeded();
-    const indexExists = await Promise.all([
-      client.indices.exists({ index: levelIndexName }),
-      client.indices.exists({ index: passIndexName }),
-      client.indices.exists({ index: levelAlias }),
-      client.indices.exists({ index: passAlias }),
-      client.indices.exists({ index: creditsAlias })
-    ]).then(results => results.every(Boolean));
-    const doReindex = needsReindex || !indexExists;// || process.env.NODE_ENV === 'development';
-    if (doReindex) {
-      logger.info('Performing reindex...');
+    const { levelNeedsReindex, passNeedsReindex } = await checkIfReindexingNeeded();
 
-      // Delete any existing indices and aliases
-      await client.indices.delete({
-        index: [levelIndexName, passIndexName, levelAlias, passAlias, creditsAlias],
-        ignore_unavailable: true
-      }).catch(() => {});
+    let reindexedLevels = false;
+    let reindexedPasses = false;
 
-      // Create indices with their mappings
-      for (const [indexName, config] of Object.entries(indices)) {
-        await client.indices.create({
-          index: indexName,
-          settings: config.settings,
-          mappings: config.mappings
-        });
-        logger.info(`Created index: ${indexName}`);
+    if (levelNeedsReindex) {
+      logger.info('Recreating levels index and aliases...');
+      await client.indices
+        .delete({
+          index: [levelIndexName, levelAlias, creditsAlias],
+          ignore_unavailable: true
+        })
+        .catch(() => {});
 
-        // Create alias
-        await client.indices.putAlias({
-          index: indexName,
-          name: config.alias
-        });
-        logger.info(`Created alias: ${config.alias} -> ${indexName}`);
-      }
+      const levelConfig = indices[levelIndexName];
+      await client.indices.create({
+        index: levelIndexName,
+        settings: levelConfig.settings,
+        mappings: levelConfig.mappings
+      });
+      logger.info(`Created index: ${levelIndexName}`);
 
-      // Create credits alias pointing to levels index
+      await client.indices.putAlias({
+        index: levelIndexName,
+        name: levelAlias
+      });
+      logger.info(`Created alias: ${levelAlias} -> ${levelIndexName}`);
+
       await client.indices.putAlias({
         index: levelIndexName,
         name: creditsAlias
       });
       logger.info(`Created alias: ${creditsAlias} -> ${levelIndexName}`);
 
-      // Store new hash
-      logger.info('Updated mapping hash stored');
-
-    } else {
-      logger.info('No mapping changes detected, skipping reindex');
-
+      reindexedLevels = true;
     }
-    return doReindex;
 
+    if (passNeedsReindex) {
+      logger.info('Recreating passes index and alias...');
+      await client.indices
+        .delete({
+          index: [passIndexName, passAlias],
+          ignore_unavailable: true
+        })
+        .catch(() => {});
+
+      const passConfig = indices[passIndexName];
+      await client.indices.create({
+        index: passIndexName,
+        settings: passConfig.settings,
+        mappings: passConfig.mappings
+      });
+      logger.info(`Created index: ${passIndexName}`);
+
+      await client.indices.putAlias({
+        index: passIndexName,
+        name: passAlias
+      });
+      logger.info(`Created alias: ${passAlias} -> ${passIndexName}`);
+
+      reindexedPasses = true;
+    }
+
+    if (!reindexedLevels && !reindexedPasses) {
+      logger.info('No index recreation needed');
+    }
+
+    return { reindexedLevels, reindexedPasses };
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);
     throw error;

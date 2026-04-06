@@ -142,6 +142,8 @@ package-lock.json
 pfpList.json
 rankList.json
 mapping-hash.json
+mapping-hash-levels.json
+mapping-hash-passes.json
 uploads/
 temp/
 cache/
