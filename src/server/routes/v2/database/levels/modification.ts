@@ -1444,20 +1444,6 @@ router.post(
         throw {error: errorMessage, code: 403};
       }
 
-
-      if (
-        !hasFlag(req.user, permissionFlags.SUPER_ADMIN)
-        && canEdit
-        && level.clears > 0
-        && level.dlLink
-        && !isCdnUrl(level.dlLink)
-        ) {
-        throw {
-          error: 'You cannot change the download link if the level has existing clears',
-          code: 400,
-        };
-      }
-
       try {
         // Store the old file ID for cleanup if it exists
         let oldFileId: string | null = null;
@@ -1904,7 +1890,7 @@ router.delete(
       }
 
       if (level.clears > 0 && !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
-        throw {error: 'You cannot delete a level with clears', code: 400};
+        throw {error: 'You cannot delete a level with clears, request it in the discord server.', code: 400};
       }
 
       // Check if level has a CDN-managed file
