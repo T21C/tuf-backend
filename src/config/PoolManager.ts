@@ -53,6 +53,8 @@ export class PoolManager {
       backoffBase: 1000,
       backoffExponent: 1.5,
     },
+    keepAliveInitialDelay: 10000,
+    enableKeepAlive: true,
   };
 
   constructor(defaultMaxConnections = 10) {

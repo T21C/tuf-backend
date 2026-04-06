@@ -15,6 +15,8 @@ import { logger } from './LoggerService.js';
 import { PlayerStatsService } from './PlayerStatsService.js';
 import axios from 'axios';
 
+const ENABLED = process.env.NODE_ENV === 'production';
+
 export interface RoleSyncResult {
   success: boolean;
   guildId: string;
@@ -124,6 +126,11 @@ class RoleSyncService {
     try {
       if (!discordIds || discordIds.length === 0) {
         logger.debug('[RoleSyncService] No Discord IDs provided, skipping bot notification');
+        return;
+      }
+
+      if (!ENABLED) {
+        logger.debug('[RoleSyncService] Bot notification skipped (non-production)');
         return;
       }
 
@@ -590,6 +597,11 @@ class RoleSyncService {
       const managedRoleIds = roles.map(r => r.roleId);
       logger.debug(`[RoleSyncService] syncDifficultyRolesForGuild: Target roles: ${targetRoleIds.length}, Managed roles: ${managedRoleIds.length}`);
 
+      if (!ENABLED) {
+        logger.debug('[RoleSyncService] syncDifficultyRolesForGuild: Discord sync skipped (non-production)');
+        return result;
+      }
+
       // Sync roles
       logger.debug('[RoleSyncService] syncDifficultyRolesForGuild: Calling Discord API to sync roles');
       const syncResult = await client.syncRoles(
@@ -827,6 +839,11 @@ class RoleSyncService {
       const managedRoleIds = roles.map(r => r.roleId);
       logger.debug(`[RoleSyncService] syncCurationRolesForGuild: Target roles: ${targetRoleIds.length}, Managed roles: ${managedRoleIds.length}`);
 
+      if (!ENABLED) {
+        logger.debug('[RoleSyncService] syncCurationRolesForGuild: Discord sync skipped (non-production)');
+        return result;
+      }
+
       // Sync roles
       logger.debug('[RoleSyncService] syncCurationRolesForGuild: Calling Discord API to sync roles');
       const syncResult = await client.syncRoles(
@@ -962,6 +979,15 @@ class RoleSyncService {
     canManageRoles: boolean;
   }> {
     try {
+      if (!ENABLED) {
+        logger.debug('[RoleSyncService] testBotPermissions skipped (non-production)');
+        return {
+          success: false,
+          error: 'Discord API calls are disabled outside production',
+          canManageRoles: false,
+        };
+      }
+
       logger.debug(`[RoleSyncService] Testing bot permissions for guild ${guildId}`);
 
       // First, try to get the bot's own member info to verify it's in the guild
@@ -1101,6 +1127,15 @@ class RoleSyncService {
     canManageRole: boolean;
   }> {
     try {
+      if (!ENABLED) {
+        logger.debug('[RoleSyncService] testRoleAssignmentPermission skipped (non-production)');
+        return {
+          success: false,
+          error: 'Discord API calls are disabled outside production',
+          canManageRole: false,
+        };
+      }
+
       logger.debug(`[RoleSyncService] Testing role assignment permission for role ${roleId} in guild ${guildId}`);
       const client = new DiscordRoleClient(botToken);
 

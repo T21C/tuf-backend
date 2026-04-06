@@ -32,6 +32,7 @@ import {
   levelIdsForCurationFacetDomain,
   mergeFacetLevelIds,
 } from '@/misc/utils/search/facetQueryCurationSql.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 const router: Router = Router();
 
@@ -1287,6 +1288,20 @@ type PutLevelCurationBody = {
   typeIds?: number[];
 };
 
+/** Thrown from PUT /level/:levelId handler; handled in catch, rollback in finally */
+type PutLevelCurationHttpError = { status: number; error: string };
+
+function isPutLevelCurationHttpError(e: unknown): e is PutLevelCurationHttpError {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    'status' in e &&
+    'error' in e &&
+    typeof (e as PutLevelCurationHttpError).status === 'number' &&
+    typeof (e as PutLevelCurationHttpError).error === 'string'
+  );
+}
+
 function userCanAssignCurationTypeAbilities(req: Request, typeAbilities: bigint): boolean {
   if (!req.user) return false;
   if (hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
@@ -1346,6 +1361,10 @@ router.put(
   }),
   async (req: Request, res: Response) => {
     const transaction = await sequelize.transaction();
+    let committed = false;
+    let errorResponse: { status: number; body: { error: string } } | null = null;
+    let successPayload: { levelId: number; curations: ReturnType<typeof serializeCurationRow>[] } | null = null;
+
     try {
       const levelId = parseInt(req.params.levelId, 10);
       const body = req.body as PutLevelCurationBody;
@@ -1353,16 +1372,14 @@ router.put(
       const typeIdsRaw = body.typeIds;
 
       if (!Array.isArray(typeIdsRaw)) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'typeIds must be an array' });
+        throw { status: 400, error: 'typeIds must be an array' };
       }
 
       const uniqueTypeIds = [...new Set(typeIdsRaw.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
 
       const level = await Level.findByPk(levelId, { transaction });
       if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({ error: 'Level not found' });
+        throw { status: 404, error: 'Level not found' };
       }
 
       const assignedBy = req.user?.id || 'unknown';
@@ -1406,15 +1423,13 @@ router.put(
           : [];
       const typeById = new Map(typeRows.map((t) => [t.id, t]));
       if (typeRows.length !== uniqueTypeIds.length) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({ error: 'One or more curation types not found' });
+        throw { status: 400, error: 'One or more curation types not found' };
       }
 
       for (const tid of uniqueTypeIds) {
         const t = typeById.get(tid)!;
         if (!userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
-          await safeTransactionRollback(transaction);
-          return res.status(403).json({ error: 'You cannot assign one or more curation types' });
+          throw { status: 403, error: 'You cannot assign one or more curation types' };
         }
       }
 
@@ -1422,8 +1437,7 @@ router.put(
         if (!newTypeIds.has(tid)) {
           const t = await CurationType.findByPk(tid, { transaction });
           if (t && !userCanAssignCurationTypeAbilities(req, BigInt(t.abilities))) {
-            await safeTransactionRollback(transaction);
-            return res.status(403).json({ error: 'You do not have permission to remove one or more curation types' });
+            throw { status: 403, error: 'You do not have permission to remove one or more curation types' };
           }
         }
       }
@@ -1435,10 +1449,10 @@ router.put(
           hasAbility(t, curationTypeAbilities.FORCE_DESCRIPTION) &&
           (!descVal || !String(descVal).trim())
         ) {
-          await safeTransactionRollback(transaction);
-          return res.status(400).json({
+          throw {
+            status: 400,
             error: `Description is required for curation type "${t.name}"`,
-          });
+          };
         }
       }
 
@@ -1449,39 +1463,36 @@ router.put(
         customColor !== undefined;
 
       if (!existingRow && uniqueTypeIds.length === 0 && !hasContentFields) {
-        await safeTransactionRollback(transaction);
-        return res.status(400).json({
+        throw {
+          status: 400,
           error: 'Provide typeIds and/or content fields to create or update the level curation',
-        });
+        };
       }
 
-      if (!existingRow) {
-        existingRow = await Curation.create(
-          {
-            levelId,
-            assignedBy,
-            shortDescription: shortDescription ?? '',
-            description: description ?? null,
-            customCSS: customCSS ?? null,
-            customColor: customColor ?? null,
-          },
-          { transaction }
-        );
-      } else {
-        await existingRow.update(
-          {
-            ...(shortDescription !== undefined ? { shortDescription } : {}),
-            ...(description !== undefined ? { description } : {}),
-            ...(customCSS !== undefined ? { customCSS } : {}),
-            ...(customColor !== undefined ? { customColor } : {}),
-          },
-          { transaction }
-        );
+      // Upsert then reload: MySQL upsert often does not populate `id` on the returned instance,
+      // and BelongsToMany.setTypes requires a defined primary key for the junction WHERE.
+      await Curation.upsert(
+        {
+          levelId,
+          assignedBy,
+          shortDescription: shortDescription ?? '',
+          description: description ?? null,
+          customCSS: customCSS ?? null,
+          customColor: customColor ?? null,
+        },
+        { transaction },
+      );
+      const row = await Curation.findOne({
+        where: { levelId },
+        transaction,
+      });
+      if (!row) {
+        throw { status: 500, error: 'Failed to load curation after save' };
       }
-
-      await existingRow.setTypes(uniqueTypeIds, { transaction });
+      await row.setTypes(uniqueTypeIds, { transaction });
 
       await transaction.commit();
+      committed = true;
 
       const finalRows = await Curation.findAll({
         where: { levelId },
@@ -1495,13 +1506,29 @@ router.put(
       await elasticsearchService.indexLevel(levelId);
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       syncRolesForLevel(levelId, oldCurationTypeSets);
+      CacheInvalidation.invalidateTag(`level:${levelId}`);
 
-      return res.json({ levelId, curations: curationsOut });
-    } catch (error) {
-      await safeTransactionRollback(transaction);
-      logger.error('Error bulk-updating curations for level:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      successPayload = { levelId, curations: curationsOut };
+    } catch (error: unknown) {
+      if (isPutLevelCurationHttpError(error)) {
+        errorResponse = { status: error.status, body: { error: error.error } };
+      } else {
+        logger.error('Error bulk-updating curations for level:', error);
+        errorResponse = { status: 500, body: { error: 'Internal server error' } };
+      }
+    } finally {
+      if (!committed) {
+        await safeTransactionRollback(transaction);
+      }
     }
+
+    if (errorResponse) {
+      return res.status(errorResponse.status).json(errorResponse.body);
+    }
+    if (successPayload) {
+      return res.json(successPayload);
+    }
+    return res.status(500).json({ error: 'Internal server error' });
   }
 );
 

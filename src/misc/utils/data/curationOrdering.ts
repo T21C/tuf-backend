@@ -37,7 +37,7 @@ export function sortCurationTypesByOrder(types: CurationType[]): CurationType[] 
 }
 
 /**
- * @deprecated Use sortCurationTypesByOrder on curation.types; kept for transitional calls.
+ * Use sortCurationTypesByOrder on curation.types; kept for transitional calls.
  */
 export function sortCurationsByTypeOrder<T extends { id: number; types?: CurationType[] | null }>(
   curations: T[]
