@@ -106,6 +106,56 @@ const PASS_SUBMISSION_APPROVE_INCLUDES = [
   { model: PassSubmissionJudgements, as: 'judgements' },
 ];
 
+/** Full include for admin pass submission PATCH response (matches assign-player reload + passSubmitter) */
+const PASS_SUBMISSION_ADMIN_PUT_INCLUDES = [
+  {
+    model: Player,
+    as: 'assignedPlayer',
+  },
+  {
+    model: Level,
+    as: 'level',
+    include: [
+      { model: Difficulty, as: 'difficulty' },
+      {
+        model: LevelCredit,
+        as: 'levelCredits',
+        include: [{ model: Creator, as: 'creator' }],
+      },
+    ],
+  },
+  { model: PassSubmissionJudgements, as: 'judgements' },
+  { model: PassSubmissionFlags, as: 'flags' },
+  {
+    model: User,
+    as: 'passSubmitter',
+    required: false,
+    attributes: ['id', 'username', 'playerId'],
+  },
+];
+
+const JUDGEMENT_FIELD_KEYS = [
+  'earlyDouble',
+  'earlySingle',
+  'ePerfect',
+  'perfect',
+  'lPerfect',
+  'lateSingle',
+  'lateDouble',
+] as const;
+
+function validateJudgementIntInput(input: unknown): number {
+  const parsed = parseInt(String(input ?? '0'), 10);
+  if (Number.isNaN(parsed)) return 0;
+  return Math.max(0, Math.min(999999999, parsed));
+}
+
+function validateSpeedFloatInput(input: unknown): number {
+  const parsed = parseFloat(String(input ?? '1'));
+  if (Number.isNaN(parsed)) return 1;
+  return Math.max(1, Math.min(100, parsed));
+}
+
 interface ApprovePassSubmissionResult {
   pass: Pass;
   newPass: Pass;
@@ -1296,6 +1346,245 @@ router.put(
       });
     }
   }
+);
+
+router.put(
+  '/passes/:id([0-9]{1,20})',
+  Auth.superAdmin(),
+  ApiDoc({
+    operationId: 'putAdminPassSubmissionPartial',
+    summary: 'Partially update pending pass submission',
+    description:
+      'Update levelId, speed, judgements, and/or flags on a pending pass submission. Omitted nested keys are unchanged. Super admin.',
+    tags: ['Admin', 'Submissions'],
+    security: ['bearerAuth'],
+    params: { id: stringIdParamSpec },
+    requestBody: {
+      description:
+        'Partial fields: levelId (number), speed (number), judgements (partial object), flags (partial object). At least one required.',
+      schema: {
+        type: 'object',
+        properties: {
+          levelId: { type: 'number' },
+          speed: { type: 'number' },
+          judgements: {
+            type: 'object',
+            properties: {
+              earlyDouble: { type: 'integer' },
+              earlySingle: { type: 'integer' },
+              ePerfect: { type: 'integer' },
+              perfect: { type: 'integer' },
+              lPerfect: { type: 'integer' },
+              lateSingle: { type: 'integer' },
+              lateDouble: { type: 'integer' },
+            },
+          },
+          flags: {
+            type: 'object',
+            properties: {
+              is12K: { type: 'boolean' },
+              isNoHoldTap: { type: 'boolean' },
+              is16K: { type: 'boolean' },
+            },
+          },
+        },
+      },
+      required: false,
+    },
+    responses: { 200: { description: 'Submission updated' }, ...standardErrorResponses404500 },
+  }),
+  async (req: Request, res: Response) => {
+    const transaction = await sequelize.transaction();
+    try {
+      const submissionId = parseInt(req.params.id);
+      if (Number.isNaN(submissionId) || submissionId <= 0) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({ error: 'Invalid submission id' });
+      }
+
+      const body = req.body as {
+        levelId?: unknown;
+        speed?: unknown;
+        judgements?: Record<string, unknown>;
+        flags?: Record<string, unknown>;
+      };
+
+      const hasLevelId = Object.prototype.hasOwnProperty.call(body, 'levelId');
+      const hasSpeed = Object.prototype.hasOwnProperty.call(body, 'speed');
+      const hasJudgements = Object.prototype.hasOwnProperty.call(body, 'judgements');
+      const hasFlags = Object.prototype.hasOwnProperty.call(body, 'flags');
+
+      if (!hasLevelId && !hasSpeed && !hasJudgements && !hasFlags) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({
+          error: 'Request body must include at least one of: levelId, speed, judgements, flags',
+        });
+      }
+
+      const submission = await PassSubmission.findByPk(submissionId, {
+        include: [...PASS_SUBMISSION_ADMIN_PUT_INCLUDES],
+        transaction,
+      });
+
+      if (!submission) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(404).json({ error: 'Submission not found' });
+      }
+
+      if (submission.status !== 'pending') {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(400).json({ error: 'Only pending pass submissions can be edited' });
+      }
+
+      if (!submission.judgements || !submission.flags) {
+        await safeTransactionRollback(transaction, logger);
+        return res.status(500).json({ error: 'Submission judgements or flags missing' });
+      }
+
+      let touchedScoreInputs = false;
+
+      if (hasLevelId) {
+        const levelId = typeof body.levelId === 'number' ? body.levelId : parseInt(String(body.levelId), 10);
+        if (Number.isNaN(levelId) || levelId <= 0) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: 'Invalid levelId' });
+        }
+        const levelExists = await Level.findByPk(levelId, { transaction });
+        if (!levelExists) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(404).json({ error: 'Level not found' });
+        }
+        await submission.update({ levelId }, { transaction });
+        touchedScoreInputs = true;
+      }
+
+      if (hasSpeed) {
+        const speed = validateSpeedFloatInput(body.speed);
+        await submission.update({ speed }, { transaction });
+        touchedScoreInputs = true;
+      }
+
+      if (hasJudgements && body.judgements && typeof body.judgements === 'object') {
+        const j = body.judgements;
+        const patch: Partial<Record<(typeof JUDGEMENT_FIELD_KEYS)[number], number>> = {};
+        for (const key of JUDGEMENT_FIELD_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(j, key)) {
+            patch[key] = validateJudgementIntInput(j[key]);
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          await submission.judgements.update(patch, { transaction });
+          touchedScoreInputs = true;
+        }
+      }
+
+      if (hasFlags && body.flags && typeof body.flags === 'object') {
+        const f = body.flags;
+        const patch: Partial<{ is12K: boolean; isNoHoldTap: boolean; is16K: boolean }> = {};
+        if (Object.prototype.hasOwnProperty.call(f, 'is12K')) {
+          patch.is12K = f.is12K === true || f.is12K === 'true';
+        }
+        if (Object.prototype.hasOwnProperty.call(f, 'isNoHoldTap')) {
+          patch.isNoHoldTap = f.isNoHoldTap === true || f.isNoHoldTap === 'true';
+        }
+        if (Object.prototype.hasOwnProperty.call(f, 'is16K')) {
+          patch.is16K = f.is16K === true || f.is16K === 'true';
+        }
+        if (Object.keys(patch).length > 0) {
+          await submission.flags.update(patch, { transaction });
+          touchedScoreInputs = true;
+        }
+      }
+
+      if (touchedScoreInputs) {
+        await submission.reload({
+          include: [...PASS_SUBMISSION_ADMIN_PUT_INCLUDES],
+          transaction,
+        });
+
+        const level = submission.level;
+        const judgements = submission.judgements;
+        const flags = submission.flags;
+
+        if (!level?.difficulty || !judgements || !flags) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({
+            error: 'Cannot recalculate score: level difficulty or judgements/flags missing',
+          });
+        }
+
+        const judgementData = {
+          earlyDouble: judgements.earlyDouble || 0,
+          earlySingle: judgements.earlySingle || 0,
+          ePerfect: judgements.ePerfect || 0,
+          perfect: judgements.perfect || 0,
+          lPerfect: judgements.lPerfect || 0,
+          lateSingle: judgements.lateSingle || 0,
+          lateDouble: judgements.lateDouble || 0,
+        };
+
+        const speed = submission.speed ?? 1;
+        const accuracy = calcAcc(judgementData as IPassSubmissionJudgements);
+        const scoreV2 = getScoreV2(
+          {
+            speed,
+            judgements: judgementData as IPassSubmissionJudgements,
+            isNoHoldTap: flags.isNoHoldTap || false,
+          },
+          {
+            baseScore: level.baseScore,
+            ppBaseScore: level.ppBaseScore,
+            difficulty: level.difficulty,
+          },
+        );
+
+        if (!isValidNumber(accuracy)) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: 'Invalid judgements — could not calculate accuracy' });
+        }
+        if (!isValidNumber(scoreV2)) {
+          await safeTransactionRollback(transaction, logger);
+          return res.status(400).json({ error: 'Invalid score — check level and judgements' });
+        }
+
+        await submission.update({ scoreV2 }, { transaction });
+      }
+
+      await submission.reload({
+        include: [...PASS_SUBMISSION_ADMIN_PUT_INCLUDES],
+        transaction,
+      });
+
+      sseManager.broadcast({
+        type: 'submissionUpdate',
+        data: {
+          action: 'update',
+          submissionId: String(submissionId),
+          submissionType: 'pass',
+        },
+      });
+
+      await transaction.commit();
+
+      return res.json({
+        message: 'Pass submission updated successfully',
+        submission,
+      });
+    } catch (error) {
+      await safeTransactionRollback(transaction, logger);
+      const errorDetails = extractErrorDetails(error);
+      logger.error('Error updating pass submission:', {
+        submissionId: req.params.id,
+        errorMessage: errorDetails.message,
+        sqlQuery: errorDetails.sql,
+        originalError: errorDetails.original,
+      });
+      return res.status(500).json({
+        error: 'Failed to update pass submission',
+        details: errorDetails.message,
+      });
+    }
+  },
 );
 
 router.put(
