@@ -29,42 +29,12 @@ import CurationType from '@/models/curations/CurationType.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import cdnService, { CdnError } from '@/server/services/CdnService.js';
-import multer from 'multer';
+import { multerMemoryCdnImage5Mb } from '@/config/multerMemoryUploads.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
 
-// Configure multer for tag icon uploads (memory storage)
-const tagIconUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit (matching TAG_ICON config)
-  },
-  fileFilter: (req, file, cb) => {
-    // Allow image files
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
-    }
-  },
-});
-
-// Configure multer for difficulty icon uploads (memory storage)
-const difficultyIconUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    // Allow image files
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and SVG files are allowed.'));
-    }
-  },
-});
+const tagIconUpload = multerMemoryCdnImage5Mb;
+const difficultyIconUpload = multerMemoryCdnImage5Mb;
 
 // Store the current hash of difficulties
 let difficultiesHash = '';

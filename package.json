@@ -38,6 +38,7 @@
   "dependencies": {
     "@elastic/elasticsearch": "^9.0.1",
     "@google-cloud/recaptcha-enterprise": "^5.13.0",
+    "@gumlet/gif-resize": "^2.0.0",
     "@types/adm-zip": "^0.5.7",
     "@types/cron": "^2.4.3",
     "@types/multer": "^1.4.12",

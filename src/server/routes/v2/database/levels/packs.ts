@@ -12,7 +12,7 @@ import { permissionFlags } from '@/config/constants.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { parseSearchQuery,  queryParserConfigs, type SearchGroup } from '@/misc/utils/data/queryParser.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
-import multer from 'multer';
+import { multerMemoryCdnImage5Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/CdnService.js';
 import { CdnError } from '@/server/services/CdnService.js';
 import Pass from '@/models/passes/Pass.js';
@@ -35,22 +35,6 @@ import {
 } from '@/misc/utils/data/curationOrdering.js';
 
 const router: Router = Router();
-
-// Configure multer for memory storage
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Invalid file type. Only JPEG, PNG and WebP are allowed.'));
-        }
-    }
-});
 
 // Constants
 const MAX_PACKS_PER_USER = 50;

@@ -18,19 +18,12 @@ import {safeTransactionRollback, getFileIdFromCdnUrl} from '@/misc/utils/Utility
 import ArtistService from '@/server/services/ArtistService.js';
 import EvidenceService from '@/server/services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '@/server/services/CdnService.js';
-import multer from 'multer';
+import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
 const router: Router = Router();
 const artistService = ArtistService.getInstance();
 const evidenceService = EvidenceService.getInstance();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB
-  }
-});
 
 // Get artist list (paginated, searchable, filterable by verification state)
 router.get(

@@ -65,13 +65,12 @@ export class ImageFactory {
             // Create directory for this image's versions
             cdnLocalTemp.ensureDirUnderLocalRoot(imageDir);
 
-            // Save original file
-            const originalPath = path.join(imageDir, 'original.png');
+            const ext = path.extname(filePath).toLowerCase() || '.png';
+            const originalPath = path.join(imageDir, `original${ext}`);
             fs.copyFileSync(filePath, originalPath);
             cdnLocalTemp.cleanupFiles(filePath);
 
-            // Process variants
-            await processImage(originalPath, imageType, fileId, imageDir);
+            const processedFiles = await processImage(originalPath, imageType, fileId, imageDir);
 
             const variantNames = Object.keys(imageConfig.sizes);
             const variantStorage: Record<string, {
@@ -81,9 +80,17 @@ export class ImageFactory {
 
             await Promise.all(
                 variantNames.map(async (variantName) => {
-                    const localVariantPath = path.join(imageDir, `${variantName}.png`);
-                    const spacesKey = `images/${imageConfig.name}/${fileId}/${variantName}.png`;
-                    const uploadResult = await spacesStorage.uploadFile(localVariantPath, spacesKey, 'image/png');
+                    const variantMeta = processedFiles[variantName];
+                    if (!variantMeta) {
+                        throw new Error(`Missing processed variant: ${variantName}`);
+                    }
+                    const spacesKey = variantMeta.path;
+                    const localVariantPath = path.join(imageDir, path.basename(spacesKey));
+                    const uploadResult = await spacesStorage.uploadFile(
+                        localVariantPath,
+                        spacesKey,
+                        variantMeta.mimeType
+                    );
                     variantStorage[variantName] = {
                         path: spacesKey,
                         url: uploadResult.url,
@@ -115,16 +122,16 @@ export class ImageFactory {
                 timestamp: new Date().toISOString()
             });
 
-            // Generate URLs
-            const urls = {
-                original: `${CDN_CONFIG.baseUrl}/images/${imageType}/${fileId}/original`,
-                large: `${CDN_CONFIG.baseUrl}/images/${imageType}/${fileId}/large`,
-                medium: `${CDN_CONFIG.baseUrl}/images/${imageType}/${fileId}/medium`,
-                small: `${CDN_CONFIG.baseUrl}/images/${imageType}/${fileId}/small`,
-                ...(('thumbnail' in IMAGE_TYPES[imageType].sizes) ? {
-                    thumbnail: `${CDN_CONFIG.baseUrl}/images/${imageType}/${fileId}/thumbnail`
-                } : {})
+            const urlBase = `${CDN_CONFIG.baseUrl}/images/${imageConfig.name}/${fileId}`;
+            const urls: Record<string, string> = {
+                original: `${urlBase}/original`,
+                large: `${urlBase}/large`,
+                medium: `${urlBase}/medium`,
+                small: `${urlBase}/small`,
             };
+            if ('thumbnail' in IMAGE_TYPES[imageType].sizes) {
+                urls.thumbnail = `${urlBase}/thumbnail`;
+            }
 
             return {
                 success: true,

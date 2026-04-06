@@ -17,7 +17,7 @@ import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import SongService from '@/server/services/SongService.js';
 import EvidenceService from '@/server/services/EvidenceService.js';
 import cdnServiceInstance, { CdnError } from '@/server/services/CdnService.js';
-import multer from 'multer';
+import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import ElasticsearchService from '@/server/services/ElasticsearchService.js';
 import { parseSearchQuery, queryParserConfigs, extractFieldValues, extractGeneralSearchTerms } from '@/misc/utils/data/queryParser.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
@@ -27,13 +27,6 @@ const router: Router = Router();
 const songService = SongService.getInstance();
 const evidenceService = EvidenceService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB
-  }
-});
 
 // Get public song list (paginated, searchable)
 router.get(

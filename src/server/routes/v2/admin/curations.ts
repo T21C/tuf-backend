@@ -4,7 +4,7 @@ import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, docRequestBody, standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, stringIdParamSpec } from '@/server/schemas/v2/admin/index.js';
 import {Op, QueryTypes} from 'sequelize';
 import { getFileIdFromCdnUrl, isCdnUrl, safeTransactionRollback } from '@/misc/utils/Utility.js';
-import multer from 'multer';
+import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import CdnService from '@/server/services/CdnService.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationCurationType from '@/models/curations/CurationCurationType.js';
@@ -227,35 +227,6 @@ const syncRolesForLevel = async (
   }
 };
 
-
-// Configure multer for file uploads
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 10 * 1024 * 1024,
-    },
-    fileFilter: (req, file, cb) => {
-        // Allow all major browser-supported image types:
-        const allowedTypes = [
-            'image/jpeg',
-            'image/png',
-            'image/webp',
-            'image/gif',
-            'image/svg+xml',
-            'image/bmp',
-            'image/x-icon',
-            'image/vnd.microsoft.icon',
-            'image/heic',
-            'image/heif',
-            'image/avif'
-        ];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Invalid file type. Only image file types are allowed.'));
-        }
-    }
-});
 
 // Get all curation types
 router.get(

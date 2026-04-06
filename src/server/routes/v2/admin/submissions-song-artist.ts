@@ -11,20 +11,13 @@ import sequelize from '@/config/db.js';
 import {logger} from '@/server/services/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
 import EvidenceService from '@/server/services/EvidenceService.js';
-import multer from 'multer';
+import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 
 const router: Router = Router();
 const evidenceService = EvidenceService.getInstance();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB per file
-  }
-});
 
 // Change song selection (similar to creator selection)
 router.put(

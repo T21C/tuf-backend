@@ -9,7 +9,7 @@ import { Op } from 'sequelize';
 import UsernameChange from '@/models/auth/UsernameChange.js';
 import Player from '@/models/players/Player.js';
 import { logger } from '@/server/services/LoggerService.js';
-import multer from 'multer';
+import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/CdnService.js';
 import { CdnError } from '@/server/services/CdnService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -24,22 +24,6 @@ const elasticsearchService = ElasticsearchService.getInstance();
 const accountDeletionService = AccountDeletionService.getInstance();
 
 const usernameChangeCooldown = 1 * 24 * 60 * 60 * 1000; // 1 day
-
-// Configure multer for memory storage
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB limit
-    },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        if (allowedTypes.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error('Invalid file type. Only JPEG, PNG and WebP are allowed.'));
-        }
-    }
-});
 
 // Get current user profile
 router.get(
