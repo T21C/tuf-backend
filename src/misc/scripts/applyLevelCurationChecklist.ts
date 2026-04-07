@@ -252,6 +252,7 @@ async function run(options: {
         );
       }
 
+      await curation.update({assignedBy: assignedBy!, updatedAt: new Date()}, {transaction});
       await curation.setTypes(typeIds, { transaction });
       levelIdsForEs.add(row.levelId);
     }
