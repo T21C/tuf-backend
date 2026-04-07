@@ -1131,54 +1131,13 @@ router.post(
       return res.status(404).json({error: 'Level not found'});
     }
 
-    // First look for a curation type named "T1"
-    let assignableType = await CurationType.findOne({
-      where: {
-        name: 'T1'
-      }
-    });
-
-    // Check if the found T1 type is assignable by this user
-    const userFlags = BigInt(req.user?.permissionFlags || 0);
-    if (assignableType && !canAssignCurationType(userFlags, BigInt(assignableType.abilities))) {
-      // T1 exists but user can't assign it, set to null to continue with normal selection
-      assignableType = null;
-    }
-
-    // If no T1 found or T1 not assignable, proceed with normal selection
-    if (!assignableType) {
-      // Get all curation types ordered by sort order (highest first)
-      const allCurationTypes = await CurationType.findAll({
-        order: [['sortOrder', 'DESC']]
-      });
-
-      if (allCurationTypes.length === 0) {
-        return res.status(500).json({error: 'No curation types found'});
-      }
-
-      // Find the first assignable curation type for this user
-      assignableType = allCurationTypes.find(type =>
-        canAssignCurationType(userFlags, BigInt(type.abilities))
-      ) || null;
-
-      if (!assignableType) {
-        return res.status(403).json({error: 'You do not have permission to assign any curation types'});
-      }
-    }
-
-    if (!assignableType) {
-      return res.status(500).json({ error: 'No assignable curation type' });
-    }
-
-    const typeForAssign = assignableType;
-
     const existingCuration = await Curation.findOne({
       where: { levelId },
       include: [{ model: CurationType, as: 'types', through: { attributes: [] } }],
     });
 
-    if (existingCuration?.types?.some((t) => t.id === typeForAssign.id)) {
-      return res.status(409).json({error: `This level already has a curation of type "${typeForAssign.name}"`});
+    if (existingCuration) {
+      return res.status(409).json({ error: 'This level already has a curation' });
     }
 
     // Get level with creators BEFORE creating curation to capture old state
@@ -1204,17 +1163,10 @@ router.post(
       ? await roleSyncService.getCreatorsCurationTypeSets(creatorIds)
       : undefined;
 
-    let curation: InstanceType<typeof Curation>;
-    if (existingCuration) {
-      await existingCuration.addType(typeForAssign.id);
-      curation = existingCuration;
-    } else {
-      curation = await Curation.create({
-        levelId,
-        assignedBy,
-      });
-      await curation.addType(typeForAssign.id);
-    }
+    const curation = await Curation.create({
+      levelId,
+      assignedBy,
+    });
 
     // Fetch the complete curation with related data
     const completeCuration = await Curation.findByPk(curation.id, {
@@ -1295,6 +1247,17 @@ function userCanAssignCurationTypeAbilities(req: Request, typeAbilities: bigint)
     return canAssignCurationType(BigInt(req.user.permissionFlags || 0), typeAbilities);
   }
   return false;
+}
+
+/** OR semantics for visual fields from the selected curation types (short + long description share description abilities). */
+function curationTypeVisualAbilityFlags(types: CurationType[]) {
+  const anyAllowsCss = types.some((t) => hasAbility(t, curationTypeAbilities.CUSTOM_CSS));
+  const anyAllowsColor = types.some((t) => hasAbility(t, curationTypeAbilities.CUSTOM_COLOR_THEME));
+  const anyAllowsDescription = types.some((t) =>
+    hasAbility(t, curationTypeAbilities.ALLOW_DESCRIPTION) ||
+    hasAbility(t, curationTypeAbilities.FORCE_DESCRIPTION)
+  );
+  return { anyAllowsCss, anyAllowsColor, anyAllowsDescription };
 }
 
 const curationIncludeForLevelResponse = [
@@ -1398,6 +1361,21 @@ router.put(
       const oldTypeIds = new Set((existingRow?.types || []).map((t) => t.id));
       const newTypeIds = new Set(uniqueTypeIds);
 
+      // Layered permission: if this curation already has any restricted type(s),
+      // require the user to be able to assign ALL of them ("most restricted wins").
+      if (
+        existingRow &&
+        (existingRow.types || []).length > 0 &&
+        !hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])
+      ) {
+        const userFlags = BigInt(req.user?.permissionFlags || 0);
+        for (const t of existingRow.types || []) {
+          if (!canAssignCurationType(userFlags, BigInt(t.abilities))) {
+            throw { status: 403, error: 'You do not have permission to manage this curation' };
+          }
+        }
+      }
+
       const typeRows =
         uniqueTypeIds.length > 0
           ? await CurationType.findAll({
@@ -1426,12 +1404,53 @@ router.put(
         }
       }
 
-      const descVal = description !== undefined ? description : existingRow?.description;
+      // Visual field gating (OR): only when the client sends the field (partial updates omit keys they are not editing).
+      // Sending customCSS: "" still counts as an attempted edit.
+      const bodyHas = (key: keyof PutLevelCurationBody) =>
+        Object.prototype.hasOwnProperty.call(body, key);
+      const wantsShortDescription = bodyHas('shortDescription');
+      const wantsCss = bodyHas('customCSS');
+      const wantsColor = bodyHas('customColor');
+      const wantsDescription = bodyHas('description');
+      const wantsAnyDescriptionField = wantsShortDescription || wantsDescription;
+
+      // Visual field gating (OR): if any selected type enables CSS/color/description, that field may be updated.
+      // shortDescription and description share the same ability flags (treat short as part of the description content).
+      // Who may actually edit is still constrained by tier checks above (must assign every existing type, etc.).
+      if (!hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+        if (uniqueTypeIds.length === 0) {
+          if (wantsCss) {
+            throw { status: 403, error: 'You do not have permission to edit custom CSS for this curation' };
+          }
+          if (wantsColor) {
+            throw { status: 403, error: 'You do not have permission to edit custom color for this curation' };
+          }
+          if (wantsAnyDescriptionField) {
+            throw { status: 403, error: 'You do not have permission to edit description for this curation' };
+          }
+        } else {
+          const { anyAllowsCss, anyAllowsColor, anyAllowsDescription } = curationTypeVisualAbilityFlags(typeRows);
+
+          if (wantsCss && !anyAllowsCss) {
+            throw { status: 403, error: 'You do not have permission to edit custom CSS for this curation' };
+          }
+          if (wantsColor && !anyAllowsColor) {
+            throw { status: 403, error: 'You do not have permission to edit custom color for this curation' };
+          }
+          if (wantsAnyDescriptionField && !anyAllowsDescription) {
+            throw { status: 403, error: 'You do not have permission to edit description for this curation' };
+          }
+        }
+      }
+
+      const shortVal = wantsShortDescription ? shortDescription : existingRow?.shortDescription;
+      const descVal = wantsDescription ? description : existingRow?.description;
       for (const tid of uniqueTypeIds) {
         const t = typeById.get(tid)!;
         if (
           hasAbility(t, curationTypeAbilities.FORCE_DESCRIPTION) &&
-          (!descVal || !String(descVal).trim())
+          !String(shortVal ?? '').trim() &&
+          !String(descVal ?? '').trim()
         ) {
           throw {
             status: 400,
@@ -1441,10 +1460,10 @@ router.put(
       }
 
       const hasContentFields =
-        shortDescription !== undefined ||
-        description !== undefined ||
-        customCSS !== undefined ||
-        customColor !== undefined;
+        wantsShortDescription ||
+        wantsDescription ||
+        wantsCss ||
+        wantsColor;
 
       if (!existingRow && uniqueTypeIds.length === 0 && !hasContentFields) {
         throw {
@@ -1459,10 +1478,10 @@ router.put(
         {
           levelId,
           assignedBy,
-          shortDescription: shortDescription ?? '',
-          description: description ?? null,
-          customCSS: customCSS ?? null,
-          customColor: customColor ?? null,
+          shortDescription: wantsShortDescription ? (shortDescription ?? '') : (existingRow?.shortDescription ?? ''),
+          description: wantsDescription ? (description ?? null) : (existingRow?.description ?? null),
+          customCSS: wantsCss ? (customCSS ?? null) : (existingRow?.customCSS ?? null),
+          customColor: wantsColor ? (customColor ?? null) : (existingRow?.customColor ?? null),
         },
         { transaction },
       );
@@ -1534,7 +1553,15 @@ router.put(
   const transaction = await sequelize.transaction();
   try {
     const {id} = req.params;
-    const { shortDescription, description, customCSS, customColor, typeIds } = req.body as PutLevelCurationBody;
+    const body = req.body as PutLevelCurationBody;
+    const { shortDescription, description, customCSS, customColor, typeIds } = body;
+    const bodyHasPut = (key: keyof PutLevelCurationBody) =>
+      Object.prototype.hasOwnProperty.call(body, key);
+    const wantsShort = bodyHasPut('shortDescription');
+    const wantsDesc = bodyHasPut('description');
+    const wantsCssPut = bodyHasPut('customCSS');
+    const wantsColorPut = bodyHasPut('customColor');
+    const wantsAnyDescriptionFieldPut = wantsShort || wantsDesc;
 
     const curation = await Curation.findByPk(id, {
       transaction,
@@ -1542,6 +1569,42 @@ router.put(
     });
     if (!curation) {
       return res.status(404).json({error: 'Curation not found'});
+    }
+
+    let typesForVisualPut: InstanceType<typeof CurationType>[] = [];
+    if (Array.isArray(typeIds)) {
+      const uniqueTypeIdsPut = [...new Set(typeIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
+      if (uniqueTypeIdsPut.length > 0) {
+        typesForVisualPut = await CurationType.findAll({
+          where: { id: { [Op.in]: uniqueTypeIdsPut } },
+          transaction,
+        });
+      }
+    } else {
+      typesForVisualPut = curation.types || [];
+    }
+
+    if (!hasAnyFlag(req.user, [permissionFlags.SUPER_ADMIN, permissionFlags.HEAD_CURATOR])) {
+      if (typesForVisualPut.length === 0) {
+        if (wantsCssPut || wantsColorPut || wantsAnyDescriptionFieldPut) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({ error: 'You do not have permission to edit these curation fields' });
+        }
+      } else {
+        const { anyAllowsCss, anyAllowsColor, anyAllowsDescription } = curationTypeVisualAbilityFlags(typesForVisualPut);
+        if (wantsCssPut && !anyAllowsCss) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({ error: 'You do not have permission to edit custom CSS for this curation' });
+        }
+        if (wantsColorPut && !anyAllowsColor) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({ error: 'You do not have permission to edit custom color for this curation' });
+        }
+        if (wantsAnyDescriptionFieldPut && !anyAllowsDescription) {
+          await safeTransactionRollback(transaction);
+          return res.status(403).json({ error: 'You do not have permission to edit description for this curation' });
+        }
+      }
     }
 
     // Get level with creators BEFORE update to capture old state
@@ -1570,10 +1633,10 @@ router.put(
 
     await curation.update(
       {
-        ...(shortDescription !== undefined ? { shortDescription } : {}),
-        ...(description !== undefined ? { description } : {}),
-        ...(customCSS !== undefined ? { customCSS } : {}),
-        ...(customColor !== undefined ? { customColor } : {}),
+        ...(wantsShort ? { shortDescription } : {}),
+        ...(wantsDesc ? { description } : {}),
+        ...(wantsCssPut ? { customCSS } : {}),
+        ...(wantsColorPut ? { customColor } : {}),
       },
       { transaction }
     );
@@ -1610,12 +1673,14 @@ router.put(
           }
         }
       }
-      const descVal = description !== undefined ? description : curation.description;
+      const shortValPut = wantsShort ? shortDescription : curation.shortDescription;
+      const descValPut = wantsDesc ? description : curation.description;
       for (const tid of uniqueTypeIds) {
         const t = typeById.get(tid)!;
         if (
           hasAbility(t, curationTypeAbilities.FORCE_DESCRIPTION) &&
-          (!descVal || !String(descVal).trim())
+          !String(shortValPut ?? '').trim() &&
+          !String(descValPut ?? '').trim()
         ) {
           await safeTransactionRollback(transaction);
           return res.status(400).json({

@@ -17,6 +17,7 @@ export const curationTypeAbilities = {
 
   SHOW_ASSIGNER: 1n << 10n,            // Show who assigned on hover
   FORCE_DESCRIPTION: 1n << 11n,        // Require description when assigned
+  ALLOW_DESCRIPTION: 1n << 12n,        // Allows editing description (without necessarily forcing it)
   FRONT_PAGE_ELIGIBLE: 1n << 13n,      // Can appear on front page
   CUSTOM_COLOR_THEME: 1n << 14n,       // Allows custom color theming
 
