@@ -5,7 +5,7 @@
  * WARNING: This script bypasses HTTP API rules (e.g. FORCE_DESCRIPTION on some types).
  *
  * Usage:
- *   npx tsx src/misc/scripts/applyLevelCurationChecklist.ts --assigned-by <user-uuid> [--csv path] [--dry-run] [--skip-missing-levels] [--skip-es-index]
+ *   npx tsx src/misc/scripts/applyLevelCurationChecklist.ts --assigned-by <user-uuid> [--csv path] [--dry-run] [--skip-missing-levels] [--skip-es-index] [--batch-size N]
  *
  * assigned-by can be set via CURATION_CHECKLIST_ASSIGNED_BY instead of --assigned-by.
  */
@@ -32,7 +32,23 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CSV = path.join(__dirname, 'level curation checklist.csv');
 
+/** Chunk size for DB IN-queries, per-row yields in the apply loop, and ES reindex ID batches (avoids huge single queries / OOM). */
+const DEFAULT_BATCH_SIZE = 200;
+
 const curSequelize = getSequelizeForModelGroup('curations');
+
+function chunkIds<T>(arr: T[], size: number): T[][] {
+  if (size <= 0) throw new Error('batch size must be positive');
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+}
+
+function yieldEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
 
 function stripBom(s: string): string {
   if (s.charCodeAt(0) === 0xfeff) return s.slice(1);
@@ -143,6 +159,7 @@ async function run(options: {
   dryRun: boolean;
   skipMissingLevels: boolean;
   skipEsIndex: boolean;
+  batchSize: number;
 }): Promise<void> {
   initializeAssociations();
 
@@ -181,11 +198,16 @@ async function run(options: {
     );
   }
 
-  const existingLevels = await Level.findAll({
-    where: { id: { [Op.in]: csvLevelIds } },
-    attributes: ['id'],
-  });
-  const existingSet = new Set(existingLevels.map((l) => l.id));
+  const batchSize = options.batchSize;
+  const existingSet = new Set<number>();
+  for (const idChunk of chunkIds(csvLevelIds, batchSize)) {
+    const chunkRows = await Level.findAll({
+      where: { id: { [Op.in]: idChunk } },
+      attributes: ['id'],
+    });
+    for (const l of chunkRows) existingSet.add(l.id);
+    await yieldEventLoop();
+  }
   const missingLevels = csvLevelIds.filter((id) => !existingSet.has(id));
 
   if (missingLevels.length > 0 && !options.skipMissingLevels) {
@@ -208,6 +230,7 @@ async function run(options: {
   }
 
   const levelIdsForEs = new Set<number>([...csvLevelIds]);
+  const csvLevelIdSet = new Set(csvLevelIds);
 
   const transaction = await curSequelize.transaction();
   try {
@@ -217,6 +240,7 @@ async function run(options: {
     });
     logger.info(`Removed ${deletedJunction} curation_curation_types row(s)`);
 
+    let rowIndex = 0;
     for (const row of rowsToApply) {
       const typeIds = dedupeTypeNamesToIds(row.typeNames, nameToId);
 
@@ -229,6 +253,8 @@ async function run(options: {
           levelIdsForEs.add(row.levelId);
           logger.debug(`Removed empty curation for level ${row.levelId} (line ${row.lineNumber})`);
         }
+        rowIndex++;
+        if (rowIndex % batchSize === 0) await yieldEventLoop();
         continue;
       }
 
@@ -255,20 +281,38 @@ async function run(options: {
       await curation.update({assignedBy: assignedBy!, updatedAt: new Date()}, {transaction});
       await curation.setTypes(typeIds, { transaction });
       levelIdsForEs.add(row.levelId);
+      rowIndex++;
+      if (rowIndex % batchSize === 0) await yieldEventLoop();
     }
 
-    const curationsToRemove = await Curation.findAll({
-      where: { levelId: { [Op.notIn]: csvLevelIds } },
-      attributes: ['id', 'levelId'],
-      transaction,
-    });
-    for (const c of curationsToRemove) {
-      levelIdsForEs.add(c.levelId);
+    let removedExtra = 0;
+    let scanAfterId = 0;
+    for (;;) {
+      const scanBatch = await Curation.findAll({
+        where: { id: { [Op.gt]: scanAfterId } },
+        attributes: ['id', 'levelId'],
+        order: [['id', 'ASC']],
+        limit: batchSize,
+        transaction,
+      });
+      if (scanBatch.length === 0) break;
+      scanAfterId = scanBatch[scanBatch.length - 1].id;
+      const idsToDelete: number[] = [];
+      for (const c of scanBatch) {
+        if (!csvLevelIdSet.has(c.levelId)) {
+          idsToDelete.push(c.id);
+          levelIdsForEs.add(c.levelId);
+        }
+      }
+      if (idsToDelete.length > 0) {
+        const n = await Curation.destroy({
+          where: { id: { [Op.in]: idsToDelete } },
+          transaction,
+        });
+        removedExtra += n;
+      }
+      await yieldEventLoop();
     }
-    const removedExtra = await Curation.destroy({
-      where: { levelId: { [Op.notIn]: csvLevelIds } },
-      transaction,
-    });
     logger.info(`Removed ${removedExtra} curation(s) for levels not listed in CSV`);
 
     await transaction.commit();
@@ -281,8 +325,17 @@ async function run(options: {
   if (!options.skipEsIndex && levelIdsForEs.size > 0) {
     try {
       const es = ElasticsearchService.getInstance();
-      await es.reindexLevels([...levelIdsForEs]);
-      logger.info(`Elasticsearch reindex finished for ${levelIdsForEs.size} level(s)`);
+      const allIds = [...levelIdsForEs];
+      const idChunks = chunkIds(allIds, batchSize);
+      for (let c = 0; c < idChunks.length; c++) {
+        const chunk = idChunks[c];
+        await es.reindexLevels(chunk);
+        logger.info(
+          `Elasticsearch reindex chunk ${c + 1}/${idChunks.length} (${chunk.length} level(s), ${allIds.length} total)`
+        );
+        await yieldEventLoop();
+      }
+      logger.info(`Elasticsearch reindex finished for ${allIds.length} level(s)`);
     } catch (esErr) {
       logger.warn(
         'Elasticsearch reindex failed (data is committed):',
@@ -314,11 +367,21 @@ program
     false
   )
   .option('--skip-es-index', 'Do not call Elasticsearch reindex after commit', false)
+  .option(
+    '--batch-size <n>',
+    `Batch size for DB id lookups, apply-loop yields, and ES reindex id chunks (default: ${DEFAULT_BATCH_SIZE})`,
+    (v) => parseInt(v, 10),
+    DEFAULT_BATCH_SIZE
+  )
   .action(async (opts) => {
     try {
       const csvPath = path.resolve(opts.csv);
       if (!fs.existsSync(csvPath)) {
         throw new Error(`CSV file not found: ${csvPath}`);
+      }
+      const batchSize = Number(opts.batchSize);
+      if (!Number.isFinite(batchSize) || batchSize < 1) {
+        throw new Error(`Invalid --batch-size: ${opts.batchSize} (use a positive integer)`);
       }
       await run({
         csv: csvPath,
@@ -326,6 +389,7 @@ program
         dryRun: Boolean(opts.dryRun),
         skipMissingLevels: Boolean(opts.skipMissingLevels),
         skipEsIndex: Boolean(opts.skipEsIndex),
+        batchSize,
       });
     } catch (err) {
       logger.error(err instanceof Error ? err.message : String(err));
