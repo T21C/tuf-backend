@@ -636,9 +636,10 @@ router.put(
     responses: { 200: { description: 'Submission approved' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     let rollbackReason = '';
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
         const submissionObj = await LevelSubmission.findOne({
           where: {[Op.and]: [{id}, {status: 'pending'}]},
@@ -1127,9 +1128,10 @@ router.put(
     responses: { 200: { description: 'Submission declined' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     let rollbackReason = '';
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
 
       // Get the submission to check if it has a level zip and evidence
@@ -1217,10 +1219,11 @@ router.put(
     responses: { 200: { description: 'Pass submission approved' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     const submissionId = req.params.id;
 
     try {
+      transaction = await sequelize.transaction();
       const submission = await PassSubmission.findOne({
         where: {[Op.and]: [{id: parseInt(submissionId)}, {status: 'pending'}]},
         include: PASS_SUBMISSION_APPROVE_INCLUDES,
@@ -1307,8 +1310,9 @@ router.put(
     responses: { 200: { description: 'Pass submission declined' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       await PassSubmission.update(
         {status: 'declined'},
         {
@@ -1394,8 +1398,9 @@ router.put(
     responses: { 200: { description: 'Submission updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const submissionId = parseInt(req.params.id);
       if (Number.isNaN(submissionId) || submissionId <= 0) {
         await safeTransactionRollback(transaction, logger);
@@ -1601,8 +1606,9 @@ router.put(
     responses: { 200: { description: 'Player assigned' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {playerId} = req.body;
       const submission = await PassSubmission.findByPk(parseInt(req.params.id), {
         include: [
@@ -1758,10 +1764,11 @@ router.post(
     }> = [];
 
     for (const submission of pendingSubmissions) {
-      const transaction = await sequelize.transaction();
+      let transaction: any;
       const validationErrors: string[] = [];
 
       try {
+        transaction = await sequelize.transaction();
         const lockedSubmission = await PassSubmission.findOne({
           where: { id: submission.id, status: 'pending' },
           include: PASS_SUBMISSION_APPROVE_INCLUDES,
@@ -1877,9 +1884,10 @@ router.put(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { creatorRequests, teamRequestData } = req.body;
 
@@ -2016,9 +2024,10 @@ router.put(
     responses: { 200: { description: 'Creator assigned' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const { id } = req.params;
       const { creatorId, role, creditRequestId } = req.body;
 
@@ -2100,9 +2109,10 @@ router.post(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { name, aliases, role, creditRequestId } = req.body;
 
@@ -2285,9 +2295,10 @@ router.post(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { role } = req.body;
 
@@ -2396,9 +2407,10 @@ router.delete(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { id, requestId } = req.params;
 
     // Find the submission

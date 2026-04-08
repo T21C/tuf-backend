@@ -430,8 +430,9 @@ router.put(
     responses: { 200: { description: 'Level updated' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const levelId = parseInt(req.params.id);
     const {canEdit, errorMessage} = await checkLevelOwnership(
       levelId,
@@ -563,11 +564,12 @@ router.put(
     }
   }
 
-  const transaction = await sequelize.transaction({
-    isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ,
-  });
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction({
+      isolationLevel: Transaction.ISOLATION_LEVELS.REPEATABLE_READ,
+    });
     const levelId = parseInt(req.params.id);
 
     const level = await Level.findOne({
@@ -897,8 +899,9 @@ router.delete(
     responses: { 200: { description: 'Level soft deleted' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.id);
 
       const level = await Level.findOne({
@@ -1001,9 +1004,10 @@ router.patch(
     responses: { 200: { description: 'Level restored' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
 
       const level = await Level.findOne({
@@ -1095,9 +1099,10 @@ router.patch(
     responses: { 200: { description: 'Hidden toggled' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
       const levelId = parseInt(id);
 
@@ -1175,12 +1180,12 @@ router.put(
     responses: { 200: { description: 'Like updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     if (!req.user) {
-      await safeTransactionRollback(transaction);
       return res.status(401).json({error: 'Unauthorized'});
     }
     try {
+      transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.id);
       const {action} = req.body;
 
@@ -1274,9 +1279,10 @@ router.put(
     responses: { 200: { description: 'Vote submitted' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
       const {vote} = req.body;
 
@@ -1422,9 +1428,10 @@ router.post(
     responses: { 200: { description: 'Upload success' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, 499: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const {fileId, fileName, fileSize} = req.body;
       const levelId = parseInt(req.params.id);
       if (!fileId || !fileName || !fileSize) {
@@ -1799,9 +1806,10 @@ router.post(
     responses: { 200: { description: 'Level selected' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const {selectedLevel} = req.body;
       const levelId = parseInt(req.params.id);
       if (!selectedLevel) {
@@ -1870,9 +1878,10 @@ router.delete(
     responses: { 200: { description: 'File removed' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.id);
 
       // Get current level

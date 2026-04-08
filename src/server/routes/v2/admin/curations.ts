@@ -406,9 +406,10 @@ router.delete(
     responses: { 204: { description: 'Curation type deleted' }, ...standardErrorResponses404500 },
   }),
   async (req, res) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
 
     const type = await CurationType.findByPk(id, { transaction });
@@ -511,9 +512,10 @@ router.delete(
     responses: { 200: { description: 'Icon removed' }, ...standardErrorResponses404500 },
   }),
   async (req, res) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
 
     const type = await CurationType.findByPk(id, { transaction });
@@ -555,9 +557,10 @@ router.put(
     responses: { 200: { description: 'Sort orders updated' }, ...standardErrorResponses400500 },
   }),
   async (req, res) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { sortOrders } = req.body;
 
     if (!sortOrders || !Array.isArray(sortOrders)) {
@@ -641,8 +644,9 @@ router.put(
     responses: { 200: { description: 'Group sort orders updated' }, ...standardErrorResponses400500 },
   }),
   async (req, res) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const { groups } = req.body;
 
       if (!Array.isArray(groups)) {
@@ -1307,12 +1311,13 @@ router.put(
     responses: { 200: { description: 'Updated curations for level' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     let committed = false;
     let errorResponse: { status: number; body: { error: string } } | null = null;
     let successPayload: { levelId: number; curations: ReturnType<typeof serializeCurationRow>[] } | null = null;
 
     try {
+      transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.levelId, 10);
       const body = req.body as PutLevelCurationBody;
       const { shortDescription, description, customCSS, customColor } = body;
@@ -1550,8 +1555,9 @@ router.put(
     responses: { 200: { description: 'Curation updated' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
     const body = req.body as PutLevelCurationBody;
     const { shortDescription, description, customCSS, customColor, typeIds } = body;
@@ -1811,9 +1817,10 @@ router.delete(
     responses: { 200: { description: 'Curation deleted' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
 
     const curation = await Curation.findByPk(id, { transaction });
@@ -2287,9 +2294,10 @@ router.delete(
     responses: { 200: { description: 'Thumbnail removed' }, ...standardErrorResponses403404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
 
     const curation = await Curation.findByPk(id, { transaction });

@@ -33,8 +33,9 @@ router.post(
     responses: { 200: { schema: successMessageSchema }, 400: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req, res) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+    transaction = await sequelize.transaction();
     const ratingId = parseInt(req.params.ratingId);
     const rating = await Rating.findByPk(ratingId);
 

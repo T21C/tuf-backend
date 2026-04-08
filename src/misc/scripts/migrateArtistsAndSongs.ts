@@ -413,7 +413,7 @@ async function migrateLevel(
  * Migrate a single level by ID (for testing)
  */
 async function migrateSingleLevel(levelId: number, dryRun = false): Promise<void> {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   const stats: MigrationStats = {
     totalLevels: 1,
     processedLevels: 0,
@@ -429,6 +429,7 @@ async function migrateSingleLevel(levelId: number, dryRun = false): Promise<void
   };
 
   try {
+    transaction = await sequelize.transaction();
     logger.info(`\n=== Single Level Migration Test (Level ID: ${levelId}) ===`);
     if (dryRun) {
       logger.info('DRY RUN MODE - No changes will be saved');

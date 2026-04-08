@@ -34,8 +34,9 @@ router.put(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {songId, isNewRequest, songName, verificationState} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {
       include: [
@@ -136,8 +137,9 @@ router.put(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {artistId, artistRequestId, isNewRequest, artistName, verificationState} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {
       include: [
@@ -369,8 +371,9 @@ router.put(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { songId } = req.body;
 
@@ -533,8 +536,9 @@ router.put(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { artistId } = req.body;
 
@@ -661,8 +665,9 @@ router.post(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { name, aliases, songRequestId } = req.body;
 
@@ -786,8 +791,9 @@ router.post(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { name, aliases, artistRequestId } = req.body;
 
@@ -925,8 +931,9 @@ router.post(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
 
     const submission = await LevelSubmission.findOne({
@@ -1004,8 +1011,9 @@ router.post(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
 
     const submission = await LevelSubmission.findOne({
@@ -1105,8 +1113,9 @@ router.delete(
     responses: { 200: { description: 'Updated submission' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { id, requestId } = req.params;
 
     const submission = await LevelSubmission.findOne({
@@ -1212,8 +1221,9 @@ router.put(
     responses: { 200: { description: 'Updated suffix' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {suffix} = req.body;
     const submission = await LevelSubmission.findByPk(req.params.id, {transaction});
 

@@ -370,8 +370,9 @@ export class PlayerStatsService {
         const batchIds = playerIds.slice(i, i + BATCH_SIZE);
 
         // Use a single transaction for the entire batch
-        const transaction = await sequelize.transaction();
+        let transaction: any;
         try {
+          transaction = await sequelize.transaction();
           // First, delete existing stats for these players
           await PlayerStats.destroy({
             where: { id: batchIds },
@@ -500,8 +501,9 @@ export class PlayerStatsService {
     const oldTopDiffIds = new Map(oldStats.map(stat => [stat.id, stat.topDiffId]));
 
     // Use a single transaction for the entire batch
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       // First, delete existing stats for these players
       await PlayerStats.destroy({
         where: { id: playerIds },
@@ -606,8 +608,9 @@ export class PlayerStatsService {
   private async _updateRanks(): Promise<void> {
     // logger.debug(`[PlayerStatsService] Starting rank updates`);
 
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       // Update rankedScoreRank
       await sequelize.query('SET @rank = 0', { transaction });
       await sequelize.query(

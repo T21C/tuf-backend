@@ -364,8 +364,9 @@ router.post(
     responses: { 200: { description: 'Creator created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { name, aliases = [] } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -426,8 +427,9 @@ router.put(
     responses: { 200: { description: 'Level creators updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {levelId} = req.params;
       const {creators} = req.body;
 
@@ -485,8 +487,9 @@ router.post(
     responses: { 200: { description: 'Level verified' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {levelId} = req.params;
 
       // Find the level first
@@ -537,8 +540,9 @@ router.post(
     responses: { 200: { description: 'Level unverified' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {levelId} = req.params;
 
       // Find the level first
@@ -589,8 +593,9 @@ router.post(
     responses: { 200: { description: 'Merge success' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {sourceId, targetId} = req.body;
       if (!sourceId || !targetId) {
         await safeTransactionRollback(transaction);
@@ -745,8 +750,9 @@ router.post(
     responses: { 200: { description: 'Creator split' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {creatorId, newNames, roles} = req.body;
 
       // Validate source creator exists
@@ -891,9 +897,10 @@ router.put(
     responses: { 200: { description: 'Creator updated' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
     const {name, aliases, userId, isVerified} = req.body;
 
@@ -1110,8 +1117,9 @@ router.put(
     responses: { 200: { description: 'Team updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {levelId} = req.params;
       const {teamId, name, members} = req.body;
 
@@ -1307,8 +1315,9 @@ router.delete(
     responses: { 200: { description: 'Team removed' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {levelId} = req.params;
 
       const level = await Level.findByPk(levelId, {transaction});
@@ -1370,8 +1379,9 @@ router.delete(
     responses: { 200: { description: 'Team deleted' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {teamId} = req.params;
       const levelId = req.query.levelId as string;
 
@@ -1487,8 +1497,9 @@ router.put(
     responses: { 200: { description: 'Discord linked' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {creatorId, userId} = req.params;
 
       // Find the creator
@@ -1532,8 +1543,9 @@ router.delete(
     responses: { 200: { description: 'Discord unlinked' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {creatorId} = req.params;
 
       // Find the creator
@@ -1570,8 +1582,9 @@ router.put(
     responses: { 200: { description: 'Creator assigned' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { userOrPlayerId, creatorId } = req.params;
 
     // Determine if userOrPlayerId is a UUID (user ID) or playerId
@@ -1660,8 +1673,9 @@ router.delete(
     responses: { 200: { description: 'Creator removed' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { userOrPlayerId } = req.params;
 
     // Determine if userOrPlayerId is a UUID (user ID) or playerId
@@ -1804,8 +1818,9 @@ router.post(
     responses: { 200: { description: 'Team created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { name, aliases, description } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -1958,8 +1973,9 @@ router.put(
     responses: { 200: { description: 'Team updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { teamId } = req.params;
     const { name, aliases, description } = req.body;
 
@@ -2122,8 +2138,9 @@ router.delete(
     responses: { 200: { description: 'Team deleted' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { teamId } = req.params;
 
     const team = await Team.findByPk(teamId, { transaction });

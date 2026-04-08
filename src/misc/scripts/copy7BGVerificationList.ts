@@ -496,7 +496,7 @@ async function fetchArtists(searchName?: string | null): Promise<SevenBGArtist[]
  * Main migration function
  */
 async function migrateArtists(): Promise<void> {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   const stats: MigrationStats = {
     totalArtists: 0,
     processedArtists: 0,
@@ -511,6 +511,7 @@ async function migrateArtists(): Promise<void> {
   };
 
   try {
+    transaction = await sequelize.transaction();
     logger.info(`\n=== 7BG Artist Verification List Migration ${DRY_RUN ? '(DRY RUN)' : ''} ===`);
     if (DRY_RUN) {
       logger.info('DRY RUN MODE - No changes will be saved');

@@ -84,9 +84,10 @@ router.post(
     },
   }),
   async (req: Request, res: Response) => {
-      const transaction = await sequelize.transaction();
+      let transaction: any;
 
       try {
+        transaction = await sequelize.transaction();
         const levelId = parseInt(req.params.id);
         if (isNaN(levelId)) {
           await safeTransactionRollback(transaction);
@@ -238,9 +239,10 @@ router.put(
     },
   }),
   async (req: Request, res: Response) => {
-      const transaction = await sequelize.transaction();
+      let transaction: any;
 
       try {
+        transaction = await sequelize.transaction();
         const levelId = parseInt(req.params.levelId);
         const aliasId = parseInt(req.params.aliasId);
         if (isNaN(levelId) || isNaN(aliasId)) {
@@ -305,9 +307,10 @@ router.delete(
     },
   }),
   async (req: Request, res: Response) => {
-      const transaction = await sequelize.transaction();
+      let transaction: any;
 
       try {
+        transaction = await sequelize.transaction();
         const levelId = parseInt(req.params.levelId);
         const aliasId = parseInt(req.params.aliasId);
         if (isNaN(levelId) || isNaN(aliasId)) {

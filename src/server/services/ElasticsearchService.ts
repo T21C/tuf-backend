@@ -1236,8 +1236,9 @@ class ElasticsearchService {
   }
 
   private async getPassWithRelations(passId: number): Promise<Pass | null> {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const pass = await Pass.findByPk(passId, {
         include: this.passIncludes
     });

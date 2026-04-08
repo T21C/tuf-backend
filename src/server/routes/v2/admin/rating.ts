@@ -141,9 +141,10 @@ router.put(
     responses: { 200: { description: 'Rating updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const {id} = req.params;
     const {rating: ratingString, comment: commentString, isCommunityRating = false} = req.body;
     const user = req.user;
@@ -291,9 +292,10 @@ router.delete(
     },
   ],
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const {id, userId} = req.params;
       const currentUser = req.user;
       if (!currentUser) {

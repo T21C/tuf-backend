@@ -137,9 +137,10 @@ router.put(
     },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const username = req.body.username;
     const user = req.user;
 

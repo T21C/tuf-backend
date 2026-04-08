@@ -19,9 +19,10 @@ const BATCH_SIZE = 1000; // Process levels in batches to avoid memory issues
 const CONFIRMATION_REQUIRED = false; // Set to false to skip confirmation prompt
 
 async function recalculateScores() {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     logger.info('Starting score recalculation...');
     logger.info('This script will recalculate scoreV2 for all passes using the current formula.');
 

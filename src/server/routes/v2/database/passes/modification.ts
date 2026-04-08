@@ -40,8 +40,9 @@ router.put(
     responses: { 200: { description: 'Updated pass' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
       let {
         levelId,
@@ -410,9 +411,10 @@ router.delete(
     responses: { 200: { description: 'Deleted pass and message' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-      const transaction = await sequelize.transaction();
+      let transaction: any;
 
       try {
+        transaction = await sequelize.transaction();
         const id = parseInt(req.params.id);
 
         const pass = await Pass.findOne({
@@ -549,9 +551,10 @@ router.patch(
     responses: { 200: { description: 'Restored pass and message' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-      const transaction = await sequelize.transaction();
+      let transaction: any;
 
       try {
+        transaction = await sequelize.transaction();
         const id = parseInt(req.params.id);
 
         const pass = await Pass.findOne({
@@ -655,8 +658,9 @@ router.patch(
     responses: { 200: { description: 'Updated pass with isHidden toggled' }, 401: { description: 'Authentication required' }, 403: { description: 'Not pass owner' }, 404: { description: 'Pass not found' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const id = parseInt(req.params.id);
       const user = req.user;
 

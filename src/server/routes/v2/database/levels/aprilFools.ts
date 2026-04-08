@@ -150,9 +150,10 @@ router.put('/:id([0-9]{1,20})/difficulty', Auth.verified(), async (req: Request,
     if (!ENABLE_ROULETTE) {
       return res.status(727).json({ error: 'April fools over, roulette is disabled' });
     }
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.id);
       let { diffId, baseScore, publicComments } = req.body;
 
@@ -235,9 +236,10 @@ router.put('/:id([0-9]{1,20})/difficulty', Auth.verified(), async (req: Request,
     if (!ENABLE_ROULETTE) {
       return res.status(727).json({ error: 'April fools over, roulette is disabled' });
     }
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const levelId = parseInt(req.params.id);
       let { diffId, baseScore, publicComments } = req.body;
 

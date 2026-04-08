@@ -105,9 +105,10 @@ export class AccountDeletionService {
     deletionScheduledAt: Date;
     deletionExecuteAt: Date;
   }> {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const user = await User.findByPk(userId, { transaction });
       if (!user) {
         throw new Error('User not found');
@@ -176,9 +177,10 @@ export class AccountDeletionService {
    * - Restores player ban state based on snapshot (prevents ban-evasion)
    */
   public async cancelDeletion(userId: string): Promise<void> {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
 
     try {
+      transaction = await sequelize.transaction();
       const user = await User.findByPk(userId, { transaction });
       if (!user) {
         throw new Error('User not found');
@@ -253,11 +255,12 @@ export class AccountDeletionService {
     if (!user.deletionExecuteAt || !user.deletionScheduledAt) return false;
     if (user.deletionExecuteAt.getTime() > Date.now()) return false;
 
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     let avatarIdToDelete: string | null = null;
     let playerIdToDelete: number | null = null;
 
     try {
+      transaction = await sequelize.transaction();
       const lockedUser = await User.findByPk(userId, {
         transaction,
         lock: transaction.LOCK.UPDATE,

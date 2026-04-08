@@ -354,8 +354,9 @@ export class ModifierService {
       }
 
 
-      const transaction = await sequelize.transaction();
+      let transaction: any;
       try {
+        transaction = await sequelize.transaction();
         for (const pass of passes) {
           if (pass.judgements) {
             const currentEarlyDouble = pass.judgements.earlyDouble || 0;
@@ -611,8 +612,9 @@ export class ModifierService {
       }
 
       // Swap the player IDs in passes
-      const transaction = await sequelize.transaction();
+      let transaction: any;
       try {
+        transaction = await sequelize.transaction();
         const playerPasses = await Pass.findAll({
           where: {
             playerId: undo ? targetPlayerId : playerId,

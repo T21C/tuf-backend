@@ -999,9 +999,10 @@ router.post(
     responses: { 201: { description: 'Pack created' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { name, iconUrl, cssFlags, viewMode, isPinned } = req.body;
     if (viewMode === LevelPackViewModes.FORCED_PRIVATE) {
       throw { error: 'Forced private packs are not allowed to be created', code: 400 };
@@ -1129,9 +1130,10 @@ router.put(
     responses: { 200: { description: 'Pack updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -1219,9 +1221,10 @@ router.delete(
     responses: { 200: { description: 'Pack deleted' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -1411,9 +1414,10 @@ router.post(
     responses: { 200: { description: 'Items added' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -1657,9 +1661,10 @@ router.put(
     responses: { 200: { description: 'Item updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -1746,9 +1751,10 @@ router.put(
     responses: { 200: { description: 'Tree updated' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -2028,9 +2034,10 @@ router.put(
     responses: { 200: { description: 'Ownership transferred' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -2146,13 +2153,13 @@ router.put(
     responses: { 200: { description: 'Favorite updated' }, 400: { schema: errorResponseSchema }, 401: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   if (!req.user) {
-    await safeTransactionRollback(transaction);
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -2240,9 +2247,10 @@ router.delete(
     responses: { 204: { description: 'Item deleted' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };
@@ -2305,9 +2313,10 @@ router.put(
     responses: { 200: { description: 'Items reordered' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const resolvedPackId = await resolvePackId(req.params.id, transaction);
     if (!resolvedPackId) {
       throw { error: 'Invalid pack ID or link code', code: 400 };

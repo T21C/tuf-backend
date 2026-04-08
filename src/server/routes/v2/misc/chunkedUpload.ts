@@ -119,8 +119,9 @@ router.post(
     if (levelIdHeader) {
       const levelId = parseInt(levelIdHeader);
       if (!isNaN(levelId)) {
-        const transaction = await sequelize.transaction();
+        let transaction: any;
         try {
+          transaction = await sequelize.transaction();
           const level = await Level.findByPk(levelId, { transaction });
           if (!level) {
             await transaction.rollback();
@@ -295,8 +296,9 @@ router.post(
     if (levelId) {
       const parsedLevelId = parseInt(levelId);
       if (!isNaN(parsedLevelId)) {
-        const transaction = await sequelize.transaction();
+        let transaction: any;
         try {
+          transaction = await sequelize.transaction();
           const level = await Level.findByPk(parsedLevelId, { transaction });
           if (!level) {
             await transaction.rollback();

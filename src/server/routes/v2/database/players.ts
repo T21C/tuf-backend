@@ -286,8 +286,9 @@ router.get(
 /*
 DISCORD SHOULD ONLY BE MANAGED BY USERS
 router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {userId} = req.params;
       const {id: discordId, username, avatar} = req.body;
 
@@ -544,8 +545,9 @@ router.get('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
 /*
 DISCORD SHOULD ONLY BE MANAGED BY USERS
 router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {id, discordId} = req.params;
       const {username, avatar} = req.body;
 
@@ -817,8 +819,9 @@ router.patch(
     responses: { 200: { description: 'Ban updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
       const {isBanned} = req.body;
 
@@ -884,8 +887,9 @@ router.patch(
     responses: { 200: { description: 'Updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
       const {isSubmissionsPaused} = req.body;
 
@@ -939,8 +943,9 @@ router.post(
     responses: { 200: { description: 'Merge success' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const {id} = req.params;
       const {targetPlayerId} = req.body;
 

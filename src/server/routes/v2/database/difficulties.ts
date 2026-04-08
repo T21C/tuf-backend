@@ -789,8 +789,9 @@ router.put(
     responses: { 200: { description: 'Difficulty updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-    const transaction = await sequelize.transaction();
+    let transaction: any;
     try {
+      transaction = await sequelize.transaction();
       const diffId = parseInt(req.params.id);
       const {
         name,
@@ -1095,9 +1096,10 @@ router.delete(
       }
 
       // Begin transaction
-      const transaction = await sequelize.transaction();
+      let transaction: any;
 
       try {
+        transaction = await sequelize.transaction();
         // First, update all levels that use this difficulty to use the fallback
         const affectedLevels = await Level.findAll({
           where: { diffId: diffId },
@@ -1243,8 +1245,9 @@ router.post(
     responses: { 200: { description: 'Directives updated' }, ...standardErrorResponses },
   }),
   async (req, res) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const id = parseInt(req.params.id);
     const directives: DirectiveInput[] = req.body.directives;
 
@@ -1427,8 +1430,9 @@ router.put(
     responses: { 200: { description: 'Sort orders updated' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { sortOrders } = req.body;
 
     if (!Array.isArray(sortOrders)) {
@@ -1498,8 +1502,9 @@ router.put(
     responses: { 200: { description: 'Tag sort orders updated' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { sortOrders } = req.body;
 
     if (!Array.isArray(sortOrders)) {
@@ -1567,8 +1572,9 @@ router.put(
     responses: { 200: { description: 'Group sort orders updated' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { groups } = req.body;
 
     if (!Array.isArray(groups)) {
@@ -1664,8 +1670,9 @@ router.post(
     responses: { 201: { description: 'Tag created' }, ...standardErrorResponses400500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const { name, color, icon, group } = req.body;
     const iconFile = req.file;
 
@@ -1811,8 +1818,9 @@ router.put(
     responses: { 200: { description: 'Tag updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const tagId = parseInt(req.params.id);
     const { name, color, icon, group } = req.body;
     const iconFile = req.file;
@@ -2004,8 +2012,9 @@ router.delete(
     responses: { 200: { description: 'Tag deleted' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const tagId = parseInt(req.params.id);
 
     const tag = await LevelTag.findByPk(tagId);
@@ -2123,8 +2132,9 @@ router.post(
     responses: { 200: { description: 'Tags assigned' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const levelId = parseInt(req.params.levelId);
     const { tagIds } = req.body;
 

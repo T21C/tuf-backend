@@ -113,9 +113,10 @@ router.post(
     responses: { 201: { description: 'Guild created' }, ...standardErrorResponses400500, 409: { schema: errorResponseSchema } },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { guildId, name, botToken, isActive = true } = req.body;
 
     if (!guildId || !name || !botToken) {
@@ -180,9 +181,10 @@ router.put(
     responses: { 200: { description: 'Guild updated' }, ...standardErrorResponses404500, 409: { schema: errorResponseSchema } },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
     const { guildId, name, botToken, isActive } = req.body;
 
@@ -268,9 +270,10 @@ router.delete(
     responses: { 204: { description: 'Guild deleted' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { id } = req.params;
 
     const guild = await DiscordGuild.findByPk(id, { transaction });
@@ -357,9 +360,10 @@ router.post(
     responses: { 201: { description: 'Role created' }, ...standardErrorResponses, 403: { schema: errorResponseSchema } },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { guildId } = req.params;
     const {
       roleId,
@@ -470,9 +474,10 @@ router.put(
     responses: { 200: { description: 'Role updated' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { guildId, roleId } = req.params;
     const {
       roleId: newRoleId,
@@ -547,9 +552,10 @@ router.delete(
     responses: { 204: { description: 'Role deleted' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { guildId, roleId } = req.params;
 
     const role = await DiscordSyncRole.findByPk(roleId, { transaction });
@@ -587,9 +593,10 @@ router.put(
     responses: { 200: { description: 'Roles reordered' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
 
   try {
+    transaction = await sequelize.transaction();
     const { guildId } = req.params;
     const { roleIds } = req.body;
 

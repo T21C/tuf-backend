@@ -629,8 +629,9 @@ router.post(
     responses: { 200: { description: 'Song created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {name, verificationState, aliases} = req.body;
 
     if (!name || typeof name !== 'string') {
@@ -685,8 +686,9 @@ router.put(
     responses: { 200: { description: 'Song updated' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const song = await Song.findByPk(req.params.id, {transaction});
     if (!song) {
       await safeTransactionRollback(transaction);
@@ -731,8 +733,9 @@ router.delete(
     responses: { 200: { description: 'Song deleted' }, ...standardErrorResponses },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const song = await Song.findByPk(req.params.id, {transaction});
     if (!song) {
       await safeTransactionRollback(transaction);
@@ -779,8 +782,9 @@ router.post(
     responses: { 200: { description: 'Merge success' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {targetId} = req.body;
     if (!targetId) {
       await safeTransactionRollback(transaction);
@@ -814,8 +818,9 @@ router.post(
     responses: { 200: { description: 'Alias created' }, 400: { schema: errorResponseSchema }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {alias} = req.body;
     if (!alias || typeof alias !== 'string') {
       await safeTransactionRollback(transaction);
@@ -901,8 +906,9 @@ router.post(
     responses: { 200: { description: 'Link created' }, 400: { schema: errorResponseSchema }, 409: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
@@ -988,8 +994,9 @@ router.post(
     responses: { 200: { description: 'Evidence created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
@@ -1028,8 +1035,9 @@ router.post(
     responses: { 200: { description: 'Evidences created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       await safeTransactionRollback(transaction);
@@ -1094,8 +1102,9 @@ router.put(
     responses: { 200: { description: 'Evidence updated' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
@@ -1159,8 +1168,9 @@ router.post(
     responses: { 200: { description: 'Credit created' }, 400: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {artistId, role} = req.body;
     if (!artistId) {
       await safeTransactionRollback(transaction);
@@ -1233,8 +1243,9 @@ router.post(
     responses: { 200: { description: 'Updated count' }, ...standardErrorResponses404500 },
   }),
   async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const songId = parseInt(req.params.id);
     const { suffix } = req.body;
 

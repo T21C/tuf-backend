@@ -372,8 +372,9 @@ router.get('/:id([0-9]{1,20})/evidences', Auth.addUserToRequest(), async (req: R
 
 // Create new artist
 router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     let {name, verificationState, aliases} = req.body;
 
     // Parse aliases if it's a JSON string (from FormData)
@@ -527,8 +528,9 @@ router.post('/', Auth.superAdmin(), upload.single('avatar'), async (req: Request
 
 // Update artist
 router.put('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const artist = await Artist.findByPk(req.params.id, {transaction});
     if (!artist) {
       await safeTransactionRollback(transaction);
@@ -602,8 +604,9 @@ router.delete('/:id([0-9]{1,20})/avatar', Auth.superAdmin(), async (req: Request
 
 // Delete artist (with checks for levels using it)
 router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const artist = await Artist.findByPk(req.params.id, {transaction});
     if (!artist) {
       await safeTransactionRollback(transaction);
@@ -654,8 +657,9 @@ router.delete('/:id([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: 
 
 // Merge artist into another
 router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {targetId} = req.body;
     if (!targetId) {
       await safeTransactionRollback(transaction);
@@ -675,8 +679,9 @@ router.post('/:id([0-9]{1,20})/merge', Auth.superAdmin(), async (req: Request, r
 
 // Split artist into two existing artists
 router.post('/:id([0-9]{1,20})/split', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {
       targetId1,
       targetId2,
@@ -723,8 +728,9 @@ router.post('/:id([0-9]{1,20})/split', Auth.superAdmin(), async (req: Request, r
 
 // Add alias
 router.post('/:id([0-9]{1,20})/aliases', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {alias} = req.body;
     if (!alias || typeof alias !== 'string') {
       await safeTransactionRollback(transaction);
@@ -783,8 +789,9 @@ router.delete('/:id([0-9]{1,20})/aliases/:aliasId([0-9]{1,20})', Auth.superAdmin
 
 // Add link
 router.post('/:id([0-9]{1,20})/links', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
@@ -843,8 +850,9 @@ router.delete('/:id([0-9]{1,20})/links/:linkId([0-9]{1,20})', Auth.superAdmin(),
 
 // Add evidence (managers only)
 router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
@@ -868,8 +876,9 @@ router.post('/:id([0-9]{1,20})/evidences', Auth.superAdmin(), async (req: Reques
 
 // Upload evidence images (managers only)
 router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.array('evidence', 10), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       await safeTransactionRollback(transaction);
@@ -920,8 +929,9 @@ router.post('/:id([0-9]{1,20})/evidences/upload', Auth.superAdmin(), upload.arra
 
 // Update evidence (managers only) - only for external links
 router.put('/:id([0-9]{1,20})/evidences/:evidenceId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {link} = req.body;
     if (!link || typeof link !== 'string') {
       await safeTransactionRollback(transaction);
@@ -975,8 +985,9 @@ router.get('/:id([0-9]{1,20})/relations', Auth.addUserToRequest(), async (req: R
 
 // Add artist relation (bidirectional)
 router.post('/:id([0-9]{1,20})/relations', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const {relatedArtistId} = req.body;
     const artistId = parseInt(req.params.id);
 
@@ -1049,8 +1060,9 @@ router.post('/:id([0-9]{1,20})/relations', Auth.superAdmin(), async (req: Reques
 
 // Delete artist relation (bidirectional)
 router.delete('/:id([0-9]{1,20})/relations/:relatedArtistId([0-9]{1,20})', Auth.superAdmin(), async (req: Request, res: Response) => {
-  const transaction = await sequelize.transaction();
+  let transaction: any;
   try {
+    transaction = await sequelize.transaction();
     const artistId = parseInt(req.params.id);
     const relatedArtistId = parseInt(req.params.relatedArtistId);
 
