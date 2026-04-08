@@ -279,7 +279,7 @@ router.get(
             where: {id: levelId},
             include: [
               {model: Curation, as: 'curations', include: [
-                {model: CurationType, as: 'types', attributes: ['icon', 'groupSortOrder', 'sortOrder', 'id'], through: { attributes: [] }}
+                {model: CurationType, as: 'types', attributes: ['icon', 'groupSortOrder', 'sortOrder', 'id', 'name'], through: { attributes: [] }}
               ]},
               {model: Difficulty, as: 'difficulty'},
               {model: LevelCredit, as: 'levelCredits',
@@ -419,15 +419,18 @@ router.get(
           : '';
 
           const curationRow = (level as { curations?: Curation[] }).curations?.[0];
+          const HIDDEN_CURATION_ARC_TYPE_NAMES = new Set(['C0', 'V0']);
           const curationIconsSorted = curationRow?.types
-            ? sortCurationTypesByOrder(curationRow.types as CurationType[]).slice(0, 4)
+            ? sortCurationTypesByOrder(curationRow.types as CurationType[])
+                .filter((t) => !HIDDEN_CURATION_ARC_TYPE_NAMES.has((t as any)?.name ?? ''))
+                .slice(0, 4)
             : [];
           const curationIconsHtml = curationIconsSorted
-            .map((t, i) =>
-              t.icon
-                ? `<img class="curation-icon curation-icon--${i + 1}" src="${t.icon}" alt="Curation">`
-                : ''
-            )
+            .map((t, i) => {
+              if (!t.icon) return '';
+              // Match the "fan" display used by LevelCard: pass idx/count via CSS variables.
+              return `<img class="curation-icon" style="--idx: ${i}; --curation-count: ${curationIconsSorted.length};" src="${t.icon}" alt="Curation">`;
+            })
             .join('');
 
           const html = `
@@ -492,7 +495,6 @@ router.get(
                   .difficulty-icon {
                     width: ${iconSize}px;
                     height: ${iconSize}px;
-                    margin-right: ${25*multiplier}px;
                   }
                   .curation-icon {
                   position: absolute;
@@ -501,11 +503,21 @@ router.get(
                   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 1));
                   z-index: 3;
                   border-radius: 50%;
+                  /* Anchor and fan out like LevelCard */
+                  bottom: 20%;
+                  right: 20%;
+                  transform-origin: bottom right;
+                  --arc-center: 45deg;
+                  --radius: ${Math.round(iconSize * 0.55)}px;
+                  --curation-count: 1;
+                  --rotation-offset: calc(90deg / var(--curation-count));
+                  --theta: calc(
+                    var(--arc-center)
+                    + var(--idx) * var(--rotation-offset)
+                    - (var(--curation-count) - 1) * var(--rotation-offset) / 2
+                  );
+                  transform: rotate(var(--theta)) translate(var(--radius)) rotate(calc(-1 * var(--theta)));
                   }
-                  .curation-icon--1 { bottom: -11%; right: -11%; }
-                  .curation-icon--2 { bottom: -15%; right: -40%; }
-                  .curation-icon--3 { bottom: -40%; right: -18%; }
-                  .curation-icon--4 { bottom: -48%; right: -38%; }
                   .average-diff-icon {
                   position: absolute;
                   top: -10%;
@@ -515,6 +527,7 @@ router.get(
                   z-index: 3;
                   }
                   .song-info {
+                    margin-left: ${25*multiplier}px;
                     display: flex;
                     gap: ${5*multiplier}px;
                     flex-direction: column;
