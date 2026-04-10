@@ -64,7 +64,7 @@ router.get(
   Cache({
     ttl: 300,
     prefix: 'admin:ratings',
-    tags: ['admin:ratings'],
+    tags: ['admin:ratings', 'levels:all'],
   }),
   ApiDoc({
     operationId: 'getAdminRatings',
@@ -211,7 +211,7 @@ router.put(
 
       sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
-      await CacheInvalidation.invalidateTag('admin:ratings');
+      await CacheInvalidation.invalidateTag('admin:ratings')
       return res.json({
         message: 'Rating detail deleted successfully',
         rating: updatedRating,
@@ -263,7 +263,9 @@ router.put(
 
     await transaction.commit();
 
-    await CacheInvalidation.invalidateTag('admin:ratings');
+    await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
+      logger.error('Error invalidating admin ratings cache:', err),
+    );
 
     return res.json({
       message: 'Rating updated successfully',
@@ -344,7 +346,9 @@ router.delete(
 
       sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
-      await CacheInvalidation.invalidateTag('admin:ratings');
+      await CacheInvalidation.invalidateTag('admin:ratings').catch((err) =>
+        logger.error('Error invalidating admin ratings cache:', err),
+      );
       return res.json({
         message: 'Rating detail confirmed successfully',
         rating: updatedRating,
