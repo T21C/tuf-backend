@@ -1,4 +1,4 @@
-import {Router} from 'express';
+import {Router, Request, Response} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses500 } from '@/server/schemas/v2/database/index.js';
 import {Op, fn, col, literal, Sequelize} from 'sequelize';
@@ -9,20 +9,28 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
 import { logger } from '@/server/services/LoggerService.js';
+import { Cache } from '@/server/middleware/cache.js';
 
 const router: Router = Router();
 
-// Get overall statistics
+// Tags: `levels:all` + `Passes` are invalidated from Level/Pass hooks (models/levels/hooks.ts).
+// Submission queue counts are not on those hooks; they refresh at TTL or if something invalidates `database:statistics`.
 router.get(
   '/',
+  Cache({
+    ttl: 300,
+    prefix: 'database:statistics',
+    tags: ['database:statistics', 'levels:all', 'Passes'],
+  }),
   ApiDoc({
     operationId: 'getStatistics',
     summary: 'Overall statistics',
-    description: 'Returns overview stats: total levels, passes, players, difficulties, submissions.',
+    description:
+      'Returns overview stats: total levels, passes, players, difficulties, submissions. Cached; invalidated via tags `levels:all` and `Passes` (same as level/pass HTTP caches). Pending submission counts may lag until TTL.',
     tags: ['Database', 'Statistics'],
     responses: { 200: { description: 'Statistics object' }, ...standardErrorResponses500 },
   }),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
   try {
     try {
       const totalLevels = await Level.count({
@@ -30,7 +38,7 @@ router.get(
       });
 
       const totalPasses = await Pass.count({
-        where: {isDeleted: false},
+        where: {isDeleted: false, isHidden: false},
       });
 
       const totalPlayers = await Player.count();
@@ -42,6 +50,7 @@ router.get(
             as: 'passes',
             required: true,
             where: {isDeleted: false},
+            limit: 1,
           },
         ],
       });
@@ -207,17 +216,23 @@ router.get(
   }
 );
 
-// Get player statistics
+// Same hook-driven tags as overview; player/pass aggregates update when passes or levels change.
 router.get(
   '/players',
+  Cache({
+    ttl: 300,
+    prefix: 'database:statistics:players',
+    tags: ['database:statistics:players', 'levels:all', 'Passes'],
+  }),
   ApiDoc({
     operationId: 'getStatisticsPlayers',
     summary: 'Player statistics',
-    description: 'Returns player stats: by country, top players by passes.',
+    description:
+      'Returns player stats: by country, top players by passes. Cached; invalidated via `levels:all` and `Passes` from level/pass hooks.',
     tags: ['Database', 'Statistics'],
     responses: { 200: { description: 'Player statistics' }, ...standardErrorResponses500 },
   }),
-  async (req, res) => {
+  async (req: Request, res: Response) => {
   try {
     const [playerCountByCountry, topPlayersByPasses] = await Promise.all([
       // Players by country

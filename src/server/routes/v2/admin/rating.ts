@@ -17,6 +17,7 @@ import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 const router: Router = Router();
 
 /** Reusable options for fetching a rating with full includes (level, details, difficulties). */
@@ -60,10 +61,15 @@ function fullRatingIncludeOptions(transaction: any) {
 
 router.get(
   '/',
+  Cache({
+    ttl: 300,
+    prefix: 'admin:ratings',
+    tags: ['admin:ratings'],
+  }),
   ApiDoc({
     operationId: 'getAdminRatings',
     summary: 'Unconfirmed ratings',
-    description: 'List ratings with null confirmedAt (pending confirmation).',
+    description: 'List ratings with null confirmedAt (pending confirmation). Cached; invalidated on rating updates.',
     tags: ['Admin', 'Rating'],
     responses: { 200: { description: 'Ratings list' }, ...standardErrorResponses500 },
   }),
@@ -205,6 +211,7 @@ router.put(
 
       sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
+      await CacheInvalidation.invalidateTag('admin:ratings');
       return res.json({
         message: 'Rating detail deleted successfully',
         rating: updatedRating,
@@ -255,6 +262,8 @@ router.put(
     sseManager.broadcast({type: 'ratingUpdate'});
 
     await transaction.commit();
+
+    await CacheInvalidation.invalidateTag('admin:ratings');
 
     return res.json({
       message: 'Rating updated successfully',
@@ -335,6 +344,7 @@ router.delete(
 
       sseManager.broadcast({ type: 'ratingUpdate' });
       await transaction.commit();
+      await CacheInvalidation.invalidateTag('admin:ratings');
       return res.json({
         message: 'Rating detail confirmed successfully',
         rating: updatedRating,
