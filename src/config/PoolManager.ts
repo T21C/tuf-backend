@@ -2,7 +2,6 @@ import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
 import { logger } from '../server/services/LoggerService.js';
 import { PoolConfig } from './poolConfig.js';
-import { AuditLog } from '@/models/index.js';
 import { createSlowQueryLogging, startPoolSaturationMonitoring } from './poolDiagnostics.js';
 
 dotenv.config();
@@ -43,7 +42,7 @@ export class PoolManager {
     enableKeepAlive: true,
   };
 
-  constructor(defaultMaxConnections = 10) {
+  constructor(defaultMaxConnections = 50) {
     // Create default pool (backward compatibility)
     this.defaultPool = this.createPool('default', {
       name: 'default',
@@ -257,7 +256,7 @@ let poolManagerInstance: PoolManager | null = null;
  */
 export function getPoolManager(): PoolManager {
   if (!poolManagerInstance) {
-    poolManagerInstance = new PoolManager(10); // Default max 10 connections
+    poolManagerInstance = new PoolManager(); // Default max 10 connections
   }
   return poolManagerInstance;
 }
