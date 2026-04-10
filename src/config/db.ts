@@ -1,6 +1,7 @@
 import {Sequelize} from 'sequelize';
 import dotenv from 'dotenv';
 import { getPoolManager, PoolManager } from './PoolManager.js';
+import './poolDiagnostics.js';
 
 dotenv.config();
 

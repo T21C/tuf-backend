@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { logger } from '../server/services/LoggerService.js';
 import { PoolConfig } from './poolConfig.js';
 import { AuditLog } from '@/models/index.js';
+import { createSlowQueryLogging, startPoolSaturationMonitoring } from './poolDiagnostics.js';
 
 dotenv.config();
 
@@ -18,17 +19,7 @@ export class PoolManager {
   private pools: Map<string, Sequelize> = new Map();
   private modelMappings: ModelPoolMapping = {};
   private defaultPool: Sequelize;
-  private readonly SLOW_QUERY_THRESHOLD_MS = process.env.SLOW_QUERY_THRESHOLD_MS ? parseInt(process.env.SLOW_QUERY_THRESHOLD_MS) : 2000; // Log queries taking > 2 seconds
-
-  // SQL patterns excluded from slow query logging (expected to be slow)
-  private readonly SLOW_QUERY_EXCLUDED_PATTERNS = [
-    'WITH PassesData AS',        // PlayerStatsService bulk stats calculation
-    'player_pass_summary',       // Views involving pass summaries are expected to be slow
-  ];
-
-  private isExcludedQuery(sql: string): boolean {
-    return this.SLOW_QUERY_EXCLUDED_PATTERNS.some(pattern => sql.includes(pattern));
-  }
+  private stopSaturationMonitoring: (() => void) | null = null;
 
   private readonly baseConfig = {
     dialect: 'mysql' as const,
@@ -36,11 +27,6 @@ export class PoolManager {
     username: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
-    logging: (sql: string, timing?: number) => {
-      if (timing && timing > this.SLOW_QUERY_THRESHOLD_MS && !this.isExcludedQuery(sql)) {
-        logger.warn(`Slow query (${timing}ms):`, { sql: sql.substring(0, 500) });
-      }
-    },
     benchmark: true,
     dialectOptions: {
       connectTimeout: 60000,
@@ -66,6 +52,8 @@ export class PoolManager {
       acquireTimeout: 60000,
       idleTimeout: 10000
     });
+
+    this.stopSaturationMonitoring = startPoolSaturationMonitoring(() => this.getPoolStats());
   }
 
   /**
@@ -88,6 +76,7 @@ export class PoolManager {
 
     const sequelize = new Sequelize({
       ...this.baseConfig,
+      logging: createSlowQueryLogging(poolName),
       dialectOptions,
       database: process.env.DB_DATABASE,
       pool: {
@@ -122,6 +111,8 @@ export class PoolManager {
         evict: config.evict ?? 30000,
       } as any, // Type assertion: Sequelize runtime supports async validate, but types don't
     });
+
+    (sequelize as Sequelize & { __poolName?: string }).__poolName = poolName;
 
     // Store pool first so it's available immediately
     this.pools.set(poolName, sequelize);
@@ -188,7 +179,16 @@ export class PoolManager {
         // Access pool through connectionManager with type assertion
         const connectionManager = sequelize.connectionManager as any;
         const pool = connectionManager.pool;
+        const max =
+          pool?.maxSize ??
+          pool?.max ??
+          (sequelize.config?.pool as { max?: number } | undefined)?.max ??
+          undefined;
+        const acquireTimeoutMs =
+          (sequelize.config?.pool as { acquire?: number } | undefined)?.acquire ?? undefined;
         stats[poolName] = {
+          max,
+          acquireTimeoutMs,
           size: pool?.size ?? 0,
           available: pool?.available ?? 0,
           using: pool?.using ?? 0,
@@ -214,6 +214,9 @@ export class PoolManager {
         logger.error('Error closing pool:', error);
       }
     });
+
+    this.stopSaturationMonitoring?.();
+    this.stopSaturationMonitoring = null;
 
     await Promise.all(closePromises);
     this.pools.clear();

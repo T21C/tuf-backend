@@ -155,11 +155,25 @@ const consoleFormat = winston.format.printf((info) => {
 });
 
 /**
+ * Emitted after each log line is written so subscribers can react without touching every route.
+ * `message` is the string passed to info/warn/error/debug; `meta` is the spread args after it.
+ * Listeners decide how to interpret `message` / `meta` (the logger does not classify errors).
+ */
+export interface LogReplayEvent {
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  meta: unknown[];
+}
+
+export type LogReplayListener = (event: LogReplayEvent) => void;
+
+/**
  * Logger singleton service using Winston
  */
 class LoggerService {
   private static instance: LoggerService;
   private logger: winston.Logger;
+  private readonly logReplayListeners = new Set<LogReplayListener>();
 
   private constructor() {
     // Define transports
@@ -193,6 +207,28 @@ class LoggerService {
   }
 
   /**
+   * Subscribe to log replay events (same payload as written to transports).
+   * Returns an unsubscribe function.
+   */
+  public addLogReplayListener(listener: LogReplayListener): () => void {
+    this.logReplayListeners.add(listener);
+    return () => {
+      this.logReplayListeners.delete(listener);
+    };
+  }
+
+  private emitLogReplay(event: LogReplayEvent): void {
+    for (const listener of this.logReplayListeners) {
+      try {
+        listener(event);
+      } catch (e) {
+        // Avoid routing back through winston (recursion / listener failure loops)
+        console.error('[LoggerService] log replay listener threw:', e);
+      }
+    }
+  }
+
+  /**
    * Get singleton instance
    */
   public static getInstance(): LoggerService {
@@ -208,6 +244,7 @@ class LoggerService {
    */
   public info(message: string, ...meta: any[]): void {
     this.logger.info(message, ...meta);
+    this.emitLogReplay({ level: 'info', message, meta });
   }
 
   /**
@@ -215,6 +252,7 @@ class LoggerService {
    */
   public warn(message: string, ...meta: any[]): void {
     this.logger.warn(message, ...meta);
+    this.emitLogReplay({ level: 'warn', message, meta });
   }
 
   /**
@@ -222,6 +260,7 @@ class LoggerService {
    */
   public error(message: string, ...meta: any[]): void {
     this.logger.error(message, ...meta);
+    this.emitLogReplay({ level: 'error', message, meta });
   }
 
   /**
@@ -229,6 +268,7 @@ class LoggerService {
    */
   public debug(message: string, ...meta: any[]): void {
     this.logger.debug(message, ...meta);
+    this.emitLogReplay({ level: 'debug', message, meta });
   }
 }
 
