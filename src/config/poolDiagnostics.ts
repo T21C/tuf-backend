@@ -36,10 +36,18 @@ export function createSlowQueryLogging(poolName: string) {
 
 let saturationTimer: ReturnType<typeof setInterval> | null = null;
 const lastSaturationWarnAt = new Map<string, number>();
+const consecutiveSaturationByPool = new Map<string, number>();
+
+interface SaturationMonitorOptions {
+  throttleMs: number;
+  minWaitersToWarn: number;
+  minPoolFillRatioToWarn: number;
+  minConsecutiveChecksToWarn: number;
+}
 
 async function maybeLogPoolSaturation(
   getPoolStats: () => Promise<Record<string, any>>,
-  throttleMs: number,
+  options: SaturationMonitorOptions,
 ): Promise<void> {
   try {
     const stats = await getPoolStats();
@@ -49,16 +57,37 @@ async function maybeLogPoolSaturation(
         continue;
       }
       const waiting = typeof s.waiting === 'number' ? s.waiting : 0;
+      const size = typeof s.size === 'number' ? s.size : 0;
+      const max = typeof s.max === 'number' && s.max > 0 ? s.max : 0;
+      const fillRatio = max > 0 ? size / max : 0;
+
       if (waiting <= 0) {
+        consecutiveSaturationByPool.delete(name);
         continue;
       }
+
+      const isAboveWaiterThreshold = waiting >= options.minWaitersToWarn;
+      const isNearPoolCapacity = fillRatio >= options.minPoolFillRatioToWarn;
+      if (!isAboveWaiterThreshold || !isNearPoolCapacity) {
+        consecutiveSaturationByPool.delete(name);
+        continue;
+      }
+
+      const consecutiveCount = (consecutiveSaturationByPool.get(name) ?? 0) + 1;
+      consecutiveSaturationByPool.set(name, consecutiveCount);
+      if (consecutiveCount < options.minConsecutiveChecksToWarn) {
+        continue;
+      }
+
       const last = lastSaturationWarnAt.get(name) ?? 0;
-      if (now - last < throttleMs) {
+      if (now - last < options.throttleMs) {
         continue;
       }
       lastSaturationWarnAt.set(name, now);
       logger.warn(`Pool "${name}" has ${waiting} waiter(s) for a DB connection — possible starvation`, {
         pool: name,
+        fillRatio: Number(fillRatio.toFixed(2)),
+        consecutiveChecks: consecutiveCount,
         ...s,
       });
     }
@@ -78,7 +107,12 @@ export function startPoolSaturationMonitoring(
     return () => {};
   }
   const checkMs = Number(process.env.POOL_SATURATION_CHECK_MS || 3000);
-  const throttleMs = Number(process.env.POOL_SATURATION_LOG_THROTTLE_MS || 10000);
+  const options: SaturationMonitorOptions = {
+    throttleMs: Number(process.env.POOL_SATURATION_LOG_THROTTLE_MS || 10000),
+    minWaitersToWarn: Number(process.env.POOL_SATURATION_MIN_WAITERS || 2),
+    minPoolFillRatioToWarn: Number(process.env.POOL_SATURATION_MIN_FILL_RATIO || 0.7),
+    minConsecutiveChecksToWarn: Number(process.env.POOL_SATURATION_MIN_CONSECUTIVE_CHECKS || 2),
+  };
 
   if (saturationTimer) {
     clearInterval(saturationTimer);
@@ -86,7 +120,7 @@ export function startPoolSaturationMonitoring(
   }
 
   const timer = setInterval(() => {
-    void maybeLogPoolSaturation(getPoolStats, throttleMs);
+    void maybeLogPoolSaturation(getPoolStats, options);
   }, checkMs);
   timer.unref?.();
   saturationTimer = timer;
