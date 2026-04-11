@@ -12,111 +12,18 @@ import swaggerUi from 'swagger-ui-express';
 import routes from '@/server/routes/index.js';
 import { generateOpenApiFromApp } from '@/server/middleware/apiDocCollector.js';
 import queryValidator from '@/server/middleware/queryValidator.js';
-import {PlayerStatsService} from './server/services/PlayerStatsService.js';
 import {fileURLToPath} from 'url';
 import { logger } from './server/services/LoggerService.js';
-import ElasticsearchService from './server/services/ElasticsearchService.js';
 import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
 import { initializeDefaultPools } from './config/poolConfig.js';
-import { redis } from './server/services/RedisService.js';
+import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
+import { initializeRuntimeServices, shutdownRuntimeServices } from '@/server/bootstrap/runtimeServices.js';
+import { slowEndpointLoggingMiddleware } from '@/server/middleware/slowEndpointLogging.js';
 // CRITICAL: Initialize pools BEFORE importing models to ensure logging database is available
 initializeDefaultPools();
 
-// Add these at the very top of the file, before any other imports
-process.on('uncaughtException', (error: any) => {
-  // Handle connection reset errors gracefully - these are common when clients disconnect
-  if (error.code === 'ECONNRESET' || error.code === 'EPIPE') {
-    logger.warn('Client disconnected during operation:', {
-      code: error.code,
-      message: error.message,
-      syscall: error.syscall
-    });
-    // Don't shut down for client disconnects - these are expected
-    return;
-  }
-
-  // For other uncaught exceptions, log and continue (don't shut down)
-  logger.error('UNCAUGHT EXCEPTION:', {
-    message: error.message,
-    code: error.code,
-    syscall: error.syscall,
-    stack: error.stack
-  });
-});
-
-// CRITICAL: This handler ensures unhandled rejections NEVER exit the application
-// All errors are logged but the application continues running
-process.on('unhandledRejection', (reason: any, promise) => {
-  // Handle connection reset errors gracefully
-  if (reason && (reason.code === 'ECONNRESET' || reason.code === 'EPIPE')) {
-    logger.warn('Client disconnected (unhandled rejection):', {
-      code: reason.code,
-      message: reason.message,
-      syscall: reason.syscall
-    });
-    return; // Don't treat client disconnects as critical errors
-  }
-
-  // Handle database connection errors gracefully
-  // Sequelize will attempt to reconnect automatically on next query
-  if (reason && (
-    reason.code === 'ECONNREFUSED' ||
-    reason.code === 'PROTOCOL_CONNECTION_LOST' ||
-    reason.code === 'ETIMEDOUT' ||
-    (reason.name === 'SequelizeConnectionRefusedError') ||
-    (reason.name === 'SequelizeConnectionError') ||
-    (reason.name === 'SequelizeConnectionAcquireTimeoutError')
-  )) {
-    logger.warn('Database connection error (unhandled rejection):', {
-      code: reason.code || reason.name,
-      message: reason.message,
-      note: 'Sequelize will attempt to reconnect automatically on next query'
-    });
-    return; // Don't treat database connection errors as critical - Sequelize handles reconnection
-  }
-
-  // Check if it's a transaction rollback error and handle it gracefully
-  if (reason instanceof Error && reason.message.includes('Transaction cannot be rolled back')) {
-    logger.warn('Transaction rollback error detected - this is likely a duplicate rollback call');
-    return; // Don't treat this as a critical error
-  }
-
-  // For other unhandled rejections, log but don't shut down
-  logger.error('UNHANDLED REJECTION! Logging error but continuing...');
-  logger.error('Reason:', reason);
-  logger.error('Promise:', promise);
-  logger.error('Stack trace:', reason instanceof Error ? reason.stack : 'No stack trace available');
-  // Explicitly prevent process exit - application will continue running
-  return;
-});
-
-// Handle Node.js warnings - filter out known non-critical warnings
-process.on('warning', (warning) => {
-  // Suppress TimeoutNegativeWarning - this happens when cron jobs overlap
-  // and try to schedule in the past. The cron library handles this by setting to 1ms.
-  if (warning.name === 'TimeoutNegativeWarning') {
-    logger.debug('Cron job scheduling adjustment (overlapping executions)');
-    return;
-  }
-
-  // Log all other warnings normally
-  logger.warn('Node.js Warning:', warning);
-});
-
-// Add a handler for SIGTERM and SIGINT
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received. Shutting down gracefully...');
-  await redis.disconnect();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received. Shutting down gracefully...');
-  await redis.disconnect();
-  process.exit(0);
-});
-
 dotenv.config();
+registerGlobalProcessHandlers({ onShutdown: shutdownRuntimeServices });
 
 const app: Express = express();
 const httpServer = createServer(app);
@@ -165,44 +72,8 @@ export async function startServer() {
 
     logger.info('Database connection established.');
 
-    // Initialize Redis
-    try {
-      logger.info('Connecting to Redis...');
-      await redis.connect();
-    } catch (error) {
-      logger.error('Error connecting to Redis:', error);
-      logger.warn('Application will continue without Redis caching');
-    }
-
-    // Initialize Elasticsearch
-    try {
-      logger.info('Starting Async Elasticsearch initialization...');
-      const elasticsearchService = ElasticsearchService.getInstance();
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.initialize();
-    } catch (error) {
-      logger.error('Error initializing Elasticsearch:', error);
-      // Don't throw here, allow the app to start even if Elasticsearch fails
-      // The search functionality will fall back to MySQL in this case
-      logger.warn('Application will continue without Elasticsearch functionality');
-    }
-
-    // Initialize PlayerStatsService after database is ready
-    const playerStatsService = PlayerStatsService.getInstance();
-    // speed up initialization
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    playerStatsService.initialize();
-
-    // Start refresh token cleanup job (hourly; deletes revoked/expired rows)
-    const { RefreshTokenCleanupService } = await import('@/server/services/RefreshTokenCleanupService.js');
-    RefreshTokenCleanupService.getInstance();
-
-    // Start account deletion cleanup job (scheduled hard-deletes after grace period)
-    const { AccountDeletionCleanupService } = await import('@/server/services/AccountDeletionCleanupService.js');
-    AccountDeletionCleanupService.getInstance();
-
-    const { AuditLogService } = await import('@/server/services/AuditLogService.js');
-    AuditLogService.startScheduledRetention();
+    // Start non-Express runtime services (Redis, search, scheduled jobs).
+    await initializeRuntimeServices();
 
     // Enable pre-flight requests for all routes
     app.options('*', cors(corsOptions));
@@ -215,57 +86,7 @@ export async function startServer() {
     app.use(cookieParser());
     app.use(queryValidator);
 
-    // Response time logging middleware - logs slow endpoints
-    const SLOW_ENDPOINT_THRESHOLD_MS = process.env.SLOW_ENDPOINT_THRESHOLD_MS ? parseInt(process.env.SLOW_ENDPOINT_THRESHOLD_MS) : 3000;
-    // Endpoints excluded from slow logging (supports wildcards with *)
-    const SLOW_LOG_EXCLUDED_ROUTES = [
-      '/v2/webhook/*',
-      '/v2/database/levels',
-      '/v2/database/levels/*/cdnData',
-      '/v2/database/levels/*/upload',
-      '/v2/database/levels/packs/*/download-link',
-      '/v2/form/form-submit',
-      '/v2/media/thumbnail/*',
-      '/v2/media/image-proxy',
-      '/v2/chunked-upload/*',
-      '/health',
-      '/v2/external/autorate/*'
-    ];
-
-    const isExcludedRoute = (path: string): boolean => {
-      return SLOW_LOG_EXCLUDED_ROUTES.some(pattern => {
-        // Convert pattern to regex:
-        // 1. Replace * with a temporary placeholder
-        // 2. Escape all regex special characters
-        // 3. Replace placeholder with .* regex
-        const escapedPattern = pattern
-          .replace(/\*/g, '__WILDCARD__')           // Temporarily replace * with placeholder
-          .replace(/[.+?^${}()|[\]\\]/g, '\\$&')   // Escape regex special chars
-          .replace(/__WILDCARD__/g, '.*');         // Replace placeholder with .* regex
-        const regex = new RegExp(`^${escapedPattern}$`);
-        return regex.test(path);
-      });
-    };
-
-    app.use((req: Request, res: Response, next: NextFunction) => {
-      const start = process.hrtime.bigint();
-      const path = req.originalUrl.split('?')[0]; // Strip query params
-      const route = `${req.method} ${path}`;
-
-      res.on('finish', () => {
-        const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-        if (durationMs > SLOW_ENDPOINT_THRESHOLD_MS && !isExcludedRoute(path)) {
-          logger.warn(`Slow endpoint (${durationMs.toFixed(0)}ms): ${route}`, {
-            status: res.statusCode,
-            duration: Math.round(durationMs),
-            userId: (req as any).user?.id,
-            query: Object.keys(req.query).length > 0 ? req.query : undefined
-          });
-        }
-      });
-
-      next();
-    });
+    app.use(slowEndpointLoggingMiddleware);
 
     // Set up API routes first
     app.use('/', routes);

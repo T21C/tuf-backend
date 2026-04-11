@@ -83,32 +83,28 @@ export class PoolManager {
         min: config.minConnections ?? 2,
         acquire: config.acquireTimeout ?? 60000,
         idle: config.idleTimeout ?? 10000,
-        // Sequelize supports async validate, but TypeScript types don't reflect this
-        validate: async (connection: any) => {
-          try {
-            // Raw MySQL connection uses callbacks, wrap in Promise
-            // Try promise() method first (mysql2 promise wrapper)
-            if (connection.promise) {
-              const promiseConnection = connection.promise();
-              await promiseConnection.query('SELECT 1');
-            } else {
-              // Fallback: wrap callback-based query in Promise
-              await new Promise<void>((resolve, reject) => {
-                connection.query('SELECT 1', (error: any) => {
-                  if (error) reject(error);
-                  else resolve();
-                });
-              });
-            }
-            return true;
-          } catch (error) {
-            // Connection is dead, return false to remove it from pool
-            logger.debug(`Connection validation failed for pool ${poolName}, will be removed from pool`);
+        // sequelize-pool expects validate() to be synchronous.
+        // We rely on mysql2 connection state flags instead of issuing a test query here.
+        validate: (connection: any) => {
+          if (!connection) {
             return false;
           }
+
+          if (connection._fatalError || connection._protocolError || connection._closing) {
+            logger.debug(`Connection state invalid for pool ${poolName}, removing from pool`);
+            return false;
+          }
+
+          const streamDestroyed = Boolean(connection.stream?.destroyed);
+          if (streamDestroyed) {
+            logger.debug(`Connection stream destroyed for pool ${poolName}, removing from pool`);
+            return false;
+          }
+
+          return true;
         },
         evict: config.evict ?? 30000,
-      } as any, // Type assertion: Sequelize runtime supports async validate, but types don't
+      } as any,
     });
 
     (sequelize as Sequelize & { __poolName?: string }).__poolName = poolName;
