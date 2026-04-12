@@ -7,6 +7,7 @@ import eventsRoutes from './events.js';
 import discordRoutes from './discord.js';
 import chunkedUploadRoutes from './chunkedUpload.js';
 import externalRouter from './external.js';
+import jobsRoutes from './jobs.js';
 
 const router: Router = Router();
 
@@ -33,5 +34,8 @@ router.use('/discord', discordRoutes);
 
 // Chunked upload routes
 router.use('/chunked-upload', chunkedUploadRoutes);
+
+// Job progress (read)
+router.use('/jobs', jobsRoutes);
 
 export default router;

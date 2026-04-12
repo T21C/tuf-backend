@@ -100,21 +100,6 @@ const packDownloadEntries = new Map<string, PackDownloadEntry>();
 const packCacheIndex = new Map<string, string>();
 const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
 
-// Progress tracking
-interface PackDownloadProgress {
-    downloadId: string;
-    cacheKey: string;
-    status: 'pending' | 'processing' | 'zipping' | 'uploading' | 'completed' | 'failed';
-    totalLevels: number;
-    processedLevels: number;
-    currentLevel?: string;
-    startedAt: number;
-    lastUpdated: number;
-    error?: string;
-}
-
-const packDownloadProgress = new Map<string, PackDownloadProgress>();
-
 // Queue system for managing concurrent pack generations
 interface ActiveGeneration {
     cacheKey: string;
@@ -236,7 +221,7 @@ function unregisterGeneration(cacheKey: string): void {
     }
 }
 
-// Get main server URL for progress callbacks
+// Get main server URL for job progress ingest
 function getMainServerUrl(): string {
     if (process.env.NODE_ENV === 'production') {
         return process.env.PROD_API_URL || 'http://localhost:3000';
@@ -247,58 +232,89 @@ function getMainServerUrl(): string {
     }
 }
 
-// Update progress and send to main server
-async function updateProgress(
-    downloadId: string,
-    cacheKey: string,
-    updates: Partial<Omit<PackDownloadProgress, 'downloadId' | 'cacheKey' | 'startedAt' | 'lastUpdated'>>
-): Promise<void> {
-    const existing = packDownloadProgress.get(downloadId);
-    if (!existing) {
-        return; // Progress not initialized yet
+type PackProgressStatus =
+    | 'pending'
+    | 'processing'
+    | 'zipping'
+    | 'uploading'
+    | 'completed'
+    | 'failed';
+
+async function ingestJobProgress(body: {
+    jobId: string;
+    kind?: string;
+    phase?: string;
+    percent?: number | null;
+    message?: string;
+    meta?: Record<string, unknown>;
+    error?: string | null;
+}): Promise<void> {
+    const secret = process.env.JOB_PROGRESS_INGEST_SECRET;
+    if (!secret) {
+        logger.debug('JOB_PROGRESS_INGEST_SECRET not set, skipping job progress ingest');
+        return;
     }
-
-    const updated: PackDownloadProgress = {
-        ...existing,
-        ...updates,
-        lastUpdated: Date.now()
-    };
-
-    packDownloadProgress.set(downloadId, updated);
-
-    // Send update to main server
-    await sendProgressUpdate(updated);
-}
-
-// Send progress update to main server
-async function sendProgressUpdate(progress: PackDownloadProgress): Promise<void> {
     const mainServerUrl = getMainServerUrl();
-    const progressPercent = progress.totalLevels > 0
-        ? Math.round((progress.processedLevels / progress.totalLevels) * 100)
-        : 0;
-
-    const payload = {
-        downloadId: progress.downloadId,
-        cacheKey: progress.cacheKey,
-        status: progress.status,
-        totalLevels: progress.totalLevels,
-        processedLevels: progress.processedLevels,
-        currentLevel: progress.currentLevel,
-        progressPercent,
-        error: progress.error
-    };
-
     try {
-        await axios.post(`${mainServerUrl}/v2/cdn/pack-progress`, payload, {
-            timeout: 5000 // 5 second timeout for progress updates
+        await axios.post(`${mainServerUrl}/v2/cdn/job-progress`, body, {
+            headers: {'X-Job-Ingest-Key': secret},
+            timeout: 5000
         });
     } catch (error) {
-        // Log error but don't fail the generation - progress is best-effort
-        logger.debug('Failed to send progress update to main server', {
-            downloadId: progress.downloadId,
+        logger.debug('Failed to ingest job progress', {
+            jobId: body.jobId,
             error: error instanceof Error ? error.message : String(error)
         });
     }
+}
+
+function packPercentFromCounts(processedLevels: number, totalLevels: number): number {
+    if (totalLevels <= 0) {
+        return 0;
+    }
+    return Math.min(100, Math.round((processedLevels / totalLevels) * 100));
+}
+
+async function emitPackJobProgress(input: {
+    downloadId: string;
+    cacheKey: string;
+    plannedTotalLevels: number;
+    processedLevels: number;
+    status: PackProgressStatus;
+    currentLevel?: string;
+    error?: string;
+}): Promise<void> {
+    const { downloadId, cacheKey, plannedTotalLevels, processedLevels, status, currentLevel, error } =
+        input;
+
+    const percent: number | null =
+        status === 'completed'
+            ? 100
+            : status === 'failed'
+                ? null
+                : packPercentFromCounts(processedLevels, plannedTotalLevels);
+
+    const message =
+        status === 'failed' && error
+            ? error
+            : currentLevel
+                ? `Processing: ${currentLevel}`
+                : undefined;
+
+    await ingestJobProgress({
+        jobId: downloadId,
+        kind: 'pack_download',
+        phase: status,
+        percent,
+        message,
+        meta: {
+            cacheKey,
+            totalLevels: plannedTotalLevels,
+            processedLevels,
+            ...(currentLevel ? { currentLevel } : {})
+        },
+        error: status === 'failed' ? (error ?? 'Pack generation failed') : null
+    });
 }
 
 function sanitizePathSegment(name: string): string {
@@ -429,6 +445,8 @@ interface PackGenerationContext {
     extractRoot: string;
     successCount: number;
     totalLevels: number;
+    /** Total .adofai levels in tree (for progress percent). */
+    plannedTotalLevels: number;
     downloadId: string;
     cacheKey: string;
 }
@@ -607,8 +625,12 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
                 : finalFolderName;
 
             // Update progress after successful level extraction
-            await updateProgress(context.downloadId, context.cacheKey, {
+            await emitPackJobProgress({
+                downloadId: context.downloadId,
+                cacheKey: context.cacheKey,
+                plannedTotalLevels: context.plannedTotalLevels,
                 processedLevels: context.successCount,
+                status: 'processing',
                 currentLevel: finalFolderName
             });
 
@@ -769,8 +791,12 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             : finalFolderName;
 
         // Update progress after successful level extraction
-        await updateProgress(context.downloadId, context.cacheKey, {
+        await emitPackJobProgress({
+            downloadId: context.downloadId,
+            cacheKey: context.cacheKey,
+            plannedTotalLevels: context.plannedTotalLevels,
             processedLevels: context.successCount,
+            status: 'processing',
             currentLevel: finalFolderName
         });
 
@@ -1091,23 +1117,19 @@ async function generatePackDownloadZip(
         tempDir,
         extractRoot,
         successCount: 0,
-        totalLevels: 0, // Will be incremented during processing
+        totalLevels: 0, // Incremented per level node during processing
+        plannedTotalLevels: totalLevels,
         downloadId,
         cacheKey
     };
 
-    // Initialize progress tracking
-    const initialProgress: PackDownloadProgress = {
+    await emitPackJobProgress({
         downloadId,
         cacheKey,
-        status: 'processing',
-        totalLevels,
+        plannedTotalLevels: totalLevels,
         processedLevels: 0,
-        startedAt: Date.now(),
-        lastUpdated: Date.now()
-    };
-    packDownloadProgress.set(downloadId, initialProgress);
-    await sendProgressUpdate(initialProgress);
+        status: 'processing'
+    });
 
     let targetPath: string | null = null;
 
@@ -1121,7 +1143,11 @@ async function generatePackDownloadZip(
         }
 
         // Update progress: processing complete, now zipping
-        await updateProgress(downloadId, cacheKey, {
+        await emitPackJobProgress({
+            downloadId,
+            cacheKey,
+            plannedTotalLevels: totalLevels,
+            processedLevels: context.successCount,
             status: 'zipping'
         });
         // Use UUID for local file to avoid conflicts
@@ -1171,7 +1197,11 @@ async function generatePackDownloadZip(
 
         // Update progress: uploading if using Spaces
         if (spacesKeyFilename) {
-            await updateProgress(downloadId, cacheKey, {
+            await emitPackJobProgress({
+                downloadId,
+                cacheKey,
+                plannedTotalLevels: totalLevels,
+                processedLevels: context.successCount,
                 status: 'uploading'
             });
         }
@@ -1231,9 +1261,12 @@ async function generatePackDownloadZip(
         packCacheIndex.set(cacheKey, downloadId);
 
         // Update progress: completed
-        await updateProgress(downloadId, cacheKey, {
-            status: 'completed',
-            processedLevels: context.successCount
+        await emitPackJobProgress({
+            downloadId,
+            cacheKey,
+            plannedTotalLevels: totalLevels,
+            processedLevels: context.successCount,
+            status: 'completed'
         });
 
         logger.debug('Generated pack download zip', {
@@ -1251,7 +1284,11 @@ async function generatePackDownloadZip(
     } catch (error) {
         // Update progress: failed
         if (downloadId) {
-            await updateProgress(downloadId, cacheKey, {
+            await emitPackJobProgress({
+                downloadId,
+                cacheKey,
+                plannedTotalLevels: totalLevels,
+                processedLevels: context.successCount,
                 status: 'failed',
                 error: error instanceof Error ? error.message : String(error)
             });
@@ -1582,21 +1619,26 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                     }
 
                     if (url) {
-                        // Send completed progress event for cached download
-                        // This ensures frontend receives the completion status via WebSocket
-                        const cachedProgress: PackDownloadProgress = {
-                            downloadId: existingDownloadId,
-                            cacheKey: entry.cacheKey,
-                            status: 'completed',
-                            totalLevels: 0, // Unknown for cached, but status is what matters
-                            processedLevels: 0,
-                            startedAt: Date.now() - (entry.expiresAt - Date.now()), // Approximate
-                            lastUpdated: Date.now()
-                        };
-                        // Send progress update asynchronously (don't wait)
-                        sendProgressUpdate(cachedProgress).catch(error => {
-                            logger.debug('Failed to send cached download progress update', {
-                                downloadId: existingDownloadId,
+                        const jobIdForProgress =
+                            typeof clientDownloadId === 'string' && clientDownloadId.length > 0
+                                ? clientDownloadId
+                                : existingDownloadId;
+                        ingestJobProgress({
+                            jobId: jobIdForProgress,
+                            kind: 'pack_download',
+                            phase: 'completed',
+                            percent: 100,
+                            message: 'Cached pack ready',
+                            meta: {
+                                cacheKey: entry.cacheKey,
+                                totalLevels: 0,
+                                processedLevels: 0,
+                                reusedDownloadId: existingDownloadId
+                            },
+                            error: null
+                        }).catch(error => {
+                            logger.debug('Failed to ingest cached pack job progress', {
+                                downloadId: jobIdForProgress,
                                 error: error instanceof Error ? error.message : String(error)
                             });
                         });
@@ -1786,29 +1828,18 @@ async function sendLevelUploadProgress(
     error?: string
 ): Promise<void> {
     if (!uploadId) {
-        return; // No upload ID, skip progress update
+        return;
     }
 
-    const mainServerUrl = getMainServerUrl();
-    const payload = {
-        uploadId,
-        status,
-        progressPercent,
-        currentStep,
-        error
-    };
-
-    try {
-        await axios.post(`${mainServerUrl}/v2/cdn/level-upload-progress`, payload, {
-            timeout: 5000 // 5 second timeout for progress updates
-        });
-    } catch (error) {
-        // Log but don't fail the upload if progress update fails
-        logger.debug('Failed to send level upload progress update', {
-            uploadId,
-            error: error instanceof Error ? error.message : String(error)
-        });
-    }
+    await ingestJobProgress({
+        jobId: uploadId,
+        kind: 'level_upload',
+        phase: status,
+        percent: progressPercent,
+        message: currentStep,
+        meta: {},
+        error: status === 'failed' ? (error ?? 'Upload failed') : null
+    });
 }
 
 // Level zip upload endpoint

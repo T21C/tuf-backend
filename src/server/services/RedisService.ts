@@ -129,6 +129,43 @@ class RedisService {
   /**
    * Set cached value with optional TTL (in seconds)
    */
+  /**
+   * Publish a message to a Redis channel (main client; not for subscriber connections).
+   */
+  public async publish(channel: string, message: string): Promise<boolean> {
+    try {
+      const client = await this.getClient();
+      if (!client) return false;
+
+      await client.publish(channel, message);
+      return true;
+    } catch (error) {
+      logger.error(`Redis PUBLISH error for channel ${channel}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Dedicated subscriber connection (duplicate). Must be quit() when done.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public async createSubscriberClient(): Promise<any | null> {
+    try {
+      const client = await this.getClient();
+      if (!client) return null;
+
+      const sub = client.duplicate();
+      sub.on('error', (err: Error) => {
+        logger.error('Redis subscriber client error:', err);
+      });
+      await sub.connect();
+      return sub;
+    } catch (error) {
+      logger.error('Redis subscriber connect failed:', error);
+      return null;
+    }
+  }
+
   public async set(key: string, value: unknown, ttlSeconds?: number): Promise<boolean> {
     try {
       const client = await this.getClient();

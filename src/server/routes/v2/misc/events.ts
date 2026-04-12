@@ -23,7 +23,7 @@ router.get(
   ApiDoc({
     operationId: 'getEventsSSE',
     summary: 'SSE stream',
-    description: 'Server-Sent Events stream for real-time updates (pack download progress, level upload progress, etc.). Query: userId, source, isManager. Response is text/event-stream; connection stays open.',
+    description: 'Server-Sent Events stream for real-time updates (e.g. rating room user counts). Query: userId, source, isManager. Response is text/event-stream; connection stays open.',
     tags: ['Events'],
     query: {
       userId: { description: 'User ID for scoped events', schema: { type: 'string' } },

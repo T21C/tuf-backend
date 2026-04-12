@@ -31,6 +31,7 @@ import {
 } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/CdnService.js';
 import {CDN_CONFIG} from '@/externalServices/cdnService/config.js';
+import { jobProgressService, isUuidJobId } from '@/server/services/JobProgressService.js';
 import fs from 'fs';
 import path from 'path';
 import {cleanupUserUploads} from '@/server/routes/v2/misc/chunkedUpload.js';
@@ -177,6 +178,9 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   assembledFilePathToUnlink: string | null;
   chunkUploadFileIdForCleanupExclude: string | null;
   canEdit: boolean;
+  uploadJobId?: string | null;
+  /** Merged into job progress `meta` (e.g. `source: 'upload_from_url'`). */
+  uploadJobMeta?: Record<string, unknown> | null;
 }): Promise<void> {
   const {
     req,
@@ -189,7 +193,42 @@ async function finalizeLevelZipUploadFromBuffer(params: {
     assembledFilePathToUnlink,
     chunkUploadFileIdForCleanupExclude,
     canEdit,
+    uploadJobMeta,
   } = params;
+
+  const uploadJobId =
+    params.uploadJobId != null && isUuidJobId(params.uploadJobId)
+      ? params.uploadJobId.trim()
+      : undefined;
+
+  const markJobFailed = async (message: string) => {
+    if (!uploadJobId || !req.user?.id) {
+      return;
+    }
+    await jobProgressService.patchTrusted(uploadJobId, {
+      phase: 'failed',
+      error: message,
+      percent: null
+    }).catch(() => undefined);
+  };
+
+  const jobMetaBase: Record<string, unknown> = {
+    levelId,
+    source: 'level_edit',
+    ...(uploadJobMeta && typeof uploadJobMeta === 'object' ? uploadJobMeta : {}),
+  };
+
+  try {
+  if (uploadJobId && req.user?.id) {
+    await jobProgressService.patchTrusted(uploadJobId, {
+      ownerUserId: req.user.id,
+      kind: 'level_upload',
+      phase: 'uploading_to_cdn',
+      percent: 5,
+      message: 'Sending zip to CDN',
+      meta: jobMetaBase,
+    }).catch(() => undefined);
+  }
 
   let oldFileId: string | null = null;
   const oldDlLink = level.dlLink;
@@ -205,6 +244,7 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   const uploadResult = await cdnService.uploadLevelZip(
     fileBuffer,
     encodedZipFileName,
+    uploadJobId
   );
 
   // Validate that chart gameplay hasn't changed by comparing durations
@@ -395,6 +435,15 @@ async function finalizeLevelZipUploadFromBuffer(params: {
     return;
   }
 
+  if (uploadJobId && req.user?.id) {
+    await jobProgressService.patchTrusted(uploadJobId, {
+      phase: 'completed',
+      percent: 100,
+      message: 'Upload complete',
+      meta: {...jobMetaBase, newFileId: uploadResult.fileId},
+    }).catch(() => undefined);
+  }
+
   try {
     res.json({
       success: true,
@@ -419,6 +468,18 @@ async function finalizeLevelZipUploadFromBuffer(params: {
       return;
     }
     throw writeError;
+  }
+  } catch (err: any) {
+    if (!res.headersSent) {
+      const msg =
+        typeof err?.error === 'string'
+          ? err.error
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      await markJobFailed(msg);
+    }
+    throw err;
   }
 }
 
@@ -1695,7 +1756,7 @@ router.post(
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'fileId, fileName, fileSize (from chunked upload)', schema: { type: 'object', properties: { fileId: { type: 'string' }, fileName: { type: 'string' }, fileSize: { type: 'integer' } }, required: ['fileId', 'fileName', 'fileSize'] }, required: true },
+    requestBody: { description: 'fileId, fileName, fileSize (from chunked upload); optional uploadJobId (UUID) for GET /v2/jobs/:jobId progress', schema: { type: 'object', properties: { fileId: { type: 'string' }, fileName: { type: 'string' }, fileSize: { type: 'integer' }, uploadJobId: { type: 'string', format: 'uuid' } }, required: ['fileId', 'fileName', 'fileSize'] }, required: true },
     responses: { 200: { description: 'Upload success' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, 499: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -1703,7 +1764,8 @@ router.post(
 
     try {
       transaction = await sequelize.transaction();
-      const {fileId, fileName, fileSize} = req.body;
+      const {fileId, fileName, fileSize, uploadJobId: rawUploadJobId} = req.body;
+      const uploadJobId = isUuidJobId(rawUploadJobId) ? rawUploadJobId.trim() : undefined;
       const levelId = parseInt(req.params.id);
       if (!fileId || !fileName || !fileSize) {
         throw {error: 'Missing required file information', code: 400};
@@ -1760,6 +1822,7 @@ router.post(
           assembledFilePathToUnlink: assembledFilePath,
           chunkUploadFileIdForCleanupExclude: fileId,
           canEdit,
+          uploadJobId,
         });
         return;
       } catch (error) {
@@ -1831,7 +1894,10 @@ router.post(
       description: 'Direct download URL for a zip file',
       schema: {
         type: 'object',
-        properties: {url: {type: 'string'}},
+        properties: {
+          url: {type: 'string'},
+          uploadJobId: {type: 'string', format: 'uuid'},
+        },
         required: ['url'],
       },
       required: true,
@@ -1852,7 +1918,8 @@ router.post(
         throw {error: 'Forbidden', code: 403};
       }
 
-      const {url} = req.body;
+      const {url, uploadJobId: rawUploadJobId} = req.body;
+      const uploadJobId = isUuidJobId(rawUploadJobId) ? rawUploadJobId.trim() : undefined;
       const levelId = parseInt(req.params.id);
       if (!url || typeof url !== 'string') {
         throw {error: 'Missing url', code: 400};
@@ -1873,9 +1940,65 @@ router.post(
         throw {error: 'Level not found', code: 404};
       }
 
+      if (uploadJobId && req.user?.id) {
+        await jobProgressService
+          .patchTrusted(uploadJobId, {
+            ownerUserId: req.user.id,
+            kind: 'level_upload',
+            phase: 'downloading_remote',
+            percent: 0,
+            message: 'Starting download',
+            meta: {levelId, source: 'upload_from_url', stage: 'download'},
+          })
+          .catch(() => undefined);
+      }
+
+      let lastDownloadProgressAt = 0;
+      let lastDownloadPercent = -1;
+      let lastEmittedLoaded = -1;
+      const emitDownloadProgress = async (loaded: number, total: number, percent: number) => {
+        if (!uploadJobId || !req.user?.id) {
+          return;
+        }
+        const now = Date.now();
+        const terminal = percent >= 100;
+        if (!terminal) {
+          if (total > 0) {
+            if (
+              now - lastDownloadProgressAt < 350 &&
+              Math.abs(percent - lastDownloadPercent) < 2
+            ) {
+              return;
+            }
+          } else if (now - lastDownloadProgressAt < 400 && loaded - lastEmittedLoaded < 2 * 1024 * 1024) {
+            return;
+          }
+        }
+        lastDownloadProgressAt = now;
+        lastDownloadPercent = percent;
+        lastEmittedLoaded = loaded;
+        const mb = (loaded / (1024 * 1024)).toFixed(1);
+        await jobProgressService
+          .patchTrusted(uploadJobId, {
+            phase: 'downloading_remote',
+            percent,
+            message: total > 0 ? `Downloading zip` : `Downloading zip (${mb} MB)`,
+            meta: {
+              levelId,
+              source: 'upload_from_url',
+              stage: 'download',
+              downloadBytes: loaded,
+              downloadTotal: total > 0 ? total : null,
+            },
+          })
+          .catch(() => undefined);
+      };
+
       let fileBuffer: Buffer;
       try {
-        fileBuffer = await downloadZipFromUrl(trimmed);
+        fileBuffer = await downloadZipFromUrl(trimmed, {
+          onProgress: ({loaded, total, percent}) => emitDownloadProgress(loaded, total, percent),
+        });
       } catch (downloadErr: any) {
         if (typeof downloadErr?.code === 'number' && downloadErr.code >= 400 && downloadErr.code < 500) {
           throw downloadErr;
@@ -1885,6 +2008,23 @@ router.post(
           error: downloadErr?.error || 'Failed to download or validate zip from URL',
           code: 400,
         };
+      }
+
+      if (uploadJobId && req.user?.id) {
+        await jobProgressService
+          .patchTrusted(uploadJobId, {
+            phase: 'downloading_remote',
+            percent: 100,
+            message: 'Download complete',
+            meta: {
+              levelId,
+              source: 'upload_from_url',
+              stage: 'download',
+              downloadBytes: fileBuffer.length,
+              downloadTotal: fileBuffer.length,
+            },
+          })
+          .catch(() => undefined);
       }
 
       transaction = await sequelize.transaction();
@@ -1906,10 +2046,26 @@ router.post(
         assembledFilePathToUnlink: null,
         chunkUploadFileIdForCleanupExclude: null,
         canEdit,
+        uploadJobId,
+        uploadJobMeta: {source: 'upload_from_url', stage: 'cdn'},
       });
       return;
     } catch (error: any) {
       await safeTransactionRollback(transaction);
+      const uploadJobIdErr = isUuidJobId(req.body?.uploadJobId) ? String(req.body.uploadJobId).trim() : undefined;
+      if (uploadJobIdErr && req.user?.id && !res.headersSent) {
+        const msg =
+          typeof error?.error === 'string'
+            ? error.error
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        await jobProgressService.patchTrusted(uploadJobIdErr, {
+          phase: 'failed',
+          error: msg,
+          percent: null
+        }).catch(() => undefined);
+      }
       const statusCode =
         typeof error.code === 'number' && error.code >= 100 && error.code < 600
           ? error.code

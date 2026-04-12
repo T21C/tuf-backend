@@ -32,6 +32,7 @@ import Judgement from '@/models/passes/Judgement.js';
 import cdnService from '@/server/services/CdnService.js';
 import { CdnError } from '@/server/services/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
+import { jobProgressService, isUuidJobId } from '@/server/services/JobProgressService.js';
 import multer from 'multer';
 import fs from 'fs';
 import { OAuthProvider, User } from '@/models/index.js';
@@ -255,62 +256,40 @@ router.post(
         const levelZipFile = files?.levelZip?.[0];
 
         if (levelZipFile) {
+          const uploadJobId = isUuidJobId(req.body.uploadId) ? String(req.body.uploadId).trim() : undefined;
           try {
             // Validate file size
             if (levelZipFile.size > 1000 * 1024 * 1024) { // 1GB
               throw {code: 400, error: 'File size exceeds maximum allowed size (1GB)'};
             }
 
-            // Get uploadId from request body for progress tracking
-            const uploadId = req.body.uploadId;
-
-            // Send initial progress update if uploadId is provided
-            if (uploadId) {
-              sseManager.sendToSource(`levelUpload:${uploadId}`, {
-                type: 'levelUploadProgress',
-                data: {
-                  uploadId,
-                  status: 'processing',
-                  progressPercent: 10,
-                  currentStep: 'Uploading file...'
-                }
-              });
+            if (uploadJobId && req.user?.id) {
+              await jobProgressService.patchTrusted(uploadJobId, {
+                ownerUserId: req.user.id,
+                kind: 'level_upload',
+                phase: 'receiving',
+                percent: 1,
+                message: 'Receiving zip',
+                meta: {context: 'level_submission'}
+              }).catch(() => undefined);
             }
 
             // Read file from disk instead of using buffer
             const fileBuffer = await fs.promises.readFile(levelZipFile.path);
 
-            // Send progress update: processing
-            if (uploadId) {
-              sseManager.sendToSource(`levelUpload:${uploadId}`, {
-                type: 'levelUploadProgress',
-                data: {
-                  uploadId,
-                  status: 'processing',
-                  progressPercent: 50,
-                  currentStep: 'Processing zip file...'
-                }
-              });
+            if (uploadJobId && req.user?.id) {
+              await jobProgressService.patchTrusted(uploadJobId, {
+                phase: 'uploading_to_cdn',
+                percent: 5,
+                message: 'Uploading to CDN'
+              }).catch(() => undefined);
             }
 
             const uploadResult = await cdnService.uploadLevelZip(
               fileBuffer,
               levelZipFile.originalname,
-              uploadId
+              uploadJobId
             );
-
-            // Send progress update: caching
-            if (uploadId) {
-              sseManager.sendToSource(`levelUpload:${uploadId}`, {
-                type: 'levelUploadProgress',
-                data: {
-                  uploadId,
-                  status: 'caching',
-                  progressPercent: 90,
-                  currentStep: 'Populating cache...'
-                }
-              });
-            }
 
             // Store fileId for potential cleanup
             uploadedFileId = uploadResult.fileId;
@@ -327,22 +306,36 @@ router.post(
             // Get the level files from the CDN service
             levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
 
-            // Send completion progress update if uploadId is provided
-            if (uploadId) {
-              sseManager.sendToSource(`levelUpload:${uploadId}`, {
-                type: 'levelUploadProgress',
-                data: {
-                  uploadId,
-                  status: 'completed',
-                  progressPercent: 100,
-                  currentStep: 'Upload complete!'
-                }
-              });
+            if (uploadJobId && req.user?.id) {
+              await jobProgressService
+                .patchTrusted(uploadJobId, {
+                  phase: 'completed',
+                  percent: 100,
+                  message: 'Zip ready',
+                  meta: {context: 'level_submission', fileId: uploadResult.fileId}
+                })
+                .catch(() => undefined);
             }
 
             // If only one level file, use it directly
             directDL = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
           } catch (error) {
+            if (uploadJobId && req.user?.id) {
+              const errMsg =
+                error &&
+                typeof error === 'object' &&
+                'error' in error &&
+                typeof (error as { error?: unknown }).error === 'string'
+                  ? (error as { error: string }).error
+                  : error instanceof Error
+                    ? error.message
+                    : String(error);
+              await jobProgressService.patchTrusted(uploadJobId, {
+                phase: 'failed',
+                error: errMsg,
+                percent: null
+              }).catch(() => undefined);
+            }
             if (uploadedFileId) {
               await cleanUpCdnFile(uploadedFileId);
             }

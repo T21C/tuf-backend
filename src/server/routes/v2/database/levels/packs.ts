@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Auth } from '@/server/middleware/auth.js';
 import { LevelPack, LevelPackItem, PackFavorite, LevelPackViewModes } from '@/models/packs/index.js';
 import Level from '@/models/levels/Level.js';
@@ -15,6 +15,7 @@ import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import { multerMemoryCdnImage5Mb as upload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/CdnService.js';
 import { CdnError } from '@/server/services/CdnService.js';
+import { jobProgressService } from '@/server/services/JobProgressService.js';
 import Pass from '@/models/passes/Pass.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
@@ -956,6 +957,22 @@ router.post(
       trimFolderNames: trimFolderNames !== false
     })).digest('hex');
 
+    const jobId =
+      typeof downloadId === 'string' && downloadId.length > 0 ? downloadId : randomUUID();
+
+    await jobProgressService.patchTrusted(jobId, {
+      ownerUserId: req.user!.id,
+      kind: 'pack_download',
+      phase: 'pending',
+      percent: 0,
+      message: 'Starting pack download',
+      meta: {
+        cacheKey,
+        packId: pack.id,
+        folderId: targetFolder ? targetFolder.id : null
+      }
+    });
+
     const cdnResponse = await cdnService.generatePackDownload({
       zipName: zipDisplayName || 'Missing pack name',
       packId: pack.id,
@@ -963,7 +980,7 @@ router.post(
       folderId: targetFolder ? targetFolder.id : null,
       cacheKey,
       tree: treePayload,
-      downloadId: downloadId || undefined, // Client-provided downloadId for progress tracking
+      downloadId: jobId,
       trimFolderNames: trimFolderNames !== false
     });
 

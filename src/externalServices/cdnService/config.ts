@@ -13,6 +13,10 @@ if (process.env.NODE_ENV === 'production' && !process.env.CDN_TEMP_ROOT?.trim())
     throw new Error('CDN_TEMP_ROOT must be set in production');
 }
 
+if (!process.env.JOB_PROGRESS_INGEST_SECRET) {
+    throw new Error('JOB_PROGRESS_INGEST_SECRET must be set');
+}
+
 const localCdnUrl = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 /** Single on-disk root for CDN temp, multer, zip scratch, image staging, and tuf-cdn-spaces (via config). Set `CDN_TEMP_ROOT`. */
 const localRoot = path.resolve(

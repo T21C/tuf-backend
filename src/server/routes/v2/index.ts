@@ -24,7 +24,7 @@ router.use('/webhook', webhookRoutes);
 // Misc routes
 router.use('/', miscRoutes);
 
-// CDN Progress routes
+// CDN job progress ingest (trusted callers)
 router.use('/cdn', cdnProgressRoutes);
 
 // Health check endpoint
