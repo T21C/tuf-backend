@@ -48,7 +48,8 @@ import {
   logLevelMetadataUpdateHook,
 } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
-import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import {downloadZipFromUrl, isValidHttpUrl} from '@/misc/utils/levelZipFromUrl.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();
@@ -149,6 +150,276 @@ function formatDurationMismatchMessage(mismatchResult: DurationMismatchResult): 
   }
 
   return `${message} have different timing than original`;
+}
+
+/** Hex-encoded zip filename for CDN upload (matches client zipUtils). */
+function encodeLevelZipFilenameForCdn(level: Level): string {
+  const song = getSongDisplayName(level) || 'level';
+  const artist = getArtistDisplayName(level) || 'unknown';
+  const base = `${song} - ${artist}.zip`.replace(/[<>:"/\\|?*]/g, '');
+  return Array.from(new TextEncoder().encode(base))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Upload buffer to CDN, optional creator duration validation, DB update, webhooks, cleanup.
+ * Caller must start `transaction`; this function commits on success.
+ */
+async function finalizeLevelZipUploadFromBuffer(params: {
+  req: Request;
+  res: Response;
+  level: Level;
+  levelId: number;
+  transaction: Transaction;
+  fileBuffer: Buffer;
+  encodedZipFileName: string;
+  assembledFilePathToUnlink: string | null;
+  chunkUploadFileIdForCleanupExclude: string | null;
+  canEdit: boolean;
+}): Promise<void> {
+  const {
+    req,
+    res,
+    level,
+    levelId,
+    transaction,
+    fileBuffer,
+    encodedZipFileName,
+    assembledFilePathToUnlink,
+    chunkUploadFileIdForCleanupExclude,
+    canEdit,
+  } = params;
+
+  let oldFileId: string | null = null;
+  const oldDlLink = level.dlLink;
+  if (level.dlLink && isCdnUrl(level.dlLink)) {
+    oldFileId = getFileIdFromCdnUrl(level.dlLink);
+    logger.debug('Found existing CDN file to clean up after upload', {
+      levelId,
+      oldFileId,
+      oldDlLink: level.dlLink,
+    });
+  }
+
+  const uploadResult = await cdnService.uploadLevelZip(
+    fileBuffer,
+    encodedZipFileName,
+  );
+
+  // Validate that chart gameplay hasn't changed by comparing durations
+  if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN) && canEdit && level.clears > 0) {
+    try {
+      let originalDurations: number[] | null = null;
+      if (level.dlLink && isCdnUrl(level.dlLink)) {
+        const originalFileId = getFileIdFromCdnUrl(level.dlLink);
+        if (originalFileId) {
+          originalDurations = await cdnService.getDurationsFromFile(originalFileId);
+        }
+      }
+
+      if (originalDurations) {
+        const newDurations = await cdnService.getDurationsFromFile(uploadResult.fileId);
+
+        if (!newDurations) {
+          try {
+            await cdnService.deleteFile(uploadResult.fileId);
+          } catch (deleteError) {
+            logger.error('Failed to delete uploaded file after duration extraction failure:', deleteError);
+          }
+          throw {
+            error: 'Failed to extract durations from uploaded file',
+            code: 500,
+          };
+        }
+
+      logger.debug('Comparing durations - Original:', originalDurations.length, 'New:', newDurations.length);
+
+      if (originalDurations.length !== newDurations.length) {
+        try {
+          await cdnService.deleteFile(uploadResult.fileId);
+          logger.debug('Deleted uploaded file due to tile count mismatch', {
+            fileId: uploadResult.fileId,
+            levelId,
+            originalTileCount: originalDurations.length,
+            newTileCount: newDurations.length,
+          });
+        } catch (deleteError) {
+          logger.error('Failed to delete uploaded file after tile count mismatch:', deleteError);
+        }
+
+        throw {
+          error: `Chart tile count mismatch. Original chart has ${originalDurations.length} tiles, uploaded chart has ${newDurations.length} tiles.`,
+          code: 400,
+        };
+      }
+
+      const mismatchResult = compareDurations(originalDurations, newDurations);
+      if (!mismatchResult.matches) {
+        try {
+          await cdnService.deleteFile(uploadResult.fileId);
+          logger.debug('Deleted uploaded file due to duration mismatch', {
+            fileId: uploadResult.fileId,
+            levelId,
+            mismatchCount: mismatchResult.mismatches.length,
+            rangeCount: mismatchResult.ranges.length,
+          });
+        } catch (deleteError) {
+          logger.error('Failed to delete uploaded file after validation failure:', deleteError);
+        }
+
+        const detailedMessage = formatDurationMismatchMessage(mismatchResult);
+
+        throw {
+          error:
+            detailedMessage ||
+            'Chart gameplay has changed. The timing/delays between inputs do not match the original chart.',
+          code: 400,
+        };
+      }
+      }
+    } catch (validationError: any) {
+      if (assembledFilePathToUnlink) {
+        try {
+          await fs.promises.unlink(assembledFilePathToUnlink);
+        } catch (unlinkError: any) {
+          if (unlinkError.code !== 'ENOENT') {
+            logger.warn('Failed to clean up assembled file after validation failure:', unlinkError);
+          }
+        }
+      }
+
+      if (validationError.code === 400 || validationError.code === 500) {
+        throw validationError;
+      }
+      logger.warn('Could not validate durations (original file may not exist):', {
+        levelId,
+        error: validationError instanceof Error ? validationError.message : String(validationError),
+      });
+    }
+  }
+
+  if (assembledFilePathToUnlink) {
+    try {
+      await fs.promises.unlink(assembledFilePathToUnlink);
+    } catch (unlinkError: any) {
+      if (unlinkError.code !== 'ENOENT') {
+        logger.warn('Failed to clean up assembled file:', unlinkError);
+      }
+    }
+  }
+
+  const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
+
+  level.dlLink = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+  await level.save({transaction});
+
+  await transaction.commit();
+
+  try {
+    logger.debug('Logging webhook for level file upload', {
+      levelId,
+      oldDlLink,
+      newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
+    });
+    const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+    if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) {
+      await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
+    } else {
+      await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
+    }
+  } catch (webhookError) {
+    logger.warn('Failed to send webhook for level file upload:', webhookError);
+  }
+
+  if (oldFileId) {
+    try {
+      logger.debug('Cleaning up old CDN file after successful upload', {
+        levelId,
+        oldFileId,
+        newFileId: uploadResult.fileId,
+      });
+      await cdnService.deleteFile(oldFileId);
+      logger.debug('Successfully cleaned up old CDN file', {
+        levelId,
+        oldFileId,
+      });
+    } catch (cleanupError) {
+      logger.error(
+        'Failed to clean up old CDN file after successful upload:',
+        {
+          error:
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : String(cleanupError),
+          levelId,
+          oldFileId,
+          newFileId: uploadResult.fileId,
+        },
+      );
+    }
+  }
+
+  try {
+    await cleanupUserUploads(req.user!.id, chunkUploadFileIdForCleanupExclude || undefined);
+  } catch (cleanupError) {
+    logger.warn(
+      'Failed to clean up user uploads after successful processing:',
+      cleanupError,
+    );
+  }
+
+  try {
+    const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
+    if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
+      logger.debug('Auto tags refreshed after level upload', {
+        levelId,
+        assignedTags: tagResult.assignedTags,
+        removedTags: tagResult.removedTags,
+      });
+      await elasticsearchService.reindexLevels([levelId]);
+    }
+  } catch (tagError) {
+    logger.warn('Failed to refresh auto tags after level upload:', {
+      levelId,
+      error: tagError instanceof Error ? tagError.message : String(tagError),
+    });
+  }
+
+  if (res.headersSent || res.writableEnded) {
+    logger.warn('Response already sent or ended. Upload succeeded but response not sent.', {
+      levelId,
+      fileId: uploadResult.fileId,
+      userId: req.user?.id,
+    });
+    return;
+  }
+
+  try {
+    res.json({
+      success: true,
+      level: {
+        ...level,
+        dlLink: level.dlLink,
+      },
+      levelFiles,
+    });
+  } catch (writeError: any) {
+    if (
+      writeError.code === 'ECONNRESET' ||
+      writeError.code === 'EPIPE' ||
+      writeError.message?.includes('write after end')
+    ) {
+      logger.warn('Failed to send response - client may have disconnected. Upload succeeded.', {
+        levelId,
+        fileId: uploadResult.fileId,
+        userId: req.user?.id,
+        error: writeError.message,
+      });
+      return;
+    }
+    throw writeError;
+  }
 }
 
 const router = Router();
@@ -1452,28 +1723,13 @@ router.post(
       }
 
       try {
-        // Store the old file ID for cleanup if it exists
-        let oldFileId: string | null = null;
-        const oldDlLink = level.dlLink;
-        if (level.dlLink && isCdnUrl(level.dlLink)) {
-          oldFileId = getFileIdFromCdnUrl(level.dlLink);
-          logger.debug('Found existing CDN file to clean up after upload', {
-            levelId,
-            oldFileId,
-            oldDlLink: level.dlLink,
-          });
-        }
-
-        // Read the assembled file
         const assembledFilePath = path.join(
           'uploads',
           'assembled',
           req.user!.id,
           `${fileId}.zip`,
-        )
+        );
 
-        // Check if file exists before attempting to read
-        // Retry logic in case file is still being assembled
         let fileExists = false;
         let retries = 5;
         while (!fileExists && retries > 0) {
@@ -1487,257 +1743,25 @@ router.post(
                 'Assembled file not found. The upload may be incomplete or expired.',
               );
             }
-            // Wait a bit before retrying (file might still be assembling)
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         }
 
         const fileBuffer = await fs.promises.readFile(assembledFilePath);
 
-        // Upload the file first
-        const uploadResult = await cdnService.uploadLevelZip(
+        await finalizeLevelZipUploadFromBuffer({
+          req,
+          res,
+          level,
+          levelId,
+          transaction,
           fileBuffer,
-          fileName,
-        );
-
-        // Validate that chart gameplay hasn't changed by comparing durations
-        if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN) && canEdit && level.clears > 0) {
-        try {
-          // Get original durations from CDN if file exists
-          let originalDurations: number[] | null = null;
-          if (level.dlLink && isCdnUrl(level.dlLink)) {
-            const originalFileId = getFileIdFromCdnUrl(level.dlLink);
-            if (originalFileId) {
-              originalDurations = await cdnService.getDurationsFromFile(originalFileId);
-            }
-          }
-
-          // If original file exists, validate durations match
-          if (originalDurations) {
-            // Extract durations from the newly uploaded file using CDN service
-            const newDurations = await cdnService.getDurationsFromFile(uploadResult.fileId);
-
-            if (!newDurations) {
-              // Failed to extract durations from new file, delete it and throw error
-              try {
-                await cdnService.deleteFile(uploadResult.fileId);
-              } catch (deleteError) {
-                logger.error('Failed to delete uploaded file after duration extraction failure:', deleteError);
-              }
-              throw {
-                error: 'Failed to extract durations from uploaded file',
-                code: 500,
-              };
-            }
-
-            logger.debug('Comparing durations - Original:', originalDurations.length, 'New:', newDurations.length);
-
-            // First check if the tile counts match
-            if (originalDurations.length !== newDurations.length) {
-              // Delete the uploaded file since tile count doesn't match
-              try {
-                await cdnService.deleteFile(uploadResult.fileId);
-                logger.debug('Deleted uploaded file due to tile count mismatch', {
-                  fileId: uploadResult.fileId,
-                  levelId,
-                  originalTileCount: originalDurations.length,
-                  newTileCount: newDurations.length
-                });
-              } catch (deleteError) {
-                logger.error('Failed to delete uploaded file after tile count mismatch:', deleteError);
-              }
-
-              throw {
-                error: `Chart tile count mismatch. Original chart has ${originalDurations.length} tiles, uploaded chart has ${newDurations.length} tiles.`,
-                code: 400,
-              };
-            }
-
-            // Compare durations - if they don't match, delete the uploaded file and reject
-            const mismatchResult = compareDurations(originalDurations, newDurations);
-            if (!mismatchResult.matches) {
-              // Delete the uploaded file since validation failed
-              try {
-                await cdnService.deleteFile(uploadResult.fileId);
-                logger.debug('Deleted uploaded file due to duration mismatch', {
-                  fileId: uploadResult.fileId,
-                  levelId,
-                  mismatchCount: mismatchResult.mismatches.length,
-                  rangeCount: mismatchResult.ranges.length
-                });
-              } catch (deleteError) {
-                logger.error('Failed to delete uploaded file after validation failure:', deleteError);
-              }
-
-              // Format detailed error message
-              const detailedMessage = formatDurationMismatchMessage(mismatchResult);
-
-              throw {
-                error: detailedMessage || 'Chart gameplay has changed. The timing/delays between inputs do not match the original chart.',
-                code: 400,
-              };
-            }
-          }
-        } catch (validationError: any) {
-          // Clean up the assembled file
-          try {
-            await fs.promises.unlink(assembledFilePath);
-          } catch (unlinkError: any) {
-            if (unlinkError.code !== 'ENOENT') {
-              logger.warn('Failed to clean up assembled file after validation failure:', unlinkError);
-            }
-          }
-
-          // If it's our validation error, re-throw it
-          if (validationError.code === 400 || validationError.code === 500) {
-            throw validationError;
-          }
-          // If it's an error getting original durations (e.g., no original file), log and continue
-          logger.warn('Could not validate durations (original file may not exist):', {
-            levelId,
-            error: validationError instanceof Error ? validationError.message : String(validationError),
-          });
-          // Continue with upload if we can't validate (e.g., first upload)
-        }
-        }
-
-        // Clean up the assembled file
-        try {
-          await fs.promises.unlink(assembledFilePath);
-        } catch (unlinkError: any) {
-          // Ignore ENOENT errors - file is already gone
-          if (unlinkError.code !== 'ENOENT') {
-            logger.warn('Failed to clean up assembled file:', unlinkError);
-          }
-        }
-
-        // Get the level files from the CDN service
-        const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
-
-      // Update level with new download link
-        level.dlLink = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-        await level.save({transaction});
-
-        // Commit the transaction
-        await transaction.commit();
-
-        // Log webhook
-        try {
-          logger.debug('Logging webhook for level file upload', {
-            levelId,
-            oldDlLink,
-            newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
-          });
-          const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-          if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) { // likely a valid link
-            await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
-          }
-          else {
-            await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
-          }
-
-
-        } catch (webhookError) {
-          // Log webhook error but don't fail the request
-          logger.warn('Failed to send webhook for level file upload:', webhookError);
-        }
-
-        // Clean up old CDN file after successful upload and database update
-        if (oldFileId) {
-          try {
-            logger.debug('Cleaning up old CDN file after successful upload', {
-              levelId,
-              oldFileId,
-              newFileId: uploadResult.fileId,
-            });
-            await cdnService.deleteFile(oldFileId);
-            logger.debug('Successfully cleaned up old CDN file', {
-              levelId,
-              oldFileId,
-            });
-          } catch (cleanupError) {
-            // Log cleanup error but don't fail the request since the upload was successful
-            logger.error(
-              'Failed to clean up old CDN file after successful upload:',
-              {
-                error:
-                  cleanupError instanceof Error
-                    ? cleanupError.message
-                    : String(cleanupError),
-                levelId,
-                oldFileId,
-                newFileId: uploadResult.fileId,
-              },
-            );
-          }
-        }
-
-        // Clean up all user uploads after successful processing
-        // Exclude the current fileId in case it's still being processed elsewhere
-        try {
-          await cleanupUserUploads(req.user!.id, fileId);
-        } catch (cleanupError) {
-          // Log cleanup error but don't fail the request
-          logger.warn(
-            'Failed to clean up user uploads after successful processing:',
-            cleanupError,
-          );
-        }
-
-        // Refresh auto-assigned tags based on the new level analysis
-        try {
-          const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
-          if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
-            logger.debug('Auto tags refreshed after level upload', {
-              levelId,
-              assignedTags: tagResult.assignedTags,
-              removedTags: tagResult.removedTags,
-            });
-            // Reindex level in Elasticsearch to reflect tag changes
-            await elasticsearchService.reindexLevels([levelId]);
-          }
-        } catch (tagError) {
-          // Log error but don't fail the upload
-          logger.warn('Failed to refresh auto tags after level upload:', {
-            levelId,
-            error: tagError instanceof Error ? tagError.message : String(tagError),
-          });
-        }
-
-        // Try to send response - if client truly disconnected, Express will handle it
-        // Check if response can still be written to avoid errors
-        if (res.headersSent || res.writableEnded) {
-          logger.warn('Response already sent or ended. Upload succeeded but response not sent.', {
-            levelId,
-            fileId: uploadResult.fileId,
-            userId: req.user?.id,
-          });
-          return;
-        }
-
-        try {
-          return res.json({
-            success: true,
-            level: {
-              ...level,
-              dlLink: level.dlLink,
-            },
-            levelFiles,
-          });
-        } catch (writeError: any) {
-          // Handle write errors gracefully - client might have disconnected
-          if (writeError.code === 'ECONNRESET' || writeError.code === 'EPIPE' || writeError.message?.includes('write after end')) {
-            logger.warn('Failed to send response - client may have disconnected. Upload succeeded.', {
-              levelId,
-              fileId: uploadResult.fileId,
-              userId: req.user?.id,
-              error: writeError.message,
-            });
-            return;
-          }
-          // Re-throw other errors
-          throw writeError;
-        }
+          encodedZipFileName: fileName,
+          assembledFilePathToUnlink: assembledFilePath,
+          chunkUploadFileIdForCleanupExclude: fileId,
+          canEdit,
+        });
+        return;
       } catch (error) {
         // Clean up the assembled file in case of error
         try {
@@ -1790,6 +1814,110 @@ router.post(
       return res.status(statusCode).json(error);
     }
   }
+);
+
+router.post(
+  '/:id([0-9]{1,20})/upload-from-url',
+  Auth.verified(),
+  ApiDoc({
+    operationId: 'postLevelUploadFromUrl',
+    summary: 'Upload level zip from URL',
+    description:
+      'Super admin only. Downloads a remote .zip over http(s), validates it, uploads to CDN, and updates the level like POST /upload.',
+    tags: ['Database', 'Levels'],
+    security: ['bearerAuth'],
+    params: {id: idParamSpec},
+    requestBody: {
+      description: 'Direct download URL for a zip file',
+      schema: {
+        type: 'object',
+        properties: {url: {type: 'string'}},
+        required: ['url'],
+      },
+      required: true,
+    },
+    responses: {
+      200: {description: 'Upload success'},
+      400: {schema: errorResponseSchema},
+      403: {schema: errorResponseSchema},
+      404: {schema: errorResponseSchema},
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    let transaction: any;
+
+    try {
+      if (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
+        throw {error: 'Forbidden', code: 403};
+      }
+
+      const {url} = req.body;
+      const levelId = parseInt(req.params.id);
+      if (!url || typeof url !== 'string') {
+        throw {error: 'Missing url', code: 400};
+      }
+      const trimmed = url.trim();
+      if (!trimmed) {
+        throw {error: 'Missing url', code: 400};
+      }
+      if (!isValidHttpUrl(trimmed)) {
+        throw {error: 'Invalid download URL', code: 400};
+      }
+      if (isCdnUrl(trimmed)) {
+        throw {error: 'URL must not point to the site CDN', code: 400};
+      }
+
+      const levelProbe = await Level.findByPk(levelId);
+      if (!levelProbe) {
+        throw {error: 'Level not found', code: 404};
+      }
+
+      let fileBuffer: Buffer;
+      try {
+        fileBuffer = await downloadZipFromUrl(trimmed);
+      } catch (downloadErr: any) {
+        if (typeof downloadErr?.code === 'number' && downloadErr.code >= 400 && downloadErr.code < 500) {
+          throw downloadErr;
+        }
+        logger.error('upload-from-url: download or zip validation failed', downloadErr);
+        throw {
+          error: downloadErr?.error || 'Failed to download or validate zip from URL',
+          code: 400,
+        };
+      }
+
+      transaction = await sequelize.transaction();
+      const level = await Level.findByPk(levelId, {transaction});
+      if (!level) {
+        throw {error: 'Level not found', code: 404};
+      }
+
+      const {canEdit} = await checkLevelOwnership(levelId, req.user, transaction);
+
+      await finalizeLevelZipUploadFromBuffer({
+        req,
+        res,
+        level,
+        levelId,
+        transaction,
+        fileBuffer,
+        encodedZipFileName: encodeLevelZipFilenameForCdn(level),
+        assembledFilePathToUnlink: null,
+        chunkUploadFileIdForCleanupExclude: null,
+        canEdit,
+      });
+      return;
+    } catch (error: any) {
+      await safeTransactionRollback(transaction);
+      const statusCode =
+        typeof error.code === 'number' && error.code >= 100 && error.code < 600
+          ? error.code
+          : 500;
+      if (statusCode === 500) logger.error('Error uploading level file from URL:', error);
+      return res.status(statusCode).json(error);
+    }
+  },
 );
 
 router.post(
