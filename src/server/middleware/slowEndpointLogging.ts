@@ -18,7 +18,8 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/health',
   '/v2/external/autorate/*',
   '/v2/admin/submissions/auto-approve/*',
-  '/v2/media/video-details/*'
+  '/v2/media/video-details/*',
+  '/v2/auth/profile/avatar'
 ];
 
 function isExcludedRoute(path: string): boolean {
