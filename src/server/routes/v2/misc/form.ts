@@ -39,6 +39,7 @@ import Player from '@/models/players/Player.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import {computeSubmissionEvidenceRequirements} from '@/server/submissions/submissionEvidenceRules.js';
 
 const router: Router = express.Router();
 const evidenceService = EvidenceService.getInstance();
@@ -90,9 +91,6 @@ const safeParseJSON = (input: string | object | null | undefined): any => {
     return null;
   }
 };
-
-const isYsmodOnlyVerificationState = (value: unknown): boolean =>
-  typeof value === 'string' && value.toLowerCase() === 'ysmod_only';
 
 // Validate creator request structure
 const validateCreatorRequest = (request: any): boolean => {
@@ -358,18 +356,16 @@ router.post(
         const isNewSongRequest = req.body.isNewSongRequest === true || req.body.isNewSongRequest === 'true';
         const isNewArtistRequest = req.body.isNewArtistRequest === true || req.body.isNewArtistRequest === 'true';
         const parsedArtistRequests = safeParseJSON(req.body.artistRequests);
-        const songVerificationState = sanitizeTextInput(req.body.songVerificationState, 50).toLowerCase();
-        const requiresSongEvidenceFlag = req.body.requiresSongEvidence === true || req.body.requiresSongEvidence === 'true';
-        const requiresArtistEvidenceFlag = req.body.requiresArtistEvidence === true || req.body.requiresArtistEvidence === 'true';
-        const requiresSongEvidence = (isNewSongRequest && !isYsmodOnlyVerificationState(songVerificationState)) || requiresSongEvidenceFlag;
-        const requiresArtistEvidenceFromRequests = Array.isArray(parsedArtistRequests)
-          && parsedArtistRequests.some((request: any) => {
-            const isNewRequest = request?.isNewRequest === true || request?.isNewRequest === 'true';
-            return isNewRequest && !isYsmodOnlyVerificationState(request?.verificationState);
-          });
-        const requiresArtistEvidence = requiresArtistEvidenceFromRequests
-          || (isNewArtistRequest && !isYsmodOnlyVerificationState(req.body.verificationState))
-          || requiresArtistEvidenceFlag;
+        const {requiresSongEvidence, requiresArtistEvidence} = await computeSubmissionEvidenceRequirements(
+          {
+            isNewSongRequest,
+            songId: req.body.songId,
+            isNewArtistRequest,
+            artistId: req.body.artistId,
+          },
+          parsedArtistRequests,
+          transaction
+        );
 
         // Set songId: null if new request, otherwise validate and use provided ID
         let songId: number | null = null;
@@ -456,9 +452,8 @@ router.post(
         }
 
         // Create song request record if needed
-        // New songs always require evidence and are initially pending
         let songRequestId: number | null = null;
-        if (isNewSongRequest || songId || requiresSongEvidence) {
+        if (isNewSongRequest || songId) {
           const songRequest = await LevelSubmissionSongRequest.create({
             submissionId: submission.id,
             songId: songId,
@@ -488,7 +483,7 @@ router.post(
           if (createdRequests.length > 0) {
             artistRequestId = createdRequests[0].id;
           }
-        } else if (isNewArtistRequest || artistId || requiresArtistEvidence) {
+        } else if (isNewArtistRequest || artistId) {
           // Fallback: Create single artist request for backward compatibility
           const artistRequest = await LevelSubmissionArtistRequest.create({
             submissionId: submission.id,
@@ -507,10 +502,9 @@ router.post(
         // Handle evidence image uploads (up to 10 images)
         const evidenceFiles = files?.evidence || [];
 
-        // Evidence is required when at least one new request is not ysmod_only
         const requiresEvidence = requiresSongEvidence || requiresArtistEvidence;
         if (requiresEvidence && evidenceFiles.length === 0) {
-          throw {code: 400, error: 'Evidence is required for non-ysmod_only song/artist requests'};
+          throw {code: 400, error: 'Evidence is required for this submission'};
         }
 
         if (evidenceFiles.length > 0 && evidenceFiles.length <= 10) {
