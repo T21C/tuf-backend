@@ -50,7 +50,7 @@ import {
 } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
-import {downloadZipFromUrl, isValidHttpUrl} from '@/misc/utils/levelZipFromUrl.js';
+import {asZipUrlDownloadFailure, downloadZipFromUrl, isValidHttpUrl} from '@/misc/utils/levelZipFromUrl.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();
@@ -1999,15 +1999,14 @@ router.post(
         fileBuffer = await downloadZipFromUrl(trimmed, {
           onProgress: ({loaded, total, percent}) => emitDownloadProgress(loaded, total, percent),
         });
-      } catch (downloadErr: any) {
-        if (typeof downloadErr?.code === 'number' && downloadErr.code >= 400 && downloadErr.code < 500) {
-          throw downloadErr;
+      } catch (downloadErr: unknown) {
+        const fail = asZipUrlDownloadFailure(downloadErr);
+        if (fail.code >= 400 && fail.code < 600) {
+          logger.debug('upload-from-url: download failed', {code: fail.code, error: fail.error});
+          throw fail;
         }
-        logger.error('upload-from-url: download or zip validation failed', downloadErr);
-        throw {
-          error: downloadErr?.error || 'Failed to download or validate zip from URL',
-          code: 400,
-        };
+        logger.debug('upload-from-url: download unexpected', {code: fail.code, error: fail.error});
+        throw {error: fail.error, code: 400};
       }
 
       if (uploadJobId && req.user?.id) {

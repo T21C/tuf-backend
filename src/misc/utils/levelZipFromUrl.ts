@@ -49,13 +49,101 @@ function decodeHtmlEntities(s: string): string {
 
 function bufferLooksLikeHtml(buf: Buffer): boolean {
   const sample = buf.subarray(0, Math.min(4096, buf.length)).toString('utf8').trimStart();
-  return sample.startsWith('<!') || 
+  return (
+    sample.startsWith('<!') ||
     sample.startsWith('<html') ||
     sample.includes('uc-warning-caption') ||
     sample.includes('id="download-form"') ||
     sample.includes("id='download-form'") ||
     sample.includes('Google Drive')
-  
+  );
+}
+
+/** Structured error for API responses (not logged as raw Axios dumps). */
+export type ZipUrlDownloadFailure = {error: string; code: number};
+
+export function asZipUrlDownloadFailure(err: unknown): ZipUrlDownloadFailure {
+  if (typeof err === 'object' && err !== null) {
+    const o = err as Record<string, unknown>;
+    if (typeof o.error === 'string' && typeof o.code === 'number') {
+      return {error: o.error, code: o.code};
+    }
+  }
+  return normalizeZipUrlDownloadError(err);
+}
+
+export function normalizeZipUrlDownloadError(err: unknown): ZipUrlDownloadFailure {
+  if (typeof err === 'object' && err !== null && 'error' in err && 'code' in err) {
+    const o = err as {error?: unknown; code?: unknown};
+    if (typeof o.error === 'string' && typeof o.code === 'number' && o.code >= 400 && o.code < 600) {
+      return {error: o.error, code: o.code};
+    }
+  }
+
+  if (axios.isAxiosError(err)) {
+    const status = err.response?.status;
+    const body = err.response?.data;
+    let detail = '';
+    if (typeof body === 'string' && body.length > 0 && body.length < 500) {
+      detail = body.trim().slice(0, 200);
+    } else if (body && typeof body === 'object' && 'message' in body) {
+      const m = (body as {message?: unknown}).message;
+      if (typeof m === 'string') {
+        detail = m.slice(0, 200);
+      }
+    }
+
+    if (status === 404) {
+      return {
+        error: 'Remote file not found (404). The link may be wrong or the file was removed.',
+        code: 404,
+      };
+    }
+    if (status === 403) {
+      return {
+        error:
+          'Remote host refused download (403). It may require sign-in or block automated access.',
+        code: 403,
+      };
+    }
+    if (status === 401) {
+      return {error: 'Remote host requires authentication (401).', code: 401};
+    }
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      return {
+        error: detail ? `Download failed (HTTP ${status}): ${detail}` : `Download failed (HTTP ${status}).`,
+        code: status,
+      };
+    }
+    if (typeof status === 'number' && status >= 500) {
+      return {
+        error: detail ? `Remote server error (HTTP ${status}).` : `Remote server error (HTTP ${status}).`,
+        code: 502,
+      };
+    }
+
+    const code = err.code;
+    if (code === 'ECONNABORTED' || err.message?.toLowerCase().includes('timeout')) {
+      return {error: 'Download timed out before completing.', code: 408};
+    }
+    if (code === 'ENOTFOUND') {
+      return {error: 'Could not resolve download host (DNS).', code: 400};
+    }
+    if (code === 'ECONNRESET' || code === 'ETIMEDOUT') {
+      return {error: 'Connection to download host was reset or timed out.', code: 502};
+    }
+
+    return {
+      error: err.message || 'Download failed.',
+      code: 502,
+    };
+  }
+
+  if (err instanceof Error) {
+    return {error: err.message, code: 502};
+  }
+
+  return {error: String(err), code: 502};
 }
 
 function hiddenInputValue(html: string, name: string): string | null {
@@ -158,7 +246,7 @@ export function assertValidZipBuffer(buffer: Buffer): void {
   try {
     const zip = new AdmZip(buffer);
     zip.getEntries();
-  } catch (e) {
+  } catch {
     throw {error: 'Downloaded file is not a valid zip archive', code: 400};
   }
 }
@@ -197,6 +285,18 @@ function buildAxiosGetConfig(
   };
 }
 
+async function axiosGetZipBuffer(
+  url: string,
+  options?: DownloadZipFromUrlOptions,
+): Promise<ArrayBuffer> {
+  try {
+    const res = await axios.get<ArrayBuffer>(url, buildAxiosGetConfig(options));
+    return res.data;
+  } catch (e) {
+    throw normalizeZipUrlDownloadError(e);
+  }
+}
+
 export async function downloadZipFromUrl(
   url: string,
   options?: DownloadZipFromUrlOptions,
@@ -212,9 +312,7 @@ export async function downloadZipFromUrl(
   const firstHost = new URL(resolved).hostname;
   const mayBeDriveInterstitial = isGoogleDriveHost(firstHost);
 
-  let response = await axios.get<ArrayBuffer>(resolved, buildAxiosGetConfig(options));
-
-  let buffer = Buffer.from(response.data);
+  let buffer = Buffer.from(await axiosGetZipBuffer(resolved, options));
 
   if (bufferLooksLikeHtml(buffer) && mayBeDriveInterstitial) {
     const html = buffer.toString('utf8');
@@ -222,12 +320,11 @@ export async function downloadZipFromUrl(
     if (!confirmUrl) {
       throw {
         error:
-          'Google Drive returned a virus-scan confirmation page that could not be parsed. Open the link in a browser or use a direct /uc?export=download style URL.',
+          'Link leads to a Google Drive page that could not be parsed. Open the link in a browser or use a direct /uc?export=download style URL.',
         code: 400,
       };
     }
-    response = await axios.get<ArrayBuffer>(confirmUrl, buildAxiosGetConfig(options));
-    buffer = Buffer.from(response.data);
+    buffer = Buffer.from(await axiosGetZipBuffer(confirmUrl, options));
   }
 
   if (bufferLooksLikeHtml(buffer)) {
@@ -235,8 +332,7 @@ export async function downloadZipFromUrl(
       const html = buffer.toString('utf8');
       const second = parseGoogleDriveVirusScanConfirmUrl(html);
       if (second) {
-        response = await axios.get<ArrayBuffer>(second, buildAxiosGetConfig(options));
-        buffer = Buffer.from(response.data);
+        buffer = Buffer.from(await axiosGetZipBuffer(second, options));
       }
     }
     if (bufferLooksLikeHtml(buffer)) {
