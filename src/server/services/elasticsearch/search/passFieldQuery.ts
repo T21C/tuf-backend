@@ -41,74 +41,26 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
     }
 
     if (field === 'video') {
-      const query = {
-        wildcard: {
-          videoLink: {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('videoLink', wildcardValue));
     }
 
     if (field === 'vidtitle') {
-      const query = {
-        wildcard: {
-          vidTitle: {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('vidTitle', wildcardValue));
     }
 
     if (field === 'level.song') {
-      const query = {
-        wildcard: {
-          'level.song': {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('level.song', wildcardValue));
     }
 
     if (field === 'level.artist') {
-      const query = {
-        wildcard: {
-          'level.artist': {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('level.artist', wildcardValue));
     }
 
     if (field === 'level.dlLink') {
-      const query = {
-        wildcard: {
-          'level.dlLink': {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('level.dlLink', wildcardValue));
     }
 
-    const searchCondition = {
-      wildcard: {
-        [field]: {
-          value: wildcardValue,
-          case_insensitive: true,
-        },
-      },
-    };
-    return isNot ? { bool: { must_not: [searchCondition] } } : searchCondition;
+    return maybeNot(isNot, wildcardCi(field, wildcardValue));
   }
 
   const wildcardValue = `*${searchValue}*`;

@@ -4,6 +4,14 @@ import { Op } from 'sequelize';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
 import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/parseSearch.js';
+import {
+  boolMust,
+  boolShould,
+  boolShouldOnly,
+  rangeGt,
+  termField,
+  termsField,
+} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
 import { buildPassFieldSearchQuery } from '@/server/services/elasticsearch/search/passFieldQuery.js';
 import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/scrollHelpers.js';
 
@@ -24,9 +32,7 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
         const orConditions = searchGroups.map(group => {
           const andConditions = group.terms.map(term => buildPassFieldSearchQuery(term));
 
-          return andConditions.length === 1
-            ? andConditions[0]
-            : { bool: { must: andConditions } };
+          return andConditions.length === 1 ? andConditions[0] : boolMust(andConditions);
         });
 
         should.push(...orConditions);
@@ -35,67 +41,47 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
 
     // Handle filters
     if (!filters.deletedFilter || filters.deletedFilter === 'hide') {
-      must.push({ term: { isDeleted: false } });
-      must.push({ term: { 'level.isHidden': false } });
-      must.push({ term: { 'level.isDeleted': false } });
-      must.push({ term: { 'player.isBanned': false } });
+      must.push(termField('isDeleted', false));
+      must.push(termField('level.isHidden', false));
+      must.push(termField('level.isDeleted', false));
+      must.push(termField('player.isBanned', false));
 
-      // Filter out hidden passes unless the user is the owner
       if (userPlayerId !== undefined) {
-        // User is logged in - show their hidden passes but hide others' hidden passes
-        must.push({
-          bool: {
-            should: [
-              { term: { isHidden: false } },
-              {
-                bool: {
-                  must: [
-                    { term: { isHidden: true } },
-                    { term: { 'player.id': userPlayerId } }
-                  ]
-                }
-              }
-            ],
-            minimum_should_match: 1
-          }
-        });
+        must.push(
+          boolShould(1, [
+            termField('isHidden', false),
+            boolMust([termField('isHidden', true), termField('player.id', userPlayerId)]),
+          ]),
+        );
       } else {
-        // User is not logged in - hide all hidden passes
-        must.push({ term: { isHidden: false } });
+        must.push(termField('isHidden', false));
       }
     } else if (filters.deletedFilter === 'only' && isSuperAdmin) {
-      must.push({
-        bool: {
-          should: [
-            { term: { isDeleted: true } },
-            { term: { 'level.isHidden': true } },
-            { term: { 'level.isDeleted': true } },
-            { term: { 'player.isBanned': true } }
-          ]
-        }
-      });
+      must.push(
+        boolShouldOnly([
+          termField('isDeleted', true),
+          termField('level.isHidden', true),
+          termField('level.isDeleted', true),
+          termField('player.isBanned', true),
+        ]),
+      );
     }
 
     // Handle key flag filter
     if (filters.keyFlag) {
       switch (filters.keyFlag) {
         case '12k':
-          must.push({ term: { is12K: true } });
+          must.push(termField('is12K', true));
           break;
         case '16k':
-          must.push({ term: { is16K: true } });
+          must.push(termField('is16K', true));
           break;
       }
     }
 
-    // Handle speed filter when sorting by speed
     const sortType = filters.sort?.split('_').slice(0, -1).join('_');
     if (sortType === 'SPEED') {
-      must.push({
-        range: {
-          speed: { gt: 1 }
-        }
-      });
+      must.push(rangeGt('speed', 1));
     }
 
     // Handle difficulty filters
@@ -132,11 +118,7 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
           });
 
           if (pguDifficulties.length > 0) {
-            difficultyConditions.push({
-              terms: {
-                'level.diffId': pguDifficulties.map(d => d.id)
-              }
-            });
+            difficultyConditions.push(termsField('level.diffId', pguDifficulties.map((d) => d.id)));
           }
         }
       }
@@ -152,16 +134,12 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
         });
 
         if (specialDiffs.length > 0) {
-          difficultyConditions.push({
-            terms: {
-              'level.diffId': specialDiffs.map(d => d.id)
-            }
-          });
+          difficultyConditions.push(termsField('level.diffId', specialDiffs.map((d) => d.id)));
         }
       }
 
       if (difficultyConditions.length > 0) {
-        must.push({ bool: { should: difficultyConditions } });
+        must.push(boolShould(1, difficultyConditions));
       }
     }
 

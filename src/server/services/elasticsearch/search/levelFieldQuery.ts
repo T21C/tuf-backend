@@ -7,8 +7,15 @@ import {
   maybeNot,
   termField,
   wildcardCi,
+  boolShouldOnly,
 } from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
-import { specNestedDocNameWithOptionalAliases } from '@/server/services/elasticsearch/search/esQuerySpecs.js';
+import {
+  specAnyLevelCreditsCreator,
+  specAnyTeamObjectWithAliases,
+  specLevelCreditsByCreatorRole,
+  specNestedDocNameWithOptionalAliases,
+  specTeamFieldSearch,
+} from '@/server/services/elasticsearch/search/esQuerySpecs.js';
 
 export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases = false): any {
   const { field, value, exact, isNot } = fieldSearch;
@@ -31,67 +38,11 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
   if (field !== 'any') {
     const wildcardValue = exact ? searchValue : `*${searchValue}*`;
     if (field === 'charter' || field === 'vfxer' || field === 'creator') {
-      const query = {
-        nested: {
-          path: 'levelCredits',
-          query: {
-            bool: {
-              must: [
-                {
-                  nested: {
-                    path: 'levelCredits.creator',
-                    query: {
-                      bool: {
-                        should: [
-                          {
-                            wildcard: {
-                              'levelCredits.creator.name': {
-                                value: wildcardValue,
-                                case_insensitive: true,
-                              },
-                            },
-                          },
-                          ...(excludeAliases
-                            ? []
-                            : [
-                                {
-                                  nested: {
-                                    path: 'levelCredits.creator.creatorAliases',
-                                    query: {
-                                      wildcard: {
-                                        'levelCredits.creator.creatorAliases.name': {
-                                          value: wildcardValue,
-                                          case_insensitive: true,
-                                        },
-                                      },
-                                    },
-                                  },
-                                },
-                              ]),
-                        ],
-                        minimum_should_match: 1,
-                      },
-                    },
-                  },
-                },
-                ...(field === 'charter' || field === 'vfxer'
-                  ? [
-                      {
-                        term: {
-                          'levelCredits.role': {
-                            value: field,
-                            case_insensitive: true,
-                          },
-                        },
-                      },
-                    ]
-                  : []),
-              ],
-            },
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      const role = field === 'charter' || field === 'vfxer' ? field : undefined;
+      return maybeNot(
+        isNot,
+        specLevelCreditsByCreatorRole({ wildcardValue, excludeAliases, role }),
+      );
     }
 
     if (field === 'legacydllink') {
@@ -124,308 +75,73 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
     }
 
     if (field === 'artist') {
-      const query = {
-        bool: {
-          should: [
-            {
-              nested: {
-                path: 'primaryArtist',
-                ignore_unmapped: true,
-                query: {
-                  bool: {
-                    should: [
-                      {
-                        wildcard: {
-                          'primaryArtist.name': {
-                            value: wildcardValue,
-                            case_insensitive: true,
-                          },
-                        },
-                      },
-                      ...(excludeAliases
-                        ? []
-                        : [
-                            {
-                              nested: {
-                                path: 'primaryArtist.aliases',
-                                ignore_unmapped: true,
-                                query: {
-                                  wildcard: {
-                                    'primaryArtist.aliases.alias': {
-                                      value: wildcardValue,
-                                      case_insensitive: true,
-                                    },
-                                  },
-                                },
-                              },
-                            },
-                          ]),
-                    ],
-                    minimum_should_match: 1,
-                  },
-                },
-              },
-            },
-            {
-              nested: {
-                path: 'artists',
-                ignore_unmapped: true,
-                query: {
-                  bool: {
-                    should: [
-                      {
-                        wildcard: {
-                          'artists.name': {
-                            value: wildcardValue,
-                            case_insensitive: true,
-                          },
-                        },
-                      },
-                      ...(excludeAliases
-                        ? []
-                        : [
-                            {
-                              nested: {
-                                path: 'artists.aliases',
-                                ignore_unmapped: true,
-                                query: {
-                                  wildcard: {
-                                    'artists.aliases.alias': {
-                                      value: wildcardValue,
-                                      case_insensitive: true,
-                                    },
-                                  },
-                                },
-                              },
-                            },
-                          ]),
-                    ],
-                    minimum_should_match: 1,
-                  },
-                },
-              },
-            },
-            {
-              wildcard: {
-                artist: {
-                  value: wildcardValue,
-                  case_insensitive: true,
-                },
-              },
-            },
-          ],
-          minimum_should_match: 1,
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      const query = new BoolQueryBuilder()
+        .should(
+          specNestedDocNameWithOptionalAliases({
+            rootNestedPath: 'primaryArtist',
+            nameField: 'primaryArtist.name',
+            aliasNestedPath: 'primaryArtist.aliases',
+            aliasField: 'primaryArtist.aliases.alias',
+            wildcardValue,
+            excludeAliases,
+            ignoreUnmapped: true,
+          }),
+        )
+        .should(
+          specNestedDocNameWithOptionalAliases({
+            rootNestedPath: 'artists',
+            nameField: 'artists.name',
+            aliasNestedPath: 'artists.aliases',
+            aliasField: 'artists.aliases.alias',
+            wildcardValue,
+            excludeAliases,
+            ignoreUnmapped: true,
+          }),
+        )
+        .should(wildcardCi('artist', wildcardValue))
+        .build();
+      return maybeNot(isNot, query);
     }
-
-    const searchCondition = {
-      wildcard: {
-        [field]: {
-          value: wildcardValue,
-          case_insensitive: true,
-        },
-      },
-    };
 
     if (field === 'team') {
-      const query = {
-        bool: {
-          should: [
-            searchCondition,
-            {
-              nested: {
-                path: 'teamObject',
-                query: {
-                  bool: {
-                    should: [
-                      {
-                        wildcard: {
-                          'teamObject.name': {
-                            value: wildcardValue,
-                            case_insensitive: true,
-                          },
-                        },
-                      },
-                      ...(excludeAliases
-                        ? []
-                        : [
-                            {
-                              nested: {
-                                path: 'teamObject.aliases',
-                                query: {
-                                  wildcard: {
-                                    'teamObject.aliases.name': {
-                                      value: wildcardValue,
-                                      case_insensitive: true,
-                                    },
-                                  },
-                                },
-                              },
-                            },
-                          ]),
-                    ],
-                  },
-                },
-              },
-            },
-          ],
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, specTeamFieldSearch({ wildcardValue, excludeAliases }));
     }
 
-    return isNot ? { bool: { must_not: [searchCondition] } } : searchCondition;
+    return maybeNot(isNot, wildcardCi(field, wildcardValue));
   }
 
   const wildcardValue = exact ? searchValue : `*${searchValue}*`;
-  const query = {
-    bool: {
-      should: [
-        {
-          nested: {
-            path: 'songObject',
-            ignore_unmapped: true,
-            query: {
-              bool: {
-                should: [
-                  { wildcard: { 'songObject.name': { value: wildcardValue, case_insensitive: true } } },
-                  ...(excludeAliases
-                    ? []
-                    : [
-                        {
-                          nested: {
-                            path: 'songObject.aliases',
-                            ignore_unmapped: true,
-                            query: {
-                              wildcard: { 'songObject.aliases.alias': { value: wildcardValue, case_insensitive: true } },
-                            },
-                          },
-                        },
-                      ]),
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          },
-        },
-        { wildcard: { song: { value: wildcardValue, case_insensitive: true } } },
-        {
-          nested: {
-            path: 'primaryArtist',
-            ignore_unmapped: true,
-            query: {
-              bool: {
-                should: [
-                  { wildcard: { 'primaryArtist.name': { value: wildcardValue, case_insensitive: true } } },
-                  ...(excludeAliases
-                    ? []
-                    : [
-                        {
-                          nested: {
-                            path: 'primaryArtist.aliases',
-                            ignore_unmapped: true,
-                            query: {
-                              wildcard: { 'primaryArtist.aliases.alias': { value: wildcardValue, case_insensitive: true } },
-                            },
-                          },
-                        },
-                      ]),
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          },
-        },
-        {
-          nested: {
-            path: 'artists',
-            ignore_unmapped: true,
-            query: {
-              bool: {
-                should: [
-                  { wildcard: { 'artists.name': { value: wildcardValue, case_insensitive: true } } },
-                  ...(excludeAliases
-                    ? []
-                    : [
-                        {
-                          nested: {
-                            path: 'artists.aliases',
-                            ignore_unmapped: true,
-                            query: {
-                              wildcard: { 'artists.aliases.alias': { value: wildcardValue, case_insensitive: true } },
-                            },
-                          },
-                        },
-                      ]),
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          },
-        },
-        {
-          nested: {
-            path: 'levelCredits',
-            query: {
-              nested: {
-                path: 'levelCredits.creator',
-                query: {
-                  bool: {
-                    should: [
-                      { wildcard: { 'levelCredits.creator.name': { value: wildcardValue, case_insensitive: true } } },
-                      ...(excludeAliases
-                        ? []
-                        : [
-                            {
-                              nested: {
-                                path: 'levelCredits.creator.creatorAliases',
-                                query: {
-                                  wildcard: {
-                                    'levelCredits.creator.creatorAliases.name': {
-                                      value: wildcardValue,
-                                      case_insensitive: true,
-                                    },
-                                  },
-                                },
-                              },
-                            },
-                          ]),
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        },
-        {
-          nested: {
-            path: 'teamObject',
-            query: {
-              bool: {
-                should: [
-                  { wildcard: { 'teamObject.name': { value: wildcardValue, case_insensitive: true } } },
-                  ...(excludeAliases
-                    ? []
-                    : [
-                        {
-                          nested: {
-                            path: 'teamObject.aliases',
-                            query: {
-                              wildcard: { 'teamObject.aliases.name': { value: wildcardValue, case_insensitive: true } },
-                            },
-                          },
-                        },
-                      ]),
-                ],
-                minimum_should_match: 1,
-              },
-            },
-          },
-        },
-      ],
-    },
-  };
-  return isNot ? { bool: { must_not: [query] } } : query;
+  const query = boolShouldOnly([
+    specNestedDocNameWithOptionalAliases({
+      rootNestedPath: 'songObject',
+      nameField: 'songObject.name',
+      aliasNestedPath: 'songObject.aliases',
+      aliasField: 'songObject.aliases.alias',
+      wildcardValue,
+      excludeAliases,
+      ignoreUnmapped: true,
+    }),
+    wildcardCi('song', wildcardValue),
+    specNestedDocNameWithOptionalAliases({
+      rootNestedPath: 'primaryArtist',
+      nameField: 'primaryArtist.name',
+      aliasNestedPath: 'primaryArtist.aliases',
+      aliasField: 'primaryArtist.aliases.alias',
+      wildcardValue,
+      excludeAliases,
+      ignoreUnmapped: true,
+    }),
+    specNestedDocNameWithOptionalAliases({
+      rootNestedPath: 'artists',
+      nameField: 'artists.name',
+      aliasNestedPath: 'artists.aliases',
+      aliasField: 'artists.aliases.alias',
+      wildcardValue,
+      excludeAliases,
+      ignoreUnmapped: true,
+    }),
+    specAnyLevelCreditsCreator({ wildcardValue, excludeAliases }),
+    specAnyTeamObjectWithAliases({ wildcardValue, excludeAliases }),
+  ]);
+  return maybeNot(isNot, query);
 }

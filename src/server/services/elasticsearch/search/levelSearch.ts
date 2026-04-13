@@ -10,6 +10,16 @@ import {
   resolveTags,
 } from '@/server/services/elasticsearch/search/filterResolvers.js';
 import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/parseSearch.js';
+import { buildAvailableDlHideClause, buildAvailableDlOnlyClause } from '@/server/services/elasticsearch/search/esQueryLevelFilters.js';
+import {
+  boolMust,
+  boolShould,
+  boolShouldOnly,
+  nestedQuery,
+  rangeGt,
+  termField,
+  termsField,
+} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levelFieldQuery.js';
 import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/scrollHelpers.js';
 
@@ -30,9 +40,7 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
         const orConditions = searchGroups.map(group => {
           const andConditions = group.terms.map(term => buildFieldSearchQuery(term, filters.excludeAliases === 'true'));
 
-          return andConditions.length === 1
-            ? andConditions[0]
-            : { bool: { must: andConditions } };
+          return andConditions.length === 1 ? andConditions[0] : boolMust(andConditions);
         });
 
         should.push(...orConditions);
@@ -41,102 +49,25 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
 
     // Handle filters
     if (!filters.deletedFilter || filters.deletedFilter === 'hide') {
-      must.push({ term: { isDeleted: false } });
+      must.push(termField('isDeleted', false));
     } else if (filters.deletedFilter === 'only' && isSuperAdmin) {
-      must.push({ bool: { should: [
-        { term: { isDeleted: true } },
-        { term: { isHidden: true } }
-      ] } });
+      must.push(
+        boolShouldOnly([termField('isDeleted', true), termField('isHidden', true)]),
+      );
     } else if (!isSuperAdmin) {
-      must.push({ term: { isDeleted: false } })
+      must.push(termField('isDeleted', false));
     }
 
     if (filters.clearedFilter === 'hide') {
-      must.push({ term: { clears: 0 } });
+      must.push(termField('clears', 0));
     } else if (filters.clearedFilter === 'only') {
-      must.push({ range: { clears: { gt: 0 } } });
+      must.push(rangeGt('clears', 0));
     }
 
     if (filters.availableDlFilter === 'only') {
-      must.push({
-        bool: {
-          should: [
-            { term: { isExternallyAvailable: true } },
-            {
-              bool: {
-                must: [
-                  { exists: { field: 'dlLink' } },
-                  {
-                    bool: {
-                      must_not: [
-                        { term: { 'dlLink.keyword': '' } }
-                      ]
-                    }
-                  }
-                ]
-              }
-            },
-            {
-              bool: {
-                must: [
-                  { exists: { field: 'workshopLink' } },
-                  {
-                    bool: {
-                      must_not: [
-                        { term: { 'workshopLink.keyword': '' } }
-                      ]
-                    }
-                  }
-                ]
-              }
-            }
-          ],
-          minimum_should_match: 1
-        }
-      });
+      must.push(buildAvailableDlOnlyClause());
     } else if (filters.availableDlFilter === 'hide') {
-      must.push({
-        bool: {
-          must_not: [
-            {
-              bool: {
-                should: [
-                  { term: { isExternallyAvailable: true } },
-                  {
-                    bool: {
-                      must: [
-                        { exists: { field: 'dlLink' } },
-                        {
-                          bool: {
-                            must_not: [
-                              { term: { 'dlLink.keyword': '' } }
-                            ]
-                          }
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    bool: {
-                      must: [
-                        { exists: { field: 'workshopLink' } },
-                        {
-                          bool: {
-                            must_not: [
-                              { term: { 'workshopLink.keyword': '' } }
-                            ]
-                          }
-                        }
-                      ]
-                    }
-                  }
-                ],
-                minimum_should_match: 1
-              }
-            }
-          ]
-        }
-      });
+      must.push(buildAvailableDlHideClause());
     }
 
     const facetQueryV1 = filters.facetQueryV1 as FacetQueryV1 | undefined;
@@ -145,9 +76,9 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
 
     // Handle curated types filter: isCurated only/hide
     if (filters.curatedTypesFilter === 'only') {
-      must.push({ term: { isCurated: true } });
+      must.push(termField('isCurated', true));
     } else if (filters.curatedTypesFilter === 'hide') {
-      must.push({ term: { isCurated: false } });
+      must.push(termField('isCurated', false));
     } else if (
       !hasFacetQuery &&
       filters.curatedTypesFilter &&
@@ -158,19 +89,12 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       if (curationTypeNames.length > 0) {
         const curationTypeIds = await resolveCurationTypes(curationTypeNames);
         if (curationTypeIds.length > 0) {
-          must.push({
-            nested: {
-              path: 'curations',
-              query: {
-                bool: {
-                  should: curationTypeIds.map((typeId) => ({
-                    term: { 'curations.typeIds': typeId },
-                  })),
-                  minimum_should_match: 1
-                }
-              }
-            }
-          });
+          must.push(
+            nestedQuery(
+              'curations',
+              boolShould(1, curationTypeIds.map((typeId) => termField('curations.typeIds', typeId))),
+            ),
+          );
         }
       }
     }
@@ -192,159 +116,69 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       const tagGroups = filters.tagGroups as { [groupKey: string]: number[] };
       const groupQueries = Object.values(tagGroups).map((tagIds: number[]) => {
         if (tagIds.length === 1) {
-          return {
-            nested: {
-              path: 'tags',
-              query: {
-                term: { 'tags.id': tagIds[0] }
-              }
-            }
-          };
+          return nestedQuery('tags', termField('tags.id', tagIds[0]));
         }
 
-        return {
-          nested: {
-            path: 'tags',
-            query: {
-              bool: {
-                should: tagIds.map(tagId => ({
-                  term: { 'tags.id': tagId }
-                })),
-                minimum_should_match: 1
-              }
-            }
-          }
-        };
+        return nestedQuery(
+          'tags',
+          boolShould(1, tagIds.map((tagId) => termField('tags.id', tagId))),
+        );
       });
 
-      must.push({
-        bool: {
-          must: groupQueries
-        }
-      });
+      must.push(boolMust(groupQueries));
     } else if (filters.tagsFilter && filters.tagsFilter !== 'show') {
       // Legacy: comma-separated tag names — ALL selected tags (AND)
       const tagNames = filters.tagsFilter.split(',').map((name: string) => name.trim());
       if (tagNames.length > 0) {
         const tagIds = await resolveTags(tagNames);
         if (tagIds.length > 0) {
-          const tagQueries = tagIds.map(tagId => ({
-            nested: {
-              path: 'tags',
-              query: {
-                term: { 'tags.id': tagId }
-              }
-            }
-          }));
+          const tagQueries = tagIds.map((tagId) => nestedQuery('tags', termField('tags.id', tagId)));
 
-          must.push({
-            bool: {
-              must: tagQueries
-            }
-          });
+          must.push(boolMust(tagQueries));
         }
       }
     }
 
     // Handle hideVerified filter
     if (filters.hideVerified === 'true') {
-      must.push({
-        bool: {
-          must: [
-            {
-              nested: {
-                path: 'levelCredits',
-                query: {
-                  bool: {
-                    must: [
-                      { term: { 'levelCredits.isVerified': false } }
-                    ]
-                  }
-                }
-              }
-            }
-          ]
-        }
-      });
+      must.push(
+        boolMust([
+          nestedQuery('levelCredits', boolMust([termField('levelCredits.isVerified', false)])),
+        ]),
+      );
     }
 
     // Handle songId filter
     if (filters.songId) {
       const songIdValue = parseInt(filters.songId);
       if (!isNaN(songIdValue) && songIdValue > 0) {
-        must.push({ term: { songId: songIdValue } });
+        must.push(termField('songId', songIdValue));
       }
     }
 
-    // Handle hideVerified filter
     if (filters.creatorId && !isSuperAdmin) {
+      const creatorNested = nestedQuery(
+        'levelCredits',
+        boolShouldOnly([termField('levelCredits.creatorId', filters.creatorId)]),
+      );
       if (filters.deletedFilter === 'show') {
-          should.push({
-            bool: {
-              should: [
-                {
-                  nested: {
-                    path: 'levelCredits',
-                    query: {
-                      bool: {
-                        should: [
-                          { term: { 'levelCredits.creatorId': filters.creatorId } }
-                        ]
-                      }
-                    }
-                  }
-                },
-                {
-                  term: { 'isHidden': false }
-                }
-              ],
-              minimum_should_match: 1
-            }
-          });
-        }
-      else if (filters.deletedFilter === 'only') {
-        should.push({
-          bool: {
-            must: [
-              {
-                nested: {
-                  path: 'levelCredits',
-                  query: {
-                    bool: {
-                      should: [
-                        { term: { 'levelCredits.creatorId': filters.creatorId } }
-                      ]
-                    }
-                  }
-                }
-              },
-              {
-                term: { 'isHidden': true }
-              }
-            ]
-          }
-        });
+        should.push(boolShould(1, [creatorNested, termField('isHidden', false)]));
+      } else if (filters.deletedFilter === 'only') {
+        should.push(boolMust([creatorNested, termField('isHidden', true)]));
+      } else {
+        must.push(termField('isHidden', false));
       }
-      else {
-        must.push({ term: { isHidden: false } });
-      }
-    }
-    else if (isSuperAdmin) {
+    } else if (isSuperAdmin) {
       if (filters.deletedFilter === 'hide') {
-        must.push({ term: { isHidden: false } });
+        must.push(termField('isHidden', false));
       }
-    }
-    else {
-      must.push({ term: { isHidden: false } });
+    } else {
+      must.push(termField('isHidden', false));
     }
 
     // Handle liked levels filter
     if (filters.likedLevelIds?.length > 0) {
-      must.push({
-        terms: {
-          id: filters.likedLevelIds
-        }
-      });
+      must.push(termsField('id', filters.likedLevelIds));
     }
 
     // Handle difficulty filters
@@ -356,11 +190,7 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
         const { from, to } = filters.pguRange;
         const pguIds = await resolveDifficultyRange(from, to);
         if (pguIds.length > 0) {
-          difficultyConditions.push({
-            terms: {
-              'diffId': pguIds
-            }
-          });
+          difficultyConditions.push(termsField('diffId', pguIds));
         }
       }
 
@@ -368,16 +198,12 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       if (filters.specialDifficulties?.length > 0) {
         const specialIds = await resolveSpecialDifficulties(filters.specialDifficulties);
         if (specialIds.length > 0) {
-          difficultyConditions.push({
-            terms: {
-              'diffId': specialIds
-            }
-          });
+          difficultyConditions.push(termsField('diffId', specialIds));
         }
       }
 
       if (difficultyConditions.length > 0) {
-        must.push({ bool: { should: difficultyConditions } });
+        must.push(boolShould(1, difficultyConditions));
       }
     }
 

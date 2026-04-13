@@ -12,6 +12,11 @@ export function boolShould(minimumShouldMatch: number, should: EsQuery[]): EsQue
   return { bool: { should, minimum_should_match: minimumShouldMatch } };
 }
 
+/** `should` only — omits `minimum_should_match` to match legacy DSL where ES defaults apply. */
+export function boolShouldOnly(should: EsQuery[]): EsQuery {
+  return { bool: { should } };
+}
+
 export function boolMustNot(mustNot: EsQuery[]): EsQuery {
   return { bool: { must_not: mustNot } };
 }
@@ -42,7 +47,7 @@ export function wildcardCi(field: string, value: string): EsQuery {
   };
 }
 
-export function termField(field: string, value: string | number, caseInsensitive?: boolean): EsQuery {
+export function termField(field: string, value: string | number | boolean, caseInsensitive?: boolean): EsQuery {
   if (caseInsensitive) {
     return {
       term: {
@@ -54,6 +59,18 @@ export function termField(field: string, value: string | number, caseInsensitive
     };
   }
   return { term: { [field]: value } };
+}
+
+export function existsField(field: string): EsQuery {
+  return { exists: { field } };
+}
+
+export function termsField(field: string, values: (string | number)[]): EsQuery {
+  return { terms: { [field]: values } };
+}
+
+export function rangeGt(field: string, gt: number): EsQuery {
+  return { range: { [field]: { gt } } };
 }
 
 export function wrapMustNot(q: EsQuery): EsQuery {
