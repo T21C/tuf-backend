@@ -1,6 +1,14 @@
 import { prepareSearchTerm } from '@/misc/utils/data/searchHelpers.js';
 import { queryParserConfigs, type FieldSearch } from '@/misc/utils/data/queryParser.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/esQueryBuilder.js';
+import {
+  matchNone,
+  maybeNot,
+  termField,
+  wildcardCi,
+} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+import { specNestedDocNameWithOptionalAliases } from '@/server/services/elasticsearch/search/esQuerySpecs.js';
 
 export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases = false): any {
   const { field, value, exact, isNot } = fieldSearch;
@@ -14,14 +22,9 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
     const numericValue = parseInt(searchValue, 10);
 
     if (!isNaN(numericValue)) {
-      const query = {
-        term: {
-          [field]: numericValue,
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, termField(field, numericValue));
     } else {
-      return { bool: { must_not: [{ match_all: {} }] } };
+      return matchNone();
     }
   }
 
@@ -92,97 +95,32 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
     }
 
     if (field === 'legacydllink') {
-      const query = {
-        wildcard: {
-          legacyDllink: {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('legacyDllink', wildcardValue));
     }
 
     if (field === 'dllink') {
-      const query = {
-        wildcard: {
-          dlLink: {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('dlLink', wildcardValue));
     }
 
     if (field === 'videolink') {
-      const query = {
-        wildcard: {
-          videoLink: {
-            value: wildcardValue,
-            case_insensitive: true,
-          },
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, wildcardCi('videoLink', wildcardValue));
     }
 
     if (field === 'song') {
-      const query = {
-        bool: {
-          should: [
-            {
-              nested: {
-                path: 'songObject',
-                ignore_unmapped: true,
-                query: {
-                  bool: {
-                    should: [
-                      {
-                        wildcard: {
-                          'songObject.name': {
-                            value: wildcardValue,
-                            case_insensitive: true,
-                          },
-                        },
-                      },
-                      ...(excludeAliases
-                        ? []
-                        : [
-                            {
-                              nested: {
-                                path: 'songObject.aliases',
-                                ignore_unmapped: true,
-                                query: {
-                                  wildcard: {
-                                    'songObject.aliases.alias': {
-                                      value: wildcardValue,
-                                      case_insensitive: true,
-                                    },
-                                  },
-                                },
-                              },
-                            },
-                          ]),
-                    ],
-                    minimum_should_match: 1,
-                  },
-                },
-              },
-            },
-            {
-              wildcard: {
-                song: {
-                  value: wildcardValue,
-                  case_insensitive: true,
-                },
-              },
-            },
-          ],
-          minimum_should_match: 1,
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      const nestedSong = specNestedDocNameWithOptionalAliases({
+        rootNestedPath: 'songObject',
+        nameField: 'songObject.name',
+        aliasNestedPath: 'songObject.aliases',
+        aliasField: 'songObject.aliases.alias',
+        wildcardValue,
+        excludeAliases,
+        ignoreUnmapped: true,
+      });
+      const query = new BoolQueryBuilder()
+        .should(nestedSong)
+        .should(wildcardCi('song', wildcardValue))
+        .build();
+      return maybeNot(isNot, query);
     }
 
     if (field === 'artist') {

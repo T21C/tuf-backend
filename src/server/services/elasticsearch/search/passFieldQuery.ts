@@ -1,6 +1,14 @@
 import { prepareSearchTerm } from '@/misc/utils/data/searchHelpers.js';
 import { queryParserConfigs, type FieldSearch } from '@/misc/utils/data/queryParser.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/esQueryBuilder.js';
+import {
+  matchNone,
+  maybeNot,
+  nestedQuery,
+  termField,
+  wildcardCi,
+} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
 
 export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
   const { field, value, exact, isNot } = fieldSearch;
@@ -14,15 +22,10 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
     const numericValue = parseInt(searchValue, 10);
 
     if (!isNaN(numericValue)) {
-      const query = {
-        term: {
-          [field]: numericValue,
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      return maybeNot(isNot, termField(field, numericValue));
     } else {
       logger.warn(`Invalid numeric value for field ${field}: ${searchValue}`);
-      return { bool: { must_not: [{ match_all: {} }] } };
+      return matchNone();
     }
   }
 
@@ -30,16 +33,11 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
     const wildcardValue = exact ? searchValue : `*${searchValue}*`;
 
     if (field === 'player') {
-      const query = {
-        bool: {
-          should: [
-            { wildcard: { 'player.name': { value: wildcardValue, case_insensitive: true } } },
-            { wildcard: { 'player.username': { value: wildcardValue, case_insensitive: true } } },
-          ],
-          minimum_should_match: 1,
-        },
-      };
-      return isNot ? { bool: { must_not: [query] } } : query;
+      const query = new BoolQueryBuilder()
+        .should(wildcardCi('player.name', wildcardValue))
+        .should(wildcardCi('player.username', wildcardValue))
+        .build();
+      return maybeNot(isNot, query);
     }
 
     if (field === 'video') {
@@ -114,27 +112,15 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
   }
 
   const wildcardValue = `*${searchValue}*`;
-  const query = {
-    bool: {
-      should: [
-        { wildcard: { 'player.name': { value: wildcardValue, case_insensitive: true } } },
-        { wildcard: { 'player.username': { value: wildcardValue, case_insensitive: true } } },
-        { wildcard: { 'level.song': { value: wildcardValue, case_insensitive: true } } },
-        { wildcard: { 'level.artist': { value: wildcardValue, case_insensitive: true } } },
-        { wildcard: { videoLink: { value: wildcardValue, case_insensitive: true } } },
-        { wildcard: { vidTitle: { value: wildcardValue, case_insensitive: true } } },
-        { wildcard: { 'level.dlLink': { value: wildcardValue, case_insensitive: true } } },
-        {
-          nested: {
-            path: 'level.aliases',
-            query: {
-              wildcard: { 'level.aliases.alias': { value: wildcardValue, case_insensitive: true } },
-            },
-          },
-        },
-      ],
-      minimum_should_match: 1,
-    },
-  };
-  return isNot ? { bool: { must_not: [query] } } : query;
+  const query = new BoolQueryBuilder()
+    .should(wildcardCi('player.name', wildcardValue))
+    .should(wildcardCi('player.username', wildcardValue))
+    .should(wildcardCi('level.song', wildcardValue))
+    .should(wildcardCi('level.artist', wildcardValue))
+    .should(wildcardCi('videoLink', wildcardValue))
+    .should(wildcardCi('vidTitle', wildcardValue))
+    .should(wildcardCi('level.dlLink', wildcardValue))
+    .should(nestedQuery('level.aliases', wildcardCi('level.aliases.alias', wildcardValue)))
+    .build();
+  return maybeNot(isNot, query);
 }
