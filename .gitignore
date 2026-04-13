@@ -159,6 +159,7 @@ build/
 
 # google cloud
 recaptcha-service-key.json
+recaptcha-service-key.ts
 
 # tsimp
 .tsimp/

@@ -1,7 +1,6 @@
 import { logger } from '../core/LoggerService.js';
 import { RecaptchaEnterpriseServiceClient } from '@google-cloud/recaptcha-enterprise';
-/** @ts-expect-error - Import assertions are not supported in TypeScript */
-import key from '@/config/recaptcha-service-key.json' assert { type: 'json' };
+import key from '@/config/recaptcha-service-key.js';
 
 // gRPC error codes that are retryable (transient errors)
 const RETRYABLE_ERROR_CODES = [
