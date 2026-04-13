@@ -20,7 +20,8 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/admin/submissions/auto-approve/*',
   '/v2/media/video-details/*',
   '/v2/auth/profile/avatar',
-  '/v2/database/levels/*/upload-from-url'
+  '/v2/database/levels/*/upload-from-url',
+  '/v2/jobs/*/stream'
 ];
 
 function isExcludedRoute(path: string): boolean {
