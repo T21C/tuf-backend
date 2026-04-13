@@ -2,9 +2,6 @@ import { Router, Request, Response } from 'express';
 import { logger } from '@/server/services/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '@/externalServices/cdnService/config.js';
-//import FileAccessLog from '@/models/cdn/FileAccessLog.js';
-import fs from 'fs';
-import path from 'path';
 import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
@@ -13,32 +10,6 @@ const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 
 const router = Router();
-
-// Helper function to safely set headers with proper encoding
-function setSafeHeader(res: Response, name: string, value: string | number | object): void {
-    try {
-        if (typeof value === 'object') {
-            // For JSON objects, stringify and encode
-            const encodedValue = encodeURIComponent(JSON.stringify(value));
-            res.setHeader(name, `UTF-8''${encodedValue}`);
-        } else {
-            // For strings and numbers, encode directly
-            const encodedValue = encodeURIComponent(String(value));
-            res.setHeader(name, `UTF-8''${encodedValue}`);
-        }
-    } catch (error) {
-        logger.error('Error setting header:', {
-            header: name,
-            error: error instanceof Error ? error.message : String(error)
-        });
-    }
-}
-
-// Note: Cleanup removed - logging tables are now in separate database
-// and should be managed separately to prevent snapshot backup size issues
-// async function cleanupOldAccessLogs(): Promise<void> {
-//     // Cleanup removed - logs are now in separate database
-// }
 
 async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         // For level zips, get the original zip from metadata
