@@ -1,13 +1,6 @@
-import path from 'path';
 import { logger } from '../core/LoggerService.js';
 import { RecaptchaEnterpriseServiceClient } from '@google-cloud/recaptcha-enterprise';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const keyPath = path.join(__dirname, '../../config/recaptcha-service-key.json')
-const key = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+import key from '@/config/recaptcha-service-key.json' with { type: 'json' };
 
 // gRPC error codes that are retryable (transient errors)
 const RETRYABLE_ERROR_CODES = [
