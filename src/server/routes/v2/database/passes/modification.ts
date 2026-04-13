@@ -14,6 +14,7 @@ import { updateWorldsFirstStatus } from './index.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { calcAcc, IJudgements } from '@/misc/utils/pass/CalcAcc.js';
 import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
+import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
 import { PlayerStatsService } from '@/server/services/PlayerStatsService.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import ElasticsearchService from '@/server/services/ElasticsearchService.js';
@@ -144,33 +145,19 @@ router.put(
       }
 
       // Update judgements if provided
+      
       if (judgements) {
+        const updatedJudgements: IJudgements = sanitizeJudgements(judgements);
+        logger.debug('updatedJudgements', updatedJudgements);
+
         await Judgement.update(
+          { ...updatedJudgements },
           {
-            earlyDouble: judgements.earlyDouble,
-            earlySingle: judgements.earlySingle,
-            ePerfect: judgements.ePerfect,
-            perfect: judgements.perfect,
-            lPerfect: judgements.lPerfect,
-            lateSingle: judgements.lateSingle,
-            lateDouble: judgements.lateDouble,
-          },
-          {
-            where: {id: parseInt(id)},
+            where: { id: parseInt(id) },
             transaction,
           },
         );
 
-        // Recalculate accuracy and score
-        const updatedJudgements: IJudgements = {
-          earlyDouble: judgements.earlyDouble,
-          earlySingle: judgements.earlySingle,
-          ePerfect: judgements.ePerfect,
-          perfect: judgements.perfect,
-          lPerfect: judgements.lPerfect,
-          lateSingle: judgements.lateSingle,
-          lateDouble: judgements.lateDouble,
-        };
 
         const calculatedAccuracy = calcAcc(updatedJudgements);
 

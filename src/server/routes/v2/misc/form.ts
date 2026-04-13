@@ -41,6 +41,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import {computeSubmissionEvidenceRequirements} from '@/server/submissions/submissionEvidenceRules.js';
+import { sanitizeJudgements } from '@/misc/utils/pass/SanitizeJudgements.js';
 
 const router: Router = express.Router();
 const evidenceService = EvidenceService.getInstance();
@@ -666,16 +667,8 @@ router.post(
           throw {code: 400, error: 'Invalid level ID'};
         }
 
-        // Enhanced judgement validation with proper bounds
-        const sanitizedJudgements = {
-          earlyDouble: validateNumericInput(req.body.earlyDouble, 0, 999999999),
-          earlySingle: validateNumericInput(req.body.earlySingle, 0, 999999999),
-          ePerfect: validateNumericInput(req.body.ePerfect, 0, 999999999),
-          perfect: validateNumericInput(req.body.perfect, 0, 999999999),
-          lPerfect: validateNumericInput(req.body.lPerfect, 0, 999999999),
-          lateSingle: validateNumericInput(req.body.lateSingle, 0, 999999999),
-          lateDouble: validateNumericInput(req.body.lateDouble, 0, 999999999),
-        };
+        // Clamp user-submitted judgements at parse time
+        const sanitizedJudgements = sanitizeJudgements(req.body);
 
         // Validate speed if provided
         const speed = req.body.speed ? validateFloatInput(req.body.speed, 1, 100) : 1;

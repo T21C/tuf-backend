@@ -46,6 +46,7 @@ import ArtistService from '@/server/services/ArtistService.js';
 import EvidenceService from '@/server/services/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/RoleSyncService.js';
+import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -143,12 +144,6 @@ const JUDGEMENT_FIELD_KEYS = [
   'lateSingle',
   'lateDouble',
 ] as const;
-
-function validateJudgementIntInput(input: unknown): number {
-  const parsed = parseInt(String(input ?? '0'), 10);
-  if (Number.isNaN(parsed)) return 0;
-  return Math.max(0, Math.min(999999999, parsed));
-}
 
 function validateSpeedFloatInput(input: unknown): number {
   const parsed = parseFloat(String(input ?? '1'));
@@ -1474,7 +1469,7 @@ router.put(
         const patch: Partial<Record<(typeof JUDGEMENT_FIELD_KEYS)[number], number>> = {};
         for (const key of JUDGEMENT_FIELD_KEYS) {
           if (Object.prototype.hasOwnProperty.call(j, key)) {
-            patch[key] = validateJudgementIntInput(j[key]);
+            patch[key] = sanitizeJudgementInt(j[key]);
           }
         }
         if (Object.keys(patch).length > 0) {
