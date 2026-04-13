@@ -13,6 +13,7 @@ import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
 import {Router, Request, Response} from 'express';
+import {QueryTypes} from 'sequelize';
 import { escapeForMySQL } from '@/misc/utils/data/searchHelpers.js';
 import PlayerModifier from '@/models/players/PlayerModifier.js';
 import { ModifierService } from '@/server/services/ModifierService.js';
@@ -218,62 +219,113 @@ router.get(
   }
 );
 
+const PLAYER_SEARCH_DEFAULT_LIMIT = 30;
+const PLAYER_SEARCH_MAX_LIMIT = 100;
+
 router.get(
   '/search/:name',
   ApiDoc({
     operationId: 'getPlayersSearch',
     summary: 'Search players',
-    description: 'Search players by name (player name or username).',
+    description:
+      'Search players by name (player name or username). Exact name/username matches are returned first, then prefix matches, then substring matches. Query: limit (default 30, max 100), offset (default 0).',
     tags: ['Database', 'Players'],
     params: { name: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Player stats list' }, ...standardErrorResponses500 },
+    responses: { 200: { description: 'Paginated player stats' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
-    const name = req.params.name; // Exp  ress has already decoded this
-    const escapedName = escapeForMySQL(name);
+    const name = req.params.name;
+    const nameTrim = name.trim();
+    if (!nameTrim) {
+      return res.json({
+        results: [],
+        total: 0,
+        limit: PLAYER_SEARCH_DEFAULT_LIMIT,
+        offset: 0,
+      });
+    }
 
-    const players = await Player.findAll({
-      where: {
-        name: {
-          [Op.like]: `%${escapedName}%`,
-        },
-        isBanned: false
-      },
-      include: [
-        {
-          model: User,
-          as: 'user',
-          required: false,
-        },
-      ],
+    const rawLimit = parseInt(String(req.query.limit ?? ''), 10);
+    const rawOffset = parseInt(String(req.query.offset ?? ''), 10);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(PLAYER_SEARCH_MAX_LIMIT, Math.max(1, rawLimit))
+      : PLAYER_SEARCH_DEFAULT_LIMIT;
+    const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+
+    const escapedName = escapeForMySQL(nameTrim);
+    const substrPattern = `%${escapedName}%`;
+    const prefixPattern = `${escapedName}%`;
+
+    const replacements = {
+      term: nameTrim,
+      substrPattern,
+      prefixPattern,
+      limit,
+      offset,
+    };
+
+    const countRows = await sequelize.query<{cnt: string}>(
+      `SELECT COUNT(DISTINCT p.id) AS cnt
+       FROM players p
+       LEFT JOIN users u ON u.playerId = p.id
+       WHERE p.isBanned = 0
+       AND (
+         p.name LIKE :substrPattern
+         OR (u.username IS NOT NULL AND u.username LIKE :substrPattern)
+       )`,
+      {replacements: {substrPattern}, type: QueryTypes.SELECT},
+    );
+
+    const total = Number(countRows[0]?.cnt ?? 0);
+
+    const idRows = await sequelize.query<{id: number}>(
+      `SELECT p.id AS id
+       FROM players p
+       LEFT JOIN users u ON u.playerId = p.id
+       WHERE p.isBanned = 0
+       AND (
+         p.name LIKE :substrPattern
+         OR (u.username IS NOT NULL AND u.username LIKE :substrPattern)
+       )
+       ORDER BY
+         CASE
+           WHEN LOWER(p.name) = LOWER(:term)
+             OR (u.username IS NOT NULL AND LOWER(u.username) = LOWER(:term))
+             THEN 0
+           WHEN p.name LIKE :prefixPattern
+             OR (u.username IS NOT NULL AND u.username LIKE :prefixPattern)
+             THEN 1
+           ELSE 2
+         END ASC,
+         CHAR_LENGTH(p.name) ASC,
+         p.name ASC
+       LIMIT :limit OFFSET :offset`,
+      {replacements, type: QueryTypes.SELECT},
+    );
+
+    const orderedIds = idRows.map((r) => r.id).filter(Boolean);
+    if (orderedIds.length === 0) {
+      return res.json({
+        results: [],
+        total,
+        limit,
+        offset,
+      });
+    }
+
+    const stats = await playerStatsService.getPlayerStats(orderedIds);
+    const byId = new Map(stats.map((s) => [s.id, s]));
+    const orderedStats = orderedIds
+      .map((id) => byId.get(id))
+      .filter((s): s is NonNullable<typeof s> => s != null);
+
+    return res.json({
+      results: orderedStats,
+      total,
+      limit,
+      offset,
     });
-
-    const users = await User.findAll({
-      where: {
-        username: {
-          [Op.like]: `%${escapedName}%`,
-        },
-      },
-      include: [
-        {
-          model: Player,
-          as: 'player',
-          required: true,
-          where: {
-            isBanned: false
-          }
-        },
-      ],
-    });
-
-
-
-    const allPlayers = new Set([...players, ...users.map(user => user.player)]);
-
-    const stats = await playerStatsService.getPlayerStats(Array.from(allPlayers).map(player => player?.id || 0));
-
-    return res.json(stats);
   } catch (error) {
     logger.error('Error searching players:', error);
     return res.status(500).json({
