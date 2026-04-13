@@ -5,7 +5,7 @@ import { errorResponseSchema, successMessageSchema, standardErrorResponses400500
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import cors from 'cors';
 import { corsOptions } from '@/config/app.config.js';
 import sequelize from '@/config/db.js';

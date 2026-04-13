@@ -7,8 +7,8 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { DiscordGuild, DiscordSyncRole } from '@/models/discord/index.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import CurationType from '@/models/curations/CurationType.js';
-import { roleSyncService } from '@/server/services/RoleSyncService.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import sequelize from '@/config/db.js';
 
 const router: Router = Router();

@@ -8,7 +8,7 @@ import Player from '@/models/players/Player.js';
 import Level from '@/models/levels/Level.js';
 import Judgement from '@/models/passes/Judgement.js';
 import Difficulty from '@/models/levels/Difficulty.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import User from '@/models/auth/User.js';
 
 const router = Router();

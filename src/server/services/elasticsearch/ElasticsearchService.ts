@@ -4,7 +4,7 @@ import client, {
   initializeElasticsearch,
   updateMappingHash
 } from '@/config/elasticsearch.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { ILevel, IPass } from '@/server/interfaces/models/index.js';
 import { Op } from 'sequelize';
 import Level from '@/models/levels/Level.js';

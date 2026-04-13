@@ -2,7 +2,7 @@ import {User, OAuthProvider} from '@/models/index.js';
 import {v4 as uuidv4} from 'uuid';
 import {UserAttributes} from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
-import { logger } from './LoggerService.js';
+import { logger } from '../core/LoggerService.js';
 
 interface OAuthProfile {
   id: string;

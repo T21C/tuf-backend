@@ -2,10 +2,10 @@ import {Router, Request, Response} from 'express';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
-import {BackupService} from '@/server/services/BackupService.js';
+import {BackupService} from '@/server/services/core/BackupService.js';
 import multer from 'multer';
 import os from 'os';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const router: Router = Router();
 const backupService = new BackupService();

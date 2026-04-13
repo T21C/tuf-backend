@@ -1,5 +1,5 @@
 import {Request, Response} from 'express';
-import OAuthService from '@/server/services/OAuthService.js';
+import OAuthService from '@/server/services/accounts/OAuthService.js';
 import {
   tokenUtils,
   refreshTokenService,
@@ -14,7 +14,7 @@ import {
   type RESTGetAPIUserResult,
 } from 'discord-api-types/v10';
 import dotenv from 'dotenv';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '@/config/app.config.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';

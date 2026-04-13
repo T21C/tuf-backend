@@ -4,7 +4,7 @@ import { errorResponseSchema, standardErrorResponses400500, standardErrorRespons
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import multer from 'multer';
 
 const upload = multer({

@@ -23,9 +23,9 @@ import CurationCurationType from '@/models/curations/CurationCurationType.js';
 import CurationType from '@/models/curations/CurationType.js';
 import Level from '@/models/levels/Level.js';
 import User from '@/models/auth/User.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 
 dotenv.config();
 

@@ -8,7 +8,7 @@ import Player from '@/models/players/Player.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import LevelSubmission from '@/models/submissions/LevelSubmission.js';
 import {PassSubmission} from '@/models/submissions/PassSubmission.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { Cache } from '@/server/middleware/cache.js';
 
 const router: Router = Router();

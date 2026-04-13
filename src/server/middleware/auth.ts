@@ -4,8 +4,8 @@ import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_A
 import type {UserAttributes} from '@/models/auth/User.js';
 import axios from 'axios';
 import Player from '@/models/players/Player.js';
-import { logger } from '@/server/services/LoggerService.js';
-import { AuditLogService } from '@/server/services/AuditLogService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import { AuditLogService } from '@/server/services/core/AuditLogService.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { permissionFlags } from '@/config/constants.js';

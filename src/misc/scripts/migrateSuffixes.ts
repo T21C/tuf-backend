@@ -3,12 +3,12 @@
 import sequelize from '@/config/db.js';
 import Level from '@/models/levels/Level.js';
 import { initializeAssociations } from '@/models/associations.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import SongService from '@/server/services/SongService.js';
+import SongService from '@/server/services/data/SongService.js';
 import Song from '@/models/songs/Song.js';
 import SongAlias from '@/models/songs/SongAlias.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { Op } from 'sequelize';
 // Configuration
 const BATCH_SIZE = 100; // Process songs in batches

@@ -1,4 +1,4 @@
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import LevelDict, { Action } from 'adofai-lib';
 
 /**

@@ -17,8 +17,8 @@ import {Router, Request, Response} from 'express';
 import LevelSubmissionCreatorRequest from '@/models/submissions/LevelSubmissionCreatorRequest.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import { TeamAlias } from '@/models/credits/TeamAlias.js';
-import { logger } from '@/server/services/LoggerService.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 

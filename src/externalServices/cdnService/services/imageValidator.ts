@@ -1,7 +1,7 @@
 import fs from 'fs';
 import sharp from 'sharp';
 import { IMAGE_TYPES, ImageType } from '../config.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 export interface ImageValidationResult {
     isValid: boolean;

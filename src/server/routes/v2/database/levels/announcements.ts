@@ -7,7 +7,7 @@ import Level from '@/models/levels/Level.js';
 import { Router, Request, Response } from 'express';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const router: Router = Router();
 

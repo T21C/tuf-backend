@@ -1,6 +1,6 @@
 import {Router, Request, Response} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import aliases from './aliases.js';
 import modification from './modification.js';
 import aprilFools from './aprilFools.js';

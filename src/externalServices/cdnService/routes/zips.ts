@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import AdmZip from 'adm-zip';
 import axios from 'axios';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { cdnLocalTemp } from '../services/cdnLocalTempManager.js';
 import { CDN_CONFIG } from '../config.js';
 import { processZipFile } from '../services/zipProcessor.js';

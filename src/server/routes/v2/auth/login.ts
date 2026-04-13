@@ -7,7 +7,7 @@ import {
   loginSuccessResponseSchema,
   loginErrorResponseSchema,
 } from '@/server/schemas/auth.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const router: Router = Router();
 

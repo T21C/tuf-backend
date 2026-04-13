@@ -9,7 +9,7 @@ import User from '@/models/auth/User.js';
 import Judgement from '@/models/passes/Judgement.js';
 import { escapeForMySQL } from '@/misc/utils/data/searchHelpers.js';
 import { Op, QueryTypes } from 'sequelize';
-import { ModifierService } from './ModifierService.js';
+import { ModifierService } from '../accounts/ModifierService.js';
 import { logger } from './LoggerService.js';
 import { IPlayer } from '@/server/interfaces/models/index.js';
 import { OAuthProvider } from '@/models/index.js';
@@ -19,7 +19,7 @@ import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
-import { roleSyncService } from './RoleSyncService.js';
+import { roleSyncService } from '../accounts/RoleSyncService.js';
 import dotenv from 'dotenv';
 
 dotenv.config();

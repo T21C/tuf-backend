@@ -1,6 +1,6 @@
 import {sendWebhook, sendFile} from '../api/index.js';
 import MessageBuilder from './messageBuilder.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const MAX_RATE_LIMIT_RETRIES = 3;
 

@@ -11,8 +11,8 @@ import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Curation from '@/models/curations/Curation.js';
 import CurationType from '@/models/curations/CurationType.js';
-import { logger } from './LoggerService.js';
-import { PlayerStatsService } from './PlayerStatsService.js';
+import { logger } from '../core/LoggerService.js';
+import { PlayerStatsService } from '../core/PlayerStatsService.js';
 import axios from 'axios';
 
 const ENABLED = process.env.NODE_ENV === 'production';

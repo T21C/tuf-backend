@@ -8,8 +8,8 @@ import { pipeline } from 'stream/promises';
 import { CronJob } from 'cron';
 import config from '@/config/backup.config.js';
 import dotenv from 'dotenv';
-import { logger } from './LoggerService.js';
-import ElasticsearchService from './ElasticsearchService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { requireBackupR2Config } from '@/externalServices/cdnService/services/r2Client.js';
 dotenv.config();
 

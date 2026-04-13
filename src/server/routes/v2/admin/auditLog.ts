@@ -4,7 +4,7 @@ import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses500 } from '@/server/schemas/v2/admin/index.js';
 import { AuditLog, User } from '@/models/index.js';
 import { Op } from 'sequelize';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const router = Router();
 

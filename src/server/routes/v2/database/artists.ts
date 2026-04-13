@@ -13,11 +13,11 @@ import Song from '@/models/songs/Song.js';
 import Level from '@/models/levels/Level.js';
 import sequelize from '@/config/db.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
-import {logger} from '@/server/services/LoggerService.js';
+import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback, getFileIdFromCdnUrl} from '@/misc/utils/Utility.js';
-import ArtistService from '@/server/services/ArtistService.js';
-import EvidenceService from '@/server/services/EvidenceService.js';
-import cdnServiceInstance, { CdnError } from '@/server/services/CdnService.js';
+import ArtistService from '@/server/services/data/ArtistService.js';
+import EvidenceService from '@/server/services/data/EvidenceService.js';
+import cdnServiceInstance, { CdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 

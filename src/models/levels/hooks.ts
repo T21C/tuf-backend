@@ -13,7 +13,7 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
 
 /**

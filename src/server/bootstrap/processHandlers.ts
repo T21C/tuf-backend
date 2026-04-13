@@ -1,4 +1,4 @@
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const isClientDisconnectError = (error: any): boolean => {
   return error?.code === 'ECONNRESET' || error?.code === 'EPIPE';

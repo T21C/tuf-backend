@@ -1,8 +1,8 @@
-import cdnService from './CdnService.js';
+import cdnService from '@/server/services/core/CdnService.js';
 import Level from '@/models/levels/Level.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
-import { logger } from './LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
 
 const FILTER_THRESHOLD = 20;

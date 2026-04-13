@@ -7,9 +7,9 @@ import {
   jobProgressService,
   isUuidJobId,
   type JobProgressRecord
-} from '@/server/services/JobProgressService.js';
-import { logger } from '@/server/services/LoggerService.js';
-import { redis } from '@/server/services/RedisService.js';
+} from '@/server/services/core/JobProgressService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import { redis } from '@/server/services/core/RedisService.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 
 const router = Router();

@@ -1,7 +1,7 @@
 import express, { Request, Response, Router } from 'express';
 import sequelize from '@/config/db.js';
 import { getIO } from '@/misc/utils/server/socket.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { healthCheckResponseSchema, healthErrorResponseSchema } from '@/server/schemas/health.js';
 

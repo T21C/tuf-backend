@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
-import { redis } from '@/server/services/RedisService.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { redis } from '@/server/services/core/RedisService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 

@@ -2,7 +2,7 @@ import {Router} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const router: Router = Router();
 

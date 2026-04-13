@@ -14,7 +14,7 @@ import {
   idParamSpec,
 } from '@/server/schemas/v2/database/levels/index.js';
 import { Op } from 'sequelize';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback, sanitizeTextInput } from '@/misc/utils/Utility.js';
 
 const router = Router();

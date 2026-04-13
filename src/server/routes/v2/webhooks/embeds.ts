@@ -3,7 +3,7 @@ import Level from '@/models/levels/Level.js';
 import Pass from '@/models/passes/Pass.js';
 import {MessageBuilder} from '@/misc/webhook/index.js';
 import {getVideoDetails} from '@/misc/utils/data/videoDetailParser.js';
-import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
+import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import { OAuthProvider } from '@/models/index.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 import Rating from '@/models/levels/Rating.js';

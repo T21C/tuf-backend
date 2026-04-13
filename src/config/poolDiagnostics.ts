@@ -1,5 +1,5 @@
-import { logger } from '../server/services/LoggerService.js';
-import type { LogReplayEvent } from '../server/services/LoggerService.js';
+import { logger } from '../server/services/core/LoggerService.js';
+import type { LogReplayEvent } from '../server/services/core/LoggerService.js';
 
 // ——— Slow query logging (Sequelize `logging` + `benchmark: true`; timing excludes connection acquire wait) ———
 

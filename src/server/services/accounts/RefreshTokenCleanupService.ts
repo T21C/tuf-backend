@@ -1,6 +1,6 @@
 import { CronJob } from 'cron';
 import RefreshToken from '@/models/auth/RefreshToken.js';
-import { logger } from './LoggerService.js';
+import { logger } from '../core/LoggerService.js';
 
 const BATCH_SIZE = 2000;
 /** Run every hour at minute 15 to avoid overlapping with peak auth traffic */

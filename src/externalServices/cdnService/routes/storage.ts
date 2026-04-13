@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 
 const router = Router();

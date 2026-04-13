@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';

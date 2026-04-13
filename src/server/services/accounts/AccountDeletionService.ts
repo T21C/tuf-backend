@@ -3,12 +3,12 @@ import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import Pass from '@/models/passes/Pass.js';
 import Creator from '@/models/credits/Creator.js';
-import cdnService from '@/server/services/CdnService.js';
-import { logger } from '@/server/services/LoggerService.js';
+import cdnService from '@/server/services/core/CdnService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;

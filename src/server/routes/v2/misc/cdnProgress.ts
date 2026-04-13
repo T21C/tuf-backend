@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
-import { jobProgressService, type JobProgressPatch } from '@/server/services/JobProgressService.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { jobProgressService, type JobProgressPatch } from '@/server/services/core/JobProgressService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const router = Router();
 

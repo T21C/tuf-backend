@@ -1,7 +1,7 @@
-import { logger } from '@/server/services/LoggerService.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
-import { PlayerStatsService } from '@/server/services/PlayerStatsService.js';
-import { redis } from '@/server/services/RedisService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
+import { redis } from '@/server/services/core/RedisService.js';
 
 /**
  * Starts background integrations/services that are not part of Express wiring.
@@ -29,13 +29,13 @@ export async function initializeRuntimeServices(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-floating-promises
   playerStatsService.initialize();
 
-  const { RefreshTokenCleanupService } = await import('@/server/services/RefreshTokenCleanupService.js');
+  const { RefreshTokenCleanupService } = await import('@/server/services/accounts/RefreshTokenCleanupService.js');
   RefreshTokenCleanupService.getInstance();
 
-  const { AccountDeletionCleanupService } = await import('@/server/services/AccountDeletionCleanupService.js');
+  const { AccountDeletionCleanupService } = await import('@/server/services/accounts/AccountDeletionCleanupService.js');
   AccountDeletionCleanupService.getInstance();
 
-  const { AuditLogService } = await import('@/server/services/AuditLogService.js');
+  const { AuditLogService } = await import('@/server/services/core/AuditLogService.js');
   AuditLogService.startScheduledRetention();
 }
 

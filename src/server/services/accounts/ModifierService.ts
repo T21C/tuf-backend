@@ -1,6 +1,6 @@
 import PlayerModifier, { ModifierType } from '@/models/players/PlayerModifier.js';
 import { Op } from 'sequelize';
-import { PlayerStatsService } from './PlayerStatsService.js';
+import { PlayerStatsService } from '../core/PlayerStatsService.js';
 import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import { CronJob } from 'cron';
@@ -12,7 +12,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
 import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
 import { env } from 'process';
-import { logger } from './LoggerService.js';
+import { logger } from '../core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 

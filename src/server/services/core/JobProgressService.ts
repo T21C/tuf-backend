@@ -1,5 +1,5 @@
-import { redis } from '@/server/services/RedisService.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { redis } from '@/server/services/core/RedisService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const KEY_PREFIX = 'tuf:job:';
 

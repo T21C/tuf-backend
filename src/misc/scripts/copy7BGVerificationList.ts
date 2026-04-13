@@ -3,14 +3,14 @@
 import axios from 'axios';
 import sequelize from '@/config/db.js';
 import { initializeAssociations } from '@/models/associations.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import ArtistService from '@/server/services/ArtistService.js';
+import ArtistService from '@/server/services/data/ArtistService.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import ArtistLink from '@/models/artists/ArtistLink.js';
 import ArtistEvidence from '@/models/artists/ArtistEvidence.js';
-import cdnServiceInstance from '@/server/services/CdnService.js';
+import cdnServiceInstance from '@/server/services/core/CdnService.js';
 import { Op } from 'sequelize';
 import { isCdnUrl, getFileIdFromCdnUrl } from '@/misc/utils/Utility.js';
 

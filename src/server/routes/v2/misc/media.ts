@@ -14,7 +14,7 @@ import Player from '@/models/players/Player.js';
 import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import thumbnailsRouter from './thumbnails.js';

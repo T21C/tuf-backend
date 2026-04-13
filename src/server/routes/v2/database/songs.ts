@@ -12,13 +12,13 @@ import Artist from '@/models/artists/Artist.js';
 import Level from '@/models/levels/Level.js';
 import sequelize from '@/config/db.js';
 import {escapeForMySQL} from '@/misc/utils/data/searchHelpers.js';
-import {logger} from '@/server/services/LoggerService.js';
+import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
-import SongService from '@/server/services/SongService.js';
-import EvidenceService from '@/server/services/EvidenceService.js';
-import cdnServiceInstance, { CdnError } from '@/server/services/CdnService.js';
+import SongService from '@/server/services/data/SongService.js';
+import EvidenceService from '@/server/services/data/EvidenceService.js';
+import cdnServiceInstance, { CdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { parseSearchQuery, queryParserConfigs, extractFieldValues, extractGeneralSearchTerms } from '@/misc/utils/data/queryParser.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 

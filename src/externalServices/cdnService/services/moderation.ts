@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import CdnFile from '@/models/cdn/CdnFile.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { cdnLocalTemp } from './cdnLocalTempManager.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';

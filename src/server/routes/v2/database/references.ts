@@ -7,7 +7,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import Level from '@/models/levels/Level.js';
 import {Auth} from '@/server/middleware/auth.js';
 import sequelize from '@/config/db.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Creator from '@/models/credits/Creator.js';
 import Team from '@/models/credits/Team.js';

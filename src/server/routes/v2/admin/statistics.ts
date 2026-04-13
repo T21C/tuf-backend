@@ -8,7 +8,7 @@ import RatingDetail from '@/models/levels/RatingDetail.js';
 import User from '@/models/auth/User.js';
 import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { permissionFlags } from '@/config/constants.js';
 import { wherehasFlag} from '@/misc/utils/auth/permissionUtils.js';
 import { validateAndClampDate } from '@/misc/utils/server/dateUtils.js';

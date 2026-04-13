@@ -4,14 +4,14 @@ import Level from '@/models/levels/Level.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import {Auth} from '@/server/middleware/auth.js';
 import {ApiDoc} from '@/server/middleware/apiDoc.js';
-import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
+import { standardErrorResponses, standardErrorResponses403404500, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import {Transaction} from 'sequelize';
 import Rating from '@/models/levels/Rating.js';
 import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import {calcAcc} from '@/misc/utils/pass/CalcAcc.js';
 import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
-import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
+import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import LevelLikes from '@/models/levels/LevelLikes.js';
 import RatingAccuracyVote from '@/models/levels/RatingAccuracyVote.js';
@@ -21,17 +21,17 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 // Type assertion helper for req.user to User model
 const getUserModel = (user: any): User => user as User;
 import Player from '@/models/players/Player.js';
-import {logger} from '@/server/services/LoggerService.js';
-import ElasticsearchService from '@/server/services/ElasticsearchService.js';
+import {logger} from '@/server/services/core/LoggerService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {
   isCdnUrl,
   getFileIdFromCdnUrl,
   safeTransactionRollback,
   sanitizeTextInput,
 } from '@/misc/utils/Utility.js';
-import cdnService from '@/server/services/CdnService.js';
+import cdnService from '@/server/services/core/CdnService.js';
 import {CDN_CONFIG} from '@/externalServices/cdnService/config.js';
-import { jobProgressService, isUuidJobId } from '@/server/services/JobProgressService.js';
+import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgressService.js';
 import fs from 'fs';
 import path from 'path';
 import {cleanupUserUploads} from '@/server/routes/v2/misc/chunkedUpload.js';
@@ -39,7 +39,7 @@ import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import {permissionFlags} from '@/config/constants.js';
 import {hasFlag} from '@/misc/utils/auth/permissionUtils.js';
-import {tagAssignmentService} from '@/server/services/TagAssignmentService.js';
+import {tagAssignmentService} from '@/server/services/data/TagAssignmentService.js';
 import LevelCredit, { CreditRole } from '@/models/levels/LevelCredit.js';
 import {
   logLevelFileUploadHook,

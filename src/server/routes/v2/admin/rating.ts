@@ -12,7 +12,7 @@ import {Router, Request, Response, NextFunction} from 'express';
 import Team from '@/models/credits/Team.js';
 import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { calculateAverageRating } from '@/misc/utils/data/RatingUtils.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';

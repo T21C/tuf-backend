@@ -1,4 +1,4 @@
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import LevelDict, { analysisUtils } from 'adofai-lib';
 import fs from 'fs';

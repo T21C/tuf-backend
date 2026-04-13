@@ -10,7 +10,7 @@ import { evaluateDirectiveCondition } from '@/misc/utils/data/directiveParser.js
 import crypto from 'crypto';
 import { Op } from 'sequelize';
 import Judgement from '@/models/passes/Judgement.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 export interface MessageFormatConfig {
   messageFormat: string;

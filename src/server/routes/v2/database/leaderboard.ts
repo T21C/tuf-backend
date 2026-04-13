@@ -1,9 +1,9 @@
 import {Request, Response, Router} from 'express';
 import {validSortOptions} from '@/config/constants.js';
-import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
+import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/database/index.js';

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { validateImage, getValidationOptionsForType, ImageValidationError } from './imageValidator.js';
 import { processImage } from './imageProcessor.js';
 import { cdnLocalTemp } from './cdnLocalTempManager.js';

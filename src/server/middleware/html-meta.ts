@@ -5,7 +5,7 @@ import Player from '@/models/players/Player.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import fs from 'fs';
 import path from 'path';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { clientUrlEnv, ownUrl } from '@/config/app.config.js';
 import { User } from '@/models/index.js';
 import { formatCreatorDisplay } from '@/misc/utils/Utility.js';

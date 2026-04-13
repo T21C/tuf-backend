@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
 import { RateLimit } from '@/models/index.js';
 import { RateLimitCreationAttributes } from '@/models/auth/RateLimit.js';

@@ -1,8 +1,8 @@
 import { CronJob } from 'cron';
 import { Op } from 'sequelize';
 import User from '@/models/auth/User.js';
-import { logger } from '@/server/services/LoggerService.js';
-import { AccountDeletionService } from '@/server/services/AccountDeletionService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 
 const CRON_SCHEDULE = '*/10 * * * *'; // every 10 minutes
 const BATCH_SIZE = 200;

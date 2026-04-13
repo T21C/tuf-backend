@@ -32,7 +32,7 @@ import {
   passIdsBodySchema,
   standardErrorResponses400500,
 } from '@/server/schemas/v2/webhooks/index.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { clientUrlEnv } from '@/config/app.config.js';
 import { User } from '@/models/index.js';
 import { formatCredits } from '@/misc/utils/Utility.js';

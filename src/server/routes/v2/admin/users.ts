@@ -6,7 +6,7 @@ import {User, OAuthProvider} from '@/models/index.js';
 import Player from '@/models/players/Player.js';
 import {fetchDiscordUserInfo} from '@/misc/utils/auth/discord.js';
 import {Op} from 'sequelize';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag, setUserPermissionAndSave, wherehasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';

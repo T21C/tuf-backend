@@ -1,6 +1,6 @@
 import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
-import { logger } from '../server/services/LoggerService.js';
+import { logger } from '../server/services/core/LoggerService.js';
 import { PoolConfig } from './poolConfig.js';
 import { createSlowQueryLogging, startPoolSaturationMonitoring } from './poolDiagnostics.js';
 

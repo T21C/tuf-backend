@@ -6,11 +6,11 @@ import { Auth } from '@/server/middleware/auth.js';
 import { sanitizeTextInput } from '@/misc/utils/Utility.js';
 import { getRandomSeed, seededShuffle } from '@/misc/utils/server/random.js';
 import { Op, Transaction } from 'sequelize';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
-import { PlayerStatsService } from '@/server/services/PlayerStatsService.js';
+import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
 import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
 

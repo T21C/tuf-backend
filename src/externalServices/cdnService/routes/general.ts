@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '@/externalServices/cdnService/config.js';
 import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';

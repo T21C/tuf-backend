@@ -1,5 +1,5 @@
 import AWS from 'aws-sdk';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_IMMUTABLE_CACHE_CONTROL } from '@/externalServices/cdnService/config.js';
 import { requireCdnR2StorageConfig } from '@/externalServices/cdnService/services/r2Client.js';
 import dotenv from 'dotenv';

@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 
 import { Command } from 'commander';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 

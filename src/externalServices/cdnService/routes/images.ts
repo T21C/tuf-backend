@@ -1,4 +1,4 @@
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import imageFactory, { ImageProcessingError } from '@/externalServices/cdnService/services/imageFactory.js';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType, ImageSize, MIME_TYPES } from '@/externalServices/cdnService/config.js';
 import { Request, Response, Router } from 'express';

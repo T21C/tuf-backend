@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
 import CdnFile from '@/models/cdn/CdnFile.js';
-import { logger } from '@/server/services/LoggerService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 import { cdnLocalTemp } from './cdnLocalTempManager.js';
 import { spacesStorage } from './spacesStorage.js';
 import LevelDict from 'adofai-lib';

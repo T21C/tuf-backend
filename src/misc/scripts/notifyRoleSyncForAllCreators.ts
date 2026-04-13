@@ -14,8 +14,8 @@ import { Op } from 'sequelize';
 import { initializeAssociations } from '@/models/associations.js';
 import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
-import { logger } from '@/server/services/LoggerService.js';
-import { roleSyncService } from '@/server/services/RoleSyncService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 
 dotenv.config();
 

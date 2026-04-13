@@ -8,9 +8,9 @@ import LevelSubmissionArtistRequest from '@/models/submissions/LevelSubmissionAr
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 import sequelize from '@/config/db.js';
-import {logger} from '@/server/services/LoggerService.js';
+import {logger} from '@/server/services/core/LoggerService.js';
 import {safeTransactionRollback} from '@/misc/utils/Utility.js';
-import EvidenceService from '@/server/services/EvidenceService.js';
+import EvidenceService from '@/server/services/data/EvidenceService.js';
 import { multerMemoryCdnImage10Mb as upload } from '@/config/multerMemoryUploads.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';

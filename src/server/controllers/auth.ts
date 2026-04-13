@@ -13,9 +13,9 @@ import {
   ACCESS_COOKIE_MAX_AGE_SEC,
   REFRESH_COOKIE_MAX_AGE_SEC,
 } from '@/misc/utils/auth/auth.js';
-import {PlayerStatsService} from '@/server/services/PlayerStatsService.js';
-import { logger } from '@/server/services/LoggerService.js';
-import CaptchaService from '@/server/services/CaptchaService.js';
+import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import CaptchaService from '@/server/services/accounts/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag, setUserPermission, setUserPermissionAndSave } from '@/misc/utils/auth/permissionUtils.js';
