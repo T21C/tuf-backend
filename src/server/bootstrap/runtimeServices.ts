@@ -19,7 +19,7 @@ export async function initializeRuntimeServices(): Promise<void> {
     logger.info('Starting Async Elasticsearch initialization...');
     const elasticsearchService = ElasticsearchService.getInstance();
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    elasticsearchService.initialize();
+    await elasticsearchService.initialize();
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);
     logger.warn('Application will continue without Elasticsearch functionality');

@@ -13,6 +13,7 @@ import {
   specAnyLevelCreditsCreator,
   specAnyTeamObjectWithAliases,
   specLevelCreditsByCreatorRole,
+  specLevelAliasesByField,
   specNestedDocNameWithOptionalAliases,
   specTeamFieldSearch,
 } from '@/server/services/elasticsearch/search/esQuerySpecs.js';
@@ -69,6 +70,7 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
       });
       const query = new BoolQueryBuilder()
         .should(nestedSong)
+        .should(excludeAliases ? matchNone() : specLevelAliasesByField({ field: 'song', wildcardValue }))
         .should(wildcardCi('song', wildcardValue))
         .build();
       return maybeNot(isNot, query);
@@ -98,6 +100,7 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
             ignoreUnmapped: true,
           }),
         )
+        .should(excludeAliases ? matchNone() : specLevelAliasesByField({ field: 'artist', wildcardValue }))
         .should(wildcardCi('artist', wildcardValue))
         .build();
       return maybeNot(isNot, query);
@@ -121,6 +124,7 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
       excludeAliases,
       ignoreUnmapped: true,
     }),
+    ...(excludeAliases ? [] : [specLevelAliasesByField({ field: 'song', wildcardValue })]),
     wildcardCi('song', wildcardValue),
     specNestedDocNameWithOptionalAliases({
       rootNestedPath: 'primaryArtist',
@@ -140,6 +144,7 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
       excludeAliases,
       ignoreUnmapped: true,
     }),
+    ...(excludeAliases ? [] : [specLevelAliasesByField({ field: 'artist', wildcardValue })]),
     specAnyLevelCreditsCreator({ wildcardValue, excludeAliases }),
     specAnyTeamObjectWithAliases({ wildcardValue, excludeAliases }),
   ]);

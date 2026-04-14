@@ -23,17 +23,14 @@ import { ownUrl } from '@/config/app.config.js';
 
 export const LEVEL_INCLUDES: Includeable[] = [
   {
-    model: Difficulty,
-    as: 'difficulty',
-  },
-  {
     model: LevelAlias,
     as: 'aliases',
-    attributes: ['alias'],
+    attributes: ['id', 'levelId', 'field', 'originalValue', 'alias', 'createdAt', 'updatedAt'],
   },
   {
     model: LevelCredit,
     as: 'levelCredits',
+    attributes: ['role'],
     include: [
       {
         model: Creator,
@@ -51,6 +48,7 @@ export const LEVEL_INCLUDES: Includeable[] = [
   {
     model: Team,
     as: 'teamObject',
+    attributes: ['id','name'],
     include: [
       {
         model: TeamAlias,
@@ -66,8 +64,7 @@ export const LEVEL_INCLUDES: Includeable[] = [
       {
         model: CurationType,
         as: 'types',
-        attributes: ['id', 'name', 'icon', 'color', 'group', 'groupSortOrder', 'sortOrder', 'abilities'],
-        through: { attributes: [] },
+        attributes: ['id'],
       },
     ],
   },

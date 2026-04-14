@@ -285,8 +285,19 @@ export const levelMapping = {
       aliases: {
         type: 'nested' as const,
         properties: {
+          field: { type: 'keyword' as const },
+          originalValue: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: {
+                type: 'keyword' as const,
+              },
+            },
+          },
           alias: {
             type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
             fields: {
               keyword: {
                 type: 'keyword' as const,

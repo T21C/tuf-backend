@@ -14,12 +14,10 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import { searchLevels as runLevelSearch } from '@/server/services/elasticsearch/search/levelSearch.js';
 import { searchPasses as runPassSearch } from '@/server/services/elasticsearch/search/passSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from '@/server/services/elasticsearch/constants.js';
-import {
-  LEVEL_INCLUDES,
-  PASS_INCLUDES,
-} from '@/server/services/elasticsearch/sequelizeIncludes.js';
 import { fetchLevelWithRelations } from '@/server/services/elasticsearch/levelFetch.js';
 import { fetchPassWithRelations } from '@/server/services/elasticsearch/passFetch.js';
+import { fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from '@/server/services/elasticsearch/levelBulkFetch.js';
+import { fetchPassesForBulkIndex, clearEsPassIndexRelationCaches } from '@/server/services/elasticsearch/passBulkFetch.js';
 import { buildLevelIndexDocument } from '@/server/services/elasticsearch/levelIndexDocument.js';
 import { buildPassIndexDocument } from '@/server/services/elasticsearch/passIndexDocument.js';
 import { registerElasticsearchChangeListeners } from '@/server/services/elasticsearch/listeners/registerElasticsearchChangeListeners.js';
@@ -60,7 +58,8 @@ class ElasticsearchService {
 
 
       if (reindexedLevels || reindexedPasses) {
-        logger.info('Starting data reindexing...');
+        if (reindexedLevels) logger.info('Reindexing levels...');
+        if (reindexedPasses) logger.info('Reindexing passes...');
         const start = Date.now();
         await Promise.all([
           reindexedLevels
@@ -257,12 +256,13 @@ class ElasticsearchService {
   public async bulkIndexLevels(levels: Level[]): Promise<void> {
     try {
       const totalBatches = Math.ceil(levels.length / BATCH_SIZE);
-      // Process in batches for Elasticsearch
       for (let i = 0; i < levels.length; i += BATCH_SIZE) {
         const batch = levels.slice(i, i + BATCH_SIZE);
 
-        const operations = batch.flatMap(level => {
+        const operations = batch.flatMap((level) => {
+          //if (i == 0) logger.debug(`sample input level:`, level);
           const processedLevel = buildLevelIndexDocument(level);
+          //if (i == 0) logger.debug(`sample processed level:`, processedLevel);
           return [
             { index: { _index: levelIndexName, _id: level.id.toString() } },
             processedLevel
@@ -399,41 +399,41 @@ class ElasticsearchService {
 
   public async reindexLevels(levelIds?: number[]): Promise<void> {
     try {
-      const whereClause = levelIds ? { id: { [Op.in]: levelIds } } : undefined;
-      let offset = 0;
       let processedCount = 0;
+      clearEsIndexRelationCaches();
 
-      // Fetch first batch
-      let levels = await Level.findAll({
-        where: whereClause,
-        include: LEVEL_INCLUDES as any,
-        offset: offset,
-        limit: MAX_BATCH_SIZE
-      });
+      if (levelIds !== undefined && levelIds.length > 0) {
+        const sortedUnique = [...new Set(levelIds)].sort((a, b) => a - b);
+        for (let i = 0; i < sortedUnique.length; i += MAX_BATCH_SIZE) {
+          const chunk = sortedUnique.slice(i, i + MAX_BATCH_SIZE);
+          const levels = await fetchLevelsForBulkIndex(chunk);
+          if (levels.length > 0) {
+            await this.bulkIndexLevels(levels);
+            processedCount += levels.length;
+            logger.debug(`Reindexed ${processedCount} levels...`);
+          }
+        }
+      } else {
+        let afterId = 0;
+        while (true) {
+          const idRows = await Level.findAll({
+            where: { id: { [Op.gt]: afterId } },
+            attributes: ['id'],
+            order: [['id', 'ASC']],
+            limit: MAX_BATCH_SIZE,
+            raw: true,
+          });
+          const idList = idRows.map((r: { id: number }) => r.id);
+          if (idList.length === 0) break;
 
-      while (levels.length > 0) {
-        const currentBatchSize = levels.length;
+          const levels = await fetchLevelsForBulkIndex(idList);
+          await this.bulkIndexLevels(levels);
+          processedCount += levels.length;
+          logger.debug(`Reindexed ${processedCount} levels...`);
 
-        // Concurrently fetch next batch and index current batch
-        const nextLevels = await Promise.all([
-          this.bulkIndexLevels(levels),
-          levels.length === MAX_BATCH_SIZE
-            ? Level.findAll({
-                where: whereClause,
-                include: LEVEL_INCLUDES as any,
-                offset: offset + MAX_BATCH_SIZE,
-                limit: MAX_BATCH_SIZE
-              })
-            : Promise.resolve([])
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        ]).then(([_, next]) => next);
-
-        processedCount += currentBatchSize;
-        logger.debug(`Reindexed ${processedCount} levels...`);
-
-        // Move to next batch
-        offset += MAX_BATCH_SIZE;
-        levels = nextLevels;
+          afterId = idList[idList.length - 1];
+          if (idList.length < MAX_BATCH_SIZE) break;
+        }
       }
 
       logger.debug(`Reindexing complete. Total levels indexed: ${processedCount}`);
@@ -446,41 +446,41 @@ class ElasticsearchService {
 
   public async reindexPasses(passIds?: number[]): Promise<void> {
     try {
-      const whereClause = passIds ? { id: { [Op.in]: passIds } } : undefined;
-      let offset = 0;
       let processedCount = 0;
 
-      // Fetch first batch
-      let passes = await Pass.findAll({
-        where: whereClause,
-        include: PASS_INCLUDES as any,
-        offset: offset,
-        limit: MAX_BATCH_SIZE
-      });
+      if (passIds !== undefined && passIds.length > 0) {
+        const sortedUnique = [...new Set(passIds)].sort((a, b) => a - b);
+        for (let i = 0; i < sortedUnique.length; i += MAX_BATCH_SIZE) {
+          const chunk = sortedUnique.slice(i, i + MAX_BATCH_SIZE);
+          const passes = await fetchPassesForBulkIndex(chunk);
+          if (passes.length > 0) {
+            await this.bulkIndexPasses(passes);
+            processedCount += passes.length;
+            logger.debug(`Reindexed ${processedCount} passes...`);
+          }
+        }
+      } else {
+        clearEsPassIndexRelationCaches();
+        let afterId = 0;
+        while (true) {
+          const idRows = await Pass.findAll({
+            where: { id: { [Op.gt]: afterId } },
+            attributes: ['id'],
+            order: [['id', 'ASC']],
+            limit: MAX_BATCH_SIZE,
+            raw: true,
+          });
+          const idList = idRows.map((r: { id: number }) => r.id);
+          if (idList.length === 0) break;
 
-      while (passes.length > 0) {
-        const currentBatchSize = passes.length;
+          const passes = await fetchPassesForBulkIndex(idList);
+          await this.bulkIndexPasses(passes);
+          processedCount += passes.length;
+          logger.debug(`Reindexed ${processedCount} passes...`);
 
-        // Concurrently fetch next batch and index current batch
-        const nextPasses = await Promise.all([
-          this.bulkIndexPasses(passes),
-          passes.length === MAX_BATCH_SIZE
-            ? Pass.findAll({
-                where: whereClause,
-                include: PASS_INCLUDES as any,
-                offset: offset + MAX_BATCH_SIZE,
-                limit: MAX_BATCH_SIZE
-              })
-            : Promise.resolve([])
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        ]).then(([_, next]) => next);
-
-        processedCount += currentBatchSize;
-        logger.debug(`Reindexed ${processedCount} passes...`);
-
-        // Move to next batch
-        offset += MAX_BATCH_SIZE;
-        passes = nextPasses;
+          afterId = idList[idList.length - 1];
+          if (idList.length < MAX_BATCH_SIZE) break;
+        }
       }
 
       logger.debug(`Reindexing complete. Total passes indexed: ${processedCount}`);

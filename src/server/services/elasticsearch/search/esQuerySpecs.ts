@@ -115,3 +115,20 @@ export function specAnyTeamObjectWithAliases(opts: {
   }
   return nestedQuery('teamObject', boolShould(1, innerShould));
 }
+
+/**
+ * Level aliases (`LevelAlias`) are stored in the top-level nested `aliases` array with a `field`
+ * discriminator (e.g. 'song' | 'artist') and an `alias` value.
+ */
+export function specLevelAliasesByField(opts: {
+  field: 'song' | 'artist';
+  wildcardValue: string;
+}): EsQuery {
+  return nestedQuery(
+    'aliases',
+    boolMust([
+      termField('aliases.field', opts.field, true),
+      wildcardCi('aliases.alias', opts.wildcardValue),
+    ]),
+  );
+}

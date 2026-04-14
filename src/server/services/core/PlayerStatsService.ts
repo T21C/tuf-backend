@@ -58,7 +58,7 @@ export class PlayerStatsService {
   private static instance: PlayerStatsService;
   private isInitialized = false;
   private readonly RELOAD_INTERVAL = 30 * 60 * 1000; // 30 minutes
-  private readonly CHUNK_SIZE = 200; // Reduced from 2000 to 500 to lower memory usage
+  private readonly CHUNK_SIZE = 200; 
   private readonly BATCHES_PER_CHUNK = 4; // Number of batches to split each chunk into
   private readonly DEBOUNCE_DELAY = process.env.NODE_ENV === 'production' ? 2 * 60 * 1000 : 10 * 1000; // 2 minutes in milliseconds
   private modifierService: ModifierService | null = null;
