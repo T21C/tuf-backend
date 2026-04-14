@@ -203,7 +203,19 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         'levelId',
         'tagId',
       ],
-      include: [{ model: LevelTag, as: 'tag', attributes: ['id', 'name', 'icon', 'color', 'group'] }],
+      include: [
+        {
+          model: LevelTag, 
+          as: 'tag', 
+          attributes: [
+            'id', 
+            'name', 
+            'icon', 
+            'color', 
+            'group'
+          ]
+        }
+      ],
     }),
     sequelize.query<{ levelId: number; cnt: string }>(
       `SELECT p.levelId, COUNT(*) AS cnt FROM passes AS p

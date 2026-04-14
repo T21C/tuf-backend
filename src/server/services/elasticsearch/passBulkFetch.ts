@@ -8,8 +8,8 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 
 /** Reuse Player/Level rows across reindex batches. */
-const esPlayerCache = new Map<number, Player>();
-const esLevelCache = new Map<number, Level>();
+const esPlayerCache = new Map<number, any>();
+const esLevelCache = new Map<number, any>();
 
 export function clearEsPassIndexRelationCaches(): void {
   esPlayerCache.clear();
@@ -41,7 +41,7 @@ export async function fetchPassesForBulkIndex(passIds: number[]): Promise<Pass[]
       attributes: ['id', 'name', 'country', 'isBanned'],
       include: [{ model: User, as: 'user', attributes: ['avatarUrl', 'username'] }],
     });
-    for (const p of players) esPlayerCache.set(p.id, p);
+    for (const p of players) esPlayerCache.set(p.id, p.get({ plain: true }));
   }
 
   const missingLevelIds = levelIds.filter((id) => !esLevelCache.has(id));
@@ -49,11 +49,11 @@ export async function fetchPassesForBulkIndex(passIds: number[]): Promise<Pass[]
     const levels = await Level.findAll({
       where: { id: { [Op.in]: missingLevelIds } },
       include: [
-        { model: Difficulty, as: 'difficulty' },
-        { model: LevelAlias, as: 'aliases', attributes: ['alias'] },
+        { model: Difficulty, as: 'difficulty', attributes: ['id', 'name', 'type', 'icon', 'color', 'emoji', 'sortOrder'] },
+        { model: LevelAlias, as: 'aliases', attributes: ['id', 'levelId', 'field', 'originalValue', 'alias', 'createdAt', 'updatedAt'] },
       ],
     });
-    for (const l of levels) esLevelCache.set(l.id, l);
+    for (const l of levels) esLevelCache.set(l.id, l.get({ plain: true }));
   }
 
   const judgements = await Judgement.findAll({
