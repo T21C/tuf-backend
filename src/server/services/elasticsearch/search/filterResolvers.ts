@@ -63,6 +63,29 @@ export async function getDifficultySortOrderByDiffId(): Promise<Record<string, n
   }
 }
 
+/**
+ * Difficulties with non-zero baseScore only (id → baseScore) for Elasticsearch script sorts.
+ * Omitted ids are treated as 0 fallback, matching DB-backed resolution without denormalizing every difficulty field.
+ */
+export async function getDifficultyBaseScoreByDiffId(): Promise<Record<string, number>> {
+  try {
+    const rows = await Difficulty.findAll({
+      where: {
+        baseScore: { [Op.ne]: 0 },
+      },
+      attributes: ['id', 'baseScore'],
+    });
+    const map: Record<string, number> = {};
+    for (const d of rows) {
+      map[String(d.id)] = d.baseScore;
+    }
+    return map;
+  } catch (error) {
+    logger.error('Error loading difficulty base scores:', error);
+    return {};
+  }
+}
+
 export async function resolveSpecialDifficulties(specialDifficulties?: string[]): Promise<number[]> {
   try {
     if (!specialDifficulties?.length) return [];

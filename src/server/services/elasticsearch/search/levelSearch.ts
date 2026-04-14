@@ -4,6 +4,7 @@ import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
 import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { buildFacetDomainClause, combineFacetClauses } from '@/misc/utils/search/facetQuery.js';
 import {
+  getDifficultyBaseScoreByDiffId,
   getDifficultySortOrderByDiffId,
   resolveCurationTypes,
   resolveDifficultyRange,
@@ -535,6 +536,27 @@ const DIFF_AVG_SECONDARY_SCRIPT = `
   return params.difficultySortOrderById.get(communityAverageDifficultyIdKey);
 `.trim();
 
+/**
+ * Effective base score: level.baseScore || difficulty.baseScore || 0 (JS truthiness on level.baseScore).
+ * difficulty.baseScore comes from params.difficultyBaseScoreByDiffId (DB truth, non-zero entries only).
+ */
+const BASESCORE_SORT_SCRIPT = `
+  if (doc['baseScore'].size() != 0) {
+    double levelBase = doc['baseScore'].value;
+    if (levelBase != 0) {
+      return levelBase;
+    }
+  }
+  if (doc['diffId'].size() == 0) {
+    return 0;
+  }
+  String diffIdKey = Integer.toString((int) doc['diffId'].value);
+  if (params.difficultyBaseScoreById.containsKey(diffIdKey)) {
+    return params.difficultyBaseScoreById.get(diffIdKey);
+  }
+  return 0;
+`.trim();
+
 async function getLevelSortOptions(sort?: string): Promise<any[]> {
   const direction = sort?.split('_').pop() === 'ASC' ? 'asc' : 'desc';
   const sortKey = sort?.split('_').slice(0, -1).join('_');
@@ -577,8 +599,26 @@ async function getLevelSortOptions(sort?: string): Promise<any[]> {
     }
     case 'CLEARS':
       return [{ clears: direction }, { id: 'desc' }];
-    case 'BASESCORE':
-      return [{ baseScore: direction }, { id: 'desc' }];
+    case 'BASESCORE': {
+      const [difficultyBaseScoreById, difficultySortOrderById] = await Promise.all([
+        getDifficultyBaseScoreByDiffId(),
+        getDifficultySortOrderByDiffId(),
+      ]);
+      return [
+        {
+          _script: {
+            type: 'number',
+            order: direction,
+            script: {
+              source: BASESCORE_SORT_SCRIPT,
+              params: { difficultyBaseScoreById },
+            },
+          },
+        },
+        buildPrimaryDifficultySortScript('diffId', direction, difficultySortOrderById),
+        { id: 'desc' },
+      ];
+    }
     case 'LIKES':
       return [{ likes: direction }, { id: 'desc' }];
     case 'RANDOM':
