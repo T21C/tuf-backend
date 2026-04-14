@@ -249,8 +249,6 @@ export const levelMapping = {
       updatedAt: { type: 'date' as const },
       clears: { type: 'integer' as const },
       likes: { type: 'integer' as const },
-      ratingAccuracy: { type: 'float' as const },
-      totalRatingAccuracyVotes: { type: 'integer' as const },
       rating: {
         properties: {
           id: { type: 'integer' as const },

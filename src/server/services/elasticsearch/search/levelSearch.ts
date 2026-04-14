@@ -4,11 +4,13 @@ import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
 import type { FacetQueryV1 } from '@/misc/utils/search/facetQuery.js';
 import { buildFacetDomainClause, combineFacetClauses } from '@/misc/utils/search/facetQuery.js';
 import {
+  getDifficultySortOrderByDiffId,
   resolveCurationTypes,
   resolveDifficultyRange,
   resolveSpecialDifficulties,
   resolveTags,
 } from '@/server/services/elasticsearch/search/filterResolvers.js';
+import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/primaryDifficultySort.js';
 import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/parseSearch.js';
 import { buildAvailableDlHideClause, buildAvailableDlOnlyClause } from '@/server/services/elasticsearch/search/esQueryLevelFilters.js';
 import {
@@ -229,7 +231,7 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
     const response = await client.search({
       index: levelIndexName,
       query: searchQuery,
-      sort: getLevelSortOptions(filters.sort),
+      sort: await getLevelSortOptions(filters.sort),
       from: offset,
       size: limit,
       track_total_hits: true, // Ensure accurate total count
@@ -260,7 +262,7 @@ async function searchLevelsWithScroll(
 ): Promise<{ hits: any[], total: number }> {
   try {
     // Get sort options
-    const sortOptions = getLevelSortOptions(sort);
+    const sortOptions = await getLevelSortOptions(sort);
 
     // Check if we should use regular search instead of scroll
     if (shouldUseRegularSearch(sortOptions)) {
@@ -476,22 +478,109 @@ function convertLevelSearchHit(source: Record<string, any>): any {
   };
 }
 
-function getLevelSortOptions(sort?: string): any[] {
-  const direction = sort?.split('_').pop() === 'ASC' ? 'asc' : 'desc';
+/**
+ * Secondary bucket within the same primary difficulty (sort asc: lower first).
+ * 0 = community average harder than the level's difficulty (comparison only when avg exists in map).
+ * 1 = community average at or below the level's difficulty.
+ * 2 = missing averageDifficultyId, unknown average id, or unknown level difficulty — lowest priority.
+ */
+const DIFF_AVG_TIER_SCRIPT = `
+  if (doc['diffId'].size() == 0) {
+    return 2;
+  }
 
-  switch (sort?.split('_').slice(0, -1).join('_')) {
+  int levelDifficultyId = (int) doc['diffId'].value;
+  String levelDifficultyIdKey = Integer.toString(levelDifficultyId);
+  if (!params.difficultySortOrderById.containsKey(levelDifficultyIdKey)) {
+    return 2;
+  }
+
+  int levelDifficultySortOrder = params.difficultySortOrderById.get(levelDifficultyIdKey);
+  if (doc['rating.averageDifficultyId'].size() == 0) {
+    return 2;
+  }
+
+  int communityAverageDifficultyId = (int) doc['rating.averageDifficultyId'].value;
+  String communityAverageDifficultyIdKey = Integer.toString(communityAverageDifficultyId);
+  if (!params.difficultySortOrderById.containsKey(communityAverageDifficultyIdKey)) {
+    return 2;
+  }
+
+  int communityAverageDifficultySortOrder = params.difficultySortOrderById.get(communityAverageDifficultyIdKey);
+  if (communityAverageDifficultySortOrder > levelDifficultySortOrder) {
+    return 0;
+  }
+
+  if (communityAverageDifficultyId == levelDifficultyId) {
+    return 2;
+  }
+
+
+  return 1;
+`.trim();
+
+/**
+ * Within tier 0/1: sort by community average difficulty sort order (desc = harder first).
+ * Tier 2 (missing/unknown avg): constant so ties break on id only.
+ */
+const DIFF_AVG_SECONDARY_SCRIPT = `
+  if (doc['rating.averageDifficultyId'].size() == 0) {
+    return params.missingAverageDifficultySortKey;
+  }
+  int communityAverageDifficultyId = (int) doc['rating.averageDifficultyId'].value;
+  String communityAverageDifficultyIdKey = Integer.toString(communityAverageDifficultyId);
+  if (!params.difficultySortOrderById.containsKey(communityAverageDifficultyIdKey)) {
+    return params.unknownAverageDifficultySortKey;
+  }
+  return params.difficultySortOrderById.get(communityAverageDifficultyIdKey);
+`.trim();
+
+async function getLevelSortOptions(sort?: string): Promise<any[]> {
+  const direction = sort?.split('_').pop() === 'ASC' ? 'asc' : 'desc';
+  const sortKey = sort?.split('_').slice(0, -1).join('_');
+
+  switch (sortKey) {
     case 'RECENT':
       return [{ id: direction }];
-    case 'DIFF':
-      return [{ 'difficulty.sortOrder': direction }, { id: 'desc' }];
+    case 'DIFF': {
+      const difficultySortOrderById = await getDifficultySortOrderByDiffId();
+      const missingAverageDifficultySortKey = 0;
+      const unknownAverageDifficultySortKey = -2147483648;
+      return [
+        buildPrimaryDifficultySortScript('diffId', direction, difficultySortOrderById),
+        {
+          _script: {
+            type: 'number',
+            order: 'asc',
+            script: {
+              source: DIFF_AVG_TIER_SCRIPT,
+              params: { difficultySortOrderById },
+            },
+          },
+        },
+        {
+          _script: {
+            type: 'number',
+            order: 'desc',
+            script: {
+              source: DIFF_AVG_SECONDARY_SCRIPT,
+              params: {
+                difficultySortOrderById,
+                missingAverageDifficultySortKey,
+                unknownAverageDifficultySortKey,
+              },
+            },
+          },
+        },
+        { id: 'desc' },
+      ];
+    }
     case 'CLEARS':
       return [{ clears: direction }, { id: 'desc' }];
+    case 'BASESCORE':
+      return [{ baseScore: direction }, { id: 'desc' }];
     case 'LIKES':
       return [{ likes: direction }, { id: 'desc' }];
-    case 'RATING_ACCURACY':
-      return [{ ratingAccuracy: direction }, { id: 'desc' }];
-    case 'RATING_ACCURACY_VOTES':
-      return [{ totalRatingAccuracyVotes: direction }, { id: 'desc' }];
     case 'RANDOM':
       return [{ _script: { script: 'Math.random()', type: 'number' } }];
     default:

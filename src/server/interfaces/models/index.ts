@@ -79,8 +79,6 @@ export interface ILevel extends IBaseModel {
   teamObject?: Team;
   highestAccuracy?: number | null;
   firstPass?: IPass | null;
-  ratingAccuracy?: number;
-  totalRatingAccuracyVotes?: number;
   tags?: ILevelTag[];
 }
 

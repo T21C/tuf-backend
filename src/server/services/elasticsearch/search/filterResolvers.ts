@@ -43,6 +43,26 @@ export async function resolveDifficultyRange(minDiff?: string, maxDiff?: string)
   }
 }
 
+/** Canonical difficulty order from DB (id → sortOrder) for Elasticsearch script sorts. LEGACY is omitted so those ids sort as missing. */
+export async function getDifficultySortOrderByDiffId(): Promise<Record<string, number>> {
+  try {
+    const rows = await Difficulty.findAll({
+      where: {
+        type: { [Op.ne]: 'LEGACY' },
+      },
+      attributes: ['id', 'sortOrder'],
+    });
+    const map: Record<string, number> = {};
+    for (const d of rows) {
+      map[String(d.id)] = d.sortOrder;
+    }
+    return map;
+  } catch (error) {
+    logger.error('Error loading difficulty sort orders:', error);
+    return {};
+  }
+}
+
 export async function resolveSpecialDifficulties(specialDifficulties?: string[]): Promise<number[]> {
   try {
     if (!specialDifficulties?.length) return [];

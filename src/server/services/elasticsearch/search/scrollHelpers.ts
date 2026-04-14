@@ -1,9 +1,6 @@
+/** Only non-deterministic sorts need from/size instead of scroll (e.g. Math.random()). */
 export function shouldUseRegularSearch(sortOptions: any[]): boolean {
-  return sortOptions.some(
-    option =>
-      option._script !== undefined ||
-      (typeof option === 'object' && Object.keys(option).some(key => key === '_script')),
-  );
+  return isRandomSort(sortOptions);
 }
 
 export function isRandomSort(sortOptions: any[]): boolean {

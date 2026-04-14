@@ -13,6 +13,8 @@ import {
   termsField,
 } from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
 import { buildPassFieldSearchQuery } from '@/server/services/elasticsearch/search/passFieldQuery.js';
+import { getDifficultySortOrderByDiffId } from '@/server/services/elasticsearch/search/filterResolvers.js';
+import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/primaryDifficultySort.js';
 import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/scrollHelpers.js';
 
 export async function searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
@@ -165,7 +167,7 @@ export async function searchPasses(query: string, filters: any = {}, userPlayerI
     const response = await client.search({
       index: passIndexName,
       query: searchQuery,
-      sort: getPassSortOptions(filters.sort),
+      sort: await getPassSortOptions(filters.sort),
       from: offset,
       size: limit,
       track_total_hits: true
@@ -195,7 +197,7 @@ async function searchPassesWithScroll(
 ): Promise<{ hits: any[], total: number }> {
   try {
     // Get sort options
-    const sortOptions = getPassSortOptions(sort);
+    const sortOptions = await getPassSortOptions(sort);
 
     // Check if we should use regular search instead of scroll
     if (shouldUseRegularSearch(sortOptions)) {
@@ -374,7 +376,7 @@ function convertPassSearchHit(source: Record<string, any>): any {
   };
 }
 
-function getPassSortOptions(sort?: string): any[] {
+async function getPassSortOptions(sort?: string): Promise<any[]> {
   const direction = sort?.split('_').pop() === 'ASC' ? 'asc' : 'desc';
 
   switch (sort?.split('_').slice(0, -1).join('_')) {
@@ -386,8 +388,14 @@ function getPassSortOptions(sort?: string): any[] {
       return [{ accuracy: direction }, { scoreV2: 'desc' }, { id: 'desc' }];
     case 'SPEED':
       return [{ speed: direction }, { speed: 'desc' }, { id: 'desc' }];
-    case 'DIFF':
-      return [{ 'level.difficulty.sortOrder': direction }, { scoreV2: 'desc' }, { id: 'desc' }];
+    case 'DIFF': {
+      const difficultySortOrderById = await getDifficultySortOrderByDiffId();
+      return [
+        buildPrimaryDifficultySortScript('level.diffId', direction, difficultySortOrderById),
+        { scoreV2: 'desc' },
+        { id: 'desc' },
+      ];
+    }
     case 'RANDOM':
       return [{ _script: { script: 'Math.random()', type: 'number' } }];
     default:

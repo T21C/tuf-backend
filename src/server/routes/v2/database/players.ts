@@ -29,7 +29,6 @@ import CurationType from '@/models/curations/CurationType.js';
 import { AuditLog } from '@/models/index.js';
 import UsernameChange from '@/models/auth/UsernameChange.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
-import RatingAccuracyVote from '@/models/levels/RatingAccuracyVote.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { permissionFlags } from '@/config/constants.js';
@@ -1129,41 +1128,33 @@ router.post(
               {where: {id: idsToUpdate}, transaction}
             );
           }
-          // 3. RatingAccuracyVote (userId is INTEGER, so skip if not compatible)
-          // Only update if both user IDs are integers
-          if (sourceUserId && targetUserId) {
-            await RatingAccuracyVote.update(
-              {userId: targetUserId},
-              {where: {userId: sourceUserId}, transaction}
-            );
-          }
-          // 4. LevelRerateHistory
+          // 3. LevelRerateHistory
           await LevelRerateHistory.update(
             {reratedBy: targetUserId},
             {where: {reratedBy: sourceUserId}, transaction}
           );
-          // 5. UsernameChange
+          // 4. UsernameChange
           await UsernameChange.update(
             {userId: targetUserId},
             {where: {userId: sourceUserId}, transaction}
           );
-          // 6. AuditLog
+          // 5. AuditLog
           await AuditLog.update(
             {userId: targetUserId},
             {where: {userId: sourceUserId}, transaction}
           );
-          // 7. Creator (only if target user is not already linked)
+          // 6. Creator (only if target user is not already linked)
           const sourceCreator = await Creator.findOne({where: {userId: sourceUserId}, transaction});
           const targetCreator = await Creator.findOne({where: {userId: targetUserId}, transaction});
           if (sourceCreator && !targetCreator) {
             await sourceCreator.update({userId: targetUserId}, {transaction});
           }
-          // 8. LevelSubmission
+          // 7. LevelSubmission
           await LevelSubmission.update(
             {userId: targetUserId},
             {where: {userId: sourceUserId}, transaction}
           );
-          // 9. PassSubmission
+          // 8. PassSubmission
           await PassSubmission.update(
             {userId: targetUserId},
             {where: {userId: sourceUserId}, transaction}

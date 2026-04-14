@@ -37,8 +37,6 @@ class Level
   declare previousBaseScore: number | null;
   declare clears: number;
   declare likes: number;
-  declare ratingAccuracy: number;
-  declare totalRatingAccuracyVotes: number;
   declare videoLink: string;
   declare dlLink: string;
   declare legacyDllink: string | null;
@@ -224,16 +222,6 @@ Level.init(
       defaultValue: 0,
     },
     likes: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-    },
-    ratingAccuracy: {
-      type: DataTypes.DOUBLE,
-      allowNull: false,
-      defaultValue: 0,
-    },
-    totalRatingAccuracyVotes: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
