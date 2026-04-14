@@ -31,6 +31,7 @@ import User from '@/models/auth/User.js';
 import { Op, Transaction } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -1074,8 +1075,7 @@ router.put(
 
         await transaction.commit();
 
-        // Index the level in Elasticsearch after transaction is committed
-        await elasticsearchService.indexLevel(newLevel);
+        await applyLevelChartStatsFromCdn(newLevel.id);
 
         // Auto-assign tags based on level analysis
         try {

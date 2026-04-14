@@ -475,7 +475,7 @@ function convertLevelSearchHit(source: Record<string, any>): any {
         ...alias,
         name: convertFromPUA(alias.name as string)
       }))
-    } : null
+    } : null,
   };
 }
 
@@ -621,6 +621,10 @@ async function getLevelSortOptions(sort?: string): Promise<any[]> {
     }
     case 'LIKES':
       return [{ likes: direction }, { id: 'desc' }];
+    case 'BPM':
+      return [{ bpm: { order: direction, missing: '_last' } }, { id: 'desc' }];
+    case 'TILES':
+      return [{ tilecount: { order: direction, missing: '_last' } }, { id: 'desc' }];
     case 'RANDOM':
       return [{ _script: { script: 'Math.random()', type: 'number' } }];
     default:

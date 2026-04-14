@@ -70,6 +70,10 @@ export interface ILevel extends IBaseModel {
   teamId?: number | null;
   songId?: number | null;
   suffix?: string | null;
+  /** Chart BPM from CDN cache (denormalized). */
+  bpm?: number | null;
+  /** Tile count from CDN cache (denormalized). */
+  tilecount?: number | null;
   passes?: IPass[];
   aliases?: LevelAlias[] | null;
   levelCredits?: LevelCredit[] | null;

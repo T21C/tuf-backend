@@ -70,8 +70,19 @@ export function buildLevelIndexDocument(level: Level): any {
     } as any),
   );
 
+  const bpm =
+    typeof l.bpm === 'number' && Number.isFinite(l.bpm) ? l.bpm : null;
+  const tilecount =
+    typeof l.tilecount === 'number' && Number.isFinite(l.tilecount)
+      ? Math.floor(l.tilecount)
+      : null;
+
+  const { bpm: _bpmCol, tilecount: _tileCol, ...levelRest } = l as any;
+
   return {
-    ...l,
+    ...levelRest,
+    bpm,
+    tilecount,
     song: pua(l.song),
     artist: pua(l.artist),
     songId: l.songId || null,

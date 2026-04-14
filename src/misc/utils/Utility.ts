@@ -148,6 +148,7 @@ export const safeTransactionRollback = async (transaction: any, logger?: any): P
 
 // Helper function to check if a URL is from our CDN
 export const isCdnUrl = (url: string): boolean => {
+  if (process.env.NODE_ENV === 'development') return true;
   return url.startsWith(CDN_CONFIG.baseUrl);
 };
 

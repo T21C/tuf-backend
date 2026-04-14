@@ -1,10 +1,15 @@
-import { prepareSearchTerm } from '@/misc/utils/data/searchHelpers.js';
+import {
+  convertFromPUA,
+  parseNumericSearchConstraint,
+  prepareSearchTerm,
+} from '@/misc/utils/data/searchHelpers.js';
 import { queryParserConfigs, type FieldSearch } from '@/misc/utils/data/queryParser.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/esQueryBuilder.js';
 import {
   matchNone,
   maybeNot,
+  rangeOnField,
   termField,
   wildcardCi,
   boolShouldOnly,
@@ -18,10 +23,33 @@ import {
   specTeamFieldSearch,
 } from '@/server/services/elasticsearch/search/esQuerySpecs.js';
 
+/** Level search fields backed by ES numeric mapping; values may use `>`, `<`, `>=`, `<=` (PUA-decoded before parse). */
+const LEVEL_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly: boolean }> = {
+  bpm: { esField: 'bpm', integerOnly: false },
+  tilecount: { esField: 'tilecount', integerOnly: true },
+};
+
 export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases = false): any {
   const { field, value, exact, isNot } = fieldSearch;
   const searchValue = prepareSearchTerm(value);
   logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+
+  const numericRangeConfig = LEVEL_NUMERIC_RANGE_FIELDS[field];
+  if (numericRangeConfig) {
+    const decoded = convertFromPUA(value).trim();
+    const parsed = parseNumericSearchConstraint(decoded, { integerOnly: numericRangeConfig.integerOnly });
+    if (!parsed) {
+      logger.debug(
+        `No numeric constraint parsed for field: ${field}, decoded value: ${decoded}`,
+      );
+      return matchNone();
+    }
+    const { esField } = numericRangeConfig;
+    if (parsed.kind === 'term') {
+      return maybeNot(isNot, termField(esField, parsed.n));
+    }
+    return maybeNot(isNot, rangeOnField(esField, parsed.bounds));
+  }
 
   const numericFields = queryParserConfigs.level.numericFields || [];
   const isNumericField = numericFields.includes(field);

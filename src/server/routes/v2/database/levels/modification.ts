@@ -22,6 +22,7 @@ const getUserModel = (user: any): User => user as User;
 import Player from '@/models/players/Player.js';
 import {logger} from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import {
   isCdnUrl,
   getFileIdFromCdnUrl,
@@ -354,6 +355,15 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   await level.save({transaction});
 
   await transaction.commit();
+
+  try {
+    await applyLevelChartStatsFromCdn(levelId);
+  } catch (chartSyncError) {
+    logger.warn('Failed to sync chart BPM/tilecount after level upload:', {
+      levelId,
+      error: chartSyncError instanceof Error ? chartSyncError.message : String(chartSyncError),
+    });
+  }
 
   try {
     logger.debug('Logging webhook for level file upload', {
@@ -857,7 +867,14 @@ router.put(
     });
 
     await transaction.commit();
-    await elasticsearchService.indexLevel(updatedLevel || level);
+    const dlLinkChanged =
+      req.body.dlLink !== undefined &&
+      (oldLevel as { dlLink?: string }).dlLink !== (updatedLevel?.dlLink ?? level.dlLink);
+    if (dlLinkChanged) {
+      await applyLevelChartStatsFromCdn(levelId);
+    } else {
+      await elasticsearchService.indexLevel(updatedLevel || level);
+    }
     await logLevelMetadataUpdateHook(oldLevel, updatedLevel || level, req.user as User);
     return res.status(200).json({message: 'Level updated successfully', level: updatedLevel || level});
   } catch (error) {
@@ -1205,7 +1222,12 @@ router.put(
       });
 
     if (updatedLevel) {
-      await elasticsearchService.indexLevel(updatedLevel.id);
+      const dlLinkChanged = level.dlLink !== updatedLevel.dlLink;
+      if (dlLinkChanged) {
+        await applyLevelChartStatsFromCdn(levelId);
+      } else {
+        await elasticsearchService.indexLevel(updatedLevel.id);
+      }
     }
 
     return;
@@ -1975,6 +1997,15 @@ router.post(
 
       await transaction.commit();
 
+      try {
+        await applyLevelChartStatsFromCdn(levelId);
+      } catch (chartSyncError) {
+        logger.warn('Failed to sync chart BPM/tilecount after target level change:', {
+          levelId,
+          error: chartSyncError instanceof Error ? chartSyncError.message : String(chartSyncError),
+        });
+      }
+
       // Log webhook for non-admin creators
       try {
         await logLevelTargetUpdateHook(selectedLevel.toString(), levelId, getUserModel(req.user));
@@ -2050,6 +2081,8 @@ router.delete(
       await Level.update(
         {
           dlLink: 'removed',
+          bpm: null,
+          tilecount: null,
         },
         {
           where: {id: levelId},

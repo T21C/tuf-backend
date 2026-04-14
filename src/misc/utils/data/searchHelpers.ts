@@ -158,3 +158,59 @@ export function prepareSearchTerm(str: string): string {
     .replace(/\s+/g, ' ') // Normalize whitespace
     .trim();
 }
+
+/** Result of parsing a field value like `180`, `>100`, `<=200` for ES numeric fields. */
+export type ParsedNumericSearchConstraint =
+  | { kind: 'term'; n: number }
+  | {
+      kind: 'range';
+      bounds: Partial<{ gt: number; gte: number; lt: number; lte: number }>;
+    };
+
+/**
+ * Parse a numeric search operand (after field name), e.g. `180`, `>100`, `>=1.5`.
+ * Pass the **decoded** string (use {@link convertFromPUA} when values come from the PUA query pipeline).
+ */
+export function parseNumericSearchConstraint(
+  rawValue: string,
+  options: { integerOnly?: boolean } = {},
+): ParsedNumericSearchConstraint | null {
+  const { integerOnly = false } = options;
+  const t = rawValue.trim();
+  const withOp = t.match(/^(>=|<=|>|<)\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*$/);
+  if (withOp) {
+    const op = withOp[1];
+    const numStr = withOp[2];
+    if (integerOnly) {
+      if (numStr.includes('.') || /[eE]/.test(numStr)) return null;
+      const num = parseInt(numStr, 10);
+      if (!Number.isFinite(num)) return null;
+      const bounds: Partial<{ gt: number; gte: number; lt: number; lte: number }> = {};
+      if (op === '>') bounds.gt = num;
+      else if (op === '<') bounds.lt = num;
+      else if (op === '>=') bounds.gte = num;
+      else bounds.lte = num;
+      return { kind: 'range', bounds };
+    }
+    const num = parseFloat(numStr);
+    if (!Number.isFinite(num)) return null;
+    const bounds: Partial<{ gt: number; gte: number; lt: number; lte: number }> = {};
+    if (op === '>') bounds.gt = num;
+    else if (op === '<') bounds.lt = num;
+    else if (op === '>=') bounds.gte = num;
+    else bounds.lte = num;
+    return { kind: 'range', bounds };
+  }
+  const plain = t.match(/^([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*$/);
+  if (!plain) return null;
+  const numStr = plain[1];
+  if (integerOnly) {
+    if (numStr.includes('.') || /[eE]/.test(numStr)) return null;
+    const num = parseInt(numStr, 10);
+    if (!Number.isFinite(num)) return null;
+    return { kind: 'term', n: num };
+  }
+  const num = parseFloat(numStr);
+  if (!Number.isFinite(num)) return null;
+  return { kind: 'term', n: num };
+}

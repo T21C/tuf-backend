@@ -73,6 +73,14 @@ export function rangeGt(field: string, gt: number): EsQuery {
   return { range: { [field]: { gt } } };
 }
 
+/** Partial range on a numeric field (gt/gte/lt/lte — include only keys you need). */
+export function rangeOnField(
+  field: string,
+  bounds: Partial<{ gt: number; gte: number; lt: number; lte: number }>,
+): EsQuery {
+  return { range: { [field]: bounds } };
+}
+
 export function wrapMustNot(q: EsQuery): EsQuery {
   return { bool: { must_not: [q] } };
 }

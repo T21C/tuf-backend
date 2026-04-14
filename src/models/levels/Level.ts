@@ -79,6 +79,8 @@ class Level
   // Associations for normalized song
   declare songObject?: Song;
   declare songCredits?: SongCredit[];
+  declare bpm: number | null;
+  declare tilecount: number | null;
 }
 
 Level.init(
@@ -213,6 +215,16 @@ Level.init(
     },
     suffix: {
       type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
+    },
+    bpm: {
+      type: DataTypes.DOUBLE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    tilecount: {
+      type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: null,
     },
