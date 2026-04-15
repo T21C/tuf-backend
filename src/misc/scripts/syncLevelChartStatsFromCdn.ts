@@ -24,6 +24,9 @@ import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { initializeAssociations } from '@/models/associations.js';
+
+initializeAssociations()
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
