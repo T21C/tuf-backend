@@ -196,6 +196,7 @@ program
     } finally {
       await levelsSequelize.close();
       await cdnSequelize.close();
+      process.exit(0);
     }
   });
 
