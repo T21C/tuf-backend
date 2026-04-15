@@ -81,6 +81,7 @@ class Level
   declare songCredits?: SongCredit[];
   declare bpm: number | null;
   declare tilecount: number | null;
+  declare levelLengthInMs: number | null;
 }
 
 Level.init(
@@ -225,6 +226,11 @@ Level.init(
     },
     tilecount: {
       type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null,
+    },
+    levelLengthInMs: {
+      type: DataTypes.DOUBLE,
       allowNull: true,
       defaultValue: null,
     },

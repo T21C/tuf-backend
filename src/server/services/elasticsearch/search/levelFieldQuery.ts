@@ -1,5 +1,6 @@
 import {
   convertFromPUA,
+  parseDurationSearchConstraint,
   parseNumericSearchConstraint,
   prepareSearchTerm,
 } from '@/misc/utils/data/searchHelpers.js';
@@ -33,6 +34,20 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
   const { field, value, exact, isNot } = fieldSearch;
   const searchValue = prepareSearchTerm(value);
   logger.debug(`Building search query - Field: ${field}, PUA value: ${value}, Prepared value: ${searchValue}`);
+
+  if (field === 'time') {
+    const decoded = convertFromPUA(value).trim();
+    const parsed = parseDurationSearchConstraint(decoded);
+    if (!parsed) {
+      logger.debug(`No duration constraint parsed for time:, decoded value: ${decoded}`);
+      return matchNone();
+    }
+    const esField = 'levelLengthInMs';
+    if (parsed.kind === 'term') {
+      return maybeNot(isNot, termField(esField, parsed.n));
+    }
+    return maybeNot(isNot, rangeOnField(esField, parsed.bounds));
+  }
 
   const numericRangeConfig = LEVEL_NUMERIC_RANGE_FIELDS[field];
   if (numericRangeConfig) {

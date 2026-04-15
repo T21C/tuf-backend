@@ -2083,6 +2083,7 @@ router.delete(
           dlLink: 'removed',
           bpm: null,
           tilecount: null,
+          levelLengthInMs: null,
         },
         {
           where: {id: levelId},

@@ -76,13 +76,23 @@ export function buildLevelIndexDocument(level: Level): any {
     typeof l.tilecount === 'number' && Number.isFinite(l.tilecount)
       ? Math.floor(l.tilecount)
       : null;
+  const levelLengthInMs =
+    typeof l.levelLengthInMs === 'number' && Number.isFinite(l.levelLengthInMs)
+      ? l.levelLengthInMs
+      : null;
 
-  const { bpm: _bpmCol, tilecount: _tileCol, ...levelRest } = l as any;
+  const {
+    bpm: _bpmCol,
+    tilecount: _tileCol,
+    levelLengthInMs: _levelLengthCol,
+    ...levelRest
+  } = l as any;
 
   return {
     ...levelRest,
     bpm,
     tilecount,
+    levelLengthInMs,
     song: pua(l.song),
     artist: pua(l.artist),
     songId: l.songId || null,

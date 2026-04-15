@@ -33,16 +33,9 @@ export function validateNumber(value: string) {
   const regex = new RegExp('^\\d+$');
   return regex.test(value);
 }
-export function formatSpeed(speed: number) {
-  const speedTwoDecimals = speed.toFixed(2);
-  if (speedTwoDecimals[speedTwoDecimals.length - 1] !== '0') {
-    return speedTwoDecimals;
-  }
-  const speedOneDecimal = speed.toFixed(1);
-  if (speedOneDecimal[speedOneDecimal.length - 1] !== '0') {
-    return speedOneDecimal;
-  }
-  return Math.round(speed);
+export function clampFloat(value: number, maxDecimals: number = 2) {
+  if (value === null || value === undefined) return "1.0";
+  return parseFloat(Number(value).toFixed(maxDecimals)).toString();
 }
 
 export function formatScore(score: number) {

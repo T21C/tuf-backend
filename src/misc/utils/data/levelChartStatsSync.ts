@@ -5,28 +5,38 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 
 const elasticsearchService = ElasticsearchService.getInstance();
 
+type CacheJson = {
+  tilecount?: number;
+  settings?: { bpm?: number };
+  analysis?: { levelLengthInMs?: number };
+};
+
 /** Parse CDN level cache JSON for denormalized level columns / ES. */
 export function parseChartStatsFromCache(cacheData: string | null): {
   bpm: number | null;
   tilecount: number | null;
+  levelLengthInMs: number | null;
 } {
-  if (!cacheData) return { bpm: null, tilecount: null };
+  if (!cacheData) return { bpm: null, tilecount: null, levelLengthInMs: null };
   try {
-    const parsed = JSON.parse(cacheData) as { tilecount?: number; settings?: { bpm?: number } };
+    const parsed = JSON.parse(cacheData) as CacheJson;
     const tilecount =
       typeof parsed.tilecount === 'number' && Number.isFinite(parsed.tilecount)
         ? Math.floor(parsed.tilecount)
         : null;
     const bpmRaw = parsed.settings?.bpm;
     const bpm = typeof bpmRaw === 'number' && Number.isFinite(bpmRaw) ? bpmRaw : null;
-    return { bpm, tilecount };
+    const lenRaw = parsed.analysis?.levelLengthInMs;
+    const levelLengthInMs =
+      typeof lenRaw === 'number' && Number.isFinite(lenRaw) ? lenRaw : null;
+    return { bpm, tilecount, levelLengthInMs };
   } catch {
-    return { bpm: null, tilecount: null };
+    return { bpm: null, tilecount: null, levelLengthInMs: null };
   }
 }
 
 /**
- * Copy chart BPM and tile count from `cdn_files.cacheData` onto the level row, then reindex ES.
+ * Copy chart BPM, tile count, and level length (ms) from `cdn_files.cacheData` onto the level row, then reindex ES.
  * Call after commits when CDN zip / target / dlLink may have changed (cross-pool; do not pass a transaction).
  */
 export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void> {
@@ -34,20 +44,26 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
   if (!level) return;
 
   if (!level.dlLink || !isCdnUrl(level.dlLink)) {
-    await Level.update({ bpm: null, tilecount: null }, { where: { id: levelId }, hooks: false });
+    await Level.update(
+      { bpm: null, tilecount: null, levelLengthInMs: null },
+      { where: { id: levelId }, hooks: false },
+    );
     await elasticsearchService.indexLevel(levelId);
     return;
   }
 
   const fileId = getFileIdFromCdnUrl(level.dlLink);
   if (!fileId) {
-    await Level.update({ bpm: null, tilecount: null }, { where: { id: levelId }, hooks: false });
+    await Level.update(
+      { bpm: null, tilecount: null, levelLengthInMs: null },
+      { where: { id: levelId }, hooks: false },
+    );
     await elasticsearchService.indexLevel(levelId);
     return;
   }
 
   const file = await CdnFile.findByPk(fileId, { attributes: ['cacheData'] });
-  const { bpm, tilecount } = parseChartStatsFromCache(file?.cacheData ?? null);
-  await Level.update({ bpm, tilecount }, { where: { id: levelId }, hooks: false });
+  const { bpm, tilecount, levelLengthInMs } = parseChartStatsFromCache(file?.cacheData ?? null);
+  await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId }, hooks: false });
   await elasticsearchService.indexLevel(levelId);
 }

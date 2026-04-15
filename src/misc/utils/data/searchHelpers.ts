@@ -214,3 +214,70 @@ export function parseNumericSearchConstraint(
   if (!Number.isFinite(num)) return null;
   return { kind: 'term', n: num };
 }
+
+/** Concatenated tokens like `10m15s` (no space); try `ms` before `m`. No trailing `\b` after unit (would break `m`+digit). */
+const DURATION_TOKEN_RE = /(\d+(?:\.\d+)?)\s*(ms|h|m|s)/gi;
+
+/**
+ * Parse a duration string into milliseconds for `time:` level search (chart length).
+ * - With units: sum of `h` (hours), `m` (minutes), `s` (seconds), `ms` (milliseconds); alternation tries `ms` before `m`. Tokens may be concatenated (`10m15s`).
+ * - Plain number with no units: milliseconds (same unit as `levelLengthInMs`).
+ * - No leftover text after consuming unit tokens.
+ */
+export function parseDurationToMs(body: string): number | null {
+  const t = body.trim();
+  if (!t) return null;
+
+  const plain = t.match(/^[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/);
+  if (plain) {
+    const n = parseFloat(plain[0]);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+  }
+
+  let total = 0;
+  const re = new RegExp(DURATION_TOKEN_RE.source, DURATION_TOKEN_RE.flags);
+  const matches = [...t.matchAll(re)];
+  if (matches.length === 0) return null;
+
+  for (const m of matches) {
+    const n = parseFloat(m[1]);
+    if (!Number.isFinite(n) || n < 0) return null;
+    const u = m[2].toLowerCase();
+    if (u === 'ms') total += n;
+    else if (u === 'h') total += n * 3600000;
+    else if (u === 'm') total += n * 60000;
+    else if (u === 's') total += n * 1000;
+    else return null;
+  }
+
+  const stripped = t.replace(new RegExp(DURATION_TOKEN_RE.source, DURATION_TOKEN_RE.flags), '').replace(/\s+/g, '');
+  if (stripped !== '') return null;
+  if (!Number.isFinite(total) || total < 0) return null;
+  return total;
+}
+
+/**
+ * Parse `time:` search values for chart length (`levelLengthInMs`), e.g. `>10m15s`, `<50s`, `2m`, `130000` (ms).
+ * Pass the **decoded** string (use {@link convertFromPUA} when values come from the PUA query pipeline).
+ */
+export function parseDurationSearchConstraint(rawValue: string): ParsedNumericSearchConstraint | null {
+  const t = rawValue.trim();
+  const opMatch = t.match(/^(>=|<=|>|<)\s*(.+)$/);
+  const op = opMatch ? opMatch[1] : null;
+  const body = (opMatch ? opMatch[2] : t).trim();
+  if (!body) return null;
+
+  const ms = parseDurationToMs(body);
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return null;
+
+  if (!op) {
+    return { kind: 'term', n: ms };
+  }
+  const bounds: Partial<{ gt: number; gte: number; lt: number; lte: number }> = {};
+  if (op === '>') bounds.gt = ms;
+  else if (op === '<') bounds.lt = ms;
+  else if (op === '>=') bounds.gte = ms;
+  else bounds.lte = ms;
+  return { kind: 'range', bounds };
+}

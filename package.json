@@ -30,7 +30,8 @@
     "cdn": "cross-env tsx watch src/externalServices/cdnService/app.ts",
     "cdn:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdnService/app.ts",
     "api-docs": "cross-env tsx src/externalServices/apiDocsService/app.ts",
-    "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts"
+    "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts",
+    "test:duration": "tsx src/misc/utils/data/searchHelpers.duration.selftest.ts"
   },
   "keywords": [],
   "author": "",

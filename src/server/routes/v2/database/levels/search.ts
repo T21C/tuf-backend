@@ -532,13 +532,16 @@ router.get(
     }
 
     try {
-      const [fileResponse, metadata] = await Promise.all([cdnService.getLevelData(level, ['settings','tilecount','accessCount']),
-      cdnService.getLevelMetadata(level).then(metadata => metadata?.metadata || undefined)])
+      const [fileResponse, metadata] = await Promise.all([
+        cdnService.getLevelData(level, ['settings', 'tilecount', 'analysis', 'accessCount']),
+        cdnService.getLevelMetadata(level).then((m) => m?.metadata || undefined),
+      ]);
       return res.json({
         bpm: fileResponse?.settings?.bpm,
         tilecount: fileResponse?.tilecount,
+        levelLengthInMs: fileResponse?.analysis?.levelLengthInMs,
         metadata,
-        accessCount: fileResponse?.accessCount || 0
+        accessCount: fileResponse?.accessCount || 0,
       });
     } catch (error) {
       logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});

@@ -67,6 +67,7 @@ export const levelMapping = {
       id: { type: 'integer' as const },
       bpm: { type: 'float' as const },
       tilecount: { type: 'integer' as const },
+      levelLengthInMs: { type: 'float' as const },
       song: {
         type: 'text' as const,
         analyzer: 'custom_text_analyzer',

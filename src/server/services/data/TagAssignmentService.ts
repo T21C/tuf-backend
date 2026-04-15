@@ -19,6 +19,7 @@ enum VFX_TIERS {
 
 // Tag mapping configurations
 const lengthTagsMinutes: Record<number, string> = {
+    /*
     0: 'Tiny',
     0.5: '30+ Seconds',
     1: '1+ Minute',
@@ -29,6 +30,7 @@ const lengthTagsMinutes: Record<number, string> = {
     10: '10+ Minutes',
     15: '15+ Minutes',
     20: '20+ Minutes',
+    */
     30: '30+ Minutes',
     45: '45+ Minutes',
     60: '1+ Hours',

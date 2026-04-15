@@ -153,6 +153,7 @@ generate_meta_inserts.bat
 meta_inserts.sql
 *.sh
 __pycache__/
+*.selftest.ts
 
 # ts builds
 build/
