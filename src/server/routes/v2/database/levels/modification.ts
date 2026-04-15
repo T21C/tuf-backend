@@ -50,7 +50,7 @@ import {
 } from '@/server/routes/v2/webhooks/misc.js';
 import LevelTagAssignment from '@/models/levels/LevelTagAssignment.js';
 import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
-import {asZipUrlDownloadFailure, downloadZipFromUrl, isValidHttpUrl} from '@/misc/utils/levelZipFromUrl.js';
+import {asZipUrlDownloadFailure, downloadZipFromUrl, isValidHttpUrl} from '@/misc/utils/data/levelZipFromUrl.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();

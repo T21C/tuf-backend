@@ -7,7 +7,7 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 
 const sequelize = getSequelizeForModelGroup('cdn');
-import { levelCacheService } from '../services/levelCacheService.js';
+import { levelCacheService, SAFE_TO_PARSE_VERSION } from '../services/levelCacheService.js';
 
 /**
  * Force-refresh LEVELZIP cacheData (tilecount, settings, analysis, transformOptions) by
@@ -26,15 +26,14 @@ interface ScriptStats {
     errors: Array<{ fileId: string; error: string }>;
 }
 
-async function refreshCacheForFile(file: CdnFile, stats: ScriptStats): Promise<void> {
+async function refreshCacheForFile(file: CdnFile, stats: ScriptStats, position: number): Promise<void> {
     try {
-        logger.info(`[${stats.processed + 1}/${stats.total}] Force-refresh: ${file.id}`);
+        logger.info(`[${position}/${stats.total}] Force-refresh: ${file.id}`);
 
         const metadata = file.metadata as { targetLevelOversized?: boolean } | undefined;
         if (metadata?.targetLevelOversized) {
             stats.skipped++;
             logger.warn(`Oversized level (cache not available): ${file.id}`);
-            stats.processed++;
             return;
         }
 
@@ -65,6 +64,32 @@ async function refreshCacheForFile(file: CdnFile, stats: ScriptStats): Promise<v
     stats.processed++;
 }
 
+/** Bounded parallel map (single-threaded scheduling; safe index handoff). */
+async function mapWithConcurrency<T>(
+    items: readonly T[],
+    concurrency: number,
+    fn: (item: T, idx: number) => Promise<void>
+): Promise<void> {
+    if (items.length === 0) return;
+    const n = Math.min(Math.max(1, concurrency), items.length);
+    let index = 0;
+    const worker = async () => {
+        while (true) {
+            const i = index++;
+            if (i >= items.length) return;
+            await fn(items[i], i);
+        }
+    };
+    await Promise.all(Array.from({ length: n }, () => worker()));
+}
+
+function needsMetadataParseRefresh(file: CdnFile): boolean {
+    const metadata = file.metadata as any;
+    const safeToParse = metadata?.targetSafeToParse === true;
+    const storedVersion = metadata?.targetSafeToParseVersion;
+    return !safeToParse || storedVersion !== SAFE_TO_PARSE_VERSION;
+}
+
 async function findLevelZipFiles(options: { onlyWithExistingCache: boolean }): Promise<CdnFile[]> {
     const where: Record<string, unknown> = {
         type: 'LEVELZIP'
@@ -84,6 +109,9 @@ async function main(options: {
     dryRun: boolean;
     limit?: number;
     onlyWithExistingCache: boolean;
+    includeVersionCurrent: boolean;
+    concurrency: number;
+    batchSize: number;
     fileId?: string;
 }) {
     logger.info('Starting force refresh of LEVELZIP cache metadata', options);
@@ -124,26 +152,27 @@ async function main(options: {
                 });
                 stats.skipped = 1;
             } else {
-                await refreshCacheForFile(file, stats);
+                await refreshCacheForFile(file, stats, 1);
             }
         } else {
             const files = await findLevelZipFiles({
                 onlyWithExistingCache: options.onlyWithExistingCache
             });
 
-            stats.total = options.limit ? Math.min(files.length, options.limit) : files.length;
+            const filtered = options.includeVersionCurrent ? files : files.filter(needsMetadataParseRefresh);
+            const filesToProcess = options.limit ? filtered.slice(0, options.limit) : filtered;
+            stats.total = filesToProcess.length;
 
             logger.info(
                 `Found ${files.length} LEVELZIP files${options.onlyWithExistingCache ? ' (with existing cache) ' : ' '}` +
-                    `— processing ${stats.total}`
+                    `— ${filtered.length} need refresh (SAFE_TO_PARSE_VERSION=${SAFE_TO_PARSE_VERSION})` +
+                    ` — processing ${stats.total}`
             );
 
-            if (files.length === 0) {
+            if (filesToProcess.length === 0) {
                 logger.info('No files found to process');
                 return;
             }
-
-            const filesToProcess = options.limit ? files.slice(0, options.limit) : files;
 
             if (options.dryRun) {
                 logger.info('[DRY RUN] Would clear and repopulate cache for:');
@@ -152,14 +181,24 @@ async function main(options: {
                 });
                 stats.skipped = stats.total;
             } else {
-                for (const file of filesToProcess) {
-                    await refreshCacheForFile(file, stats);
+                const batchSize = Math.max(1, options.batchSize);
+                const concurrency = Math.max(1, options.concurrency);
 
-                    if (stats.processed % 10 === 0) {
-                        logger.info(
-                            `Progress: ${stats.processed}/${stats.total} processed (${stats.successful} successful, ${stats.failed} failed)`
-                        );
-                    }
+                for (let start = 0; start < filesToProcess.length; start += batchSize) {
+                    const batch = filesToProcess.slice(start, start + batchSize);
+                    logger.info(
+                        `Processing batch ${Math.floor(start / batchSize) + 1}/${Math.ceil(filesToProcess.length / batchSize)} ` +
+                            `(${batch.length} files, concurrency=${concurrency})`
+                    );
+
+                    await mapWithConcurrency(batch, concurrency, async (file, idx) => {
+                        const position = start + idx + 1;
+                        await refreshCacheForFile(file, stats, position);
+                    });
+
+                    logger.info(
+                        `Progress: ${stats.processed}/${stats.total} processed (${stats.successful} successful, ${stats.failed} failed, ${stats.skipped} skipped)`
+                    );
                 }
             }
         }
@@ -208,12 +247,18 @@ program
         'Only process LEVELZIP rows that already have cacheData (skip never-cached rows)',
         false
     )
+    .option('-a, --all', 'Include files whose targetSafeToParseVersion is already current', false)
+    .option('--concurrency <number>', 'How many files to refresh concurrently', (value) => parseInt(value, 10), 8)
+    .option('--batch-size <number>', 'How many files to queue per batch', (value) => parseInt(value, 10), 100)
     .option('-f, --file-id <fileId>', 'Process a single file by ID')
     .action(async (options) => {
         await main({
             dryRun: options.dryRun,
             limit: options.limit,
             onlyWithExistingCache: options.onlyCached,
+            includeVersionCurrent: options.all,
+            concurrency: options.concurrency,
+            batchSize: options.batchSize,
             fileId: options.fileId
         });
     });
