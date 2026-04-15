@@ -625,6 +625,8 @@ async function getLevelSortOptions(sort?: string): Promise<any[]> {
       return [{ bpm: { order: direction, missing: '_last' } }, { id: 'desc' }];
     case 'TILES':
       return [{ tilecount: { order: direction, missing: '_last' } }, { id: 'desc' }];
+    case 'TIME':
+      return [{ levelLengthInMs: { order: direction, missing: '_last' } }, { id: 'desc' }];
     case 'RANDOM':
       return [{ _script: { script: 'Math.random()', type: 'number' } }];
     default:

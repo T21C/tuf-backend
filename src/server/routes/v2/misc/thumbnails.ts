@@ -24,13 +24,13 @@ import { User } from '@/models/index.js';
 import { port } from '@/config/app.config.js';
 import CdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { formatCredits } from '@/misc/utils/Utility.js';
+import { clampFloat, formatCredits } from '@/misc/utils/Utility.js';
 import { htmlToPng, formatAxiosError } from './media.js';
 import { formatNumber } from '@/server/routes/v2/webhooks/embeds.js';
 import dotenv from 'dotenv';
 import { sortCurationTypesByOrder } from '@/misc/utils/data/curationOrdering.js';
 import LevelTag from '@/models/levels/LevelTag.js';
-import { getSongDisplayName, getArtistDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { getSongDisplayName, getArtistDisplayName, formatDuration } from '@/misc/utils/data/levelHelpers.js';
 import Song from '@/models/songs/Song.js';
 import Artist from '@/models/artists/Artist.js';
 
@@ -333,11 +333,8 @@ router.get(
           // Use helper functions to prioritize songObject for both song and artist
           const song = getSongDisplayName(level);
           const artist = getArtistDisplayName(level);
-          const [details, metadata] = await Promise.all([
-          axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
-          .then(res => res.data).catch(() => undefined),
-          CdnService.getLevelData(level, ['settings','angles','accessCount']).catch(() => undefined)
-          ])
+          const details = await axios.get(`http://localhost:${port}/v2/media/video-details/${encodeURIComponent(level.videoLink)}`)
+          .then(res => res.data).catch(() => undefined);
 
           // Generate the HTML and PNG for LARGE size
           const {width, height, multiplier} = THUMBNAIL_SIZES.LARGE;
@@ -346,7 +343,7 @@ router.get(
           // Download background image with retry logic
           let backgroundBuffer: Buffer;
           try {
-            if (!details?.image) {
+            if (!details || !details.image) {
               throw new Error('Video details not found');
             }
             backgroundBuffer = await downloadImageWithRetry(details.image);
@@ -655,8 +652,23 @@ router.get(
                   <div class="header-right">
                     <div class="level-id">#${levelId}</div>
                     ${level.tags && level.tags.length > 0 ? `<div class="level-tags">${level.tags.map((tag: LevelTag) => `<img src="${tag.icon}" class="level-tag-icon"/>`).join(' ')}</div>` : ''}
-                    <div class="level-metadata ${metadata?.angles?.length && metadata?.settings?.bpm ? '' : 'hidden'}">
-                      <div class="level-metadata-item">
+                    <div class="level-metadata ${level.tilecount && level.bpm ? '' : 'hidden'}">
+                                        ${level.levelLengthInMs ? `
+                    <div class="level-metadata-item">
+                        <svg width="${Math.round(24*multiplier)}px" height="${Math.round(24*multiplier)}px" viewBox="-3 -3 28 30" fill="#bbbbbb" xmlns="http://www.w3.org/2000/svg" stroke="#bbbbbb">
+                            <g id="SVGRepo_bgCarrier" strokeWidth="0"></g>
+                            <g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g>
+                            <g id="SVGRepo_iconCarrier"> 
+                                <path d="M23 12C23 18.0751 18.0751 23 12 23C5.92487 23 1 18.0751 1 12C1 5.92487 5.92487 1 12 1C18.0751 1 23 5.92487 23 12ZM3.00683 12C3.00683 16.9668 7.03321 20.9932 12 20.9932C16.9668 20.9932 20.9932 16.9668 20.9932 12C20.9932 7.03321 16.9668 3.00683 12 3.00683C7.03321 3.00683 3.00683 7.03321 3.00683 12Z" 
+                                fill="#bbbbbb"></path> 
+                                <path d="M12 5C11.4477 5 11 5.44771 11 6V12.4667C11 12.4667 11 12.7274 11.1267 12.9235C11.2115 13.0898 11.3437 13.2343 11.5174 13.3346L16.1372 16.0019C16.6155 16.278 17.2271 16.1141 17.5032 15.6358C17.7793 15.1575 17.6155 14.5459 17.1372 14.2698L13 11.8812V6C13 5.44772 12.5523 5 12 5Z" 
+                                fill="#bbbbbb"></path> 
+                            </g>
+                        </svg>
+                        <span class="level-metadata-item-text">${formatDuration(level.levelLengthInMs || 0)}</span>
+                      </div>
+                    ` : ''}  
+                    <div class="level-metadata-item">
 
                           <svg width="${Math.round(24*multiplier)}px" height="${Math.round(24*multiplier)}px" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlnsXlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 612 612" enable-background="new 0 0 612 512">
                               <path 
@@ -665,7 +677,7 @@ router.get(
                               stroke="none" 
                               d="M 605.441 217.577 C 604.88 218.138 590.048 233.969 585.902 238.23 C 576.142 248.26 566.275 258.192 556.526 268.231 C 543.405 281.742 530.306 295.273 517.284 308.877 C 502.558 324.264 487.938 339.747 473.252 355.174 C 462.662 366.298 452.097 377.445 441.423 388.489 C 431.586 398.666 421.587 408.685 411.718 418.832 C 397.816 433.124 383.736 447.263 370.264 461.941 C 366.843 465.667 363.621 466.384 359.072 466.381 C 246.224 466.288 133.375 466.307 20.078 466.307 C -4.426 466.307 -3.859 429.986 20.078 429.986 C 58.619 429.986 96.71 429.546 135.141 429.546 C 134.908 388.445 135.4 347.799 134.841 307.001 C 95.575 307.001 57.603 307.001 19.63 307.001 C -5.122 307.001 -4.209 271.622 19.63 271.622 C 102.456 271.622 185.28 271.174 268.104 271.212 C 270.971 271.213 272.931 270.735 275.188 268.327 C 286.374 256.393 298.033 244.893 309.496 233.213 C 317.974 224.573 326.431 215.914 334.855 207.223 C 348.295 193.36 361.696 179.454 375.124 165.578 C 389.321 150.908 403.531 136.248 417.733 121.582 C 431.493 107.369 444.75 92.661 458.718 78.692 C 479.23 58.181 513.204 85.403 491.311 107.296 C 484.207 114.4 477.386 121.781 470.366 128.968 C 460.031 139.545 449.6 150.032 439.301 160.646 C 432.415 167.742 425.686 174.988 418.747 182.32 C 419.477 183.321 420.218 184.66 421.254 185.716 C 433.381 198.078 445.613 210.34 457.697 222.741 C 470.402 235.778 483.05 248.875 495.555 262.099 C 498.284 264.985 499.955 264.988 502.713 262.111 C 513.49 250.865 524.562 239.898 535.417 228.727 C 547.553 216.238 559.262 203.391 571.604 191.048 C 595.827 166.827 624.701 198.316 605.441 217.577 Z M 398.889 228.73 C 395.613 225.169 392.289 221.647 389.075 218.034 C 387.306 216.043 385.802 216.017 384.009 218.015 C 380.569 221.849 377.077 225.646 373.499 229.357 C 359.655 243.717 345.798 258.067 331.88 272.36 C 321.452 283.072 311.007 293.77 300.359 304.264 C 298.819 305.78 296.09 306.88 293.907 306.889 C 255.107 307.042 216.304 307.001 177.504 307.001 C 175.825 307.001 174.146 307.001 172.603 307.001 C 172.603 348.181 172.603 388.782 172.603 429.546 C 174.628 429.546 176.362 429.546 178.097 429.546 C 229.938 429.546 281.782 430.368 333.616 429.807 C 343.224 429.703 345.821 424.945 354.967 415.508 C 360.753 409.538 366.435 403.465 372.22 397.492 C 386.867 382.367 401.503 367.232 416.215 352.17 C 428.096 340.005 440.108 327.964 452.007 315.813 C 456.278 311.455 460.304 306.861 464.607 302.534 C 466.407 300.724 466.672 299.496 464.798 297.492 C 455.64 287.689 446.806 277.583 437.516 267.909 C 424.973 254.849 412.115 242.084 398.889 228.73 Z"></path>
                             </svg>
-                        <span class="level-metadata-item-text">${metadata?.angles?.length || 0}</span>
+                        <span class="level-metadata-item-text">${level.tilecount || 0}</span>
                       </div>
                       <div class="level-metadata-item">
 
@@ -677,7 +689,7 @@ router.get(
                             <g id="SVGRepo_iconCarrier"> <g fillRule="evenodd"> 
                             <path d="M64.458 228.867c-.428 2.167 1.007 3.91 3.226 3.893l121.557-.938c2.21-.017 3.68-1.794 3.284-3.97l-11.838-64.913c-.397-2.175-1.626-2.393-2.747-.487l-9.156 15.582c-1.12 1.907-1.71 5.207-1.313 7.388l4.915 27.03c.395 2.175-1.072 3.937-3.288 3.937H88.611c-2.211 0-3.659-1.755-3.233-3.92L114.85 62.533l28.44-.49 11.786 44.43c.567 2.139 2.01 2.386 3.236.535l8.392-12.67c1.22-1.843 1.73-5.058 1.139-7.185l-9.596-34.5c-1.184-4.257-5.735-7.677-10.138-7.638l-39.391.349c-4.415.039-8.688 3.584-9.544 7.912L64.458 228.867z"></path> <path d="M118.116 198.935c-1.182 1.865-.347 3.377 1.867 3.377h12.392c2.214 0 4.968-1.524 6.143-3.39l64.55-102.463c1.18-1.871 3.906-3.697 6.076-4.074l9.581-1.667c2.177-.379 4.492-2.38 5.178-4.496l4.772-14.69c.683-2.104-.063-5.034-1.677-6.555L215.53 54.173c-1.609-1.517-4.482-1.862-6.4-.78l-11.799 6.655c-1.925 1.086-3.626 3.754-3.799 5.954l-.938 11.967c-.173 2.202-1.27 5.498-2.453 7.363l-72.026 113.603z"></path> </g> </g></svg>
     
-                        <span class="level-metadata-item-text">${metadata?.settings?.bpm || 0}</span>
+                        <span class="level-metadata-item-text">${clampFloat(level.bpm || 0, 2)}</span>
                       </div>
                     </div>
                   </div>
