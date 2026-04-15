@@ -16,7 +16,7 @@ dotenv.config();
  * Increment this when breaking changes are made to the level parsing logic
  * to force re-parsing of all cached levels.
  */
-export const SAFE_TO_PARSE_VERSION = 2;
+export const SAFE_TO_PARSE_VERSION = 3;
 
 /**
  * Version number for the analysis cache format.
@@ -27,7 +27,7 @@ export const SAFE_TO_PARSE_VERSION = 2;
  *
  * This invalidates ONLY the analysis cache, not tilecount/settings.
  */
-export const ANALYSIS_FORMAT_VERSION = 4;
+export const ANALYSIS_FORMAT_VERSION = 5;
 
 /**
  * Analysis object keys that must be present on a fully populated cache entry

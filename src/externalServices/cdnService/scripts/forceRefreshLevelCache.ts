@@ -1,6 +1,7 @@
 #!/usr/bin/env ts-node
 
 import { Command } from 'commander';
+import { Op } from 'sequelize';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
@@ -9,8 +10,11 @@ const sequelize = getSequelizeForModelGroup('cdn');
 import { levelCacheService } from '../services/levelCacheService.js';
 
 /**
- * Script to populate cache for all LEVELZIP files with null cacheData
- * This ensures all level files have cached tilecount and settings data
+ * Force-refresh LEVELZIP cacheData (tilecount, settings, analysis, transformOptions) by
+ * clearing persisted cache and re-parsing the target level with the current adofai-lib.
+ *
+ * Use after parsing / LevelDict / analysis logic changes when bumping SAFE_TO_PARSE_VERSION
+ * or ANALYSIS_FORMAT_VERSION alone is not enough, or you want a one-off full rebuild.
  */
 
 interface ScriptStats {
@@ -22,12 +26,9 @@ interface ScriptStats {
     errors: Array<{ fileId: string; error: string }>;
 }
 
-/**
- * Process a single file to populate its cache
- */
-async function populateCacheForFile(file: CdnFile, stats: ScriptStats): Promise<void> {
+async function refreshCacheForFile(file: CdnFile, stats: ScriptStats): Promise<void> {
     try {
-        logger.info(`[${stats.processed + 1}/${stats.total}] Processing file: ${file.id}`);
+        logger.info(`[${stats.processed + 1}/${stats.total}] Force-refresh: ${file.id}`);
 
         const metadata = file.metadata as { targetLevelOversized?: boolean } | undefined;
         if (metadata?.targetLevelOversized) {
@@ -37,26 +38,26 @@ async function populateCacheForFile(file: CdnFile, stats: ScriptStats): Promise<
             return;
         }
 
-        // Try to populate cache
+        await levelCacheService.clearCache(file);
         const cacheData = await levelCacheService.ensureCachePopulated(file.id);
 
         if (cacheData) {
             stats.successful++;
-            logger.info(`Successfully populated cache for file: ${file.id}`, {
+            logger.info(`Refreshed cache for file: ${file.id}`, {
                 tilecount: cacheData.tilecount,
                 hasSettings: !!cacheData.settings
             });
         } else {
             stats.failed++;
-            const error = 'Failed to populate cache (returned null)';
+            const error = 'Failed to repopulate cache after clear (returned null)';
             stats.errors.push({ fileId: file.id, error });
-            logger.warn(`Failed to populate cache for file: ${file.id}`);
+            logger.warn(`Failed to refresh cache for file: ${file.id}`);
         }
     } catch (error) {
         stats.failed++;
         const errorMessage = error instanceof Error ? error.message : String(error);
         stats.errors.push({ fileId: file.id, error: errorMessage });
-        logger.error(`Error populating cache for file: ${file.id}`, {
+        logger.error(`Error refreshing cache for file: ${file.id}`, {
             error: errorMessage
         });
     }
@@ -64,39 +65,30 @@ async function populateCacheForFile(file: CdnFile, stats: ScriptStats): Promise<
     stats.processed++;
 }
 
-/**
- * Find all LEVELZIP files with null cacheData
- */
-async function findFilesNeedingCache(onlyNull: boolean): Promise<CdnFile[]> {
-    const where: any = {
+async function findLevelZipFiles(options: { onlyWithExistingCache: boolean }): Promise<CdnFile[]> {
+    const where: Record<string, unknown> = {
         type: 'LEVELZIP'
     };
 
-    if (onlyNull) {
-        where.cacheData = null;
+    if (options.onlyWithExistingCache) {
+        where.cacheData = { [Op.ne]: null };
     }
 
-    const files = await CdnFile.findAll({
+    return CdnFile.findAll({
         where,
         order: [['createdAt', 'ASC']]
     });
-
-    return files;
 }
 
-/**
- * Main script execution
- */
 async function main(options: {
     dryRun: boolean;
     limit?: number;
-    onlyNull: boolean;
+    onlyWithExistingCache: boolean;
     fileId?: string;
 }) {
-    logger.info('Starting level cache population script', options);
+    logger.info('Starting force refresh of LEVELZIP cache metadata', options);
 
     try {
-        // Connect to database
         await sequelize.authenticate();
         logger.info('Database connection established');
 
@@ -109,7 +101,6 @@ async function main(options: {
             errors: []
         };
 
-        // If specific fileId provided, process only that file
         if (options.fileId) {
             logger.info(`Processing specific file: ${options.fileId}`);
             const file = await CdnFile.findByPk(options.fileId);
@@ -127,53 +118,54 @@ async function main(options: {
             stats.total = 1;
 
             if (options.dryRun) {
-                logger.info('[DRY RUN] Would populate cache for file:', {
+                logger.info('[DRY RUN] Would clear cache and repopulate for file:', {
                     fileId: file.id,
-                    currentCache: file.cacheData ? 'exists' : 'null'
+                    hadCache: !!file.cacheData
                 });
                 stats.skipped = 1;
             } else {
-                await populateCacheForFile(file, stats);
+                await refreshCacheForFile(file, stats);
             }
         } else {
-            // Find all files needing cache population
-            logger.info(`Finding LEVELZIP files ${options.onlyNull ? 'with null cacheData' : '(all files)'}...`);
-            const files = await findFilesNeedingCache(options.onlyNull);
+            const files = await findLevelZipFiles({
+                onlyWithExistingCache: options.onlyWithExistingCache
+            });
 
             stats.total = options.limit ? Math.min(files.length, options.limit) : files.length;
 
-            logger.info(`Found ${files.length} LEVELZIP files, processing ${stats.total}`);
+            logger.info(
+                `Found ${files.length} LEVELZIP files${options.onlyWithExistingCache ? ' (with existing cache) ' : ' '}` +
+                    `— processing ${stats.total}`
+            );
 
             if (files.length === 0) {
                 logger.info('No files found to process');
                 return;
             }
 
-            // Process files
             const filesToProcess = options.limit ? files.slice(0, options.limit) : files;
 
             if (options.dryRun) {
-                logger.info('[DRY RUN] Would process the following files:');
+                logger.info('[DRY RUN] Would clear and repopulate cache for:');
                 filesToProcess.forEach((file, index) => {
-                    logger.info(`  [${index + 1}/${stats.total}] ${file.id} - Cache: ${file.cacheData ? 'exists' : 'null'}`);
+                    logger.info(`  [${index + 1}/${stats.total}] ${file.id} — cache: ${file.cacheData ? 'yes' : 'no'}`);
                 });
                 stats.skipped = stats.total;
             } else {
-                // Process files sequentially to avoid overwhelming the system
                 for (const file of filesToProcess) {
-                    await populateCacheForFile(file, stats);
+                    await refreshCacheForFile(file, stats);
 
-                    // Log progress every 10 files
                     if (stats.processed % 10 === 0) {
-                        logger.info(`Progress: ${stats.processed}/${stats.total} processed (${stats.successful} successful, ${stats.failed} failed)`);
+                        logger.info(
+                            `Progress: ${stats.processed}/${stats.total} processed (${stats.successful} successful, ${stats.failed} failed)`
+                        );
                     }
                 }
             }
         }
 
-        // Print final statistics
         logger.info('\n' + '='.repeat(60));
-        logger.info('Cache Population Complete');
+        logger.info('Force refresh complete');
         logger.info('='.repeat(60));
         logger.info(`Total files:      ${stats.total}`);
         logger.info(`Processed:        ${stats.processed}`);
@@ -192,7 +184,6 @@ async function main(options: {
         if (options.dryRun) {
             logger.info('\n[DRY RUN] No changes were made to the database');
         }
-
     } catch (error) {
         logger.error('Script failed with error:', {
             error: error instanceof Error ? error.message : String(error),
@@ -205,24 +196,26 @@ async function main(options: {
     }
 }
 
-// Setup CLI
 const program = new Command();
 
 program
-    .name('populate-level-cache')
-    .description('Populate cache for LEVELZIP files with null cacheData')
-    .option('-d, --dry-run', 'Run in dry-run mode without making changes', false)
-    .option('-l, --limit <number>', 'Limit the number of files to process', (value) => parseInt(value, 10))
-    .option('-a, --all', 'Process all LEVELZIP files, not just those with null cache', false)
-    .option('-f, --file-id <fileId>', 'Process a specific file by ID')
+    .name('force-refresh-level-cache')
+    .description('Clear and rebuild LEVELZIP cacheData (re-parse with current adofai-lib)')
+    .option('-d, --dry-run', 'Run without clearing or writing cache', false)
+    .option('-l, --limit <number>', 'Max number of files to process', (value) => parseInt(value, 10))
+    .option(
+        '-c, --only-cached',
+        'Only process LEVELZIP rows that already have cacheData (skip never-cached rows)',
+        false
+    )
+    .option('-f, --file-id <fileId>', 'Process a single file by ID')
     .action(async (options) => {
         await main({
             dryRun: options.dryRun,
             limit: options.limit,
-            onlyNull: !options.all,
+            onlyWithExistingCache: options.onlyCached,
             fileId: options.fileId
         });
     });
 
 program.parse(process.argv);
-
