@@ -53,7 +53,7 @@ async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<
 
   try {
     const { bpm, tilecount, levelLengthInMs } = await cdnService.refreshLevelChartCacheAndGetStats(fileId);
-    await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId }, hooks: false });
+    await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId } });
     await elasticsearchService.indexLevel(levelId);
   } catch {
     await applyLevelChartStatsFromCdn(levelId);
