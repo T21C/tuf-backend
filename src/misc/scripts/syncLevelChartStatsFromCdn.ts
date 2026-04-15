@@ -1,6 +1,6 @@
 /**
  * Rebuild `cdn_files.cacheData` for each level's zip (like a fresh parse), then sync
- * `levels.bpm`, `tilecount`, and `levelLengthInMs` from cache (see levelChartStatsSync).
+ * `levels.bpm`, `tilecount`, and `levelLengthInMs` from cache (`refresh` + DB + ES).
  *
  * Use after parsing changes, target-level fixes, or when denormalized stats drift.
  *
@@ -20,11 +20,42 @@ dotenv.config();
 import Level from '@/models/levels/Level.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { isCdnUrl } from '@/misc/utils/Utility.js';
-import { rebuildCdnCacheAndApplyLevelChartStats } from '@/misc/utils/data/levelChartStatsSync.js';
+import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
+import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
+import cdnService from '@/server/services/core/CdnService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const levelsSequelize = getSequelizeForModelGroup('levels');
 const cdnSequelize = getSequelizeForModelGroup('cdn');
+
+/** CDN refresh + DB/ES sync; falls back to `applyLevelChartStatsFromCdn` if refresh fails. */
+async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<void> {
+  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink'] });
+  if (!level) {
+    return;
+  }
+
+  if (!level.dlLink || !isCdnUrl(level.dlLink)) {
+    await applyLevelChartStatsFromCdn(levelId);
+    return;
+  }
+
+  const fileId = getFileIdFromCdnUrl(level.dlLink);
+  if (!fileId) {
+    await applyLevelChartStatsFromCdn(levelId);
+    return;
+  }
+
+  try {
+    const { bpm, tilecount, levelLengthInMs } = await cdnService.refreshLevelChartCacheAndGetStats(fileId);
+    await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId }, hooks: false });
+    await elasticsearchService.indexLevel(levelId);
+  } catch {
+    await applyLevelChartStatsFromCdn(levelId);
+  }
+}
 
 async function mapWithConcurrency<T>(
   items: readonly T[],

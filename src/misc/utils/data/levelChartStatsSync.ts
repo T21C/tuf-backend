@@ -2,8 +2,19 @@ import Level from '@/models/levels/Level.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { logger } from '@/server/services/core/LoggerService.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
+
+/** Same tags as `invalidateLevelCache` in models/levels/hooks.ts (skipped when update uses hooks: false). */
+async function invalidateLevelHttpCache(levelId: number): Promise<void> {
+  try {
+    await CacheInvalidation.invalidateTags([`level:${levelId}`, 'levels:all']);
+  } catch (error) {
+    logger.error(`Cache invalidation after chart stats sync failed for level ${levelId}:`, error);
+  }
+}
 
 export { parseChartStatsFromCache } from './chartCacheParse.js';
 
@@ -21,6 +32,7 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
       { where: { id: levelId }, hooks: false },
     );
     await elasticsearchService.indexLevel(levelId);
+    await invalidateLevelHttpCache(levelId);
     return;
   }
 
@@ -31,40 +43,12 @@ export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void
       { where: { id: levelId }, hooks: false },
     );
     await elasticsearchService.indexLevel(levelId);
+    await invalidateLevelHttpCache(levelId);
     return;
   }
 
   const { bpm, tilecount, levelLengthInMs } = await cdnService.getLevelChartStats(fileId);
   await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId }, hooks: false });
   await elasticsearchService.indexLevel(levelId);
-}
-
-/**
- * Ask CDN service to clear/rebuild zip cache for current metadata, then copy chart fields onto the level row.
- * Use after target-level changes or when stats are stale.
- */
-export async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<void> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink'] });
-  if (!level) {
-    return;
-  }
-
-  if (!level.dlLink || !isCdnUrl(level.dlLink)) {
-    await applyLevelChartStatsFromCdn(levelId);
-    return;
-  }
-
-  const fileId = getFileIdFromCdnUrl(level.dlLink);
-  if (!fileId) {
-    await applyLevelChartStatsFromCdn(levelId);
-    return;
-  }
-
-  try {
-    const { bpm, tilecount, levelLengthInMs } = await cdnService.refreshLevelChartCacheAndGetStats(fileId);
-    await Level.update({ bpm, tilecount, levelLengthInMs }, { where: { id: levelId }, hooks: false });
-    await elasticsearchService.indexLevel(levelId);
-  } catch {
-    await applyLevelChartStatsFromCdn(levelId);
-  }
+  await invalidateLevelHttpCache(levelId);
 }

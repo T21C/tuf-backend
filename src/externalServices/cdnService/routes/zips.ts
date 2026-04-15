@@ -9,7 +9,7 @@ import { processZipFile } from '../services/zipProcessor.js';
 import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import crypto from 'crypto';
-import LevelDict from 'adofai-lib';
+import LevelDict, { analysisUtils } from 'adofai-lib';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 
@@ -1484,7 +1484,6 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         // Get fresh analysis for each level file
         const levelFiles = await Promise.all(allLevelFiles.map(async (file) => {
             try {
-                const preferredStorageType = (levelEntry.metadata as any)?.levelStorageType || (levelEntry.metadata as any)?.storageType;
                 const levelExists = await spacesStorage.fileExists(file.path);
                 if (!levelExists) {
                     throw new Error('Level file not found in storage');
@@ -1513,7 +1512,8 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     song: levelDict.getSetting('song'),
                     author: levelDict.getSetting('author'),
                     difficulty: levelDict.getSetting('difficulty'),
-                    bpm: levelDict.getSetting('bpm')
+                    bpm: levelDict.getSetting('bpm'),
+                    levelLengthInMs: analysisUtils.getLevelLengthInMs(levelDict)
                 };
             } catch (error) {
                 logger.error('Failed to analyze level file:', {
