@@ -12,6 +12,7 @@ import {
 } from '@/externalServices/cdnService/services/cdnSpacesTemp.js';
 import LevelDict from 'adofai-lib';
 import { AnalysisCacheData, levelCacheService } from '@/externalServices/cdnService/services/levelCacheService.js';
+import { parseChartStatsFromCache } from '@/misc/utils/data/chartCacheParse.js';
 import { Op } from 'sequelize';
 
 // Add helper function for sanitizing filenames
@@ -523,6 +524,65 @@ router.post('/bulk-metadata', async (req: Request, res: Response) => {
         }
         logger.error('Unexpected error getting bulk metadata for ' + req.body.fileIds + ':', error);
         return res.status(500).json({ error: 'Unexpected error getting bulk metadata' });
+    }
+});
+
+/** Denormalized chart fields from persisted cache (main server must not read `CdnFile` directly). */
+router.get('/:fileId/chart-stats', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        if (!fileId) {
+            return res.status(400).json({ error: 'File ID is required' });
+        }
+        const file = await CdnFile.findByPk(fileId, { attributes: ['id', 'type', 'cacheData', 'metadata'] });
+        if (!file) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        if (file.type !== 'LEVELZIP') {
+            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null });
+        }
+        const stats = parseChartStatsFromCache(file.cacheData ?? null);
+        return res.json(stats);
+    } catch (error) {
+        logger.error('chart-stats error for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error getting chart stats' });
+    }
+});
+
+/** Clear/rebuild level zip cache, return fresh denormalized chart fields (same source as chart-stats after write). */
+router.post('/:fileId/chart-cache/refresh', async (req: Request, res: Response) => {
+    try {
+        const { fileId } = req.params;
+        if (!fileId) {
+            return res.status(400).json({ error: 'File ID is required' });
+        }
+        const file = await CdnFile.findByPk(fileId);
+        if (!file) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        if (file.type !== 'LEVELZIP') {
+            return res.json({ bpm: null, tilecount: null, levelLengthInMs: null });
+        }
+        const metadata = file.metadata as {
+            targetLevelOversized?: boolean;
+        };
+        if (metadata?.targetLevelOversized) {
+            const stats = parseChartStatsFromCache(file.cacheData ?? null);
+            return res.json(stats);
+        }
+        await levelCacheService.clearCache(file);
+        await file.reload();
+        await levelCacheService.ensureCachePopulated(fileId);
+        await file.reload();
+        const stats = parseChartStatsFromCache(file.cacheData ?? null);
+        return res.json(stats);
+    } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+            const customError = error as { code: number; error: string };
+            return res.status(customError.code).json({ error: customError.error });
+        }
+        logger.error('chart-cache refresh error for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Unexpected error refreshing chart cache' });
     }
 });
 

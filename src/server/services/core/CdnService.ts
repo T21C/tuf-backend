@@ -583,6 +583,51 @@ class CdnService {
         }
     }
 
+    /**
+     * Read denormalized BPM / tilecount / length from CDN `cacheData` (microservice; no direct `CdnFile` access on main server).
+     */
+    async getLevelChartStats(fileId: string): Promise<{
+        bpm: number | null;
+        tilecount: number | null;
+        levelLengthInMs: number | null;
+    }> {
+        try {
+            const response = await this.client.get(`/levels/${fileId}/chart-stats`);
+            return response.data;
+        } catch (error) {
+            if (error instanceof AxiosError && error.response?.status === 404) {
+                return { bpm: null, tilecount: null, levelLengthInMs: null };
+            }
+            this.handleCdnError(
+                error,
+                'get level chart stats from CDN',
+                'Failed to get level chart stats',
+                'GET_CHART_STATS_ERROR'
+            );
+        }
+    }
+
+    /**
+     * Clear and rebuild level zip cache on CDN, then return chart stats (same DB row the API would read).
+     */
+    async refreshLevelChartCacheAndGetStats(fileId: string): Promise<{
+        bpm: number | null;
+        tilecount: number | null;
+        levelLengthInMs: number | null;
+    }> {
+        try {
+            const response = await this.client.post(`/levels/${fileId}/chart-cache/refresh`);
+            return response.data;
+        } catch (error) {
+            this.handleCdnError(
+                error,
+                'refresh level chart cache on CDN',
+                'Failed to refresh level chart cache',
+                'REFRESH_CHART_CACHE_ERROR'
+            );
+        }
+    }
+
     async getBulkLevelMetadata(levels: Level[]): Promise<{fileId: string, metadata: any}[]> {
         try {
             const fileIds = levels.map(level => level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null);

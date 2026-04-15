@@ -2089,20 +2089,22 @@ router.put('/:fileId/target-level', async (req: Request, res: Response) => {
             timestamp: new Date().toISOString()
         });
 
-        // Repopulate cache for the new target level
-        logger.debug('Repopulating cache for new target level:', { fileId });
-        try {
-            // Reload the file to get the updated metadata
-            await levelEntry.reload();
-            await levelCacheService.ensureCachePopulated(fileId);
-            logger.debug('Cache repopulated successfully for new target level:', { fileId });
-        } catch (cacheError) {
-            // Log error but don't fail the request
-            logger.warn('Failed to repopulate cache for new target level (non-critical):', {
-                fileId,
-                error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+        const fileAfterCommit = await CdnFile.findByPk(fileId);
+        if (!fileAfterCommit) {
+            logger.error('CdnFile missing after target-level commit', { fileId });
+            return res.status(500).json({ error: 'File missing after update' });
+        }
+
+        await levelCacheService.clearCache(fileAfterCommit);
+        const cacheData = await levelCacheService.ensureCachePopulated(fileId);
+        if (!cacheData) {
+            logger.error('Failed to rebuild level cache after target level change', { fileId });
+            return res.status(500).json({
+                error: 'Failed to rebuild level cache after target change',
+                code: 'LEVEL_CACHE_REBUILD_FAILED'
             });
         }
+        logger.debug('Cache rebuilt for new target level:', { fileId });
 
         res.json({
             success: true,
