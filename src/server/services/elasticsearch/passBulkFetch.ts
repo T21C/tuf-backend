@@ -24,7 +24,11 @@ function groupById<T extends { id: number }>(rows: T[]): Map<number, T> {
 
 export async function fetchPassesForBulkIndex(passIds: number[]): Promise<Pass[]> {
   if (passIds.length === 0) return [];
-  const ids = [...new Set(passIds)].map(Number).sort((a, b) => a - b);
+  const ids = [...new Set(passIds)]
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .sort((a, b) => a - b);
+  if (ids.length === 0) return [];
 
   const passes = await Pass.findAll({
     where: { id: { [Op.in]: ids } },

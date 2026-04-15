@@ -296,7 +296,16 @@ class ElasticsearchService {
   }
 
   public async indexPass(pass: Pass | number): Promise<void> {
-    const id = typeof pass === 'number' ? pass : pass.id;
+    const id =
+      typeof pass === 'number'
+        ? pass
+        : pass != null && typeof pass === 'object' && 'id' in pass
+          ? (pass as Pass).id
+          : NaN;
+    if (!Number.isFinite(id) || id <= 0) {
+      logger.warn('indexPass skipped: invalid pass id', { pass });
+      return;
+    }
     try {
       const loaded = await fetchPassWithRelations(id);
       if (!loaded) {

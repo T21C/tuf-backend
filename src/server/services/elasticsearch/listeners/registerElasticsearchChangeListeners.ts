@@ -12,6 +12,7 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { extractNumericIdsFromSequelizeWhereField } from '@/server/services/elasticsearch/extractNumericIdsFromSequelizeWhereField.js';
 
 export interface ElasticsearchHookApi {
   indexLevel(level: Level | number): Promise<void>;
@@ -96,26 +97,24 @@ export function registerElasticsearchChangeListeners(api: ElasticsearchHookApi):
     Pass.addHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate', async (options: any) => {
       logger.debug('Pass bulk update hook triggered');
       try {
+        const passIds = extractNumericIdsFromSequelizeWhereField(options.where?.id);
+        const levelIds = extractNumericIdsFromSequelizeWhereField(options.where?.levelId);
+
+        const run = async () => {
+          if (passIds.length > 0) {
+            logger.debug(`Reindexing ${passIds.length} pass(es) after bulk update`, { passIds });
+            await api.reindexPasses(passIds);
+          }
+          if (levelIds.length > 0) {
+            logger.debug(`Reindexing ${levelIds.length} level(s) after pass bulk update`, { levelIds });
+            await api.reindexLevels(levelIds);
+          }
+        };
+
         if (options.transaction) {
-          await options.transaction.afterCommit(async () => {
-            // If we have a specific pass ID, update that pass
-            if (options.where?.id) {
-              logger.debug(`Indexing pass ${options.where.id} after bulk update`);
-              await api.indexPass(options.where.id);
-            }
-            // If we have a levelId, update all passes for that level
-            if (options.where?.levelId) {
-              logger.debug(`Indexing level ${options.where.levelId} after bulk update`);
-              await api.indexLevel(options.where.levelId);
-            }
-          });
+          await options.transaction.afterCommit(run);
         } else {
-          if (options.where?.id) {
-            await api.indexPass(options.where.id);
-          }
-          if (options.where?.levelId) {
-            await api.indexLevel(options.where.levelId);
-          }
+          await run();
         }
       } catch (error) {
         logger.error('Error in pass afterBulkUpdate hook:', error);
@@ -130,8 +129,16 @@ export function registerElasticsearchChangeListeners(api: ElasticsearchHookApi):
           await options.transaction.afterCommit(async () => {
             if (instances.length > 0) {
               // Get unique level IDs from the passes
-              const levelIds = Array.from(new Set(instances.map(pass => pass.levelId)));
-              const passIds = instances.map(pass => pass.id);
+              const levelIds = Array.from(
+                new Set(
+                  instances
+                    .map((pass) => pass.levelId)
+                    .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0),
+                ),
+              );
+              const passIds = instances
+                .map((pass) => pass.id)
+                .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
 
               logger.debug(`Bulk indexing ${passIds.length} passes and ${levelIds.length} levels after bulk create`);
 
@@ -146,8 +153,16 @@ export function registerElasticsearchChangeListeners(api: ElasticsearchHookApi):
           });
         } else {
           if (instances.length > 0) {
-            const levelIds = Array.from(new Set(instances.map(pass => pass.levelId)));
-            const passIds = instances.map(pass => pass.id);
+            const levelIds = Array.from(
+              new Set(
+                instances
+                  .map((pass) => pass.levelId)
+                  .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0),
+              ),
+            );
+            const passIds = instances
+              .map((pass) => pass.id)
+              .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
 
             await api.reindexPasses(passIds);
 
