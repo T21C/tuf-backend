@@ -516,7 +516,7 @@ router.get(
 
     const level = await Level.findOne({
       where: { id: levelId },
-      attributes: ['id', 'dlLink', 'isDeleted']
+      attributes: ['id', 'dlLink', 'isDeleted', 'fileId']
     });
 
     if (!level) {
