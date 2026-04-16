@@ -37,8 +37,10 @@ class Level
   declare previousBaseScore: number | null;
   declare clears: number;
   declare likes: number;
+  declare downloadCount: number;
   declare videoLink: string;
   declare dlLink: string;
+  declare fileId: string | null;
   declare legacyDllink: string | null;
   declare workshopLink: string;
   declare publicComments: string;
@@ -129,6 +131,11 @@ Level.init(
     dlLink: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    fileId: {
+      type: DataTypes.CHAR(36),
+      allowNull: true,
+      defaultValue: null,
     },
     legacyDllink: {
       type: DataTypes.TEXT,
@@ -244,6 +251,11 @@ Level.init(
       allowNull: false,
       defaultValue: 0,
     },
+    downloadCount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+    },
     firstPass: {
       type: DataTypes.VIRTUAL,
       get() {
@@ -305,6 +317,7 @@ Level.init(
     indexes: [
       {fields: [{name: 'song', length: 255}]},
       {fields: [{name: 'artist', length: 255}]},
+      {name: 'idx_levels_file_id', fields: ['fileId']},
     ],
   },
 );

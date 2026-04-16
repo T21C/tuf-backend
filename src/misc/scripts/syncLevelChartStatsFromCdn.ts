@@ -20,7 +20,7 @@ dotenv.config();
 import Level from '@/models/levels/Level.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
+import { isCdnUrl } from '@/misc/utils/Utility.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -35,7 +35,7 @@ const cdnSequelize = getSequelizeForModelGroup('cdn');
 
 /** CDN refresh + DB/ES sync; falls back to `applyLevelChartStatsFromCdn` if refresh fails. */
 async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<void> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink'] });
+  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
   if (!level) {
     return;
   }
@@ -45,7 +45,7 @@ async function rebuildCdnCacheAndApplyLevelChartStats(levelId: number): Promise<
     return;
   }
 
-  const fileId = getFileIdFromCdnUrl(level.dlLink);
+  const fileId = level.fileId ?? null;
   if (!fileId) {
     await applyLevelChartStatsFromCdn(levelId);
     return;

@@ -51,8 +51,12 @@ export interface ILevel extends IBaseModel {
   previousBaseScore: number | null;
   clears: number;
   likes: number;
+  /** Persistent per-level download counter (server-owned). */
+  downloadCount?: number;
   videoLink: string;
   dlLink: string;
+  /** Indexed CDN fileId derived from `dlLink` (kept in sync via Level hooks). Null for non-CDN or removed links. */
+  fileId?: string | null;
   legacyDllink?: string | null;
   workshopLink: string;
   publicComments: string;

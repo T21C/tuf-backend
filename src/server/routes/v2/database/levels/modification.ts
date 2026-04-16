@@ -25,7 +25,6 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import {
   isCdnUrl,
-  getFileIdFromCdnUrl,
   safeTransactionRollback,
   sanitizeTextInput,
 } from '@/misc/utils/Utility.js';
@@ -233,7 +232,7 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   let oldFileId: string | null = null;
   const oldDlLink = level.dlLink;
   if (level.dlLink && isCdnUrl(level.dlLink)) {
-    oldFileId = getFileIdFromCdnUrl(level.dlLink);
+    oldFileId = level.fileId ?? null;
     logger.debug('Found existing CDN file to clean up after upload', {
       levelId,
       oldFileId,
@@ -252,7 +251,7 @@ async function finalizeLevelZipUploadFromBuffer(params: {
     try {
       let originalDurations: number[] | null = null;
       if (level.dlLink && isCdnUrl(level.dlLink)) {
-        const originalFileId = getFileIdFromCdnUrl(level.dlLink);
+        const originalFileId = level.fileId ?? null;
         if (originalFileId) {
           originalDurations = await cdnService.getDurationsFromFile(originalFileId);
         }
@@ -1985,7 +1984,7 @@ router.post(
         throw {error: errorMessage, code: 403};
       }
 
-      const fileId = getFileIdFromCdnUrl(level.dlLink);
+      const fileId = level.fileId ?? null;
       if (!fileId) {
         throw {error: 'File ID is required', code: 400};
       }
@@ -2073,7 +2072,10 @@ router.delete(
       }
 
       // Delete file from CDN
-      const fileId = getFileIdFromCdnUrl(level.dlLink)!;
+      const fileId = level.fileId!;
+      if (!fileId) {
+        throw {error: 'Level does not have a CDN-managed file', code: 400};
+      }
       logger.debug(`Deleting file from CDN: ${fileId}`);
       await cdnService.deleteFile(fileId);
 

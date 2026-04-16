@@ -1,6 +1,6 @@
 import Level from '@/models/levels/Level.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
+import { isCdnUrl } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { CacheInvalidation } from '@/server/middleware/cache.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -23,21 +23,11 @@ export { parseChartStatsFromCache } from './chartCacheParse.js';
  * Call after commits when CDN zip / target / dlLink may have changed (cross-pool; do not pass a transaction).
  */
 export async function applyLevelChartStatsFromCdn(levelId: number): Promise<void> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink'] });
+  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
   if (!level) return;
 
-  if (!level.dlLink || !isCdnUrl(level.dlLink)) {
-    await Level.update(
-      { bpm: null, tilecount: null, levelLengthInMs: null },
-      { where: { id: levelId }, hooks: false },
-    );
-    await elasticsearchService.indexLevel(levelId);
-    await invalidateLevelHttpCache(levelId);
-    return;
-  }
-
-  const fileId = getFileIdFromCdnUrl(level.dlLink);
-  if (!fileId) {
+  const fileId = level.fileId ?? null;
+  if (!level.dlLink || !isCdnUrl(level.dlLink) || !fileId) {
     await Level.update(
       { bpm: null, tilecount: null, levelLengthInMs: null },
       { where: { id: levelId }, hooks: false },

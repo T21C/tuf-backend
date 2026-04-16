@@ -5,11 +5,43 @@ import { CDN_CONFIG, IMAGE_TYPES, MIME_TYPES } from '@/externalServices/cdnServi
 import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
+import axios from 'axios';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 
 const router = Router();
+
+function getMainServerUrl(): string {
+    if (process.env.NODE_ENV === 'production') {
+        return process.env.PROD_API_URL || 'http://localhost:3000';
+    } else if (process.env.NODE_ENV === 'staging') {
+        return process.env.STAGING_API_URL || 'http://localhost:3000';
+    } else {
+        return process.env.DEV_URL || 'http://localhost:3002';
+    }
+}
+
+async function ingestDownloadEvent(body: { fileId: string; kind: 'levelzip' | 'transform' }): Promise<void> {
+    const secret = process.env.DOWNLOAD_INGEST_SECRET;
+    if (!secret) {
+        logger.debug('DOWNLOAD_INGEST_SECRET not set, skipping download ingest');
+        return;
+    }
+    const mainServerUrl = getMainServerUrl();
+    try {
+        await axios.post(`${mainServerUrl}/v2/cdn/download-events`, body, {
+            headers: { 'X-Download-Ingest-Key': secret },
+            timeout: 5000,
+        });
+    } catch (error) {
+        logger.debug('Failed to ingest download event', {
+            fileId: body.fileId,
+            kind: body.kind,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+}
 
 async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
         // For level zips, get the original zip from metadata
@@ -69,6 +101,8 @@ async function handleZipRequest(req: Request, res: Response, file: CdnFile) {
                 path: originalZip.path,
                 url: presignedUrl
             });
+
+            ingestDownloadEvent({ fileId, kind: 'levelzip' }).catch(() => undefined);
 
             // Cache the redirect itself aggressively since the target URL is immutable.
             res.setHeader('Cache-Control', CDN_CONFIG.cacheControl);

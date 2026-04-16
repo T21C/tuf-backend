@@ -3,6 +3,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios';
 import { transformLevel } from '@/externalServices/cdnService/services/levelTransformer.js';
 import { repackZipFile } from '@/externalServices/cdnService/services/zipProcessor.js';
 import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
@@ -63,6 +64,37 @@ function extractLevelMetadata(metadata: any) {
 }
 
 const router = Router();
+
+function getMainServerUrl(): string {
+  if (process.env.NODE_ENV === 'production') {
+    return process.env.PROD_API_URL || 'http://localhost:3000';
+  } else if (process.env.NODE_ENV === 'staging') {
+    return process.env.STAGING_API_URL || 'http://localhost:3000';
+  } else {
+    return process.env.DEV_URL || 'http://localhost:3002';
+  }
+}
+
+async function ingestDownloadEvent(body: { fileId: string; kind: 'levelzip' | 'transform' }): Promise<void> {
+  const secret = process.env.DOWNLOAD_INGEST_SECRET;
+  if (!secret) {
+    logger.debug('DOWNLOAD_INGEST_SECRET not set, skipping download ingest');
+    return;
+  }
+  const mainServerUrl = getMainServerUrl();
+  try {
+    await axios.post(`${mainServerUrl}/v2/cdn/download-events`, body, {
+      headers: { 'X-Download-Ingest-Key': secret },
+      timeout: 5000,
+    });
+  } catch (error) {
+    logger.debug('Failed to ingest download event', {
+      fileId: body.fileId,
+      kind: body.kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 // Transform level endpoint
 router.get('/:fileId/transform', async (req: Request, res: Response) => {
@@ -226,6 +258,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 const transformedLevel = transformLevel(parsedLevel, options);
 
                 await file.increment('accessCount');
+                ingestDownloadEvent({ fileId: file.id, kind: 'transform' }).catch(() => undefined);
 
                 // Handle different response formats
                 if (format === 'zip') {

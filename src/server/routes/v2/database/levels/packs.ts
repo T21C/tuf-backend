@@ -27,6 +27,7 @@ import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 import { stringIdParamSpec } from '@/server/schemas/common.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import {
@@ -750,15 +751,12 @@ router.get(
       originalFilename?: string;
     }>();
 
-    // Match metadata to levels by fileId from dlLink
+    // Match metadata to levels by indexed fileId column
     for (const level of fetchedLevels) {
-      if (level.id && level.dlLink) {
-        const fileId = getFileIdFromCdnUrl(level.dlLink);
-        if (fileId) {
-          const metadata = levelMetadataByFileId.get(fileId);
-          if (metadata) {
-            levelMetadataByLevelId.set(level.id, metadata);
-          }
+      if (level.id && level.fileId) {
+        const metadata = levelMetadataByFileId.get(level.fileId);
+        if (metadata) {
+          levelMetadataByLevelId.set(level.id, metadata);
         }
       }
     }
@@ -919,7 +917,7 @@ router.post(
           return null;
         }
 
-        const cdnFileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
+        const cdnFileId = level.fileId ?? null;
         const songNamePart = getSongDisplayName(level);
         const displayName = `#${level.id} ${songNamePart}`;
 
@@ -972,6 +970,40 @@ router.post(
         folderId: targetFolder ? targetFolder.id : null
       }
     });
+
+    // Pre-increment downloadCount for every CDN-backed level in the pack tree.
+    // Pack downloads are bulk operations and the CDN does not emit per-level
+    // download events for them, so we account for the downloads up-front
+    // (with cache invalidation) before asking the CDN to zip anything.
+    const packFileIds: string[] = [];
+    const collectPackFileIds = (nodes: DownloadTreeNode[]): void => {
+      for (const node of nodes) {
+        if (node.type === 'folder') {
+          if (Array.isArray(node.children)) collectPackFileIds(node.children);
+          continue;
+        }
+        if (typeof node.fileId === 'string' && node.fileId.length > 0) {
+          packFileIds.push(node.fileId);
+        }
+      }
+    };
+    collectPackFileIds(rootChildren);
+
+    try {
+      const updated = await incrementLevelDownloadCountsForFileIds(packFileIds);
+      logger.debug('Pre-incremented downloadCount for pack download', {
+        packId: pack.id,
+        folderId: targetFolder ? targetFolder.id : null,
+        fileIdCount: packFileIds.length,
+        updatedLevels: updated,
+      });
+    } catch (error) {
+      logger.warn('Failed to pre-increment downloadCount for pack download', {
+        packId: pack.id,
+        folderId: targetFolder ? targetFolder.id : null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const cdnResponse = await cdnService.generatePackDownload({
       zipName: zipDisplayName || 'Missing pack name',

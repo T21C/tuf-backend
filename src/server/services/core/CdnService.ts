@@ -3,8 +3,6 @@ import FormData from 'form-data';
 import { logger } from './LoggerService.js';
 import { ImageFileType } from '@/models/cdn/CdnFile.js';
 import Level from '@/models/levels/Level.js';
-import { getFileIdFromCdnUrl } from '@/misc/utils/Utility.js';
-
 const CDN_BASE_URL = process.env.LOCAL_CDN_URL || 'http://localhost:3001';
 
 const IGNORED_ERROR_CODES = ['PACK_SIZE_LIMIT_EXCEEDED', 'VALIDATION_ERROR', 'read ECONNRESET', 'GET_LEVEL_DATA_ERROR'];
@@ -491,7 +489,7 @@ class CdnService {
 
     async getLevelData(level: Level, modes?: LevelMetadataTypes[]): Promise<any> {
         try {
-            const fileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
+            const fileId = level.fileId ?? null;
             if (!fileId) {
                 return null;
             }
@@ -535,7 +533,7 @@ class CdnService {
 
     async getLevelAdofai(level: Level): Promise<any> {
         try {
-            const fileId = level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null;
+            const fileId = level.fileId ?? null;
             if (!fileId) {
                 return null;
             }
@@ -630,7 +628,7 @@ class CdnService {
 
     async getBulkLevelMetadata(levels: Level[]): Promise<{fileId: string, metadata: any}[]> {
         try {
-            const fileIds = levels.map(level => level.dlLink ? getFileIdFromCdnUrl(level.dlLink) : null);
+            const fileIds = levels.map(level => level.fileId ?? null);
             const response = await this.client.post('/levels/bulk-metadata', {
                 fileIds
             });

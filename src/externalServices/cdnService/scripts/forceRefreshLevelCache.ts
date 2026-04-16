@@ -23,7 +23,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import Level from '@/models/levels/Level.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
-import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
+import { isCdnUrl } from '@/misc/utils/Utility.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import { initializeAssociations } from '@/models/associations.js';
 import { levelCacheService, SAFE_TO_PARSE_VERSION } from '../services/levelCacheService.js';
@@ -89,7 +89,7 @@ async function processLevel(
     totalLabel: string
 ): Promise<void> {
     const label = positionLabel(position, totalLabel);
-    const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink'] });
+    const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'fileId'] });
     if (!level) {
         stats.skipped++;
         logger.warn(`${label} Level ${levelId}: not found`);
@@ -104,10 +104,10 @@ async function processLevel(
         return;
     }
 
-    const fileId = getFileIdFromCdnUrl(level.dlLink);
+    const fileId = level.fileId ?? null;
     if (!fileId) {
         stats.skipped++;
-        logger.info(`${label} Level ${levelId}: skip (could not parse file id from dlLink)`);
+        logger.info(`${label} Level ${levelId}: skip (no fileId on level row)`);
         stats.processed++;
         return;
     }
@@ -213,7 +213,7 @@ async function main(options: {
             while (done < maxTotal) {
                 const rows = await Level.findAll({
                     where: { id: { [Op.gt]: afterId } },
-                    attributes: ['id', 'dlLink'],
+                    attributes: ['id', 'dlLink', 'fileId'],
                     order: [['id', 'ASC']],
                     limit: FETCH
                 });
@@ -229,7 +229,7 @@ async function main(options: {
                         dl !== '' &&
                         dl !== 'removed' &&
                         isCdnUrl(dl) &&
-                        getFileIdFromCdnUrl(dl) != null
+                        row.fileId != null
                     );
                 });
 
