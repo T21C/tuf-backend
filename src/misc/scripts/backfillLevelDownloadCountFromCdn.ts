@@ -22,6 +22,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { initializeAssociations } from '@/models/associations.js';
+import CdnFile from '@/models/cdn/CdnFile.js';
 
 initializeAssociations();
 
@@ -54,7 +55,7 @@ interface RunOptions {
 }
 
 async function backfillOneLevel(levelId: number, dryRun: boolean): Promise<boolean> {
-  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'downloadCount'] });
+  const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink', 'downloadCount', 'fileId'] });
   if (!level) {
     return false;
   }
@@ -63,28 +64,24 @@ async function backfillOneLevel(levelId: number, dryRun: boolean): Promise<boole
     return false;
   }
 
-  if (!level.dlLink || level.dlLink === 'removed' || !isCdnUrl(level.dlLink)) {
-    return false;
-  }
-
   const fileId = level.fileId ?? null;
   if (!fileId) {
     return false;
   }
 
-  const data = await cdnService.getLevelData(level, ['accessCount']);
-  const accessCount = data?.accessCount;
-  if (typeof accessCount !== 'number' || !Number.isFinite(accessCount) || accessCount <= 0) {
+  const file = await CdnFile.findByPk(fileId, { attributes: ['accessCount'] });
+  if (!file) {
     return false;
   }
 
+  const accessCount = file.accessCount;
   if (dryRun) {
     logger.info(`[DRY RUN] Would set level ${levelId} downloadCount=${accessCount}`);
     return true;
   }
 
   await Level.update(
-    { downloadCount: Math.floor(accessCount) },
+    { downloadCount: accessCount },
     {
       where: {
         id: levelId,
