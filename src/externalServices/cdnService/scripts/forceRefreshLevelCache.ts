@@ -1,21 +1,37 @@
 #!/usr/bin/env ts-node
 
+/**
+ * Walk levels (by id), resolve CDN zip UUID from each level's dlLink, refresh LEVELZIP
+ * cache only when metadata is stale or missing, then always sync chart stats to the level
+ * row, Elasticsearch, and HTTP cache tags.
+ *
+ * Skips orphaned dlLinks (no LEVELZIP row), oversized targets, and non-CDN links.
+ *
+ * Usage (from server/):
+ *   npx tsx src/externalServices/cdnService/scripts/forceRefreshLevelCache.ts --dry-run
+ *   npx tsx src/externalServices/cdnService/scripts/forceRefreshLevelCache.ts --level-id 9611
+ *   npx tsx src/externalServices/cdnService/scripts/forceRefreshLevelCache.ts --after-id 0 --limit 200 --concurrency 4
+ */
+
 import { Command } from 'commander';
+import dotenv from 'dotenv';
 import { Op } from 'sequelize';
+
+dotenv.config();
+
 import { logger } from '@/server/services/core/LoggerService.js';
+import Level from '@/models/levels/Level.js';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
-
-const sequelize = getSequelizeForModelGroup('cdn');
+import { getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
+import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
+import { initializeAssociations } from '@/models/associations.js';
 import { levelCacheService, SAFE_TO_PARSE_VERSION } from '../services/levelCacheService.js';
 
-/**
- * Force-refresh LEVELZIP cacheData (tilecount, settings, analysis, transformOptions) by
- * clearing persisted cache and re-parsing the target level with the current adofai-lib.
- *
- * Use after parsing / LevelDict / analysis logic changes when bumping SAFE_TO_PARSE_VERSION
- * or ANALYSIS_FORMAT_VERSION alone is not enough, or you want a one-off full rebuild.
- */
+initializeAssociations();
+
+const levelsSequelize = getSequelizeForModelGroup('levels');
+const cdnSequelize = getSequelizeForModelGroup('cdn');
 
 interface ScriptStats {
     total: number;
@@ -23,48 +39,26 @@ interface ScriptStats {
     successful: number;
     failed: number;
     skipped: number;
-    errors: Array<{ fileId: string; error: string }>;
+    errors: Array<{ levelId: number; fileId?: string; error: string }>;
 }
 
-async function refreshCacheForFile(file: CdnFile, stats: ScriptStats, position: number): Promise<void> {
-    try {
-        logger.info(`[${position}/${stats.total}] Force-refresh: ${file.id}`);
-
-        const metadata = file.metadata as { targetLevelOversized?: boolean } | undefined;
-        if (metadata?.targetLevelOversized) {
-            stats.skipped++;
-            logger.warn(`Oversized level (cache not available): ${file.id}`);
-            return;
-        }
-
-        await levelCacheService.clearCache(file);
-        const cacheData = await levelCacheService.ensureCachePopulated(file.id);
-
-        if (cacheData) {
-            stats.successful++;
-            logger.info(`Refreshed cache for file: ${file.id}`, {
-                tilecount: cacheData.tilecount,
-                hasSettings: !!cacheData.settings
-            });
-        } else {
-            stats.failed++;
-            const error = 'Failed to repopulate cache after clear (returned null)';
-            stats.errors.push({ fileId: file.id, error });
-            logger.warn(`Failed to refresh cache for file: ${file.id}`);
-        }
-    } catch (error) {
-        stats.failed++;
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        stats.errors.push({ fileId: file.id, error: errorMessage });
-        logger.error(`Error refreshing cache for file: ${file.id}`, {
-            error: errorMessage
-        });
-    }
-
-    stats.processed++;
+function needsMetadataParseRefresh(file: CdnFile): boolean {
+    const metadata = file.metadata as {
+        targetSafeToParse?: boolean;
+        targetSafeToParseVersion?: number;
+    } | null;
+    const safeToParse = metadata?.targetSafeToParse === true;
+    const storedVersion = metadata?.targetSafeToParseVersion;
+    return !safeToParse || storedVersion !== SAFE_TO_PARSE_VERSION;
 }
 
-/** Bounded parallel map (single-threaded scheduling; safe index handoff). */
+/** Re-parse zip when forced, cache missing, or safe-to-parse metadata is outdated. */
+function shouldRebuildZipCache(file: CdnFile, forceCacheRebuild: boolean): boolean {
+    if (forceCacheRebuild) return true;
+    if (file.cacheData == null) return true;
+    return needsMetadataParseRefresh(file);
+}
+
 async function mapWithConcurrency<T>(
     items: readonly T[],
     concurrency: number,
@@ -83,42 +77,119 @@ async function mapWithConcurrency<T>(
     await Promise.all(Array.from({ length: n }, () => worker()));
 }
 
-function needsMetadataParseRefresh(file: CdnFile): boolean {
-    const metadata = file.metadata as any;
-    const safeToParse = metadata?.targetSafeToParse === true;
-    const storedVersion = metadata?.targetSafeToParseVersion;
-    return !safeToParse || storedVersion !== SAFE_TO_PARSE_VERSION;
+function positionLabel(position: number, totalLabel: string): string {
+    return totalLabel === '—' ? `[${position}]` : `[${position}/${totalLabel}]`;
 }
 
-async function findLevelZipFiles(options: { onlyWithExistingCache: boolean }): Promise<CdnFile[]> {
-    const where: Record<string, unknown> = {
-        type: 'LEVELZIP'
-    };
-
-    if (options.onlyWithExistingCache) {
-        where.cacheData = { [Op.ne]: null };
+async function processLevel(
+    levelId: number,
+    options: { dryRun: boolean; forceCacheRebuild: boolean },
+    stats: ScriptStats,
+    position: number,
+    totalLabel: string
+): Promise<void> {
+    const label = positionLabel(position, totalLabel);
+    const level = await Level.findByPk(levelId, { attributes: ['id', 'dlLink'] });
+    if (!level) {
+        stats.skipped++;
+        logger.warn(`${label} Level ${levelId}: not found`);
+        stats.processed++;
+        return;
     }
 
-    return CdnFile.findAll({
-        where,
-        order: [['createdAt', 'ASC']]
-    });
+    if (!level.dlLink || !isCdnUrl(level.dlLink)) {
+        stats.skipped++;
+        logger.info(`${label} Level ${levelId}: skip (no CDN dlLink)`);
+        stats.processed++;
+        return;
+    }
+
+    const fileId = getFileIdFromCdnUrl(level.dlLink);
+    if (!fileId) {
+        stats.skipped++;
+        logger.info(`${label} Level ${levelId}: skip (could not parse file id from dlLink)`);
+        stats.processed++;
+        return;
+    }
+
+    const file = await CdnFile.findByPk(fileId);
+    if (!file || file.type !== 'LEVELZIP') {
+        stats.skipped++;
+        stats.errors.push({
+            levelId,
+            fileId,
+            error: !file ? 'orphan dlLink (no CDN row)' : `not a LEVELZIP (type=${file.type})`
+        });
+        logger.warn(`${label} Level ${levelId}: orphan or bad file ${fileId}`);
+        stats.processed++;
+        return;
+    }
+
+    const metadata = file.metadata as { targetLevelOversized?: boolean } | undefined;
+    if (metadata?.targetLevelOversized) {
+        stats.skipped++;
+        logger.warn(`${label} Level ${levelId}: oversized target — ${fileId}`);
+        stats.processed++;
+        return;
+    }
+
+    const rebuild = shouldRebuildZipCache(file, options.forceCacheRebuild);
+
+    if (options.dryRun) {
+        logger.info(
+            `[DRY RUN] ${label} level=${levelId} file=${fileId} rebuildZipCache=${rebuild} wouldRunChartSync=true`
+        );
+        stats.skipped++;
+        stats.processed++;
+        return;
+    }
+
+    try {
+        if (rebuild) {
+            logger.info(`${label} Rebuilding CDN cache for level ${levelId} (file ${fileId})`);
+            await levelCacheService.clearCache(file);
+            const cacheData = await levelCacheService.ensureCachePopulated(file.id);
+            if (!cacheData) {
+                stats.failed++;
+                stats.errors.push({ levelId, fileId, error: 'ensureCachePopulated returned null' });
+                logger.error(`${label} Level ${levelId}: cache repopulate failed (${fileId})`);
+                stats.processed++;
+                return;
+            }
+        }
+
+        await applyLevelChartStatsFromCdn(levelId);
+        stats.successful++;
+        logger.info(`${label} Level ${levelId}: chart stats + ES + cache OK`);
+    } catch (error) {
+        stats.failed++;
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        stats.errors.push({ levelId, fileId, error: errorMessage });
+        logger.error(`${label} Level ${levelId}:`, { fileId, error: errorMessage });
+    }
+
+    stats.processed++;
 }
 
 async function main(options: {
     dryRun: boolean;
     limit?: number;
-    onlyWithExistingCache: boolean;
-    includeVersionCurrent: boolean;
+    afterId: number;
     concurrency: number;
     batchSize: number;
-    fileId?: string;
-}) {
-    logger.info('Starting force refresh of LEVELZIP cache metadata', options);
+    levelId?: number;
+    forceCacheRebuild: boolean;
+}): Promise<boolean> {
+    logger.info('Force-refresh level cache (level-driven)', {
+        ...options,
+        safeToParseVersion: SAFE_TO_PARSE_VERSION
+    });
 
+    let ok = true;
     try {
-        await sequelize.authenticate();
-        logger.info('Database connection established');
+        await levelsSequelize.authenticate();
+        await cdnSequelize.authenticate();
+        logger.info('Database connections established (levels + cdn)');
 
         const stats: ScriptStats = {
             total: 0,
@@ -129,138 +200,147 @@ async function main(options: {
             errors: []
         };
 
-        if (options.fileId) {
-            logger.info(`Processing specific file: ${options.fileId}`);
-            const file = await CdnFile.findByPk(options.fileId);
-
-            if (!file) {
-                logger.error(`File not found: ${options.fileId}`);
-                process.exit(1);
-            }
-
-            if (file.type !== 'LEVELZIP') {
-                logger.error(`File is not a LEVELZIP: ${options.fileId} (type: ${file.type})`);
-                process.exit(1);
-            }
-
+        if (options.levelId !== undefined) {
             stats.total = 1;
-
-            if (options.dryRun) {
-                logger.info('[DRY RUN] Would clear cache and repopulate for file:', {
-                    fileId: file.id,
-                    hadCache: !!file.cacheData
-                });
-                stats.skipped = 1;
-            } else {
-                await refreshCacheForFile(file, stats, 1);
-            }
+            await processLevel(options.levelId, options, stats, 1, '1');
         } else {
-            const files = await findLevelZipFiles({
-                onlyWithExistingCache: options.onlyWithExistingCache
-            });
+            const maxTotal = options.limit ?? Number.MAX_SAFE_INTEGER;
+            let done = 0;
+            let afterId = options.afterId;
+            const FETCH = Math.max(500, options.batchSize);
+            const totalLabel = options.limit !== undefined ? String(options.limit) : '—';
 
-            const filtered = options.includeVersionCurrent ? files : files.filter(needsMetadataParseRefresh);
-            const filesToProcess = options.limit ? filtered.slice(0, options.limit) : filtered;
-            stats.total = filesToProcess.length;
+            while (done < maxTotal) {
+                const rows = await Level.findAll({
+                    where: { id: { [Op.gt]: afterId } },
+                    attributes: ['id', 'dlLink'],
+                    order: [['id', 'ASC']],
+                    limit: FETCH
+                });
 
-            logger.info(
-                `Found ${files.length} LEVELZIP files${options.onlyWithExistingCache ? ' (with existing cache) ' : ' '}` +
-                    `— ${filtered.length} need refresh (SAFE_TO_PARSE_VERSION=${SAFE_TO_PARSE_VERSION})` +
-                    ` — processing ${stats.total}`
-            );
+                if (rows.length === 0) break;
 
-            if (filesToProcess.length === 0) {
-                logger.info('No files found to process');
-                return;
+                afterId = rows[rows.length - 1]!.id;
+
+                const cdnLinked = rows.filter((row) => {
+                    const dl = row.dlLink;
+                    return (
+                        typeof dl === 'string' &&
+                        dl !== '' &&
+                        dl !== 'removed' &&
+                        isCdnUrl(dl) &&
+                        getFileIdFromCdnUrl(dl) != null
+                    );
+                });
+
+                const remaining = maxTotal - done;
+                const slice = cdnLinked.slice(0, remaining);
+                stats.total += slice.length;
+
+                if (slice.length === 0) {
+                    if (rows.length < FETCH) break;
+                    continue;
+                }
+
+                const concurrency = Math.max(1, options.concurrency);
+                logger.info(
+                    `Batch: levels ${slice[0]!.id}–${slice[slice.length - 1]!.id} (${slice.length} CDN-linked, concurrency=${concurrency})`
+                );
+
+                await mapWithConcurrency(slice, concurrency, async (row, idx) => {
+                    const position = done + idx + 1;
+                    await processLevel(row.id, options, stats, position, totalLabel);
+                });
+
+                done += slice.length;
+
+                if (rows.length < FETCH) break;
             }
 
-            if (options.dryRun) {
-                logger.info('[DRY RUN] Would clear and repopulate cache for:');
-                filesToProcess.forEach((file, index) => {
-                    logger.info(`  [${index + 1}/${stats.total}] ${file.id} — cache: ${file.cacheData ? 'yes' : 'no'}`);
-                });
-                stats.skipped = stats.total;
-            } else {
-                const batchSize = Math.max(1, options.batchSize);
-                const concurrency = Math.max(1, options.concurrency);
-
-                for (let start = 0; start < filesToProcess.length; start += batchSize) {
-                    const batch = filesToProcess.slice(start, start + batchSize);
-                    logger.info(
-                        `Processing batch ${Math.floor(start / batchSize) + 1}/${Math.ceil(filesToProcess.length / batchSize)} ` +
-                            `(${batch.length} files, concurrency=${concurrency})`
-                    );
-
-                    await mapWithConcurrency(batch, concurrency, async (file, idx) => {
-                        const position = start + idx + 1;
-                        await refreshCacheForFile(file, stats, position);
-                    });
-
-                    logger.info(
-                        `Progress: ${stats.processed}/${stats.total} processed (${stats.successful} successful, ${stats.failed} failed, ${stats.skipped} skipped)`
-                    );
-                }
+            if (stats.total === 0) {
+                logger.info('No CDN-linked levels in range to process');
             }
         }
 
         logger.info('\n' + '='.repeat(60));
-        logger.info('Force refresh complete');
+        logger.info('Run complete');
         logger.info('='.repeat(60));
-        logger.info(`Total files:      ${stats.total}`);
+        logger.info(`CDN-linked seen: ${stats.total}`);
         logger.info(`Processed:        ${stats.processed}`);
         logger.info(`Successful:       ${stats.successful}`);
         logger.info(`Failed:           ${stats.failed}`);
-        logger.info(`Skipped:          ${stats.skipped}`);
+        logger.info(`Skipped / dry:    ${stats.skipped}`);
         logger.info('='.repeat(60));
 
         if (stats.errors.length > 0) {
-            logger.info('\nErrors encountered:');
-            stats.errors.forEach((error, index) => {
-                logger.info(`  ${index + 1}. File ${error.fileId}: ${error.error}`);
+            const show = stats.errors.slice(0, 50);
+            logger.info('\nErrors (up to 50):');
+            show.forEach((e, i) => {
+                logger.info(`  ${i + 1}. level ${e.levelId}${e.fileId ? ` file ${e.fileId}` : ''}: ${e.error}`);
             });
+            if (stats.errors.length > 50) {
+                logger.info(`  …and ${stats.errors.length - 50} more`);
+            }
         }
 
         if (options.dryRun) {
-            logger.info('\n[DRY RUN] No changes were made to the database');
+            logger.info('\n[DRY RUN] No cache clears, no DB/ES/cache writes');
         }
     } catch (error) {
-        logger.error('Script failed with error:', {
+        ok = false;
+        logger.error('Script failed:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
         });
-        process.exit(1);
     } finally {
-        await sequelize.close();
-        logger.info('Database connection closed');
+        await levelsSequelize.close();
+        await cdnSequelize.close();
+        logger.info('Database connections closed');
     }
+    return ok;
 }
 
 const program = new Command();
 
 program
     .name('force-refresh-level-cache')
-    .description('Clear and rebuild LEVELZIP cacheData (re-parse with current adofai-lib)')
-    .option('-d, --dry-run', 'Run without clearing or writing cache', false)
-    .option('-l, --limit <number>', 'Max number of files to process', (value) => parseInt(value, 10))
+    .description(
+        'By level list: resolve zip UUID from dlLink, refresh CDN cache when stale/missing, then sync chart stats + ES + HTTP cache'
+    )
+    .option('-d, --dry-run', 'Log actions only', false)
+    .option('--level-id <id>', 'Process a single level', (v) => parseInt(v, 10))
     .option(
-        '-c, --only-cached',
-        'Only process LEVELZIP rows that already have cacheData (skip never-cached rows)',
+        '--after-id <id>',
+        'Only levels with id greater than this (resume cursor / starting offset)',
+        (v) => parseInt(v, 10),
+        0
+    )
+    .option('--offset <id>', 'Alias for --after-id', (v) => parseInt(v, 10))
+    .option('-l, --limit <number>', 'Max CDN-linked levels to process', (v) => parseInt(v, 10))
+    .option('--concurrency <number>', 'Parallel levels', (v) => parseInt(v, 10), 4)
+    .option('--batch-size <number>', 'Levels to fetch per DB page before fan-out', (v) => parseInt(v, 10), 100)
+    .option(
+        '--force-cache',
+        'Always clear and rebuild LEVELZIP cacheData before chart sync (ignore version)',
         false
     )
-    .option('-a, --all', 'Include files whose targetSafeToParseVersion is already current', false)
-    .option('--concurrency <number>', 'How many files to refresh concurrently', (value) => parseInt(value, 10), 8)
-    .option('--batch-size <number>', 'How many files to queue per batch', (value) => parseInt(value, 10), 100)
-    .option('-f, --file-id <fileId>', 'Process a single file by ID')
-    .action(async (options) => {
-        await main({
-            dryRun: options.dryRun,
-            limit: options.limit,
-            onlyWithExistingCache: options.onlyCached,
-            includeVersionCurrent: options.all,
-            concurrency: options.concurrency,
-            batchSize: options.batchSize,
-            fileId: options.fileId
+    .action(async (opts) => {
+        const afterId =
+            opts.offset !== undefined && Number.isFinite(Number(opts.offset))
+                ? Number(opts.offset)
+                : Number.isFinite(Number(opts.afterId))
+                  ? Number(opts.afterId)
+                  : 0;
+        const ok = await main({
+            dryRun: opts.dryRun,
+            limit: Number.isFinite(opts.limit) ? opts.limit : undefined,
+            afterId,
+            concurrency: Number.isFinite(opts.concurrency) && opts.concurrency > 0 ? opts.concurrency : 4,
+            batchSize: Number.isFinite(opts.batchSize) && opts.batchSize > 0 ? opts.batchSize : 100,
+            levelId: Number.isFinite(opts.levelId) ? opts.levelId : undefined,
+            forceCacheRebuild: opts.forceCache === true
         });
+        process.exit(ok ? 0 : 1);
     });
 
 program.parse(process.argv);
