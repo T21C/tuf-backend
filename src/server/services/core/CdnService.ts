@@ -531,6 +531,43 @@ class CdnService {
         return (await this.getBulkLevelMetadata([level]))[0];
     }
 
+    /**
+     * Fetch the transform options (eventTypes / filterTypes / advancedFilterTypes +
+     * optional `transformUnavailable` flag) for a level from the CDN. This is the
+     * same data served by `GET /levels/transform-options` on the CDN and is used
+     * to drive the level download popup's transform step on the client. Returns
+     * `null` for non-CDN or deleted levels, and the graceful `{ transformUnavailable }`
+     * shape for oversized files.
+     */
+    async getLevelTransformOptions(level: Level): Promise<{
+        eventTypes: string[];
+        filterTypes: string[];
+        advancedFilterTypes: string[];
+        transformUnavailable?: boolean;
+        reason?: string;
+    } | null> {
+        const fileId = level.fileId ?? null;
+        if (!fileId) {
+            return null;
+        }
+        try {
+            const response = await this.client.get('/levels/transform-options', {
+                params: { fileId },
+            });
+            return response.data ?? null;
+        } catch (error) {
+            if (error instanceof AxiosError && error.response?.status === 404) {
+                return null;
+            }
+            this.handleCdnError(
+                error,
+                'get level transform options from CDN, level id: ' + (level?.id ?? 'unknown'),
+                'Failed to get level transform options',
+                'GET_TRANSFORM_OPTIONS_ERROR'
+            );
+        }
+    }
+
     async getLevelAdofai(level: Level): Promise<any> {
         try {
             const fileId = level.fileId ?? null;

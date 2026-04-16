@@ -528,24 +528,34 @@ router.get(
     }
 
     if (!level.dlLink) {
-      return res.json({ accessCount: 0 });
+      return res.json({ metadata: null, transformOptions: null });
     }
 
     try {
-      const [fileResponse, metadata] = await Promise.all([
-        cdnService.getLevelData(level, ['settings', 'tilecount', 'analysis', 'accessCount']),
-        cdnService.getLevelMetadata(level).then((m) => m?.metadata || undefined),
+      // Transform options are fetched alongside the rest of the CDN data so the
+      // level download popup can consume them as a prop instead of making a
+      // second round-trip to the CDN when it opens. `getLevelTransformOptions`
+      // swallows 404 to null and the outer catch handles other CDN failures.
+      // bpm / tilecount / levelLengthInMs / downloadCount live on the Level row
+      // itself and are delivered via the regular `/levels/:id` response, so
+      // they intentionally aren't duplicated here.
+      const [metadata, transformOptions] = await Promise.all([
+        cdnService.getLevelMetadata(level).then((m) => m?.metadata ?? null),
+        cdnService.getLevelTransformOptions(level).catch((err) => {
+          logger.debug('Failed to fetch transform options for cdnData', {
+            levelId: req.params.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        }),
       ]);
       return res.json({
-        bpm: fileResponse?.settings?.bpm,
-        tilecount: fileResponse?.tilecount,
-        levelLengthInMs: fileResponse?.analysis?.levelLengthInMs,
         metadata,
-        accessCount: fileResponse?.accessCount || 0,
+        transformOptions,
       });
     } catch (error) {
       logger.debug('Level metadata retrieval error for level:', {levelId: req.params.id, error: error instanceof Error ? error.toString() : String(error)});
-      return res.json({ accessCount: 0 });
+      return res.json({ metadata: null, transformOptions: null });
     }
   } catch (error) {
     logger.error('Error fetching level CDN data:', error);
