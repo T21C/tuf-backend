@@ -18,7 +18,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { Command } from 'commander';
-import { initializeAssociations } from '@/models/associations.js';
+// Importing from @/models/index.js pulls in all models and runs
+// initializeAssociations() as a module-load side effect (see models/index.ts).
+// Do NOT call initializeAssociations() again or Sequelize throws
+// "alias refreshTokens used in two separate associations".
+import '@/models/index.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isCdnUrl } from '@/misc/utils/Utility.js';
@@ -120,8 +124,6 @@ async function main(): Promise<void> {
     cachePath: opts.cachePath,
     scriptDir: __dirname,
   });
-
-  await initializeAssociations();
 
   const difficulties = await Difficulty.findAll({
     attributes: ['id', 'name', 'icon', 'legacyIcon'],
