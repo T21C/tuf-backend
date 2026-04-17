@@ -52,6 +52,7 @@ router.get(
       // For non-super-admins, filter deleted passes
       if (!user || !hasFlag(user, permissionFlags.SUPER_ADMIN)) {
         whereClause.isDeleted = false;
+        whereClause.isHidden = false;
       }
 
       const pass = await Pass.findOne({ where: whereClause });
@@ -218,6 +219,7 @@ router.get(
         where: {
           levelId: parsedLevelId,
           isDeleted: false,
+          isHidden: false,
         },
       }).then(async (passes) => {
         if (passes.length === 0) return [];
