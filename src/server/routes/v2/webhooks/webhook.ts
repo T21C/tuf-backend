@@ -500,7 +500,7 @@ export async function passSubmissionHook(
   const additionalInfo = (
     `${pass.flags?.is12K ? '12K  |  ' : ''}` +
     `${pass.flags?.is16K ? '16K  |  ' : ''}` +
-    `${pass.flags?.isNoHoldTap ? 'No Hold Tap  |  ' : ''}`
+    `${pass.flags?.isNoHoldTap ? 'Alt. Tap Option  |  ' : ''}`
   ).replace(/\|\s*$/, '');
   const judgementLine = sanitizedJudgements
     ? `\`\`\`ansi\n[2;31m${sanitizedJudgements.earlyDouble}[0m [2;33m${sanitizedJudgements.earlySingle}[0m [2;32m${sanitizedJudgements.ePerfect}[0m [1;32m${sanitizedJudgements.perfect}[0m [2;32m${sanitizedJudgements.lPerfect}[0m [2;33m${sanitizedJudgements.lateSingle}[0m [2;31m${sanitizedJudgements.lateDouble}[0m\n\`\`\`\n`

@@ -249,7 +249,7 @@ export async function createClearEmbed(
     `${pass.isWorldsFirst ? "🏆 World's First!  |  " : ''}` +
     `${pass.is12K ? '12K  |  ' : ''}` +
     `${pass.is16K ? '16K  |  ' : ''}` +
-    `${pass.isNoHoldTap ? 'No Hold Tap  |  ' : ''}`
+    `${pass.isNoHoldTap ? 'Alt. Tap Option  |  ' : ''}`
   ).replace(/\|\s*$/, '');
   const judgementLine = pass.judgements
     ? `\`\`\`ansi\n[2;31m${pass.judgements.earlyDouble}[0m [2;33m${pass.judgements.earlySingle}[0m [2;32m${pass.judgements.ePerfect}[0m [1;32m${pass.judgements.perfect}[0m [2;32m${pass.judgements.lPerfect}[0m [2;33m${pass.judgements.lateSingle}[0m [2;31m${pass.judgements.lateDouble}[0m\n\`\`\`\n`
