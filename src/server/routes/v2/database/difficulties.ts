@@ -8,9 +8,6 @@ import {ApiDoc} from '@/server/middleware/apiDoc.js';
 import { standardErrorResponses, standardErrorResponses400500, standardErrorResponses404500, standardErrorResponses500, idParamSpec } from '@/server/schemas/v2/database/index.js';
 import {Op} from 'sequelize';
 import {ConditionOperator, DirectiveCondition, DirectiveConditionType, IDifficulty} from '@/server/interfaces/models/index.js';
-import axios from 'axios';
-import fs from 'fs/promises';
-import path from 'path';
 import {getIO} from '@/misc/utils/server/socket.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
@@ -70,65 +67,71 @@ export async function updateDifficultiesHash() {
 // Initialize the hash
 await updateDifficultiesHash();
 
-// Cache directory path
-const CACHE_PATH = process.env.CACHE_PATH || path.join(process.cwd(), 'cache');
-const ICON_CACHE_DIR = path.join(CACHE_PATH, 'icons');
-const ICON_IMAGE_API = process.env.ICON_IMAGE_API || '/api/images';
-const ownUrlEnv =
-  process.env.NODE_ENV === 'production'
-    ? process.env.PROD_API_URL
-    : process.env.NODE_ENV === 'staging'
-      ? process.env.STAGING_API_URL
-      : process.env.NODE_ENV === 'development'
-        ? process.env.DEV_URL
-        : 'http://localhost:3002';
+// Upload a difficulty icon buffer to the CDN and return the canonical URL
+async function uploadDifficultyIconToCdn(
+  iconBuffer: Buffer,
+  originalFilename: string,
+  diffName: string,
+  isLegacy = false,
+): Promise<string> {
+  const ext = (originalFilename.split('.').pop() || 'png').toLowerCase();
+  const prefix = isLegacy ? 'legacy_' : '';
+  const safeName = diffName.replace(/[^a-zA-Z0-9]/g, '_');
+  const filename = `${prefix}${safeName}_${Date.now()}.${ext}`;
+  const result = await cdnService.uploadDifficultyIcon(iconBuffer, filename);
+  return result.urls.original || result.urls.medium;
+}
 
-// Helper function to download and cache icons from URL (legacy support)
-async function cacheIcon(iconUrl: string, diffName: string): Promise<string> {
+// Best-effort cleanup of an old CDN icon file after a successful update
+async function cleanupOldDifficultyIcon(
+  oldFileId: string | null,
+  context: { diffId: number; kind: 'icon' | 'legacyIcon'; newIconUrl: string | null },
+): Promise<void> {
+  if (!oldFileId) return;
   try {
-    await fs.mkdir(ICON_CACHE_DIR, {recursive: true});
-    const fileName = `${diffName.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
-    const filePath = path.join(ICON_CACHE_DIR, fileName);
-    const newUrl = `${ownUrlEnv}${ICON_IMAGE_API}/icon/${fileName}`;
-
-    // Always attempt to cache the icon, even if it's already a cached URL
-    try {
-      const response = await axios.get(iconUrl, {responseType: 'arraybuffer'});
-      await fs.writeFile(filePath, Buffer.from(response.data));
-    } catch (error) {
-      logger.error(`Failed to cache icon for ${diffName}:`, error);
-      // If caching fails but file exists, continue using existing cache
-      if (!(await fs.stat(filePath).catch(() => false))) {
-        throw error; // Re-throw if no cached file exists
-      }
-    }
-
-    return newUrl;
-  } catch (error) {
-    logger.error(`Failed to process icon for ${diffName}:`, error);
-    return iconUrl; // Return original URL as fallback
+    logger.debug('Cleaning up old difficulty icon from CDN', {
+      diffId: context.diffId,
+      kind: context.kind,
+      oldFileId,
+      newIconUrl: context.newIconUrl,
+    });
+    await cdnService.deleteFile(oldFileId);
+    logger.debug('Successfully cleaned up old difficulty icon from CDN', {
+      diffId: context.diffId,
+      kind: context.kind,
+      oldFileId,
+    });
+  } catch (cleanupError) {
+    logger.error('Failed to clean up old difficulty icon from CDN:', {
+      diffId: context.diffId,
+      kind: context.kind,
+      oldFileId,
+      error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+    });
   }
 }
 
-// Helper function to save uploaded icon file to local cache
-async function saveIconToCache(iconBuffer: Buffer, diffName: string, originalFilename: string, isLegacy = false): Promise<string> {
-  try {
-    await fs.mkdir(ICON_CACHE_DIR, {recursive: true});
-
-    // Get file extension from original filename or default to png
-    const ext = path.extname(originalFilename).toLowerCase() || '.png';
-    const prefix = isLegacy ? 'legacy_' : '';
-    const fileName = `${prefix}${diffName.replace(/[^a-zA-Z0-9]/g, '_')}${ext}`;
-    const filePath = path.join(ICON_CACHE_DIR, fileName);
-    const newUrl = `${ownUrlEnv}${ICON_IMAGE_API}/icon/${fileName}`;
-
-    await fs.writeFile(filePath, iconBuffer);
-
-    return newUrl;
-  } catch (error) {
-    logger.error(`Failed to save icon to cache for ${diffName}:`, error);
-    throw error;
+// Helper to send a standardized CdnError response
+function sendCdnErrorResponse(res: Response, uploadError: unknown, logPrefix: string): Response {
+  if (uploadError instanceof CdnError) {
+    const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
+    const errorResponse: any = {
+      error: uploadError.message,
+      code: uploadError.code,
+    };
+    if (uploadError.details) {
+      if (uploadError.details.errors) errorResponse.errors = uploadError.details.errors;
+      if (uploadError.details.warnings) errorResponse.warnings = uploadError.details.warnings;
+      if (uploadError.details.metadata) errorResponse.metadata = uploadError.details.metadata;
+    }
+    logger.debug(`${logPrefix}:`, uploadError);
+    return res.status(statusCode).json(errorResponse);
   }
+  logger.error(`${logPrefix}:`, uploadError);
+  return res.status(500).json({
+    error: 'Failed to upload icon to CDN',
+    details: uploadError instanceof Error ? uploadError.message : String(uploadError),
+  });
 }
 
 // Add this function before the router definition
@@ -548,17 +551,28 @@ router.post(
       return res.status(404).json({error: 'Difficulty not found'});
     }
 
-    // Save to local cache
-    const cachedIconUrl = await saveIconToCache(
-      req.file.buffer,
-      difficulty.name,
-      req.file.originalname,
-      false
-    );
+    const oldFileId = difficulty.icon && isCdnUrl(difficulty.icon)
+      ? getFileIdFromCdnUrl(difficulty.icon)
+      : null;
 
-    // Update difficulty with cached icon URL
-    await difficulty.update({
-      icon: cachedIconUrl
+    let newIconUrl: string;
+    try {
+      newIconUrl = await uploadDifficultyIconToCdn(
+        req.file.buffer,
+        req.file.originalname,
+        difficulty.name,
+        false,
+      );
+    } catch (uploadError) {
+      return sendCdnErrorResponse(res, uploadError, 'Error uploading difficulty icon to CDN');
+    }
+
+    await difficulty.update({ icon: newIconUrl });
+
+    await cleanupOldDifficultyIcon(oldFileId, {
+      diffId,
+      kind: 'icon',
+      newIconUrl,
     });
 
     await updateDifficultiesHash();
@@ -601,17 +615,28 @@ router.post(
       return res.status(404).json({error: 'Difficulty not found'});
     }
 
-    // Save to local cache
-    const cachedIconUrl = await saveIconToCache(
-      req.file.buffer,
-      difficulty.name,
-      req.file.originalname,
-      true
-    );
+    const oldFileId = difficulty.legacyIcon && isCdnUrl(difficulty.legacyIcon)
+      ? getFileIdFromCdnUrl(difficulty.legacyIcon)
+      : null;
 
-    // Update difficulty with cached legacy icon URL
-    await difficulty.update({
-      legacyIcon: cachedIconUrl
+    let newIconUrl: string;
+    try {
+      newIconUrl = await uploadDifficultyIconToCdn(
+        req.file.buffer,
+        req.file.originalname,
+        difficulty.name,
+        true,
+      );
+    } catch (uploadError) {
+      return sendCdnErrorResponse(res, uploadError, 'Error uploading difficulty legacy icon to CDN');
+    }
+
+    await difficulty.update({ legacyIcon: newIconUrl });
+
+    await cleanupOldDifficultyIcon(oldFileId, {
+      diffId,
+      kind: 'legacyIcon',
+      newIconUrl,
     });
 
     await updateDifficultiesHash();
@@ -701,44 +726,37 @@ router.post(
           .json({error: 'A difficulty with this name already exists'});
       }
 
-      // Handle icon uploads: Priority 1 - file attached -> save to cache
-      // Priority 2 - URL provided -> cache from URL
-      // Otherwise - null
+      // Handle icon uploads:
+      // Priority 1: file attached -> upload to CDN
+      // Priority 2: explicit null -> no icon
+      // Priority 3: URL string provided -> store as-is (assume already CDN or external)
       let finalIcon: string | null = null;
+      let finalLegacyIcon: string | null = null;
       const iconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['icon']?.[0];
       const legacyIconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['legacyIcon']?.[0];
 
       if (iconFile) {
-        // Priority 1: File uploaded
-        finalIcon = await saveIconToCache(iconFile.buffer, name, iconFile.originalname, false);
-      } else if (icon && typeof icon === 'string') {
-        if (icon.startsWith('http://') || icon.startsWith('https://')) {
-          // Priority 2: URL provided - cache it
-          finalIcon = await cacheIcon(icon, name);
-        } else if (icon === 'null' || icon === null) {
-          // Explicitly null
-          finalIcon = null;
-        } else {
-          // Assume it's already a cached URL
-          finalIcon = icon;
+        try {
+          finalIcon = await uploadDifficultyIconToCdn(iconFile.buffer, iconFile.originalname, name, false);
+        } catch (uploadError) {
+          return sendCdnErrorResponse(res, uploadError, 'Error uploading difficulty icon to CDN');
         }
+      } else if (icon === 'null' || icon === null) {
+        finalIcon = null;
+      } else if (icon && typeof icon === 'string') {
+        finalIcon = icon;
       }
 
-      let finalLegacyIcon: string | null = null;
       if (legacyIconFile) {
-        // Priority 1: File uploaded
-        finalLegacyIcon = await saveIconToCache(legacyIconFile.buffer, name, legacyIconFile.originalname, true);
-      } else if (legacyIcon && typeof legacyIcon === 'string') {
-        if (legacyIcon.startsWith('http://') || legacyIcon.startsWith('https://')) {
-          // Priority 2: URL provided - cache it
-          finalLegacyIcon = await cacheIcon(legacyIcon, `legacy_${name}`);
-        } else if (legacyIcon === 'null' || legacyIcon === null) {
-          // Explicitly null
-          finalLegacyIcon = null;
-        } else {
-          // Assume it's already a cached URL
-          finalLegacyIcon = legacyIcon;
+        try {
+          finalLegacyIcon = await uploadDifficultyIconToCdn(legacyIconFile.buffer, legacyIconFile.originalname, name, true);
+        } catch (uploadError) {
+          return sendCdnErrorResponse(res, uploadError, 'Error uploading difficulty legacy icon to CDN');
         }
+      } else if (legacyIcon === 'null' || legacyIcon === null) {
+        finalLegacyIcon = null;
+      } else if (legacyIcon && typeof legacyIcon === 'string') {
+        finalLegacyIcon = legacyIcon;
       }
 
       const lastSortOrder = await Difficulty.max('sortOrder') as number;
@@ -824,48 +842,66 @@ router.put(
       }
 
       // Handle icon updates with priority logic (similar to tags):
-      // Priority 1: file attached -> update icon
+      // Priority 1: file attached -> upload to CDN
       // Priority 2: null explicitly passed -> remove icon
-      // Priority 3: URL provided -> cache from URL
+      // Priority 3: URL string provided -> store as-is (assume already CDN or external)
       // Otherwise: no change
       const iconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['icon']?.[0];
       const legacyIconFile = (req.files as { [fieldname: string]: Express.Multer.File[] })?.['legacyIcon']?.[0];
 
       let finalIcon: string | null | undefined = undefined;
-      if (iconFile) {
-        // Priority 1: File attached -> update icon
-        finalIcon = await saveIconToCache(iconFile.buffer, name || difficulty.name, iconFile.originalname, false);
-      } else if (icon === 'null' || icon === null) {
-        // Priority 2: null explicitly passed -> remove icon
-        finalIcon = null;
-      } else if (icon && icon !== difficulty.icon) {
-        // Priority 3: URL or existing URL provided
-        if (typeof icon === 'string' && (icon.startsWith('http://') || icon.startsWith('https://'))) {
-          finalIcon = await cacheIcon(icon, name || difficulty.name);
-        } else {
-          // Assume it's already a cached URL
-          finalIcon = icon;
-        }
-      }
-      // Otherwise: finalIcon remains undefined, which means no change
-
       let finalLegacyIcon: string | null | undefined = undefined;
-      if (legacyIconFile) {
-        // Priority 1: File attached -> update legacy icon
-        finalLegacyIcon = await saveIconToCache(legacyIconFile.buffer, name || difficulty.name, legacyIconFile.originalname, true);
-      } else if (legacyIcon === 'null' || legacyIcon === null) {
-        // Priority 2: null explicitly passed -> remove legacy icon
-        finalLegacyIcon = null;
-      } else if (legacyIcon && legacyIcon !== difficulty.legacyIcon) {
-        // Priority 3: URL or existing URL provided
-        if (typeof legacyIcon === 'string' && (legacyIcon.startsWith('http://') || legacyIcon.startsWith('https://'))) {
-          finalLegacyIcon = await cacheIcon(legacyIcon, `legacy_${name || difficulty.name}`);
-        } else {
-          // Assume it's already a cached URL
-          finalLegacyIcon = legacyIcon;
+      let oldIconFileId: string | null = null;
+      let oldLegacyIconFileId: string | null = null;
+
+      if (iconFile) {
+        if (difficulty.icon && isCdnUrl(difficulty.icon)) {
+          oldIconFileId = getFileIdFromCdnUrl(difficulty.icon);
         }
+        try {
+          finalIcon = await uploadDifficultyIconToCdn(
+            iconFile.buffer,
+            iconFile.originalname,
+            name || difficulty.name,
+            false,
+          );
+        } catch (uploadError) {
+          await safeTransactionRollback(transaction);
+          return sendCdnErrorResponse(res, uploadError, 'Error uploading difficulty icon to CDN');
+        }
+      } else if (icon === 'null' || icon === null) {
+        if (difficulty.icon && isCdnUrl(difficulty.icon)) {
+          oldIconFileId = getFileIdFromCdnUrl(difficulty.icon);
+        }
+        finalIcon = null;
+      } else if (icon && icon !== difficulty.icon && typeof icon === 'string') {
+        finalIcon = icon;
       }
-      // Otherwise: finalLegacyIcon remains undefined, which means no change
+
+      if (legacyIconFile) {
+        if (difficulty.legacyIcon && isCdnUrl(difficulty.legacyIcon)) {
+          oldLegacyIconFileId = getFileIdFromCdnUrl(difficulty.legacyIcon);
+        }
+        try {
+          finalLegacyIcon = await uploadDifficultyIconToCdn(
+            legacyIconFile.buffer,
+            legacyIconFile.originalname,
+            name || difficulty.name,
+            true,
+          );
+        } catch (uploadError) {
+          await safeTransactionRollback(transaction);
+          return sendCdnErrorResponse(res, uploadError, 'Error uploading difficulty legacy icon to CDN');
+        }
+      } else if (legacyIcon === 'null' || legacyIcon === null) {
+        if (difficulty.legacyIcon && isCdnUrl(difficulty.legacyIcon)) {
+          oldLegacyIconFileId = getFileIdFromCdnUrl(difficulty.legacyIcon);
+        }
+        finalLegacyIcon = null;
+      } else if (legacyIcon && legacyIcon !== difficulty.legacyIcon && typeof legacyIcon === 'string') {
+        finalLegacyIcon = legacyIcon;
+      }
+      // Otherwise: finalIcon / finalLegacyIcon remain undefined, which means no change
 
       // Check if base score is being changed
       const isBaseScoreChanged =
@@ -994,6 +1030,22 @@ router.put(
 
       // Commit the transaction first to ensure all updates are saved
       await transaction.commit();
+
+      // Clean up old icon files from CDN after successful update
+      if (finalIcon !== undefined) {
+        await cleanupOldDifficultyIcon(oldIconFileId, {
+          diffId,
+          kind: 'icon',
+          newIconUrl: finalIcon,
+        });
+      }
+      if (finalLegacyIcon !== undefined) {
+        await cleanupOldDifficultyIcon(oldLegacyIconFileId, {
+          diffId,
+          kind: 'legacyIcon',
+          newIconUrl: finalLegacyIcon,
+        });
+      }
 
       // If base score was changed, update stats for affected players only
       if (isBaseScoreChanged && affectedPlayerIds.size > 0) {

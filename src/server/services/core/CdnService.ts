@@ -195,6 +195,40 @@ class CdnService {
         }
     }
 
+    async uploadDifficultyIcon(
+        iconBuffer: Buffer,
+        filename: string
+    ): Promise<{
+        success: boolean;
+        fileId: string;
+        urls: Record<string, string>;
+        metadata: any;
+    }> {
+        try {
+            const formData = new FormData();
+            formData.append('image', iconBuffer, {
+                filename,
+                contentType: this.getContentType(filename)
+            });
+
+            const response = await this.client.post('/images/difficulty_icon', formData, {
+                headers: {
+                    ...formData.getHeaders(),
+                    'X-File-Type': 'DIFFICULTY_ICON'
+                }
+            });
+
+            return response.data;
+        } catch (error) {
+            this.handleCdnError(
+                error,
+                'upload difficulty icon to CDN',
+                'Failed to upload difficulty icon',
+                'UPLOAD_ERROR'
+            );
+        }
+    }
+
     async uploadLevelThumbnail(
         thumbnailBuffer: Buffer,
         filename: string

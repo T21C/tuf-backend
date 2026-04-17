@@ -9,6 +9,7 @@ class CdnFile extends Model {
     | 'BANNER'
     | 'THUMBNAIL'
     | 'CURATION_ICON'
+    | 'DIFFICULTY_ICON'
     | 'LEVEL_THUMBNAIL'
     | 'PACK_ICON'
     | 'TAG_ICON'
@@ -23,14 +24,15 @@ class CdnFile extends Model {
 
 export type ImageFileType =
 'PROFILE'
-| 'ICON'
-| 'BANNER'
-| 'THUMBNAIL'
-| 'CURATION_ICON'
-| 'LEVEL_THUMBNAIL'
-| 'PACK_ICON'
-| 'TAG_ICON'
-| 'EVIDENCE';
+|| 'ICON'
+|| 'BANNER'
+|| 'THUMBNAIL'
+|| 'CURATION_ICON'
+|| 'DIFFICULTY_ICON'
+|| 'LEVEL_THUMBNAIL'
+|| 'PACK_ICON'
+|| 'TAG_ICON'
+|| 'EVIDENCE';
 
 CdnFile.init({
     id: {
@@ -39,7 +41,7 @@ CdnFile.init({
         primaryKey: true
     },
     type: {
-        type: DataTypes.ENUM('PROFILE', 'ICON', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'LEVEL_THUMBNAIL', 'PACK_ICON', 'TAG_ICON', 'LEVELZIP', 'GENERAL', 'EVIDENCE'),
+        type: DataTypes.ENUM('PROFILE', 'ICON', 'BANNER', 'THUMBNAIL', 'CURATION_ICON', 'DIFFICULTY_ICON', 'LEVEL_THUMBNAIL', 'PACK_ICON', 'TAG_ICON', 'LEVELZIP', 'GENERAL', 'EVIDENCE'),
         allowNull: false,
         defaultValue: 'GENERAL'
     },

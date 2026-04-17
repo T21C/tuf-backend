@@ -78,6 +78,16 @@ export const IMAGE_TYPES = {
         formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
         maxSize: 5 * 1024 * 1024 // 5MB
     },
+    DIFFICULTY_ICON: {
+        name: 'difficulty_icon',
+        sizes: {
+            original: { width: 256, height: 256 },
+            medium: { width: 128, height: 128 },
+            small: { width: 64, height: 64 }
+        },
+        formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'] as const,
+        maxSize: 5 * 1024 * 1024 // 5MB
+    },
     LEVEL_THUMBNAIL: {
         name: 'level_thumbnail',
         sizes: {
@@ -128,6 +138,7 @@ export const MIME_TYPES = {
     'BANNER': 'image/png',
     'THUMBNAIL': 'image/png',
     'CURATION_ICON': 'image/png',
+    'DIFFICULTY_ICON': 'image/png',
     'LEVEL_THUMBNAIL': 'image/png',
     'PACK_ICON': 'image/png',
     'TAG_ICON': 'image/png',

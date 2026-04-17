@@ -673,6 +673,36 @@ router.get(
       .normalize(imagePath)
       .replace(/^(\.\.(\/|\\|$))+/, '');
 
+    // Legacy difficulty icon endpoint: resolve by difficulty name and 301-redirect
+    // to the current CDN URL stored in the DB. Filenames are of the form
+    // `{maybe legacy_}{sanitizedDiffName}{_timestamp}?.{ext}` — we match the
+    // difficulty by its sanitized name to stay compatible with both the old
+    // disk-based naming (no timestamp) and the new CDN-upload naming.
+    if (type === 'icon') {
+      const stem = sanitizedPath.replace(/\.[^.]+$/, '');
+      const isLegacy = stem.startsWith('legacy_');
+      const key = isLegacy ? stem.slice('legacy_'.length) : stem;
+      // Drop any trailing `_<timestamp>` suffix we now add on upload
+      const normalizedKey = key.replace(/_\d+$/, '');
+
+      try {
+        const difficulties = await Difficulty.findAll({ attributes: ['id', 'name', 'icon', 'legacyIcon'] });
+        const match = difficulties.find(
+          d => d.name && d.name.replace(/[^a-zA-Z0-9]/g, '_') === normalizedKey,
+        );
+        if (match) {
+          const target = isLegacy ? match.legacyIcon : match.icon;
+          if (target && /^https?:\/\//i.test(target)) {
+            res.set('Cache-Control', 'public, max-age=300');
+            return res.redirect(301, target);
+          }
+        }
+      } catch (lookupError) {
+        logger.error('Error resolving legacy difficulty icon for redirect:', lookupError);
+      }
+      // Fall through to disk-based serving if no CDN URL could be resolved
+    }
+
     let basePath;
     if (type === 'icon') {
       basePath = path.join(CACHE_PATH, 'icons');
