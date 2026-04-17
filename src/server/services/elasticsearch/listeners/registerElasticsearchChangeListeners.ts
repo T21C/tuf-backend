@@ -23,6 +23,7 @@ export interface ElasticsearchHookApi {
   scheduleArtistReindex(levelIds: number[]): void;
   getLevelIdsBySongId(songId: number): Promise<number[]>;
   getLevelIdsByArtistId(artistId: number): Promise<number[]>;
+  getLevelIdsByPlayerId(playerId: number): Promise<number[]>;
 }
 
 async function runAfterCommit(
@@ -42,8 +43,12 @@ export function registerElasticsearchChangeListeners(api: ElasticsearchHookApi):
     Pass.removeHook('afterDestroy', 'elasticsearchPassDestroy');
     LevelLikes.removeHook('beforeSave', 'elasticsearchLevelLikesUpdate');
     Level.removeHook('beforeSave', 'elasticsearchLevelUpdate');
+    Pass.removeHook('beforeBulkUpdate', 'elasticsearchPassBeforeBulkUpdate');
     Pass.removeHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate');
     Pass.removeHook('afterBulkCreate', 'elasticsearchPassBulkCreate');
+    Player.removeHook('afterSave', 'elasticsearchPlayerBanLevelReindex');
+    Player.removeHook('beforeBulkUpdate', 'elasticsearchPlayerBeforeBulkUpdate');
+    Player.removeHook('afterBulkUpdate', 'elasticsearchPlayerBulkUpdate');
     Level.removeHook('beforeBulkUpdate', 'elasticsearchLevelBeforeBulkUpdate');
     Level.removeHook('afterBulkUpdate', 'elasticsearchLevelBulkUpdate');
     LevelTag.removeHook('afterBulkUpdate', 'elasticsearchLevelTagBulkUpdate');
@@ -93,12 +98,54 @@ export function registerElasticsearchChangeListeners(api: ElasticsearchHookApi):
       return;
     });
 
+    // Pre-capture affected pass/level IDs for bulk updates whose WHERE clause
+    // doesn't contain pass.id or pass.levelId directly (e.g. player merge uses
+    // `where: { playerId }`). Without this, afterBulkUpdate couldn't determine
+    // which levels to reindex and the ES clears count would drift.
+    Pass.addHook('beforeBulkUpdate', 'elasticsearchPassBeforeBulkUpdate', async (options: any) => {
+      try {
+        const idsFromWhere = extractNumericIdsFromSequelizeWhereField(options.where?.id);
+        const levelIdsFromWhere = extractNumericIdsFromSequelizeWhereField(options.where?.levelId);
+        if (idsFromWhere.length > 0 && levelIdsFromWhere.length > 0) {
+          return;
+        }
+        if (!options.where) return;
+        const affectedPasses = await Pass.findAll({
+          where: options.where,
+          attributes: ['id', 'levelId'],
+          transaction: options.transaction,
+        });
+        options.affectedPassIds = affectedPasses
+          .map((p) => p.id)
+          .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+        options.affectedLevelIdsFromPasses = [
+          ...new Set(
+            affectedPasses
+              .map((p) => p.levelId)
+              .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0),
+          ),
+        ];
+        logger.debug(
+          `Captured ${options.affectedPassIds.length} pass(es) / ${options.affectedLevelIdsFromPasses.length} level(s) before bulk update`,
+        );
+      } catch (error) {
+        logger.error('Error in pass beforeBulkUpdate hook:', error);
+      }
+    });
+
     // Add afterBulkUpdate hook for Pass model
     Pass.addHook('afterBulkUpdate', 'elasticsearchPassBulkUpdate', async (options: any) => {
       logger.debug('Pass bulk update hook triggered');
       try {
-        const passIds = extractNumericIdsFromSequelizeWhereField(options.where?.id);
-        const levelIds = extractNumericIdsFromSequelizeWhereField(options.where?.levelId);
+        let passIds = extractNumericIdsFromSequelizeWhereField(options.where?.id);
+        let levelIds = extractNumericIdsFromSequelizeWhereField(options.where?.levelId);
+
+        if (passIds.length === 0 && Array.isArray(options.affectedPassIds)) {
+          passIds = options.affectedPassIds;
+        }
+        if (levelIds.length === 0 && Array.isArray(options.affectedLevelIdsFromPasses)) {
+          levelIds = options.affectedLevelIdsFromPasses;
+        }
 
         const run = async () => {
           if (passIds.length > 0) {
@@ -268,6 +315,69 @@ export function registerElasticsearchChangeListeners(api: ElasticsearchHookApi):
         }
       } catch (error) {
         logger.error('Error in level afterBulkUpdate hook:', error);
+      }
+    });
+
+    // Player hooks: the ES level doc's `clears` filter excludes banned players,
+    // but ban/unban never touches the passes table, so without these hooks the
+    // level documents go stale whenever a player's ban state flips.
+    Player.addHook('afterSave', 'elasticsearchPlayerBanLevelReindex', async (player: Player, options: any) => {
+      try {
+        const changedFn = (player as unknown as { changed?: (field?: string) => boolean | string[] | false }).changed;
+        const didChangeIsBanned = typeof changedFn === 'function' ? Boolean(changedFn.call(player, 'isBanned')) : true;
+        if (!didChangeIsBanned) return;
+        const levelIds = await api.getLevelIdsByPlayerId(player.id);
+        if (levelIds.length === 0) return;
+        await runAfterCommit(options, async () => {
+          logger.debug(`Reindexing ${levelIds.length} levels after player ${player.id} isBanned change`);
+          await api.reindexLevels(levelIds);
+        });
+      } catch (error) {
+        logger.error(`Error in player afterSave level-reindex hook for player ${player.id}:`, error);
+      }
+    });
+
+    Player.addHook('beforeBulkUpdate', 'elasticsearchPlayerBeforeBulkUpdate', async (options: any) => {
+      try {
+        const fields: string[] | undefined = options.fields ?? (options.attributes ? Object.keys(options.attributes) : undefined);
+        const touchesIsBanned = Array.isArray(fields) ? fields.includes('isBanned') : true;
+        if (!touchesIsBanned) return;
+        if (!options.where) return;
+        const affectedPlayers = await Player.findAll({
+          where: options.where,
+          attributes: ['id'],
+          transaction: options.transaction,
+        });
+        options.affectedPlayerIdsForLevelReindex = affectedPlayers.map((p) => p.id);
+        logger.debug(
+          `Found ${options.affectedPlayerIdsForLevelReindex.length} players to resolve level reindexes before bulk update`,
+        );
+      } catch (error) {
+        logger.error('Error in player beforeBulkUpdate hook:', error);
+      }
+    });
+
+    Player.addHook('afterBulkUpdate', 'elasticsearchPlayerBulkUpdate', async (options: any) => {
+      try {
+        const playerIds: number[] = options.affectedPlayerIdsForLevelReindex ?? [];
+        if (playerIds.length === 0) return;
+        const allLevelIds = new Set<number>();
+        for (const pid of playerIds) {
+          const ids = await api.getLevelIdsByPlayerId(pid);
+          ids.forEach((id) => allLevelIds.add(id));
+        }
+        if (allLevelIds.size === 0) return;
+        const run = async () => {
+          logger.debug(`Reindexing ${allLevelIds.size} levels after player bulk update`);
+          await api.reindexLevels(Array.from(allLevelIds));
+        };
+        if (options.transaction) {
+          await options.transaction.afterCommit(run);
+        } else {
+          await run();
+        }
+      } catch (error) {
+        logger.error('Error in player afterBulkUpdate level-reindex hook:', error);
       }
     });
 

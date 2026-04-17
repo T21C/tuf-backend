@@ -224,20 +224,9 @@ export class ModifierService {
 
   private async recalculateLevelClearCount(levelId: number): Promise<void> {
     try {
-      const clearCount = await Pass.count({
-        where: {
-          levelId,
-          isDeleted: false,
-          //isHidden: false
-        }
+      await sequelize.query('CALL recalculate_level_clear_count(:levelId)', {
+        replacements: { levelId },
       });
-
-      await Level.update(
-        { clears: clearCount },
-        {
-          where: { id: levelId }
-        }
-      );
     } catch (error) {
       logger.error('Error recalculating level clear count:', error);
     }

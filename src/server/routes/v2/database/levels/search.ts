@@ -9,8 +9,6 @@ import Creator from '@/models/credits/Creator.js';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import sequelize from '@/config/db.js';
 import { Op } from 'sequelize';
-import Player from '@/models/players/Player.js';
-import Judgement from '@/models/passes/Judgement.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import RatingDetail from '@/models/levels/RatingDetail.js';
 import Rating from '@/models/levels/Rating.js';
@@ -29,10 +27,10 @@ import CurationSchedule from '@/models/curations/CurationSchedule.js';
 import Song from '@/models/songs/Song.js';
 import SongAlias from '@/models/songs/SongAlias.js';
 import Artist from '@/models/artists/Artist.js';
-import { formatDuration, getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
+import { getArtistDisplayName, getSongDisplayName } from '@/misc/utils/data/levelHelpers.js';
 import { Cache } from '@/server/middleware/cache.js';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { standardErrorResponses, standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
+import { standardErrorResponses404500, standardErrorResponses500, idParamSpec, errorResponseSchema } from '@/server/schemas/v2/database/levels/index.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import {
   pickThemeCuration,
@@ -439,6 +437,13 @@ router.get(
       },
       order: [['name', 'ASC']],
     });
+    const esLevelDocPromise = elasticsearchService
+      .getLevelDocumentById(levelId)
+      .catch((err) => {
+        logger.warn(`[getLevelDetails] Failed to fetch ES level ${levelId}:`, err);
+        return null;
+      });
+
     // Execute all queries concurrently
     const [
       level,
@@ -448,7 +453,8 @@ router.get(
       teamObject,
       curationsRows,
       rerateHistory,
-      tags
+      tags,
+      esLevelDoc
     ] = await Promise.all([
       levelPromise,
       difficultyPromise,
@@ -457,7 +463,8 @@ router.get(
       teamPromise,
       curationsPromise,
       rerateHistoryPromise,
-      tagsPromise
+      tagsPromise,
+      esLevelDocPromise
     ]);
     if (!level) {
       return res.status(404).json({ error: 'Level not found' });
@@ -469,6 +476,10 @@ router.get(
     const sortedCurations = sortCurationsByTypeOrder(curationsRows as Curation[]);
     const themeCuration = pickThemeCuration(sortedCurations as Curation[]);
     const mergedSchedules = sortedCurations.flatMap((c) => c.curationSchedules || []);
+
+    // Prefer ES clears (computed with the correct `isDeleted/isHidden/isBanned`
+    // filters) over the DB column so the detail view matches the list view.
+    const esClears = typeof esLevelDoc?.clears === 'number' ? esLevelDoc.clears : null;
 
     // Assemble the level object with all related data
     const assembledLevel = {
@@ -482,7 +493,8 @@ router.get(
       curationSchedules: mergedSchedules.map((s) => s.toJSON()),
       tags: tags || [],
       song: getSongDisplayName(level),
-      artist: getArtistDisplayName(level) || null
+      artist: getArtistDisplayName(level) || null,
+      clears: esClears ?? level.clears
     };
     return res.json({
       level: assembledLevel,

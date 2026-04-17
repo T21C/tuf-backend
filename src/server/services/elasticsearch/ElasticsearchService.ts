@@ -169,6 +169,30 @@ class ElasticsearchService {
   }
 
   /**
+   * Get all level IDs on which the given player has non-deleted passes.
+   * Used by the Player ban/unban hook to reindex affected levels because
+   * the ES level doc's `clears` filter excludes banned players.
+   */
+  private async getLevelIdsByPlayerId(playerId: number): Promise<number[]> {
+    try {
+      const rows = await Pass.findAll({
+        where: {
+          playerId,
+          isDeleted: false,
+        },
+        attributes: ['levelId'],
+        group: ['levelId'],
+      });
+      return rows
+        .map((row) => row.levelId)
+        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
+    } catch (error) {
+      logger.error(`Error getting level IDs for player ${playerId}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Schedule debounced reindexing for artist-related changes
    * This prevents overwhelming the server when artists have thousands of levels
    */
@@ -213,6 +237,7 @@ class ElasticsearchService {
       scheduleArtistReindex: (ids) => this.scheduleArtistReindex(ids),
       getLevelIdsBySongId: (id) => this.getLevelIdsBySongId(id),
       getLevelIdsByArtistId: (id) => this.getLevelIdsByArtistId(id),
+      getLevelIdsByPlayerId: (id) => this.getLevelIdsByPlayerId(id),
     });
 
     registerPlayerIndexChangeListeners({
@@ -665,6 +690,24 @@ class ElasticsearchService {
       const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
       if (status === 404) return null;
       logger.error(`Error fetching player ${playerId} from index:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch a single level document by id from Elasticsearch. Returns null when missing.
+   */
+  public async getLevelDocumentById(levelId: number): Promise<any | null> {
+    try {
+      const response = await client.get({
+        index: levelIndexName,
+        id: levelId.toString(),
+      });
+      return (response as any)._source ?? null;
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return null;
+      logger.error(`Error fetching level ${levelId} from index:`, error);
       throw error;
     }
   }
