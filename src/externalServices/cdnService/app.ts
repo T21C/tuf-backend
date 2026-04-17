@@ -5,29 +5,17 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { CDN_CONFIG } from './config.js';
 import router from './routes/index.js';
 import dotenv from 'dotenv';
+import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
+import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
 dotenv.config();
 
+registerGlobalProcessHandlers();
+
+// Boot-time stale workspace sweep for the CDN process (separate PID, same root).
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
+sweepWorkspaceRootOnBoot();
+
 const app = express();
-
-// Global error handlers
-process.on('uncaughtException', (error) => {
-    logger.error('Uncaught Exception:', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-    });
-    // Give time for logging before exiting
-    setTimeout(() => {
-        process.exit(1);
-    }, 1000);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Unhandled Rejection:', {
-        reason: reason instanceof Error ? reason.message : String(reason),
-        stack: reason instanceof Error ? reason.stack : undefined,
-        promise
-    });
-});
 
 // Ensure CDN root directory exists
 if (!fs.existsSync(CDN_CONFIG.localRoot)) {

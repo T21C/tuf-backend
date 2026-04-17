@@ -1,6 +1,6 @@
 import express, {Request, Response, Router} from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
-import { errorResponseSchema, standardErrorResponses, standardErrorResponses404500, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
+import { errorResponseSchema } from '@/server/schemas/v2/misc/index.js';
 import fetch from 'node-fetch';
 import axios from 'axios';
 import path from 'path';
@@ -15,6 +15,7 @@ import {Buffer} from 'buffer';
 import { Op } from 'sequelize';
 import { seededShuffle } from '@/misc/utils/server/random.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { registerShutdownStep } from '@/server/bootstrap/shutdownCoordinator.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import thumbnailsRouter from './thumbnails.js';
@@ -358,32 +359,13 @@ async function cleanupBrowser(): Promise<void> {
   }
 }
 
-// Graceful shutdown handlers
-process.on('SIGTERM', async () => {
-  logger.info('Received SIGTERM signal');
-  await cleanupBrowser();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('Received SIGINT signal');
-  await cleanupBrowser();
-  process.exit(0);
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', async (error) => {
-  logger.error('Uncaught exception:', error);
-  await cleanupBrowser();
-  process.exit(1);
-});
-
-// Handle unhandled promise rejections
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-process.on('unhandledRejection', async (reason, promise) => {
-  logger.error('Unhandled promise rejection:', reason);
-  await cleanupBrowser();
-  process.exit(1);
+// Browser cleanup registered with the shared shutdown coordinator; duplicate SIGINT/SIGTERM
+// handlers are owned centrally in processHandlers.ts. Uncaught exception / unhandled rejection
+// are also handled there, so we don't duplicate them here.
+registerShutdownStep({
+  name: 'puppeteer-browser',
+  priority: 40,
+  fn: () => cleanupBrowser(),
 });
 
 // Add periodic browser cleanup

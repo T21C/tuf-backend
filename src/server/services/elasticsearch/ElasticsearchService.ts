@@ -77,7 +77,7 @@ class ElasticsearchService {
         ]);
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        updateMappingHash({ reindexedLevels, reindexedPasses });
+        await updateMappingHash({ reindexedLevels, reindexedPasses });
       }
 
       this.isInitialized = true;

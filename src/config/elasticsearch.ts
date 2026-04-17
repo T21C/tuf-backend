@@ -3,6 +3,7 @@ import { logger } from '../server/services/core/LoggerService.js';
 import fs from 'fs';
 import hash from 'object-hash';
 import path from 'path';
+import { writeFileAtomic } from '@/misc/utils/fs/fsSafeWrite.js';
 
 // Read the CA certificate only in production
 const isProduction = process.env.NODE_ENV === 'production';
@@ -540,12 +541,12 @@ export function generateMappingHash(mappings: any): string {
   });
 }
 
-export function updateMappingHash(opts: { reindexedLevels: boolean; reindexedPasses: boolean }): void {
+export async function updateMappingHash(opts: { reindexedLevels: boolean; reindexedPasses: boolean }): Promise<void> {
   if (opts.reindexedLevels) {
-    storeLevelMappingHash(generateMappingHash(levelMappingHashPayload));
+    await storeLevelMappingHash(generateMappingHash(levelMappingHashPayload));
   }
   if (opts.reindexedPasses) {
-    storePassMappingHash(generateMappingHash(passMappingHashPayload));
+    await storePassMappingHash(generateMappingHash(passMappingHashPayload));
   }
 }
 
@@ -561,9 +562,14 @@ function readHashFromFile(filePath: string): string | null {
   return null;
 }
 
-function writeHashFile(filePath: string, hashValue: string): void {
+async function writeHashFile(filePath: string, hashValue: string): Promise<void> {
   try {
-    fs.writeFileSync(filePath, JSON.stringify({ hash: hashValue, timestamp: new Date().toISOString() }));
+    // Atomic write so a SIGKILL mid-write can't leave a half-written hash file that would later
+    // be parsed as "no hash recorded" and trigger a spurious reindex on boot.
+    await writeFileAtomic(
+      filePath,
+      JSON.stringify({ hash: hashValue, timestamp: new Date().toISOString() })
+    );
   } catch (error) {
     logger.error(`Failed to store mapping hash file ${filePath}:`, error);
   }
@@ -577,12 +583,12 @@ export function readStoredPassMappingHash(): string | null {
   return readHashFromFile(passMappingHashPath);
 }
 
-function storeLevelMappingHash(hashValue: string): void {
-  writeHashFile(levelMappingHashPath, hashValue);
+async function storeLevelMappingHash(hashValue: string): Promise<void> {
+  await writeHashFile(levelMappingHashPath, hashValue);
 }
 
-function storePassMappingHash(hashValue: string): void {
-  writeHashFile(passMappingHashPath, hashValue);
+async function storePassMappingHash(hashValue: string): Promise<void> {
+  await writeHashFile(passMappingHashPath, hashValue);
 }
 
 export type ReindexFlags = {

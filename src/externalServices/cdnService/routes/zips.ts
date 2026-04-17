@@ -19,6 +19,7 @@ import { levelCacheService } from '../services/levelCacheService.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 
 const router = Router();
 
@@ -60,13 +61,14 @@ function execErrorDetails(error: unknown): Record<string, unknown> {
     return out;
 }
 
-const PACK_DOWNLOAD_DIR = path.join(CDN_CONFIG.pack_root, 'pack-downloads');
-const PACK_DOWNLOAD_TEMP_DIR = path.join(PACK_DOWNLOAD_DIR, 'temp');
-const PACK_DOWNLOAD_TTL_MS = 60 * 60 * 1000; // 1 hour
-const PACK_DOWNLOAD_CLEANUP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+/**
+ * Pack downloads live entirely on R2/Spaces; nothing touches local disk beyond the short-lived
+ * workspace dir used to assemble the zip. The R2 key is deterministic per (cacheKey, zipName),
+ * so repeat requests for the same pack are served by a `fileExists` check rather than any
+ * in-memory map + TTL. R2 lifecycle rules expire stale packs on the bucket side.
+ */
 const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
-const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
 /** Max path length for extraction (e.g. Windows MAX_PATH 260; extract folder + sep + path inside zip). */
 const MAX_PATH_LENGTH = 140;
 
@@ -83,143 +85,16 @@ type PackDownloadNode = {
 type PackDownloadResponse = {
     downloadId: string;
     url: string;
-    expiresAt: string;
     zipName: string;
     cacheKey: string;
 };
 
-interface PackDownloadEntry {
-    filePath?: string | null;
-    expiresAt: number;
-    zipName: string;
-    cacheKey: string;
-    spacesKey?: string | null;
-}
-
-const packDownloadEntries = new Map<string, PackDownloadEntry>();
-const packCacheIndex = new Map<string, string>();
+/**
+ * Coalesces concurrent /packs/generate requests for the same cacheKey so we only build each
+ * pack once per process even under burst load. The entry is removed as soon as the generation
+ * resolves or rejects.
+ */
 const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
-
-// Queue system for managing concurrent pack generations
-interface ActiveGeneration {
-    cacheKey: string;
-    estimatedSize: number;
-}
-
-interface QueuedGeneration {
-    cacheKey: string;
-    estimatedSize: number;
-    resolve: () => void;
-    reject: (error: Error) => void;
-}
-
-const activeGenerations = new Map<string, ActiveGeneration>();
-const generationQueue: QueuedGeneration[] = [];
-
-function getTotalActiveSize(): number {
-    let total = 0;
-    for (const gen of activeGenerations.values()) {
-        total += gen.estimatedSize;
-    }
-    return total;
-}
-
-async function waitForSpace(estimatedSize: number, cacheKey: string): Promise<void> {
-    // If already registered (e.g., another request for same cacheKey is already active), skip
-    if (activeGenerations.has(cacheKey)) {
-        return;
-    }
-
-    const currentTotal = getTotalActiveSize();
-
-    // If adding this request would exceed the limit, queue it
-    if (currentTotal + estimatedSize > PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
-        logger.debug('Pack generation queued due to size limit', {
-            cacheKey,
-            estimatedSize,
-            estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
-            currentTotal,
-            currentTotalGB: (currentTotal / (1024 * 1024 * 1024)).toFixed(2),
-            queueLength: generationQueue.length
-        });
-
-        // Wait in queue until space is available
-        return new Promise<void>((resolve, reject) => {
-            generationQueue.push({
-                cacheKey,
-                estimatedSize,
-                resolve,
-                reject
-            });
-        });
-    }
-
-    // Space available, register immediately
-    activeGenerations.set(cacheKey, {
-        cacheKey,
-        estimatedSize
-    });
-
-    logger.debug('Pack generation started immediately', {
-        cacheKey,
-        estimatedSize,
-        estimatedSizeGB: (estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
-        currentTotal: currentTotal + estimatedSize,
-        currentTotalGB: ((currentTotal + estimatedSize) / (1024 * 1024 * 1024)).toFixed(2)
-    });
-}
-
-function unregisterGeneration(cacheKey: string): void {
-    const removed = activeGenerations.delete(cacheKey);
-    if (!removed) {
-        return;
-    }
-
-    logger.debug('Pack generation completed, processing queue', {
-        cacheKey,
-        currentTotal: getTotalActiveSize(),
-        currentTotalGB: (getTotalActiveSize() / (1024 * 1024 * 1024)).toFixed(2),
-        queueLength: generationQueue.length
-    });
-
-    // Process queue - try to start queued generations that can fit
-    while (generationQueue.length > 0) {
-        const queued = generationQueue[0];
-
-        // Skip if this cacheKey is already registered (e.g., another request already started)
-        if (activeGenerations.has(queued.cacheKey)) {
-            generationQueue.shift(); // Remove from queue
-            queued.resolve(); // Still resolve to unblock the waiting request
-            continue;
-        }
-
-        // Recalculate current total (may have changed from previous iterations)
-        const currentTotal = getTotalActiveSize();
-
-        // Check if this queued item can fit now
-        if (currentTotal + queued.estimatedSize <= PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES) {
-            generationQueue.shift(); // Remove from queue
-            activeGenerations.set(queued.cacheKey, {
-                cacheKey: queued.cacheKey,
-                estimatedSize: queued.estimatedSize
-            });
-
-            logger.debug('Pack generation dequeued and started', {
-                cacheKey: queued.cacheKey,
-                estimatedSize: queued.estimatedSize,
-                estimatedSizeGB: (queued.estimatedSize / (1024 * 1024 * 1024)).toFixed(2),
-                newTotal: currentTotal + queued.estimatedSize,
-                newTotalGB: ((currentTotal + queued.estimatedSize) / (1024 * 1024 * 1024)).toFixed(2),
-                remainingQueueLength: generationQueue.length
-            });
-
-            queued.resolve();
-        } else {
-            // Can't fit this one yet, stop processing queue
-            break;
-        }
-    }
-}
 
 // Get main server URL for job progress ingest
 function getMainServerUrl(): string {
@@ -359,86 +234,15 @@ function getFilenameFromDisposition(disposition?: string): string | null {
     return filenameMatch ? filenameMatch[1] : null;
 }
 
-async function ensurePackDownloadDirs(): Promise<void> {
-    await fs.promises.mkdir(PACK_DOWNLOAD_DIR, { recursive: true });
-    await fs.promises.mkdir(PACK_DOWNLOAD_TEMP_DIR, { recursive: true });
+/**
+ * Build the deterministic R2 object key for a cached pack. Keyed on cacheKey (derived from the
+ * requested tree + zip name) so the same request always hits the same object; the human-readable
+ * filename is preserved as the final path segment so browsers pick it up via the CDN URL.
+ */
+function buildPackSpacesKey(cacheKey: string, zipName: string): string {
+    const sanitized = sanitizePathSegment(zipName) || 'pack';
+    return `${PACK_DOWNLOAD_SPACES_PREFIX}/${cacheKey}/${sanitized}.zip`;
 }
-
-async function cleanupPackDownloadSpaces(): Promise<void> {
-    try {
-        const files = await spacesStorage.listFiles(`${PACK_DOWNLOAD_SPACES_PREFIX}/`, 1000);
-        // Handle both old format (pack-downloads/{uuid}.zip) and new format (pack-downloads/{uuid}/{name}.zip)
-        const keysToDelete = files
-            .filter(file => file.key.endsWith('.zip'))
-            .filter(file => {
-                const parts = file.key.split('/');
-                // Old format: 2 parts (pack-downloads, uuid.zip)
-                // New format: 3 parts (pack-downloads, uuid, name.zip)
-                return parts.length === 2 || parts.length === 3;
-            })
-            .map(file => file.key);
-
-        if (keysToDelete.length > 0) {
-            await spacesStorage.deleteFiles(keysToDelete);
-            logger.debug('Cleaned up pack download files in Spaces', {
-                deleted: keysToDelete.length
-            });
-        }
-    } catch (error) {
-        logger.error('Failed to cleanup pack download files in Spaces', {
-            error: error instanceof Error ? error.message : String(error)
-        });
-    }
-}
-
-async function cleanupExpiredDownloads(): Promise<void> {
-    const now = Date.now();
-    for (const [downloadId, entry] of packDownloadEntries.entries()) {
-        if (entry.expiresAt <= now) {
-            try {
-                if (entry.filePath && fs.existsSync(entry.filePath)) {
-                    await fs.promises.rm(entry.filePath, { force: true });
-                }
-            } catch (error) {
-                logger.warn('Failed to remove expired pack download file', {
-                    downloadId,
-                    filePath: entry.filePath,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-            }
-            if (entry.spacesKey) {
-                try {
-                    await spacesStorage.deleteFile(entry.spacesKey);
-                } catch (error) {
-                    logger.warn('Failed to remove expired pack download file from Spaces', {
-                        downloadId,
-                        spacesKey: entry.spacesKey,
-                        error: error instanceof Error ? error.message : String(error)
-                    });
-                }
-            }
-            packDownloadEntries.delete(downloadId);
-            if (packCacheIndex.get(entry.cacheKey) === downloadId) {
-                packCacheIndex.delete(entry.cacheKey);
-            }
-        }
-    }
-}
-
-async function initializePackDownloadStorage(): Promise<void> {
-    await ensurePackDownloadDirs();
-    await cleanupExpiredDownloads();
-}
-
-await initializePackDownloadStorage();
-await cleanupPackDownloadSpaces();
-setInterval(() => {
-    cleanupExpiredDownloads().catch(error => {
-        logger.error('Failed to cleanup expired pack downloads:', {
-            error: error instanceof Error ? error.message : String(error)
-        });
-    });
-}, PACK_DOWNLOAD_CLEANUP_INTERVAL_MS);
 
 interface PackGenerationContext {
     tempDir: string;
@@ -449,13 +253,15 @@ interface PackGenerationContext {
     plannedTotalLevels: number;
     downloadId: string;
     cacheKey: string;
+    /** Aborts on shutdown or workspace teardown; long-running steps should honour it. */
+    signal: AbortSignal;
 }
 
 async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Promise<void> {
     await spacesStorage.downloadFileToPathStreaming(spacesKey, targetPath);
 }
 
-async function extractZipToFolder(zipPath: string, extractTo: string): Promise<void> {
+async function extractZipToFolder(zipPath: string, extractTo: string, signal?: AbortSignal): Promise<void> {
     await fs.promises.mkdir(extractTo, { recursive: true });
 
     const sevenZipPath = '7z';
@@ -477,7 +283,8 @@ async function extractZipToFolder(zipPath: string, extractTo: string): Promise<v
             shell: isWindows ? 'cmd.exe' : '/bin/bash',
             maxBuffer: 1024 * 1024 * 100, // 100MB buffer for stdout/stderr
             // Set LC_ALL to force UTF-8 locale for unzip (overrides all locale categories)
-            env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
+            env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' },
+            signal
         });
     } catch (error: any) {
         // unzip exit codes: 0=success, 1=warnings but continued, 2=corrupt, 3=severe error
@@ -578,7 +385,7 @@ async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, conte
                 : path.join(context.extractRoot, finalFolderName);
 
             // Extract zip to target folder on disk
-            await extractZipToFolder(zipPath, targetFolder);
+            await extractZipToFolder(zipPath, targetFolder, context.signal);
 
             // Delete temp zip file immediately after successful extraction to free up space
             // Only delete if it's a temp file we created (from Spaces), not the original source file
@@ -694,7 +501,8 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
         });
         const response = await axios.get(node.sourceUrl, {
             responseType: 'stream',
-            timeout: 30_000 // Increased timeout for large files
+            timeout: 30_000, // Increased timeout for large files
+            signal: context.signal
         });
 
         const writeStream = fs.createWriteStream(tempZipPath);
@@ -752,7 +560,7 @@ async function addLevelFromUrl(node: PackDownloadNode, parentPath: string, conte
             : path.join(context.extractRoot, finalFolderName);
 
         // Extract zip to target folder on disk
-        await extractZipToFolder(tempZipPath, targetFolder);
+        await extractZipToFolder(tempZipPath, targetFolder, context.signal);
 
         // Delete temp zip file immediately after successful extraction to free up space
         const fileExists = fs.existsSync(tempZipPath);
@@ -1051,6 +859,11 @@ async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string)
 }
 
 async function processPackNode(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<void> {
+    // Fail fast if we've been asked to shut down; avoids downloading the next level into a
+    // workspace that's about to be deleted.
+    if (context.signal.aborted) {
+        throw new Error('Pack generation aborted');
+    }
     if (node.type === 'folder') {
         const folderName = sanitizePathSegment(node.name || 'Folder');
         const folderPath = parentPath
@@ -1099,29 +912,10 @@ async function generatePackDownloadZip(
     trimFolderNames = true // When true, shortens folder names for path length compatibility
 ): Promise<PackDownloadResponse> {
     logger.debug('Generating pack download zip', { zipName, cacheKey, clientDownloadId });
-    logger.debug('Tree', { tree });
-    await ensurePackDownloadDirs();
-    await cleanupExpiredDownloads();
 
-    const tempDir = path.join(PACK_DOWNLOAD_TEMP_DIR, crypto.randomUUID());
-    const extractRoot = path.join(tempDir, 'extract');
-    await fs.promises.mkdir(extractRoot, { recursive: true });
-
-    // Use client-provided downloadId if available, otherwise generate a new one
     const downloadId = clientDownloadId || crypto.randomUUID();
-
-    // Count total levels before processing
     const totalLevels = countTotalLevels(tree);
-
-    const context: PackGenerationContext = {
-        tempDir,
-        extractRoot,
-        successCount: 0,
-        totalLevels: 0, // Incremented per level node during processing
-        plannedTotalLevels: totalLevels,
-        downloadId,
-        cacheKey
-    };
+    const spacesKey = buildPackSpacesKey(cacheKey, zipName);
 
     await emitPackJobProgress({
         downloadId,
@@ -1131,72 +925,68 @@ async function generatePackDownloadZip(
         status: 'processing'
     });
 
-    let targetPath: string | null = null;
-
     try {
-        // Process all nodes and extract to disk
-        await processPackNode(tree, '', context);
+        const response = await withWorkspace('pack-download', async (ws) => {
+            // Extracted source files live next to the final zip inside the workspace; both are
+            // removed automatically when the workspace lease ends, regardless of outcome.
+            const extractRoot = ws.join('extract');
+            const targetPath = ws.join('output.zip');
+            await fs.promises.mkdir(extractRoot, { recursive: true });
 
-        // Optionally trim root + folder-only children so extractFolder + path stays under path limit
-        if (trimFolderNames) {
-            await trimRootFoldersForPathLimit(extractRoot, zipName);
-        }
-
-        // Update progress: processing complete, now zipping
-        await emitPackJobProgress({
-            downloadId,
-            cacheKey,
-            plannedTotalLevels: totalLevels,
-            processedLevels: context.successCount,
-            status: 'zipping'
-        });
-        // Use UUID for local file to avoid conflicts
-        const localZipFilename = `${downloadId}.zip`;
-        targetPath = path.join(PACK_DOWNLOAD_DIR, localZipFilename);
-
-        // Create sanitized filename for Spaces: UUID folder with formatted zip name
-        const sanitizedZipNameForSpaces = sanitizePathSegment(zipName);
-        const spacesZipFilename = `${sanitizedZipNameForSpaces}.zip`;
-        const spacesKeyFilename = `${PACK_DOWNLOAD_SPACES_PREFIX}/${downloadId}/${spacesZipFilename}`;
-
-        // Use 7z to create final zip from extracted folders
-        const sevenZipPath = '7z';
-        let cmd: string;
-
-        if (isWindows) {
-            // Windows: 7z a (add) command
-            // -tzip: force zip format, -mx=0: no compression (faster), -mm=Copy: store only
-            // -r: recurse subdirectories, *: match all files and folders
-            // -mcu=on: force UTF-8 encoding for filenames
-            cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r -mcu=on "${targetPath}" *`;
-        } else {
-            // Linux: zip command with -r (recursive) and -0 (store only, no compression)
-            // Use LC_ALL=C.UTF-8 to ensure UTF-8 encoding for filenames
-            cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
-        }
-
-        try {
-            await execAsync(cmd, {
-                shell: isWindows ? 'cmd.exe' : '/bin/bash',
-                maxBuffer: 1024 * 1024 * 100, // 100MB buffer
-                // Set LC_ALL to force UTF-8 locale (overrides all locale categories)
-                env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' }
-            });
-        } catch (error) {
-            logger.error('Failed to create zip using 7z/zip', {
-                ...execErrorDetails(error),
-                shellCommand: cmd,
+            const context: PackGenerationContext = {
+                tempDir: ws.dir,
                 extractRoot,
-                targetPath
+                successCount: 0,
+                totalLevels: 0,
+                plannedTotalLevels: totalLevels,
+                downloadId,
+                cacheKey,
+                signal: ws.signal
+            };
+
+            await processPackNode(tree, '', context);
+
+            if (trimFolderNames) {
+                await trimRootFoldersForPathLimit(extractRoot, zipName);
+            }
+
+            await emitPackJobProgress({
+                downloadId,
+                cacheKey,
+                plannedTotalLevels: totalLevels,
+                processedLevels: context.successCount,
+                status: 'zipping'
             });
-            throw error;
-        }
 
-        let spacesKey: string | null = null;
-        let responseUrl: string;
+            const sevenZipPath = '7z';
+            let cmd: string;
+            if (isWindows) {
+                // -tzip: zip format, -mx=0 / -mm=Copy: store-only (fastest), -r: recurse,
+                // -mcu=on: force UTF-8 filenames inside the archive.
+                cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r -mcu=on "${targetPath}" *`;
+            } else {
+                cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
+            }
 
-        // Update progress: uploading if using Spaces
-        if (spacesKeyFilename) {
+            try {
+                // `signal` kills the 7z/zip child process on SIGINT/SIGTERM so we don't block
+                // shutdown waiting for a multi-GB archive to finish.
+                await execAsync(cmd, {
+                    shell: isWindows ? 'cmd.exe' : '/bin/bash',
+                    maxBuffer: 1024 * 1024 * 100,
+                    env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' },
+                    signal: ws.signal
+                });
+            } catch (error) {
+                logger.error('Failed to create zip using 7z/zip', {
+                    ...execErrorDetails(error),
+                    shellCommand: cmd,
+                    extractRoot,
+                    targetPath
+                });
+                throw error;
+            }
+
             await emitPackJobProgress({
                 downloadId,
                 cacheKey,
@@ -1204,68 +994,31 @@ async function generatePackDownloadZip(
                 processedLevels: context.successCount,
                 status: 'uploading'
             });
-        }
 
-        try {
-            await spacesStorage.uploadFile(targetPath, spacesKeyFilename, 'application/zip', {
+            await spacesStorage.uploadFile(targetPath, spacesKey, 'application/zip', {
                 cacheKey,
                 generatedAt: new Date().toISOString(),
                 successLevels: context.successCount.toString(),
                 totalLevels: context.totalLevels.toString()
             });
-            spacesKey = spacesKeyFilename;
-        } catch (error) {
-            logger.error('Failed to upload pack download to Spaces', {
-                error: error instanceof Error ? error.message : String(error),
-                spacesKeyFilename,
-                cacheKey
-            });
-        }
 
-        if (spacesKey) {
-            const presignedUrl = await spacesStorage.getPresignedUrl(
-                spacesKey,
-            );
-            responseUrl = presignedUrl;
-        } else {
-            responseUrl = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${downloadId}`;
-        }
+            const responseUrl = await spacesStorage.getPresignedUrl(spacesKey);
 
-        if (spacesKey) {
-            try {
-                await fs.promises.rm(targetPath, { force: true });
-            } catch (error) {
-                logger.warn('Failed to delete local pack download after Spaces upload', {
-                    error: error instanceof Error ? error.message : String(error),
-                    targetPath
-                });
-            }
-        }
-
-        const expiresAt = Date.now() + PACK_DOWNLOAD_TTL_MS;
-        const response: PackDownloadResponse = {
-            downloadId,
-            url: responseUrl,
-            expiresAt: new Date(expiresAt).toISOString(),
-            zipName,
-            cacheKey
-        };
-
-        packDownloadEntries.set(downloadId, {
-            filePath: spacesKey ? undefined : targetPath,
-            expiresAt,
-            zipName,
-            cacheKey,
-            spacesKey
+            return {
+                downloadId,
+                url: responseUrl,
+                zipName,
+                cacheKey,
+                successCount: context.successCount,
+                totalLevels: context.totalLevels
+            };
         });
-        packCacheIndex.set(cacheKey, downloadId);
 
-        // Update progress: completed
         await emitPackJobProgress({
             downloadId,
             cacheKey,
             plannedTotalLevels: totalLevels,
-            processedLevels: context.successCount,
+            processedLevels: response.successCount,
             status: 'completed'
         });
 
@@ -1273,53 +1026,27 @@ async function generatePackDownloadZip(
             downloadId,
             zipName,
             cacheKey,
-            successLevels: context.successCount,
-            totalLevels: context.totalLevels,
-            expiresAt: response.expiresAt,
-            filePath: spacesKey ? undefined : targetPath,
+            successLevels: response.successCount,
+            totalLevels: response.totalLevels,
             spacesKey
         });
 
-        return response;
+        return {
+            downloadId: response.downloadId,
+            url: response.url,
+            zipName: response.zipName,
+            cacheKey: response.cacheKey
+        };
     } catch (error) {
-        // Update progress: failed
-        if (downloadId) {
-            await emitPackJobProgress({
-                downloadId,
-                cacheKey,
-                plannedTotalLevels: totalLevels,
-                processedLevels: context.successCount,
-                status: 'failed',
-                error: error instanceof Error ? error.message : String(error)
-            });
-        }
-
-        // Clean up targetPath if it was created but upload failed
-        if (targetPath && fs.existsSync(targetPath)) {
-            try {
-                await fs.promises.rm(targetPath, { force: true });
-                logger.debug('Cleaned up failed pack download zip file', { targetPath });
-            } catch (cleanupError) {
-                logger.warn('Failed to cleanup failed pack download zip file', {
-                    targetPath,
-                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-                });
-            }
-        }
+        await emitPackJobProgress({
+            downloadId,
+            cacheKey,
+            plannedTotalLevels: totalLevels,
+            processedLevels: 0,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error)
+        });
         throw error;
-    } finally {
-        // Clean up temp directory with extracted files (always)
-        try {
-            if (fs.existsSync(tempDir)) {
-                await fs.promises.rm(tempDir, { recursive: true, force: true });
-                logger.debug('Cleaned up temp directory for pack download', { tempDir });
-            }
-        } catch (error) {
-            logger.warn('Failed to cleanup temporary directory for pack download', {
-                tempDir,
-                error: error instanceof Error ? error.message : String(error)
-            });
-        }
     }
 }
 
@@ -1489,16 +1216,14 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                     throw new Error('Level file not found in storage');
                 }
 
-                let levelDict: LevelDict;
-                if (levelExists) {
-                    const tempPath = path.join(PACK_DOWNLOAD_TEMP_DIR, `inspect_${fileId}_${Date.now()}.adofai`);
-                    await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
-                    await spacesStorage.downloadFileToPathStreaming(file.path, tempPath);
-                    levelDict = new LevelDict(tempPath);
-                    await fs.promises.unlink(tempPath).catch(() => {});
-                } else {
+                if (!levelExists) {
                     throw new Error('Level file not found in storage');
                 }
+                const levelDict = await withWorkspace('pack-download', async (ws) => {
+                    const tempPath = ws.join(`inspect_${fileId}_${Date.now()}.adofai`);
+                    await spacesStorage.downloadFileToPathStreaming(file.path, tempPath);
+                    return new LevelDict(tempPath);
+                });
 
                 return {
                     name: file.name,
@@ -1606,101 +1331,64 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             ? cacheKey
             : crypto.createHash('sha256').update(JSON.stringify({ zipName: finalZipName, tree })).digest('hex');
 
-        const existingDownloadId = packCacheIndex.get(normalizedCacheKey);
-        if (existingDownloadId) {
-            const entry = packDownloadEntries.get(existingDownloadId);
-            if (entry && entry.expiresAt > Date.now()) {
-                try {
-                    let url: string | null = null;
-                    if (entry.spacesKey) {
-                        url = await spacesStorage.getPresignedUrl(entry.spacesKey);
-                    } else if (entry.filePath && fs.existsSync(entry.filePath)) {
-                        url = `${CDN_CONFIG.baseUrl}/zips/packs/downloads/${existingDownloadId}`;
-                    }
+        const sanitizedZipName = sanitizePathSegment(finalZipName);
+        const cachedSpacesKey = buildPackSpacesKey(normalizedCacheKey, sanitizedZipName);
 
-                    if (url) {
-                        const jobIdForProgress =
-                            typeof clientDownloadId === 'string' && clientDownloadId.length > 0
-                                ? clientDownloadId
-                                : existingDownloadId;
-                        ingestJobProgress({
-                            jobId: jobIdForProgress,
-                            kind: 'pack_download',
-                            phase: 'completed',
-                            percent: 100,
-                            message: 'Cached pack ready',
-                            meta: {
-                                cacheKey: entry.cacheKey,
-                                totalLevels: 0,
-                                processedLevels: 0,
-                                reusedDownloadId: existingDownloadId
-                            },
-                            error: null
-                        }).catch(error => {
-                            logger.debug('Failed to ingest cached pack job progress', {
-                                downloadId: jobIdForProgress,
-                                error: error instanceof Error ? error.message : String(error)
-                            });
-                        });
+        // Cache hit: R2 already has this pack. Serve its URL directly without rebuilding.
+        try {
+            if (await spacesStorage.fileExists(cachedSpacesKey)) {
+                const url = await spacesStorage.getPresignedUrl(cachedSpacesKey);
+                const reusedDownloadId = clientDownloadId || crypto.randomUUID();
 
-                        return res.json({
-                            downloadId: existingDownloadId,
-                            url,
-                            expiresAt: new Date(entry.expiresAt).toISOString(),
-                            zipName: entry.zipName,
-                            cacheKey: entry.cacheKey
-                        });
-                    }
-                } catch (error) {
-                    logger.error('Failed to reuse existing pack download cache entry:', {
+                ingestJobProgress({
+                    jobId: reusedDownloadId,
+                    kind: 'pack_download',
+                    phase: 'completed',
+                    percent: 100,
+                    message: 'Cached pack ready',
+                    meta: {
                         cacheKey: normalizedCacheKey,
-                        downloadId: existingDownloadId,
+                        totalLevels: 0,
+                        processedLevels: 0,
+                        reused: true
+                    },
+                    error: null
+                }).catch(error => {
+                    logger.debug('Failed to ingest cached pack job progress', {
+                        downloadId: reusedDownloadId,
                         error: error instanceof Error ? error.message : String(error)
                     });
-                }
+                });
+
+                return res.json({
+                    downloadId: reusedDownloadId,
+                    url,
+                    zipName: finalZipName,
+                    cacheKey: normalizedCacheKey
+                });
             }
-            packCacheIndex.delete(normalizedCacheKey);
-            const staleEntry = packDownloadEntries.get(existingDownloadId);
-            if (staleEntry) {
-                if (staleEntry.spacesKey) {
-                    spacesStorage.deleteFile(staleEntry.spacesKey).catch((error) => {
-                        logger.warn('Failed to delete stale pack download from Spaces', {
-                            downloadId: existingDownloadId,
-                            spacesKey: staleEntry.spacesKey,
-                            error: error instanceof Error ? error.message : String(error)
-                        });
-                    });
-                }
-                if (staleEntry.filePath && fs.existsSync(staleEntry.filePath)) {
-                    fs.promises.rm(staleEntry.filePath, { force: true }).catch(() => undefined);
-                }
-            }
-            packDownloadEntries.delete(existingDownloadId);
+        } catch (error) {
+            logger.warn('Failed to probe R2 for cached pack download; regenerating', {
+                cacheKey: normalizedCacheKey,
+                error: error instanceof Error ? error.message : String(error)
+            });
         }
 
-        if (!packGenerationPromises.has(normalizedCacheKey)) {
-            // Wait for space in the queue system before starting generation
-            // This will register the generation if space is available, or queue it if not
-            await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
-
-            const sanitizedZipName = sanitizePathSegment(finalZipName);
-            const generationPromise = (async () => {
+        // In-process coalescing: if another request is already building this same pack, await it
+        // instead of kicking off a duplicate workspace + 7z run.
+        let generationPromise = packGenerationPromises.get(normalizedCacheKey);
+        if (!generationPromise) {
+            generationPromise = (async () => {
                 try {
                     return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId, trimFolderNames !== false);
                 } finally {
-                    // Unregister from active generations and process queue
-                    unregisterGeneration(normalizedCacheKey);
                     packGenerationPromises.delete(normalizedCacheKey);
                 }
             })();
-
             packGenerationPromises.set(normalizedCacheKey, generationPromise);
-        } else {
-            // Generation already in progress for this cacheKey
-            // It's already registered, so we just await the existing promise
         }
 
-        const responsePayload = await packGenerationPromises.get(normalizedCacheKey)!;
+        const responsePayload = await generationPromise;
         return res.json(responsePayload);
     } catch (error) {
         logger.error('Failed to generate pack download zip', {
@@ -1710,112 +1398,6 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             error: 'Failed to generate pack download',
             code: 'PACK_DOWNLOAD_ERROR'
         });
-    }
-});
-
-router.get('/packs/downloads/:id', async (req: Request, res: Response) => {
-    try {
-        await cleanupExpiredDownloads();
-
-        const { id } = req.params;
-        const entry = packDownloadEntries.get(id);
-        if (!entry) {
-            return res.status(404).json({ error: 'Download not found' });
-        }
-
-        if (entry.expiresAt <= Date.now()) {
-            if (entry.filePath && fs.existsSync(entry.filePath)) {
-                await fs.promises.rm(entry.filePath, { force: true });
-            }
-            packDownloadEntries.delete(id);
-            if (packCacheIndex.get(entry.cacheKey) === id) {
-                packCacheIndex.delete(entry.cacheKey);
-            }
-            return res.status(404).json({ error: 'Download expired' });
-        }
-
-        if (entry.spacesKey) {
-            try {
-                const presignedUrl = await spacesStorage.getPresignedUrl(entry.spacesKey);
-                return res.redirect(presignedUrl);
-            } catch (error) {
-                logger.error('Failed to get pack download presigned URL', {
-                    downloadId: id,
-                    spacesKey: entry.spacesKey,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                return res.status(500).json({ error: 'Failed to serve download' });
-            }
-        }
-
-        if (!entry.filePath || !fs.existsSync(entry.filePath)) {
-            packDownloadEntries.delete(id);
-            if (packCacheIndex.get(entry.cacheKey) === id) {
-                packCacheIndex.delete(entry.cacheKey);
-            }
-            return res.status(404).json({ error: 'Download not found' });
-        }
-
-        const stat = await fs.promises.stat(entry.filePath);
-        const range = req.headers.range;
-        const zipBaseName = sanitizePathSegment(entry.zipName || 'pack-download');
-        const filename = zipBaseName.endsWith('.zip') ? zipBaseName : `${zipBaseName}.zip`;
-
-        res.setHeader('Cache-Control', 'no-store');
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Disposition', encodeContentDisposition(filename));
-        res.setHeader('Content-Type', 'application/zip');
-        res.setHeader('Expires', new Date(entry.expiresAt).toUTCString());
-
-        if (range) {
-            const match = /bytes=(\d*)-(\d*)/.exec(range);
-            if (!match) {
-                res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
-                return res.end();
-            }
-            const start = match[1] ? parseInt(match[1], 10) : 0;
-            const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
-
-            if (isNaN(start) || isNaN(end) || start > end || end >= stat.size) {
-                res.status(416).setHeader('Content-Range', `bytes */${stat.size}`);
-                return res.end();
-            }
-
-            const chunkSize = end - start + 1;
-            res.status(206);
-            res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-            res.setHeader('Content-Length', chunkSize.toString());
-
-            const stream = fs.createReadStream(entry.filePath, { start, end });
-            stream.on('error', (error) => {
-                logger.error('Error streaming pack download (range)', {
-                    downloadId: id,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                res.destroy(error as Error);
-            });
-            stream.pipe(res);
-            return;
-        }
-
-        res.status(200);
-        res.setHeader('Content-Length', stat.size.toString());
-        const stream = fs.createReadStream(entry.filePath);
-        stream.on('error', (error) => {
-            logger.error('Error streaming pack download', {
-                downloadId: id,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            res.destroy(error as Error);
-        });
-        stream.pipe(res);
-        return;
-    } catch (error) {
-        logger.error('Failed to serve pack download zip', {
-            downloadId: req.params.id,
-            error: error instanceof Error ? error.message : String(error)
-        });
-        return res.status(500).json({ error: 'Failed to serve download' });
     }
 });
 

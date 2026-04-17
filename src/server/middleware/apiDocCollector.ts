@@ -42,6 +42,7 @@ import type { Express, IRouter } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import { API_DOC_SPEC, type ApiDocOperationSpec } from './apiDoc.js';
+import { writeFileAtomic } from '@/misc/utils/fs/fsSafeWrite.js';
 
 export interface CollectedRouteDoc {
   path: string;
@@ -331,7 +332,9 @@ export async function generateOpenApiFromApp(
   if (writePath) {
     const dir = path.dirname(writePath);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(writePath, JSON.stringify(spec, null, 2), 'utf8');
+    // Atomic so an interrupted boot can't leave a half-written JSON file that breaks the
+    // Swagger UI or downstream tooling that reads this spec.
+    await writeFileAtomic(writePath, JSON.stringify(spec, null, 2));
   }
 
   return spec;

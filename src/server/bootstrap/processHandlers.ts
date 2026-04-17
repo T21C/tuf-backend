@@ -1,4 +1,9 @@
 import { logger } from '@/server/services/core/LoggerService.js';
+import {
+  isShuttingDown,
+  registerShutdownStep,
+  runShutdown,
+} from '@/server/bootstrap/shutdownCoordinator.js';
 
 const isClientDisconnectError = (error: any): boolean => {
   return error?.code === 'ECONNRESET' || error?.code === 'EPIPE';
@@ -19,14 +24,25 @@ const isDatabaseConnectionError = (reason: any): boolean => {
 };
 
 interface RegisterProcessHandlersOptions {
-  onShutdown: () => Promise<void>;
+  /** Legacy hook kept for the single-call migration: registered as a coordinator step. */
+  onShutdown?: () => Promise<void>;
 }
 
 /**
  * Registers global process-level handlers (exceptions, rejections, signals).
- * Keep this separate from Express wiring so app bootstrap stays focused.
+ * Signals now delegate to the shared shutdown coordinator — every cleanup surface registers
+ * its own step via {@link registerShutdownStep}. This function is idempotent / safe across
+ * Node processes (server + CDN) as long as each calls it once during bootstrap.
  */
-export function registerGlobalProcessHandlers(options: RegisterProcessHandlersOptions): void {
+export function registerGlobalProcessHandlers(options: RegisterProcessHandlersOptions = {}): void {
+  if (options.onShutdown) {
+    registerShutdownStep({
+      name: 'legacy-onShutdown',
+      priority: 70,
+      fn: options.onShutdown,
+    });
+  }
+
   process.on('uncaughtException', (error: any) => {
     if (isClientDisconnectError(error)) {
       logger.warn('Client disconnected during operation:', {
@@ -83,15 +99,17 @@ export function registerGlobalProcessHandlers(options: RegisterProcessHandlersOp
     logger.warn('Node.js Warning:', warning);
   });
 
-  process.on('SIGTERM', async () => {
-    logger.info('SIGTERM received. Shutting down gracefully...');
-    await options.onShutdown();
-    process.exit(0);
-  });
+  const handleSignal = (signal: NodeJS.Signals) => {
+    if (isShuttingDown()) {
+      logger.info(`${signal} received again; forcing exit`);
+      process.exit(1);
+    }
+    logger.info(`${signal} received. Shutting down gracefully...`);
+    runShutdown(signal)
+      .catch(error => logger.error('runShutdown failed:', error))
+      .finally(() => process.exit(0));
+  };
 
-  process.on('SIGINT', async () => {
-    logger.info('SIGINT received. Shutting down gracefully...');
-    await options.onShutdown();
-    process.exit(0);
-  });
+  process.on('SIGTERM', () => handleSignal('SIGTERM'));
+  process.on('SIGINT', () => handleSignal('SIGINT'));
 }

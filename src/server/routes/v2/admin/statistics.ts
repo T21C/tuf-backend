@@ -26,7 +26,7 @@ router.get(
     security: ['bearerAuth'],
     responses: { 200: { description: 'Pending counts' }, ...standardErrorResponses401500 },
   }),
-  Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }),
+  //Cache({ ttl: 300, varyByUser: true, prefix: 'admin:statistics' }),
   Auth.rater(),
   async (req: Request, res: Response) => {
   try {

@@ -17,13 +17,13 @@ import { logger } from './server/services/core/LoggerService.js';
 import { clientUrlEnv, port, corsOptions } from './config/app.config.js';
 import { initializeDefaultPools } from './config/poolConfig.js';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
-import { initializeRuntimeServices, shutdownRuntimeServices } from '@/server/bootstrap/runtimeServices.js';
+import { initializeRuntimeServices } from '@/server/bootstrap/runtimeServices.js';
 import { slowEndpointLoggingMiddleware } from '@/server/middleware/slowEndpointLogging.js';
 // CRITICAL: Initialize pools BEFORE importing models to ensure logging database is available
 initializeDefaultPools();
 
 dotenv.config();
-registerGlobalProcessHandlers({ onShutdown: shutdownRuntimeServices });
+registerGlobalProcessHandlers();
 
 const app: Express = express();
 const httpServer = createServer(app);

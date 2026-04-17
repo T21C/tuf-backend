@@ -34,6 +34,8 @@ import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgr
 import fs from 'fs';
 import path from 'path';
 import {cleanupUserUploads} from '@/server/routes/v2/misc/chunkedUpload.js';
+import UploadSession from '@/models/upload/UploadSession.js';
+import { cancelSession as cancelUploadSession } from '@/server/services/upload/UploadSessionService.js';
 import LevelRerateHistory from '@/models/levels/LevelRerateHistory.js';
 import LevelTag from '@/models/levels/LevelTag.js';
 import {permissionFlags} from '@/config/constants.js';
@@ -152,14 +154,12 @@ function formatDurationMismatchMessage(mismatchResult: DurationMismatchResult): 
   return `${message} have different timing than original`;
 }
 
-/** Hex-encoded zip filename for CDN upload (matches client zipUtils). */
+/** Build an NFC-normalised UTF-8 zip filename for CDN upload (no hex hack). */
 function encodeLevelZipFilenameForCdn(level: Level): string {
   const song = getSongDisplayName(level) || 'level';
   const artist = getArtistDisplayName(level) || 'unknown';
   const base = `${song} - ${artist}.zip`.replace(/[<>:"/\\|?*]/g, '');
-  return Array.from(new TextEncoder().encode(base))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return base.normalize('NFC');
 }
 
 /**
@@ -176,6 +176,8 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   encodedZipFileName: string;
   assembledFilePathToUnlink: string | null;
   chunkUploadFileIdForCleanupExclude: string | null;
+  /** If set, the session row (and its workspace) is destroyed after successful finalisation. */
+  uploadSession?: UploadSession | null;
   canEdit: boolean;
   uploadJobId?: string | null;
   /** Merged into job progress `meta` (e.g. `source: 'upload_from_url'`). */
@@ -191,6 +193,7 @@ async function finalizeLevelZipUploadFromBuffer(params: {
     encodedZipFileName,
     assembledFilePathToUnlink,
     chunkUploadFileIdForCleanupExclude,
+    uploadSession,
     canEdit,
     uploadJobMeta,
   } = params;
@@ -345,6 +348,13 @@ async function finalizeLevelZipUploadFromBuffer(params: {
       if (unlinkError.code !== 'ENOENT') {
         logger.warn('Failed to clean up assembled file:', unlinkError);
       }
+    }
+  }
+  if (uploadSession) {
+    try {
+      await cancelUploadSession(uploadSession);
+    } catch (sessionCleanupError) {
+      logger.warn('Failed to destroy upload session after finalisation:', sessionCleanupError);
     }
   }
 
@@ -1628,7 +1638,7 @@ router.post(
     tags: ['Database', 'Levels'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
-    requestBody: { description: 'fileId, fileName, fileSize (from chunked upload); optional uploadJobId (UUID) for GET /v2/jobs/:jobId progress', schema: { type: 'object', properties: { fileId: { type: 'string' }, fileName: { type: 'string' }, fileSize: { type: 'integer' }, uploadJobId: { type: 'string', format: 'uuid' } }, required: ['fileId', 'fileName', 'fileSize'] }, required: true },
+    requestBody: { description: 'sessionId (new chunked upload) OR fileId (legacy chunked upload); fileName, fileSize; optional uploadJobId (UUID) for GET /v2/jobs/:jobId progress', schema: { type: 'object', properties: { sessionId: { type: 'string' }, fileId: { type: 'string' }, fileName: { type: 'string' }, fileSize: { type: 'integer' }, uploadJobId: { type: 'string', format: 'uuid' } } }, required: true },
     responses: { 200: { description: 'Upload success' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, 499: { schema: errorResponseSchema }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -1636,11 +1646,39 @@ router.post(
 
     try {
       transaction = await sequelize.transaction();
-      const {fileId, fileName, fileSize, uploadJobId: rawUploadJobId} = req.body;
+      const {sessionId, fileId, fileName, fileSize, uploadJobId: rawUploadJobId} = req.body;
       const uploadJobId = isUuidJobId(rawUploadJobId) ? rawUploadJobId.trim() : undefined;
       const levelId = parseInt(req.params.id);
-      if (!fileId || !fileName || !fileSize) {
-        throw {error: 'Missing required file information', code: 400};
+
+      // Path A: new upload session (preferred) — payload is { sessionId }
+      let uploadSession: UploadSession | null = null;
+      let assembledFilePath: string;
+      let encodedZipFileName: string;
+      let legacyFileId: string | null = null;
+
+      if (sessionId && typeof sessionId === 'string') {
+        uploadSession = await UploadSession.findByPk(sessionId, {transaction});
+        if (!uploadSession) throw {error: 'Upload session not found', code: 404};
+        if (uploadSession.userId !== req.user?.id) throw {error: 'Forbidden', code: 403};
+        if (uploadSession.kind !== 'level-zip') throw {error: 'Upload session is not for a level zip', code: 400};
+        if (uploadSession.status !== 'assembled' || !uploadSession.assembledPath) {
+          throw {error: 'Upload session has no assembled file yet', code: 409};
+        }
+        assembledFilePath = uploadSession.assembledPath;
+        encodedZipFileName = uploadSession.originalName;
+      } else {
+        // Path B: legacy chunked upload — payload is { fileId, fileName, fileSize }
+        if (!fileId || !fileName || !fileSize) {
+          throw {error: 'Missing required file information', code: 400};
+        }
+        legacyFileId = fileId;
+        assembledFilePath = path.join(
+          'uploads',
+          'assembled',
+          req.user!.id,
+          `${fileId}.zip`,
+        );
+        encodedZipFileName = fileName;
       }
 
       const level = await Level.findByPk(levelId, {transaction});
@@ -1657,27 +1695,24 @@ router.post(
       }
 
       try {
-        const assembledFilePath = path.join(
-          'uploads',
-          'assembled',
-          req.user!.id,
-          `${fileId}.zip`,
-        );
-
-        let fileExists = false;
-        let retries = 5;
-        while (!fileExists && retries > 0) {
-          try {
-            await fs.promises.access(assembledFilePath);
-            fileExists = true;
-          } catch (accessError) {
-            retries--;
-            if (retries === 0) {
-              throw new Error(
-                'Assembled file not found. The upload may be incomplete or expired.',
-              );
+        if (!uploadSession) {
+          // Legacy path needs retry-while-assembler-still-writing; the new path has
+          // already verified status === 'assembled' on the session row.
+          let fileExists = false;
+          let retries = 5;
+          while (!fileExists && retries > 0) {
+            try {
+              await fs.promises.access(assembledFilePath);
+              fileExists = true;
+            } catch (accessError) {
+              retries--;
+              if (retries === 0) {
+                throw new Error(
+                  'Assembled file not found. The upload may be incomplete or expired.',
+                );
+              }
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
-            await new Promise(resolve => setTimeout(resolve, 500));
           }
         }
 
@@ -1690,27 +1725,29 @@ router.post(
           levelId,
           transaction,
           fileBuffer,
-          encodedZipFileName: fileName,
-          assembledFilePathToUnlink: assembledFilePath,
-          chunkUploadFileIdForCleanupExclude: fileId,
+          encodedZipFileName,
+          assembledFilePathToUnlink: uploadSession ? null : assembledFilePath,
+          chunkUploadFileIdForCleanupExclude: legacyFileId,
+          uploadSession,
           canEdit,
           uploadJobId,
         });
         return;
       } catch (error) {
-        // Clean up the assembled file in case of error
-        try {
-          const assembledFilePath = path.join(
-            'uploads',
-            'assembled',
-            req.user!.id,
-            `${fileId}.zip`,
-          );
-          await fs.promises.unlink(assembledFilePath);
-        } catch (cleanupError: any) {
-          // Ignore ENOENT errors - file is already gone or never existed
-          if (cleanupError.code !== 'ENOENT') {
-            logger.warn('Failed to clean up assembled file:', cleanupError);
+        // Clean up the assembled artefact in case of error
+        if (uploadSession) {
+          try {
+            await cancelUploadSession(uploadSession);
+          } catch (cleanupError) {
+            logger.warn('Failed to cancel upload session after error:', cleanupError);
+          }
+        } else if (legacyFileId) {
+          try {
+            await fs.promises.unlink(assembledFilePath);
+          } catch (cleanupError: any) {
+            if (cleanupError.code !== 'ENOENT') {
+              logger.warn('Failed to clean up assembled file:', cleanupError);
+            }
           }
         }
         throw error;
