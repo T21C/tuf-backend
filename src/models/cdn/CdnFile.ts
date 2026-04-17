@@ -23,16 +23,16 @@ class CdnFile extends Model {
 }
 
 export type ImageFileType =
-'PROFILE'
-|| 'ICON'
-|| 'BANNER'
-|| 'THUMBNAIL'
-|| 'CURATION_ICON'
-|| 'DIFFICULTY_ICON'
-|| 'LEVEL_THUMBNAIL'
-|| 'PACK_ICON'
-|| 'TAG_ICON'
-|| 'EVIDENCE';
+| 'PROFILE'
+| 'ICON'
+| 'BANNER'
+| 'THUMBNAIL'
+| 'CURATION_ICON'
+| 'DIFFICULTY_ICON'
+| 'LEVEL_THUMBNAIL'
+| 'PACK_ICON'
+| 'TAG_ICON'
+| 'EVIDENCE';
 
 CdnFile.init({
     id: {
