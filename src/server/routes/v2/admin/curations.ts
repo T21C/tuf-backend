@@ -23,7 +23,7 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
-import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties.js';
+import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties/index.js';
 import { getIO } from '@/misc/utils/server/socket.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import { serializeCurationJson, sortCurationsByTypeOrder } from '@/misc/utils/data/curationOrdering.js';

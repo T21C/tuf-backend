@@ -35,6 +35,134 @@ function isSafeHttpRedirectUrl(url: string): boolean {
   }
 }
 
+/**
+ * Walk an HTTP(S) redirect chain server-side and return the final terminal URL
+ * (first 2xx response), or `null` if the chain loops back on itself, fails, or
+ * exceeds {@link RESOLVE_REDIRECT_MAX_HOPS}.
+ *
+ * Motivation: some stored URLs (`user.avatarUrl`, legacy icon CDN URLs, etc.)
+ * resolve through a hop that points back at this server's own media endpoint,
+ * which caused `api.tuforums.com redirected you too many times` errors in the
+ * browser. By resolving the chain here and redirecting the client straight to
+ * the terminal URL (R2, Cloudflare CDN, or original third-party host), we
+ * short-circuit the bounce and also let the browser cache the final asset
+ * under its real origin.
+ *
+ * Behaviors worth noting:
+ * - HEAD is used first; 405/501 triggers a fallback ranged GET (`bytes=0-0`)
+ *   that we immediately destroy, so we never buffer the asset body on the
+ *   server. This handles R2/S3 buckets that reject HEAD by default.
+ * - Cycles are caught via a `visited` set and cause `null` return — the caller
+ *   then responds 404 instead of handing the browser a URL that would loop.
+ * - Terminal (2xx) URLs are cached for {@link RESOLVED_URL_TTL_MS}; failures
+ *   and cycles are *not* cached so that transient issues self-heal.
+ */
+const RESOLVE_REDIRECT_MAX_HOPS = 8;
+const RESOLVE_REDIRECT_TIMEOUT_MS = 5000;
+const RESOLVED_URL_TTL_MS = 10 * 60 * 1000;
+const RESOLVED_URL_CACHE_CLEANUP_MS = 30 * 60 * 1000;
+const RESOLVED_URL_USER_AGENT = 'Mozilla/5.0 (TUF Redirect Resolver)';
+
+const resolvedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of resolvedUrlCache.entries()) {
+    if (value.expiresAt <= now) {
+      resolvedUrlCache.delete(key);
+    }
+  }
+}, RESOLVED_URL_CACHE_CLEANUP_MS);
+
+export async function resolveFinalRedirectUrl(initialUrl: string): Promise<string | null> {
+  if (!isSafeHttpRedirectUrl(initialUrl)) return null;
+
+  const cached = resolvedUrlCache.get(initialUrl);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.url;
+  }
+
+  const visited = new Set<string>();
+  let currentUrl = initialUrl;
+
+  for (let hop = 0; hop < RESOLVE_REDIRECT_MAX_HOPS; hop++) {
+    if (visited.has(currentUrl)) {
+      // Saw this URL already this walk — chain is cyclic; tell the caller we
+      // can't safely hand the browser a URL without triggering the loop again.
+      return null;
+    }
+    visited.add(currentUrl);
+
+    let response;
+    try {
+      response = await axios.request({
+        method: 'HEAD',
+        url: currentUrl,
+        maxRedirects: 0,
+        validateStatus: () => true,
+        timeout: RESOLVE_REDIRECT_TIMEOUT_MS,
+        headers: { 'User-Agent': RESOLVED_URL_USER_AGENT },
+      });
+    } catch (error) {
+      logger.debug('Redirect resolver HEAD failed:', formatAxiosError(error));
+      return null;
+    }
+
+    // Some origins (notably certain R2/S3 setups) reject HEAD — retry once
+    // with a 1-byte ranged GET and immediately tear down the stream so we
+    // never hold the response body in memory.
+    if (response.status === 405 || response.status === 501) {
+      try {
+        const getResponse = await axios.request({
+          method: 'GET',
+          url: currentUrl,
+          maxRedirects: 0,
+          validateStatus: () => true,
+          timeout: RESOLVE_REDIRECT_TIMEOUT_MS,
+          responseType: 'stream',
+          headers: {
+            'User-Agent': RESOLVED_URL_USER_AGENT,
+            'Range': 'bytes=0-0',
+          },
+        });
+        try { getResponse.data?.destroy?.(); } catch { /* best-effort */ }
+        response = getResponse;
+      } catch (error) {
+        logger.debug('Redirect resolver GET fallback failed:', formatAxiosError(error));
+        return null;
+      }
+    }
+
+    const { status, headers } = response;
+
+    if (status >= 300 && status < 400 && headers?.location) {
+      let nextUrl: string;
+      try {
+        nextUrl = new URL(headers.location, currentUrl).toString();
+      } catch {
+        return null;
+      }
+      if (!isSafeHttpRedirectUrl(nextUrl)) return null;
+      currentUrl = nextUrl;
+      continue;
+    }
+
+    if (status >= 200 && status < 300) {
+      resolvedUrlCache.set(initialUrl, {
+        url: currentUrl,
+        expiresAt: Date.now() + RESOLVED_URL_TTL_MS,
+      });
+      return currentUrl;
+    }
+
+    // 4xx/5xx with no Location header — treat as unresolvable. We deliberately
+    // don't cache this outcome so a transient upstream hiccup self-heals.
+    return null;
+  }
+
+  return null;
+}
+
 // Helper function to format axios errors for cleaner logging
 export function formatAxiosError(error: unknown): string {
   if (axios.isAxiosError(error)) {
@@ -563,7 +691,14 @@ router.get(
       if (!targetUrl || !isSafeHttpRedirectUrl(targetUrl)) {
         return res.status(404).send('Avatar not found');
       }
-      return res.redirect(302, targetUrl);
+      // Pre-walk the redirect chain so the browser never sees a URL that hops
+      // back to this server (which is what produced the ERR_TOO_MANY_REDIRECTS
+      // loops against api.tuforums.com after the R2 cutover).
+      const resolved = await resolveFinalRedirectUrl(targetUrl);
+      if (!resolved) {
+        return res.status(404).send('Avatar not resolvable');
+      }
+      return res.redirect(302, resolved);
     } catch (error) {
       logger.error('Error redirecting player avatar:', error instanceof Error ? error.message : error);
       return res.status(500).send('Error resolving avatar');
@@ -595,7 +730,13 @@ router.get(
     if (!isSafeHttpRedirectUrl(user.avatarUrl)) {
       return res.status(404).send('Avatar not found');
     }
-    return res.redirect(302, user.avatarUrl);
+    // See note in /player-avatar/:playerId — follow the chain server-side so
+    // we never hand the browser a URL that bounces back to this server.
+    const resolved = await resolveFinalRedirectUrl(user.avatarUrl);
+    if (!resolved) {
+      return res.status(404).send('Avatar not resolvable');
+    }
+    return res.redirect(302, resolved);
   } catch (error) {
     logger.error('Error serving avatar:', formatAxiosError(error));
     return res.status(500).send('Error serving avatar');
@@ -693,8 +834,14 @@ router.get(
         if (match) {
           const target = isLegacy ? match.legacyIcon : match.icon;
           if (target && /^https?:\/\//i.test(target)) {
-            res.set('Cache-Control', 'public, max-age=300');
-            return res.redirect(301, target);
+            // Walk the redirect chain up front so a stale CDN URL that
+            // 302s back to this endpoint doesn't create an infinite loop
+            // at the browser. Fall through to disk serving on unresolvable.
+            const resolved = await resolveFinalRedirectUrl(target);
+            if (resolved) {
+              res.set('Cache-Control', 'public, max-age=300');
+              return res.redirect(301, resolved);
+            }
           }
         }
       } catch (lookupError) {

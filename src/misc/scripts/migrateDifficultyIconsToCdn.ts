@@ -27,7 +27,7 @@ import Difficulty from '@/models/levels/Difficulty.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { isCdnUrl } from '@/misc/utils/Utility.js';
 import cdnService from '@/server/services/core/CdnService.js';
-import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties.js';
+import { updateDifficultiesHash } from '@/server/routes/v2/database/difficulties/index.js';
 
 dotenv.config();
 
