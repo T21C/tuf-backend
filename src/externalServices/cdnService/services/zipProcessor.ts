@@ -12,7 +12,6 @@ import { Transaction } from 'sequelize';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
-import { normaliseOriginalFilename } from '../misc/utils.js';
 
 /** Max level file size (bytes) to parse with LevelDict. Node string limit is ~0x1fffffe8 (~512MB); use 400MB to stay safe. */
 const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 400 * 1024 * 1024;
@@ -144,8 +143,8 @@ export async function processZipFile(
             drive: storageRoot
         });
 
-        // Use the original filename directly
-        const finalZipName = normaliseOriginalFilename(originalFilename);
+        // originalFilename is already NFC-normalised and sanitised upstream in UploadSessionService.
+        const finalZipName = originalFilename;
         logger.debug('Using original zip name:', {
             finalZipName
         });

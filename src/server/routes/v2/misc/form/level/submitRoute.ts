@@ -69,11 +69,16 @@ router.post(
           ? uploadSessionIdRaw
           : null;
 
+      const uploadJobIdRaw = parsedMeta.uploadJobId;
+      const uploadJobId =
+        typeof uploadJobIdRaw === 'string' && uploadJobIdRaw.length > 0 ? uploadJobIdRaw : null;
+
       const result = await createLevelSubmission({
         req,
         userId,
         formPayload: parsedMeta,
         uploadSessionId,
+        uploadJobId,
         evidenceFiles,
       });
 

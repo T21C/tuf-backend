@@ -22,6 +22,10 @@ import { OAuthProvider, User } from '@/models/index.js';
 
 import { levelSubmissionHook } from '@/server/routes/v2/webhooks/webhook.js';
 import { cancelSession as cancelUploadSession } from '@/server/services/upload/UploadSessionService.js';
+import {
+  isUuidJobId,
+  jobProgressService,
+} from '@/server/services/core/JobProgressService.js';
 
 import { formError } from '../shared/errors.js';
 import { cleanUpCdnFile } from '../shared/cdnCleanup.js';
@@ -37,6 +41,13 @@ export interface CreateLevelSubmissionInput {
   userId: string;
   formPayload: Record<string, unknown>;
   uploadSessionId: string | null;
+  /**
+   * Optional client-generated UUID used to stream CDN-upload progress back to
+   * the caller over SSE (`GET /v2/jobs/:jobId/stream`). When present and valid,
+   * the service claims the job in Redis before calling the CDN and the CDN
+   * ingest endpoint will publish live phase/percent updates.
+   */
+  uploadJobId: string | null;
   evidenceFiles: Express.Multer.File[];
 }
 
@@ -84,6 +95,19 @@ export async function createLevelSubmission(
   input: CreateLevelSubmissionInput,
 ): Promise<CreateLevelSubmissionResult> {
   const { userId, formPayload, uploadSessionId, evidenceFiles } = input;
+  const uploadJobId =
+    input.uploadJobId && isUuidJobId(input.uploadJobId) ? input.uploadJobId : null;
+
+  const markCdnJobFailed = async (message: string) => {
+    if (!uploadJobId) return;
+    await jobProgressService
+      .patchTrusted(uploadJobId, {
+        phase: 'failed',
+        error: message,
+        percent: null,
+      })
+      .catch(() => undefined);
+  };
 
   // Phase 1: Parse + pure validation (no DB).
   const { sanitized, errors } = parseAndSanitizeLevelForm(formPayload);
@@ -117,22 +141,38 @@ export async function createLevelSubmission(
   if (uploadSessionId) {
     resolvedSession = await resolveLevelZipSession(uploadSessionId, userId);
 
+    if (uploadJobId) {
+      await jobProgressService
+        .patchTrusted(uploadJobId, {
+          ownerUserId: userId,
+          kind: 'level_submission_upload',
+          phase: 'uploading_to_cdn',
+          percent: 5,
+          message: 'Sending zip to CDN',
+          meta: { source: 'level_submission', uploadSessionId },
+        })
+        .catch(() => undefined);
+    }
+
     try {
       const fileBuffer = await fs.promises.readFile(resolvedSession.assembledPath);
       const uploadResult = await cdnService.uploadLevelZip(
         fileBuffer,
         resolvedSession.originalName,
+        uploadJobId ?? undefined,
       );
       uploadedFileId = uploadResult.fileId;
       directDLFromCdn = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
       levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await markCdnJobFailed(msg);
       await cleanUpCdnFile(uploadedFileId);
       if (resolvedSession) {
         await safeCancelSession(resolvedSession);
       }
       throw formError.bad('Failed to upload zip file to CDN', {
-        details: { error: err instanceof Error ? err.message : String(err) },
+        details: { error: msg },
       });
     }
   }
@@ -232,6 +272,7 @@ export async function createLevelSubmission(
     if (transaction) {
       await safeTransactionRollback(transaction);
     }
+    await markCdnJobFailed(err instanceof Error ? err.message : String(err));
     await cleanUpCdnFile(uploadedFileId);
     if (resolvedSession) {
       await safeCancelSession(resolvedSession);
