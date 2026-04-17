@@ -12,7 +12,7 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { extractNumericIdsFromSequelizeWhereField } from '@/server/services/elasticsearch/extractNumericIdsFromSequelizeWhereField.js';
+import { extractNumericIdsFromSequelizeWhereField } from '@/server/services/elasticsearch/misc/extractNumericIdsFromSequelizeWhereField.js';
 
 export interface ElasticsearchHookApi {
   indexLevel(level: Level | number): Promise<void>;

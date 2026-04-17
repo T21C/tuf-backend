@@ -1,14 +1,14 @@
 import { prepareSearchTerm } from '@/misc/utils/data/searchHelpers.js';
 import { queryParserConfigs, type FieldSearch } from '@/misc/utils/data/queryParser.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/esQueryBuilder.js';
+import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryBuilder.js';
 import {
   matchNone,
   maybeNot,
   nestedQuery,
   termField,
   wildcardCi,
-} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 
 export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
   const { field, value, exact, isNot } = fieldSearch;

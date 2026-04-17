@@ -39,11 +39,13 @@ const client = new Client({
 // Index names
 export const levelIndexName = 'levels_v1';
 export const passIndexName = 'passes_v1';
+export const playerIndexName = 'players_v1';
 
 // Alias names
 export const levelAlias = 'levels';
 export const passAlias = 'passes';
 export const creditsAlias = 'credits';
+export const playerAlias = 'players';
 
 // Combined index and alias configuration
 const settings = {
@@ -57,7 +59,13 @@ const settings = {
         type: 'custom' as const,
         tokenizer: 'keyword',
       }
-    }
+    },
+    normalizer: {
+      lowercase_normalizer: {
+        type: 'custom' as const,
+        filter: ['lowercase'],
+      },
+    },
   }
 }
 
@@ -503,6 +511,118 @@ export const passMapping = {
   }
 };
 
+export const playerMapping = {
+  settings,
+  mappings: {
+    properties: {
+      id: { type: 'integer' as const },
+      name: {
+        type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
+        fields: {
+          exact: {
+            type: 'text' as const,
+            analyzer: 'exact_match_analyzer',
+          },
+          keyword: {
+            type: 'keyword' as const,
+          },
+          lower: {
+            type: 'keyword' as const,
+            normalizer: 'lowercase_normalizer',
+          },
+        },
+      },
+      country: { type: 'keyword' as const },
+      isBanned: { type: 'boolean' as const },
+      isSubmissionsPaused: { type: 'boolean' as const },
+      pfp: { type: 'keyword' as const },
+      createdAt: { type: 'date' as const },
+      updatedAt: { type: 'date' as const },
+      user: {
+        properties: {
+          id: { type: 'keyword' as const },
+          username: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const },
+              lower: { type: 'keyword' as const, normalizer: 'lowercase_normalizer' },
+            },
+          },
+          nickname: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const },
+            },
+          },
+          avatarUrl: { type: 'keyword' as const },
+          permissionFlags: { type: 'long' as const },
+          permissionVersion: { type: 'integer' as const },
+          isEmailVerified: { type: 'boolean' as const },
+        },
+      },
+      discord: {
+        properties: {
+          username: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const },
+              lower: { type: 'keyword' as const, normalizer: 'lowercase_normalizer' },
+            },
+          },
+        },
+      },
+      // Aggregated stats (replaces player_stats table)
+      rankedScore: { type: 'double' as const },
+      generalScore: { type: 'double' as const },
+      ppScore: { type: 'double' as const },
+      wfScore: { type: 'double' as const },
+      score12K: { type: 'double' as const },
+      averageXacc: { type: 'float' as const },
+      universalPassCount: { type: 'integer' as const },
+      worldsFirstCount: { type: 'integer' as const },
+      totalPasses: { type: 'integer' as const },
+      // Denormalized top-diff info
+      topDiffId: { type: 'integer' as const },
+      topDiffSortOrder: { type: 'integer' as const },
+      top12kDiffId: { type: 'integer' as const },
+      top12kDiffSortOrder: { type: 'integer' as const },
+      topDiff: {
+        properties: {
+          id: { type: 'integer' as const },
+          name: { type: 'keyword' as const },
+          type: { type: 'keyword' as const },
+          sortOrder: { type: 'integer' as const },
+          baseScore: { type: 'float' as const },
+          icon: { type: 'keyword' as const },
+          emoji: { type: 'keyword' as const },
+          color: { type: 'keyword' as const },
+          legacyIcon: { type: 'keyword' as const },
+          legacyEmoji: { type: 'keyword' as const },
+        },
+      },
+      top12kDiff: {
+        properties: {
+          id: { type: 'integer' as const },
+          name: { type: 'keyword' as const },
+          type: { type: 'keyword' as const },
+          sortOrder: { type: 'integer' as const },
+          baseScore: { type: 'float' as const },
+          icon: { type: 'keyword' as const },
+          emoji: { type: 'keyword' as const },
+          color: { type: 'keyword' as const },
+          legacyIcon: { type: 'keyword' as const },
+          legacyEmoji: { type: 'keyword' as const },
+        },
+      },
+      statsUpdatedAt: { type: 'date' as const },
+    },
+  },
+};
+
 export const indices = {
   [levelIndexName]: {
     alias: levelAlias,
@@ -513,6 +633,11 @@ export const indices = {
     alias: passAlias,
     settings: passMapping.settings,
     mappings: passMapping.mappings
+  },
+  [playerIndexName]: {
+    alias: playerAlias,
+    settings: playerMapping.settings,
+    mappings: playerMapping.mappings
   }
 };
 
@@ -528,8 +653,29 @@ const passMappingHashPayload = {
   mappings: passMapping.mappings
 };
 
+/**
+ * Payload hashed for players index (settings + mappings + indexer version).
+ *
+ * `indexerVersion` is bumped whenever the indexer *logic* changes in a way that
+ * produces different documents without touching the ES mapping — e.g. fixing the
+ * derived-stats SQL or adding denormalized fields. Bumping it forces
+ * `reindexAllPlayers()` on the next boot while leaving the ES mapping alone.
+ *
+ * History:
+ *   1 — initial release
+ *   2 — 2026-04-17: fix topDiffId/top12kDiffId to resolve to Difficulty.id
+ *       (was previously sortOrder, which collided with SPECIAL difficulties
+ *       and produced wrong top diffs on denormalized docs).
+ */
+const playerMappingHashPayload = {
+  settings: playerMapping.settings,
+  mappings: playerMapping.mappings,
+  indexerVersion: 2,
+};
+
 const levelMappingHashPath = path.join(process.cwd(), 'mapping-hash-levels.json');
 const passMappingHashPath = path.join(process.cwd(), 'mapping-hash-passes.json');
+const playerMappingHashPath = path.join(process.cwd(), 'mapping-hash-players.json');
 
 // Function to generate hash of mappings
 export function generateMappingHash(mappings: any): string {
@@ -541,12 +687,15 @@ export function generateMappingHash(mappings: any): string {
   });
 }
 
-export async function updateMappingHash(opts: { reindexedLevels: boolean; reindexedPasses: boolean }): Promise<void> {
+export async function updateMappingHash(opts: { reindexedLevels: boolean; reindexedPasses: boolean; reindexedPlayers: boolean }): Promise<void> {
   if (opts.reindexedLevels) {
     await storeLevelMappingHash(generateMappingHash(levelMappingHashPayload));
   }
   if (opts.reindexedPasses) {
     await storePassMappingHash(generateMappingHash(passMappingHashPayload));
+  }
+  if (opts.reindexedPlayers) {
+    await storePlayerMappingHash(generateMappingHash(playerMappingHashPayload));
   }
 }
 
@@ -583,6 +732,10 @@ export function readStoredPassMappingHash(): string | null {
   return readHashFromFile(passMappingHashPath);
 }
 
+export function readStoredPlayerMappingHash(): string | null {
+  return readHashFromFile(playerMappingHashPath);
+}
+
 async function storeLevelMappingHash(hashValue: string): Promise<void> {
   await writeHashFile(levelMappingHashPath, hashValue);
 }
@@ -591,9 +744,14 @@ async function storePassMappingHash(hashValue: string): Promise<void> {
   await writeHashFile(passMappingHashPath, hashValue);
 }
 
+async function storePlayerMappingHash(hashValue: string): Promise<void> {
+  await writeHashFile(playerMappingHashPath, hashValue);
+}
+
 export type ReindexFlags = {
   levelNeedsReindex: boolean;
   passNeedsReindex: boolean;
+  playerNeedsReindex: boolean;
 };
 
 async function isLevelIndexReady(): Promise<boolean> {
@@ -613,32 +771,48 @@ async function isPassIndexReady(): Promise<boolean> {
   return Boolean(idx && psAlias);
 }
 
+async function isPlayerIndexReady(): Promise<boolean> {
+  const [idx, plAlias] = await Promise.all([
+    client.indices.exists({ index: playerIndexName }),
+    client.indices.exists({ index: playerAlias })
+  ]);
+  return Boolean(idx && plAlias);
+}
+
 // Function to check if reindexing is needed (per index)
 export async function checkIfReindexingNeeded(): Promise<ReindexFlags> {
   try {
     const currentLevelHash = generateMappingHash(levelMappingHashPayload);
     const currentPassHash = generateMappingHash(passMappingHashPayload);
+    const currentPlayerHash = generateMappingHash(playerMappingHashPayload);
     const storedLevelHash = readStoredLevelMappingHash();
     const storedPassHash = readStoredPassMappingHash();
+    const storedPlayerHash = readStoredPlayerMappingHash();
 
     const levelHashMismatch = currentLevelHash !== storedLevelHash;
     const passHashMismatch = currentPassHash !== storedPassHash;
+    const playerHashMismatch = currentPlayerHash !== storedPlayerHash;
 
-    const [levelReady, passReady] = await Promise.all([isLevelIndexReady(), isPassIndexReady()]);
+    const [levelReady, passReady, playerReady] = await Promise.all([
+      isLevelIndexReady(),
+      isPassIndexReady(),
+      isPlayerIndexReady(),
+    ]);
 
     const levelNeedsReindex = levelHashMismatch || !levelReady;
     const passNeedsReindex = passHashMismatch || !passReady;
+    const playerNeedsReindex = playerHashMismatch || !playerReady;
 
-    if (levelNeedsReindex || passNeedsReindex) {
+    if (levelNeedsReindex || passNeedsReindex || playerNeedsReindex) {
       logger.info(
-        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady})`
+        `Index configuration: levels reindex=${levelNeedsReindex} (hash=${levelHashMismatch}, ready=${levelReady}), passes reindex=${passNeedsReindex} (hash=${passHashMismatch}, ready=${passReady}), players reindex=${playerNeedsReindex} (hash=${playerHashMismatch}, ready=${playerReady})`
       );
     }
 
-    return { levelNeedsReindex, passNeedsReindex };
+    return { levelNeedsReindex, passNeedsReindex, playerNeedsReindex };
   } catch (error) {
     logger.error('Error checking if reindexing is needed:', error);
-    return { levelNeedsReindex: true, passNeedsReindex: true };
+    return { levelNeedsReindex: true, passNeedsReindex: true, playerNeedsReindex: true };
   }
 }
 
@@ -662,6 +836,7 @@ async function waitForElasticsearch(retries = 5, delay = 5000): Promise<boolean>
 export type InitializeElasticsearchResult = {
   reindexedLevels: boolean;
   reindexedPasses: boolean;
+  reindexedPlayers: boolean;
 };
 
 export async function initializeElasticsearch(): Promise<InitializeElasticsearchResult> {
@@ -671,10 +846,11 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
       throw new Error('Elasticsearch failed to initialize after multiple retries');
     }
 
-    const { levelNeedsReindex, passNeedsReindex } = await checkIfReindexingNeeded();
+    const { levelNeedsReindex, passNeedsReindex, playerNeedsReindex } = await checkIfReindexingNeeded();
 
     let reindexedLevels = false;
     let reindexedPasses = false;
+    let reindexedPlayers = false;
 
     if (levelNeedsReindex) {
       logger.info('Recreating levels index and aliases...');
@@ -734,11 +910,37 @@ export async function initializeElasticsearch(): Promise<InitializeElasticsearch
       reindexedPasses = true;
     }
 
-    if (!reindexedLevels && !reindexedPasses) {
+    if (playerNeedsReindex) {
+      logger.info('Recreating players index and alias...');
+      await client.indices
+        .delete({
+          index: [playerIndexName, playerAlias],
+          ignore_unavailable: true
+        })
+        .catch(() => {});
+
+      const playerConfig = indices[playerIndexName];
+      await client.indices.create({
+        index: playerIndexName,
+        settings: playerConfig.settings,
+        mappings: playerConfig.mappings
+      });
+      logger.info(`Created index: ${playerIndexName}`);
+
+      await client.indices.putAlias({
+        index: playerIndexName,
+        name: playerAlias
+      });
+      logger.info(`Created alias: ${playerAlias} -> ${playerIndexName}`);
+
+      reindexedPlayers = true;
+    }
+
+    if (!reindexedLevels && !reindexedPasses && !reindexedPlayers) {
       logger.info('No index recreation needed');
     }
 
-    return { reindexedLevels, reindexedPasses };
+    return { reindexedLevels, reindexedPasses, reindexedPlayers };
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);
     throw error;

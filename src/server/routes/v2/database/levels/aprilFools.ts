@@ -11,10 +11,12 @@ import { sseManager } from '@/misc/utils/server/sse.js';
 import Pass from '@/models/passes/Pass.js';
 import Judgement from '@/models/passes/Judgement.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { calcAcc } from '@/misc/utils/pass/CalcAcc.js';
 import { getScoreV2 } from '@/misc/utils/pass/CalcScore.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const ENABLE_ROULETTE = process.env.APRIL_FOOLS === 'true';
 const bigWheelTimeout = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -94,7 +96,7 @@ const handlePassUpdates = async (levelId: number, diffId: number, baseScore: num
       // Schedule stats update for affected players
       const affectedPlayerIds = new Set(passes.map(pass => pass.playerId));
 
-      await playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+      await elasticsearchService.reindexPlayers(Array.from(affectedPlayerIds));
 
 
       await recalcTransaction.commit();

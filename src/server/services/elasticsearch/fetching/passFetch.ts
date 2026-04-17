@@ -1,5 +1,5 @@
-import { Op } from 'sequelize';
 import Pass from '@/models/passes/Pass.js';
+import { Op } from 'sequelize';
 import Judgement from '@/models/passes/Judgement.js';
 import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
@@ -75,3 +75,9 @@ export async function fetchPassesForBulkIndex(passIds: number[]): Promise<Pass[]
   return passes;
 }
 
+
+
+export async function fetchPassWithRelations(passId: number): Promise<Pass | null> {
+  const passes = await fetchPassesForBulkIndex([passId]);
+  return passes[0] ?? null;
+}

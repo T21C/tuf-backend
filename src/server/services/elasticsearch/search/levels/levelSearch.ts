@@ -10,10 +10,10 @@ import {
   resolveDifficultyRange,
   resolveSpecialDifficulties,
   resolveTags,
-} from '@/server/services/elasticsearch/search/filterResolvers.js';
-import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/primaryDifficultySort.js';
-import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/parseSearch.js';
-import { buildAvailableDlHideClause, buildAvailableDlOnlyClause } from '@/server/services/elasticsearch/search/esQueryLevelFilters.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/filterResolvers.js';
+import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/tools/primaryDifficultySort.js';
+import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
+import { buildAvailableDlHideClause, buildAvailableDlOnlyClause } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryLevelFilters.js';
 import {
   boolMust,
   boolShould,
@@ -22,9 +22,9 @@ import {
   rangeGt,
   termField,
   termsField,
-} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
-import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levelFieldQuery.js';
-import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/scrollHelpers.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
+import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
 
 export async function searchLevels(query: string, filters: any = {}, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
   try {

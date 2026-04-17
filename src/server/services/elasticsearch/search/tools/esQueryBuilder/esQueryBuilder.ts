@@ -1,4 +1,4 @@
-import type { EsQuery } from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+import type { EsQuery } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 
 /**
  * Fluent bool composer. Produces a single bool clause; omits empty sections.

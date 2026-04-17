@@ -1,5 +1,6 @@
-import { Op, QueryTypes } from 'sequelize';
+import { logger } from '@/server/services/core/LoggerService.js';
 import Level from '@/models/levels/Level.js';
+import { Op, QueryTypes } from 'sequelize';
 import LevelAlias from '@/models/levels/LevelAlias.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import LevelTag from '@/models/levels/LevelTag.js';
@@ -16,7 +17,6 @@ import SongAlias from '@/models/songs/SongAlias.js';
 import SongCredit from '@/models/songs/SongCredit.js';
 import Artist from '@/models/artists/Artist.js';
 import ArtistAlias from '@/models/artists/ArtistAlias.js';
-import { logger } from '../core/LoggerService.js';
 
 /** Reuse Team/Song rows across reindex batches (same song/team on many levels). */
 const esTeamCache = new Map<number, any>();
@@ -265,4 +265,11 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
   }
 
   return levels;
+}
+
+
+export async function fetchLevelWithRelations(levelId: number): Promise<Level | null> {
+  logger.debug(`Getting level with relations (bulk-backed) for level ${levelId}`);
+  const levels = await fetchLevelsForBulkIndex([levelId]);
+  return levels[0] ?? null;
 }

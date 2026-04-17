@@ -6,7 +6,7 @@ import {
 } from '@/misc/utils/data/searchHelpers.js';
 import { queryParserConfigs, type FieldSearch } from '@/misc/utils/data/queryParser.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/esQueryBuilder.js';
+import { BoolQueryBuilder } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryBuilder.js';
 import {
   matchNone,
   maybeNot,
@@ -14,7 +14,7 @@ import {
   termField,
   wildcardCi,
   boolShouldOnly,
-} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import {
   specAnyLevelCreditsCreator,
   specAnyTeamObjectWithAliases,
@@ -22,7 +22,7 @@ import {
   specLevelAliasesByField,
   specNestedDocNameWithOptionalAliases,
   specTeamFieldSearch,
-} from '@/server/services/elasticsearch/search/esQuerySpecs.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQuerySpecs.js';
 
 /** Level search fields backed by ES numeric mapping; values may use `>`, `<`, `>=`, `<=` (PUA-decoded before parse). */
 const LEVEL_NUMERIC_RANGE_FIELDS: Record<string, { esField: string; integerOnly: boolean }> = {

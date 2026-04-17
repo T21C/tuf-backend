@@ -11,10 +11,11 @@ import {sseManager} from '@/misc/utils/server/sse.js';
 import User from '@/models/auth/User.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { esDocToLegacyPlayerStats } from '@/server/services/elasticsearch/adapters/legacyPlayerStatsShape.js';
+import { getPlayerRanks } from '@/server/services/elasticsearch/search/players/playerSearch.js';
 import PlayerStats from '@/models/players/PlayerStats.js';
 import {Router, Request, Response} from 'express';
-import {QueryTypes} from 'sequelize';
-import { escapeForMySQL } from '@/misc/utils/data/searchHelpers.js';
 import PlayerModifier from '@/models/players/PlayerModifier.js';
 import { ModifierService } from '@/server/services/accounts/ModifierService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -38,6 +39,7 @@ import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
+const elasticsearchService = ElasticsearchService.getInstance();
 const modifierService = ModifierService.getInstance();
 
 
@@ -102,14 +104,22 @@ router.get(
   ApiDoc({
     operationId: 'getPlayers',
     summary: 'List players',
-    description: 'Get leaderboard-style player list (simple).',
+    description: 'Get leaderboard-style player list (Elasticsearch-backed). Prefer `/v3/players/leaderboard` for new integrations.',
     tags: ['Database', 'Players'],
     responses: { 200: { description: 'Players list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
   try {
-    const players = await playerStatsService.getLeaderboard();
-    return res.json(players);
+    const { total, hits } = await elasticsearchService.searchPlayers({
+      sortBy: 'rankedScore',
+      order: 'desc',
+      showBanned: 'show',
+      requireHasPasses: true,
+      limit: 30,
+      offset: 0,
+    });
+    const players = hits.map((doc) => esDocToLegacyPlayerStats(doc));
+    return res.json({ total, players });
   } catch (error) {
     logger.error('Error fetching players:', error);
     return res.status(500).json({
@@ -163,11 +173,13 @@ router.get(
     // Check if user is viewing their own profile
     const isOwnProfile = user && user.playerId && user.playerId === parseInt(id);
 
-    // Wait for both enriched data and stats in parallel
-    const [enrichedPlayer, playerStats] = await Promise.all([
+    // Stats come from Elasticsearch (with on-demand ranks); passes/topScores stay in MySQL
+    const [enrichedPlayer, esDoc] = await Promise.all([
       playerStatsService.getEnrichedPlayer(parseInt(id), isOwnProfile ? user : undefined),
-      playerStatsService.getPlayerStats(parseInt(id)).then(stats => stats?.[0]),
+      elasticsearchService.getPlayerDocumentById(parseInt(id)),
     ]);
+    const ranks = esDoc ? await getPlayerRanks(esDoc) : undefined;
+    const playerStats = esDoc ? esDocToLegacyPlayerStats(esDoc, ranks) : undefined;
 
     /*
     // Filter out sensitive information from hidden levels and ensure no circular references
@@ -252,75 +264,17 @@ router.get(
       : PLAYER_SEARCH_DEFAULT_LIMIT;
     const offset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
 
-    const escapedName = escapeForMySQL(nameTrim);
-    const substrPattern = `%${escapedName}%`;
-    const prefixPattern = `${escapedName}%`;
-
-    const replacements = {
-      term: nameTrim,
-      substrPattern,
-      prefixPattern,
+    const { total, hits } = await elasticsearchService.searchPlayers({
+      rawQuery: nameTrim,
+      showBanned: 'hide',
       limit,
       offset,
-    };
+    });
 
-    const countRows = await sequelize.query<{cnt: string}>(
-      `SELECT COUNT(DISTINCT p.id) AS cnt
-       FROM players p
-       LEFT JOIN users u ON u.playerId = p.id
-       WHERE p.isBanned = 0
-       AND (
-         p.name LIKE :substrPattern
-         OR (u.username IS NOT NULL AND u.username LIKE :substrPattern)
-       )`,
-      {replacements: {substrPattern}, type: QueryTypes.SELECT},
-    );
-
-    const total = Number(countRows[0]?.cnt ?? 0);
-
-    const idRows = await sequelize.query<{id: number}>(
-      `SELECT p.id AS id
-       FROM players p
-       LEFT JOIN users u ON u.playerId = p.id
-       WHERE p.isBanned = 0
-       AND (
-         p.name LIKE :substrPattern
-         OR (u.username IS NOT NULL AND u.username LIKE :substrPattern)
-       )
-       ORDER BY
-         CASE
-           WHEN LOWER(p.name) = LOWER(:term)
-             OR (u.username IS NOT NULL AND LOWER(u.username) = LOWER(:term))
-             THEN 0
-           WHEN p.name LIKE :prefixPattern
-             OR (u.username IS NOT NULL AND u.username LIKE :prefixPattern)
-             THEN 1
-           ELSE 2
-         END ASC,
-         CHAR_LENGTH(p.name) ASC,
-         p.name ASC
-       LIMIT :limit OFFSET :offset`,
-      {replacements, type: QueryTypes.SELECT},
-    );
-
-    const orderedIds = idRows.map((r) => r.id).filter(Boolean);
-    if (orderedIds.length === 0) {
-      return res.json({
-        results: [],
-        total,
-        limit,
-        offset,
-      });
-    }
-
-    const stats = await playerStatsService.getPlayerStats(orderedIds);
-    const byId = new Map(stats.map((s) => [s.id, s]));
-    const orderedStats = orderedIds
-      .map((id) => byId.get(id))
-      .filter((s): s is NonNullable<typeof s> => s != null);
+    const results = hits.map((doc) => esDocToLegacyPlayerStats(doc));
 
     return res.json({
-      results: orderedStats,
+      results,
       total,
       limit,
       offset,
@@ -904,6 +858,31 @@ router.patch(
         await CacheInvalidation.invalidateUser(player.user.id);
       }
 
+      // Reindex the banned/unbanned player; also reindex players affected by worlds-first shifts on their levels
+      await elasticsearchService.reindexPlayers([player.id]);
+      try {
+        const affectedPlayerIds = await Pass.findAll({
+          attributes: ['playerId'],
+          where: {
+            levelId: {
+              [Op.in]: (await Pass.findAll({
+                attributes: ['levelId'],
+                where: {playerId: player.id},
+                raw: true,
+              })).map(p => p.levelId).filter(Boolean),
+            },
+            playerId: {[Op.ne]: player.id},
+          },
+          raw: true,
+        });
+        const otherIds = Array.from(new Set(affectedPlayerIds.map(p => p.playerId).filter((x): x is number => !!x)));
+        if (otherIds.length > 0) {
+          await elasticsearchService.reindexPlayers(otherIds);
+        }
+      } catch (err) {
+        logger.warn('Failed to reindex players affected by ban worlds-first shift', err);
+      }
+
       sseManager.broadcast({type: 'playerUpdate'});
 
       return res.json({
@@ -1198,8 +1177,9 @@ router.post(
         await CacheInvalidation.invalidateUser(targetPlayer.user.id);
       }
 
-      // Update stats for target player
-      await playerStatsService.updatePlayerStats([targetPlayer.id]);
+      // Reindex target player in Elasticsearch; delete source player's ES doc
+      await elasticsearchService.deletePlayerDocumentById(sourcePlayer.id);
+      await elasticsearchService.reindexPlayers([targetPlayer.id]);
 
       const io = getIO();
       io.emit('leaderboardUpdated');
@@ -1433,19 +1413,17 @@ router.get(
       curationTypes: [],
     };
 
-    // Get top difficulty if user has a player
+    // Get top difficulty if user has a player (from Elasticsearch player doc)
     if (user.playerId) {
       try {
-        const stats = await playerStatsService.getPlayerStats(user.playerId);
-        if (stats && stats.length > 0) {
-          const topDiff = stats[0].topDiff as Difficulty | null;
-          if (topDiff) {
-            result.topDifficulty = {
-              id: topDiff.id,
-              name: topDiff.name,
-              sortOrder: topDiff.sortOrder,
-            };
-          }
+        const esDoc = await elasticsearchService.getPlayerDocumentById(user.playerId);
+        const topDiff = esDoc?.topDiff ?? null;
+        if (topDiff) {
+          result.topDifficulty = {
+            id: topDiff.id,
+            name: topDiff.name,
+            sortOrder: topDiff.sortOrder,
+          };
         }
       } catch (error: any) {
         logger.debug(`Error fetching top difficulty for player ${user.playerId}: ${error.message}`);

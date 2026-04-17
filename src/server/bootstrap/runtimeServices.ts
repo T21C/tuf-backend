@@ -1,6 +1,5 @@
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
 import { redis } from '@/server/services/core/RedisService.js';
 import { registerShutdownStep } from '@/server/bootstrap/shutdownCoordinator.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
@@ -30,16 +29,15 @@ export async function initializeRuntimeServices(): Promise<void> {
   try {
     logger.info('Starting Async Elasticsearch initialization...');
     const elasticsearchService = ElasticsearchService.getInstance();
+    // ElasticsearchService.initialize() internally detects mapping-hash drift for
+    // the players index and only triggers reindexAllPlayers() when needed, so the
+    // bootstrap never forces a full recomputation.
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     elasticsearchService.initialize();
   } catch (error) {
     logger.error('Error initializing Elasticsearch:', error);
     logger.warn('Application will continue without Elasticsearch functionality');
   }
-
-  const playerStatsService = PlayerStatsService.getInstance();
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-  playerStatsService.initialize();
 
   const { RefreshTokenCleanupService } = await import('@/server/services/accounts/RefreshTokenCleanupService.js');
   RefreshTokenCleanupService.getInstance();

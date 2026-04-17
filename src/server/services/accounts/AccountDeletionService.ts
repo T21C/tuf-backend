@@ -2,6 +2,7 @@ import sequelize from '@/config/db.js';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
 import Pass from '@/models/passes/Pass.js';
+import { Op } from 'sequelize';
 import Creator from '@/models/credits/Creator.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
@@ -28,6 +29,7 @@ export class AccountDeletionService {
    */
   private async syncSearchAndCacheAfterHardDelete(input: {
     userId: string;
+    playerId?: number | null;
     passIds: number[];
     levelIds: number[];
   }): Promise<void> {
@@ -38,6 +40,33 @@ export class AccountDeletionService {
       }
       if (input.levelIds.length > 0) {
         await es.reindexLevels(input.levelIds);
+      }
+      if (input.playerId != null) {
+        await es.deletePlayerDocumentById(input.playerId);
+      }
+      // Reindex other players who had passes on the affected levels (worlds-first shifts)
+      if (input.levelIds.length > 0) {
+        try {
+          const otherPasses = await Pass.findAll({
+            attributes: ['playerId'],
+            where: {
+              levelId: { [Op.in]: input.levelIds },
+              ...(input.playerId != null ? { playerId: { [Op.ne]: input.playerId } } : {}),
+            },
+            raw: true,
+          });
+          const otherPlayerIds = Array.from(
+            new Set(otherPasses.map((p) => p.playerId).filter((x): x is number => !!x)),
+          );
+          if (otherPlayerIds.length > 0) {
+            await es.reindexPlayers(otherPlayerIds);
+          }
+        } catch (innerErr) {
+          logger.warn('[AccountDeletion] Failed to reindex worlds-first affected players', {
+            userId: input.userId,
+            message: innerErr instanceof Error ? innerErr.message : String(innerErr),
+          });
+        }
       }
     } catch (err) {
       logger.error('[AccountDeletion] Elasticsearch sync after hard delete failed', {
@@ -321,6 +350,7 @@ export class AccountDeletionService {
 
       await this.syncSearchAndCacheAfterHardDelete({
         userId,
+        playerId: playerIdToDelete,
         passIds: passIdsForSearchIndex,
         levelIds: levelIdsAffected,
       });

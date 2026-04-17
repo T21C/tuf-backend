@@ -6,7 +6,7 @@ import {
   nestedQuery,
   termField,
   wildcardCi,
-} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 
 /**
  * Declarative: one nested document with a primary text field plus an optional nested aliases path.

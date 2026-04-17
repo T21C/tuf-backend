@@ -3,7 +3,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import { Op } from 'sequelize';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { convertFromPUA } from '@/misc/utils/data/searchHelpers.js';
-import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/parseSearch.js';
+import { parseSearchQueryWithPUA } from '@/server/services/elasticsearch/search/tools/parseSearch.js';
 import {
   boolMust,
   boolShould,
@@ -11,11 +11,11 @@ import {
   rangeGt,
   termField,
   termsField,
-} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
-import { buildPassFieldSearchQuery } from '@/server/services/elasticsearch/search/passFieldQuery.js';
-import { getDifficultySortOrderByDiffId } from '@/server/services/elasticsearch/search/filterResolvers.js';
-import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/primaryDifficultySort.js';
-import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/scrollHelpers.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { buildPassFieldSearchQuery } from '@/server/services/elasticsearch/search/passes/passFieldQuery.js';
+import { getDifficultySortOrderByDiffId } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/filterResolvers.js';
+import { buildPrimaryDifficultySortScript } from '@/server/services/elasticsearch/search/tools/primaryDifficultySort.js';
+import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
 
 export async function searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
   try {

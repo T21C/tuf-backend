@@ -12,6 +12,7 @@ import {getIO} from '@/misc/utils/server/socket.js';
 import {sseManager} from '@/misc/utils/server/sse.js';
 import {getScoreV2} from '@/misc/utils/pass/CalcScore.js';
 import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import sequelize from '@/config/db.js';
 import AnnouncementDirective from '@/models/announcements/AnnouncementDirective.js';
 import AnnouncementChannel from '@/models/announcements/AnnouncementChannel.js';
@@ -29,6 +30,7 @@ import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
 import { multerMemoryCdnImage5Mb } from '@/config/multerMemoryUploads.js';
 
 const playerStatsService = PlayerStatsService.getInstance();
+const elasticsearchService = ElasticsearchService.getInstance();
 
 const tagIconUpload = multerMemoryCdnImage5Mb;
 const difficultyIconUpload = multerMemoryCdnImage5Mb;
@@ -1050,9 +1052,8 @@ router.put(
       // If base score was changed, update stats for affected players only
       if (isBaseScoreChanged && affectedPlayerIds.size > 0) {
         try {
-          // Only recalculate stats for players whose passes were affected
-          await playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
-          await playerStatsService.updateRanks();
+          // Reindex affected players in Elasticsearch (ranks are computed on-demand at read-time)
+          await elasticsearchService.reindexPlayers(Array.from(affectedPlayerIds));
 
           // Emit events for frontend updates after stats are reloaded
           const io = getIO();

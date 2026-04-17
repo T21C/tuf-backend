@@ -75,7 +75,7 @@ router.get(
     // Fetch providers with profile data
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
-      attributes: ['provider', 'providerId', 'profile'],
+      attributes: ['provider', 'profile'],
     });
 
     const player = await Player.findByPk(user.playerId);
@@ -286,7 +286,7 @@ router.put(
     const updatedUser = await User.findByPk(user.id, { transaction });
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
-      attributes: ['provider', 'providerId', 'profile'],
+      attributes: ['provider', 'profile'],
       transaction
     });
 

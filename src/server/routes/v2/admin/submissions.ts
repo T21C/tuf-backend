@@ -289,7 +289,7 @@ async function approvePassSubmission(
 
   let playerStats: ApprovePassSubmissionResult['playerStats'] = null;
   try {
-    await playerStatsService.updatePlayerStats([submission.assignedPlayerId]);
+    await elasticsearchService.reindexPlayers([submission.assignedPlayerId]);
     playerStats = (await playerStatsService.getPlayerStats(submission.assignedPlayerId))[0];
   } catch (statsError) {
     logger.warn('Failed to update player stats during approval', {

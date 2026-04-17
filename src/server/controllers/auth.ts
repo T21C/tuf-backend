@@ -3,7 +3,6 @@ import {Op, CreationAttributes} from 'sequelize';
 import {v4 as uuidv4} from 'uuid';
 import User from '@/models/auth/User.js';
 import Player from '@/models/players/Player.js';
-import PlayerStats from '@/models/players/PlayerStats.js';
 import {emailService} from '@/misc/utils/auth/email.js';
 import {
   passwordUtils,
@@ -13,7 +12,6 @@ import {
   ACCESS_COOKIE_MAX_AGE_SEC,
   REFRESH_COOKIE_MAX_AGE_SEC,
 } from '@/misc/utils/auth/auth.js';
-import {PlayerStatsService} from '@/server/services/core/PlayerStatsService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import CaptchaService from '@/server/services/accounts/CaptchaService.js';
 import { RateLimiter } from '@/server/decorators/rateLimiter.js';
@@ -165,26 +163,8 @@ class AuthController {
         isSubmissionsPaused: false,
       });
 
-      // Create player stats
-      await PlayerStats.create({
-        id: player.id,
-        rankedScore: 0,
-        generalScore: 0,
-        ppScore: 0,
-        wfScore: 0,
-        score12K: 0,
-        rankedScoreRank: -1,
-        generalScoreRank: -1,
-        ppScoreRank: -1,
-        wfScoreRank: -1,
-        score12KRank: -1,
-        averageXacc: 0,
-        universalPassCount: 0,
-        worldsFirstCount: 0,
-        topDiffId: 0,
-        top12kDiffId: 0,
-        lastUpdated: new Date(),
-      });
+      // Player stats table is deprecated; player search/leaderboard is served by Elasticsearch.
+      // The Player.afterCreate hook reindexes the new player with zero stats in ES.
 
       // Create user with proper type annotations
       const now = new Date();
@@ -282,8 +262,7 @@ class AuthController {
         passwordResetToken: '', // Clear the token
         passwordResetExpires: new Date(), // Set to current time to expire it
       });
-      // Force update ranks
-      await PlayerStatsService.getInstance().updateRanks();
+      // Ranks are computed on-demand in Elasticsearch; User hook handles reindex of linked player
       await CacheInvalidation.invalidateUser(user.id);
 
       return res.json({message: 'Email verified successfully'});

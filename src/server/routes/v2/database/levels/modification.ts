@@ -1194,7 +1194,7 @@ router.put(
             updateData,
             recalcTransaction,
           );
-          await playerStatsService.updatePlayerStats(
+          await elasticsearchService.reindexPlayers(
             Array.from(new Set(affectedPlayerIds)),
           );
         }
@@ -1320,7 +1320,7 @@ router.delete(
           );
 
           // Schedule stats update for affected players
-          await playerStatsService.updatePlayerStats(Array.from(affectedPlayerIds));
+          await elasticsearchService.reindexPlayers(Array.from(affectedPlayerIds));
 
 
             // Broadcast updates
@@ -1426,7 +1426,17 @@ router.patch(
         try {
           sseManager.broadcast({type: 'levelUpdate'});
           sseManager.broadcast({type: 'ratingUpdate'});
-          await playerStatsService.reloadAllStats();
+          // Reindex only players who have passes on this restored level
+          const affectedPasses = await Pass.findAll({
+            where: {levelId: parseInt(id)},
+            attributes: ['playerId'],
+          });
+          const affectedPlayerIds = Array.from(
+            new Set(affectedPasses.map(p => p.playerId).filter((x): x is number => !!x)),
+          );
+          if (affectedPlayerIds.length > 0) {
+            await elasticsearchService.reindexPlayers(affectedPlayerIds);
+          }
         } catch (error) {
           logger.error('Error in async operations after level restore:', error);
         }

@@ -333,10 +333,10 @@ router.put(
 
       await transaction.commit();
 
-      // Update player stats
+      // Reindex player in Elasticsearch
       if (updatedPass?.player?.id) {
-        playerStatsService.updatePlayerStats([updatedPass.player.id]).catch(error => {
-          logger.error(`[Passes PUT] Error updating player stats for player ID: ${updatedPass?.player?.id}:`, error);
+        elasticsearchService.reindexPlayers([updatedPass.player.id]).catch(error => {
+          logger.error(`[Passes PUT] Error reindexing player in ES for player ID: ${updatedPass?.player?.id}:`, error);
         });
       }
 
@@ -494,9 +494,9 @@ router.delete(
         });
 
         await transaction.commit();
-        // Update player stats
+        // Reindex player in Elasticsearch
         if (playerId) {
-          await playerStatsService.updatePlayerStats([playerId]);
+          await elasticsearchService.reindexPlayers([playerId]);
           const playerStats = await playerStatsService.getPlayerStats(playerId).then(stats => stats?.[0]);
 
 
@@ -603,9 +603,9 @@ router.patch(
         await transaction.commit();
 
         await elasticsearchService.indexLevel(pass.level!);
-        // Update player stats
+        // Reindex player in Elasticsearch
         if (playerId) {
-          await playerStatsService.updatePlayerStats([playerId]);
+          await elasticsearchService.reindexPlayers([playerId]);
 
           const updateData = {
             playerId,
@@ -689,8 +689,11 @@ router.patch(
 
       await transaction.commit();
 
-      // Reindex the pass in Elasticsearch
+      // Reindex the pass in Elasticsearch; also reindex player because visibility affects stats
       await elasticsearchService.indexPass(pass.id);
+      if (pass.playerId) {
+        await elasticsearchService.reindexPlayers([pass.playerId]);
+      }
 
       return res.json({
         message: `Pass ${newIsHidden ? 'hidden' : 'unhidden'} successfully`,

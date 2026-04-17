@@ -1,6 +1,7 @@
 import PlayerModifier, { ModifierType } from '@/models/players/PlayerModifier.js';
 import { Op } from 'sequelize';
 import { PlayerStatsService } from '../core/PlayerStatsService.js';
+import ElasticsearchService from '../elasticsearch/ElasticsearchService.js';
 import Pass from '@/models/passes/Pass.js';
 import Level from '@/models/levels/Level.js';
 import { CronJob } from 'cron';
@@ -413,8 +414,8 @@ export class ModifierService {
 
         await transaction.commit();
 
-        // Update player stats after all passes are processed
-        await PlayerStatsService.getInstance().updatePlayerStats([playerId]);
+        // Reindex player in Elasticsearch after all passes are processed
+        await ElasticsearchService.getInstance().reindexPlayers([playerId]);
       } catch (error) {
         await transaction.rollback();
         throw error;
@@ -768,8 +769,8 @@ export class ModifierService {
           modifier.value
         );
 
-        // Update player stats
-        await PlayerStatsService.getInstance().updatePlayerStats([playerId]);
+        // Reindex player in Elasticsearch
+        await ElasticsearchService.getInstance().reindexPlayers([playerId]);
 
         return { modifier: banModifier };
       }

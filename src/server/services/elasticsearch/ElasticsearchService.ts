@@ -1,6 +1,7 @@
 import client, {
   levelIndexName,
   passIndexName,
+  playerIndexName,
   initializeElasticsearch,
   updateMappingHash
 } from '@/config/elasticsearch.js';
@@ -10,17 +11,19 @@ import { Op } from 'sequelize';
 import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Pass from '@/models/passes/Pass.js';
+import Player from '@/models/players/Player.js';
 import SongCredit from '@/models/songs/SongCredit.js';
-import { searchLevels as runLevelSearch } from '@/server/services/elasticsearch/search/levelSearch.js';
-import { searchPasses as runPassSearch } from '@/server/services/elasticsearch/search/passSearch.js';
-import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from '@/server/services/elasticsearch/constants.js';
-import { fetchLevelWithRelations } from '@/server/services/elasticsearch/levelFetch.js';
-import { fetchPassWithRelations } from '@/server/services/elasticsearch/passFetch.js';
-import { fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from '@/server/services/elasticsearch/levelBulkFetch.js';
-import { fetchPassesForBulkIndex, clearEsPassIndexRelationCaches } from '@/server/services/elasticsearch/passBulkFetch.js';
-import { buildLevelIndexDocument } from '@/server/services/elasticsearch/levelIndexDocument.js';
-import { buildPassIndexDocument } from '@/server/services/elasticsearch/passIndexDocument.js';
-import { registerElasticsearchChangeListeners } from '@/server/services/elasticsearch/listeners/registerElasticsearchChangeListeners.js';
+import { searchLevels as runLevelSearch } from './search/levels/levelSearch.js';
+import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
+import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
+import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
+import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
+import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches } from './fetching/passFetch.js';
+import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
+import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
+import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
+import { registerElasticsearchChangeListeners } from './listeners/registerElasticsearchChangeListeners.js';
+import { registerPlayerIndexChangeListeners } from './listeners/registerPlayerIndexChangeListeners.js';
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -50,16 +53,17 @@ class ElasticsearchService {
       logger.info('Starting ElasticsearchService initialization...');
 
       // Initialize Elasticsearch indices
-      const { reindexedLevels, reindexedPasses } = await initializeElasticsearch();
+      const { reindexedLevels, reindexedPasses, reindexedPlayers } = await initializeElasticsearch();
 
       // Set up database change listeners
       this.setupChangeListeners();
       logger.info('Database change listeners set up successfully');
 
 
-      if (reindexedLevels || reindexedPasses) {
+      if (reindexedLevels || reindexedPasses || reindexedPlayers) {
         if (reindexedLevels) logger.info('Reindexing levels...');
         if (reindexedPasses) logger.info('Reindexing passes...');
+        if (reindexedPlayers) logger.info('Reindexing players...');
         const start = Date.now();
         await Promise.all([
           reindexedLevels
@@ -74,10 +78,16 @@ class ElasticsearchService {
                 throw error;
               })
             : Promise.resolve(),
+          reindexedPlayers
+            ? this.reindexAllPlayers().catch(error => {
+                logger.error('Failed to reindex players:', error);
+                throw error;
+              })
+            : Promise.resolve(),
         ]);
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        await updateMappingHash({ reindexedLevels, reindexedPasses });
+        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers });
       }
 
       this.isInitialized = true;
@@ -203,6 +213,12 @@ class ElasticsearchService {
       scheduleArtistReindex: (ids) => this.scheduleArtistReindex(ids),
       getLevelIdsBySongId: (id) => this.getLevelIdsBySongId(id),
       getLevelIdsByArtistId: (id) => this.getLevelIdsByArtistId(id),
+    });
+
+    registerPlayerIndexChangeListeners({
+      indexPlayer: (id) => this.indexPlayer(id),
+      reindexPlayers: (ids) => this.reindexPlayers(ids),
+      deletePlayerDocumentById: (id) => this.deletePlayerDocumentById(id),
     });
   }
 
@@ -505,6 +521,152 @@ class ElasticsearchService {
 
   public async searchPasses(query: string, filters: any = {}, userPlayerId?: number, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
     return runPassSearch(query, filters, userPlayerId, isSuperAdmin);
+  }
+
+  /**
+   * Index or upsert a single player document.
+   */
+  public async indexPlayer(playerId: number): Promise<void> {
+    if (!Number.isFinite(playerId) || playerId <= 0) {
+      logger.warn(`indexPlayer skipped: invalid id ${playerId}`);
+      return;
+    }
+    try {
+      const docs = await fetchPlayersForBulkIndex([playerId]);
+      const prepared = docs[0];
+      if (!prepared) {
+        logger.warn(`indexPlayer: player ${playerId} not found in DB — removing from index if present`);
+        await this.deletePlayerDocumentById(playerId).catch(() => {});
+        return;
+      }
+      await client.index({
+        index: playerIndexName,
+        id: prepared.id.toString(),
+        document: prepared.document,
+        refresh: true,
+      });
+      logger.debug(`Successfully indexed player ${prepared.id}`);
+    } catch (error) {
+      logger.error(`Error indexing player ${playerId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reindex a specific set of players in bulk. Recomputes their stats from
+   * `player_pass_summary`, rebuilds documents, and writes them to the players index.
+   */
+  public async reindexPlayers(playerIds: number[]): Promise<void> {
+    if (!playerIds || playerIds.length === 0) return;
+    try {
+      const uniqueIds = [...new Set(playerIds)].filter((id) => Number.isFinite(id) && id > 0);
+      if (uniqueIds.length === 0) return;
+
+      let processedCount = 0;
+      for (let i = 0; i < uniqueIds.length; i += MAX_BATCH_SIZE) {
+        const chunk = uniqueIds.slice(i, i + MAX_BATCH_SIZE);
+        const docs = await fetchPlayersForBulkIndex(chunk);
+        if (docs.length === 0) continue;
+
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: playerIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+      }
+      logger.debug(`Reindexed ${processedCount} players (requested ${uniqueIds.length})`);
+    } catch (error) {
+      logger.error('Error reindexing players:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a player document from the players index. Safe to call when the doc doesn't exist.
+   */
+  public async deletePlayerDocumentById(playerId: number): Promise<void> {
+    try {
+      await client.delete({
+        index: playerIndexName,
+        id: playerId.toString(),
+      });
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return;
+      logger.error(`Error deleting player ${playerId} from index:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reindex every player currently in the database (chunked bulk). Called on boot only when
+   * the players index is freshly created or its mapping changed.
+   */
+  public async reindexAllPlayers(): Promise<void> {
+    try {
+      let processedCount = 0;
+      let afterId = 0;
+      while (true) {
+        const idRows = await Player.findAll({
+          where: { id: { [Op.gt]: afterId } },
+          attributes: ['id'],
+          order: [['id', 'ASC']],
+          limit: MAX_BATCH_SIZE,
+          raw: true,
+        });
+        const idList = idRows.map((r: { id: number }) => r.id);
+        if (idList.length === 0) break;
+
+        const docs = await fetchPlayersForBulkIndex(idList);
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: playerIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+        logger.debug(`Reindexed ${processedCount} players...`);
+
+        afterId = idList[idList.length - 1];
+        if (idList.length < MAX_BATCH_SIZE) break;
+      }
+      logger.info(`Player reindexing complete. Total indexed: ${processedCount}`);
+    } catch (error) {
+      logger.error('Error reindexing all players:', error);
+      throw error;
+    }
+  }
+
+  public async searchPlayers(options: PlayerSearchOptions): Promise<PlayerSearchResult> {
+    return runPlayerSearch(options);
+  }
+
+  /**
+   * Fetch a single player document by id from Elasticsearch. Returns null when missing.
+   */
+  public async getPlayerDocumentById(playerId: number): Promise<any | null> {
+    try {
+      const response = await client.get({
+        index: playerIndexName,
+        id: playerId.toString(),
+      });
+      return (response as any)._source ?? null;
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return null;
+      logger.error(`Error fetching player ${playerId} from index:`, error);
+      throw error;
+    }
   }
 }
 

@@ -1,11 +1,11 @@
-import type { EsQuery } from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+import type { EsQuery } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import {
   boolMust,
   boolMustNot,
   boolShould,
   existsField,
   termField,
-} from '@/server/services/elasticsearch/search/esQueryPrimitives.js';
+} from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 
 function specNonEmptyKeywordField(field: string): EsQuery {
   return boolMust([
