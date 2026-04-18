@@ -10,7 +10,7 @@ import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
 import {
     listEntries as archiveListEntries,
-    extractEntry as archiveExtractEntry,
+    extractLevelPackPayload as archiveExtractLevelPackPayload,
     createZipFromFiles as archiveCreateZipFromFiles,
     detectArchiveFormat,
     getArchiveExtension,
@@ -51,17 +51,6 @@ async function extractArchiveEntries(archiveFilePath: string): Promise<ZipEntry[
 
     return entries;
 }
-
-async function extractFile(archiveFilePath: string, entry: ZipEntry, targetPath: string): Promise<void> {
-    await archiveExtractEntry(archiveFilePath, entry, targetPath);
-
-    logger.debug('Extracted file:', {
-        from: entry.relativePath,
-        to: targetPath,
-        size: entry.size
-    });
-}
-
 
 type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
 
@@ -153,16 +142,27 @@ export async function processArchiveFile(
             drive: storageRoot
         });
 
-        // First pass: collect all level files
+        // Bulk-extract `.adofai` + audio (see archiveService.extractLevelPackPayload); fall back to full extract
+        // if filtered extraction fails (e.g. solid RAR5). Paths inside the archive are preserved under `extractRoot`.
+        const extractRoot = path.join(permanentDir, '.extracted');
+        await sendProgress('processing', 13, 'Extracting level and song files from archive');
+        await archiveExtractLevelPackPayload(archiveFilePath, extractRoot);
+
+        // First pass: collect all level files (metadata paths come from listing; bytes from `extractRoot`)
         await sendProgress('processing', 15, 'Processing level files');
         let totalLevelSize = 0;
         const levelEntries = archiveEntries.filter(entry => !entry.isDirectory && entry.relativePath.toLowerCase().endsWith('.adofai'));
         let processedLevels = 0;
         for (const entry of levelEntries) {
-            // Extract to temp first for analysis
             const normalizedRelativePath = normalizeRelativePath(entry.relativePath);
-            const tempPath = path.join(storageRoot, 'temp', archiveFileId, 'levels', normalizedRelativePath);
-            await extractFile(archiveFilePath, entry, tempPath);
+            const tempPath = path.join(extractRoot, normalizedRelativePath);
+
+            if (!fs.existsSync(tempPath)) {
+                throw new Error(
+                    `Level file missing after archive extraction: ${normalizedRelativePath} (expected at ${tempPath}). ` +
+                        'The archive listing included this path but it was not extracted.'
+                );
+            }
 
             try {
                 const levelFilename = path.basename(entry.relativePath);
@@ -269,11 +269,24 @@ export async function processArchiveFile(
         );
         let processedSongs = 0;
         for (const entry of songEntries) {
-            // Extract song to temp first
-            const songTempPath = path.join(permanentDir, entry.name);
-            await extractFile(archiveFilePath, entry, songTempPath);
+            const normalizedSongPath = normalizeRelativePath(entry.relativePath);
+            const songTempPath = path.join(extractRoot, normalizedSongPath);
+
+            if (!fs.existsSync(songTempPath)) {
+                logger.debug('Song file missing after bulk extraction, skipping', {
+                    relativePath: normalizedSongPath,
+                    songTempPath
+                });
+                continue;
+            }
 
             const songFilename = path.basename(entry.relativePath);
+            if (songFiles[songFilename]) {
+                logger.debug('Duplicate song basename in archive (metadata keeps last wins)', {
+                    basename: songFilename,
+                    earlierPath: songFiles[songFilename].path
+                });
+            }
 
             songFiles[songFilename] = {
                 name: songFilename,

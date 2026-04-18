@@ -444,6 +444,116 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
 }
 
 /**
+ * 7-Zip `-i!` include filters for level-pack ingestion (`.adofai` + common audio).
+ * Paired uppercase globs help on case-sensitive filesystems.
+ */
+const LEVEL_PACK_INCLUDE_GLOBS: string[] = [
+    '-i!*.adofai',
+    '-i!*.ADOFAI',
+    '-i!*.mp3',
+    '-i!*.MP3',
+    '-i!*.wav',
+    '-i!*.WAV',
+    '-i!*.ogg',
+    '-i!*.OGG',
+    '-i!*.flac',
+    '-i!*.FLAC',
+    '-i!*.m4a',
+    '-i!*.M4A',
+    '-i!*.aac',
+    '-i!*.AAC'
+];
+
+/** True if `dir` contains at least one regular file somewhere beneath it. */
+async function directoryHasAnyFile(dir: string): Promise<boolean> {
+    const stack = [dir];
+    while (stack.length > 0) {
+        const d = stack.pop()!;
+        let names: string[];
+        try {
+            names = await fs.promises.readdir(d);
+        } catch {
+            continue;
+        }
+        for (const n of names) {
+            const p = path.join(d, n);
+            try {
+                const st = await fs.promises.stat(p);
+                if (st.isFile()) return true;
+                if (st.isDirectory()) stack.push(p);
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Extract only level + audio payloads into `extractRoot` (paths preserved).
+ *
+ * Uses one `7z x` with recursive include patterns, then falls back to {@link extractAll}
+ * when filtered extraction fails (e.g. solid RAR5 + selective quirks) or yields no files.
+ * Downstream code still uses {@link listEntries} for canonical archive-relative paths.
+ */
+export async function extractLevelPackPayload(
+    archivePath: string,
+    extractRoot: string,
+    signal?: AbortSignal
+): Promise<void> {
+    if (!fs.existsSync(archivePath)) {
+        throw new Error(`Archive not found: ${archivePath}`);
+    }
+    await fs.promises.mkdir(extractRoot, { recursive: true });
+
+    const filteredArgs = [
+        'x',
+        archivePath,
+        `-o${extractRoot}`,
+        '-y',
+        '-r',
+        ...LEVEL_PACK_INCLUDE_GLOBS,
+        ...utf8ZipNameArgsForExtract(archivePath),
+        '-bd',
+        '-bb0'
+    ];
+
+    const result = await runSevenZ(filteredArgs, { signal });
+
+    const filteredOk = result.code === 0 || result.code === 1;
+    const hasFiles = filteredOk ? await directoryHasAnyFile(extractRoot) : false;
+    const needFullExtract = !filteredOk || !hasFiles;
+
+    if (!needFullExtract) {
+        if (result.code === 1) {
+            logger.debug('archiveService.extractLevelPackPayload: filtered extract completed with warnings', {
+                archivePath,
+                extractRoot,
+                stderr: trimForLog(result.stderr)
+            });
+        }
+        return;
+    }
+
+    if (!filteredOk) {
+        logger.debug('archiveService.extractLevelPackPayload: filtered extract failed; falling back to extractAll', {
+            archivePath,
+            exitCode: result.code,
+            stderr: trimForLog(result.stderr)
+        });
+    } else {
+        logger.debug('archiveService.extractLevelPackPayload: filtered extract produced no files; falling back to extractAll', {
+            archivePath,
+            extractRoot
+        });
+    }
+
+    await fs.promises.rm(extractRoot, { recursive: true, force: true });
+    await fs.promises.mkdir(extractRoot, { recursive: true });
+    await extractAll(archivePath, extractRoot, signal);
+}
+
+/**
  * Extract a single entry from an archive to a precise output file path.
  *
  * 7z's `e` flattens to a directory; we extract into a temp folder, locate the
