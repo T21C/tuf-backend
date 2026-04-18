@@ -57,6 +57,15 @@ import Artist from '@/models/artists/Artist.js';
 const playerStatsService = PlayerStatsService.getInstance();
 const elasticsearchService = ElasticsearchService.getInstance();
 
+/** Prevents overlapping zip finalisation for the same level (HTTP 202 async + sync uploads). */
+const activeLevelZipFinalizeByLevelId = new Map<number, string>();
+
+function normalizeLevelDlLinkSnapshot(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s.length ? s : null;
+}
+
 /**
  * Compare two duration arrays with a tolerance of ~0.5ms
  * Returns mismatch information including indices and ranges
@@ -163,15 +172,17 @@ function encodeLevelZipFilenameForCdn(level: Level): string {
 }
 
 /**
- * Upload buffer to CDN, optional creator duration validation, DB update, webhooks, cleanup.
- * Caller must start `transaction`; this function commits on success.
+ * Upload buffer to CDN, optional creator duration validation, short DB transaction, webhooks, cleanup.
+ * Heavy work runs outside any DB transaction. `expectedDlLink` is a snapshot from authorisation time;
+ * if the row's `dlLink` changed before commit, the new CDN object is removed and a 409 is thrown.
+ * Pass `res: null` for fire-and-forget async jobs (HTTP 202); only job progress is updated then.
  */
 async function finalizeLevelZipUploadFromBuffer(params: {
   req: Request;
-  res: Response;
-  level: Level;
+  res: Response | null;
   levelId: number;
-  transaction: Transaction;
+  /** Normalised snapshot from the authorisation transaction (null = no link). */
+  expectedDlLink: string | null;
   fileBuffer: Buffer;
   encodedZipFileName: string;
   assembledFilePathToUnlink: string | null;
@@ -186,9 +197,8 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   const {
     req,
     res,
-    level,
     levelId,
-    transaction,
+    expectedDlLink,
     fileBuffer,
     encodedZipFileName,
     assembledFilePathToUnlink,
@@ -221,44 +231,49 @@ async function finalizeLevelZipUploadFromBuffer(params: {
   };
 
   try {
-  if (uploadJobId && req.user?.id) {
-    await jobProgressService.patchTrusted(uploadJobId, {
-      ownerUserId: req.user.id,
-      kind: 'level_upload',
-      phase: 'uploading_to_cdn',
-      percent: 5,
-      message: 'Sending zip to CDN',
-      meta: jobMetaBase,
-    }).catch(() => undefined);
-  }
+    const levelSnapshot = await Level.findByPk(levelId);
+    if (!levelSnapshot) {
+      throw { error: 'Level not found', code: 404 };
+    }
 
-  let oldFileId: string | null = null;
-  const oldDlLink = level.dlLink;
-  if (level.dlLink && isCdnUrl(level.dlLink)) {
-    oldFileId = level.fileId ?? null;
-    logger.debug('Found existing CDN file to clean up after upload', {
-      levelId,
-      oldFileId,
-      oldDlLink: level.dlLink,
-    });
-  }
+    if (uploadJobId && req.user?.id) {
+      await jobProgressService.patchTrusted(uploadJobId, {
+        ownerUserId: req.user.id,
+        kind: 'level_upload',
+        phase: 'uploading_to_cdn',
+        percent: 5,
+        message: 'Sending zip to CDN',
+        meta: jobMetaBase,
+      }).catch(() => undefined);
+    }
 
-  const uploadResult = await cdnService.uploadLevelZip(
-    fileBuffer,
-    encodedZipFileName,
-    uploadJobId
-  );
+    let oldFileId: string | null = null;
+    const oldDlLink = levelSnapshot.dlLink;
+    if (levelSnapshot.dlLink && isCdnUrl(levelSnapshot.dlLink)) {
+      oldFileId = levelSnapshot.fileId ?? null;
+      logger.debug('Found existing CDN file to clean up after upload', {
+        levelId,
+        oldFileId,
+        oldDlLink: levelSnapshot.dlLink,
+      });
+    }
 
-  // Validate that chart gameplay hasn't changed by comparing durations
-  if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN) && canEdit && level.clears > 0) {
-    try {
-      let originalDurations: number[] | null = null;
-      if (level.dlLink && isCdnUrl(level.dlLink)) {
-        const originalFileId = level.fileId ?? null;
-        if (originalFileId) {
-          originalDurations = await cdnService.getDurationsFromFile(originalFileId);
+    const uploadResult = await cdnService.uploadLevelZip(
+      fileBuffer,
+      encodedZipFileName,
+      uploadJobId
+    );
+
+    // Validate that chart gameplay hasn't changed by comparing durations
+    if (!hasFlag(req.user, permissionFlags.SUPER_ADMIN) && canEdit && levelSnapshot.clears > 0) {
+      try {
+        let originalDurations: number[] | null = null;
+        if (levelSnapshot.dlLink && isCdnUrl(levelSnapshot.dlLink)) {
+          const originalFileId = levelSnapshot.fileId ?? null;
+          if (originalFileId) {
+            originalDurations = await cdnService.getDurationsFromFile(originalFileId);
+          }
         }
-      }
 
       if (originalDurations) {
         const newDurations = await cdnService.getDurationsFromFile(uploadResult.fileId);
@@ -341,154 +356,176 @@ async function finalizeLevelZipUploadFromBuffer(params: {
     }
   }
 
-  if (assembledFilePathToUnlink) {
-    try {
-      await fs.promises.unlink(assembledFilePathToUnlink);
-    } catch (unlinkError: any) {
-      if (unlinkError.code !== 'ENOENT') {
-        logger.warn('Failed to clean up assembled file:', unlinkError);
+    if (assembledFilePathToUnlink) {
+      try {
+        await fs.promises.unlink(assembledFilePathToUnlink);
+      } catch (unlinkError: any) {
+        if (unlinkError.code !== 'ENOENT') {
+          logger.warn('Failed to clean up assembled file:', unlinkError);
+        }
       }
     }
-  }
-  if (uploadSession) {
-    try {
-      await cancelUploadSession(uploadSession);
-    } catch (sessionCleanupError) {
-      logger.warn('Failed to destroy upload session after finalisation:', sessionCleanupError);
+    if (uploadSession) {
+      try {
+        await cancelUploadSession(uploadSession);
+      } catch (sessionCleanupError) {
+        logger.warn('Failed to destroy upload session after finalisation:', sessionCleanupError);
+      }
     }
-  }
 
-  const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
+    const levelFiles = await cdnService.getLevelFiles(uploadResult.fileId);
 
-  level.dlLink = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-  await level.save({transaction});
+    const newDlUrl = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
 
-  await transaction.commit();
-
-  try {
-    await applyLevelChartStatsFromCdn(levelId);
-  } catch (chartSyncError) {
-    logger.warn('Failed to sync chart BPM/tilecount after level upload:', {
-      levelId,
-      error: chartSyncError instanceof Error ? chartSyncError.message : String(chartSyncError),
-    });
-  }
-
-  try {
-    logger.debug('Logging webhook for level file upload', {
-      levelId,
-      oldDlLink,
-      newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
-    });
-    const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
-    if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) {
-      await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
-    } else {
-      await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
-    }
-  } catch (webhookError) {
-    logger.warn('Failed to send webhook for level file upload:', webhookError);
-  }
-
-  if (oldFileId) {
-    try {
-      logger.debug('Cleaning up old CDN file after successful upload', {
-        levelId,
-        oldFileId,
-        newFileId: uploadResult.fileId,
-      });
-      await cdnService.deleteFile(oldFileId);
-      logger.debug('Successfully cleaned up old CDN file', {
-        levelId,
-        oldFileId,
-      });
-    } catch (cleanupError) {
-      logger.error(
-        'Failed to clean up old CDN file after successful upload:',
-        {
+    await sequelize.transaction(async (t) => {
+      const fresh = await Level.findByPk(levelId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!fresh) {
+        throw { error: 'Level not found', code: 404 };
+      }
+      const currentSnap = normalizeLevelDlLinkSnapshot(fresh.dlLink);
+      const expectedSnap = normalizeLevelDlLinkSnapshot(expectedDlLink);
+      if (currentSnap !== expectedSnap) {
+        try {
+          await cdnService.deleteFile(uploadResult.fileId);
+        } catch (delErr) {
+          logger.warn('Failed to delete CDN file after dlLink conflict:', delErr);
+        }
+        throw {
           error:
-            cleanupError instanceof Error
-              ? cleanupError.message
-              : String(cleanupError),
+            'This level was modified while the zip was processing (download link changed). Refresh the page and try again.',
+          code: 409,
+        };
+      }
+      fresh.dlLink = newDlUrl;
+      await fresh.save({ transaction: t });
+    });
+
+    try {
+      await applyLevelChartStatsFromCdn(levelId);
+    } catch (chartSyncError) {
+      logger.warn('Failed to sync chart BPM/tilecount after level upload:', {
+        levelId,
+        error: chartSyncError instanceof Error ? chartSyncError.message : String(chartSyncError),
+      });
+    }
+
+    try {
+      logger.debug('Logging webhook for level file upload', {
+        levelId,
+        oldDlLink,
+        newPath: `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`,
+      });
+      const newPath = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
+      if (oldDlLink && typeof oldDlLink === 'string' && oldDlLink.length > 12) {
+        await logLevelFileUpdateHook(oldDlLink, newPath, levelId, getUserModel(req.user));
+      } else {
+        await logLevelFileUploadHook(newPath, levelId, getUserModel(req.user));
+      }
+    } catch (webhookError) {
+      logger.warn('Failed to send webhook for level file upload:', webhookError);
+    }
+
+    if (oldFileId) {
+      try {
+        logger.debug('Cleaning up old CDN file after successful upload', {
           levelId,
           oldFileId,
           newFileId: uploadResult.fileId,
-        },
+        });
+        await cdnService.deleteFile(oldFileId);
+        logger.debug('Successfully cleaned up old CDN file', {
+          levelId,
+          oldFileId,
+        });
+      } catch (cleanupError) {
+        logger.error(
+          'Failed to clean up old CDN file after successful upload:',
+          {
+            error:
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : String(cleanupError),
+            levelId,
+            oldFileId,
+            newFileId: uploadResult.fileId,
+          },
+        );
+      }
+    }
+
+    try {
+      await cleanupUserUploads(req.user!.id, chunkUploadFileIdForCleanupExclude || undefined);
+    } catch (cleanupError) {
+      logger.warn(
+        'Failed to clean up user uploads after successful processing:',
+        cleanupError,
       );
     }
-  }
 
-  try {
-    await cleanupUserUploads(req.user!.id, chunkUploadFileIdForCleanupExclude || undefined);
-  } catch (cleanupError) {
-    logger.warn(
-      'Failed to clean up user uploads after successful processing:',
-      cleanupError,
-    );
-  }
-
-  try {
-    const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
-    if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
-      logger.debug('Auto tags refreshed after level upload', {
+    try {
+      const tagResult = await tagAssignmentService.refreshAutoTags(levelId);
+      if (tagResult.assignedTags.length > 0 || tagResult.removedTags.length > 0) {
+        logger.debug('Auto tags refreshed after level upload', {
+          levelId,
+          assignedTags: tagResult.assignedTags,
+          removedTags: tagResult.removedTags,
+        });
+        await elasticsearchService.reindexLevels([levelId]);
+      }
+    } catch (tagError) {
+      logger.warn('Failed to refresh auto tags after level upload:', {
         levelId,
-        assignedTags: tagResult.assignedTags,
-        removedTags: tagResult.removedTags,
+        error: tagError instanceof Error ? tagError.message : String(tagError),
       });
-      await elasticsearchService.reindexLevels([levelId]);
     }
-  } catch (tagError) {
-    logger.warn('Failed to refresh auto tags after level upload:', {
-      levelId,
-      error: tagError instanceof Error ? tagError.message : String(tagError),
-    });
-  }
 
-  if (res.headersSent || res.writableEnded) {
-    logger.warn('Response already sent or ended. Upload succeeded but response not sent.', {
-      levelId,
-      fileId: uploadResult.fileId,
-      userId: req.user?.id,
-    });
-    return;
-  }
+    if (uploadJobId && req.user?.id) {
+      await jobProgressService.patchTrusted(uploadJobId, {
+        phase: 'completed',
+        percent: 100,
+        message: 'Upload complete',
+        meta: {...jobMetaBase, newFileId: uploadResult.fileId},
+      }).catch(() => undefined);
+    }
 
-  if (uploadJobId && req.user?.id) {
-    await jobProgressService.patchTrusted(uploadJobId, {
-      phase: 'completed',
-      percent: 100,
-      message: 'Upload complete',
-      meta: {...jobMetaBase, newFileId: uploadResult.fileId},
-    }).catch(() => undefined);
-  }
+    if (!res) {
+      return;
+    }
 
-  try {
-    res.json({
-      success: true,
-      level: {
-        ...level,
-        dlLink: level.dlLink,
-      },
-      levelFiles,
-    });
-  } catch (writeError: any) {
-    if (
-      writeError.code === 'ECONNRESET' ||
-      writeError.code === 'EPIPE' ||
-      writeError.message?.includes('write after end')
-    ) {
-      logger.warn('Failed to send response - client may have disconnected. Upload succeeded.', {
+    if (res.headersSent || res.writableEnded) {
+      logger.warn('Response already sent or ended. Upload succeeded but response not sent.', {
         levelId,
         fileId: uploadResult.fileId,
         userId: req.user?.id,
-        error: writeError.message,
       });
       return;
     }
-    throw writeError;
-  }
+
+    try {
+      const levelAfter = await Level.findByPk(levelId);
+      res.json({
+        success: true,
+        level: levelAfter,
+        levelFiles,
+      });
+    } catch (writeError: any) {
+      if (
+        writeError.code === 'ECONNRESET' ||
+        writeError.code === 'EPIPE' ||
+        writeError.message?.includes('write after end')
+      ) {
+        logger.warn('Failed to send response - client may have disconnected. Upload succeeded.', {
+          levelId,
+          fileId: uploadResult.fileId,
+          userId: req.user?.id,
+          error: writeError.message,
+        });
+        return;
+      }
+      throw writeError;
+    }
   } catch (err: any) {
-    if (!res.headersSent) {
+    if (!res || !res.headersSent) {
       const msg =
         typeof err?.error === 'string'
           ? err.error
@@ -1649,79 +1686,89 @@ router.post(
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: { description: 'sessionId (new chunked upload) OR fileId (legacy chunked upload); fileName, fileSize; optional uploadJobId (UUID) for GET /v2/jobs/:jobId progress', schema: { type: 'object', properties: { sessionId: { type: 'string' }, fileId: { type: 'string' }, fileName: { type: 'string' }, fileSize: { type: 'integer' }, uploadJobId: { type: 'string', format: 'uuid' } } }, required: true },
-    responses: { 200: { description: 'Upload success' }, 400: { schema: errorResponseSchema }, 403: { schema: errorResponseSchema }, 404: { schema: errorResponseSchema }, 499: { schema: errorResponseSchema }, ...standardErrorResponses500 },
+    responses: {
+      200: { description: 'Upload success' },
+      202: { description: 'Accepted — processing continues; poll GET /v2/jobs/:uploadJobId or SSE stream' },
+      400: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      404: { schema: errorResponseSchema },
+      409: { schema: errorResponseSchema },
+      499: { schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
   }),
   async (req: Request, res: Response) => {
-    let transaction: any;
+    let uploadSession: UploadSession | null = null;
+    let assembledFilePath = '';
+    let encodedZipFileName = '';
+    let legacyFileId: string | null = null;
 
     try {
-      transaction = await sequelize.transaction();
       const {sessionId, fileId, fileName, fileSize, uploadJobId: rawUploadJobId} = req.body;
       const uploadJobId = isUuidJobId(rawUploadJobId) ? rawUploadJobId.trim() : undefined;
       const levelId = parseInt(req.params.id);
 
-      // Path A: new upload session (preferred) — payload is { sessionId }
-      let uploadSession: UploadSession | null = null;
-      let assembledFilePath: string;
-      let encodedZipFileName: string;
-      let legacyFileId: string | null = null;
-
-      if (sessionId && typeof sessionId === 'string') {
-        uploadSession = await UploadSession.findByPk(sessionId, {transaction});
-        if (!uploadSession) throw {error: 'Upload session not found', code: 404};
-        if (uploadSession.userId !== req.user?.id) throw {error: 'Forbidden', code: 403};
-        if (uploadSession.kind !== 'level-zip') throw {error: 'Upload session is not for a level zip', code: 400};
-        if (uploadSession.status !== 'assembled' || !uploadSession.assembledPath) {
-          throw {error: 'Upload session has no assembled file yet', code: 409};
+      const { expectedDlLink, canEdit } = await sequelize.transaction(async (t) => {
+        if (sessionId && typeof sessionId === 'string') {
+          uploadSession = await UploadSession.findByPk(sessionId, { transaction: t });
+          if (!uploadSession) throw { error: 'Upload session not found', code: 404 };
+          if (uploadSession.userId !== req.user?.id) throw { error: 'Forbidden', code: 403 };
+          if (uploadSession.kind !== 'level-zip') {
+            throw { error: 'Upload session is not for a level zip', code: 400 };
+          }
+          if (uploadSession.status !== 'assembled' || !uploadSession.assembledPath) {
+            throw { error: 'Upload session has no assembled file yet', code: 409 };
+          }
+          assembledFilePath = uploadSession.assembledPath;
+          encodedZipFileName = uploadSession.originalName;
+        } else {
+          if (!fileId || !fileName || !fileSize) {
+            throw { error: 'Missing required file information', code: 400 };
+          }
+          legacyFileId = fileId;
+          assembledFilePath = path.join('uploads', 'assembled', req.user!.id, `${fileId}.zip`);
+          encodedZipFileName = fileName;
         }
-        assembledFilePath = uploadSession.assembledPath;
-        encodedZipFileName = uploadSession.originalName;
-      } else {
-        // Path B: legacy chunked upload — payload is { fileId, fileName, fileSize }
-        if (!fileId || !fileName || !fileSize) {
-          throw {error: 'Missing required file information', code: 400};
+
+        const level = await Level.findByPk(levelId, { transaction: t, lock: t.LOCK.UPDATE });
+        if (!level) {
+          throw { error: 'Level not found', code: 404 };
         }
-        legacyFileId = fileId;
-        assembledFilePath = path.join(
-          'uploads',
-          'assembled',
-          req.user!.id,
-          `${fileId}.zip`,
-        );
-        encodedZipFileName = fileName;
+
+        const own = await checkLevelOwnership(levelId, req.user, t);
+        if (!own.canEdit) {
+          throw { error: own.errorMessage || 'Forbidden', code: 403 };
+        }
+
+        return {
+          expectedDlLink: normalizeLevelDlLinkSnapshot(level.dlLink),
+          canEdit: own.canEdit,
+        };
+      });
+
+      if (activeLevelZipFinalizeByLevelId.has(levelId)) {
+        throw {
+          error: 'Another zip upload is already processing for this level. Wait for it to finish.',
+          code: 409,
+        };
       }
 
-      const level = await Level.findByPk(levelId, {transaction});
-      if (!level) {
-        throw {error: 'Level not found', code: 404};
-      }
-
-      // Check ownership
-      const {canEdit, errorMessage} = await checkLevelOwnership(levelId, req.user, transaction);
-
-      // Allow super admin or creators with ≤2 CHARTERS
-      if (!canEdit) {
-        throw {error: errorMessage, code: 403};
-      }
-
-      try {
+      const runFinalizeOnce = async (response: Response | null) => {
         if (!uploadSession) {
-          // Legacy path needs retry-while-assembler-still-writing; the new path has
-          // already verified status === 'assembled' on the session row.
           let fileExists = false;
           let retries = 5;
           while (!fileExists && retries > 0) {
             try {
               await fs.promises.access(assembledFilePath);
               fileExists = true;
-            } catch (accessError) {
-              retries--;
+            } catch {
+              retries -= 1;
               if (retries === 0) {
                 throw new Error(
                   'Assembled file not found. The upload may be incomplete or expired.',
                 );
               }
-              await new Promise(resolve => setTimeout(resolve, 500));
+              await new Promise((resolve) => setTimeout(resolve, 500));
             }
           }
         }
@@ -1730,10 +1777,9 @@ router.post(
 
         await finalizeLevelZipUploadFromBuffer({
           req,
-          res,
-          level,
+          res: response,
           levelId,
-          transaction,
+          expectedDlLink,
           fileBuffer,
           encodedZipFileName,
           assembledFilePathToUnlink: uploadSession ? null : assembledFilePath,
@@ -1742,28 +1788,58 @@ router.post(
           canEdit,
           uploadJobId,
         });
-        return;
-      } catch (error) {
-        // Clean up the assembled artefact in case of error
-        if (uploadSession) {
+      };
+
+      if (uploadJobId) {
+        activeLevelZipFinalizeByLevelId.set(levelId, uploadJobId);
+        void (async () => {
           try {
-            await cancelUploadSession(uploadSession);
-          } catch (cleanupError) {
-            logger.warn('Failed to cancel upload session after error:', cleanupError);
+            await runFinalizeOnce(null);
+          } catch (err) {
+            logger.error('Async level zip finalise failed', {
+              levelId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            activeLevelZipFinalizeByLevelId.delete(levelId);
           }
-        } else if (legacyFileId) {
-          try {
-            await fs.promises.unlink(assembledFilePath);
-          } catch (cleanupError: any) {
-            if (cleanupError.code !== 'ENOENT') {
-              logger.warn('Failed to clean up assembled file:', cleanupError);
+        })();
+
+        return res.status(202).json({
+          accepted: true,
+          uploadJobId,
+          levelId,
+          message: 'Processing started',
+        });
+      }
+
+      activeLevelZipFinalizeByLevelId.set(levelId, 'sync');
+      try {
+        try {
+          await runFinalizeOnce(res);
+        } catch (error) {
+          if (uploadSession) {
+            try {
+              await cancelUploadSession(uploadSession);
+            } catch (cleanupError) {
+              logger.warn('Failed to cancel upload session after error:', cleanupError);
+            }
+          } else if (legacyFileId) {
+            try {
+              await fs.promises.unlink(assembledFilePath);
+            } catch (cleanupError: any) {
+              if (cleanupError.code !== 'ENOENT') {
+                logger.warn('Failed to clean up assembled file:', cleanupError);
+              }
             }
           }
+          throw error;
         }
-        throw error;
+      } finally {
+        activeLevelZipFinalizeByLevelId.delete(levelId);
       }
+      return;
     } catch (error: any) {
-      await safeTransactionRollback(transaction);
 
       // Handle client disconnection gracefully - this is expected behavior
       if (error instanceof Error && error.message.includes('Client disconnected')) {
@@ -1822,16 +1898,16 @@ router.post(
       required: true,
     },
     responses: {
-      200: {description: 'Upload success'},
-      400: {schema: errorResponseSchema},
-      403: {schema: errorResponseSchema},
-      404: {schema: errorResponseSchema},
+      200: { description: 'Upload success' },
+      202: { description: 'Accepted — CDN processing continues; poll job progress' },
+      400: { schema: errorResponseSchema },
+      403: { schema: errorResponseSchema },
+      404: { schema: errorResponseSchema },
+      409: { schema: errorResponseSchema },
       ...standardErrorResponses500,
     },
   }),
   async (req: Request, res: Response) => {
-    let transaction: any;
-
     try {
       if (!req.user || !hasFlag(req.user, permissionFlags.SUPER_ADMIN)) {
         throw {error: 'Forbidden', code: 403};
@@ -1854,9 +1930,27 @@ router.post(
         throw {error: 'URL must not point to the site CDN', code: 400};
       }
 
-      const levelProbe = await Level.findByPk(levelId);
-      if (!levelProbe) {
-        throw {error: 'Level not found', code: 404};
+      const { expectedDlLink, canEdit, encodedZipFileName } = await sequelize.transaction(async (t) => {
+        const level = await Level.findByPk(levelId, { transaction: t, lock: t.LOCK.UPDATE });
+        if (!level) {
+          throw { error: 'Level not found', code: 404 };
+        }
+        const own = await checkLevelOwnership(levelId, req.user, t);
+        if (!own.canEdit) {
+          throw { error: own.errorMessage || 'Forbidden', code: 403 };
+        }
+        return {
+          expectedDlLink: normalizeLevelDlLinkSnapshot(level.dlLink),
+          canEdit: own.canEdit,
+          encodedZipFileName: encodeLevelZipFilenameForCdn(level),
+        };
+      });
+
+      if (activeLevelZipFinalizeByLevelId.has(levelId)) {
+        throw {
+          error: 'Another zip upload is already processing for this level. Wait for it to finish.',
+          code: 409,
+        };
       }
 
       if (uploadJobId && req.user?.id) {
@@ -1945,31 +2039,61 @@ router.post(
           .catch(() => undefined);
       }
 
-      transaction = await sequelize.transaction();
-      const level = await Level.findByPk(levelId, {transaction});
-      if (!level) {
-        throw {error: 'Level not found', code: 404};
+      if (uploadJobId) {
+        activeLevelZipFinalizeByLevelId.set(levelId, uploadJobId);
+        void (async () => {
+          try {
+            await finalizeLevelZipUploadFromBuffer({
+              req,
+              res: null,
+              levelId,
+              expectedDlLink,
+              fileBuffer,
+              encodedZipFileName,
+              assembledFilePathToUnlink: null,
+              chunkUploadFileIdForCleanupExclude: null,
+              canEdit,
+              uploadJobId,
+              uploadJobMeta: { source: 'upload_from_url', stage: 'cdn' },
+            });
+          } catch (err) {
+            logger.error('Async upload-from-url finalise failed', {
+              levelId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            activeLevelZipFinalizeByLevelId.delete(levelId);
+          }
+        })();
+
+        return res.status(202).json({
+          accepted: true,
+          uploadJobId,
+          levelId,
+          message: 'Processing started',
+        });
       }
 
-      const {canEdit} = await checkLevelOwnership(levelId, req.user, transaction);
-
-      await finalizeLevelZipUploadFromBuffer({
-        req,
-        res,
-        level,
-        levelId,
-        transaction,
-        fileBuffer,
-        encodedZipFileName: encodeLevelZipFilenameForCdn(level),
-        assembledFilePathToUnlink: null,
-        chunkUploadFileIdForCleanupExclude: null,
-        canEdit,
-        uploadJobId,
-        uploadJobMeta: {source: 'upload_from_url', stage: 'cdn'},
-      });
+      activeLevelZipFinalizeByLevelId.set(levelId, 'sync');
+      try {
+        await finalizeLevelZipUploadFromBuffer({
+          req,
+          res,
+          levelId,
+          expectedDlLink,
+          fileBuffer,
+          encodedZipFileName,
+          assembledFilePathToUnlink: null,
+          chunkUploadFileIdForCleanupExclude: null,
+          canEdit,
+          uploadJobId,
+          uploadJobMeta: { source: 'upload_from_url', stage: 'cdn' },
+        });
+      } finally {
+        activeLevelZipFinalizeByLevelId.delete(levelId);
+      }
       return;
     } catch (error: any) {
-      await safeTransactionRollback(transaction);
       const uploadJobIdErr = isUuidJobId(req.body?.uploadJobId) ? String(req.body.uploadJobId).trim() : undefined;
       if (uploadJobIdErr && req.user?.id && !res.headersSent) {
         const msg =
