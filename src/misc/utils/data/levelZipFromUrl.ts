@@ -1,5 +1,5 @@
 import axios, {type AxiosRequestConfig} from 'axios';
-import AdmZip from 'adm-zip';
+import {validateArchiveBuffer} from '@/externalServices/cdnService/services/archiveService.js';
 
 const MAX_ZIP_BYTES = 1000 * 1024 * 1024; // 1GB, aligned with chunked upload cap in migrator
 const DOWNLOAD_TIMEOUT_MS = 120_000;
@@ -242,14 +242,23 @@ export function parseGoogleDriveVirusScanConfirmUrl(html: string): string | null
   return u.toString();
 }
 
-export function assertValidZipBuffer(buffer: Buffer): void {
+/**
+ * Validate that a downloaded buffer is a readable archive in any supported format
+ * (.zip, .rar, .7z, .tar, .tar.gz). Throws a standard `{error, code}` failure on
+ * invalid input.
+ *
+ * Replaces the pre-migration `assertValidZipBuffer` (alias kept for compatibility).
+ */
+export async function assertValidArchiveBuffer(buffer: Buffer, hintFilename?: string): Promise<void> {
   try {
-    const zip = new AdmZip(buffer);
-    zip.getEntries();
+    await validateArchiveBuffer(buffer, hintFilename);
   } catch {
-    throw {error: 'Downloaded file is not a valid zip archive', code: 400};
+    throw {error: 'Downloaded file is not a valid archive (.zip, .rar, .7z, .tar, .tar.gz supported)', code: 400};
   }
 }
+
+/** @deprecated Use {@link assertValidArchiveBuffer}. Kept as a shim so older imports compile. */
+export const assertValidZipBuffer = assertValidArchiveBuffer;
 
 export type ZipUrlDownloadProgress = {
   loaded: number;
@@ -350,6 +359,6 @@ export async function downloadZipFromUrl(
     throw {error: 'Downloaded file exceeds maximum allowed size', code: 400};
   }
 
-  assertValidZipBuffer(buffer);
+  await assertValidArchiveBuffer(buffer);
   return buffer;
 }

@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { withUtf8Filenames, decodeMultipartFilename } from '@/misc/utils/multipartFilename.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -125,7 +126,7 @@ export class CdnLocalTempManager {
         },
         filename: (req, file, cb) => {
             const uniqueId = uuidv4();
-            const ext = path.extname(file.originalname);
+            const ext = path.extname(decodeMultipartFilename(file.originalname));
             cb(null, `${uniqueId}${ext}`);
         }
     });
@@ -146,19 +147,22 @@ export class CdnLocalTempManager {
         },
         filename: (req, file, cb) => {
             const uniqueId = uuidv4();
-            const ext = path.extname(file.originalname);
+            const ext = path.extname(decodeMultipartFilename(file.originalname));
             cb(null, `${uniqueId}${ext}`);
         }
     });
 
-    public upload = multer({
+    // Wrapping with `withUtf8Filenames` rewrites `req.file.originalname` back to
+    // valid UTF-8 NFC after multer finishes, fixing the mojibake introduced by
+    // busboy's latin-1 default (see `multipartFilename.ts`).
+    public upload = withUtf8Filenames(multer({
         storage: this.storage,
         limits: {
             fileSize: CDN_CONFIG.maxFileSize
         }
-    }).single('file');
+    }).single('file'));
 
-    public imageUpload = multer({
+    public imageUpload = withUtf8Filenames(multer({
         storage: this.imageStorage,
         limits: {
             fileSize: CDN_CONFIG.maxImageSize
@@ -169,14 +173,14 @@ export class CdnLocalTempManager {
                 return cb(new Error('Invalid image type'));
             }
 
-            const ext = path.extname(file.originalname).toLowerCase().slice(1) as typeof IMAGE_TYPES[ImageType]['formats'][number];
+            const ext = path.extname(decodeMultipartFilename(file.originalname)).toLowerCase().slice(1) as typeof IMAGE_TYPES[ImageType]['formats'][number];
             if (!IMAGE_TYPES[imageType].formats.includes(ext)) {
                 return cb(new Error(`Invalid file type. Allowed types: ${IMAGE_TYPES[imageType].formats.join(', ')}`));
             }
 
             cb(null, true);
         }
-    }).single('image');
+    }).single('image'));
 }
 
 export const cdnLocalTemp = CdnLocalTempManager.getInstance();

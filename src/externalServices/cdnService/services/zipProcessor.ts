@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import AdmZip from 'adm-zip';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { cdnLocalTemp } from './cdnLocalTempManager.js';
@@ -9,6 +8,15 @@ import LevelDict from 'adofai-lib';
 import { levelCacheService, SAFE_TO_PARSE_VERSION } from './levelCacheService.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
+import {
+    listEntries as archiveListEntries,
+    extractEntry as archiveExtractEntry,
+    createZipFromFiles as archiveCreateZipFromFiles,
+    detectArchiveFormat,
+    getArchiveExtension,
+    getArchiveMimeType,
+    type ArchiveEntry as ServiceArchiveEntry
+} from './archiveService.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -16,12 +24,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 /** Max level file size (bytes) to parse with LevelDict. Node string limit is ~0x1fffffe8 (~512MB); use 400MB to stay safe. */
 const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 400 * 1024 * 1024;
 
-interface ZipEntry {
-    name: string;
-    relativePath: string;
-    size: number;
-    isDirectory: boolean;
-}
+type ZipEntry = ServiceArchiveEntry;
 
 function normalizeRelativePath(relativePath: string): string {
     return relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -33,41 +36,24 @@ function toCopyRelativePath(relativePath: string): string {
     return path.posix.join(parsed.dir, `${parsed.name}.copy`);
 }
 
-async function extractZipEntries(zipFilePath: string): Promise<ZipEntry[]> {
-    const zip = new AdmZip(zipFilePath);
-    const entries = zip.getEntries();
+async function extractArchiveEntries(archiveFilePath: string): Promise<ZipEntry[]> {
+    const entries = await archiveListEntries(archiveFilePath);
 
-    logger.debug('Extracting zip entries:', {
+    logger.debug('Listed archive entries:', {
+        archiveFilePath,
         entryCount: entries.length,
         entries: entries.map(entry => ({
             name: entry.name,
-            size: entry.header.size,
+            size: entry.size,
             isDirectory: entry.isDirectory
         }))
     });
 
-    return entries.map(entry => ({
-        name: entry.name,
-        relativePath: entry.entryName,
-        size: entry.header.size,
-        isDirectory: entry.isDirectory
-    }));
+    return entries;
 }
 
-async function extractFile(zipFilePath: string, entry: ZipEntry, targetPath: string): Promise<void> {
-    const zip = new AdmZip(zipFilePath);
-    const zipEntry = zip.getEntry(entry.relativePath);
-
-    if (!zipEntry) {
-        throw new Error(`Entry not found in zip: ${entry.relativePath}`);
-    }
-
-    // Ensure target directory exists
-    await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
-
-    // Extract the file with proper encoding
-    const buffer = zipEntry.getData();
-    await fs.promises.writeFile(targetPath, buffer);
+async function extractFile(archiveFilePath: string, entry: ZipEntry, targetPath: string): Promise<void> {
+    await archiveExtractEntry(archiveFilePath, entry.relativePath, targetPath);
 
     logger.debug('Extracted file:', {
         from: entry.relativePath,
@@ -79,9 +65,9 @@ async function extractFile(zipFilePath: string, entry: ZipEntry, targetPath: str
 
 type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
 
-export async function processZipFile(
-    zipFilePath: string,
-    zipFileId: string,
+export async function processArchiveFile(
+    archiveFilePath: string,
+    archiveFileId: string,
     originalFilename: string,
     onProgress?: ProgressCallback
 ): Promise<void> {
@@ -95,11 +81,16 @@ export async function processZipFile(
     let bestNonBackupSize = -1;
     let bestBackupSize = -1;
 
-    logger.debug('Starting zip file processing:', {
-        zipFilePath,
-        zipFileId,
+    // Detect format up-front so we know which extension to preserve in storage and metadata.
+    const detectedFormat = detectArchiveFormat(originalFilename) || detectArchiveFormat(archiveFilePath) || 'zip';
+    const archiveContentType = getArchiveMimeType(detectedFormat);
+
+    logger.debug('Starting archive file processing:', {
+        archiveFilePath,
+        archiveFileId,
         originalFilename,
-        fileSize: (await fs.promises.stat(zipFilePath)).size
+        detectedFormat,
+        fileSize: (await fs.promises.stat(archiveFilePath)).size
     });
 
     const sendProgress = async (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => {
@@ -109,8 +100,8 @@ export async function processZipFile(
     };
 
     try {
-        await sendProgress('processing', 10, 'Extracting zip entries');
-        const zipEntries = await extractZipEntries(zipFilePath);
+        await sendProgress('processing', 10, 'Listing archive entries');
+        const archiveEntries = await extractArchiveEntries(archiveFilePath);
         const levelFiles: { [key: string]: any } = {};
         const allLevelFiles: Array<{
             name: string;
@@ -128,15 +119,16 @@ export async function processZipFile(
 
         // Reserve a drive for temporary operations
         const storageRoot = cdnLocalTemp.getLocalRoot();
-        logger.debug('Processing zip file on drive:', {
+        logger.debug('Processing archive file on drive:', {
             drive: storageRoot,
-            fileId: zipFileId,
-            totalEntries: zipEntries.length,
-            totalSize: zipEntries.reduce((sum, entry) => sum + entry.size, 0)
+            fileId: archiveFileId,
+            format: detectedFormat,
+            totalEntries: archiveEntries.length,
+            totalSize: archiveEntries.reduce((sum, entry) => sum + entry.size, 0)
         });
 
-        // Create temporary storage directory for this zip processing
-        permanentDir = path.join(storageRoot, 'temp', zipFileId);
+        // Create temporary storage directory for this archive processing
+        permanentDir = path.join(storageRoot, 'temp', archiveFileId);
         await fs.promises.mkdir(permanentDir, { recursive: true });
         logger.debug('Created temporary storage directory:', {
             permanentDir,
@@ -144,32 +136,33 @@ export async function processZipFile(
         });
 
         // originalFilename is already NFC-normalised and sanitised upstream in UploadSessionService.
-        const finalZipName = originalFilename;
-        logger.debug('Using original zip name:', {
-            finalZipName
+        const finalArchiveName = originalFilename;
+        logger.debug('Using original archive name:', {
+            finalArchiveName,
+            format: detectedFormat
         });
 
-        // Store the original zip file with its original name
-        const originalZipPath = path.join(permanentDir, finalZipName);
-        await fs.promises.copyFile(zipFilePath, originalZipPath);
-        const originalZipSize = (await fs.promises.stat(originalZipPath)).size;
-        logger.debug('Stored original zip file:', {
-            originalZipPath,
-            finalZipName,
-            size: originalZipSize,
+        // Store the original archive file with its original name
+        const originalArchiveDiskPath = path.join(permanentDir, finalArchiveName);
+        await fs.promises.copyFile(archiveFilePath, originalArchiveDiskPath);
+        const originalArchiveSize = (await fs.promises.stat(originalArchiveDiskPath)).size;
+        logger.debug('Stored original archive file:', {
+            originalArchiveDiskPath,
+            finalArchiveName,
+            size: originalArchiveSize,
             drive: storageRoot
         });
 
         // First pass: collect all level files
         await sendProgress('processing', 15, 'Processing level files');
         let totalLevelSize = 0;
-        const levelEntries = zipEntries.filter(entry => entry.relativePath.endsWith('.adofai'));
+        const levelEntries = archiveEntries.filter(entry => !entry.isDirectory && entry.relativePath.toLowerCase().endsWith('.adofai'));
         let processedLevels = 0;
         for (const entry of levelEntries) {
             // Extract to temp first for analysis
             const normalizedRelativePath = normalizeRelativePath(entry.relativePath);
-            const tempPath = path.join(storageRoot, 'temp', zipFileId, 'levels', normalizedRelativePath);
-            await extractFile(zipFilePath, entry, tempPath);
+            const tempPath = path.join(storageRoot, 'temp', archiveFileId, 'levels', normalizedRelativePath);
+            await extractFile(archiveFilePath, entry, tempPath);
 
             try {
                 const levelFilename = path.basename(entry.relativePath);
@@ -259,11 +252,11 @@ export async function processZipFile(
                     skippedParse: tooLargeToParse
                 });
             } catch (error) {
-                logger.debug('Skipped level file during zip scan (parse/validation):', {
+                logger.debug('Skipped level file during archive scan (parse/validation):', {
                     entry: entry.relativePath,
                     error: error instanceof Error ? error.message : String(error)
                 });
-                await fs.promises.unlink(tempPath); // Clean up temp file
+                await fs.promises.unlink(tempPath).catch(() => undefined); // Clean up temp file
             }
         }
 
@@ -271,14 +264,14 @@ export async function processZipFile(
         await sendProgress('processing', 40, 'Processing song files');
         let totalSongSize = 0;
         const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'];
-        const songEntries = zipEntries.filter(entry =>
+        const songEntries = archiveEntries.filter(entry =>
             !entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())
         );
         let processedSongs = 0;
         for (const entry of songEntries) {
             // Extract song to temp first
             const songTempPath = path.join(permanentDir, entry.name);
-            await extractFile(zipFilePath, entry, songTempPath);
+            await extractFile(archiveFilePath, entry, songTempPath);
 
             const songFilename = path.basename(entry.relativePath);
 
@@ -300,7 +293,7 @@ export async function processZipFile(
 
         // Upload files to hybrid storage (Spaces or local)
         logger.debug('Uploading processed files to hybrid storage', {
-            fileId: zipFileId,
+            fileId: archiveFileId,
             levelCount: allLevelFiles.length,
             songCount: Object.keys(songFiles).length
         });
@@ -313,16 +306,16 @@ export async function processZipFile(
                 filename: file.relativePath,
                 size: file.size
             })),
-            zipFileId
+            archiveFileId
         );
         await sendProgress('uploading', 65, 'Level files uploaded');
 
         const sourceCopyResults: Array<{ path: string; storageType: string }> = [];
         for (const file of allLevelFiles) {
             const sourceCopyRelativePath = file.sourceCopyRelativePath || toCopyRelativePath(file.relativePath);
-            const sourceCopyKey = `levels/${zipFileId}/${sourceCopyRelativePath}`;
+            const sourceCopyKey = `levels/${archiveFileId}/${sourceCopyRelativePath}`;
             await spacesStorage.uploadFile(file.path, sourceCopyKey, 'application/octet-stream', {
-                fileId: zipFileId,
+                fileId: archiveFileId,
                 sourceType: 'original-level-copy',
                 originalRelativePath: encodeURIComponent(file.relativePath),
                 uploadedAt: new Date().toISOString()
@@ -351,7 +344,7 @@ export async function processZipFile(
                 size: songFile.size,
                 type: songFile.type
             })),
-            zipFileId
+            archiveFileId
         );
         await sendProgress('uploading', 80, 'Song files uploaded');
 
@@ -367,15 +360,15 @@ export async function processZipFile(
             };
         });
 
-        // Upload original zip file
-        await sendProgress('uploading', 80, 'Uploading original zip file');
-        const zipUploadResult = await spacesStorage.uploadLevelFile(
-            originalZipPath,
-            zipFileId,
-            finalZipName,
-            true // is a zip
+        // Upload original archive file (preserve byte-for-byte with original extension/MIME)
+        await sendProgress('uploading', 80, 'Uploading original archive file');
+        const archiveUploadResult = await spacesStorage.uploadArchiveFile(
+            originalArchiveDiskPath,
+            archiveFileId,
+            finalArchiveName,
+            archiveContentType
         );
-        await sendProgress('uploading', 90, 'Original zip file uploaded');
+        await sendProgress('uploading', 90, 'Original archive file uploaded');
 
         // Clean up temporary files
         cdnLocalTemp.cleanupFiles(permanentDir);
@@ -421,11 +414,24 @@ export async function processZipFile(
         await sendProgress('processing', 90, 'Creating database entry');
         transaction = await cdnSequelize.transaction();
 
+        // The same archive object is referenced under both `originalArchive` (new shape with
+        // explicit format/contentType) and `originalZip` (legacy alias for backward compatibility
+        // with readers in routes/levels.ts, routes/zips.ts, services/levelCacheService.ts).
+        const originalArchiveMeta = {
+            name: finalArchiveName,
+            path: archiveUploadResult.filePath,
+            size: originalArchiveSize,
+            originalFilename: finalArchiveName,
+            format: detectedFormat,
+            contentType: archiveContentType,
+            extension: getArchiveExtension(detectedFormat)
+        };
+
         // Create database entry with comprehensive storage information
         const cdnFile = await CdnFile.create({
-            id: zipFileId,
+            id: archiveFileId,
             type: 'LEVELZIP',
-            filePath: zipUploadResult.filePath, // Use the actual storage path
+            filePath: archiveUploadResult.filePath, // Use the actual storage path
             metadata: {
                 levelFiles,
                 allLevelFiles,
@@ -434,13 +440,11 @@ export async function processZipFile(
                 targetLevelRelativePath,
                 targetLevelOversized,
                 pathConfirmed,
-                // Always include storage type at the root level for easy access
-                originalZip: {
-                    name: finalZipName,
-                    path: zipUploadResult.filePath, // Use the actual storage path
-                    size: originalZipSize,
-                    originalFilename: finalZipName
-                },
+                // Canonical, format-aware archive descriptor.
+                originalArchive: originalArchiveMeta,
+                // Legacy alias kept for code paths still reading `originalZip`. Same object
+                // reference so both views stay in sync.
+                originalZip: originalArchiveMeta,
                 // Add timestamp for debugging
                 uploadedAt: new Date().toISOString(),
             }
@@ -477,24 +481,25 @@ export async function processZipFile(
                 });
             } catch (cacheError) {
                 logger.warn('Failed to populate cache from extracted level (non-critical):', {
-                    fileId: zipFileId,
+                    fileId: archiveFileId,
                     error: cacheError instanceof Error ? cacheError.message : String(cacheError)
                 });
             }
         }
 
-        logger.debug('Successfully processed zip file:', {
-            fileId: zipFileId,
+        logger.debug('Successfully processed archive file:', {
+            fileId: archiveFileId,
+            format: detectedFormat,
             drive: storageRoot,
             levelCount: allLevelFiles.length,
             songCount: Object.keys(updatedSongFiles).length,
             totalLevelSize,
             totalSongSize,
-            originalZipSize,
-            totalSize: totalLevelSize + totalSongSize + originalZipSize,
+            originalArchiveSize,
+            totalSize: totalLevelSize + totalSongSize + originalArchiveSize,
             targetLevel,
             pathConfirmed,
-            hasOriginalZip: true
+            hasOriginalArchive: true
         });
     } catch (error) {
         // Rollback transaction if it exists
@@ -523,11 +528,11 @@ export async function processZipFile(
             }
         }
 
-        logger.error('Error processing zip file:', {
+        logger.error('Error processing archive file:', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
-            zipFilePath,
-            zipFileId,
+            archiveFilePath,
+            archiveFileId,
             timestamp: new Date().toISOString()
         });
 
@@ -536,6 +541,13 @@ export async function processZipFile(
         throw error;
     }
 }
+
+/**
+ * Backwards-compatible alias. Older callers used `processZipFile`; new code should call
+ * `processArchiveFile`. Both accept any supported archive format (the function detects
+ * the format internally).
+ */
+export const processZipFile = processArchiveFile;
 
 
 interface RepackMetadata {
@@ -558,9 +570,7 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
     logger.debug('Starting zip file repacking:', { metadata, outputDir });
 
     try {
-        // Use provided output directory or default to temp folder
         if (outputDir) {
-            // Ensure output directory exists
             await fs.promises.mkdir(outputDir, { recursive: true });
             tempZipPath = path.join(
                 outputDir,
@@ -574,37 +584,27 @@ export async function repackZipFile(metadata: RepackMetadata, outputDir?: string
                 'repacked_' + Date.now() + '_' + Math.random().toString(36).substring(7) + '.zip'
             );
         }
-            logger.debug('Created temporary zip path:', { tempZipPath });
+        logger.debug('Created temporary zip path:', { tempZipPath });
 
-            const zip = new AdmZip();
+        const filesToZip: { path: string; nameInArchive: string }[] = [
+            { path: metadata.levelFile.path, nameInArchive: metadata.levelFile.name }
+        ];
 
-            // Add level file to zip
-            logger.debug('Adding level file to zip:', {
-                levelFile: {
-                    name: metadata.levelFile.name,
-                    path: metadata.levelFile.path
-                }
+        if (metadata.songFile) {
+            filesToZip.push({
+                path: metadata.songFile.path,
+                nameInArchive: metadata.songFile.name
             });
+        }
 
-            // Use absolute path from the metadata
-            zip.addLocalFile(metadata.levelFile.path, '', metadata.levelFile.name);
+        logger.debug('Writing zip via archiveService:', {
+            tempZipPath,
+            files: filesToZip.map(f => f.nameInArchive)
+        });
+        await archiveCreateZipFromFiles(filesToZip, tempZipPath);
 
-            // Add song file if present
-            if (metadata.songFile) {
-                logger.debug('Adding song file to zip:', {
-                    songFile: {
-                        name: metadata.songFile.name,
-                        path: metadata.songFile.path
-                    }
-                });
-                zip.addLocalFile(metadata.songFile.path, '', metadata.songFile.name);
-            }
-
-            logger.debug('Writing zip file to disk:', { tempZipPath });
-            zip.writeZip(tempZipPath);
-
-            logger.debug('Zip file repacked successfully');
-            return tempZipPath;
+        logger.debug('Zip file repacked successfully');
+        return tempZipPath;
     } catch (error) {
         logger.error('Error repacking zip file:', {
             error: error instanceof Error ? error.message : String(error),

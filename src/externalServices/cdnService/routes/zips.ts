@@ -1,11 +1,14 @@
 import path from 'path';
 import fs from 'fs';
-import AdmZip from 'adm-zip';
 import axios from 'axios';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { cdnLocalTemp } from '../services/cdnLocalTempManager.js';
 import { CDN_CONFIG } from '../config.js';
-import { processZipFile } from '../services/zipProcessor.js';
+import { processArchiveFile } from '../services/zipProcessor.js';
+import {
+    extractAll as archiveExtractAll,
+    createZip as archiveCreateZip
+} from '../services/archiveService.js';
 import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import crypto from 'crypto';
@@ -17,14 +20,9 @@ const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
 import { spacesStorage } from '../services/spacesStorage.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 
 const router = Router();
-
-const execAsync = promisify(exec);
-const isWindows = process.platform === 'win32';
 
 /** Max chars of stdout/stderr to attach to logs (exec can buffer large output). */
 const MAX_EXEC_LOG_CHUNK = 32768;
@@ -262,61 +260,9 @@ async function streamSpacesFileToDisk(spacesKey: string, targetPath: string): Pr
 }
 
 async function extractZipToFolder(zipPath: string, extractTo: string, signal?: AbortSignal): Promise<void> {
-    await fs.promises.mkdir(extractTo, { recursive: true });
-
-    const sevenZipPath = '7z';
-    let cmd: string;
-
-    if (isWindows) {
-        // 7z: -mcu=on forces UTF-8 encoding for filenames
-        cmd = `"${sevenZipPath}" x "${zipPath}" -o"${extractTo}" -y -mcu=on`;
-    } else {
-        // unzip: Use LC_ALL=C.UTF-8 to force UTF-8 locale (see https://ianwwagner.com/unzip-utf-8-docker-and-c-locales.html)
-        // unzip checks locale via setlocale(LC_CTYPE, "") and needs explicit UTF-8 locale
-        // -q: quiet mode (suppress most output)
-        // Note: unzip may exit with code 1 for warnings but still extract successfully
-        cmd = `unzip -o -q "${zipPath}" -d "${extractTo}"`;
-    }
-
-    try {
-        await execAsync(cmd, {
-            shell: isWindows ? 'cmd.exe' : '/bin/bash',
-            maxBuffer: 1024 * 1024 * 100, // 100MB buffer for stdout/stderr
-            // Set LC_ALL to force UTF-8 locale for unzip (overrides all locale categories)
-            env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' },
-            signal
-        });
-    } catch (error: any) {
-        // unzip exit codes: 0=success, 1=warnings but continued, 2=corrupt, 3=severe error
-        // Exit code 1 often means filename encoding warnings but extraction succeeded
-
-        // Check if extraction actually succeeded by verifying files/directories exist
-        let extractedEntries: fs.Dirent[] = [];
-        try {
-            extractedEntries = await fs.promises.readdir(extractTo, { withFileTypes: true });
-        } catch {
-            // Directory doesn't exist or can't be read - extraction failed
-        }
-
-        // If we have files/directories, extraction succeeded despite warnings
-        if (extractedEntries.length > 0) {
-            return; // Success - files were extracted
-        }
-
-        // Exit code 2 or 3 means real failure, or exit code 1 with no files extracted
-        // Fall back to AdmZip
-        logger.debug('Failed to extract zip using 7z/unzip, falling back to AdmZip', {
-            zipPath,
-            extractTo,
-            shellCommand: cmd,
-            ...execErrorDetails(error)
-        });
-        // Fallback to AdmZip if 7z/unzip fails
-        // AdmZip reads zip entries directly and should preserve encoding
-        const zip = new AdmZip(zipPath);
-        // extractAllTo with overwrite=true should preserve UTF-8 filenames
-        zip.extractAllTo(extractTo, true);
-    }
+    // archiveService handles the cross-platform 7z spawn, UTF-8 locale, warning vs. fatal
+    // exit code distinction, and works with any supported archive format (zip/rar/7z/tar/gz).
+    await archiveExtractAll(zipPath, extractTo, signal);
 }
 
 async function addLevelFromCdn(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<{ folderName: string; success: boolean; }> {
@@ -958,29 +904,14 @@ async function generatePackDownloadZip(
                 status: 'zipping'
             });
 
-            const sevenZipPath = '7z';
-            let cmd: string;
-            if (isWindows) {
-                // -tzip: zip format, -mx=0 / -mm=Copy: store-only (fastest), -r: recurse,
-                // -mcu=on: force UTF-8 filenames inside the archive.
-                cmd = `cd /d "${extractRoot}" && "${sevenZipPath}" a -tzip -mx=0 -mm=Copy -r -mcu=on "${targetPath}" *`;
-            } else {
-                cmd = `cd "${extractRoot}" && zip -r -0 "${targetPath}" .`;
-            }
-
+            // archiveService runs 7z with -tzip -mx=0 -mm=Copy -r -mcu=on for store-only zip
+            // creation; ws.signal kills the child on SIGINT/SIGTERM so shutdown isn't blocked
+            // waiting for a multi-GB archive to finish.
             try {
-                // `signal` kills the 7z/zip child process on SIGINT/SIGTERM so we don't block
-                // shutdown waiting for a multi-GB archive to finish.
-                await execAsync(cmd, {
-                    shell: isWindows ? 'cmd.exe' : '/bin/bash',
-                    maxBuffer: 1024 * 1024 * 100,
-                    env: isWindows ? undefined : { ...process.env, LC_ALL: 'C.UTF-8' },
-                    signal: ws.signal
-                });
+                await archiveCreateZip(extractRoot, targetPath, ws.signal);
             } catch (error) {
-                logger.error('Failed to create zip using 7z/zip', {
+                logger.error('Failed to create pack zip via archiveService', {
                     ...execErrorDetails(error),
-                    shellCommand: cmd,
                     extractRoot,
                     targetPath
                 });
@@ -1462,8 +1393,8 @@ router.post('/', (req: Request, res: Response) => {
             // Send initial progress
             await sendLevelUploadProgress(uploadId, 'uploading', 0, 'Uploading file to server');
 
-            // Process zip file first to validate contents
-            logger.debug('Starting zip file processing');
+            // Process archive file first to validate contents
+            logger.debug('Starting archive file processing');
 
             // Create progress callback
             const onProgress = async (
@@ -1474,13 +1405,13 @@ router.post('/', (req: Request, res: Response) => {
                 await sendLevelUploadProgress(uploadId, status, progressPercent, currentStep);
             };
 
-            await processZipFile(req.file.path, fileId, req.file.originalname, onProgress);
-            logger.debug('Successfully processed zip file');
+            await processArchiveFile(req.file.path, fileId, req.file.originalname, onProgress);
+            logger.debug('Successfully processed archive file');
 
-            // Clean up the original zip file since we've extracted what we need
-            logger.debug('Cleaning up original zip file');
+            // Clean up the original archive file since we've extracted what we need
+            logger.debug('Cleaning up original archive file');
             cdnLocalTemp.cleanupFiles(req.file.path);
-            logger.debug('Original zip file cleaned up');
+            logger.debug('Original archive file cleaned up');
 
             // Populate cache for the uploaded level
             await sendLevelUploadProgress(uploadId, 'caching', 95, 'Populating cache');

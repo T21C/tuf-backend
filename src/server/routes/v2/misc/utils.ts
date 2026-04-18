@@ -3,10 +3,16 @@ import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses400500, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import fs from 'fs';
 import path from 'path';
-import AdmZip from 'adm-zip';
 import { logger } from '@/server/services/core/LoggerService.js';
 import multer from 'multer';
+import { withUtf8Filenames } from '@/misc/utils/multipartFilename.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
+import {
+    extractAll as archiveExtractAll,
+    createZip as archiveCreateZip,
+    detectArchiveFormat,
+    getArchiveExtension
+} from '@/externalServices/cdnService/services/archiveService.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -105,21 +111,26 @@ function findTranslationRoot(dir: string): string | null {
   return null;
 }
 
-// Add all files from the English translations directory
-function addFilesToZip(currentPath: string, baseDir: string, zip: AdmZip) {
-  const files = fs.readdirSync(currentPath);
-
-  files.forEach(file => {
-    const filePath = path.join(currentPath, file);
-    const stat = fs.statSync(filePath);
-
+/**
+ * Stage every .json file from `sourceDir` into `stagingDir`, mirroring the relative
+ * tree, so a single `archiveCreateZip(stagingDir, ...)` call produces an archive that
+ * contains only translation JSONs (no .py / .md / sidecar files that may live in the
+ * translations folder).
+ */
+async function stageJsonTreeForZip(sourceDir: string, baseDir: string, stagingDir: string): Promise<void> {
+  const files = await fs.promises.readdir(sourceDir);
+  for (const name of files) {
+    const filePath = path.join(sourceDir, name);
+    const stat = await fs.promises.stat(filePath);
     if (stat.isDirectory()) {
-      addFilesToZip(filePath, baseDir, zip);
-    } else if (path.extname(file) === '.json') {
+      await stageJsonTreeForZip(filePath, baseDir, stagingDir);
+    } else if (path.extname(name) === '.json') {
       const relativePath = path.relative(baseDir, filePath);
-      zip.addLocalFile(filePath, path.dirname(relativePath));
+      const dest = path.join(stagingDir, relativePath);
+      await fs.promises.mkdir(path.dirname(dest), { recursive: true });
+      await fs.promises.copyFile(filePath, dest);
     }
-  });
+  }
 }
 
 // Verify translations endpoint
@@ -137,7 +148,7 @@ router.post(
       500: { description: 'Server error', schema: errorResponseSchema },
     },
   }),
-  upload.single('translationZip'),
+  withUtf8Filenames(upload.single('translationZip')),
   async (req: MulterRequest, res: Response) => {
     try {
       if (!req.file || !req.file.buffer) {
@@ -145,21 +156,34 @@ router.post(
       }
 
       const fileBuffer = req.file.buffer;
+      const uploadedName = req.file.originalname || 'upload.bin';
       // Extraction happens inside a workspace lease so the temp dir is removed even on crash /
       // SIGTERM mid-flight; no manual cleanup branches needed.
       const result = await withWorkspace('translation-verify', async (ws) => {
+        // Persist the uploaded buffer to disk first — archiveService is file-based, and
+        // the format may be .zip / .7z / .rar / .tar / .tar.gz.
+        const detected = detectArchiveFormat(uploadedName, fileBuffer);
+        const archiveExt = detected ? getArchiveExtension(detected) : path.extname(uploadedName) || '.bin';
+        const archivePath = ws.join(`translation-upload${archiveExt}`);
+        const extractDir = ws.join('extracted');
+        await fs.promises.writeFile(archivePath, fileBuffer);
+        await fs.promises.mkdir(extractDir, { recursive: true });
+
         try {
-          const zip = new AdmZip(fileBuffer);
-          zip.extractAllTo(ws.dir, true);
+          await archiveExtractAll(archivePath, extractDir);
         } catch (zipError) {
+          logger.debug('Translation archive extraction failed', {
+            uploadedName,
+            error: zipError instanceof Error ? zipError.message : String(zipError)
+          });
           throw {
             code: 400,
             error:
-              'Failed to extract archive with zip. Please check the archive format.',
+              'Failed to extract archive. Supported formats: .zip, .7z, .rar, .tar, .tar.gz / .tgz.',
           };
         }
 
-        const translationRoot = findTranslationRoot(ws.dir);
+        const translationRoot = findTranslationRoot(extractDir);
         logger.debug('translationRoot', translationRoot);
         if (!translationRoot) {
           throw {
@@ -249,10 +273,11 @@ router.get(
     // res.download completes before the workspace lease ends, so the zip file is still around
     // during streaming and gets removed the moment delivery finishes.
     await withWorkspace('translation-download', async (ws) => {
+      const stagingDir = ws.join('staging');
       const tempZipPath = ws.join('en-translations.zip');
-      const zip = new AdmZip();
-      addFilesToZip(enTranslationsDir, enTranslationsDir, zip);
-      zip.writeZip(tempZipPath);
+      await fs.promises.mkdir(stagingDir, { recursive: true });
+      await stageJsonTreeForZip(enTranslationsDir, enTranslationsDir, stagingDir);
+      await archiveCreateZip(stagingDir, tempZipPath);
 
       await new Promise<void>((resolve) => {
         res.download(tempZipPath, 'en-translations.zip', err => {
@@ -416,10 +441,11 @@ router.get(
       }
 
       await withWorkspace('translation-download', async (ws) => {
+        const stagingDir = ws.join('staging');
         const tempZipPath = ws.join(`${lang}-translations.zip`);
-        const zip = new AdmZip();
-        addFilesToZip(translationsDir, translationsDir, zip);
-        zip.writeZip(tempZipPath);
+        await fs.promises.mkdir(stagingDir, { recursive: true });
+        await stageJsonTreeForZip(translationsDir, translationsDir, stagingDir);
+        await archiveCreateZip(stagingDir, tempZipPath);
 
         await new Promise<void>((resolve) => {
           res.download(tempZipPath, `${lang}-translations.zip`, err => {

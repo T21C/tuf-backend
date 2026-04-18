@@ -833,6 +833,61 @@ export class CdnSpacesStorage {
         }
     }
 
+    /**
+     * Generic uploader for an "original archive" payload that may be a .zip, .rar, .7z,
+     * .tar, or .tar.gz. Uses the same `zips/{fileId}/...` keyspace as `uploadLevelFile`
+     * so legacy `originalZip` readers keep finding the object via the path stored in
+     * CdnFile.metadata.
+     */
+    public async uploadArchiveFile(
+        filePath: string,
+        fileId: string,
+        originalFilename: string,
+        contentType: string
+    ): Promise<{
+        filePath: string;
+        url?: string;
+        key?: string;
+        originalFilename?: string;
+        contentType: string;
+    }> {
+        try {
+            const keyResult = this.generateZipKey(fileId, originalFilename);
+
+            const result = await this.uploadFile(filePath, keyResult.key, contentType, {
+                fileId,
+                originalFilename: encodeURIComponent(keyResult.originalFilename),
+                uploadType: 'archive',
+                contentType,
+                uploadedAt: new Date().toISOString()
+            });
+
+            logger.debug('Archive file uploaded to Spaces', {
+                fileId,
+                originalFilename: keyResult.originalFilename,
+                contentType,
+                key: result.key,
+                size: result.size
+            });
+
+            return {
+                filePath: result.key,
+                url: result.url,
+                key: result.key,
+                originalFilename: keyResult.originalFilename,
+                contentType
+            };
+        } catch (error) {
+            logger.error('Failed to upload archive file to Spaces', {
+                error: error instanceof Error ? error.message : String(error),
+                fileId,
+                originalFilename,
+                contentType
+            });
+            throw error;
+        }
+    }
+
     public async uploadSongFiles(
         files: Array<{ sourcePath: string; filename: string; size: number; type: string }>,
         fileId: string

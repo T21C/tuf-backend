@@ -7,6 +7,7 @@ import axios from 'axios';
 import { transformLevel } from '@/externalServices/cdnService/services/levelTransformer.js';
 import { repackZipFile } from '@/externalServices/cdnService/services/zipProcessor.js';
 import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
+import { getOriginalArchiveMeta } from '@/externalServices/cdnService/services/archiveService.js';
 import {
     CdnSpacesTempDomain,
     withCdnFileDomainWorkspace
@@ -355,8 +356,15 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     // Set headers for zip download with encoded filename
                     res.setHeader('Content-Type', 'application/zip');
 
-                    // Use the original filename from the path (no encoding/decoding needed)
-                    const displayFilename = metadata.originalZip?.name.replace('.zip', '');
+                    // The transformed payload is always a freshly-generated .zip (browser /
+                    // game client expectation), but the source archive may have been any
+                    // supported format — strip whatever its real extension is, not just .zip.
+                    const originalArchiveMeta = getOriginalArchiveMeta(metadata);
+                    const sourceName = originalArchiveMeta?.name || metadata.originalZip?.name || 'level';
+                    const sourceExt = originalArchiveMeta?.extension || path.extname(sourceName) || '.zip';
+                    const displayFilename = sourceName.endsWith(sourceExt)
+                        ? sourceName.slice(0, -sourceExt.length)
+                        : sourceName;
                     res.setHeader('Content-Disposition', encodeContentDisposition(`transformed_${displayFilename}.zip`));
 
                     const fileStream = fs.createReadStream(repackZipPath);

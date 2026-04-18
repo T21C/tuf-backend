@@ -3,11 +3,14 @@ import CdnFile from '@/models/cdn/CdnFile.js';
 import LevelDict, { analysisUtils } from 'adofai-lib';
 import fs from 'fs';
 import path from 'path';
-import AdmZip from 'adm-zip';
 import dotenv from 'dotenv';
 import { spacesStorage } from './spacesStorage.js';
 import { CdnSpacesTempDomain, withCdnFileDomainWorkspace } from './cdnSpacesTemp.js';
 import { PROTECTED_EVENT_TYPES } from './levelTransformer.js';
+import {
+    listEntries as archiveListEntries,
+    extractEntry as archiveExtractEntry
+} from './archiveService.js';
 
 dotenv.config();
 
@@ -230,18 +233,18 @@ class LevelCacheService {
                 : null;
 
             try {
-                const zip = new AdmZip(tempZipPath);
-                const entries = zip.getEntries();
+                const entries = await archiveListEntries(tempZipPath);
 
-                let foundEntry: AdmZip.IZipEntry | null = null;
+                let foundEntry: typeof entries[number] | null = null;
                 if (targetRelativePath) {
                     foundEntry = entries.find(entry =>
-                        entry.entryName.replace(/\\/g, '/').replace(/^\/+/, '') === targetRelativePath
+                        entry.relativePath === targetRelativePath
                     ) || null;
                 }
                 if (!foundEntry) {
                     for (const entry of entries) {
-                        if (entry.name === targetLevelName || entry.entryName.endsWith(targetLevelName)) {
+                        if (entry.isDirectory) continue;
+                        if (entry.name === targetLevelName || entry.relativePath.endsWith(targetLevelName)) {
                             foundEntry = entry;
                             break;
                         }
@@ -249,7 +252,7 @@ class LevelCacheService {
                 }
 
                 if (!foundEntry) {
-                    logger.warn('Target level file not found in zip', {
+                    logger.warn('Target level file not found in archive', {
                         fileId: file.id,
                         targetLevelName,
                         availableEntries: entries.map(e => e.name)
@@ -257,14 +260,20 @@ class LevelCacheService {
                     return null;
                 }
 
-                const originalContent = foundEntry.getData();
                 const extractedPath = join(`extracted_${Date.now()}.adofai`);
-                await fs.promises.writeFile(extractedPath, originalContent);
+                await archiveExtractEntry(tempZipPath, foundEntry.relativePath, extractedPath);
+
+                let extractedSize = 0;
+                try {
+                    extractedSize = (await fs.promises.stat(extractedPath)).size;
+                } catch {
+                    /* size logging is best-effort */
+                }
 
                 logger.debug('Source copy extracted successfully', {
                     fileId: file.id,
                     extractedPath,
-                    size: originalContent.length
+                    size: extractedSize
                 });
 
                 return { localPath: extractedPath };
