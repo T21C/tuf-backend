@@ -125,6 +125,35 @@ export function getArchiveExtension(format: SupportedArchiveExt): string {
     return `.${format}`;
 }
 
+/**
+ * Peeks magic bytes so we do not rely on `.zip` in the path alone (temp names keep extensions).
+ *
+ * `-mcu=on` is a **ZIP-only** `-m` sub-switch (UTF-8 entry names). 7-Zip treats unknown `-m`
+ * parameters as fatal for other formats — `7z x foo.rar … -mcu=on` exits with code 2 even when
+ * RAR support is installed. Only append it when the archive is actually ZIP.
+ */
+function extractFormatWithMagicPeek(archivePath: string): SupportedArchiveExt | null {
+    const base = path.basename(archivePath);
+    let peek: Buffer | undefined;
+    try {
+        const h = fs.openSync(archivePath, 'r');
+        try {
+            const buf = Buffer.alloc(64);
+            const n = fs.readSync(h, buf, 0, 64, 0);
+            peek = buf.subarray(0, n);
+        } finally {
+            fs.closeSync(h);
+        }
+    } catch {
+        peek = undefined;
+    }
+    return detectArchiveFormat(base, peek);
+}
+
+function utf8ZipNameArgsForExtract(archivePath: string): string[] {
+    return extractFormatWithMagicPeek(archivePath) === 'zip' ? ['-mcu=on'] : [];
+}
+
 interface RunSevenZOptions {
     cwd?: string;
     signal?: AbortSignal;
@@ -324,8 +353,8 @@ export async function listEntries(filePath: string, signal?: AbortSignal): Promi
 /**
  * Extract every entry from an archive to `destDir`. Creates the directory if missing.
  *
- * `-mcu=on` forces UTF-8 filename interpretation, matching the encoding behaviour
- * the pack-download path already relies on.
+ * For **ZIP** only, we pass `-mcu=on` so UTF-8 paths inside the archive decode consistently.
+ * That switch must not be used for RAR/7z/tar — 7-Zip exits fatally (code 2) if it is.
  */
 export async function extractAll(archivePath: string, destDir: string, signal?: AbortSignal): Promise<void> {
     if (!fs.existsSync(archivePath)) {
@@ -333,7 +362,7 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
     }
     await fs.promises.mkdir(destDir, { recursive: true });
 
-    const args = ['x', archivePath, `-o${destDir}`, '-y', '-mcu=on', '-bd', '-bb0'];
+    const args = ['x', archivePath, `-o${destDir}`, '-y', ...utf8ZipNameArgsForExtract(archivePath), '-bd', '-bb0'];
     const result = await runSevenZ(args, { signal });
 
     // Exit code 1 = warnings (e.g. filename encoding) but extraction usually succeeded.
@@ -387,7 +416,11 @@ export async function extractEntry(
     try {
         // `x` (preserve paths) inside a private staging folder gives us deterministic
         // resolution even when entries share a basename with other paths in the archive.
-        const args = ['x', archivePath, entryRelativePath, `-o${stagingDir}`, '-y', '-mcu=on', '-bd', '-bb0'];
+        const args = [
+            'x', archivePath, entryRelativePath, `-o${stagingDir}`, '-y',
+            ...utf8ZipNameArgsForExtract(archivePath),
+            '-bd', '-bb0'
+        ];
         const result = await runSevenZ(args, { signal });
 
         if (result.code !== 0 && result.code !== 1) {
