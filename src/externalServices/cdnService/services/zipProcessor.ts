@@ -77,7 +77,7 @@ async function extractFile(zipFilePath: string, entry: ZipEntry, targetPath: str
 }
 
 
-type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
+type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
 
 export async function processZipFile(
     zipFilePath: string,
@@ -102,7 +102,7 @@ export async function processZipFile(
         fileSize: (await fs.promises.stat(zipFilePath)).size
     });
 
-    const sendProgress = async (status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed', progressPercent: number, currentStep?: string) => {
+    const sendProgress = async (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => {
         if (onProgress) {
             await onProgress(status, progressPercent, currentStep);
         }

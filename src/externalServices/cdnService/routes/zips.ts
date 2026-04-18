@@ -1404,7 +1404,7 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
 // Send level upload progress update to main server
 async function sendLevelUploadProgress(
     uploadId: string | undefined,
-    status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed',
+    status: 'uploading' | 'processing' | 'caching' | 'failed',
     progressPercent: number,
     currentStep?: string,
     error?: string
@@ -1467,7 +1467,7 @@ router.post('/', (req: Request, res: Response) => {
 
             // Create progress callback
             const onProgress = async (
-                status: 'uploading' | 'processing' | 'caching' | 'completed' | 'failed',
+                status: 'uploading' | 'processing' | 'caching' | 'failed',
                 progressPercent: number,
                 currentStep?: string
             ) => {
@@ -1496,8 +1496,18 @@ router.post('/', (req: Request, res: Response) => {
                 });
             }
 
-            // Send completion progress
-            await sendLevelUploadProgress(uploadId, 'completed', 100, 'Upload completed');
+            // CDN ingest finished; do not use phase "completed" here — the main API sets that with meta.newFileId / newFileId after DB update.
+            if (uploadId) {
+                await ingestJobProgress({
+                    jobId: uploadId,
+                    kind: 'level_upload',
+                    phase: 'cdn_ingest_done',
+                    percent: 100,
+                    message: 'CDN ingest complete',
+                    meta: {cdnFileId: fileId},
+                    error: null
+                });
+            }
 
             const response = {
                 success: true,

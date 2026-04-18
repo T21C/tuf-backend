@@ -23,13 +23,18 @@ export interface JobProgressRecord {
   message?: string;
   meta?: Record<string, unknown>;
   error?: string | null;
+  /** Canonical file id after async level upload finalizes (duplicated in meta.newFileId for compatibility). */
+  newFileId?: string | null;
   createdAt: string;
   updatedAt: string;
   ownerUserId?: string | null;
 }
 
 export type JobProgressPatch = Partial<
-  Pick<JobProgressRecord, 'kind' | 'phase' | 'percent' | 'message' | 'meta' | 'error' | 'ownerUserId'>
+  Pick<
+    JobProgressRecord,
+    'kind' | 'phase' | 'percent' | 'message' | 'meta' | 'error' | 'ownerUserId' | 'newFileId'
+  >
 >;
 
 function jobKey(jobId: string): string {
@@ -130,6 +135,9 @@ async function mergeAndSave(
     }
     if (partial.meta !== undefined) {
       next.meta = mergeMeta(next.meta, partial.meta);
+    }
+    if (partial.newFileId !== undefined) {
+      next.newFileId = partial.newFileId;
     }
     if (options.allowOwner && partial.ownerUserId !== undefined) {
       if (!next.ownerUserId) {

@@ -484,6 +484,7 @@ async function finalizeLevelZipUploadFromBuffer(params: {
         phase: 'completed',
         percent: 100,
         message: 'Upload complete',
+        newFileId: uploadResult.fileId,
         meta: {...jobMetaBase, newFileId: uploadResult.fileId},
       }).catch(() => undefined);
     }
@@ -1792,6 +1793,18 @@ router.post(
 
       if (uploadJobId) {
         activeLevelZipFinalizeByLevelId.set(levelId, uploadJobId);
+        if (req.user?.id) {
+          await jobProgressService
+            .patchTrusted(uploadJobId, {
+              ownerUserId: req.user.id,
+              kind: 'level_upload',
+              phase: 'queued',
+              percent: 0,
+              message: 'Reading assembled zip…',
+              meta: { levelId, source: 'level_edit', stage: 'prepare' },
+            })
+            .catch(() => undefined);
+        }
         void (async () => {
           try {
             await runFinalizeOnce(null);
