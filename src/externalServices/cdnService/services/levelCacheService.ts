@@ -561,12 +561,12 @@ class LevelCacheService {
         try {
             const file = await CdnFile.findByPk(fileId);
             if (!file) {
-                logger.error('File not found:', { fileId });
+                logger.debug('ensureCachePopulated: file not found', { fileId });
                 return null;
             }
 
             if (file.type !== 'LEVELZIP') {
-                logger.error('File is not a level zip:', { fileId, type: file.type });
+                logger.debug('ensureCachePopulated: not a level zip', { fileId, type: file.type });
                 return null;
             }
 
@@ -581,7 +581,7 @@ class LevelCacheService {
             };
 
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
-                logger.error('No level files found in metadata:', { fileId });
+                logger.debug('ensureCachePopulated: no level files in metadata', { fileId });
                 return null;
             }
 
@@ -595,7 +595,7 @@ class LevelCacheService {
 
             const levelCheck = await spacesStorage.fileExists(targetLevel);
             if (!levelCheck) {
-                logger.error('Target level file not found:', { fileId, targetLevel });
+                logger.debug('ensureCachePopulated: target level not in storage', { fileId, targetLevel });
                 return null;
             }
 

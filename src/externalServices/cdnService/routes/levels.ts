@@ -164,12 +164,12 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                 // Validate metadata structure
                 if (!file.metadata) {
-                    logger.error('Missing metadata object:', { fileId });
+                    logger.debug('Missing metadata object:', { fileId });
                     throw { error: 'Level metadata is missing', code: 400 };
                 }
 
                 if (!metadata.songFiles) {
-                    logger.error('Missing song files in metadata:', {
+                    logger.debug('Missing song files in metadata:', {
                         fileId,
                         metadata: file.metadata
                     });
@@ -179,7 +179,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 // If targetLevel is missing, find the largest level file
                 if (!metadata.targetLevel) {
                     if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
-                        logger.error('No level files found in metadata:', {
+                        logger.debug('No level files found in metadata:', {
                             fileId,
                             metadata: file.metadata
                         });
@@ -205,7 +205,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                 const levelExists = await spacesStorage.fileExists(metadata.targetLevel);
 
                 if (!levelExists) {
-                    logger.error('Target level file not found in any storage:', {
+                    logger.debug('Target level file not found in any storage:', {
                         fileId,
                         targetLevel: metadata.targetLevel,
                     });
@@ -305,7 +305,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                             }
 
                             if (!selectedSongFile) {
-                                logger.error('No song file found (neither specified nor .ogg/.wav fallback)', {
+                                logger.debug('No song file found (neither specified nor .ogg/.wav fallback)', {
                                     fileId,
                                     requestedSongFilename: songFilename,
                                     availableSongFiles: Object.keys(metadata.songFiles)
@@ -317,7 +317,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                         const songExists = await spacesStorage.fileExists(selectedSongFile.path);
 
                         if (!songExists) {
-                            logger.error('Song file not found in any storage:', {
+                            logger.debug('Song file not found in any storage:', {
                                 fileId,
                                 songFilename: selectedSongFile.name,
                                 songPath: selectedSongFile.path,
@@ -405,9 +405,18 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
 
                         res.once('finish', () => settleResolve());
                         res.once('close', () => {
-                            if (!settled) {
-                                settleReject(new Error('Response closed before completion'));
+                            if (settled) {
+                                return;
                             }
+                            if (res.writableEnded) {
+                                settleResolve();
+                                return;
+                            }
+                            logger.debug(
+                                'Transform zip stream: response closed before completion (often client disconnect)',
+                                { fileId, zipPath: repackZipPath }
+                            );
+                            settleResolve();
                         });
 
                         fileStream.pipe(res);
@@ -430,19 +439,32 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
             }
         );
     } catch (error) {
-        logger.error('Unexpected level transformation error for ' + req.params.fileId + ':', error);
-
         if (res.headersSent) {
             return;
         }
 
-        // Handle custom error objects with code
-        if (error && typeof error === 'object' && 'code' in error && 'error' in error) {
+        const isCustom =
+            error && typeof error === 'object' && 'code' in error && 'error' in error;
+        if (isCustom) {
             const customError = error as { code: number; error: string };
-            res.status(customError.code).json({ error: customError.error });
-        } else {
-            res.status(500).json({ error: 'Level transformation failed' });
+            logger.debug('Level transform request rejected', {
+                fileId: req.params.fileId,
+                code: customError.code,
+                error: customError.error,
+            });
+            return res.status(customError.code).json({ error: customError.error });
         }
+
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === 'Response closed before completion') {
+            logger.debug('Level transform: response closed before completion', {
+                fileId: req.params.fileId,
+            });
+            return;
+        }
+
+        logger.error('Unexpected level transformation error for ' + req.params.fileId + ':', error);
+        return res.status(500).json({ error: 'Level transformation failed' });
     }
     return;
 });
@@ -478,7 +500,7 @@ router.get('/transform-options', async (req: Request, res: Response) => {
         // If targetLevel is missing, find the largest level file
         if (!metadata.targetLevel) {
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
-                logger.error('No level files found in metadata:', {
+                logger.debug('No level files found in metadata:', {
                     fileId,
                     metadata: file.metadata
                 });

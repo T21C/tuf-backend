@@ -259,7 +259,7 @@ export async function processZipFile(
                     skippedParse: tooLargeToParse
                 });
             } catch (error) {
-                logger.warn('Failed to process level file:', {
+                logger.debug('Skipped level file during zip scan (parse/validation):', {
                     entry: entry.relativePath,
                     error: error instanceof Error ? error.message : String(error)
                 });

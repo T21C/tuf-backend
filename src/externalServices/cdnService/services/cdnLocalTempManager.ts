@@ -102,7 +102,7 @@ export class CdnLocalTempManager {
                         logger.debug(`Successfully deleted file: ${normalizedAbsolutePath}`);
                     }
                 } else {
-                    logger.warn(`File/directory does not exist: ${normalizedAbsolutePath}`);
+                    logger.debug(`Cleanup skipped (path already gone): ${normalizedAbsolutePath}`);
                 }
             } catch (error) {
                 logger.error(`Failed to cleanup path ${normalizedPath}:`, {

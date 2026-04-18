@@ -136,7 +136,6 @@ router.post('/:type', (req: Request, res: Response) => {
 
             res.json(result);
         } catch (error) {
-            logger.error('Image processing error:', error);
             cdnLocalTemp.cleanupFiles(req.file.path);
 
             if (error instanceof ImageProcessingError) {
@@ -147,6 +146,7 @@ router.post('/:type', (req: Request, res: Response) => {
                 });
             }
 
+            logger.error('Image processing error:', error);
             res.status(500).json({
                 error: 'Image processing failed',
                 code: 'PROCESSING_ERROR',

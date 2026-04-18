@@ -148,13 +148,6 @@ export class ImageFactory {
                 }
             }
 
-            logger.error('Image processing error:', {
-                error: error instanceof Error ? error.message : String(error),
-                filePath,
-                imageType,
-                timestamp: new Date().toISOString()
-            });
-
             if (error instanceof ImageValidationError) {
                 throw new ImageProcessingError(
                     'Image validation failed',
@@ -167,6 +160,13 @@ export class ImageFactory {
                 );
             }
 
+            logger.error('Image processing error:', {
+                error: error instanceof Error ? error.message : String(error),
+                filePath,
+                imageType,
+                timestamp: new Date().toISOString()
+            });
+
             throw new ImageProcessingError(
                 'Failed to process image',
                 'PROCESSING_ERROR',
@@ -177,7 +177,7 @@ export class ImageFactory {
                 try {
                     cdnLocalTemp.cleanupFiles(imageDir);
                 } catch (cleanupError) {
-                    logger.error('Failed to clean up temp image processing directory:', {
+                    logger.warn('Failed to clean up temp image processing directory:', {
                         error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
                         imageDir,
                         timestamp: new Date().toISOString()

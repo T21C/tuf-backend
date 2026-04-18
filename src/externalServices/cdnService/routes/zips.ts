@@ -1204,7 +1204,7 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
         };
 
         if (!allLevelFiles || !Array.isArray(allLevelFiles)) {
-            logger.error('No level files found in metadata:', { fileId });
+            logger.debug('No level files found in metadata:', { fileId });
             return res.status(404).json({ error: 'No level files found' });
         }
 
