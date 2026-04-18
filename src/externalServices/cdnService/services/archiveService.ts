@@ -20,6 +20,13 @@ export interface ArchiveEntry {
     name: string;
     /** POSIX-normalised path inside the archive (no leading slash). */
     relativePath: string;
+    /**
+     * `Path` from `7z l -slt` with only a leading slash trimmed — internal `\\` vs `/`
+     * preserved. Used as the `7z x` file filter; some RARs only match the exact string
+     * from the listing, while a POSIX-only path makes 7-Zip exit 2 even though a full
+     * `7z x archive.rar` (no filter) works.
+     */
+    sevenZipSelector: string;
     /** Uncompressed size in bytes. */
     size: number;
     isDirectory: boolean;
@@ -175,6 +182,34 @@ function trimForLog(s: string | undefined): string | undefined {
 }
 
 /**
+ * What 7-Zip actually printed — used in {@link buildSevenZError} so logs show a
+ * descriptive report instead of only `exit N`.
+ *
+ * Prefer stderr (errors/warnings); if stderr is empty, include stdout (some
+ * builds still print fatal lines to stdout depending on `-bb*`).
+ */
+function formatSevenZFailureSummary(result: RunSevenZResult, maxLen = 6000): string {
+    const errPart = (result.stderr ?? '').trim();
+    const outPart = (result.stdout ?? '').trim();
+
+    let combined: string;
+    if (errPart && outPart) {
+        combined = `stderr:\n${errPart}\n\nstdout:\n${outPart}`;
+    } else if (errPart) {
+        combined = errPart;
+    } else if (outPart) {
+        combined = `stdout:\n${outPart}`;
+    } else {
+        return '7z produced no stderr or stdout text (inspect permissions, disk full, missing binary, or wrong path).';
+    }
+
+    if (combined.length > maxLen) {
+        return `${combined.slice(0, maxLen)}… [truncated, total ${combined.length} chars]`;
+    }
+    return combined;
+}
+
+/**
  * Spawn the 7z binary with the given arguments. Returns the captured streams
  * and exit code; only throws on spawn failure or AbortSignal trigger.
  *
@@ -246,11 +281,30 @@ async function runSevenZ(args: string[], opts: RunSevenZOptions = {}): Promise<R
 }
 
 function buildSevenZError(action: string, args: string[], result: RunSevenZResult): Error {
-    const err = new Error(`7z ${action} failed (exit ${result.code})`);
+    const summary = formatSevenZFailureSummary(result);
+    const binary = SEVEN_ZIP_BIN;
+    const argsPreview =
+        args.length > 12
+            ? `${args.slice(0, 12).map((a) => (a.length > 120 ? `${a.slice(0, 120)}…` : a)).join(' ')} … (+${args.length - 12} args)`
+            : args.map((a) => (a.length > 200 ? `${a.slice(0, 200)}…` : a)).join(' ');
+
+    const message = [
+        `7z ${action} failed (exit ${result.code}).`,
+        `binary=${binary}`,
+        `argv≈ ${argsPreview}`,
+        ``,
+        summary
+    ].join('\n');
+
+    const err = new Error(message);
     (err as any).exitCode = result.code;
+    (err as any).sevenZAction = action;
+    (err as any).sevenZBinary = binary;
     (err as any).args = args;
     (err as any).stdout = trimForLog(result.stdout);
     (err as any).stderr = trimForLog(result.stderr);
+    /** Short duplicate of stderr/stdout for structured loggers without reading full stacks */
+    (err as any).sevenZSummary = summary;
     return err;
 }
 
@@ -322,10 +376,12 @@ function parseSlt(stdout: string): ArchiveEntry[] {
 
         const relativePath = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
         const name = path.posix.basename(relativePath);
+        const sevenZipSelector = rawPath.replace(/^[/\\]+/, '');
 
         entries.push({
             name,
             relativePath,
+            sevenZipSelector,
             size: Number.isFinite(size) ? size : 0,
             isDirectory
         });
@@ -392,10 +448,13 @@ export async function extractAll(archivePath: string, destDir: string, signal?: 
  *
  * 7z's `e` flattens to a directory; we extract into a temp folder, locate the
  * extracted file, and rename it to `destFilePath`.
+ *
+ * `-bd` — batch / hide `%` progress; does not change exit codes or extraction behaviour.
+ * `-bb0` — quiet listing on stdout; fatal errors still appear on stderr.
  */
 export async function extractEntry(
     archivePath: string,
-    entryRelativePath: string,
+    entry: Pick<ArchiveEntry, 'relativePath' | 'sevenZipSelector'>,
     destFilePath: string,
     signal?: AbortSignal
 ): Promise<void> {
@@ -414,10 +473,12 @@ export async function extractEntry(
     await fs.promises.mkdir(stagingDir, { recursive: true });
 
     try {
+        const pathFor7z = entry.sevenZipSelector || entry.relativePath;
+
         // `x` (preserve paths) inside a private staging folder gives us deterministic
         // resolution even when entries share a basename with other paths in the archive.
         const args = [
-            'x', archivePath, entryRelativePath, `-o${stagingDir}`, '-y',
+            'x', archivePath, pathFor7z, `-o${stagingDir}`, '-y',
             ...utf8ZipNameArgsForExtract(archivePath),
             '-bd', '-bb0'
         ];
@@ -427,12 +488,12 @@ export async function extractEntry(
             throw buildSevenZError('extract entry', args, result);
         }
 
-        const normalized = entryRelativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+        const normalized = entry.relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
         const stagedPath = path.join(stagingDir, normalized);
 
         if (!fs.existsSync(stagedPath)) {
             throw new Error(
-                `Entry not found after extraction: ${entryRelativePath} (staged at ${stagedPath})`
+                `Entry not found after extraction: ${entry.relativePath} (staged at ${stagedPath})`
             );
         }
 

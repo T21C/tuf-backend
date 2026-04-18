@@ -1332,6 +1332,13 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
     }
 });
 
+/** Long `Error.message` (e.g. full 7z stderr) is logged as-is; cap what we return to the client / job progress. */
+const CLIENT_FACING_ERROR_MAX = 1600;
+function truncateClientErrorMessage(msg: string): string {
+    if (msg.length <= CLIENT_FACING_ERROR_MAX) return msg;
+    return `${msg.slice(0, CLIENT_FACING_ERROR_MAX)}… [truncated; see server logs for full 7z output]`;
+}
+
 // Send level upload progress update to main server
 async function sendLevelUploadProgress(
     uploadId: string | undefined,
@@ -1449,9 +1456,21 @@ router.post('/', (req: Request, res: Response) => {
 
             res.json(response);
         } catch (error) {
+            const fullMessage = error instanceof Error ? error.message : String(error);
+            const errWithZ = error instanceof Error
+                ? (error as Error & {
+                    exitCode?: number;
+                    sevenZSummary?: string;
+                    sevenZBinary?: string;
+                })
+                : null;
+
             logger.error('Error during zip upload process:', {
-                error: error instanceof Error ? error.message : String(error),
+                error: fullMessage,
                 stack: error instanceof Error ? error.stack : undefined,
+                ...(typeof errWithZ?.exitCode === 'number' ? { sevenZExitCode: errWithZ.exitCode } : {}),
+                ...(typeof errWithZ?.sevenZBinary === 'string' ? { sevenZBinary: errWithZ.sevenZBinary } : {}),
+                ...(typeof errWithZ?.sevenZSummary === 'string' ? { sevenZSummary: errWithZ.sevenZSummary } : {}),
                 file: req.file ? {
                     originalname: req.file.originalname,
                     size: req.file.size,
@@ -1466,7 +1485,7 @@ router.post('/', (req: Request, res: Response) => {
                 'failed',
                 0,
                 'Upload failed',
-                error instanceof Error ? error.message : String(error)
+                truncateClientErrorMessage(fullMessage)
             );
 
             cdnLocalTemp.cleanupFiles(req.file.path);
@@ -1474,14 +1493,14 @@ router.post('/', (req: Request, res: Response) => {
             // Try to parse error message if it's JSON
             let errorDetails;
             try {
-                const parsedError = JSON.parse(error instanceof Error ? error.message : String(error));
+                const parsedError = JSON.parse(fullMessage);
                 errorDetails = {
                     message: parsedError.details?.message || parsedError.message,
                     ...parsedError.details
                 };
             } catch {
                 errorDetails = {
-                    message: error instanceof Error ? error.message : String(error)
+                    message: truncateClientErrorMessage(fullMessage)
                 };
             }
 

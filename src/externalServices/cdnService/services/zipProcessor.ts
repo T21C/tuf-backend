@@ -53,7 +53,7 @@ async function extractArchiveEntries(archiveFilePath: string): Promise<ZipEntry[
 }
 
 async function extractFile(archiveFilePath: string, entry: ZipEntry, targetPath: string): Promise<void> {
-    await archiveExtractEntry(archiveFilePath, entry.relativePath, targetPath);
+    await archiveExtractEntry(archiveFilePath, entry, targetPath);
 
     logger.debug('Extracted file:', {
         from: entry.relativePath,
@@ -528,16 +528,30 @@ export async function processArchiveFile(
             }
         }
 
+        const errObj = error instanceof Error ? error : null;
+        const anyErr = errObj as (Error & {
+            exitCode?: number;
+            sevenZSummary?: string;
+            sevenZBinary?: string;
+        }) | null;
+
         logger.error('Error processing archive file:', {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
+            error: errObj?.message ?? String(error),
+            stack: errObj?.stack,
+            ...(typeof anyErr?.exitCode === 'number' ? { sevenZExitCode: anyErr.exitCode } : {}),
+            ...(typeof anyErr?.sevenZBinary === 'string' ? { sevenZBinary: anyErr.sevenZBinary } : {}),
+            ...(typeof anyErr?.sevenZSummary === 'string' ? { sevenZSummary: anyErr.sevenZSummary } : {}),
             archiveFilePath,
             archiveFileId,
             timestamp: new Date().toISOString()
         });
 
-        // Send failure progress update
-        await sendProgress('failed', 0, error instanceof Error ? error.message : String(error));
+        // Send failure progress update (cap length — full report is already in logs above)
+        {
+            const msg = errObj?.message ?? String(error);
+            const capped = msg.length > 1600 ? `${msg.slice(0, 1600)}… [truncated]` : msg;
+            await sendProgress('failed', 0, capped);
+        }
         throw error;
     }
 }

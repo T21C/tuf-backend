@@ -261,7 +261,7 @@ class LevelCacheService {
                 }
 
                 const extractedPath = join(`extracted_${Date.now()}.adofai`);
-                await archiveExtractEntry(tempZipPath, foundEntry.relativePath, extractedPath);
+                await archiveExtractEntry(tempZipPath, foundEntry, extractedPath);
 
                 let extractedSize = 0;
                 try {
