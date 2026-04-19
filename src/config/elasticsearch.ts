@@ -561,6 +561,19 @@ export const playerMapping = {
           permissionFlags: { type: 'long' as const },
           permissionVersion: { type: 'integer' as const },
           isEmailVerified: { type: 'boolean' as const },
+          creator: {
+            properties: {
+              id: { type: 'integer' as const },
+              name: {
+                type: 'text' as const,
+                analyzer: 'custom_text_analyzer',
+                fields: {
+                  keyword: { type: 'keyword' as const },
+                },
+              },
+              isVerified: { type: 'boolean' as const },
+            },
+          },
         },
       },
       discord: {
@@ -666,11 +679,13 @@ const passMappingHashPayload = {
  *   2 — 2026-04-17: fix topDiffId/top12kDiffId to resolve to Difficulty.id
  *       (was previously sortOrder, which collided with SPECIAL difficulties
  *       and produced wrong top diffs on denormalized docs).
+ *   3 — 2026-04-19: denormalize `user.creator` when `users.creatorId` is set
+ *       (mapping + indexer; clients read `playerData.user.creator`).
  */
 const playerMappingHashPayload = {
   settings: playerMapping.settings,
   mappings: playerMapping.mappings,
-  indexerVersion: 2,
+  indexerVersion: 3,
 };
 
 const levelMappingHashPath = path.join(process.cwd(), 'mapping-hash-levels.json');

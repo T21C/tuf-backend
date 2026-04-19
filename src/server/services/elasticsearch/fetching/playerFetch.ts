@@ -1,6 +1,7 @@
 import { Op } from 'sequelize';
 import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
+import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { runPlayerStatsQuery, PlayerStatsRow } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
@@ -27,6 +28,7 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
     }),
     User.findAll({
       where: { playerId: { [Op.in]: ids } },
+      include: [{ model: Creator, as: 'creator', required: false }],
     }),
     runPlayerStatsQuery({ playerIds: ids }),
   ]);

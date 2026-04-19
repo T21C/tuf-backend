@@ -1,5 +1,6 @@
 import Player from '@/models/players/Player.js';
 import User from '@/models/auth/User.js';
+import Creator from '@/models/credits/Creator.js';
 import OAuthProvider from '@/models/auth/OAuthProvider.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import type { PlayerStatsRow } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
@@ -67,6 +68,17 @@ function permissionFlagsToLong(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function serializeCreator(creator: Creator | null | undefined): Record<string, unknown> | null {
+  if (!creator) return null;
+  const c = plain(creator) as any;
+  if (c?.id == null) return null;
+  return {
+    id: coerceNumber(c.id, 0),
+    name: c.name ?? '',
+    isVerified: Boolean(c.isVerified),
+  };
+}
+
 function serializeUser(user: User | null | undefined): any | null {
   if (!user) return null;
   const u = plain(user) as any;
@@ -78,6 +90,7 @@ function serializeUser(user: User | null | undefined): any | null {
     permissionFlags: permissionFlagsToLong(u.permissionFlags),
     permissionVersion: coerceNumber(u.permissionVersion, 0),
     isEmailVerified: Boolean(u.isEmailVerified),
+    creator: u.creatorId != null ? serializeCreator(user.creator) : null,
   };
 }
 
