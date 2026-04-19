@@ -397,7 +397,9 @@ export async function listEntries(filePath: string, signal?: AbortSignal): Promi
     if (!fs.existsSync(filePath)) {
         throw new Error(`Archive not found: ${filePath}`);
     }
-    const args = ['l', '-slt', '-ba', '-y', filePath];
+    // Match UTF-8 ZIP name decoding with {@link extractAll} / {@link extractLevelPackPayload}
+    // so `relativePath` aligns with on-disk paths after `-mcu=on` extraction.
+    const args = ['l', '-slt', '-ba', '-y', filePath, ...utf8ZipNameArgsForExtract(filePath)];
     const result = await runSevenZ(args, { signal });
     // 7z exit codes: 0 = success, 1 = warnings (still usable), 2+ = fatal.
     if (result.code !== 0 && result.code !== 1) {
@@ -456,12 +458,42 @@ const LEVEL_PACK_INCLUDE_GLOBS: string[] = [
     '-i!*.WAV',
     '-i!*.ogg',
     '-i!*.OGG',
+    '-i!*.oga',
+    '-i!*.OGA',
+    '-i!*.opus',
+    '-i!*.OPUS',
     '-i!*.flac',
     '-i!*.FLAC',
     '-i!*.m4a',
     '-i!*.M4A',
     '-i!*.aac',
-    '-i!*.AAC'
+    '-i!*.AAC',
+    '-i!*.aiff',
+    '-i!*.AIFF',
+    '-i!*.aif',
+    '-i!*.AIF',
+    '-i!*.caf',
+    '-i!*.CAF',
+    '-i!*.wma',
+    '-i!*.WMA',
+    '-i!*.webm',
+    '-i!*.WEBM',
+    '-i!*.mka',
+    '-i!*.MKA',
+    '-i!*.ac3',
+    '-i!*.AC3',
+    '-i!*.eac3',
+    '-i!*.EAC3',
+    '-i!*.mp2',
+    '-i!*.MP2',
+    '-i!*.amr',
+    '-i!*.AMR',
+    '-i!*.ape',
+    '-i!*.APE',
+    '-i!*.wv',
+    '-i!*.WV',
+    '-i!*.tta',
+    '-i!*.TTA'
 ];
 
 /** True if `dir` contains at least one regular file somewhere beneath it. */
@@ -495,11 +527,16 @@ async function directoryHasAnyFile(dir: string): Promise<boolean> {
  * Uses one `7z x` with recursive include patterns, then falls back to {@link extractAll}
  * when filtered extraction fails (e.g. solid RAR5 + selective quirks) or yields no files.
  * Downstream code still uses {@link listEntries} for canonical archive-relative paths.
+ *
+ * @param options.requiredRelativePaths — When set, a filtered extract is only accepted if
+ * every listed path exists under `extractRoot`. Otherwise we fall back to {@link extractAll}
+ * (fixes partial filtered extracts where 7-Zip wrote some globs but skipped nested files).
  */
 export async function extractLevelPackPayload(
     archivePath: string,
     extractRoot: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    options?: { requiredRelativePaths?: string[] }
 ): Promise<void> {
     if (!fs.existsSync(archivePath)) {
         throw new Error(`Archive not found: ${archivePath}`);
@@ -522,7 +559,23 @@ export async function extractLevelPackPayload(
 
     const filteredOk = result.code === 0 || result.code === 1;
     const hasFiles = filteredOk ? await directoryHasAnyFile(extractRoot) : false;
-    const needFullExtract = !filteredOk || !hasFiles;
+
+    let missingRequired: string[] = [];
+    if (filteredOk && hasFiles && options?.requiredRelativePaths?.length) {
+        missingRequired = options.requiredRelativePaths.filter(rel => {
+            const normalized = rel.replace(/\\/g, '/').replace(/^\/+/, '');
+            return !fs.existsSync(path.join(extractRoot, normalized));
+        });
+        if (missingRequired.length > 0) {
+            logger.debug('archiveService.extractLevelPackPayload: filtered extract missing required paths; falling back to extractAll', {
+                archivePath,
+                missingCount: missingRequired.length,
+                missingSample: missingRequired.slice(0, 8)
+            });
+        }
+    }
+
+    const needFullExtract = !filteredOk || !hasFiles || missingRequired.length > 0;
 
     if (!needFullExtract) {
         if (result.code === 1) {

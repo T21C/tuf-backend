@@ -143,15 +143,18 @@ export async function processArchiveFile(
         });
 
         // Bulk-extract `.adofai` + audio (see archiveService.extractLevelPackPayload); fall back to full extract
-        // if filtered extraction fails (e.g. solid RAR5). Paths inside the archive are preserved under `extractRoot`.
+        // if filtered extraction fails (e.g. solid RAR5) or any listed `.adofai` path is missing (partial extract).
         const extractRoot = path.join(permanentDir, '.extracted');
+        const levelEntries = archiveEntries.filter(entry => !entry.isDirectory && entry.relativePath.toLowerCase().endsWith('.adofai'));
+        const requiredLevelPaths = levelEntries.map(entry => normalizeRelativePath(entry.relativePath));
         await sendProgress('processing', 13, 'Extracting level and song files from archive');
-        await archiveExtractLevelPackPayload(archiveFilePath, extractRoot);
+        await archiveExtractLevelPackPayload(archiveFilePath, extractRoot, undefined, {
+            requiredRelativePaths: requiredLevelPaths
+        });
 
         // First pass: collect all level files (metadata paths come from listing; bytes from `extractRoot`)
         await sendProgress('processing', 15, 'Processing level files');
         let totalLevelSize = 0;
-        const levelEntries = archiveEntries.filter(entry => !entry.isDirectory && entry.relativePath.toLowerCase().endsWith('.adofai'));
         let processedLevels = 0;
         for (const entry of levelEntries) {
             const normalizedRelativePath = normalizeRelativePath(entry.relativePath);
@@ -263,7 +266,11 @@ export async function processArchiveFile(
         // Second pass: collect all song files
         await sendProgress('processing', 40, 'Processing song files');
         let totalSongSize = 0;
-        const audioExtensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'];
+        const audioExtensions = [
+            '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac',
+            '.aiff', '.aif', '.caf', '.wma', '.webm', '.mka', '.ac3', '.eac3',
+            '.mp2', '.amr', '.ape', '.wv', '.tta'
+        ];
         const songEntries = archiveEntries.filter(entry =>
             !entry.isDirectory && audioExtensions.includes(path.extname(entry.relativePath).toLowerCase())
         );

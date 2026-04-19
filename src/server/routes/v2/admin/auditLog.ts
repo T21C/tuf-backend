@@ -8,6 +8,16 @@ import { logger } from '@/server/services/core/LoggerService.js';
 
 const router = Router();
 
+const AUDIT_LOG_SORT_COLUMNS = new Set([
+  'id',
+  'createdAt',
+  'updatedAt',
+  'userId',
+  'action',
+  'route',
+  'method',
+]);
+
 // GET /admin/audit-logs
 router.get(
   '/',
@@ -51,17 +61,20 @@ router.get(
       where[Op.or] = [
         { payload: { [Op.like]: `%${q}%` } },
         { result: { [Op.like]: `%${q}%` } },
-        { action: { [Op.like]: `%${q}%` } },
-        { route: { [Op.like]: `%${q}%` } },
       ];
     }
 
     const offset = (Number(page) - 1) * Number(pageSize);
     const limit = Number(pageSize);
 
+    const sortCol =
+      typeof sort === 'string' && AUDIT_LOG_SORT_COLUMNS.has(sort) ? sort : 'createdAt';
+    const orderUpper = typeof order === 'string' ? order.toUpperCase() : 'DESC';
+    const orderDir = orderUpper === 'ASC' ? 'ASC' : 'DESC';
+
     const { rows, count } = await AuditLog.findAndCountAll({
       where,
-      order: [[sort as string, order as string]],
+      order: [[sortCol, orderDir]],
       offset,
       limit,
       include: [{ model: User, as: 'user', attributes: ['id', 'username', 'avatarUrl', 'nickname'] }],
