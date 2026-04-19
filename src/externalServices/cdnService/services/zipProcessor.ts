@@ -17,6 +17,7 @@ import {
     getArchiveMimeType,
     type ArchiveEntry as ServiceArchiveEntry
 } from './archiveService.js';
+import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -36,8 +37,8 @@ function toCopyRelativePath(relativePath: string): string {
     return path.posix.join(parsed.dir, `${parsed.name}.copy`);
 }
 
-async function extractArchiveEntries(archiveFilePath: string): Promise<ZipEntry[]> {
-    const entries = await archiveListEntries(archiveFilePath);
+async function extractArchiveEntries(archiveFilePath: string, signal?: AbortSignal): Promise<ZipEntry[]> {
+    const entries = await archiveListEntries(archiveFilePath, signal);
 
     logger.debug('Listed archive entries:', {
         archiveFilePath,
@@ -60,8 +61,27 @@ export async function processArchiveFile(
     originalFilename: string,
     onProgress?: ProgressCallback
 ): Promise<void> {
+    // All on-disk staging for this ingest lives inside a workspace under
+    // WORKSPACE_ROOT/zip-processor/<archiveFileId>/. The workspace's `finally`
+    // removes the dir on success, throw, or shutdown abort, and any orphans
+    // left by SIGKILL get cleaned up by `sweepWorkspaceRootOnBoot()` next start.
+    return withWorkspace(
+        'zip-processor',
+        (ws) => processArchiveFileInWorkspace(ws, archiveFilePath, archiveFileId, originalFilename, onProgress),
+        { key: archiveFileId }
+    );
+}
+
+async function processArchiveFileInWorkspace(
+    ws: { dir: string; signal: AbortSignal },
+    archiveFilePath: string,
+    archiveFileId: string,
+    originalFilename: string,
+    onProgress?: ProgressCallback
+): Promise<void> {
     let transaction: Transaction | undefined;
-    let permanentDir: string | null = null;
+    /** Workspace dir; auto-removed by {@link withWorkspace} on success/throw/abort. */
+    const permanentDir = ws.dir;
     // Preloaded LevelDict for the eventual cache target.
     // When available, we can populate cache without re-downloading the target from Spaces.
     let selectedPreloadedTargetLevelData: LevelDict | null = null;
@@ -79,6 +99,7 @@ export async function processArchiveFile(
         archiveFileId,
         originalFilename,
         detectedFormat,
+        permanentDir,
         fileSize: (await fs.promises.stat(archiveFilePath)).size
     });
 
@@ -90,7 +111,7 @@ export async function processArchiveFile(
 
     try {
         await sendProgress('processing', 10, 'Listing archive entries');
-        const archiveEntries = await extractArchiveEntries(archiveFilePath);
+        const archiveEntries = await extractArchiveEntries(archiveFilePath, ws.signal);
         const levelFiles: { [key: string]: any } = {};
         const allLevelFiles: Array<{
             name: string;
@@ -106,22 +127,12 @@ export async function processArchiveFile(
         }> = [];
         const songFiles: { [key: string]: any } = {};
 
-        // Reserve a drive for temporary operations
-        const storageRoot = cdnLocalTemp.getLocalRoot();
-        logger.debug('Processing archive file on drive:', {
-            drive: storageRoot,
+        logger.debug('Processing archive file in workspace:', {
+            permanentDir,
             fileId: archiveFileId,
             format: detectedFormat,
             totalEntries: archiveEntries.length,
             totalSize: archiveEntries.reduce((sum, entry) => sum + entry.size, 0)
-        });
-
-        // Create temporary storage directory for this archive processing
-        permanentDir = path.join(storageRoot, 'temp', archiveFileId);
-        await fs.promises.mkdir(permanentDir, { recursive: true });
-        logger.debug('Created temporary storage directory:', {
-            permanentDir,
-            drive: storageRoot
         });
 
         // originalFilename is already NFC-normalised and sanitised upstream in UploadSessionService.
@@ -139,7 +150,7 @@ export async function processArchiveFile(
             originalArchiveDiskPath,
             finalArchiveName,
             size: originalArchiveSize,
-            drive: storageRoot
+            permanentDir
         });
 
         // Bulk-extract `.adofai` + audio (see archiveService.extractLevelPackPayload); fall back to full extract
@@ -148,7 +159,7 @@ export async function processArchiveFile(
         const levelEntries = archiveEntries.filter(entry => !entry.isDirectory && entry.relativePath.toLowerCase().endsWith('.adofai'));
         const requiredLevelPaths = levelEntries.map(entry => normalizeRelativePath(entry.relativePath));
         await sendProgress('processing', 13, 'Extracting level and song files from archive');
-        await archiveExtractLevelPackPayload(archiveFilePath, extractRoot, undefined, {
+        await archiveExtractLevelPackPayload(archiveFilePath, extractRoot, ws.signal, {
             requiredRelativePaths: requiredLevelPaths
         });
 
@@ -390,8 +401,9 @@ export async function processArchiveFile(
         );
         await sendProgress('uploading', 90, 'Original archive file uploaded');
 
-        // Clean up temporary files
-        cdnLocalTemp.cleanupFiles(permanentDir);
+        // No early disk cleanup needed: the workspace `finally` removes `permanentDir`
+        // when the function returns. Anything still living under it (the original-archive
+        // copy and `.extracted/`) goes with it.
 
         // Determine target level
         let targetLevel: string | null = null;
@@ -510,7 +522,7 @@ export async function processArchiveFile(
         logger.debug('Successfully processed archive file:', {
             fileId: archiveFileId,
             format: detectedFormat,
-            drive: storageRoot,
+            permanentDir,
             levelCount: allLevelFiles.length,
             songCount: Object.keys(updatedSongFiles).length,
             totalLevelSize,
@@ -531,29 +543,32 @@ export async function processArchiveFile(
             }
         }
 
-        // Clean up created files if database operation failed
-        if (permanentDir && fs.existsSync(permanentDir)) {
-            try {
-                cdnLocalTemp.cleanupFiles(permanentDir);
-                logger.debug('Cleaned up permanent directory after failed processing:', {
-                    permanentDir,
-                    timestamp: new Date().toISOString()
-                });
-            } catch (cleanupError) {
-                logger.error('Failed to clean up permanent directory after failed processing:', {
-                    error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-                    permanentDir,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        }
+        // `permanentDir` (the workspace dir) is removed by `withWorkspace`'s `finally` —
+        // no manual filesystem cleanup needed here regardless of failure mode.
 
         const errObj = error instanceof Error ? error : null;
         const anyErr = errObj as (Error & {
             exitCode?: number;
             sevenZSummary?: string;
             sevenZBinary?: string;
+            clientFacing?: boolean;
+            archiveErrorKind?: string;
+            userMessage?: string;
         }) | null;
+
+        // User-supplied archive is bad (corrupt / encrypted / wrong format) — not a server bug.
+        // Log at `info` with a concise payload and forward the short userMessage to progress.
+        if (anyErr?.clientFacing) {
+            logger.info('Archive rejected (user error):', {
+                archiveFileId,
+                archiveFilePath,
+                archiveErrorKind: anyErr.archiveErrorKind,
+                userMessage: anyErr.userMessage,
+                ...(typeof anyErr.exitCode === 'number' ? { sevenZExitCode: anyErr.exitCode } : {})
+            });
+            await sendProgress('failed', 0, anyErr.userMessage ?? 'Archive could not be processed');
+            throw error;
+        }
 
         logger.error('Error processing archive file:', {
             error: errObj?.message ?? String(error),

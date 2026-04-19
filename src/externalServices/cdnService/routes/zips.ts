@@ -1462,52 +1462,82 @@ router.post('/', (req: Request, res: Response) => {
                     exitCode?: number;
                     sevenZSummary?: string;
                     sevenZBinary?: string;
+                    clientFacing?: boolean;
+                    archiveErrorKind?: string;
+                    userMessage?: string;
                 })
                 : null;
 
-            logger.error('Error during zip upload process:', {
-                error: fullMessage,
-                stack: error instanceof Error ? error.stack : undefined,
-                ...(typeof errWithZ?.exitCode === 'number' ? { sevenZExitCode: errWithZ.exitCode } : {}),
-                ...(typeof errWithZ?.sevenZBinary === 'string' ? { sevenZBinary: errWithZ.sevenZBinary } : {}),
-                ...(typeof errWithZ?.sevenZSummary === 'string' ? { sevenZSummary: errWithZ.sevenZSummary } : {}),
-                file: req.file ? {
-                    originalname: req.file.originalname,
-                    size: req.file.size,
-                    path: req.file.path
-                } : null
-            });
-
-            // Send failure progress
             const uploadId = req.headers['x-upload-id'] as string | undefined;
+            const isClientFacing = !!errWithZ?.clientFacing;
+
+            if (isClientFacing) {
+                // User-supplied archive is bad — log a concise warn line, no stack / no 7z transcript.
+                logger.warn('Zip upload rejected (user error):', {
+                    archiveErrorKind: errWithZ?.archiveErrorKind,
+                    userMessage: errWithZ?.userMessage,
+                    file: req.file ? {
+                        originalname: req.file.originalname,
+                        size: req.file.size
+                    } : null
+                });
+            } else {
+                logger.error('Error during zip upload process:', {
+                    error: fullMessage,
+                    stack: error instanceof Error ? error.stack : undefined,
+                    ...(typeof errWithZ?.exitCode === 'number' ? { sevenZExitCode: errWithZ.exitCode } : {}),
+                    ...(typeof errWithZ?.sevenZBinary === 'string' ? { sevenZBinary: errWithZ.sevenZBinary } : {}),
+                    ...(typeof errWithZ?.sevenZSummary === 'string' ? { sevenZSummary: errWithZ.sevenZSummary } : {}),
+                    file: req.file ? {
+                        originalname: req.file.originalname,
+                        size: req.file.size,
+                        path: req.file.path
+                    } : null
+                });
+            }
+
+            // Build the user-facing message: prefer the tagged `userMessage` for client-facing
+            // errors, otherwise fall back to the legacy parse / truncate behaviour.
+            let clientMessage: string;
+            let clientDetails: Record<string, unknown>;
+            if (isClientFacing && errWithZ?.userMessage) {
+                clientMessage = errWithZ.userMessage;
+                clientDetails = {
+                    message: errWithZ.userMessage,
+                    archiveErrorKind: errWithZ.archiveErrorKind
+                };
+            } else {
+                try {
+                    const parsedError = JSON.parse(fullMessage);
+                    const parsedMessage = parsedError.details?.message || parsedError.message;
+                    clientMessage = parsedMessage;
+                    clientDetails = {
+                        message: parsedMessage,
+                        ...parsedError.details
+                    };
+                } catch {
+                    clientMessage = truncateClientErrorMessage(fullMessage);
+                    clientDetails = { message: clientMessage };
+                }
+            }
+
             await sendLevelUploadProgress(
                 uploadId,
                 'failed',
                 0,
                 'Upload failed',
-                truncateClientErrorMessage(fullMessage)
+                clientMessage
             );
 
             cdnLocalTemp.cleanupFiles(req.file.path);
 
-            // Try to parse error message if it's JSON
-            let errorDetails;
-            try {
-                const parsedError = JSON.parse(fullMessage);
-                errorDetails = {
-                    message: parsedError.details?.message || parsedError.message,
-                    ...parsedError.details
-                };
-            } catch {
-                errorDetails = {
-                    message: truncateClientErrorMessage(fullMessage)
-                };
-            }
-
             res.status(400).json({
-                error: errorDetails.message,
+                error: clientMessage,
+                // Keep `VALIDATION_ERROR` so upstream `CdnService.handleCdnError` continues to
+                // skip its noisy `logger.error` (it lives in `IGNORED_ERROR_CODES`). The specific
+                // archive-error kind travels in `details.archiveErrorKind` for client UX.
                 code: 'VALIDATION_ERROR',
-                details: errorDetails
+                details: clientDetails
             });
         }
         return;

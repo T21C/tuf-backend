@@ -280,6 +280,93 @@ async function runSevenZ(args: string[], opts: RunSevenZOptions = {}): Promise<R
     });
 }
 
+/**
+ * Known 7-Zip failure patterns that are caused by the uploaded archive itself
+ * (corruption, truncation, encryption, unsupported method, ...) rather than
+ * by our server. When matched, the error is tagged so upstream catch blocks
+ * can demote logging from `error` to `info`/`warn` and forward a short,
+ * user-actionable message to the client instead of the raw 7z transcript.
+ */
+interface UserArchiveErrorPattern {
+    pattern: RegExp;
+    /** Stable code used in API responses + structured logs. */
+    kind: 'CORRUPT_ARCHIVE' | 'NOT_AN_ARCHIVE' | 'PASSWORD_PROTECTED' | 'UNSUPPORTED_METHOD' | 'EMPTY_ARCHIVE';
+    /** Concise, end-user-facing message. */
+    userMessage: string;
+}
+
+const USER_ARCHIVE_ERROR_PATTERNS: UserArchiveErrorPattern[] = [
+    {
+        pattern: /CRC Failed|Data Error(?! in encrypted)/i,
+        kind: 'CORRUPT_ARCHIVE',
+        userMessage:
+            'Archive is corrupt or was incompletely uploaded (CRC check failed). ' +
+            'Please re-export the archive from your file manager and upload it again.'
+    },
+    {
+        pattern: /Headers Error|Unexpected end of (archive|data)|Unconfirmed start of archive/i,
+        kind: 'CORRUPT_ARCHIVE',
+        userMessage:
+            'Archive is corrupt or truncated (header / end-of-archive error). ' +
+            'Please re-export the archive and upload it again.'
+    },
+    {
+        pattern: /Cannot open the file as \[?archive\]?|Cannot open encrypted archive\. Wrong password\?/i,
+        kind: 'NOT_AN_ARCHIVE',
+        userMessage:
+            'File could not be opened as an archive. Please upload a valid .zip, .rar, .7z, .tar, .tar.gz, or .tgz file.'
+    },
+    {
+        pattern: /Wrong password|Data Error in encrypted file\. Wrong password/i,
+        kind: 'PASSWORD_PROTECTED',
+        userMessage:
+            'Archive is password-protected. Please upload an unencrypted archive.'
+    },
+    {
+        pattern: /Unsupported Method|Unsupported compression method/i,
+        kind: 'UNSUPPORTED_METHOD',
+        userMessage:
+            'Archive uses an unsupported compression method. Please re-export it with standard compression (Deflate, LZMA, LZMA2, or Store).'
+    },
+    {
+        pattern: /No files to process|Can not open the file as archive: empty/i,
+        kind: 'EMPTY_ARCHIVE',
+        userMessage:
+            'Archive is empty. Please upload an archive that contains a level (.adofai) and its audio file.'
+    }
+];
+
+function detectUserArchiveError(summary: string): UserArchiveErrorPattern | null {
+    for (const entry of USER_ARCHIVE_ERROR_PATTERNS) {
+        if (entry.pattern.test(summary)) {
+            return entry;
+        }
+    }
+    return null;
+}
+
+/**
+ * Augmented Error fields attached to 7z failures.
+ *
+ * `clientFacing === true` signals to upstream catch blocks that the failure was
+ * caused by the user-supplied archive (corrupt / encrypted / wrong format), so
+ * they should log it at info/warn level, omit the raw 7z transcript from logs,
+ * and surface `userMessage` + `archiveErrorKind` to the client instead of the
+ * full server-side error message.
+ */
+export interface SevenZErrorFields {
+    exitCode: number;
+    sevenZAction: string;
+    sevenZBinary: string;
+    args: string[];
+    stdout?: string;
+    stderr?: string;
+    sevenZSummary: string;
+    clientFacing?: boolean;
+    archiveErrorKind?: UserArchiveErrorPattern['kind'];
+    userMessage?: string;
+}
+
 function buildSevenZError(action: string, args: string[], result: RunSevenZResult): Error {
     const summary = formatSevenZFailureSummary(result);
     const binary = SEVEN_ZIP_BIN;
@@ -288,13 +375,24 @@ function buildSevenZError(action: string, args: string[], result: RunSevenZResul
             ? `${args.slice(0, 12).map((a) => (a.length > 120 ? `${a.slice(0, 120)}…` : a)).join(' ')} … (+${args.length - 12} args)`
             : args.map((a) => (a.length > 200 ? `${a.slice(0, 200)}…` : a)).join(' ');
 
-    const message = [
-        `7z ${action} failed (exit ${result.code}).`,
-        `binary=${binary}`,
-        `argv≈ ${argsPreview}`,
-        ``,
-        summary
-    ].join('\n');
+    const userArchiveError = detectUserArchiveError(summary);
+
+    const message = userArchiveError
+        // Keep the canonical 7z transcript in `Error.message` for full debuggability —
+        // catch blocks that opt into the demoted pipeline read `userMessage` instead.
+        ? [
+            `7z ${action} failed (exit ${result.code}) — ${userArchiveError.kind}.`,
+            userArchiveError.userMessage,
+            ``,
+            summary
+        ].join('\n')
+        : [
+            `7z ${action} failed (exit ${result.code}).`,
+            `binary=${binary}`,
+            `argv≈ ${argsPreview}`,
+            ``,
+            summary
+        ].join('\n');
 
     const err = new Error(message);
     (err as any).exitCode = result.code;
@@ -305,6 +403,11 @@ function buildSevenZError(action: string, args: string[], result: RunSevenZResul
     (err as any).stderr = trimForLog(result.stderr);
     /** Short duplicate of stderr/stdout for structured loggers without reading full stacks */
     (err as any).sevenZSummary = summary;
+    if (userArchiveError) {
+        (err as any).clientFacing = true;
+        (err as any).archiveErrorKind = userArchiveError.kind;
+        (err as any).userMessage = userArchiveError.userMessage;
+    }
     return err;
 }
 

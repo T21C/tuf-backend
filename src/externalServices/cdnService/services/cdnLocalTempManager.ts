@@ -57,6 +57,55 @@ export class CdnLocalTempManager {
         return candNorm === rootNorm || candNorm.startsWith(prefix);
     }
 
+    /**
+     * Boot-time sweep of the multer upload directory (`<localRoot>/temp`).
+     *
+     * Every successful or failing upload deletes its own `req.file.path` in the route
+     * handler, so while the process is alive there are no leaks. The only way temp
+     * files survive is when Node dies between `multer.diskStorage` writing the file
+     * and the route's `cleanupFiles` running (SIGKILL, OOM, hard crash, deploy mid-upload).
+     *
+     * One sweep on boot is therefore sufficient — there is no need for a periodic
+     * timer. The upload `<uuid>.zip` files cannot be moved into a {@link withWorkspace}
+     * workspace because multer writes them before any route handler runs, so they
+     * can't participate in the workspace boot-sweep.
+     *
+     * Idempotent and best-effort: failures are logged but do not throw.
+     */
+    public async sweepUploadTempOnBoot(): Promise<void> {
+        const tempDir = path.join(this.localRoot, 'temp');
+        try {
+            if (!fs.existsSync(tempDir)) return;
+            const entries = await fs.promises.readdir(tempDir, { withFileTypes: true });
+            let removed = 0;
+            for (const entry of entries) {
+                const target = path.join(tempDir, entry.name);
+                try {
+                    await fs.promises.rm(target, { recursive: true, force: true });
+                    removed++;
+                } catch (err) {
+                    logger.warn('cdn-temp/temp boot sweep: failed to remove entry', {
+                        target,
+                        error: err instanceof Error ? err.message : String(err)
+                    });
+                }
+            }
+            if (removed > 0) {
+                logger.info('cdn-temp/temp boot sweep removed stale upload entries', {
+                    tempDir,
+                    removed
+                });
+            } else {
+                logger.debug('cdn-temp/temp boot sweep complete (no stale entries)', { tempDir });
+            }
+        } catch (error) {
+            logger.warn('cdn-temp/temp boot sweep failed', {
+                tempDir,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+    }
+
     public cleanupFiles(...paths: (string | undefined | null)[]): void {
         for (const rawPath of paths) {
             if (!rawPath) {

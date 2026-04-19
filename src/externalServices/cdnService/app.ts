@@ -7,6 +7,7 @@ import router from './routes/index.js';
 import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
+import { cdnLocalTemp } from './services/cdnLocalTempManager.js';
 dotenv.config();
 
 registerGlobalProcessHandlers();
@@ -14,6 +15,12 @@ registerGlobalProcessHandlers();
 // Boot-time stale workspace sweep for the CDN process (separate PID, same root).
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
 sweepWorkspaceRootOnBoot();
+
+// Boot-time sweep of the multer upload directory (`<localRoot>/temp`). Catches
+// `<uuid>.zip` leftovers from previous SIGKILL / crash mid-upload — multer
+// writes the file before any route handler runs, so it can't live in a workspace.
+// eslint-disable-next-line @typescript-eslint/no-floating-promises
+cdnLocalTemp.sweepUploadTempOnBoot();
 
 const app = express();
 
