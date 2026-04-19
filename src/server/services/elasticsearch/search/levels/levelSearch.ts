@@ -25,6 +25,10 @@ import {
 } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/levels/levelFieldQuery.js';
 import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
+import Difficulty from '@/models/levels/Difficulty.js';
+import { Op } from 'sequelize';
+import { SearchResponse } from '@elastic/elasticsearch/lib/api/types';
+import LevelSearchView from '@/models/levels/LevelSearchView.js';
 
 export async function searchLevels(query: string, filters: any = {}, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
   try {
@@ -237,12 +241,21 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       size: limit,
       track_total_hits: true, // Ensure accurate total count
       track_scores: true // Keep scores for sorting
+    }) as SearchResponse<LevelSearchView>;
+
+    let diffs: Difficulty[] = [];
+    if (response.hits.hits.length > 0) {
+    diffs = await Difficulty.findAll({
+      where: {
+        id: { [Op.in]: response.hits.hits.map((hit) => hit._source!.diffId) }
+      }
     });
+    }
 
     // Convert PUA characters back to original special characters in the results
     const hits = response.hits.hits.map(hit => {
       const source = hit._source as Record<string, any>;
-      return convertLevelSearchHit(source);
+      return convertLevelSearchHit(source, diffs);
     });
 
     return {
@@ -283,16 +296,13 @@ async function searchLevelsWithScroll(
     });
 
     const scrollId = initialResponse._scroll_id;
-    let hits: any[] = [];
+    let hits: Record<string, any>[] = [];
     const total = initialResponse.hits.total ?
       (typeof initialResponse.hits.total === 'number' ? initialResponse.hits.total : initialResponse.hits.total.value) : 0;
 
     try {
-      // Process initial batch
-      hits = initialResponse.hits.hits.map(hit => {
-        const source = hit._source as Record<string, any>;
-        return convertLevelSearchHit(source);
-      });
+      // Process initial batch (sources only; difficulties loaded after final slice)
+      hits = initialResponse.hits.hits.map(hit => hit._source as Record<string, any>);
 
       // If we need more results, continue scrolling
       let scrollCount = 0;
@@ -308,10 +318,7 @@ async function searchLevelsWithScroll(
           break; // No more results
         }
 
-        const newHits = scrollResponse.hits.hits.map(hit => {
-          const source = hit._source as Record<string, any>;
-          return convertLevelSearchHit(source);
-        });
+        const newHits = scrollResponse.hits.hits.map(hit => hit._source as Record<string, any>);
 
         hits = hits.concat(newHits);
         scrollCount++;
@@ -323,9 +330,20 @@ async function searchLevelsWithScroll(
       }
 
       // Slice the results to get the requested range
-      hits = hits.slice(offset, offset + limit);
+      const sources = hits.slice(offset, offset + limit);
 
-      return { hits, total };
+      let diffs: Difficulty[] = [];
+      if (sources.length > 0) {
+        diffs = await Difficulty.findAll({
+          where: {
+            id: { [Op.in]: sources.map((s) => s.diffId) },
+          },
+        });
+      }
+
+      const convertedHits = sources.map((source) => convertLevelSearchHit(source, diffs));
+
+      return { hits: convertedHits, total };
     } finally {
       // Clean up scroll context
       if (scrollId) {
@@ -358,11 +376,20 @@ async function searchLevelsWithRegularSearch(
       from: offset,
       size: limit,
       track_total_hits: true
-    });
+    }) as SearchResponse<LevelSearchView>;
 
-    const hits = response.hits.hits.map(hit => {
+    let diffs: Difficulty[] = [];
+    if (response.hits.hits.length > 0) {
+      diffs = await Difficulty.findAll({
+        where: {
+          id: { [Op.in]: response.hits.hits.map((hit) => hit._source!.diffId) },
+        },
+      });
+    }
+
+    const hits = response.hits.hits.map((hit) => {
       const source = hit._source as Record<string, any>;
-      return convertLevelSearchHit(source);
+      return convertLevelSearchHit(source, diffs);
     });
 
     return {
@@ -398,7 +425,7 @@ async function searchLevelsWithRandomSort(
     }
 
     // 3. Fetch results for each random offset
-    const hits = await Promise.all(
+    const sources = await Promise.all(
       Array.from(randomOffsets).map(async (randomOffset) => {
         const response = await client.search({
           index: levelIndexName,
@@ -408,15 +435,27 @@ async function searchLevelsWithRandomSort(
         });
 
         if (response.hits.hits.length > 0) {
-          const source = response.hits.hits[0]._source as Record<string, any>;
-          return convertLevelSearchHit(source);
+          return response.hits.hits[0]._source as Record<string, any>;
         }
         return null;
       })
     );
 
+    const nonNullSources = sources.filter((s): s is Record<string, any> => s !== null);
+
+    let diffs: Difficulty[] = [];
+    if (nonNullSources.length > 0) {
+      diffs = await Difficulty.findAll({
+        where: {
+          id: { [Op.in]: nonNullSources.map((s) => s.diffId) },
+        },
+      });
+    }
+
+    const hits = nonNullSources.map((source) => convertLevelSearchHit(source, diffs));
+
     return {
-      hits: hits.filter(hit => hit !== null),
+      hits,
       total
     };
   } catch (error) {
@@ -425,9 +464,12 @@ async function searchLevelsWithRandomSort(
   }
 }
 
-function convertLevelSearchHit(source: Record<string, any>): any {
+function convertLevelSearchHit(source: Record<string, any>, diffs: Difficulty[]): any {
   return {
     ...source,
+
+    difficulty: diffs.find(diff => diff.id === source.diffId),
+
     song: convertFromPUA(source.song as string),
     artist: convertFromPUA(source.artist as string),
     creator: convertFromPUA(source.creator as string),
