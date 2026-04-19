@@ -2,6 +2,7 @@ import Creator from '@/models/credits/Creator.js';
 import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import User from '@/models/auth/User.js';
 import type { CreatorStatsRow } from '@/server/services/elasticsearch/misc/creatorStatsQuery.js';
+import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
 
 export interface CreatorIndexDocumentInput {
   creator: Creator;
@@ -60,10 +61,17 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
   const c = plain(creator) as any;
   const stats = input.stats ?? null;
 
+  const rawStatus = c.verificationStatus;
+  const verificationStatus: CreatorVerificationStatus =
+    typeof rawStatus === 'string' &&
+    (validCreatorVerificationStatuses as readonly string[]).includes(rawStatus)
+      ? (rawStatus as CreatorVerificationStatus)
+      : 'allowed';
+
   return {
     id: coerceNumber(c.id, 0),
     name: c.name ?? '',
-    isVerified: Boolean(c.isVerified),
+    verificationStatus,
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
     user: serializeUser(input.user ?? null),
 

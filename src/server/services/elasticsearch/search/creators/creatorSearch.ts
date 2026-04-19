@@ -1,14 +1,18 @@
 import client, { creatorIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
+import { validCreatorVerificationStatuses } from '@/config/constants.js';
 
 export interface CreatorSearchOptions {
   /** Plain text search — matches creator name, aliases, user.username. */
   text?: string;
   /** Raw query string; reserved for future special-prefix handling (e.g. `@username`). */
   rawQuery?: string;
-  /** Range filters (numeric metrics) and `isVerified` exact match. */
-  filters?: Record<string, [number, number] | string | boolean>;
+  /**
+   * Range filters (numeric metrics) plus `verificationStatus` exact-match filter.
+   * `verificationStatus` accepts a single string or an array of strings (terms query).
+   */
+  filters?: Record<string, [number, number] | string | string[] | boolean>;
   /** Sort key (see CREATOR_SORT_FIELD_MAP below). */
   sortBy?: string;
   order?: 'asc' | 'desc';
@@ -115,12 +119,19 @@ function buildCreatorQuery(options: CreatorSearchOptions): any {
 
   if (options.filters) {
     for (const [key, value] of Object.entries(options.filters)) {
-      if (key === 'isVerified' && typeof value === 'boolean') {
-        filter.push(termField('isVerified', value));
+      if (key === 'verificationStatus') {
+        const allowed = validCreatorVerificationStatuses as readonly string[];
+        const values = (Array.isArray(value) ? value : [value])
+          .filter((v): v is string => typeof v === 'string' && allowed.includes(v));
+        if (values.length === 1) {
+          filter.push(termField('verificationStatus', values[0]));
+        } else if (values.length > 1) {
+          filter.push({ terms: { verificationStatus: values } });
+        }
         continue;
       }
       if (NUMERIC_FILTER_FIELDS.has(key) && Array.isArray(value) && value.length === 2) {
-        const [min, max] = value;
+        const [min, max] = value as [number, number];
         if (Number.isFinite(min) && Number.isFinite(max)) {
           filter.push(rangeOnField(key, { gte: Number(min), lte: Number(max) }));
         }

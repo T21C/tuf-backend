@@ -256,7 +256,6 @@ export const levelMapping = {
       isAnnounced: { type: 'boolean' as const },
       isDeleted: { type: 'boolean' as const },
       isHidden: { type: 'boolean' as const },
-      isVerified: { type: 'boolean' as const },
       isExternallyAvailable: { type: 'boolean' as const },
       isCurated: { type: 'boolean' as const },
       createdAt: { type: 'date' as const },
@@ -573,7 +572,7 @@ export const playerMapping = {
                   keyword: { type: 'keyword' as const },
                 },
               },
-              isVerified: { type: 'boolean' as const },
+              verificationStatus: { type: 'keyword' as const },
             },
           },
         },
@@ -660,7 +659,7 @@ export const creatorMapping = {
           },
         },
       },
-      isVerified: { type: 'boolean' as const },
+      verificationStatus: { type: 'keyword' as const },
       aliases: {
         type: 'nested' as const,
         properties: {

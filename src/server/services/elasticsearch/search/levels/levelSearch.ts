@@ -146,15 +146,6 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       }
     }
 
-    // Handle hideVerified filter
-    if (filters.hideVerified === 'true') {
-      must.push(
-        boolMust([
-          nestedQuery('levelCredits', boolMust([termField('levelCredits.isVerified', false)])),
-        ]),
-      );
-    }
-
     // Handle songId filter
     if (filters.songId) {
       const songIdValue = parseInt(filters.songId);

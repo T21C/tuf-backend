@@ -43,7 +43,7 @@ type EnrichedPlayer = IPlayer & {
     creator?: {
       id: number;
       name: string;
-      isVerified: boolean;
+      verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
     } | null;
   } | null;
 }
@@ -358,7 +358,7 @@ export class PlayerStatsService {
                   {
                     model: Creator,
                     as: 'creator',
-                    attributes: ['id', 'name', 'isVerified'],
+                    attributes: ['id', 'name', 'verificationStatus'],
                     required: false,
                   }
                 ]
@@ -605,7 +605,7 @@ export class PlayerStatsService {
         {
           model: Creator,
           as: 'creator',
-          attributes: ['id', 'name', 'isVerified'],
+          attributes: ['id', 'name', 'verificationStatus'],
           required: false,
         },
       ],
@@ -702,7 +702,7 @@ export class PlayerStatsService {
             creator: userData.creator ? {
               id: userData.creator.id,
               name: userData.creator.name,
-              isVerified: userData.creator.isVerified
+              verificationStatus: userData.creator.verificationStatus
             } : null
           } : null,
           rankedScore: stats?.rankedScore || 0,

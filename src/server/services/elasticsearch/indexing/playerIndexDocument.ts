@@ -72,10 +72,11 @@ function serializeCreator(creator: Creator | null | undefined): Record<string, u
   if (!creator) return null;
   const c = plain(creator) as any;
   if (c?.id == null) return null;
+  const status = typeof c.verificationStatus === 'string' ? c.verificationStatus : 'allowed';
   return {
     id: coerceNumber(c.id, 0),
     name: c.name ?? '',
-    isVerified: Boolean(c.isVerified),
+    verificationStatus: status,
   };
 }
 

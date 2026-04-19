@@ -30,6 +30,8 @@ export interface IBaseModelAttributes {
 
 export interface ICreator extends IBaseModel {
   name: string;
+  verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
+  userId?: string | null;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
@@ -69,7 +71,6 @@ export interface ILevel extends IBaseModel {
   createdAt: Date;
   updatedAt: Date;
   isHidden?: boolean;
-  isVerified?: boolean;
   isExternallyAvailable: boolean;
   teamId?: number | null;
   songId?: number | null;

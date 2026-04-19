@@ -375,7 +375,7 @@ router.get(
         where: {
           id: { [Op.in]: creatorIds }
         },
-        attributes: ['id', 'name', 'userId', 'isVerified'],
+        attributes: ['id', 'name', 'userId', 'verificationStatus'],
         include: [
           {
             model: CreatorAlias,

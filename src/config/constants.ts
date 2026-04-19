@@ -52,6 +52,15 @@ export const validCreatorSortOptions = [
   'totalChartLikes',
 ];
 
+export const validCreatorVerificationStatuses = [
+  'declined',
+  'pending',
+  'conditional',
+  'allowed',
+] as const;
+
+export type CreatorVerificationStatus = typeof validCreatorVerificationStatuses[number];
+
 export const PGU_SORT = {
   P: 1,
   G: 2,

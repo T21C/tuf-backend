@@ -17,7 +17,6 @@ class LevelCredit extends Model {
   declare isOwner: boolean;
   declare creatorId: number;
   declare role: CreditRole;
-  declare isVerified: boolean;
 
   // Associations
   declare level: Level;
@@ -52,11 +51,6 @@ LevelCredit.init(
     },
     role: {
       type: DataTypes.ENUM(...Object.values(CreditRole)),
-    },
-    isVerified: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
     },
   },
   {

@@ -108,7 +108,7 @@ router.get(
     operationId: 'v3GetCreatorLeaderboard',
     summary: 'Creator leaderboard (v3)',
     description:
-      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, isVerified filter, and text/`@username` query. Returns `maxFields` aggregations for UI filter ceilings.',
+      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, verificationStatus filter (single value or array), and text/`@username` query. Returns `maxFields` aggregations for UI filter ceilings.',
     tags: ['Database', 'Creators', 'v3'],
     query: {
       sortBy: { schema: { type: 'string' } },
@@ -253,7 +253,7 @@ router.get(
           ? {
               id: enriched.creator?.id ?? id,
               name: enriched.creator?.name ?? '',
-              isVerified: Boolean(enriched.creator?.isVerified),
+              verificationStatus: enriched.creator?.verificationStatus ?? 'allowed',
               aliases: enriched.aliases.map((a) => ({ id: a.id, name: a.name })),
               user: enriched.user
                 ? {

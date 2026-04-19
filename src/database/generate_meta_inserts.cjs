@@ -29,9 +29,6 @@ sql += values;
 sql += `\n) t\n`;
 sql += `WHERE t.name NOT IN (SELECT name FROM \`SequelizeMeta\`);\n\n`;
 
-// Add a list of all found migrations as a comment
-sql += `/*\nFound migrations:\n${files.map(f => '- ' + f).join('\n')}\n*/\n`;
-
 // Write to output file
 const outputPath = path.join(__dirname, 'meta_inserts.sql');
 fs.writeFileSync(outputPath, sql);

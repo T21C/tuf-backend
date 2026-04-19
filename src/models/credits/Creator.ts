@@ -12,7 +12,7 @@ class Creator extends Model implements ICreator {
   declare name: string;
   declare createdAt: Date;
   declare updatedAt: Date;
-  declare isVerified: boolean;
+  declare verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   declare userId: string | null;
 
   declare user: User;
@@ -41,10 +41,10 @@ Creator.init(
       type: DataTypes.DATE,
       allowNull: false,
     },
-    isVerified: {
-      type: DataTypes.BOOLEAN,
+    verificationStatus: {
+      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'allowed'),
       allowNull: false,
-      defaultValue: false,
+      defaultValue: 'allowed',
     },
     userId: {
       type: DataTypes.UUID,
@@ -58,6 +58,9 @@ Creator.init(
   {
     sequelize,
     tableName: 'creators',
+    indexes: [
+      { fields: ['verificationStatus'] },
+    ],
   },
 );
 

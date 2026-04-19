@@ -21,6 +21,7 @@ import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import { validCreatorVerificationStatuses, type CreatorVerificationStatus } from '@/config/constants.js';
 
 const elasticsearchService = ElasticsearchService.getInstance();
 const router: Router = Router();
@@ -36,9 +37,9 @@ router.get(
   ApiDoc({
     operationId: 'getCreators',
     summary: 'List creators',
-    description: 'Paginated creators with search. Query: page, offset, limit, search, hideVerified, excludeAliases, sort.',
+    description: 'Paginated creators with search. Query: page, offset, limit, search, verificationStatus, excludeAliases, sort.',
     tags: ['Database', 'Creators'],
-    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, verificationStatus: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } }, sort: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Creators list' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -46,15 +47,23 @@ router.get(
       const { page, limit, offset } = req.query as unknown as PaginationQuery;
       const {
         search = '',
-        hideVerified = 'false',
+        verificationStatus,
         excludeAliases = 'false',
         sort = 'NAME_ASC',
       } = req.query;
 
       const startTime = Date.now();
       const where: any = {};
-      if (hideVerified === 'true') {
-        where.isVerified = false;
+      if (typeof verificationStatus === 'string' && verificationStatus.length > 0) {
+        const requested = verificationStatus
+          .split(',')
+          .map(s => s.trim())
+          .filter(s => (validCreatorVerificationStatuses as readonly string[]).includes(s));
+        if (requested.length === 1) {
+          where.verificationStatus = requested[0];
+        } else if (requested.length > 1) {
+          where.verificationStatus = { [Op.in]: requested };
+        }
       }
 
       const escapedSearch = escapeForMySQL(search as string);
@@ -110,7 +119,7 @@ router.get(
       logger.debug(`Total by id for ${escapedSearch}: ${creatorIds.size}`);
       // Then get paginated results
       const {rows: creators, count: totalCount} = await Creator.findAndCountAll({
-        where: {id: {[Op.in]: Array.from(creatorIds)}},
+        where: {...where, id: {[Op.in]: Array.from(creatorIds)}},
         include: [
           {
             model: User,
@@ -263,9 +272,9 @@ router.get(
   ApiDoc({
     operationId: 'getCreatorsLevelsAudit',
     summary: 'Levels audit',
-    description: 'Paginated levels with creator/team audit. Query: page, offset, limit, search, hideVerified, excludeAliases.',
+    description: 'Paginated levels with creator/team audit. Query: page, offset, limit, search, excludeAliases.',
     tags: ['Database', 'Creators'],
-    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, hideVerified: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } } },
+    query: { page: { schema: { type: 'string' } }, offset: { schema: { type: 'string' } }, limit: { schema: { type: 'string' } }, search: { schema: { type: 'string' } }, excludeAliases: { schema: { type: 'string' } } },
     responses: { 200: { description: 'Audit results' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -273,7 +282,6 @@ router.get(
       const { page, offset, limit } = req.query as unknown as PaginationQuery;
       const {
         search: searchQuery,
-        hideVerified,
         excludeAliases,
       } = req.query;
 
@@ -281,7 +289,6 @@ router.get(
       const { hits, total } = await elasticsearchService.searchLevels((searchQuery as string).trim(), {
         offset,
         limit,
-        hideVerified,
         excludeAliases
       });
       // Get level counts for creators
@@ -309,7 +316,6 @@ router.get(
         song: level.song,
         artist: level.artist,
         legacyCreator: '[LEGACY CREATOR DISABLED]',
-        isVerified: level.isVerified,
         teamId: level.teamId,
         team: level.teamObject
           ? {
@@ -377,7 +383,7 @@ router.post(
     // Create the creator
     const creator = await Creator.create({
       name: name.trim(),
-      isVerified: false
+      verificationStatus: 'pending'
     }, { transaction });
 
     // Create aliases if provided
@@ -469,112 +475,6 @@ router.put(
       await safeTransactionRollback(transaction);
       logger.error('Error updating level creators:', error);
       return res.status(500).json({error: 'Failed to update level creators'});
-    }
-  }
-);
-
-// Verify level credits
-router.post(
-  '/level/:levelId([0-9]{1,20})/verify',
-  Auth.superAdmin(),
-  ApiDoc({
-    operationId: 'postLevelVerify',
-    summary: 'Verify level credits',
-    description: 'Mark level and its credits as verified. Super admin.',
-    tags: ['Database', 'Creators'],
-    security: ['bearerAuth'],
-    params: { levelId: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Level verified' }, ...standardErrorResponses404500 },
-  }),
-  async (req: Request, res: Response) => {
-    let transaction: any;
-    try {
-      transaction = await sequelize.transaction();
-      const {levelId} = req.params;
-
-      // Find the level first
-      const level = await Level.findByPk(levelId, {transaction});
-      if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Update all credits for this level to verified
-      await LevelCredit.update(
-        {isVerified: true},
-        {
-          where: {levelId},
-          transaction,
-        },
-      );
-      await Level.update(
-        {isVerified: true},
-        {where: {id: levelId}, transaction},
-      );
-
-      await transaction.commit();
-
-      // Wait for indexing to complete
-      await elasticsearchService.indexLevel(parseInt(levelId));
-
-      return res.json({message: 'Level credits verified successfully'});
-    } catch (error) {
-      await safeTransactionRollback(transaction);
-      logger.error('Error verifying level credits:', error);
-      return res.status(500).json({error: 'Failed to verify level credits'});
-    }
-  }
-);
-
-// Unverify level credits
-router.post(
-  '/level/:levelId([0-9]{1,20})/unverify',
-  Auth.superAdmin(),
-  ApiDoc({
-    operationId: 'postLevelUnverify',
-    summary: 'Unverify level credits',
-    description: 'Mark level and its credits as unverified. Super admin.',
-    tags: ['Database', 'Creators'],
-    security: ['bearerAuth'],
-    params: { levelId: { schema: { type: 'string' } } },
-    responses: { 200: { description: 'Level unverified' }, ...standardErrorResponses404500 },
-  }),
-  async (req: Request, res: Response) => {
-    let transaction: any;
-    try {
-      transaction = await sequelize.transaction();
-      const {levelId} = req.params;
-
-      // Find the level first
-      const level = await Level.findByPk(levelId, {transaction});
-      if (!level) {
-        await safeTransactionRollback(transaction);
-        return res.status(404).json({error: 'Level not found'});
-      }
-
-      // Update all credits for this level to unverified
-      await LevelCredit.update(
-        {isVerified: false},
-        {
-          where: {levelId},
-          transaction,
-        },
-      );
-      await Level.update(
-        {isVerified: false},
-        {where: {id: levelId}, transaction},
-      );
-
-      await transaction.commit();
-
-      // Wait for indexing to complete
-      await elasticsearchService.indexLevel(parseInt(levelId));
-
-      return res.json({message: 'Level credits unverified successfully'});
-    } catch (error) {
-      await safeTransactionRollback(transaction);
-      logger.error('Error unverifying level credits:', error);
-      return res.status(500).json({error: 'Failed to unverify level credits'});
     }
   }
 );
@@ -821,7 +721,6 @@ router.post(
                 levelId: credit.levelId,
                 creatorId: targetCreator.id,
                 role: role,
-                isVerified: false,
               },
               {
                 transaction,
@@ -890,10 +789,10 @@ router.put(
   ApiDoc({
     operationId: 'putCreator',
     summary: 'Update creator',
-    description: 'Update creator. Body: name?, aliases?, userId?, isVerified?.',
+    description: 'Update creator. Body: name?, aliases?, userId?, verificationStatus?.',
     tags: ['Database', 'Creators'],
     params: { id: idParamSpec },
-    requestBody: { description: 'name, aliases, userId, isVerified', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, userId: { type: 'string' }, isVerified: { type: 'boolean' } } }, required: true },
+    requestBody: { description: 'name, aliases, userId, verificationStatus', schema: { type: 'object', properties: { name: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, userId: { type: 'string' }, verificationStatus: { type: 'string', enum: ['declined','pending','conditional','allowed'] } } }, required: true },
     responses: { 200: { description: 'Creator updated' }, ...standardErrorResponses500 },
   }),
   async (req: Request, res: Response) => {
@@ -902,20 +801,31 @@ router.put(
   try {
     transaction = await sequelize.transaction();
     const {id} = req.params;
-    const {name, aliases, userId, isVerified} = req.body;
+    const {name, aliases, userId, verificationStatus} = req.body;
 
-    // Update creator
-    await Creator.update(
-      {
-        name,
-        userId,
-        isVerified,
-      },
-      {
+    if (
+      verificationStatus !== undefined &&
+      !(validCreatorVerificationStatuses as readonly string[]).includes(verificationStatus)
+    ) {
+      await safeTransactionRollback(transaction);
+      return res.status(400).json({
+        error: `Invalid verificationStatus. Must be one of: ${validCreatorVerificationStatuses.join(', ')}`,
+      });
+    }
+
+    const updatePayload: Record<string, unknown> = {};
+    if (name !== undefined) updatePayload.name = name;
+    if (userId !== undefined) updatePayload.userId = userId;
+    if (verificationStatus !== undefined) {
+      updatePayload.verificationStatus = verificationStatus as CreatorVerificationStatus;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      await Creator.update(updatePayload, {
         where: {id: parseInt(id)},
         transaction,
-      },
-    );
+      });
+    }
 
     // Update aliases if provided
     if (aliases && Array.isArray(aliases)) {
@@ -933,53 +843,6 @@ router.put(
         }));
 
         await CreatorAlias.bulkCreate(aliasRecords, { transaction });
-      }
-    }
-
-    // If the creator is being verified, check all their levels
-    if (isVerified) {
-      // Get all levels where this creator is credited
-      const credits = await LevelCredit.findAll({
-        where: {creatorId: parseInt(id)},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-          },
-        ],
-        transaction,
-      });
-
-      // For each level, check if all creators are now verified
-      for (const credit of credits) {
-        const level = credit.level;
-        if (!level) continue;
-
-        // Get all credits for this level
-        const allCredits = await LevelCredit.findAll({
-          where: {levelId: level.id},
-          include: [
-            {
-              model: Creator,
-              as: 'creator',
-            },
-          ],
-          transaction,
-        });
-
-        const allCreatorsVerified = allCredits.every(
-          credit => credit.creator?.isVerified,
-        );
-
-        if (allCreatorsVerified) {
-          await Level.update(
-            {isVerified: true},
-            {
-              where: {id: level.id},
-              transaction,
-            },
-          );
-        }
       }
     }
 
@@ -1645,7 +1508,7 @@ router.put(
           {
             model: Creator,
             as: 'creator',
-            attributes: ['id', 'name', 'isVerified'],
+            attributes: ['id', 'name', 'verificationStatus'],
           }
         ]
       }),
@@ -1723,7 +1586,7 @@ router.delete(
           {
             model: Creator,
             as: 'creator',
-            attributes: ['id', 'name', 'isVerified'],
+            attributes: ['id', 'name', 'verificationStatus'],
           }
         ]
       }),
@@ -1790,7 +1653,7 @@ router.get(
         }
       ],
       limit: 30,
-      attributes: ['id', 'name', 'isVerified']
+      attributes: ['id', 'name', 'verificationStatus']
     });
 
     return res.json(creators);
