@@ -41,6 +41,17 @@ export const validSortOptions = [
   'player',
 ];
 
+export const validCreatorSortOptions = [
+  'name',
+  'chartsTotal',
+  'chartsCreated',
+  'chartsCharted',
+  'chartsVfxed',
+  'chartsTeamed',
+  'totalChartClears',
+  'totalChartLikes',
+];
+
 export const PGU_SORT = {
   P: 1,
   G: 2,

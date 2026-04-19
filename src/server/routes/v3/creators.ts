@@ -1,0 +1,296 @@
+import { Router, Request, Response } from 'express';
+import { ApiDoc } from '@/server/middleware/apiDoc.js';
+import {
+  idParamSpec,
+  errorResponseSchema,
+  standardErrorResponses404500,
+  standardErrorResponses500,
+} from '@/server/schemas/common.js';
+import { validCreatorSortOptions } from '@/config/constants.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {
+  getCreatorMaxFields,
+  CreatorSearchOptions,
+} from '@/server/services/elasticsearch/search/creators/creatorSearch.js';
+import { CreatorStatsService } from '@/server/services/core/CreatorStatsService.js';
+import { logger } from '@/server/services/core/LoggerService.js';
+import { PaginationQuery } from '@/server/interfaces/models/index.js';
+
+/**
+ * v3 creators routes — Elasticsearch-backed.
+ *
+ * Response shapes mirror /v3/players (flat, no legacy wrapping). Stats fields are the
+ * minimal initial set defined by `creatorMapping`; future additions are pure schema
+ * extensions that don't change the route contract.
+ */
+
+const router: Router = Router();
+const elasticsearchService = ElasticsearchService.getInstance();
+const creatorStatsService = CreatorStatsService.getInstance();
+
+const DEFAULT_LIMIT = 30;
+const MAX_LIMIT = 100;
+
+function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
+  const n = parseInt(String(raw ?? ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_LIMIT, Math.max(1, n));
+}
+
+function parseOffset(raw: unknown): number {
+  const n = parseInt(String(raw ?? ''), 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function parseFilters(raw: unknown): Record<string, any> | undefined {
+  if (!raw || typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, any>;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+router.get(
+  '/search',
+  ApiDoc({
+    operationId: 'v3GetCreatorsSearch',
+    summary: 'Search creators (v3)',
+    description:
+      'Elasticsearch-backed creator search. Accepts text or `@username` via the `query` param. Returns a flat list sorted by relevance.',
+    tags: ['Database', 'Creators', 'v3'],
+    query: {
+      query: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+      offset: { schema: { type: 'string' } },
+      filters: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Paginated search results' },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const query = String(req.query.query ?? '').trim();
+      const limit = parseLimit(req.query.limit);
+      const offset = parseOffset(req.query.offset);
+      const filters = parseFilters(req.query.filters);
+
+      const options: CreatorSearchOptions = {
+        rawQuery: query || undefined,
+        filters,
+        limit,
+        offset,
+      };
+
+      const { total, hits } = await elasticsearchService.searchCreators(options);
+      return res.json({ total, results: hits, limit, offset });
+    } catch (error) {
+      logger.error('[v3 /creators/search] failure', error);
+      return res.status(500).json({
+        error: 'Failed to search creators',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.get(
+  '/leaderboard',
+  ApiDoc({
+    operationId: 'v3GetCreatorLeaderboard',
+    summary: 'Creator leaderboard (v3)',
+    description:
+      'Elasticsearch-backed creator leaderboard. Supports sort, numeric range filters, isVerified filter, and text/`@username` query. Returns `maxFields` aggregations for UI filter ceilings.',
+    tags: ['Database', 'Creators', 'v3'],
+    query: {
+      sortBy: { schema: { type: 'string' } },
+      order: { schema: { type: 'string' } },
+      query: { schema: { type: 'string' } },
+      offset: { schema: { type: 'string' } },
+      limit: { schema: { type: 'string' } },
+      filters: { schema: { type: 'string' } },
+      page: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Leaderboard results' },
+      400: { schema: errorResponseSchema },
+      ...standardErrorResponses500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const { page, offset, limit } = req.query as unknown as PaginationQuery;
+      const sortBy = (req.query.sortBy as string) || 'chartsTotal';
+      const order = ((req.query.order as string) || 'desc').toLowerCase();
+      const rawQuery = (req.query.query as string) || undefined;
+      const filters = parseFilters(req.query.filters);
+
+      if (!validCreatorSortOptions.includes(sortBy)) {
+        return res.status(400).json({
+          error: `Invalid sortBy option. Valid options are: ${validCreatorSortOptions.join(', ')}`,
+        });
+      }
+
+      const effectiveLimit = parseLimit(limit);
+      const effectiveOffset = parseOffset(offset);
+
+      const options: CreatorSearchOptions = {
+        rawQuery,
+        sortBy,
+        order: order === 'asc' ? 'asc' : 'desc',
+        filters,
+        limit: effectiveLimit,
+        offset: effectiveOffset,
+        requireHasCharts: !rawQuery,
+      };
+
+      const [{ total, hits }, maxFields] = await Promise.all([
+        elasticsearchService.searchCreators(options),
+        getCreatorMaxFields(),
+      ]);
+
+      const resultsWithRank = hits.map((doc: any, i: number) => ({
+        ...doc,
+        // Positional rank is fine here because the creator leaderboard does not have
+        // a globally-sticky metric like player rankedScore — every sort is a real sort.
+        rank: effectiveOffset + i + 1,
+      }));
+
+      return res.json({
+        count: total,
+        results: resultsWithRank,
+        page,
+        offset: effectiveOffset,
+        limit: effectiveLimit,
+        maxFields,
+      });
+    } catch (error) {
+      logger.error('[v3 /creators/leaderboard] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch creator leaderboard',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.get(
+  '/:id([0-9]{1,20})',
+  ApiDoc({
+    operationId: 'v3GetCreator',
+    summary: 'Get creator (v3)',
+    description: 'Fetches the creator Elasticsearch document by id.',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Creator detail' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+
+      const doc = await elasticsearchService.getCreatorDocumentById(id);
+      if (!doc) return res.status(404).json({ error: 'Creator not found' });
+
+      return res.json(doc);
+    } catch (error) {
+      logger.error('[v3 /creators/:id] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch creator',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.get(
+  '/:id([0-9]{1,20})/profile',
+  ApiDoc({
+    operationId: 'v3GetCreatorProfile',
+    summary: 'Get creator profile (v3)',
+    description:
+      'Creator profile page payload: ES document + DB-sourced enriched fields (aliases, linked user, recent level ids).',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Creator profile' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+
+      const [doc, enriched] = await Promise.all([
+        elasticsearchService.getCreatorDocumentById(id),
+        creatorStatsService.getEnrichedCreator(id),
+      ]);
+
+      if (!doc && !enriched) return res.status(404).json({ error: 'Creator not found' });
+
+      // Prefer the ES document for the canonical fields (it carries the ES-stable
+      // shape clients depend on). Fall back to the DB row if ES is missing the doc
+      // for some reason (e.g. mid-reindex).
+      const baseDoc =
+        doc ??
+        (enriched
+          ? {
+              id: enriched.creator?.id ?? id,
+              name: enriched.creator?.name ?? '',
+              isVerified: Boolean(enriched.creator?.isVerified),
+              aliases: enriched.aliases.map((a) => ({ id: a.id, name: a.name })),
+              user: enriched.user
+                ? {
+                    id: enriched.user.id,
+                    username: enriched.user.username,
+                    nickname: enriched.user.nickname ?? null,
+                    avatarUrl: enriched.user.avatarUrl ?? null,
+                    playerId: enriched.user.playerId ?? null,
+                  }
+                : null,
+              chartsCreated: enriched.stats.chartsCreated,
+              chartsCharted: enriched.stats.chartsCharted,
+              chartsVfxed: enriched.stats.chartsVfxed,
+              chartsTeamed: enriched.stats.chartsTeamed,
+              chartsTotal: enriched.stats.chartsTotal,
+              totalChartClears: enriched.stats.totalChartClears,
+              totalChartLikes: enriched.stats.totalChartLikes,
+              topRole: null,
+            }
+          : null);
+
+      if (!baseDoc) return res.status(404).json({ error: 'Creator not found' });
+
+      const recentLevelIds = enriched?.recentLevelIds ?? [];
+
+      return res.json({
+        ...baseDoc,
+        recentLevelIds,
+      });
+    } catch (error) {
+      logger.error('[v3 /creators/:id/profile] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch creator profile',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+export default router;
