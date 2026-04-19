@@ -27,7 +27,7 @@ import { buildFieldSearchQuery } from '@/server/services/elasticsearch/search/le
 import { shouldUseRegularSearch, isRandomSort, optimizeQueryForScroll } from '@/server/services/elasticsearch/search/tools/scrollHelpers.js';
 import Difficulty from '@/models/levels/Difficulty.js';
 import { Op } from 'sequelize';
-import { SearchResponse } from '@elastic/elasticsearch/lib/api/types';
+import type { estypes } from '@elastic/elasticsearch';
 import LevelSearchView from '@/models/levels/LevelSearchView.js';
 
 export async function searchLevels(query: string, filters: any = {}, isSuperAdmin = false): Promise<{ hits: any[], total: number }> {
@@ -241,7 +241,7 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       size: limit,
       track_total_hits: true, // Ensure accurate total count
       track_scores: true // Keep scores for sorting
-    }) as SearchResponse<LevelSearchView>;
+    }) as estypes.SearchResponse<LevelSearchView>;
 
     let diffs: Difficulty[] = [];
     if (response.hits.hits.length > 0) {
@@ -376,7 +376,7 @@ async function searchLevelsWithRegularSearch(
       from: offset,
       size: limit,
       track_total_hits: true
-    }) as SearchResponse<LevelSearchView>;
+    }) as estypes.SearchResponse<LevelSearchView>;
 
     let diffs: Difficulty[] = [];
     if (response.hits.hits.length > 0) {
