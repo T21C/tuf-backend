@@ -15,7 +15,7 @@ module.exports = {
           {
             type: Sequelize.ENUM('declined', 'pending', 'conditional', 'allowed'),
             allowNull: false,
-            defaultValue: 'allowed',
+            defaultValue: 'declined',
           },
           { transaction },
         );
