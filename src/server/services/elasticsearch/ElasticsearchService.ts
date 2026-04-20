@@ -18,7 +18,7 @@ import SongCredit from '@/models/songs/SongCredit.js';
 import { searchLevels as runLevelSearch } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
-import { searchCreators as runCreatorSearch, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
+import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
 import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
 import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches } from './fetching/passFetch.js';
@@ -867,7 +867,10 @@ class ElasticsearchService {
         index: creatorIndexName,
         id: creatorId.toString(),
       });
-      return (response as any)._source ?? null;
+      const source = (response as any)._source ?? null;
+      if (!source) return null;
+      const [hydrated] = await hydrateCreatorUsers([source]);
+      return hydrated;
     } catch (error: unknown) {
       const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
       if (status === 404) return null;

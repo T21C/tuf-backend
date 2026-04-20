@@ -1,7 +1,10 @@
+import { Op } from 'sequelize';
 import client, { creatorIndexName } from '@/config/elasticsearch.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { rangeOnField, termField } from '@/server/services/elasticsearch/search/tools/esQueryBuilder/esQueryPrimitives.js';
 import { validCreatorVerificationStatuses } from '@/config/constants.js';
+import User from '@/models/auth/User.js';
+import { estypes } from '@elastic/elasticsearch';
 
 export interface CreatorSearchOptions {
   /** Plain text search — matches creator name, aliases, user.username. */
@@ -169,6 +172,51 @@ function buildCreatorSort(options: CreatorSearchOptions): any[] {
   return sort;
 }
 
+/**
+ * Hydrate creator hits with up-to-date user data (notably `avatarUrl` and
+ * `username`/`nickname`) from the User table. The ES index is refreshed on
+ * profile-change events but can lag behind avatar changes — this guarantees
+ * search results never display stale avatars without paying for a full
+ * reindex on every user-profile edit.
+ *
+ * Mirrors the difficulty hydration done by the level search.
+ */
+export async function hydrateCreatorUsers(sources: any[]): Promise<any[]> {
+  if (sources.length === 0) return sources;
+
+  const userIds = Array.from(
+    new Set(
+      sources
+        .map((s) => s?.user?.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  );
+
+  if (userIds.length === 0) return sources;
+
+  const users = await User.findAll({
+    where: { id: { [Op.in]: userIds } },
+    attributes: ['id', 'username', 'nickname', 'avatarUrl', 'playerId'],
+  });
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  return sources.map((source) => {
+    if (!source?.user?.id) return source;
+    const fresh = userById.get(source.user.id);
+    if (!fresh) return source;
+    return {
+      ...source,
+      user: {
+        ...source.user,
+        username: fresh.username,
+        nickname: fresh.nickname ?? null,
+        avatarUrl: fresh.avatarUrl ?? null,
+        playerId: fresh.playerId ?? source.user.playerId ?? null,
+      },
+    };
+  });
+}
+
 export async function searchCreators(options: CreatorSearchOptions): Promise<CreatorSearchResult> {
   try {
     const offset = Math.max(0, Number(options.offset) || 0);
@@ -184,9 +232,10 @@ export async function searchCreators(options: CreatorSearchOptions): Promise<Cre
       from: offset,
       size: limit,
       track_total_hits: true,
-    });
+    }) as estypes.SearchResponse;
 
-    const hits = response.hits.hits.map((h) => h._source as any);
+    const sources = response.hits.hits.map((h) => h._source);
+    const hits = await hydrateCreatorUsers(sources);
     const total = response.hits.total
       ? typeof response.hits.total === 'number'
         ? response.hits.total
