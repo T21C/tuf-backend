@@ -14,7 +14,6 @@ import LevelCredit from '@/models/levels/LevelCredit.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
 import Creator from '@/models/credits/Creator.js';
-import SongCredit from '@/models/songs/SongCredit.js';
 import { searchLevels as runLevelSearch } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
@@ -26,9 +25,6 @@ import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
 import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
-import { registerElasticsearchChangeListeners } from './listeners/registerElasticsearchChangeListeners.js';
-import { registerPlayerIndexChangeListeners } from './listeners/registerPlayerIndexChangeListeners.js';
-import { registerCreatorIndexChangeListeners } from './listeners/registerCreatorIndexChangeListeners.js';
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -59,11 +55,6 @@ class ElasticsearchService {
 
       // Initialize Elasticsearch indices
       const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators } = await initializeElasticsearch();
-
-      // Set up database change listeners
-      this.setupChangeListeners();
-      logger.info('Database change listeners set up successfully');
-
 
       if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators) {
         if (reindexedLevels) logger.info('Reindexing levels...');
@@ -126,88 +117,17 @@ class ElasticsearchService {
   }
 
   /**
-   * Get all level IDs that use a specific song
-   */
-  private async getLevelIdsBySongId(songId: number): Promise<number[]> {
-    try {
-      const levels = await Level.findAll({
-        where: {
-          songId: songId,
-          isDeleted: false
-        },
-        attributes: ['id']
-      });
-      return levels.map(level => level.id);
-    } catch (error) {
-      logger.error(`Error getting level IDs for song ${songId}:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Get all level IDs that have songs with credits from a specific artist
-   */
-  private async getLevelIdsByArtistId(artistId: number): Promise<number[]> {
-    try {
-      // Find all songs that have credits from this artist
-      const songCredits = await SongCredit.findAll({
-        where: {
-          artistId: artistId
-        },
-        attributes: ['songId'],
-        group: ['songId']
-      });
-
-      if (songCredits.length === 0) {
-        return [];
-      }
-
-      const songIds = songCredits.map(credit => credit.songId);
-
-      // Find all levels that use these songs
-      const levels = await Level.findAll({
-        where: {
-          songId: { [Op.in]: songIds },
-          isDeleted: false
-        },
-        attributes: ['id']
-      });
-
-      return levels.map(level => level.id);
-    } catch (error) {
-      logger.error(`Error getting level IDs for artist ${artistId}:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Get all level IDs on which the given player has non-deleted passes.
-   * Used by the Player ban/unban hook to reindex affected levels because
-   * the ES level doc's `clears` filter excludes banned players.
-   */
-  private async getLevelIdsByPlayerId(playerId: number): Promise<number[]> {
-    try {
-      const rows = await Pass.findAll({
-        where: {
-          playerId,
-          isDeleted: false,
-        },
-        attributes: ['levelId'],
-        group: ['levelId'],
-      });
-      return rows
-        .map((row) => row.levelId)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-    } catch (error) {
-      logger.error(`Error getting level IDs for player ${playerId}:`, error);
-      return [];
-    }
-  }
-
-  /**
    * Schedule debounced reindexing for artist-related changes
    * This prevents overwhelming the server when artists have thousands of levels
    */
+  /**
+   * Debounced fan-out reindex for levels affected by artist / artist_alias metadata changes.
+   * Used by CDC projectors (replaces Sequelize hooks).
+   */
+  public scheduleDebouncedArtistReindex(levelIds: number[]): void {
+    this.scheduleArtistReindex(levelIds);
+  }
+
   private scheduleArtistReindex(levelIds: number[]): void {
     // Add level IDs to the queue
     levelIds.forEach(id => this.artistReindexQueue.add(id));
@@ -237,32 +157,6 @@ class ElasticsearchService {
     }, ARTIST_REINDEX_DEBOUNCE_MS);
 
     logger.debug(`Scheduled debounced reindex for ${levelIds.length} levels (${queueSize} total queued)`);
-  }
-
-  private setupChangeListeners(): void {
-    registerElasticsearchChangeListeners({
-      indexLevel: (level) => this.indexLevel(level),
-      indexPass: (pass) => this.indexPass(pass),
-      deletePassDocumentById: (id) => this.deletePassDocumentById(id),
-      reindexLevels: (ids) => this.reindexLevels(ids),
-      reindexPasses: (ids) => this.reindexPasses(ids),
-      scheduleArtistReindex: (ids) => this.scheduleArtistReindex(ids),
-      getLevelIdsBySongId: (id) => this.getLevelIdsBySongId(id),
-      getLevelIdsByArtistId: (id) => this.getLevelIdsByArtistId(id),
-      getLevelIdsByPlayerId: (id) => this.getLevelIdsByPlayerId(id),
-    });
-
-    registerPlayerIndexChangeListeners({
-      indexPlayer: (id) => this.indexPlayer(id),
-      reindexPlayers: (ids) => this.reindexPlayers(ids),
-      deletePlayerDocumentById: (id) => this.deletePlayerDocumentById(id),
-    });
-
-    registerCreatorIndexChangeListeners({
-      indexCreator: (id) => this.indexCreator(id),
-      reindexCreators: (ids) => this.reindexCreators(ids),
-      deleteCreatorDocumentById: (id) => this.deleteCreatorDocumentById(id),
-    });
   }
 
   private async getParsedLevel(id: number): Promise<ILevel | null> {

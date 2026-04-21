@@ -124,8 +124,8 @@ function buildCreatorQuery(options: CreatorSearchOptions): any {
     for (const [key, value] of Object.entries(options.filters)) {
       if (key === 'verificationStatus') {
         const allowed = validCreatorVerificationStatuses as readonly string[];
-        const values = (Array.isArray(value) ? value : [value])
-          .filter((v): v is string => typeof v === 'string' && allowed.includes(v));
+        const raw: unknown[] = Array.isArray(value) ? (value as unknown[]) : [value];
+        const values = raw.filter((v): v is string => typeof v === 'string' && allowed.includes(v));
         if (values.length === 1) {
           filter.push(termField('verificationStatus', values[0]));
         } else if (values.length > 1) {

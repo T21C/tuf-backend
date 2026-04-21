@@ -152,6 +152,8 @@ meta_inserts.sql
 *.sh
 __pycache__/
 *.selftest.ts
+docs
+*.md
 
 # ts builds
 build/

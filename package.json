@@ -31,6 +31,9 @@
     "cdn": "cross-env tsx watch src/externalServices/cdnService/app.ts",
     "cdn:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdnService/app.ts",
     "api-docs": "cross-env tsx src/externalServices/apiDocsService/app.ts",
+    "cdc": "cross-env tsx src/externalServices/cdcService/app.ts",
+    "cdc:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdcService/app.ts",
+    "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
     "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts",
     "test:duration": "tsx src/misc/utils/data/searchHelpers.duration.selftest.ts"
   },
@@ -45,6 +48,7 @@
     "@types/multer": "^1.4.12",
     "@types/socket.io": "^3.0.2",
     "@types/uuid": "^10.0.0",
+    "@vlasky/zongji": "^0.6.1",
     "adofai-lib": "^1.2.8",
     "aws-sdk": "^2.1693.0",
     "axios": "^1.7.7",
