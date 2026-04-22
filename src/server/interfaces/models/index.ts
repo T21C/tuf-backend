@@ -32,6 +32,8 @@ export interface ICreator extends IBaseModel {
   name: string;
   verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   userId?: string | null;
+  /** Profile header: up to 5 curation type ids chosen by the creator (or admin). */
+  displayCurationTypeIds?: number[] | null;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];

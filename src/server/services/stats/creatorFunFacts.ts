@@ -1,4 +1,5 @@
 import {getSequelizeForModelGroup} from '@/config/db.js';
+import sequelize from '@/config/db.js';
 import {QueryTypes} from 'sequelize';
 import type {CreatorFunFacts} from '@/server/interfaces/stats/funFacts.js';
 import {
@@ -32,7 +33,6 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
     content: {
       totalTilesMade: 0,
       totalLevelDurationMs: 0,
-      totalBpmSum: 0,
       averageTilecount: 0,
       averageLevelLengthMs: 0,
       averageBpm: 0,
@@ -54,7 +54,6 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       COUNT(*) AS distinctLevels,
       COALESCE(SUM(x.tilecount), 0) AS totalTilesMade,
       COALESCE(SUM(x.levelLengthInMs), 0) AS totalLevelDurationMs,
-      COALESCE(SUM(x.bpm), 0) AS totalBpmSum,
       COALESCE(AVG(x.tilecount), 0) AS averageTilecount,
       COALESCE(AVG(x.levelLengthInMs), 0) AS averageLevelLengthMs,
       COALESCE(AVG(x.bpm), 0) AS averageBpm,
@@ -218,7 +217,6 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
     content: {
       totalTilesMade: Number(c.totalTilesMade) || 0,
       totalLevelDurationMs: Number(c.totalLevelDurationMs) || 0,
-      totalBpmSum: Number(c.totalBpmSum) || 0,
       averageTilecount: Number(c.averageTilecount) || 0,
       averageLevelLengthMs: Number(c.averageLevelLengthMs) || 0,
       averageBpm: Number(c.averageBpm) || 0,
@@ -242,4 +240,33 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
     levelsByDifficulty,
     levelsByDifficultyType: {...levelsByDifficultyType},
   };
+}
+
+const creatorCurationTypeCountsSql = `
+  SELECT cct.typeId AS typeId, COUNT(DISTINCT c.levelId) AS cnt
+  FROM curation_curation_types cct
+  INNER JOIN curations c ON c.id = cct.curationId
+  INNER JOIN levels l ON l.id = c.levelId AND l.isDeleted = 0
+  INNER JOIN level_credits lc ON lc.levelId = l.id AND lc.creatorId = :creatorId
+  GROUP BY cct.typeId
+`;
+
+/**
+ * Distinct levels (credited to this creator) that carry each curation type tag.
+ */
+export async function computeCreatorCurationTypeCounts(
+  creatorId: number,
+): Promise<Record<string, number>> {
+  if (!Number.isFinite(creatorId) || creatorId <= 0) return {};
+  const rows = (await sequelize.query(creatorCurationTypeCountsSql, {
+    replacements: {creatorId},
+    type: QueryTypes.SELECT,
+  })) as Array<{typeId: unknown; cnt: unknown}>;
+  const out: Record<string, number> = {};
+  for (const row of rows) {
+    const id = Number(row.typeId);
+    const cnt = Number(row.cnt) || 0;
+    if (Number.isFinite(id)) out[String(id)] = cnt;
+  }
+  return out;
 }

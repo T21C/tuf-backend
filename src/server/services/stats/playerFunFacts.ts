@@ -51,7 +51,7 @@ export async function computePlayerFunFacts(
       totalTilecountCleared: 0,
       totalLevelLengthMs: 0,
       totalPlaytimeMs: 0,
-      totalBpmSum: 0,
+      averageBpm: 0,
       totalScoreV2: 0,
     },
     extremes: {
@@ -109,7 +109,7 @@ export async function computePlayerFunFacts(
           ELSE 0
         END
       ), 0) AS totalPlaytimeMs,
-      COALESCE(SUM(IFNULL(l.bpm, 0)), 0) AS totalBpmSum,
+      COALESCE(AVG(l.bpm), 0) AS averageBpm,
       COALESCE(SUM(IFNULL(p.scoreV2, 0)), 0) AS totalScoreV2,
       MIN(p.vidUploadTime) AS firstPassAt,
       MAX(p.vidUploadTime) AS latestPassAt,
@@ -236,7 +236,7 @@ export async function computePlayerFunFacts(
       totalTilecountCleared: Number(m.totalTilecountCleared) || 0,
       totalLevelLengthMs: Number(m.totalLevelLengthMs) || 0,
       totalPlaytimeMs: Number(m.totalPlaytimeMs) || 0,
-      totalBpmSum: Number(m.totalBpmSum) || 0,
+      averageBpm: Number(m.averageBpm) || 0,
       totalScoreV2: Number(m.totalScoreV2) || 0,
     },
     extremes: {

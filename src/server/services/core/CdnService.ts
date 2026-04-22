@@ -28,8 +28,8 @@ class CdnService {
     private constructor() {
         this.client = axios.create({
             baseURL: CDN_BASE_URL,
-            /** Large zips can take many minutes to ingest on the CDN service (extract, upload to object storage). */
-            timeout: 120 * 60 * 1000,
+            /** Uploads are now  */
+            timeout: 60 * 1000,
         });
 
         // Add retry interceptor for connection errors (ECONNRESET, etc.)

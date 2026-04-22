@@ -13,9 +13,17 @@ import {
   CreatorSearchOptions,
 } from '@/server/services/elasticsearch/search/creators/creatorSearch.js';
 import { CreatorStatsService } from '@/server/services/core/CreatorStatsService.js';
-import { computeCreatorFunFacts } from '@/server/services/stats/creatorFunFacts.js';
+import {
+  computeCreatorFunFacts,
+  computeCreatorCurationTypeCounts,
+} from '@/server/services/stats/creatorFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import { Auth } from '@/server/middleware/auth.js';
+import Creator from '@/models/credits/Creator.js';
+import CurationType from '@/models/curations/CurationType.js';
+import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
+import { permissionFlags } from '@/config/constants.js';
 
 /**
  * v3 creators routes — Elasticsearch-backed.
@@ -238,10 +246,12 @@ router.get(
         return res.status(400).json({ error: 'Invalid creator id' });
       }
 
-      const [doc, enriched, funFacts] = await Promise.all([
+      const [doc, enriched, funFacts, curationTypeCounts, creatorRow] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
         creatorStatsService.getEnrichedCreator(id),
         computeCreatorFunFacts(id),
+        computeCreatorCurationTypeCounts(id),
+        Creator.findByPk(id, {attributes: ['id', 'displayCurationTypeIds']}),
       ]);
 
       if (!doc && !enriched) return res.status(404).json({ error: 'Creator not found' });
@@ -281,15 +291,112 @@ router.get(
 
       const recentLevelIds = enriched?.recentLevelIds ?? [];
 
+      const rawDisplay = creatorRow?.get?.('displayCurationTypeIds') ?? creatorRow?.displayCurationTypeIds;
+      const displayCurationTypeIds = Array.isArray(rawDisplay)
+        ? rawDisplay
+            .map((x: unknown) => Number(x))
+            .filter((n: number) => Number.isFinite(n))
+            .slice(0, 5)
+        : [];
+
       return res.json({
         ...baseDoc,
         recentLevelIds,
         funFacts,
+        curationTypeCounts,
+        displayCurationTypeIds,
       });
     } catch (error) {
       logger.error('[v3 /creators/:id/profile] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch creator profile',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/:id([0-9]{1,20})/display-curation-types',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorDisplayCurationTypes',
+    summary: 'Update creator profile header curation slots (v3)',
+    description:
+      'Owner (linked user) or HEAD_CURATOR / SUPER_ADMIN may set up to 5 curation type ids; each must appear on at least one level credited to this creator.',
+    tags: ['Database', 'Creators', 'v3'],
+    params: {id: idParamSpec},
+    responses: {
+      200: {description: 'Updated display ids'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({error: 'Unauthorized'});
+      }
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({error: 'Invalid creator id'});
+      }
+
+      const body = req.body as {ids?: unknown};
+      if (!Array.isArray(body?.ids)) {
+        return res.status(400).json({error: 'Request body must include ids: number[]'});
+      }
+
+      const normalized = [
+        ...new Set(
+          body.ids
+            .map((x) => Number(x))
+            .filter((n) => Number.isFinite(n) && n > 0),
+        ),
+      ].slice(0, 5);
+
+      const isOwner = user.creatorId != null && Number(user.creatorId) === id;
+      const isElevated =
+        hasFlag(permUser, permissionFlags.SUPER_ADMIN) ||
+        hasFlag(permUser, permissionFlags.HEAD_CURATOR);
+      if (!isOwner && !isElevated) {
+        return res.status(403).json({error: 'Forbidden'});
+      }
+
+      const creatorExists = await Creator.findByPk(id, {attributes: ['id']});
+      if (!creatorExists) {
+        return res.status(404).json({error: 'Creator not found'});
+      }
+
+      const counts = await computeCreatorCurationTypeCounts(id);
+      for (const tid of normalized) {
+        const c = counts[String(tid)] ?? 0;
+        if (!c || c <= 0) {
+          return res.status(400).json({
+            error: `Curation type ${tid} is not available (no credited level with that type).`,
+          });
+        }
+      }
+
+      if (normalized.length) {
+        const found = await CurationType.findAll({
+          where: {id: normalized},
+          attributes: ['id'],
+        });
+        if (found.length !== normalized.length) {
+          return res.status(400).json({error: 'One or more curation type ids are invalid'});
+        }
+      }
+
+      await Creator.update({displayCurationTypeIds: normalized.length ? normalized : null}, {where: {id}});
+
+      return res.json({displayCurationTypeIds: normalized});
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/:id/display-curation-types] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update display curation types',
         details: error instanceof Error ? error.message : String(error),
       });
     }

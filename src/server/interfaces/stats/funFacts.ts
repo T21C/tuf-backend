@@ -31,7 +31,7 @@ export interface PlayerFunFactsLevelsCleared {
   totalTilecountCleared: number;
   totalLevelLengthMs: number;
   totalPlaytimeMs: number;
-  totalBpmSum: number;
+  averageBpm: number;
   totalScoreV2: number;
 }
 
@@ -88,7 +88,6 @@ export interface CreatorFunFactsCredits {
 export interface CreatorFunFactsContent {
   totalTilesMade: number;
   totalLevelDurationMs: number;
-  totalBpmSum: number;
   averageTilecount: number;
   averageLevelLengthMs: number;
   averageBpm: number;

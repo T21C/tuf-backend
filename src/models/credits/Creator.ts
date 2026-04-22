@@ -14,6 +14,8 @@ class Creator extends Model implements ICreator {
   declare updatedAt: Date;
   declare verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   declare userId: string | null;
+  /** Up to 5 curation type ids to show on the creator profile header (JSON array in DB). */
+  declare displayCurationTypeIds: number[] | null;
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -53,6 +55,11 @@ Creator.init(
         model: 'users',
         key: 'id',
       },
+    },
+    displayCurationTypeIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {
