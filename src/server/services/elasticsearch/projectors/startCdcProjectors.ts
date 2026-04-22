@@ -265,6 +265,6 @@ export function startCdcProjectors(): void {
       },
     });
 
-    logger.info(`[cdc-projectors] Subscribed ${stream}`);
   }
+  logger.info(`[cdc-projectors] Subscribed ${CDC_WATCHED_TABLES.length} streams`);
 }

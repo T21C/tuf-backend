@@ -74,15 +74,32 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
     });
   };
 
+  // Dedicated connections:
+  // - `blockingClient` is used for XREADGROUP BLOCK and XACK so it never competes with
+  //   request-path cache GETs on the shared client.
+  // - DLQ writes go on the shared `redis` client (rare, fire-and-forget).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let blockingClient: any = null;
+
+  const closeBlockingClient = async (): Promise<void> => {
+    if (!blockingClient) return;
+    try {
+      await blockingClient.quit();
+    } catch (e) {
+      logger.warn(`[eventBus] blocking client quit failed for ${options.stream}:`, e);
+    }
+    blockingClient = null;
+  };
+
   const runLoop = async (): Promise<void> => {
-    const client = await redis.getClient();
-    if (!client) {
+    blockingClient = await redis.createBlockingClient(`stream:${options.stream}:${options.consumerGroup}`);
+    if (!blockingClient) {
       logger.warn(`[eventBus] Redis unavailable; consumer ${options.consumerGroup} on ${options.stream} not started`);
       return;
     }
 
     try {
-      await client.xGroupCreate(options.stream, options.consumerGroup, '0', { MKSTREAM: true });
+      await blockingClient.xGroupCreate(options.stream, options.consumerGroup, '0', { MKSTREAM: true });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!msg.includes('BUSYGROUP')) {
@@ -93,13 +110,12 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
 
     while (!aborted) {
       try {
-        const readClient = await redis.getClient();
-        if (!readClient) {
-          await sleep(2000);
+        if (!blockingClient?.isReady) {
+          await sleep(500);
           continue;
         }
 
-        const res = await readClient.xReadGroup(
+        const res = await blockingClient.xReadGroup(
           options.consumerGroup,
           consumerName,
           { key: options.stream, id: '>' },
@@ -116,13 +132,13 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
             const id = msg.id;
 
             enqueue(slot, async () => {
-              const execClient = await redis.getClient();
-              if (!execClient) return;
               let lastErr: unknown;
               for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
                   await options.handle(flat);
-                  await execClient.xAck(options.stream, options.consumerGroup, id);
+                  if (blockingClient?.isReady) {
+                    await blockingClient.xAck(options.stream, options.consumerGroup, id);
+                  }
                   return;
                 } catch (err) {
                   lastErr = err;
@@ -136,14 +152,27 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
                   }
                 }
               }
-              await execClient.xAdd(dlqStream, '*', {
-                ...flat,
-                _failedStream: options.stream,
-                _failedId: id,
-                _error: lastErr instanceof Error ? lastErr.message : String(lastErr),
-                _attempts: String(maxRetries),
-              });
-              await execClient.xAck(options.stream, options.consumerGroup, id);
+              try {
+                const shared = await redis.getClient();
+                if (shared) {
+                  await shared.xAdd(dlqStream, '*', {
+                    ...flat,
+                    _failedStream: options.stream,
+                    _failedId: id,
+                    _error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+                    _attempts: String(maxRetries),
+                  });
+                }
+              } catch (dlqErr) {
+                logger.error(`[eventBus] DLQ write failed for ${options.stream} id=${id}:`, dlqErr);
+              }
+              if (blockingClient?.isReady) {
+                try {
+                  await blockingClient.xAck(options.stream, options.consumerGroup, id);
+                } catch (ackErr) {
+                  logger.error(`[eventBus] xAck (post-DLQ) failed ${options.stream} id=${id}:`, ackErr);
+                }
+              }
             });
           }
         }
@@ -157,22 +186,23 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
 
   const loopPromise = runLoop();
 
+  const shutdown = async (): Promise<void> => {
+    aborted = true;
+    await loopPromise.catch(() => undefined);
+    await Promise.all(slotTail);
+    await closeBlockingClient();
+  };
+
   registerShutdownStep({
     name: shutdownName,
     priority: 45,
-    fn: async () => {
-      aborted = true;
-      await loopPromise.catch(() => undefined);
-      await Promise.all(slotTail);
-    },
+    fn: shutdown,
   });
 
   return {
     stop: async () => {
-      aborted = true;
       unregisterShutdownStep(shutdownName);
-      await loopPromise.catch(() => undefined);
-      await Promise.all(slotTail);
+      await shutdown();
     },
   };
 }

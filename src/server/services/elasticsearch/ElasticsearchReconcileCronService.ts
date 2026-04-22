@@ -29,6 +29,6 @@ export class ElasticsearchReconcileCronService {
     });
 
     ElasticsearchReconcileCronService.cron.start();
-    logger.info('Elasticsearch reconcile cron started', { schedule: CRON_SCHEDULE });
+    logger.info('Elasticsearch reconcile cron started');
   }
 }

@@ -63,7 +63,7 @@ export async function startBinlogTailer(options: StartBinlogTailerOptions): Prom
 
   zongji.on('binlog', async (evt: AnyBinlogEvent) => {
     try {
-      logger.debug('[cdc] binlog event:', evt);
+      logger.debug('[cdc] binlog event:', evt.getEventName());
       const eventName = evt.getEventName();
       switch (eventName) {
         case 'rotate': {

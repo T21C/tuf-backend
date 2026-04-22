@@ -166,6 +166,31 @@ class RedisService {
     }
   }
 
+  /**
+   * Dedicated connection for long-blocking commands (XREAD/XREADGROUP BLOCK, BLPOP, ...).
+   *
+   * Every blocking command parks its socket until it returns. If issued on the shared
+   * `client`, all pipelined commands (cache GET/SET from request handlers, pub/sub publishes,
+   * etc.) are stuck behind it. Callers must use this helper and `quit()` the client on shutdown.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  public async createBlockingClient(label: string): Promise<any | null> {
+    try {
+      const client = await this.getClient();
+      if (!client) return null;
+
+      const dup = client.duplicate();
+      dup.on('error', (err: Error) => {
+        logger.error(`Redis blocking client [${label}] error:`, err);
+      });
+      await dup.connect();
+      return dup;
+    } catch (error) {
+      logger.error(`Redis blocking client [${label}] connect failed:`, error);
+      return null;
+    }
+  }
+
   public async set(key: string, value: unknown, ttlSeconds?: number): Promise<boolean> {
     try {
       const client = await this.getClient();

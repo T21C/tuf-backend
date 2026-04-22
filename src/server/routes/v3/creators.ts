@@ -13,6 +13,7 @@ import {
   CreatorSearchOptions,
 } from '@/server/services/elasticsearch/search/creators/creatorSearch.js';
 import { CreatorStatsService } from '@/server/services/core/CreatorStatsService.js';
+import { computeCreatorFunFacts } from '@/server/services/stats/creatorFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 
@@ -237,9 +238,10 @@ router.get(
         return res.status(400).json({ error: 'Invalid creator id' });
       }
 
-      const [doc, enriched] = await Promise.all([
+      const [doc, enriched, funFacts] = await Promise.all([
         elasticsearchService.getCreatorDocumentById(id),
         creatorStatsService.getEnrichedCreator(id),
+        computeCreatorFunFacts(id),
       ]);
 
       if (!doc && !enriched) return res.status(404).json({ error: 'Creator not found' });
@@ -282,6 +284,7 @@ router.get(
       return res.json({
         ...baseDoc,
         recentLevelIds,
+        funFacts,
       });
     } catch (error) {
       logger.error('[v3 /creators/:id/profile] failure', error);
