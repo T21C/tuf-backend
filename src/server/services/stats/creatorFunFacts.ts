@@ -242,12 +242,49 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
   };
 }
 
+/**
+ * Count distinct levels (per curation type) where the creator is credited.
+ * Chart-style tags (names starting with C or O) only count if this creator is
+ * a charter on that level; VFX tiers (V…) only if they are a vfxer. H…
+ * (historical) and any other naming pattern keep the previous rule (any
+ * credit on the level).
+ */
 const creatorCurationTypeCountsSql = `
   SELECT cct.typeId AS typeId, COUNT(DISTINCT c.levelId) AS cnt
   FROM curation_curation_types cct
   INNER JOIN curations c ON c.id = cct.curationId
-  INNER JOIN levels l ON l.id = c.levelId AND l.isDeleted = 0
-  INNER JOIN level_credits lc ON lc.levelId = l.id AND lc.creatorId = :creatorId
+  INNER JOIN levels l ON l.id = c.levelId AND IFNULL(l.isDeleted, 0) = 0
+  INNER JOIN curation_types ct ON ct.id = cct.typeId
+  WHERE c.levelId IN (
+    SELECT lc.levelId FROM level_credits lc
+    WHERE lc.creatorId = :creatorId
+  )
+  AND (
+    (
+      TRIM(ct.name) REGEXP '^[CcOo][0-9]*$'
+      AND EXISTS (
+        SELECT 1 FROM level_credits lc2
+        WHERE lc2.levelId = c.levelId
+          AND lc2.creatorId = :creatorId
+          AND lc2.role = 'charter'
+      )
+    )
+    OR (
+      TRIM(ct.name) REGEXP '^[Vv][0-9]*$'
+      AND EXISTS (
+        SELECT 1 FROM level_credits lc2
+        WHERE lc2.levelId = c.levelId
+          AND lc2.creatorId = :creatorId
+          AND lc2.role = 'vfxer'
+      )
+    )
+    OR TRIM(ct.name) REGEXP '^[Hh][0-9]*$'
+    OR (
+      TRIM(ct.name) NOT REGEXP '^[CcOo][0-9]*$'
+      AND TRIM(ct.name) NOT REGEXP '^[Vv][0-9]*$'
+      AND TRIM(ct.name) NOT REGEXP '^[Hh][0-9]*$'
+    )
+  )
   GROUP BY cct.typeId
 `;
 
