@@ -61,9 +61,13 @@ export interface PlayerFunFacts {
   levelsCleared: PlayerFunFactsLevelsCleared;
   extremes: PlayerFunFactsExtremes;
   activity: PlayerFunFactsActivity;
-  /** diffId string -> clear count (includes duplicate passes) */
+  /** diffId string -> clear count (every pass row, including replays on the same level) */
   clearsByDifficulty: Record<string, number>;
-  /** diffId string -> clear count, excluding passes flagged as duplicates */
+  /**
+   * diffId string -> clear count with at most one pass per level counted
+   * (the highest scoreV2 pass per levelId, same rule as ranked top-score picks).
+   * Distinct from the `isDuplicate` column, which flags a different product case.
+   */
   clearsByDifficultyNoDupes: Record<string, number>;
   /** diffId string -> number of world's-first passes on that difficulty */
   worldsFirstByDifficulty: Record<string, number>;

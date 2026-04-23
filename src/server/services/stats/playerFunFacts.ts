@@ -132,20 +132,36 @@ export async function computePlayerFunFacts(
       AND (:includeHidden = 1 OR IFNULL(p.isHidden, 0) = 0)
   `;
 
+  // `clearsByDifficulty`: raw pass count per difficulty.
+  // `clearsByDifficultyNoDupes`: one row per (player, level) — same rule as
+  // `PlayerStatsService.getEnrichedPlayer` uniquePasses (best scoreV2 wins).
+  // The `isDuplicate` column means “duplicate of another *level*”, not replay
+  // clears on the same chart, so filtering on it alone left no-dupes == raw.
   const diffSql = `
+    WITH ranked AS (
+      SELECT
+        l.diffId AS diffId,
+        d.type AS diffType,
+        IFNULL(p.isWorldsFirst, 0) AS is_wf,
+        ROW_NUMBER() OVER (
+          PARTITION BY p.playerId, p.levelId
+          ORDER BY IFNULL(p.scoreV2, 0) DESC, p.id DESC
+        ) AS rn_level
+      FROM passes p
+      INNER JOIN levels l ON l.id = p.levelId AND IFNULL(l.isDeleted, 0) = 0
+      INNER JOIN difficulties d ON d.id = l.diffId
+      WHERE p.playerId = :playerId
+        AND IFNULL(p.isDeleted, 0) = 0
+        AND (:includeHidden = 1 OR IFNULL(p.isHidden, 0) = 0)
+    )
     SELECT
-      l.diffId AS diffId,
-      d.type AS diffType,
+      diffId,
+      diffType,
       COUNT(*) AS cnt,
-      COALESCE(SUM(CASE WHEN IFNULL(p.isDuplicate, 0) = 0 THEN 1 ELSE 0 END), 0) AS cntNoDupes,
-      COALESCE(SUM(CASE WHEN p.isWorldsFirst = 1 THEN 1 ELSE 0 END), 0) AS cntWf
-    FROM passes p
-    INNER JOIN levels l ON l.id = p.levelId AND l.isDeleted = 0
-    INNER JOIN difficulties d ON d.id = l.diffId
-    WHERE p.playerId = :playerId
-      AND IFNULL(p.isDeleted, 0) = 0
-      AND (:includeHidden = 1 OR IFNULL(p.isHidden, 0) = 0)
-    GROUP BY l.diffId, d.type
+      COALESCE(SUM(CASE WHEN rn_level = 1 THEN 1 ELSE 0 END), 0) AS cntNoDupes,
+      COALESCE(SUM(CASE WHEN is_wf = 1 THEN 1 ELSE 0 END), 0) AS cntWf
+    FROM ranked
+    GROUP BY diffId, diffType
   `;
 
   const [mainRows, diffRows, playerRow, userRow] = await Promise.all([
