@@ -73,6 +73,8 @@ export async function computePlayerFunFacts(
       packsFavorited: 0,
     },
     clearsByDifficulty: {},
+    clearsByDifficultyNoDupes: {},
+    worldsFirstByDifficulty: {},
     clearsByDifficultyType: {...emptyClearsByDifficultyType()},
   };
 
@@ -131,7 +133,12 @@ export async function computePlayerFunFacts(
   `;
 
   const diffSql = `
-    SELECT l.diffId AS diffId, d.type AS diffType, COUNT(*) AS cnt
+    SELECT
+      l.diffId AS diffId,
+      d.type AS diffType,
+      COUNT(*) AS cnt,
+      COALESCE(SUM(CASE WHEN IFNULL(p.isDuplicate, 0) = 0 THEN 1 ELSE 0 END), 0) AS cntNoDupes,
+      COALESCE(SUM(CASE WHEN p.isWorldsFirst = 1 THEN 1 ELSE 0 END), 0) AS cntWf
     FROM passes p
     INNER JOIN levels l ON l.id = p.levelId AND l.isDeleted = 0
     INNER JOIN difficulties d ON d.id = l.diffId
@@ -177,11 +184,21 @@ export async function computePlayerFunFacts(
   }
 
   const clearsByDifficulty: Record<string, number> = {};
+  const clearsByDifficultyNoDupes: Record<string, number> = {};
+  const worldsFirstByDifficulty: Record<string, number> = {};
   const clearsByDifficultyType = {...emptyClearsByDifficultyType()};
   for (const row of diffRows) {
     const diffId = String(Number(row.diffId) || 0);
     const cnt = Number(row.cnt) || 0;
+    const cntNoDupes = Number(row.cntNoDupes) || 0;
+    const cntWf = Number(row.cntWf) || 0;
     clearsByDifficulty[diffId] = (clearsByDifficulty[diffId] || 0) + cnt;
+    clearsByDifficultyNoDupes[diffId] =
+      (clearsByDifficultyNoDupes[diffId] || 0) + cntNoDupes;
+    if (cntWf > 0) {
+      worldsFirstByDifficulty[diffId] =
+        (worldsFirstByDifficulty[diffId] || 0) + cntWf;
+    }
     mergeDifficultyTypeCounts(clearsByDifficultyType, row.diffType as string, cnt);
   }
 
@@ -259,6 +276,8 @@ export async function computePlayerFunFacts(
       packsFavorited,
     },
     clearsByDifficulty,
+    clearsByDifficultyNoDupes,
+    worldsFirstByDifficulty,
     clearsByDifficultyType: {...clearsByDifficultyType},
   };
 }

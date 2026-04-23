@@ -61,8 +61,12 @@ export interface PlayerFunFacts {
   levelsCleared: PlayerFunFactsLevelsCleared;
   extremes: PlayerFunFactsExtremes;
   activity: PlayerFunFactsActivity;
-  /** diffId string -> clear count */
+  /** diffId string -> clear count (includes duplicate passes) */
   clearsByDifficulty: Record<string, number>;
+  /** diffId string -> clear count, excluding passes flagged as duplicates */
+  clearsByDifficultyNoDupes: Record<string, number>;
+  /** diffId string -> number of world's-first passes on that difficulty */
+  worldsFirstByDifficulty: Record<string, number>;
   clearsByDifficultyType: {
     PGU: number;
     SPECIAL: number;
