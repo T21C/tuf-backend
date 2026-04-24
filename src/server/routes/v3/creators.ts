@@ -20,8 +20,16 @@ import {
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import { Auth } from '@/server/middleware/auth.js';
+import { getSequelizeForModelGroup } from '@/config/db.js';
 import Creator from '@/models/credits/Creator.js';
+import { CreatorAlias } from '@/models/credits/CreatorAlias.js';
 import CurationType from '@/models/curations/CurationType.js';
+import {
+  creatorAliasStringExistsGlobally,
+  creatorDisplayNameTakenByOther,
+  replaceCreatorAliasesForCreator,
+  validateCreatorAliasListForSelf,
+} from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
 
@@ -36,6 +44,7 @@ import { permissionFlags } from '@/config/constants.js';
 const router: Router = Router();
 const elasticsearchService = ElasticsearchService.getInstance();
 const creatorStatsService = CreatorStatsService.getInstance();
+const creditsSequelize = getSequelizeForModelGroup('credits');
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
@@ -191,6 +200,161 @@ router.get(
   },
 );
 
+router.patch(
+  '/me/name',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeName',
+    summary: 'Update my creator display name (v3)',
+    description:
+      'Requires an authenticated user with `creatorId` set. Updates that creator row only; name must be unique among creators.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {description: 'Updated name'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({error: 'Unauthorized'});
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+
+      const body = req.body as {name?: unknown};
+      const rawName = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!rawName) {
+        return res.status(400).json({error: 'Name is required'});
+      }
+      if (rawName.length < 2) {
+        return res.status(400).json({error: 'Name must be at least 2 characters'});
+      }
+      if (rawName.length > 100) {
+        return res.status(400).json({error: 'Name must be at most 100 characters'});
+      }
+
+      const creatorRow = await Creator.findByPk(id, {
+        attributes: ['id', 'name', 'userId'],
+      });
+      if (!creatorRow) {
+        return res.status(404).json({error: 'Creator not found'});
+      }
+
+      const currentName = String(creatorRow.get('name') ?? creatorRow.name ?? '');
+      if (rawName === currentName) {
+        return res.json({name: rawName});
+      }
+
+      const seq = Creator.sequelize!;
+      if (await creatorDisplayNameTakenByOther(seq, id, rawName)) {
+        return res.status(400).json({error: 'Creator name already taken'});
+      }
+      if (await creatorAliasStringExistsGlobally(seq, rawName)) {
+        return res.status(400).json({
+          error:
+            'That name matches an existing creator alias. Change or remove the conflicting alias first.',
+        });
+      }
+
+      await Creator.update({name: rawName}, {where: {id}});
+      // Elasticsearch: CDC projectors (`creators` → indexCreator + level fanout on name change).
+
+      return res.json({name: rawName});
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/name] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update creator name',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/me/aliases',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeAliases',
+    summary: 'Replace my creator aliases (v3)',
+    description:
+      'Requires `creatorId` on the user. Body: `aliases: string[]` (full replacement, max 20). ' +
+      'Each alias must be unique vs other creators’ names and aliases (case-insensitive), ' +
+      'and cannot match this creator’s display name.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    responses: {
+      200: {description: 'Updated aliases'},
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    const transaction = await creditsSequelize.transaction();
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        await transaction.rollback();
+        return res.status(401).json({error: 'Unauthorized'});
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({error: 'No creator profile linked to this account'});
+      }
+
+      const creatorRow = await Creator.findByPk(id, {
+        attributes: ['id', 'name'],
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!creatorRow) {
+        await transaction.rollback();
+        return res.status(404).json({error: 'Creator not found'});
+      }
+
+      const displayName = String(creatorRow.get('name') ?? creatorRow.name ?? '');
+      const seq = Creator.sequelize!;
+      const validated = await validateCreatorAliasListForSelf(
+        seq,
+        id,
+        displayName,
+        (req.body as {aliases?: unknown}).aliases,
+      );
+      if (!validated.ok) {
+        await transaction.rollback();
+        return res.status(400).json({error: validated.error});
+      }
+
+      await replaceCreatorAliasesForCreator(id, validated.names, transaction);
+      await transaction.commit();
+      // Elasticsearch: CDC projectors (`creator_aliases` → indexCreator).
+
+      const aliases = await CreatorAlias.findAll({
+        where: {creatorId: id},
+        attributes: ['id', 'name'],
+        order: [['id', 'ASC']],
+      });
+
+      return res.json({
+        aliases: aliases.map((a) => ({id: a.id, name: a.name})),
+      });
+    } catch (error) {
+      await transaction.rollback();
+      logger.error('[v3 PATCH /creators/me/aliases] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update creator aliases',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 router.get(
   '/:id([0-9]{1,20})',
   ApiDoc({
@@ -289,6 +453,30 @@ router.get(
 
       if (!baseDoc) return res.status(404).json({ error: 'Creator not found' });
 
+      // ES doc can lag behind the `creators` row (e.g. before indexCreator runs). Identity
+      // fields that users edit in DB must come from enrichment so profile/header stay correct.
+      let responseDoc: Record<string, unknown> = baseDoc as Record<string, unknown>;
+      if (doc && enriched?.creator) {
+        responseDoc = {
+          ...(doc as Record<string, unknown>),
+          name: enriched.creator.name ?? (doc as { name?: string }).name ?? '',
+          verificationStatus:
+            enriched.creator.verificationStatus ??
+            (doc as { verificationStatus?: string }).verificationStatus ??
+            'allowed',
+          aliases: enriched.aliases.map((a) => ({ id: a.id, name: a.name })),
+          user: enriched.user
+            ? {
+                id: enriched.user.id,
+                username: enriched.user.username,
+                nickname: enriched.user.nickname ?? null,
+                avatarUrl: enriched.user.avatarUrl ?? null,
+                playerId: enriched.user.playerId ?? null,
+              }
+            : ((doc as { user?: unknown }).user ?? null),
+        };
+      }
+
       const recentLevelIds = enriched?.recentLevelIds ?? [];
 
       const rawDisplay = creatorRow?.get?.('displayCurationTypeIds') ?? creatorRow?.displayCurationTypeIds;
@@ -300,7 +488,7 @@ router.get(
         : [];
 
       return res.json({
-        ...baseDoc,
+        ...responseDoc,
         recentLevelIds,
         funFacts,
         curationTypeCounts,

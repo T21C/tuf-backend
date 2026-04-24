@@ -252,11 +252,19 @@ export function startCdcProjectors(): void {
               return;
             }
             await es.indexCreator(cid);
+            // Level index embeds credited creator display names; refresh when it changes.
+            if (op === 'u') {
+              const beforeName = before?.name != null ? String(before.name) : null;
+              const afterName = after?.name != null ? String(after.name) : null;
+              if (beforeName !== afterName) {
+                void es.reindexByCreatorId(cid);
+              }
+            }
             break;
           }
           case 'creator_aliases': {
             const cid = num(after?.creatorId ?? before?.creatorId);
-            if (cid != null) await es.reindexCreators([cid]);
+            if (cid != null) await es.indexCreator(cid);
             break;
           }
           default:

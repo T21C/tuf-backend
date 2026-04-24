@@ -19,48 +19,20 @@ export interface StartBinlogTailerOptions {
   redisUrl: string;
 }
 
-export async function startBinlogTailer(options: StartBinlogTailerOptions): Promise<() => Promise<void>> {
-  const dbName = process.env.DB_DATABASE ?? '';
-  if (!dbName) {
-    throw new Error('DB_DATABASE is required for CDC');
-  }
+const INITIAL_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 30 * 60 * 1_000;
 
-  const includeSchema: Record<string, string[] | true> = {
+function buildIncludeSchema(dbName: string): Record<string, string[] | true> {
+  return {
     [dbName]: [...CDC_WATCHED_TABLES],
   };
+}
 
-  const redisClient: RedisClientType = createClient({ url: options.redisUrl });
-  redisClient.on('error', (err) => logger.error('[cdc] Redis client error:', err));
-  await redisClient.connect();
-
-  const checkpoint = await loadBinlogCheckpointFrom(redisClient);
-
-  let currentBinlogFile = checkpoint?.filename ?? '';
-
-  const zongji = new ZongJi({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
-    user: process.env.CDC_DB_USER || process.env.DB_USER,
-    password: process.env.CDC_DB_PASSWORD || process.env.DB_PASSWORD,
-    database: dbName,
-    ssl: process.env.DB_SSL === 'true' ? {} : undefined,
-  });
-
-  const startOpts: Parameters<ZongJi['start']>[0] = {
-    serverId: options.serverId,
-    includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'rotate'],
-    includeSchema,
-  };
-
-  if (checkpoint?.filename && typeof checkpoint.position === 'number') {
-    startOpts.filename = checkpoint.filename;
-    startOpts.position = checkpoint.position;
-    logger.info(`[cdc] Resuming binlog from ${checkpoint.filename}:${checkpoint.position}`);
-  } else {
-    startOpts.startAtEnd = true;
-    logger.info('[cdc] No checkpoint; starting at end of binlog (startAtEnd)');
-  }
-
+function attachBinlogHandler(
+  zongji: ZongJi,
+  redisClient: RedisClientType,
+  binlogState: { currentFile: string },
+): void {
   zongji.on('binlog', async (evt: AnyBinlogEvent) => {
     try {
       logger.debug('[cdc] binlog event:', evt.getEventName());
@@ -68,16 +40,16 @@ export async function startBinlogTailer(options: StartBinlogTailerOptions): Prom
       switch (eventName) {
         case 'rotate': {
           const e = evt as RotateEvent;
-          currentBinlogFile = e.binlogName;
+          binlogState.currentFile = e.binlogName;
           await saveBinlogCheckpointTo(redisClient, {
-            filename: currentBinlogFile,
+            filename: binlogState.currentFile,
             position: e.position,
           });
           break;
         }
         case 'writerows': {
           const e = evt as WriteRowsEvent;
-          const binlogFilename = currentBinlogFile || 'unknown';
+          const binlogFilename = binlogState.currentFile || 'unknown';
           const binlogPosition = e.nextPosition;
           const map = e.tableMap[e.tableId];
           if (!map) break;
@@ -103,7 +75,7 @@ export async function startBinlogTailer(options: StartBinlogTailerOptions): Prom
         }
         case 'updaterows': {
           const e = evt as UpdateRowsEvent;
-          const binlogFilename = currentBinlogFile || 'unknown';
+          const binlogFilename = binlogState.currentFile || 'unknown';
           const binlogPosition = e.nextPosition;
           const map = e.tableMap[e.tableId];
           if (!map) break;
@@ -129,7 +101,7 @@ export async function startBinlogTailer(options: StartBinlogTailerOptions): Prom
         }
         case 'deleterows': {
           const e = evt as DeleteRowsEvent;
-          const binlogFilename = currentBinlogFile || 'unknown';
+          const binlogFilename = binlogState.currentFile || 'unknown';
           const binlogPosition = e.nextPosition;
           const map = e.tableMap[e.tableId];
           if (!map) break;
@@ -160,20 +132,140 @@ export async function startBinlogTailer(options: StartBinlogTailerOptions): Prom
       logger.error('[cdc] binlog handler error:', err);
     }
   });
+}
 
-  zongji.on('error', (err: Error) => {
-    logger.error('[cdc] ZongJi error:', err);
-  });
+export async function startBinlogTailer(options: StartBinlogTailerOptions): Promise<() => Promise<void>> {
+  const dbName = process.env.DB_DATABASE ?? '';
+  if (!dbName) {
+    throw new Error('DB_DATABASE is required for CDC');
+  }
 
-  zongji.start(startOpts);
-  logger.info('[cdc] ZongJi binlog tailer started');
+  const includeSchema = buildIncludeSchema(dbName);
+
+  const redisClient: RedisClientType = createClient({ url: options.redisUrl });
+  redisClient.on('error', (err) => logger.error('[cdc] Redis client error:', err));
+  await redisClient.connect();
+
+  const zongjiConn = {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 3306,
+    user: process.env.CDC_DB_USER || process.env.DB_USER,
+    password: process.env.CDC_DB_PASSWORD || process.env.DB_PASSWORD,
+    database: dbName,
+    ssl: process.env.DB_SSL === 'true' ? {} : undefined,
+  };
+
+  let stopped = false;
+  let currentZongji: ZongJi | null = null;
+  let wakeSleep: (() => void) | null = null;
+  /** Resolves the in-session wait when ZongJi errors or `stop()` runs. */
+  let endActiveSession: (() => void) | null = null;
+
+  const loopPromise = (async () => {
+    let postFailureDelayMs = 0;
+
+    while (!stopped) {
+      if (postFailureDelayMs > 0) {
+        logger.info(`[cdc] reconnecting in ${Math.round(postFailureDelayMs / 1000)}s (${postFailureDelayMs}ms)`);
+        await new Promise<void>((resolve) => {
+          if (stopped) {
+            resolve();
+            return;
+          }
+          const id = setTimeout(() => {
+            wakeSleep = null;
+            resolve();
+          }, postFailureDelayMs);
+          wakeSleep = () => {
+            clearTimeout(id);
+            wakeSleep = null;
+            resolve();
+          };
+        });
+      }
+
+      if (stopped) break;
+
+      const checkpoint = await loadBinlogCheckpointFrom(redisClient);
+      const binlogState = { currentFile: checkpoint?.filename ?? '' };
+
+      const startOpts: Parameters<ZongJi['start']>[0] = {
+        serverId: options.serverId,
+        includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows', 'rotate'],
+        includeSchema,
+      };
+
+      if (checkpoint?.filename && typeof checkpoint.position === 'number') {
+        startOpts.filename = checkpoint.filename;
+        startOpts.position = checkpoint.position;
+        logger.info(`[cdc] Resuming binlog from ${checkpoint.filename}:${checkpoint.position}`);
+      } else {
+        startOpts.startAtEnd = true;
+        logger.info('[cdc] No checkpoint; starting at end of binlog (startAtEnd)');
+      }
+
+      let zongji: ZongJi | null = null;
+      try {
+        zongji = new ZongJi(zongjiConn);
+        currentZongji = zongji;
+        attachBinlogHandler(zongji, redisClient, binlogState);
+
+        const sessionEnded = new Promise<void>((resolve) => {
+          endActiveSession = () => {
+            endActiveSession = null;
+            resolve();
+          };
+          zongji!.once('error', (err: Error) => {
+            if (!stopped) {
+              logger.error('[cdc] ZongJi error:', err);
+            }
+            endActiveSession?.();
+          });
+        });
+
+        zongji.start(startOpts);
+        postFailureDelayMs = 0;
+        logger.info('[cdc] ZongJi binlog tailer connected');
+
+        await sessionEnded;
+      } catch (err) {
+        if (!stopped) {
+          logger.error('[cdc] ZongJi start/session error:', err);
+        }
+      } finally {
+        endActiveSession = null;
+        if (zongji) {
+          try {
+            zongji.removeAllListeners();
+            zongji.stop();
+          } catch (e) {
+            logger.warn('[cdc] zongji.stop failed:', e);
+          }
+        }
+        if (currentZongji === zongji) {
+          currentZongji = null;
+        }
+      }
+
+      if (stopped) break;
+
+      postFailureDelayMs =
+        postFailureDelayMs === 0 ? INITIAL_BACKOFF_MS : Math.min(MAX_BACKOFF_MS, postFailureDelayMs * 2);
+    }
+  })();
 
   return async () => {
+    stopped = true;
+    wakeSleep?.();
+    endActiveSession?.();
     try {
-      zongji.stop();
+      currentZongji?.removeAllListeners();
+      currentZongji?.stop();
     } catch (e) {
-      logger.warn('[cdc] zongji.stop failed:', e);
+      logger.warn('[cdc] zongji.stop on shutdown failed:', e);
     }
+    currentZongji = null;
+    await loopPromise.catch((e) => logger.warn('[cdc] reconnect loop exit:', e));
     try {
       await redisClient.quit();
     } catch (e) {

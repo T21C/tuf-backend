@@ -622,11 +622,8 @@ router.post(
       await sourceCreator.destroy({transaction});
 
       await transaction.commit();
+      // Elasticsearch: CDC projectors (creators / creator_aliases / level_credits / users).
 
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.reindexByCreatorId(parseInt(sourceId));
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.reindexByCreatorId(parseInt(targetId));
       return res.json({success: true});
     } catch (error) {
       await safeTransactionRollback(transaction);
@@ -768,9 +765,8 @@ router.post(
       await source.destroy({transaction});
 
       await transaction.commit();
+      // Elasticsearch: CDC projectors.
 
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      elasticsearchService.reindexByCreatorId(parseInt(creatorId));
       return res.json({
         message: 'Creator split successfully',
         newCreators: targetCreators,
@@ -868,8 +864,8 @@ router.put(
         }
       ],
     });
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    elasticsearchService.reindexByCreatorId(parseInt(id));
+    // Elasticsearch: CDC projectors (creators / creator_aliases).
+
     return res.json(updatedCreator);
   } catch (error) {
     await safeTransactionRollback(transaction);
