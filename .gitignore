@@ -154,6 +154,7 @@ __pycache__/
 *.selftest.ts
 docs
 *.md
+*.exe
 
 # ts builds
 build/

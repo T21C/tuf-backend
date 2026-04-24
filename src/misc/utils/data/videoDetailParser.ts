@@ -286,4 +286,10 @@ function isoToEmoji(code: string): string | null {
   return match ? match[1] : null;
 }
 
-export {getYouTubeVideoDetails, getDriveFromYt, isoToEmoji, getVideoDetails};
+export {
+  getYouTubeVideoDetails,
+  getBilibiliVideoDetails,
+  getDriveFromYt,
+  isoToEmoji,
+  getVideoDetails,
+};

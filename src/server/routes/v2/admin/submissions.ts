@@ -48,6 +48,7 @@ import EvidenceService from '@/server/services/data/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
+import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -912,6 +913,13 @@ router.put(
           }
         }
 
+        const levelCreatedAtFromVideo = await resolveLevelCreatedAtFromVideoLink(submission.videoLink);
+        if (!levelCreatedAtFromVideo) {
+          logger.debug('Level submission approve: no video upload timestamp from getVideoDetails; using DB default createdAt', {
+            submissionId: id,
+            videoLinkSnippet: String(submission.videoLink ?? '').slice(0, 80),
+          });
+        }
 
         const newLevel = await Level.create(
           {
@@ -939,6 +947,7 @@ router.put(
             isHidden: false,
             teamId: teamId,
             isExternallyAvailable: false,
+            ...(levelCreatedAtFromVideo ? {createdAt: levelCreatedAtFromVideo} : {}),
           },
           {transaction},
         );
