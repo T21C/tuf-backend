@@ -75,7 +75,6 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
     user: serializeUser(input.user ?? null),
 
-    chartsCreated: coerceNumber(stats?.chartsCreated, 0),
     chartsCharted: coerceNumber(stats?.chartsCharted, 0),
     chartsVfxed: coerceNumber(stats?.chartsVfxed, 0),
     chartsTeamed: coerceNumber(stats?.chartsTeamed, 0),

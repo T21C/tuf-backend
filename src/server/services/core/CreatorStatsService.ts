@@ -11,7 +11,6 @@ import { logger } from '@/server/services/core/LoggerService.js';
 const RECENT_LEVELS_LIMIT = 5;
 
 const ZERO_STATS: Omit<CreatorStatsRow, 'id'> = {
-  chartsCreated: 0,
   chartsCharted: 0,
   chartsVfxed: 0,
   chartsTeamed: 0,
@@ -51,7 +50,7 @@ export class CreatorStatsService {
   }
 
   /**
-   * Compute the seven-counter stats block for a single creator.
+   * Compute the stats block for a single creator.
    * Returns the zero block when the creator has no credits.
    */
   public async getCreatorStats(creatorId: number): Promise<Omit<CreatorStatsRow, 'id'>> {

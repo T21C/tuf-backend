@@ -12,6 +12,53 @@ const passesSequelize = getSequelizeForModelGroup('passes');
 const creditsSequelize = getSequelizeForModelGroup('credits');
 const curationsSequelize = getSequelizeForModelGroup('curations');
 
+/** Level is one of this creator's credited charts (charter or vfxer). */
+const sqlCreatorCreditedLevelFilter = `c.levelId IN (
+  SELECT lc.levelId FROM level_credits lc
+  WHERE lc.creatorId = :creatorId
+    AND lc.role IN ('charter', 'vfxer')
+)`;
+
+/**
+ * C/O tags count only if creator is charter on the level; V tags only if vfxer;
+ * H and other patterns use the historical / fallback rules (see curation header chips).
+ */
+const sqlCurationTypeRowEligibleForCreator = `(
+  (
+    TRIM(ct.name) REGEXP '^[CcOo][0-9]*$'
+    AND EXISTS (
+      SELECT 1 FROM level_credits lc2
+      WHERE lc2.levelId = c.levelId
+        AND lc2.creatorId = :creatorId
+        AND lc2.role = 'charter'
+    )
+  )
+  OR (
+    TRIM(ct.name) REGEXP '^[Vv][0-9]*$'
+    AND EXISTS (
+      SELECT 1 FROM level_credits lc2
+      WHERE lc2.levelId = c.levelId
+        AND lc2.creatorId = :creatorId
+        AND lc2.role = 'vfxer'
+    )
+  )
+  OR TRIM(ct.name) REGEXP '^[Hh][0-9]*$'
+  OR (
+    TRIM(ct.name) NOT REGEXP '^[CcOo][0-9]*$'
+    AND TRIM(ct.name) NOT REGEXP '^[Vv][0-9]*$'
+    AND TRIM(ct.name) NOT REGEXP '^[Hh][0-9]*$'
+  )
+)`;
+
+const sqlCreatorCurationTypedLevelsFrom = `
+  FROM curations c
+  INNER JOIN curation_curation_types cct ON c.id = cct.curationId
+  INNER JOIN levels l ON l.id = c.levelId AND IFNULL(l.isDeleted, 0) = 0
+  INNER JOIN curation_types ct ON ct.id = cct.typeId
+  WHERE ${sqlCreatorCreditedLevelFilter}
+  AND ${sqlCurationTypeRowEligibleForCreator}
+`;
+
 function toIso(d: unknown): string | null {
   if (!d) return null;
   if (d instanceof Date && !Number.isNaN(d.getTime())) return d.toISOString();
@@ -26,8 +73,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       levelsCreditedDistinct: 0,
       levelsAsCharter: 0,
       levelsAsVfxer: 0,
-      levelsAsCreator: 0,
-      levelsAsTeamMember: 0,
+      levelsOnAssignedTeam: 0,
       levelsOwned: 0,
     },
     content: {
@@ -75,6 +121,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       FROM level_credits lc
       INNER JOIN levels l ON l.id = lc.levelId AND l.isDeleted = 0
       WHERE lc.creatorId = :creatorId
+        AND lc.role IN ('charter', 'vfxer')
       GROUP BY l.id
     ) x
   `;
@@ -84,12 +131,20 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       COUNT(DISTINCT lc.levelId) AS levelsCreditedDistinct,
       COUNT(DISTINCT CASE WHEN lc.role = 'charter' THEN lc.levelId END) AS levelsAsCharter,
       COUNT(DISTINCT CASE WHEN lc.role = 'vfxer' THEN lc.levelId END) AS levelsAsVfxer,
-      COUNT(DISTINCT CASE WHEN lc.role = 'creator' THEN lc.levelId END) AS levelsAsCreator,
-      COUNT(DISTINCT CASE WHEN lc.role = 'team_member' THEN lc.levelId END) AS levelsAsTeamMember,
+      (
+        SELECT COUNT(DISTINCT lc2.levelId)
+        FROM level_credits lc2
+        INNER JOIN levels l2 ON l2.id = lc2.levelId AND l2.isDeleted = 0
+          AND l2.teamId IS NOT NULL
+        INNER JOIN team_members tm ON tm.teamId = l2.teamId AND tm.creatorId = lc2.creatorId
+        WHERE lc2.creatorId = :creatorId
+          AND lc2.role IN ('charter', 'vfxer')
+      ) AS levelsOnAssignedTeam,
       COUNT(DISTINCT CASE WHEN lc.isOwner = 1 THEN lc.levelId END) AS levelsOwned
     FROM level_credits lc
     INNER JOIN levels l ON l.id = lc.levelId AND l.isDeleted = 0
     WHERE lc.creatorId = :creatorId
+      AND lc.role IN ('charter', 'vfxer')
   `;
 
   const diffSql = `
@@ -98,6 +153,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
     INNER JOIN levels l ON l.id = lc.levelId AND l.isDeleted = 0
     INNER JOIN difficulties d ON d.id = l.diffId
     WHERE lc.creatorId = :creatorId
+      AND lc.role IN ('charter', 'vfxer')
     GROUP BY l.diffId, d.type
   `;
 
@@ -118,6 +174,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
         FROM level_credits lc
         INNER JOIN levels lv ON lv.id = lc.levelId AND lv.isDeleted = 0
         WHERE lc.creatorId = :creatorId
+          AND lc.role IN ('charter', 'vfxer')
       )
   `;
 
@@ -129,14 +186,11 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       FROM level_credits lc
       INNER JOIN levels lv ON lv.id = lc.levelId AND lv.isDeleted = 0
       WHERE lc.creatorId = :creatorId
+        AND lc.role IN ('charter', 'vfxer')
     )
   `;
 
-  const curationSql = `
-    SELECT COUNT(*) AS c
-    FROM curations c
-    WHERE c.assignedBy = (SELECT userId FROM creators WHERE id = :creatorId LIMIT 1)
-  `;
+  const levelsWithCurationTypesSql = `SELECT COUNT(DISTINCT c.levelId) AS c ${sqlCreatorCurationTypedLevelsFrom}`;
 
   const aliasSql = `SELECT COUNT(*) AS c FROM creator_aliases WHERE creatorId = :creatorId`;
   const teamSql = `SELECT COUNT(*) AS c FROM team_members WHERE creatorId = :creatorId`;
@@ -171,7 +225,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       replacements: {creatorId},
       type: QueryTypes.SELECT,
     }) as Promise<Array<Record<string, unknown>>>,
-    curationsSequelize.query(curationSql, {
+    curationsSequelize.query(levelsWithCurationTypesSql, {
       replacements: {creatorId},
       type: QueryTypes.SELECT,
     }) as Promise<Array<Record<string, unknown>>>,
@@ -210,8 +264,7 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
       levelsCreditedDistinct: Number(cr.levelsCreditedDistinct) || 0,
       levelsAsCharter: Number(cr.levelsAsCharter) || 0,
       levelsAsVfxer: Number(cr.levelsAsVfxer) || 0,
-      levelsAsCreator: Number(cr.levelsAsCreator) || 0,
-      levelsAsTeamMember: Number(cr.levelsAsTeamMember) || 0,
+      levelsOnAssignedTeam: Number(cr.levelsOnAssignedTeam) || 0,
       levelsOwned: Number(cr.levelsOwned) || 0,
     },
     content: {
@@ -244,47 +297,11 @@ export async function computeCreatorFunFacts(creatorId: number): Promise<Creator
 
 /**
  * Count distinct levels (per curation type) where the creator is credited.
- * Chart-style tags (names starting with C or O) only count if this creator is
- * a charter on that level; VFX tiers (V…) only if they are a vfxer. H…
- * (historical) and any other naming pattern keep the previous rule (any
- * credit on the level).
+ * Eligibility matches {@link sqlCurationTypeRowEligibleForCreator}.
  */
 const creatorCurationTypeCountsSql = `
   SELECT cct.typeId AS typeId, COUNT(DISTINCT c.levelId) AS cnt
-  FROM curation_curation_types cct
-  INNER JOIN curations c ON c.id = cct.curationId
-  INNER JOIN levels l ON l.id = c.levelId AND IFNULL(l.isDeleted, 0) = 0
-  INNER JOIN curation_types ct ON ct.id = cct.typeId
-  WHERE c.levelId IN (
-    SELECT lc.levelId FROM level_credits lc
-    WHERE lc.creatorId = :creatorId
-  )
-  AND (
-    (
-      TRIM(ct.name) REGEXP '^[CcOo][0-9]*$'
-      AND EXISTS (
-        SELECT 1 FROM level_credits lc2
-        WHERE lc2.levelId = c.levelId
-          AND lc2.creatorId = :creatorId
-          AND lc2.role = 'charter'
-      )
-    )
-    OR (
-      TRIM(ct.name) REGEXP '^[Vv][0-9]*$'
-      AND EXISTS (
-        SELECT 1 FROM level_credits lc2
-        WHERE lc2.levelId = c.levelId
-          AND lc2.creatorId = :creatorId
-          AND lc2.role = 'vfxer'
-      )
-    )
-    OR TRIM(ct.name) REGEXP '^[Hh][0-9]*$'
-    OR (
-      TRIM(ct.name) NOT REGEXP '^[CcOo][0-9]*$'
-      AND TRIM(ct.name) NOT REGEXP '^[Vv][0-9]*$'
-      AND TRIM(ct.name) NOT REGEXP '^[Hh][0-9]*$'
-    )
-  )
+  ${sqlCreatorCurationTypedLevelsFrom}
   GROUP BY cct.typeId
 `;
 

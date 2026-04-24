@@ -697,7 +697,6 @@ export const creatorMapping = {
         },
       },
       // Aggregated stats (per-role chart counts + denormalized totals)
-      chartsCreated: { type: 'integer' as const },
       chartsCharted: { type: 'integer' as const },
       chartsVfxed: { type: 'integer' as const },
       chartsTeamed: { type: 'integer' as const },
@@ -779,11 +778,12 @@ const playerMappingHashPayload = {
  *
  * History:
  *   1 — initial release
+ *   2 — creator index mapping / document field set
  */
 const creatorMappingHashPayload = {
   settings: creatorMapping.settings,
   mappings: creatorMapping.mappings,
-  indexerVersion: 1,
+  indexerVersion: 2,
 };
 
 const levelMappingHashPath = path.join(process.cwd(), 'mapping-hash-levels.json');

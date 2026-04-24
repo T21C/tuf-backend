@@ -440,7 +440,6 @@ router.get(
                     playerId: enriched.user.playerId ?? null,
                   }
                 : null,
-              chartsCreated: enriched.stats.chartsCreated,
               chartsCharted: enriched.stats.chartsCharted,
               chartsVfxed: enriched.stats.chartsVfxed,
               chartsTeamed: enriched.stats.chartsTeamed,
@@ -488,7 +487,7 @@ router.get(
         : [];
 
       return res.json({
-        ...responseDoc,
+        ...(responseDoc as Record<string, unknown>),
         recentLevelIds,
         funFacts,
         curationTypeCounts,

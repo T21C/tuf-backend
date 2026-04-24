@@ -5,10 +5,8 @@ import { getSequelizeForModelGroup } from '@/config/db.js';
 const sequelize = getSequelizeForModelGroup('levels');
 
 export enum CreditRole {
-  CREATOR = 'creator',
   CHARTER = 'charter',
   VFXER = 'vfxer',
-  TEAM_MEMBER = 'team_member',
 }
 
 class LevelCredit extends Model {

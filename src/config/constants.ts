@@ -44,7 +44,6 @@ export const validSortOptions = [
 export const validCreatorSortOptions = [
   'name',
   'chartsTotal',
-  'chartsCreated',
   'chartsCharted',
   'chartsVfxed',
   'chartsTeamed',

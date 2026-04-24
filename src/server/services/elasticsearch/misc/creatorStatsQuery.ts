@@ -10,11 +10,11 @@ import { QueryTypes } from 'sequelize';
  * - CreatorStatsService (read-on-demand for the creator profile endpoint)
  *
  * Counters returned per creator:
- *   - chartsCreated      — # of (creator-role)  level credits
  *   - chartsCharted      — # of (charter-role)  level credits
  *   - chartsVfxed        — # of (vfxer-role)    level credits
- *   - chartsTeamed       — # of (team_member)   level credits
- *   - chartsTotal        — # of distinct levels the creator is credited on (any role)
+ *   - chartsTeamed       — distinct levels with `levels.teamId` set where this creator has a
+ *                          charter/vfx credit and a matching `team_members` row for that team
+ *   - chartsTotal        — # of distinct levels the creator is credited on
  *   - totalChartClears   — SUM(levels.clears)   over those distinct levels
  *   - totalChartLikes    — SUM(levels.likes)    over those distinct levels
  *
@@ -35,16 +35,28 @@ export const creatorStatsQuery = `
     JOIN levels l ON l.id = lc.levelId
     WHERE lc.creatorId IN (:creatorIds)
       AND l.isDeleted = 0
+      AND lc.role IN ('charter', 'vfxer')
   ),
   RoleCounts AS (
     SELECT
       cl.creatorId,
-      SUM(CASE WHEN cl.role = 'creator'      THEN 1 ELSE 0 END) AS chartsCreated,
-      SUM(CASE WHEN cl.role = 'charter'      THEN 1 ELSE 0 END) AS chartsCharted,
-      SUM(CASE WHEN cl.role = 'vfxer'        THEN 1 ELSE 0 END) AS chartsVfxed,
-      SUM(CASE WHEN cl.role = 'team_member'  THEN 1 ELSE 0 END) AS chartsTeamed
+      SUM(CASE WHEN cl.role = 'charter' THEN 1 ELSE 0 END) AS chartsCharted,
+      SUM(CASE WHEN cl.role = 'vfxer' THEN 1 ELSE 0 END) AS chartsVfxed
     FROM CreditedLevels cl
     GROUP BY cl.creatorId
+  ),
+  TeamLevelCounts AS (
+    SELECT
+      lc.creatorId,
+      COUNT(DISTINCT lc.levelId) AS chartsTeamed
+    FROM level_credits lc
+    JOIN levels l ON l.id = lc.levelId
+      AND l.isDeleted = 0
+      AND l.teamId IS NOT NULL
+    INNER JOIN team_members tm ON tm.teamId = l.teamId AND tm.creatorId = lc.creatorId
+    WHERE lc.creatorId IN (:creatorIds)
+      AND lc.role IN ('charter', 'vfxer')
+    GROUP BY lc.creatorId
   ),
   DistinctLevelTotals AS (
     SELECT
@@ -65,20 +77,19 @@ export const creatorStatsQuery = `
   )
   SELECT
     rc.creatorId AS id,
-    COALESCE(rc.chartsCreated, 0)      AS chartsCreated,
     COALESCE(rc.chartsCharted, 0)      AS chartsCharted,
     COALESCE(rc.chartsVfxed, 0)        AS chartsVfxed,
-    COALESCE(rc.chartsTeamed, 0)       AS chartsTeamed,
+    COALESCE(tlc.chartsTeamed, 0)      AS chartsTeamed,
     COALESCE(dlt.chartsTotal, 0)       AS chartsTotal,
     COALESCE(dlt.totalChartClears, 0)  AS totalChartClears,
     COALESCE(dlt.totalChartLikes, 0)   AS totalChartLikes
   FROM RoleCounts rc
   LEFT JOIN DistinctLevelTotals dlt ON dlt.creatorId = rc.creatorId
+  LEFT JOIN TeamLevelCounts tlc ON tlc.creatorId = rc.creatorId
 `;
 
 export interface CreatorStatsRow {
   id: number;
-  chartsCreated: number;
   chartsCharted: number;
   chartsVfxed: number;
   chartsTeamed: number;
@@ -112,7 +123,6 @@ export async function runCreatorStatsQuery(
 
   return rows.map((row) => ({
     id: Number(row.id) || 0,
-    chartsCreated: Number(row.chartsCreated) || 0,
     chartsCharted: Number(row.chartsCharted) || 0,
     chartsVfxed: Number(row.chartsVfxed) || 0,
     chartsTeamed: Number(row.chartsTeamed) || 0,

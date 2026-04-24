@@ -88,8 +88,7 @@ export interface CreatorFunFactsCredits {
   levelsCreditedDistinct: number;
   levelsAsCharter: number;
   levelsAsVfxer: number;
-  levelsAsCreator: number;
-  levelsAsTeamMember: number;
+  levelsOnAssignedTeam: number;
   levelsOwned: number;
 }
 
@@ -111,6 +110,11 @@ export interface CreatorFunFactsAudience {
 }
 
 export interface CreatorFunFactsCuration {
+  /**
+   * Distinct levels credited to this creator (charter/vfxer) that carry at least
+   * one curation type row matching the same eligibility rules as profile
+   * `curationTypeCounts` (C/O vs charter, V vs vfxer, H/other).
+   */
   curatedLevels: number;
   rerateCount: number;
 }

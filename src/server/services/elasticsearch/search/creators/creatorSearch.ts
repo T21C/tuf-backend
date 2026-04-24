@@ -34,7 +34,6 @@ export interface CreatorSearchResult {
 
 const CREATOR_SORT_FIELD_MAP: Record<string, string> = {
   chartsTotal: 'chartsTotal',
-  chartsCreated: 'chartsCreated',
   chartsCharted: 'chartsCharted',
   chartsVfxed: 'chartsVfxed',
   chartsTeamed: 'chartsTeamed',
@@ -46,7 +45,6 @@ const CREATOR_SORT_FIELD_MAP: Record<string, string> = {
 
 const NUMERIC_FILTER_FIELDS = new Set([
   'chartsTotal',
-  'chartsCreated',
   'chartsCharted',
   'chartsVfxed',
   'chartsTeamed',
@@ -260,7 +258,6 @@ export async function getCreatorMaxFields(): Promise<Record<string, number>> {
       track_total_hits: false,
       aggs: {
         maxChartsTotal: { max: { field: 'chartsTotal' } },
-        maxChartsCreated: { max: { field: 'chartsCreated' } },
         maxChartsCharted: { max: { field: 'chartsCharted' } },
         maxChartsVfxed: { max: { field: 'chartsVfxed' } },
         maxChartsTeamed: { max: { field: 'chartsTeamed' } },
