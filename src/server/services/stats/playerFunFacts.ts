@@ -49,7 +49,6 @@ export async function computePlayerFunFacts(
     },
     levelsCleared: {
       totalTilecountCleared: 0,
-      totalLevelLengthMs: 0,
       totalPlaytimeMs: 0,
       averageBpm: 0,
       totalScoreV2: 0,
@@ -103,7 +102,6 @@ export async function computePlayerFunFacts(
         j.earlyDouble + j.earlySingle + j.ePerfect + j.perfect + j.lPerfect + j.lateSingle + j.lateDouble
       ), 0) AS totalTilesHit,
       COALESCE(SUM(IFNULL(l.tilecount, 0)), 0) AS totalTilecountCleared,
-      COALESCE(SUM(IFNULL(l.levelLengthInMs, 0)), 0) AS totalLevelLengthMs,
       COALESCE(SUM(
         CASE
           WHEN p.speed IS NOT NULL AND p.speed > 0 AND l.levelLengthInMs IS NOT NULL
@@ -360,7 +358,6 @@ export async function computePlayerFunFacts(
     },
     levelsCleared: {
       totalTilecountCleared: Number(m.totalTilecountCleared) || 0,
-      totalLevelLengthMs: Number(m.totalLevelLengthMs) || 0,
       totalPlaytimeMs: Number(m.totalPlaytimeMs) || 0,
       averageBpm: Number(m.averageBpm) || 0,
       totalScoreV2: Number(m.totalScoreV2) || 0,

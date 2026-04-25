@@ -29,7 +29,6 @@ export interface PlayerFunFactsJudgements {
 
 export interface PlayerFunFactsLevelsCleared {
   totalTilecountCleared: number;
-  totalLevelLengthMs: number;
   totalPlaytimeMs: number;
   averageBpm: number;
   totalScoreV2: number;
