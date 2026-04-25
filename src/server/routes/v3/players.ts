@@ -16,8 +16,10 @@ import {
   PlayerSearchOptions,
 } from '@/server/services/elasticsearch/search/players/playerSearch.js';
 import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js';
+import { computePlayerFunFacts } from '@/server/services/stats/playerFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import Player from '@/models/players/Player.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -287,30 +289,129 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched] = await Promise.all([
+      const [ranks, enriched, funFacts, playerRow] = await Promise.all([
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
+        computePlayerFunFacts(id, {includeHidden: isOwnProfile}),
+        Player.findByPk(id, { attributes: ['bannerPreset', 'customBannerId', 'customBannerUrl'] }),
       ]);
 
+      // `passes` is intentionally not forwarded here — the list is huge
+      // (level/credits/judgements/difficulty all joined in) and is now
+      // fetched lazily by the client via GET /v3/players/:id/passes.
       const plainEnriched = enriched
         ? {
-            passes: enriched.passes,
             topScores: enriched.topScores?.map((s: any) => (s?.get ? s.get({ plain: true }) : s)),
             potentialTopScores: enriched.potentialTopScores?.map((s: any) =>
               s?.get ? s.get({ plain: true }) : s,
             ),
           }
-        : { passes: [], topScores: [], potentialTopScores: [] };
+        : { topScores: [], potentialTopScores: [] };
+
+      const bannerPatch = playerRow
+        ? {
+            bannerPreset: playerRow.bannerPreset ?? null,
+            customBannerId: playerRow.customBannerId ?? null,
+            customBannerUrl: playerRow.customBannerUrl ?? null,
+          }
+        : {};
 
       return res.json({
         ...doc,
+        ...bannerPatch,
         ...ranks,
         ...plainEnriched,
+        funFacts,
       });
     } catch (error) {
       logger.error('[v3 /players/:id/profile] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch player profile',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+/**
+ * Paginated passes list for a player. Split out from `/profile` because the
+ * payload is large — levels, credits, judgements, and difficulty are all
+ * joined in — and clients want to render the profile header and fun facts
+ * immediately while passes stream in via infinite scroll.
+ *
+ * Server-side sort/search lets the client page through thousands of passes
+ * without ever loading the whole dataset. Hidden passes are revealed only to
+ * the owning caller, and only when they explicitly opt in via `showHidden`.
+ *
+ * Query: limit (<=100), offset, sortBy (score|speed|date|xacc|difficulty),
+ *        order (ASC|DESC), query (free text), showHidden (true|false).
+ *        sortBy `impact` matches ranked-score contribution weights used for
+ *        profile topScores / potentialTopScores (best pass per level, then
+ *        score * 0.9^(rank-1) within the top 20 of each list).
+ */
+const PASSES_SORT_BY_VALUES = ['score', 'speed', 'date', 'xacc', 'difficulty', 'impact'] as const;
+type PassesSortBy = (typeof PASSES_SORT_BY_VALUES)[number];
+
+router.get(
+  '/:id([0-9]{1,20})/passes',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3GetPlayerPasses',
+    summary: 'Get player passes (v3)',
+    description:
+      "Paginated list of a player's passes (trimmed to just what the profile UI needs). Hidden passes are included only when the caller owns the profile and passes `showHidden=true`.",
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    query: {
+      limit: { schema: { type: 'string' } },
+      offset: { schema: { type: 'string' } },
+      sortBy: { schema: { type: 'string', enum: PASSES_SORT_BY_VALUES as unknown as string[] } },
+      order: { schema: { type: 'string', enum: ['ASC', 'DESC'] } },
+      query: { schema: { type: 'string' } },
+      showHidden: { schema: { type: 'string' } },
+    },
+    responses: {
+      200: { description: 'Player passes (paginated)' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid player id' });
+      }
+
+      const player = await elasticsearchService.getPlayerDocumentById(id);
+      if (!player) return res.status(404).json({ error: 'Player not found' });
+
+      const user = req.user;
+
+      const limit = parseLimit(req.query.limit, 50);
+      const offset = parseOffset(req.query.offset);
+      const rawSort = typeof req.query.sortBy === 'string' ? req.query.sortBy : '';
+      const sortBy: PassesSortBy = (PASSES_SORT_BY_VALUES as readonly string[]).includes(rawSort)
+        ? (rawSort as PassesSortBy)
+        : 'score';
+      const order = String(req.query.order || '').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      const query = typeof req.query.query === 'string' ? req.query.query : '';
+      const showHidden = String(req.query.showHidden || '').toLowerCase() === 'true';
+
+      const { total, passes } = await playerStatsService.getPlayerPasses(id, user, {
+        limit,
+        offset,
+        sortBy,
+        order,
+        query,
+        showHidden,
+      });
+
+      return res.json({ total, passes, limit, offset });
+    } catch (error) {
+      logger.error('[v3 /players/:id/passes] failure', error);
+      return res.status(500).json({
+        error: 'Failed to fetch player passes',
         details: error instanceof Error ? error.message : String(error),
       });
     }

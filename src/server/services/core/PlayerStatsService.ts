@@ -43,7 +43,7 @@ type EnrichedPlayer = IPlayer & {
     creator?: {
       id: number;
       name: string;
-      isVerified: boolean;
+      verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
     } | null;
   } | null;
 }
@@ -358,7 +358,7 @@ export class PlayerStatsService {
                   {
                     model: Creator,
                     as: 'creator',
-                    attributes: ['id', 'name', 'isVerified'],
+                    attributes: ['id', 'name', 'verificationStatus'],
                     required: false,
                   }
                 ]
@@ -605,7 +605,7 @@ export class PlayerStatsService {
         {
           model: Creator,
           as: 'creator',
-          attributes: ['id', 'name', 'isVerified'],
+          attributes: ['id', 'name', 'verificationStatus'],
           required: false,
         },
       ],
@@ -702,7 +702,7 @@ export class PlayerStatsService {
             creator: userData.creator ? {
               id: userData.creator.id,
               name: userData.creator.name,
-              isVerified: userData.creator.isVerified
+              verificationStatus: userData.creator.verificationStatus
             } : null
           } : null,
           rankedScore: stats?.rankedScore || 0,
@@ -725,4 +725,292 @@ export class PlayerStatsService {
           stats
     } as unknown as EnrichedPlayer
     }
+  
+
+  /**
+   * Fetch a page of a player's passes.
+   *
+   * Split out from `getEnrichedPlayer` so profile responses stay small — the
+   * full list can be thousands of rows with levels/credits/judgements joined
+   * in. Sorting, filtering and searching are handled server-side so the
+   * client can paginate via `InfiniteScroll` without needing the entire
+   * dataset in memory.
+   *
+   * Hidden passes are only visible to the owning user, and only if they
+   * opt in via `showHidden`.
+   */
+  public async getPlayerPasses(
+    playerId: number,
+    user: any | undefined,
+    opts: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'score' | 'speed' | 'date' | 'xacc' | 'difficulty' | 'impact';
+      order?: 'ASC' | 'DESC';
+      query?: string;
+      showHidden?: boolean;
+    } = {},
+  ): Promise<{ total: number; passes: Pass[] }> {
+    const limit = Math.min(100, Math.max(1, Math.floor(opts.limit ?? 50)));
+    const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+    const order = opts.order === 'ASC' ? 'ASC' : 'DESC';
+    const sortBy = opts.sortBy ?? 'score';
+
+    const isOwnProfile = Boolean(user && user.playerId && user.playerId === playerId);
+    const includeHiddenPasses = isOwnProfile && opts.showHidden === true;
+
+    // --- Phase 1: resolve ordered pass ids + total count via raw SQL. ---
+    //
+    // Sequelize's `findAndCountAll` with many-to-many includes (levelCredits)
+    // either over-counts rows or applies LIMIT after the join flattening,
+    // producing fewer than `limit` unique passes per page. Running a tight,
+    // hand-written SQL query for pagination sidesteps that entirely; we
+    // follow up with a normal Sequelize query keyed on `id IN (...)` to
+    // hydrate the full object tree.
+    const dir = order;
+    const inv = order === 'DESC' ? 'ASC' : 'DESC';
+    const filterClauses: string[] = [
+      'p.playerId = :playerId',
+      'IFNULL(p.isDeleted, 0) = 0',
+      'IFNULL(l.isDeleted, 0) = 0',
+    ];
+    if (!includeHiddenPasses) {
+      filterClauses.push('IFNULL(p.isHidden, 0) = 0');
+    }
+
+    const replacements: Record<string, unknown> = {
+      playerId,
+      includeHidden: includeHiddenPasses ? 1 : 0,
+    };
+    const rawQuery = typeof opts.query === 'string' ? opts.query.trim() : '';
+    let searchJoinSql = '';
+    if (rawQuery.length > 0) {
+      const like = `%${escapeForMySQL(rawQuery).toLowerCase()}%`;
+      replacements.search = like;
+      searchJoinSql = `
+        LEFT JOIN teams tm ON tm.id = l.teamId
+        LEFT JOIN level_credits lc ON lc.levelId = l.id
+        LEFT JOIN creators cr ON cr.id = lc.creatorId
+      `;
+      filterClauses.push(`(
+        LOWER(l.song) LIKE :search
+        OR LOWER(l.artist) LIKE :search
+        OR LOWER(IFNULL(tm.name, '')) LIKE :search
+        OR LOWER(IFNULL(d.name, '')) LIKE :search
+        OR LOWER(IFNULL(cr.name, '')) LIKE :search
+      )`);
+    }
+
+    let orderSql: string;
+    switch (sortBy) {
+      case 'speed':
+        orderSql = `p.speed ${dir}, p.scoreV2 ${dir}, p.id DESC`;
+        break;
+      case 'date':
+        orderSql = `p.vidUploadTime ${dir}, p.id DESC`;
+        break;
+      case 'xacc':
+        orderSql = `j.accuracy ${dir}, p.scoreV2 ${dir}, p.id DESC`;
+        break;
+      case 'difficulty':
+        orderSql = `
+          CASE WHEN d.type = 'PGU' THEN 0 ELSE 1 END ${inv},
+          d.sortOrder ${dir},
+          COALESCE(l.baseScore, d.baseScore, 0) ${inv},
+          p.id DESC
+        `;
+        break;
+      case 'impact':
+        // Mirrors `getEnrichedPlayer` topScores / potentialTopScores: best
+        // non-duplicate pass per level, then scoreV2 * 0.9^(rank-1) for the
+        // top 20 of the stricter list (level available) or else the potential list.
+        orderSql = `ic.sort_impact ${dir}, p.scoreV2 ${dir}, p.id DESC`;
+        break;
+      case 'score':
+      default:
+        orderSql = `p.scoreV2 ${dir}, p.id DESC`;
+        break;
+    }
+
+    const baseFrom = `
+      FROM passes p
+      INNER JOIN levels l ON l.id = p.levelId
+      LEFT JOIN difficulties d ON d.id = l.diffId
+      LEFT JOIN judgements j ON j.id = p.id
+      ${searchJoinSql}
+      WHERE ${filterClauses.join(' AND ')}
+    `;
+
+    const impactSortCte = `
+WITH base AS (
+  SELECT p.id, p.levelId, p.scoreV2, p.isDuplicate,
+    ROW_NUMBER() OVER (PARTITION BY p.levelId ORDER BY p.scoreV2 DESC, p.id DESC) AS rn_level
+  FROM passes p
+  INNER JOIN levels l ON l.id = p.levelId AND IFNULL(l.isDeleted, 0) = 0
+  WHERE p.playerId = :playerId
+    AND IFNULL(p.isDeleted, 0) = 0
+    AND (:includeHidden = 1 OR IFNULL(p.isHidden, 0) = 0)
+),
+uniq AS (
+  SELECT b.id, b.scoreV2,
+    IFNULL(l.isExternallyAvailable, 0) AS ext_avail,
+    IFNULL(l.dlLink, '') AS dl_link,
+    IFNULL(l.workshopLink, '') AS ws_link
+  FROM base b
+  INNER JOIN levels l ON l.id = b.levelId
+  WHERE b.rn_level = 1 AND IFNULL(b.isDuplicate, 0) = 0
+),
+top_ranked AS (
+  SELECT id, scoreV2,
+    ROW_NUMBER() OVER (ORDER BY scoreV2 DESC, id DESC) AS rnk
+  FROM uniq
+  WHERE ext_avail = 1 OR TRIM(dl_link) != '' OR TRIM(ws_link) != ''
+),
+top_impact AS (
+  SELECT id, (scoreV2 * POW(0.9, rnk - 1)) AS impact_val
+  FROM top_ranked
+  WHERE rnk <= 20
+),
+pot_ranked AS (
+  SELECT id, scoreV2,
+    ROW_NUMBER() OVER (ORDER BY scoreV2 DESC, id DESC) AS rnk
+  FROM uniq
+),
+pot_impact AS (
+  SELECT id, (scoreV2 * POW(0.9, rnk - 1)) AS impact_val
+  FROM pot_ranked
+  WHERE rnk <= 20
+),
+impact_calc AS (
+  SELECT p.id AS pass_id,
+    COALESCE(ti.impact_val, pi.impact_val, 0) AS sort_impact
+  FROM passes p
+  LEFT JOIN top_impact ti ON ti.id = p.id
+  LEFT JOIN pot_impact pi ON pi.id = p.id AND ti.id IS NULL
+  WHERE p.playerId = :playerId
+    AND IFNULL(p.isDeleted, 0) = 0
+    AND (:includeHidden = 1 OR IFNULL(p.isHidden, 0) = 0)
+)
+`;
+
+    const idFrom =
+      sortBy === 'impact'
+        ? `
+      FROM passes p
+      INNER JOIN levels l ON l.id = p.levelId
+      LEFT JOIN difficulties d ON d.id = l.diffId
+      LEFT JOIN judgements j ON j.id = p.id
+      INNER JOIN impact_calc ic ON ic.pass_id = p.id
+      ${searchJoinSql}
+      WHERE ${filterClauses.join(' AND ')}
+    `
+        : baseFrom;
+
+    const groupByCols = sortBy === 'impact' ? 'p.id, ic.sort_impact' : 'p.id';
+
+    // DISTINCT p.id + COUNT on the outer select keeps the counts right even
+    // when the search join fans out via level_credits.
+    const idSql = `
+      ${sortBy === 'impact' ? impactSortCte : ''}
+      SELECT p.id AS id
+      ${idFrom}
+      GROUP BY ${groupByCols}
+      ORDER BY ${orderSql}
+      LIMIT :limit OFFSET :offset
+    `;
+    const countSql = `
+      SELECT COUNT(*) AS total FROM (
+        SELECT p.id ${baseFrom} GROUP BY p.id
+      ) AS t
+    `;
+
+    const [idRows, countRows] = await Promise.all([
+      sequelize.query(idSql, {
+        replacements: { ...replacements, limit, offset },
+        type: QueryTypes.SELECT,
+      }) as Promise<Array<{ id: number }>>,
+      sequelize.query(countSql, {
+        replacements,
+        type: QueryTypes.SELECT,
+      }) as Promise<Array<{ total: number }>>,
+    ]);
+
+    const total = Number(countRows[0]?.total) || 0;
+    const orderedIds = idRows.map(r => Number(r.id)).filter(Number.isFinite);
+    if (orderedIds.length === 0) {
+      return { total, passes: [] };
+    }
+
+    // --- Phase 2: hydrate the trimmed attribute tree for those ids. ---
+    const passAttributes = [
+      'id',
+      'levelId',
+      'scoreV2',
+      'accuracy',
+      'speed',
+      'vidUploadTime',
+      'videoLink',
+      'isHidden',
+      'isWorldsFirst',
+      'isDuplicate',
+    ];
+    const levelAttributes = ['id', 'song', 'artist', 'diffId', 'baseScore', 'isHidden'];
+    const judgementAttributes = [
+      'id',
+      'earlyDouble',
+      'earlySingle',
+      'ePerfect',
+      'perfect',
+      'lPerfect',
+      'lateSingle',
+    ];
+
+    const fetched = await Pass.findAll({
+      where: { id: { [Op.in]: orderedIds } },
+      attributes: passAttributes,
+      include: [
+        {
+          model: Level,
+          as: 'level',
+          attributes: levelAttributes,
+          include: [
+            {
+              model: Difficulty,
+              as: 'difficulty',
+              attributes: ['id', 'name', 'type', 'sortOrder', 'baseScore'],
+            },
+            {
+              model: LevelCredit,
+              as: 'levelCredits',
+              attributes: ['role'],
+              required: false,
+              include: [
+                {
+                  model: Creator,
+                  as: 'creator',
+                  attributes: ['name'],
+                  required: false,
+                },
+              ],
+            },
+          ],
+        },
+        {
+          model: Judgement,
+          as: 'judgements',
+          attributes: judgementAttributes,
+          required: false,
+        },
+      ],
+    });
+
+    // Re-order to match phase-1 ordering (id IN (...) does not preserve order).
+    const byId = new Map<number, Pass>();
+    for (const p of fetched) byId.set((p as any).id, p);
+    const passes = orderedIds
+      .map(id => byId.get(id))
+      .filter((p): p is Pass => Boolean(p));
+
+    return { total, passes };
   }
+}

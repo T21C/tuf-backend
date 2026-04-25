@@ -27,6 +27,9 @@ class Player
   declare isBanned: boolean;
   declare isSubmissionsPaused: boolean;
   declare pfp: string | null;
+  declare bannerPreset: string | null;
+  declare customBannerId: string | null;
+  declare customBannerUrl: string | null;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -69,6 +72,18 @@ Player.init(
       get() {
         return this.user?.avatarUrl || this.getDataValue('pfp') || null;
       },
+    },
+    bannerPreset: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    customBannerId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    customBannerUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     createdAt: {
       type: DataTypes.DATE,

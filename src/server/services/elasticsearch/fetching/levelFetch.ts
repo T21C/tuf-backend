@@ -163,10 +163,10 @@ export async function fetchLevelsForBulkIndex(levelIds: number[]): Promise<Level
         {
           model: Creator,
           attributes: [
-            'id', 
-            'name', 
-            'userId', 
-            'isVerified'
+            'id',
+            'name',
+            'userId',
+            'verificationStatus'
           ],
           as: 'creator',
           include: [{ model: CreatorAlias, as: 'creatorAliases', attributes: ['name'] }],

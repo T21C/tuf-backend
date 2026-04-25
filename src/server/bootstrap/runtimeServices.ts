@@ -26,17 +26,35 @@ export async function initializeRuntimeServices(): Promise<void> {
     fn: () => redis.disconnect(),
   });
 
+  if (redis.isConnected()) {
+    const { startOutboxRelay, stopOutboxRelay } = await import('@/server/services/outbox/outboxRelay.js');
+    const { startDiscordOutboxDispatcher } = await import('@/server/services/outbox/discordOutboxDispatcher.js');
+    const { OutboxRetentionService } = await import('@/server/services/outbox/OutboxRetentionService.js');
+    startOutboxRelay();
+    startDiscordOutboxDispatcher();
+    OutboxRetentionService.startScheduledRetention();
+    registerShutdownStep({
+      name: 'outbox-relay',
+      priority: 44,
+      fn: async () => {
+        stopOutboxRelay();
+      },
+    });
+  }
+
   try {
-    logger.info('Starting Async Elasticsearch initialization...');
+    logger.info('Starting Elasticsearch + CDC projectors...');
     const elasticsearchService = ElasticsearchService.getInstance();
-    // ElasticsearchService.initialize() internally detects mapping-hash drift for
-    // the players index and only triggers reindexAllPlayers() when needed, so the
-    // bootstrap never forces a full recomputation.
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    elasticsearchService.initialize();
+    await elasticsearchService.initialize();
+    const { startCdcProjectors } = await import('@/server/services/elasticsearch/projectors/startCdcProjectors.js');
+    startCdcProjectors();
+    const { ElasticsearchReconcileCronService } = await import(
+      '@/server/services/elasticsearch/ElasticsearchReconcileCronService.js'
+    );
+    ElasticsearchReconcileCronService.startScheduledReconciliation();
   } catch (error) {
-    logger.error('Error initializing Elasticsearch:', error);
-    logger.warn('Application will continue without Elasticsearch functionality');
+    logger.error('Error initializing Elasticsearch / CDC projectors:', error);
+    logger.warn('Application will continue without Elasticsearch / CDC projector functionality');
   }
 
   const { RefreshTokenCleanupService } = await import('@/server/services/accounts/RefreshTokenCleanupService.js');

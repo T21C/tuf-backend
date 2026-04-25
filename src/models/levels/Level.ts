@@ -53,7 +53,6 @@ class Level
   declare createdAt: Date;
   declare updatedAt: Date;
   declare isHidden: boolean;
-  declare isVerified: boolean;
   declare isExternallyAvailable: boolean;
   declare teamId: number | null;
   declare teamObject: Team;
@@ -189,11 +188,6 @@ Level.init(
       allowNull: false,
     },
     isHidden: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-    },
-    isVerified: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,

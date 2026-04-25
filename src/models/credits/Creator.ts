@@ -12,8 +12,13 @@ class Creator extends Model implements ICreator {
   declare name: string;
   declare createdAt: Date;
   declare updatedAt: Date;
-  declare isVerified: boolean;
+  declare verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   declare userId: string | null;
+  /** Up to 5 curation type ids to show on the creator profile header (JSON array in DB). */
+  declare displayCurationTypeIds: number[] | null;
+  declare bannerPreset: string | null;
+  declare customBannerId: string | null;
+  declare customBannerUrl: string | null;
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -41,10 +46,10 @@ Creator.init(
       type: DataTypes.DATE,
       allowNull: false,
     },
-    isVerified: {
-      type: DataTypes.BOOLEAN,
+    verificationStatus: {
+      type: DataTypes.ENUM('declined', 'pending', 'conditional', 'allowed'),
       allowNull: false,
-      defaultValue: false,
+      defaultValue: 'allowed',
     },
     userId: {
       type: DataTypes.UUID,
@@ -54,10 +59,30 @@ Creator.init(
         key: 'id',
       },
     },
+    displayCurationTypeIds: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      defaultValue: null,
+    },
+    bannerPreset: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    customBannerId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    customBannerUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
   {
     sequelize,
     tableName: 'creators',
+    indexes: [
+      { fields: ['verificationStatus'] },
+    ],
   },
 );
 

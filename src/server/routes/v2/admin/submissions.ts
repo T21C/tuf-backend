@@ -48,6 +48,7 @@ import EvidenceService from '@/server/services/data/EvidenceService.js';
 import submissionSongArtistRoutes from './submissions-song-artist.js';
 import { roleSyncService } from '@/server/services/accounts/RoleSyncService.js';
 import { sanitizeJudgementInt } from '@/misc/utils/pass/SanitizeJudgements.js';
+import { resolveLevelCreatedAtFromVideoLink } from '@/misc/utils/data/levelCreatedAtFromVideoLink.js';
 
 const router: Router = Router();
 const playerStatsService = PlayerStatsService.getInstance();
@@ -479,7 +480,7 @@ router.get(
               model: Creator,
               as: 'creator',
               required: false,
-              attributes: ['id', 'name', 'isVerified']
+              attributes: ['id', 'name', 'verificationStatus']
             }
           ]
         }
@@ -508,7 +509,6 @@ router.get(
         const team = submissionData.teamRequestData.team;
         team.credits = {
           totalLevels: team.levels?.length || 0,
-          verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
           memberCount: team.members?.length || 0
         };
         // Clean up levels array to avoid sending too much data
@@ -720,14 +720,6 @@ router.put(
         const firstCharter = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'charter');
         const firstVfxer = submission.creatorRequests?.find((r: LevelSubmissionCreatorRequest) => r.role === 'vfxer');
 
-        // Check if credits are simple (no brackets or parentheses)
-        const complexChars = ['[', '(', '{', '}', ']', ')'];
-        const hasSimpleCredits = !complexChars.some(
-          char =>
-            (firstCharter?.creatorName || '').includes(char) ||
-            (firstVfxer?.creatorName || '').includes(char),
-        );
-
         // Handle team request
         let teamId = null;
         let team = null;
@@ -763,8 +755,6 @@ router.put(
           },
           transaction
         });
-
-        const allExistingCreatorsVerified = existingCreators.every((c: Creator) => c.isVerified);
 
         // Validate song request before processing
         if (submission.songRequest) {
@@ -923,6 +913,13 @@ router.put(
           }
         }
 
+        const levelCreatedAtFromVideo = await resolveLevelCreatedAtFromVideoLink(submission.videoLink);
+        if (!levelCreatedAtFromVideo) {
+          logger.debug('Level submission approve: no video upload timestamp from getVideoDetails; using DB default createdAt', {
+            submissionId: id,
+            videoLinkSnippet: String(submission.videoLink ?? '').slice(0, 80),
+          });
+        }
 
         const newLevel = await Level.create(
           {
@@ -940,9 +937,6 @@ router.put(
             isDeleted: false,
             diffId: 0,
             baseScore: 0,
-            isVerified: hasSimpleCredits && allExistingCreatorsVerified &&
-                       !submission.creatorRequests?.some((r: LevelSubmissionCreatorRequest) => r.isNewRequest) &&
-                       (!submission.teamRequestData || !submission.teamRequestData.isNewRequest),
             clears: 0,
             likes: 0,
             publicComments: '',
@@ -953,6 +947,7 @@ router.put(
             isHidden: false,
             teamId: teamId,
             isExternallyAvailable: false,
+            ...(levelCreatedAtFromVideo ? {createdAt: levelCreatedAtFromVideo} : {}),
           },
           {transaction},
         );
@@ -991,7 +986,6 @@ router.put(
                 creatorId: request.creatorId,
                 role: request.role,
                 isOwner: isOwner,
-                isVerified: existingCreators.find((c: Creator) => c.id === request.creatorId)?.isVerified || false
               }, {
                 transaction
               });
@@ -1002,7 +996,7 @@ router.put(
             const [creator] = await Creator.findOrCreate({
               where: { name: request.creatorName.trim() },
               defaults: {
-                isVerified: false
+                verificationStatus: 'pending'
               },
               transaction
             });
@@ -1022,7 +1016,6 @@ router.put(
                 levelId: newLevel.id,
                 creatorId: creator.id,
                 role: request.role,
-                isVerified: false
               }, {
                 transaction
               });
@@ -1988,7 +1981,6 @@ router.put(
       const team = submissionData.teamRequestData.team;
       team.credits = {
         totalLevels: team.levels?.length || 0,
-        verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
         memberCount: team.members?.length || 0
       };
       // Clean up levels array to avoid sending too much data
@@ -2171,7 +2163,7 @@ router.post(
       const [creator] = await Creator.findOrCreate({
         where: { name: name.trim() },
         defaults: {
-          isVerified: false
+          verificationStatus: 'pending'
         },
         transaction
       });
@@ -2261,7 +2253,6 @@ router.post(
       const team = submissionData.teamRequestData.team;
       team.credits = {
         totalLevels: team.levels?.length || 0,
-        verifiedLevels: team.levels?.filter((l: any) => l.isVerified).length || 0,
         memberCount: team.members?.length || 0
       };
       // Clean up levels array to avoid sending too much data

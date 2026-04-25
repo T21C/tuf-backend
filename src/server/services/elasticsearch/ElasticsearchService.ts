@@ -2,6 +2,7 @@ import client, {
   levelIndexName,
   passIndexName,
   playerIndexName,
+  creatorIndexName,
   initializeElasticsearch,
   updateMappingHash
 } from '@/config/elasticsearch.js';
@@ -12,18 +13,18 @@ import Level from '@/models/levels/Level.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Pass from '@/models/passes/Pass.js';
 import Player from '@/models/players/Player.js';
-import SongCredit from '@/models/songs/SongCredit.js';
+import Creator from '@/models/credits/Creator.js';
 import { searchLevels as runLevelSearch } from './search/levels/levelSearch.js';
 import { searchPasses as runPassSearch } from './search/passes/passSearch.js';
 import { searchPlayers as runPlayerSearch, PlayerSearchOptions, PlayerSearchResult } from './search/players/playerSearch.js';
+import { searchCreators as runCreatorSearch, hydrateCreatorUsers, CreatorSearchOptions, CreatorSearchResult } from './search/creators/creatorSearch.js';
 import { ARTIST_REINDEX_DEBOUNCE_MS, BATCH_SIZE, MAX_BATCH_SIZE } from './misc/constants.js';
 import { fetchLevelWithRelations, fetchLevelsForBulkIndex, clearEsIndexRelationCaches } from './fetching/levelFetch.js';
 import { fetchPassWithRelations, fetchPassesForBulkIndex, clearEsPassIndexRelationCaches } from './fetching/passFetch.js';
 import { fetchPlayersForBulkIndex } from './fetching/playerFetch.js';
+import { fetchCreatorsForBulkIndex } from './fetching/creatorFetch.js';
 import { buildLevelIndexDocument } from './indexing/levelIndexDocument.js';
 import { buildPassIndexDocument } from './indexing/passIndexDocument.js';
-import { registerElasticsearchChangeListeners } from './listeners/registerElasticsearchChangeListeners.js';
-import { registerPlayerIndexChangeListeners } from './listeners/registerPlayerIndexChangeListeners.js';
 
 class ElasticsearchService {
   private static instance: ElasticsearchService;
@@ -53,17 +54,13 @@ class ElasticsearchService {
       logger.info('Starting ElasticsearchService initialization...');
 
       // Initialize Elasticsearch indices
-      const { reindexedLevels, reindexedPasses, reindexedPlayers } = await initializeElasticsearch();
+      const { reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators } = await initializeElasticsearch();
 
-      // Set up database change listeners
-      this.setupChangeListeners();
-      logger.info('Database change listeners set up successfully');
-
-
-      if (reindexedLevels || reindexedPasses || reindexedPlayers) {
+      if (reindexedLevels || reindexedPasses || reindexedPlayers || reindexedCreators) {
         if (reindexedLevels) logger.info('Reindexing levels...');
         if (reindexedPasses) logger.info('Reindexing passes...');
         if (reindexedPlayers) logger.info('Reindexing players...');
+        if (reindexedCreators) logger.info('Reindexing creators...');
         const start = Date.now();
         await Promise.all([
           reindexedLevels
@@ -84,10 +81,16 @@ class ElasticsearchService {
                 throw error;
               })
             : Promise.resolve(),
+          reindexedCreators
+            ? this.reindexAllCreators().catch(error => {
+                logger.error('Failed to reindex creators:', error);
+                throw error;
+              })
+            : Promise.resolve(),
         ]);
         const end = Date.now();
         logger.info(`Data reindexing completed successfully in ${Math.round((end - start)/100)/10}s`);
-        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers });
+        await updateMappingHash({ reindexedLevels, reindexedPasses, reindexedPlayers, reindexedCreators });
       }
 
       this.isInitialized = true;
@@ -114,88 +117,17 @@ class ElasticsearchService {
   }
 
   /**
-   * Get all level IDs that use a specific song
-   */
-  private async getLevelIdsBySongId(songId: number): Promise<number[]> {
-    try {
-      const levels = await Level.findAll({
-        where: {
-          songId: songId,
-          isDeleted: false
-        },
-        attributes: ['id']
-      });
-      return levels.map(level => level.id);
-    } catch (error) {
-      logger.error(`Error getting level IDs for song ${songId}:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Get all level IDs that have songs with credits from a specific artist
-   */
-  private async getLevelIdsByArtistId(artistId: number): Promise<number[]> {
-    try {
-      // Find all songs that have credits from this artist
-      const songCredits = await SongCredit.findAll({
-        where: {
-          artistId: artistId
-        },
-        attributes: ['songId'],
-        group: ['songId']
-      });
-
-      if (songCredits.length === 0) {
-        return [];
-      }
-
-      const songIds = songCredits.map(credit => credit.songId);
-
-      // Find all levels that use these songs
-      const levels = await Level.findAll({
-        where: {
-          songId: { [Op.in]: songIds },
-          isDeleted: false
-        },
-        attributes: ['id']
-      });
-
-      return levels.map(level => level.id);
-    } catch (error) {
-      logger.error(`Error getting level IDs for artist ${artistId}:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Get all level IDs on which the given player has non-deleted passes.
-   * Used by the Player ban/unban hook to reindex affected levels because
-   * the ES level doc's `clears` filter excludes banned players.
-   */
-  private async getLevelIdsByPlayerId(playerId: number): Promise<number[]> {
-    try {
-      const rows = await Pass.findAll({
-        where: {
-          playerId,
-          isDeleted: false,
-        },
-        attributes: ['levelId'],
-        group: ['levelId'],
-      });
-      return rows
-        .map((row) => row.levelId)
-        .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0);
-    } catch (error) {
-      logger.error(`Error getting level IDs for player ${playerId}:`, error);
-      return [];
-    }
-  }
-
-  /**
    * Schedule debounced reindexing for artist-related changes
    * This prevents overwhelming the server when artists have thousands of levels
    */
+  /**
+   * Debounced fan-out reindex for levels affected by artist / artist_alias metadata changes.
+   * Used by CDC projectors (replaces Sequelize hooks).
+   */
+  public scheduleDebouncedArtistReindex(levelIds: number[]): void {
+    this.scheduleArtistReindex(levelIds);
+  }
+
   private scheduleArtistReindex(levelIds: number[]): void {
     // Add level IDs to the queue
     levelIds.forEach(id => this.artistReindexQueue.add(id));
@@ -225,26 +157,6 @@ class ElasticsearchService {
     }, ARTIST_REINDEX_DEBOUNCE_MS);
 
     logger.debug(`Scheduled debounced reindex for ${levelIds.length} levels (${queueSize} total queued)`);
-  }
-
-  private setupChangeListeners(): void {
-    registerElasticsearchChangeListeners({
-      indexLevel: (level) => this.indexLevel(level),
-      indexPass: (pass) => this.indexPass(pass),
-      deletePassDocumentById: (id) => this.deletePassDocumentById(id),
-      reindexLevels: (ids) => this.reindexLevels(ids),
-      reindexPasses: (ids) => this.reindexPasses(ids),
-      scheduleArtistReindex: (ids) => this.scheduleArtistReindex(ids),
-      getLevelIdsBySongId: (id) => this.getLevelIdsBySongId(id),
-      getLevelIdsByArtistId: (id) => this.getLevelIdsByArtistId(id),
-      getLevelIdsByPlayerId: (id) => this.getLevelIdsByPlayerId(id),
-    });
-
-    registerPlayerIndexChangeListeners({
-      indexPlayer: (id) => this.indexPlayer(id),
-      reindexPlayers: (ids) => this.reindexPlayers(ids),
-      deletePlayerDocumentById: (id) => this.deletePlayerDocumentById(id),
-    });
   }
 
   private async getParsedLevel(id: number): Promise<ILevel | null> {
@@ -708,6 +620,155 @@ class ElasticsearchService {
       const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
       if (status === 404) return null;
       logger.error(`Error fetching level ${levelId} from index:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Index or upsert a single creator document.
+   */
+  public async indexCreator(creatorId: number): Promise<void> {
+    if (!Number.isFinite(creatorId) || creatorId <= 0) {
+      logger.warn(`indexCreator skipped: invalid id ${creatorId}`);
+      return;
+    }
+    try {
+      const docs = await fetchCreatorsForBulkIndex([creatorId]);
+      const prepared = docs[0];
+      if (!prepared) {
+        logger.warn(`indexCreator: creator ${creatorId} not found in DB — removing from index if present`);
+        await this.deleteCreatorDocumentById(creatorId).catch(() => {});
+        return;
+      }
+      await client.index({
+        index: creatorIndexName,
+        id: prepared.id.toString(),
+        document: prepared.document,
+        refresh: true,
+      });
+      logger.debug(`Successfully indexed creator ${prepared.id}`);
+    } catch (error) {
+      logger.error(`Error indexing creator ${creatorId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reindex a specific set of creators in bulk. Recomputes their stats from
+   * `level_credits + levels`, rebuilds documents, and writes them to the creators index.
+   */
+  public async reindexCreators(creatorIds: number[]): Promise<void> {
+    if (!creatorIds || creatorIds.length === 0) return;
+    try {
+      const uniqueIds = [...new Set(creatorIds)].filter((id) => Number.isFinite(id) && id > 0);
+      if (uniqueIds.length === 0) return;
+
+      let processedCount = 0;
+      for (let i = 0; i < uniqueIds.length; i += MAX_BATCH_SIZE) {
+        const chunk = uniqueIds.slice(i, i + MAX_BATCH_SIZE);
+        const docs = await fetchCreatorsForBulkIndex(chunk);
+        if (docs.length === 0) continue;
+
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: creatorIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+      }
+      logger.debug(`Reindexed ${processedCount} creators (requested ${uniqueIds.length})`);
+    } catch (error) {
+      logger.error('Error reindexing creators:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a creator document from the creators index. Safe to call when the doc doesn't exist.
+   */
+  public async deleteCreatorDocumentById(creatorId: number): Promise<void> {
+    try {
+      await client.delete({
+        index: creatorIndexName,
+        id: creatorId.toString(),
+      });
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return;
+      logger.error(`Error deleting creator ${creatorId} from index:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reindex every creator currently in the database (chunked bulk). Called on boot only when
+   * the creators index is freshly created or its mapping changed.
+   */
+  public async reindexAllCreators(): Promise<void> {
+    try {
+      let processedCount = 0;
+      let afterId = 0;
+      while (true) {
+        const idRows = await Creator.findAll({
+          where: { id: { [Op.gt]: afterId } },
+          attributes: ['id'],
+          order: [['id', 'ASC']],
+          limit: MAX_BATCH_SIZE,
+          raw: true,
+        });
+        const idList = idRows.map((r: { id: number }) => r.id);
+        if (idList.length === 0) break;
+
+        const docs = await fetchCreatorsForBulkIndex(idList);
+        for (let j = 0; j < docs.length; j += BATCH_SIZE) {
+          const batch = docs.slice(j, j + BATCH_SIZE);
+          const operations = batch.flatMap((doc) => [
+            { index: { _index: creatorIndexName, _id: doc.id.toString() } },
+            doc.document,
+          ]);
+          if (operations.length > 0) {
+            await client.bulk({ operations, refresh: false });
+          }
+        }
+        processedCount += docs.length;
+        logger.debug(`Reindexed ${processedCount} creators...`);
+
+        afterId = idList[idList.length - 1];
+        if (idList.length < MAX_BATCH_SIZE) break;
+      }
+      logger.info(`Creator reindexing complete. Total indexed: ${processedCount}`);
+    } catch (error) {
+      logger.error('Error reindexing all creators:', error);
+      throw error;
+    }
+  }
+
+  public async searchCreators(options: CreatorSearchOptions): Promise<CreatorSearchResult> {
+    return runCreatorSearch(options);
+  }
+
+  /**
+   * Fetch a single creator document by id from Elasticsearch. Returns null when missing.
+   */
+  public async getCreatorDocumentById(creatorId: number): Promise<any | null> {
+    try {
+      const response = await client.get({
+        index: creatorIndexName,
+        id: creatorId.toString(),
+      });
+      const source = (response as any)._source ?? null;
+      if (!source) return null;
+      const [hydrated] = await hydrateCreatorUsers([source]);
+      return hydrated;
+    } catch (error: unknown) {
+      const status = (error as { meta?: { statusCode?: number } })?.meta?.statusCode;
+      if (status === 404) return null;
+      logger.error(`Error fetching creator ${creatorId} from index:`, error);
       throw error;
     }
   }

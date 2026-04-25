@@ -141,10 +141,7 @@ playerlist.json
 package-lock.json
 pfpList.json
 rankList.json
-mapping-hash.json
-mapping-hash-levels.json
-mapping-hash-passes.json
-mapping-hash-players.json
+mapping-hash*.json
 uploads/
 temp/
 cache/
@@ -155,6 +152,10 @@ meta_inserts.sql
 *.sh
 __pycache__/
 *.selftest.ts
+docs
+*.md
+*.exe
+bannerPresetManifest.json
 
 # ts builds
 build/

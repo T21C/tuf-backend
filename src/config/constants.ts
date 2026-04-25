@@ -6,6 +6,8 @@ export const permissionFlags = {
   RATING_BANNED: 1n << 58n,
   HEAD_CURATOR: 1n << 32n,
   CURATOR: 1n << 31n,
+  /** Temporary gate for custom profile banner CDN uploads (preset banners stay public). */
+  CUSTOM_PROFILE_BANNER: 1n << 1n,
   EMAIL_VERIFIED: 1n << 0n,
 };
 
@@ -40,6 +42,25 @@ export const validSortOptions = [
   'top12kDiff',
   'player',
 ];
+
+export const validCreatorSortOptions = [
+  'name',
+  'chartsTotal',
+  'chartsCharted',
+  'chartsVfxed',
+  'chartsTeamed',
+  'totalChartClears',
+  'totalChartLikes',
+];
+
+export const validCreatorVerificationStatuses = [
+  'declined',
+  'pending',
+  'conditional',
+  'allowed',
+] as const;
+
+export type CreatorVerificationStatus = typeof validCreatorVerificationStatuses[number];
 
 export const PGU_SORT = {
   P: 1,

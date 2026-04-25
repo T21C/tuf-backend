@@ -30,6 +30,14 @@ export interface IBaseModelAttributes {
 
 export interface ICreator extends IBaseModel {
   name: string;
+  verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
+  userId?: string | null;
+  /** Profile header: up to 5 curation type ids chosen by the creator (or admin). */
+  displayCurationTypeIds?: number[] | null;
+  /** Whitelisted relative path under `client/public/banners` (e.g. `banners/default.svg`). */
+  bannerPreset?: string | null;
+  customBannerId?: string | null;
+  customBannerUrl?: string | null;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
@@ -69,7 +77,6 @@ export interface ILevel extends IBaseModel {
   createdAt: Date;
   updatedAt: Date;
   isHidden?: boolean;
-  isVerified?: boolean;
   isExternallyAvailable: boolean;
   teamId?: number | null;
   songId?: number | null;
@@ -125,6 +132,10 @@ export interface IPlayer extends IBaseModel {
   isBanned: boolean;
   isSubmissionsPaused: boolean;
   pfp?: string | null;
+  /** Whitelisted relative path under `client/public/banners`. */
+  bannerPreset?: string | null;
+  customBannerId?: string | null;
+  customBannerUrl?: string | null;
 
   // Associations
   passes?: IPass[];

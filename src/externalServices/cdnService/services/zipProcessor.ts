@@ -22,8 +22,8 @@ import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 
-/** Max level file size (bytes) to parse with LevelDict. Node string limit is ~0x1fffffe8 (~512MB); use 400MB to stay safe. */
-const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 400 * 1024 * 1024;
+// Limit to prevent oveloading CDN with large level files
+const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 50 * 1024 * 1024;
 
 type ZipEntry = ServiceArchiveEntry;
 

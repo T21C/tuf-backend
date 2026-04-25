@@ -8,7 +8,6 @@ import {Op} from 'sequelize';
 import {
   createClearEmbed,
   createNewLevelEmbed,
-  createRerateEmbed,
   formatString,
   trim,
   wrap,
@@ -40,23 +39,26 @@ import Creator from '@/models/credits/Creator.js';
 import LevelCredit from '@/models/levels/LevelCredit.js';
 import Team from '@/models/credits/Team.js';
 import { env } from 'process';
+import hash from 'object-hash';
+import { OutboxService } from '@/server/services/outbox/OutboxService.js';
+import { OUTBOX_EVENT_TYPES } from '@/server/services/outbox/events.js';
 
 const router: Router = express.Router();
 
 const placeHolder = 'https://soggy.cat/static/ssoggycat/main/images/soggycat.webp';
 const botAvatar = process.env.BOT_AVATAR_URL || placeHolder;
 
-const UPDATE_AFTER_ANNOUNCEMENT = env.NODE_ENV === 'production';
+export const UPDATE_AFTER_ANNOUNCEMENT = env.NODE_ENV === 'production';
 
 // Interface for individual messages in a channel
-interface ChannelMessage {
+export interface ChannelMessage {
   type: 'text' | 'embeds';
   content?: string; // Plain text content (for headers or to add to embed batch)
   embeds?: MessageBuilder[]; // Embed batch (can have content added to first embed)
 }
 
 // Interface to track messages for each channel
-interface ChannelMessages {
+export interface ChannelMessages {
   webhookUrl: string;
   channelConfig: AnnouncementChannelConfig;
   messages: ChannelMessage[]; // Sequence of messages (headers + embed batches)
@@ -83,7 +85,7 @@ function renderMessageFormat(format: string, variables: {
 }
 
 // Helper to create embed batch message with optional content
-function createEmbedBatchMessage(embeds: MessageBuilder[], content?: string): ChannelMessage {
+export function createEmbedBatchMessage(embeds: MessageBuilder[], content?: string): ChannelMessage {
   return {
     type: 'embeds',
     embeds,
@@ -92,7 +94,7 @@ function createEmbedBatchMessage(embeds: MessageBuilder[], content?: string): Ch
 }
 
 // Process items and create embeds using channel list from configs
-async function createChannelMessages(items: (Pass | Level)[], configs: Map<number, AnnouncementConfig>): Promise<ChannelMessages[]> {
+export async function createChannelMessages(items: (Pass | Level)[], configs: Map<number, AnnouncementConfig>): Promise<ChannelMessages[]> {
   const channelMessages = new Map<string, ChannelMessages>();
 
   logger.debug(`[Message Processing] Processing ${items.length} item(s)`);
@@ -373,7 +375,7 @@ async function createChannelMessages(items: (Pass | Level)[], configs: Map<numbe
 }
 
 // Helper to send embeds for a channel
-async function sendMessages(channel: ChannelMessages, message?: string): Promise<void> {
+export async function sendMessages(channel: ChannelMessages, message?: string): Promise<void> {
   const hook = new Webhook(channel.webhookUrl);
   hook.setUsername('TUF Announcer');
   hook.setAvatar(botAvatar);
@@ -583,76 +585,15 @@ router.post(
         return res.status(400).json({error: 'passIds must be an array'});
       }
 
-      // Load all passes with their configs
-      const passes = await Pass.findAll({
-        where: {id: {[Op.in]: passIds}, isAnnounced: false},
-        include: [
-          {
-            model: Level,
-            as: 'level',
-            include: [
-              {
-                model: Difficulty,
-                as: 'difficulty',
-              },
-              {
-                model: LevelCredit,
-                as: 'levelCredits',
-                include: [{
-                  model: Creator,
-                  as: 'creator',
-                }],
-              },
-              {
-                model: Team,
-                as: 'teamObject',
-              },
-            ],
-          },
-          {
-            model: Player,
-            as: 'player',
-            include: [
-              {
-                model: User,
-                as: 'user',
-                attributes: ['avatarUrl', 'username', 'nickname'],
-                required: false
-              },
-            ],
-          },
-          {
-            model: Judgement,
-            as: 'judgements',
-          },
-        ],
+      const sorted = [...passIds].sort((a, b) => a - b);
+      await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordPassBatchAnnouncement, {
+        aggregate: 'pass_webhook',
+        aggregateId: hash(sorted),
+        dedupKey: hash(sorted),
+        payload: { passIds: sorted },
       });
 
-      // Get announcement configs for all passes
-      const configs = new Map();
-      for (const pass of passes) {
-        if (!pass.level?.diffId) continue;
-        const config = await getPassAnnouncementConfig(pass);
-        configs.set(pass.id, config);
-      }
-
-      // Create channel messages using channel list from configs
-      const channels = await createChannelMessages(passes, configs);
-
-      // Send embeds for each channel
-      for (const channel of channels) {
-        await sendMessages(channel);
-      }
-
-      // Mark passes as announced after successful webhook sending
-      if (UPDATE_AFTER_ANNOUNCEMENT) {
-        await Pass.update(
-          { isAnnounced: true },
-          { where: { id: { [Op.in]: passIds } } }
-        );
-      }
-
-      return res.json({success: true, message: 'Webhooks sent successfully'});
+      return res.json({success: true, message: 'Webhook queued'});
     } catch (error) {
       logger.error('Error sending webhook:', error);
       return res.status(500).json({
@@ -683,47 +624,15 @@ router.post(
         return res.status(400).json({error: 'levelIds must be an array'});
       }
 
-      // Load all levels with their configs
-      const levels = await Level.findAll({
-        where: {
-          id: {
-            [Op.in]: levelIds,
-          },
-          isAnnounced: false,
-        },
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-        ],
+      const sorted = [...levelIds].sort((a, b) => a - b);
+      await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordLevelBatchAnnouncement, {
+        aggregate: 'level_webhook',
+        aggregateId: hash(sorted),
+        dedupKey: hash(sorted),
+        payload: { levelIds: sorted },
       });
 
-      // Get announcement configs for all levels
-      const configs = new Map();
-      for (const level of levels) {
-        if (!level.diffId) continue;
-        const config = await getLevelAnnouncementConfig(level);
-        configs.set(level.id, config);
-      }
-
-      // Create channel messages using channel list from configs
-      const channels = await createChannelMessages(levels, configs);
-
-      // Send embeds for each channel
-      for (const channel of channels) {
-        await sendMessages(channel);
-      }
-
-      // Mark levels as announced after successful webhook sending
-      if (UPDATE_AFTER_ANNOUNCEMENT) {
-        await Level.update(
-          { isAnnounced: true },
-          { where: { id: { [Op.in]: levelIds } } }
-        );
-      }
-
-      return res.json({success: true, message: 'Webhooks sent successfully'});
+      return res.json({success: true, message: 'Webhook queued'});
     } catch (error) {
       logger.error('Error sending webhook:', error);
       return res.status(500).json({
@@ -754,116 +663,17 @@ router.post(
         return res.status(400).json({error: 'levelIds must be an array'});
       }
 
-      // Load all levels with their configs
-      const rawLevels = await Level.findAll({
-        where: {
-          id: {
-            [Op.in]: levelIds,
-          },
-          isAnnounced: false,
-        },
-        include: [
-          {
-            model: Difficulty,
-            as: 'difficulty',
-          },
-          {
-            model: Difficulty,
-            as: 'previousDifficulty',
-          },
-        ],
+      const sorted = [...levelIds].sort((a, b) => a - b);
+      await OutboxService.emit(OUTBOX_EVENT_TYPES.DiscordRerateBatchAnnouncement, {
+        aggregate: 'rerate_webhook',
+        aggregateId: hash(sorted),
+        dedupKey: hash(sorted),
+        payload: { levelIds: sorted },
       });
-
-      const levels = rawLevels.filter(
-        level => {
-          const previousBaseScore = level.previousBaseScore || level.previousDifficulty?.baseScore || 0;
-          const currentBaseScore = level.baseScore || level.difficulty?.baseScore || 0;
-
-          return previousBaseScore !== currentBaseScore
-              || level.previousDiffId !== level.diffId;
-        }
-      );
-
-      // Create embeds for rerates
-      const embeds = await Promise.all(
-        levels.map(level => createRerateEmbed(level as Level))
-      );
-
-      // Parse comma-separated webhook URLs and role IDs
-      const webhookUrls = (process.env.RERATE_ANNOUNCEMENT_HOOK || '')
-        .split(',')
-        .map(url => url.trim())
-        .filter(url => url.length > 0);
-
-      const pingRoleIds = (process.env.RERATE_PING_ROLE_ID || '')
-        .split(',')
-        .map(id => id.trim())
-        .filter(id => id.length > 0);
-
-      // Validate 1-to-1 mapping
-      if (webhookUrls.length !== pingRoleIds.length) {
-        logger.warn('RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID count mismatch', {
-          webhookCount: webhookUrls.length,
-          roleIdCount: pingRoleIds.length
-        });
-        return res.status(400).json({
-          error: 'RERATE_ANNOUNCEMENT_HOOK and RERATE_PING_ROLE_ID must have the same number of entries',
-          webhookCount: webhookUrls.length,
-          roleIdCount: pingRoleIds.length
-        });
-      }
-
-      // If no webhooks configured, return early
-      if (webhookUrls.length === 0) {
-        logger.warn('No RERATE_ANNOUNCEMENT_HOOK configured');
-        return res.status(400).json({error: 'RERATE_ANNOUNCEMENT_HOOK is not configured'});
-      }
-
-      // Create channel messages for each webhook URL with its corresponding ping role
-      const rerateChannels: ChannelMessages[] = [];
-
-      for (let i = 0; i < webhookUrls.length; i++) {
-        const webhookUrl = webhookUrls[i];
-        const pingRoleId = pingRoleIds[i];
-        const ping = pingRoleId ? `<@&${pingRoleId}>` : undefined;
-
-        // Create messages for this channel (same embeds for all channels)
-        const rerateMessages: ChannelMessage[] = [];
-        for (let j = 0; j < embeds.length; j += 8) {
-          rerateMessages.push(createEmbedBatchMessage(
-            embeds.slice(j, j + 8),
-            j === 0 ? ping : undefined // Add ping to first batch only
-          ));
-        }
-
-        rerateChannels.push({
-          webhookUrl,
-          channelConfig: {
-            label: `rerates-${i}`,
-            webhookUrl,
-            ping: ping
-          },
-          messages: rerateMessages
-        });
-      }
-
-      // Send embeds to all channels
-      for (const channel of rerateChannels) {
-        await sendMessages(channel, channel.channelConfig.ping);
-      }
-
-      // Mark levels as announced after successful webhook sending
-      if (UPDATE_AFTER_ANNOUNCEMENT) {
-        await Level.update(
-          { isAnnounced: true },
-          { where: { id: { [Op.in]: levelIds } } }
-        );
-      }
 
       return res.json({
         success: true,
-        message: 'Webhooks sent successfully',
-        channelsSent: rerateChannels.length
+        message: 'Webhook queued',
       });
     } catch (error) {
       logger.error('Error sending webhook:', error);

@@ -1,5 +1,33 @@
 {
   "extends": "./node_modules/gts/",
+  "overrides": [
+    {
+      "files": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js", "src/**/*.jsx"],
+      "excludedFiles": [
+        "src/server/services/outbox/handlers/discord/**/*",
+        "src/server/services/outbox/discordOutboxDispatcher.ts",
+        "src/server/routes/v2/webhooks/webhook.ts",
+        "src/server/routes/v2/webhooks/embeds.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@/misc/webhook/index.js",
+                "message": "Use OutboxService + discord handlers instead of calling webhooks directly."
+              },
+              {
+                "name": "@/misc/webhook",
+                "message": "Use OutboxService + discord handlers instead of calling webhooks directly."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "rules": {
     "@typescript-eslint/no-namespace": "off",
     "@typescript-eslint/no-explicit-any": "off",

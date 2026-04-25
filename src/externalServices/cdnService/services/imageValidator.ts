@@ -292,6 +292,20 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
         };
     }
 
+    if (imageType === 'BANNER') {
+        return {
+            minWidth: 64,
+            maxWidth: sizes.width * 2,
+            minHeight: 32,
+            maxHeight: sizes.height * 2,
+            maxSize: typeConfig.maxSize,
+            allowedFormats: [...typeConfig.formats],
+            requireSquare: false,
+            maxAspectRatio: 100,
+            minAspectRatio: 0.01,
+        };
+    }
+
     // Default validation for other image types
     return {
         minWidth: Math.min(sizes.width, sizes.height) * 0.5,
@@ -301,7 +315,7 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
         maxSize: typeConfig.maxSize,
         allowedFormats: [...typeConfig.formats],
         requireSquare: false,
-        maxAspectRatio: imageType === 'BANNER' ? 2 : 1.5,
-        minAspectRatio: imageType === 'BANNER' ? 0.5 : 0.75
+        maxAspectRatio: 1.5,
+        minAspectRatio: 0.75,
     };
 }

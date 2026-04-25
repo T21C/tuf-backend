@@ -60,6 +60,7 @@ router.get(
       page: { schema: { type: 'integer' } },
       offset: { schema: { type: 'integer' } },
       limit: { schema: { type: 'integer' } },
+      byCreatorId: { description: 'Filter to levels credited to this creator id', schema: { type: 'string' } },
     },
     responses: { 200: { description: 'Paginated level list' }, ...standardErrorResponses500 },
   }),
@@ -78,6 +79,7 @@ router.get(
       tagsFilter,
       facetQuery,
       onlyMyLikes,
+      byCreatorId,
     } = req.query;
 
     const startTime = Date.now();
@@ -149,6 +151,7 @@ router.get(
         facetQueryV1,
         userId: req.user?.id,
         creatorId: req.user?.creatorId,
+        byCreatorId: byCreatorId as string | undefined,
         offset,
         page,
         limit,
@@ -372,7 +375,7 @@ router.get(
         where: {
           id: { [Op.in]: creatorIds }
         },
-        attributes: ['id', 'name', 'userId', 'isVerified'],
+        attributes: ['id', 'name', 'userId', 'verificationStatus'],
         include: [
           {
             model: CreatorAlias,

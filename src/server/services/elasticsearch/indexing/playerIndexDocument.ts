@@ -72,10 +72,11 @@ function serializeCreator(creator: Creator | null | undefined): Record<string, u
   if (!creator) return null;
   const c = plain(creator) as any;
   if (c?.id == null) return null;
+  const status = typeof c.verificationStatus === 'string' ? c.verificationStatus : 'allowed';
   return {
     id: coerceNumber(c.id, 0),
     name: c.name ?? '',
-    isVerified: Boolean(c.isVerified),
+    verificationStatus: status,
   };
 }
 
@@ -119,6 +120,9 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     isBanned: Boolean(p.isBanned),
     isSubmissionsPaused: Boolean(p.isSubmissionsPaused),
     pfp,
+    bannerPreset: typeof p.bannerPreset === 'string' && p.bannerPreset.length ? p.bannerPreset : null,
+    customBannerId: typeof p.customBannerId === 'string' && p.customBannerId.length ? p.customBannerId : null,
+    customBannerUrl: typeof p.customBannerUrl === 'string' && p.customBannerUrl.length ? p.customBannerUrl : null,
     createdAt: p.createdAt ?? null,
     updatedAt: p.updatedAt ?? null,
 

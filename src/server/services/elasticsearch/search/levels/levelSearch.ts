@@ -146,20 +146,29 @@ export async function searchLevels(query: string, filters: any = {}, isSuperAdmi
       }
     }
 
-    // Handle hideVerified filter
-    if (filters.hideVerified === 'true') {
-      must.push(
-        boolMust([
-          nestedQuery('levelCredits', boolMust([termField('levelCredits.isVerified', false)])),
-        ]),
-      );
-    }
-
     // Handle songId filter
     if (filters.songId) {
       const songIdValue = parseInt(filters.songId);
       if (!isNaN(songIdValue) && songIdValue > 0) {
         must.push(termField('songId', songIdValue));
+      }
+    }
+
+    // Public, unconditional creator filter (used by the creator profile page).
+    // Distinct from `creatorId` below (which is bound to the logged-in user's
+    // creator and tangled into delete/hidden-visibility rules) so this one is safe
+    // to expose without leaking the visibility branches.
+    if (filters.byCreatorId) {
+      const byCreatorIdValue = parseInt(filters.byCreatorId);
+      if (!isNaN(byCreatorIdValue) && byCreatorIdValue > 0) {
+        must.push(
+          nestedQuery(
+            'levelCredits',
+            boolShouldOnly([termField('levelCredits.creatorId', byCreatorIdValue)]),
+          ),
+        );
+        // The base `isDeleted/isHidden` rules above already hide non-public levels for
+        // anonymous callers, so no additional visibility tweaks needed here.
       }
     }
 
