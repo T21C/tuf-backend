@@ -120,6 +120,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     isBanned: Boolean(p.isBanned),
     isSubmissionsPaused: Boolean(p.isSubmissionsPaused),
     pfp,
+    bio: typeof p.bio === 'string' && p.bio.trim().length ? p.bio : null,
     bannerPreset: typeof p.bannerPreset === 'string' && p.bannerPreset.length ? p.bannerPreset : null,
     customBannerId: typeof p.customBannerId === 'string' && p.customBannerId.length ? p.customBannerId : null,
     customBannerUrl: typeof p.customBannerUrl === 'string' && p.customBannerUrl.length ? p.customBannerUrl : null,

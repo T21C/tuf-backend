@@ -20,6 +20,7 @@ import { computePlayerFunFacts } from '@/server/services/stats/playerFunFacts.js
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
 import Player from '@/models/players/Player.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -293,7 +294,7 @@ router.get(
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
         computePlayerFunFacts(id, {includeHidden: isOwnProfile}),
-        Player.findByPk(id, { attributes: ['bannerPreset', 'customBannerId', 'customBannerUrl'] }),
+        Player.findByPk(id, { attributes: ['bio', 'bannerPreset', 'customBannerId', 'customBannerUrl'] }),
       ]);
 
       // `passes` is intentionally not forwarded here — the list is huge
@@ -310,6 +311,7 @@ router.get(
 
       const bannerPatch = playerRow
         ? {
+            bio: typeof playerRow.bio === 'string' && playerRow.bio.trim().length ? playerRow.bio : null,
             bannerPreset: playerRow.bannerPreset ?? null,
             customBannerId: playerRow.customBannerId ?? null,
             customBannerUrl: playerRow.customBannerUrl ?? null,
@@ -327,6 +329,73 @@ router.get(
       logger.error('[v3 /players/:id/profile] failure', error);
       return res.status(500).json({
         error: 'Failed to fetch player profile',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/me/bio',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchPlayerMeBio',
+    summary: 'Update my player bio (v3)',
+    description:
+      'Requires an authenticated user with `playerId` set. Updates that player row only.',
+    tags: ['Database', 'Players', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Bio text (string or null). Empty string clears.',
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          bio: { type: 'string', nullable: true },
+        },
+        required: ['bio'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated bio' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      if (!user.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+
+      const body = req.body as { bio?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'bio')) {
+        return res.status(400).json({ error: 'Request body must include bio (string or null)' });
+      }
+
+      let nextBio: string | null;
+      if (body.bio == null) {
+        nextBio = null;
+      } else if (typeof body.bio === 'string') {
+        const trimmed = body.bio.trim();
+        if (trimmed.length > 2000) {
+          return res.status(400).json({ error: 'Bio must be at most 2000 characters' });
+        }
+        nextBio = trimmed.length ? trimmed : null;
+      } else {
+        return res.status(400).json({ error: 'Bio must be a string or null' });
+      }
+
+      await Player.update({ bio: nextBio }, { where: { id: user.playerId } });
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ bio: nextBio });
+    } catch (error) {
+      logger.error('[v3 PATCH /players/me/bio] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update player bio',
         details: error instanceof Error ? error.message : String(error),
       });
     }

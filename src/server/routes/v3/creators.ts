@@ -362,6 +362,82 @@ router.patch(
   },
 );
 
+router.patch(
+  '/me/bio',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeBio',
+    summary: 'Update my creator bio (v3)',
+    description:
+      'Requires an authenticated user with `creatorId` set. Updates that creator row only.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'Bio text (string or null). Empty string clears.',
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          bio: { type: 'string', nullable: true },
+        },
+        required: ['bio'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated bio' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'No creator profile linked to this account' });
+      }
+
+      const body = req.body as { bio?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'bio')) {
+        return res.status(400).json({ error: 'Request body must include bio (string or null)' });
+      }
+
+      let nextBio: string | null;
+      if (body.bio == null) {
+        nextBio = null;
+      } else if (typeof body.bio === 'string') {
+        const trimmed = body.bio.trim();
+        if (trimmed.length > 2000) {
+          return res.status(400).json({ error: 'Bio must be at most 2000 characters' });
+        }
+        nextBio = trimmed.length ? trimmed : null;
+      } else {
+        return res.status(400).json({ error: 'Bio must be a string or null' });
+      }
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) {
+        return res.status(404).json({ error: 'Creator not found' });
+      }
+
+      await Creator.update({ bio: nextBio }, { where: { id } });
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ bio: nextBio });
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/bio] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update creator bio',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 router.get(
   '/:id([0-9]{1,20})',
   ApiDoc({
@@ -423,7 +499,7 @@ router.get(
         computeCreatorFunFacts(id),
         computeCreatorCurationTypeCounts(id),
         Creator.findByPk(id, {
-          attributes: ['id', 'displayCurationTypeIds', 'bannerPreset', 'customBannerId', 'customBannerUrl'],
+          attributes: ['id', 'bio', 'displayCurationTypeIds', 'bannerPreset', 'customBannerId', 'customBannerUrl'],
         }),
       ]);
 
@@ -492,6 +568,19 @@ router.get(
 
       const recentLevelIds = enriched?.recentLevelIds ?? [];
 
+      // Admin UI expects `creator.creatorAliases[].name` for editing, while the public
+      // profile UI uses `aliases: {id,name}[]`. Always include both to avoid
+      // accidentally dropping aliases when the admin popup saves.
+      const aliases =
+        enriched?.aliases?.map((a) => ({ id: a.id, name: a.name })) ??
+        (Array.isArray((responseDoc as any)?.aliases) ? (responseDoc as any).aliases : []);
+      const creatorAliases = Array.isArray(aliases)
+        ? aliases
+            .map((a: any) => (typeof a?.name === 'string' ? a.name.trim() : ''))
+            .filter((s: string) => s.length > 0)
+            .map((name: string) => ({ name }))
+        : [];
+
       const rawDisplay = creatorRow?.get?.('displayCurationTypeIds') ?? creatorRow?.displayCurationTypeIds;
       const displayCurationTypeIds = Array.isArray(rawDisplay)
         ? rawDisplay
@@ -502,6 +591,7 @@ router.get(
 
       const bannerFromRow = creatorRow
         ? {
+            bio: typeof creatorRow.bio === 'string' && creatorRow.bio.trim().length ? creatorRow.bio : null,
             bannerPreset: creatorRow.bannerPreset ?? null,
             customBannerId: creatorRow.customBannerId ?? null,
             customBannerUrl: creatorRow.customBannerUrl ?? null,
@@ -511,6 +601,8 @@ router.get(
       return res.json({
         ...(responseDoc as Record<string, unknown>),
         ...bannerFromRow,
+        aliases,
+        creatorAliases,
         recentLevelIds,
         funFacts,
         curationTypeCounts,

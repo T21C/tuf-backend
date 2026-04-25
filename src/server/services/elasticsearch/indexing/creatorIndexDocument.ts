@@ -83,6 +83,7 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     id: coerceNumber(c.id, 0),
     name: c.name ?? '',
     verificationStatus,
+    bio: typeof c.bio === 'string' && c.bio.trim().length ? c.bio : null,
     bannerPreset: typeof c.bannerPreset === 'string' && c.bannerPreset.length ? c.bannerPreset : null,
     customBannerId: typeof c.customBannerId === 'string' && c.customBannerId.length ? c.customBannerId : null,
     customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,

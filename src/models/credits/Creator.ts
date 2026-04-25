@@ -14,6 +14,7 @@ class Creator extends Model implements ICreator {
   declare updatedAt: Date;
   declare verificationStatus: 'declined' | 'pending' | 'conditional' | 'allowed';
   declare userId: string | null;
+  declare bio: string | null;
   /** Up to 5 curation type ids to show on the creator profile header (JSON array in DB). */
   declare displayCurationTypeIds: number[] | null;
   declare bannerPreset: string | null;
@@ -63,6 +64,10 @@ Creator.init(
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: null,
+    },
+    bio: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
     bannerPreset: {
       type: DataTypes.TEXT,
