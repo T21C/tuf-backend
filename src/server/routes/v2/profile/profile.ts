@@ -17,6 +17,7 @@ import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchS
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import { permissionFlags } from '@/config/constants.js';
+import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
 
@@ -650,6 +651,9 @@ router.post(
   }),
   async (req: Request, res: Response) => {
     try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Custom profile banners are temporarily disabled' });
+      }
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });
@@ -726,6 +730,9 @@ router.delete(
   }),
   async (req: Request, res: Response) => {
     try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Custom profile banners are temporarily disabled' });
+      }
       const user = req.user;
       if (!user?.playerId) {
         return res.status(400).json({ error: 'No player profile linked to this account' });

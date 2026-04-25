@@ -23,7 +23,7 @@ export interface PlayerFunFactsJudgements {
   lPerfect: number;
   lateSingle: number;
   lateDouble: number;
-  perfectRatio: number;
+  totalXacc: number;
   earlyVsLateBias: number;
 }
 
@@ -37,13 +37,21 @@ export interface PlayerFunFactsLevelsCleared {
 
 export interface PlayerFunFactsExtremes {
   firstPassAt: string | null;
+  firstPassAtPassId?: number | null;
   latestPassAt: string | null;
+  latestPassAtPassId?: number | null;
   bestAccuracy: number | null;
+  bestAccuracyPassId?: number | null;
   worstAccuracy: number | null;
+  worstAccuracyPassId?: number | null;
   topSpeed: number | null;
+  topSpeedPassId?: number | null;
   highestTilecountCleared: number | null;
+  highestTilecountClearedPassId?: number | null;
   longestLevelMs: number | null;
+  longestLevelMsPassId?: number | null;
   highestBpmCleared: number | null;
+  highestBpmClearedPassId?: number | null;
 }
 
 export interface PlayerFunFactsActivity {
@@ -74,8 +82,6 @@ export interface PlayerFunFacts {
   clearsByDifficultyType: {
     PGU: number;
     SPECIAL: number;
-    LEGACY: number;
-    UNKNOWN: number;
   };
 }
 
@@ -135,7 +141,5 @@ export interface CreatorFunFacts {
   levelsByDifficultyType: {
     PGU: number;
     SPECIAL: number;
-    LEGACY: number;
-    UNKNOWN: number;
   };
 }

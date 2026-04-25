@@ -32,6 +32,7 @@ import {
 } from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
@@ -754,6 +755,9 @@ router.post(
   }),
   async (req: Request, res: Response) => {
     try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Custom profile banners are temporarily disabled' });
+      }
       const user = req.user;
       if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
       const permUser = user as PermissionInput;
@@ -837,6 +841,9 @@ router.delete(
   }),
   async (req: Request, res: Response) => {
     try {
+      if (!CUSTOM_PROFILE_BANNERS_ENABLED) {
+        return res.status(403).json({ error: 'Custom profile banners are temporarily disabled' });
+      }
       const user = req.user;
       if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
       const permUser = user as PermissionInput;

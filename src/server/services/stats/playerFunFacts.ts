@@ -44,7 +44,7 @@ export async function computePlayerFunFacts(
       lPerfect: 0,
       lateSingle: 0,
       lateDouble: 0,
-      perfectRatio: 0,
+      totalXacc: 0,
       earlyVsLateBias: 0,
     },
     levelsCleared: {
@@ -132,6 +132,94 @@ export async function computePlayerFunFacts(
       AND (:includeHidden = 1 OR IFNULL(p.isHidden, 0) = 0)
   `;
 
+  const extremesSourceSql = `
+    SELECT
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+        ORDER BY p2.vidUploadTime ASC, p2.id ASC
+        LIMIT 1
+      ) AS firstPassAtPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+        ORDER BY p2.vidUploadTime DESC, p2.id DESC
+        LIMIT 1
+      ) AS latestPassAtPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+          AND p2.accuracy IS NOT NULL
+        ORDER BY p2.accuracy DESC, p2.id DESC
+        LIMIT 1
+      ) AS bestAccuracyPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+          AND p2.accuracy IS NOT NULL
+        ORDER BY p2.accuracy ASC, p2.id DESC
+        LIMIT 1
+      ) AS worstAccuracyPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+          AND p2.speed IS NOT NULL
+          AND p2.speed > 0
+        ORDER BY p2.speed DESC, p2.id DESC
+        LIMIT 1
+      ) AS topSpeedPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+        ORDER BY IFNULL(l2.tilecount, 0) DESC, p2.id DESC
+        LIMIT 1
+      ) AS highestTilecountClearedPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+        ORDER BY IFNULL(l2.levelLengthInMs, 0) DESC, p2.id DESC
+        LIMIT 1
+      ) AS longestLevelMsPassId,
+      (
+        SELECT p2.id
+        FROM passes p2
+        INNER JOIN levels l2 ON l2.id = p2.levelId AND l2.isDeleted = 0
+        WHERE p2.playerId = :playerId
+          AND IFNULL(p2.isDeleted, 0) = 0
+          AND (:includeHidden = 1 OR IFNULL(p2.isHidden, 0) = 0)
+        ORDER BY IFNULL(l2.bpm, 0) DESC, p2.id DESC
+        LIMIT 1
+      ) AS highestBpmClearedPassId
+  `;
+
   // `clearsByDifficulty`: raw pass count per difficulty.
   // `clearsByDifficultyNoDupes`: one row per (player, level) — same rule as
   // `PlayerStatsService.getEnrichedPlayer` uniquePasses (best scoreV2 wins).
@@ -164,7 +252,7 @@ export async function computePlayerFunFacts(
     GROUP BY diffId, diffType
   `;
 
-  const [mainRows, diffRows, playerRow, userRow] = await Promise.all([
+  const [mainRows, diffRows, sourceRows, playerRow, userRow] = await Promise.all([
     passesSequelize.query(mainSql, {
       replacements: {playerId, includeHidden},
       type: QueryTypes.SELECT,
@@ -173,11 +261,16 @@ export async function computePlayerFunFacts(
       replacements: {playerId, includeHidden},
       type: QueryTypes.SELECT,
     }) as Promise<Array<Record<string, unknown>>>,
+    passesSequelize.query(extremesSourceSql, {
+      replacements: {playerId, includeHidden},
+      type: QueryTypes.SELECT,
+    }) as Promise<Array<Record<string, unknown>>>,
     Player.findByPk(playerId, {attributes: ['createdAt']}),
     User.findOne({where: {playerId}, attributes: ['id']}),
   ]);
 
   const m = mainRows[0] || {};
+  const src = sourceRows[0] || {};
   const totalTilesHit = Number(m.totalTilesHit) || 0;
   const earlyDouble = Number(m.earlyDouble) || 0;
   const earlySingle = Number(m.earlySingle) || 0;
@@ -262,7 +355,7 @@ export async function computePlayerFunFacts(
       lPerfect: Number(m.lPerfect) || 0,
       lateSingle,
       lateDouble,
-      perfectRatio: ratios.perfectRatio,
+      totalXacc: ratios.totalXacc,
       earlyVsLateBias: ratios.earlyVsLateBias,
     },
     levelsCleared: {
@@ -274,14 +367,23 @@ export async function computePlayerFunFacts(
     },
     extremes: {
       firstPassAt: toIso(m.firstPassAt),
+      firstPassAtPassId: src.firstPassAtPassId != null ? Number(src.firstPassAtPassId) : null,
       latestPassAt: toIso(m.latestPassAt),
+      latestPassAtPassId: src.latestPassAtPassId != null ? Number(src.latestPassAtPassId) : null,
       bestAccuracy: m.bestAccuracy != null ? Number(m.bestAccuracy) : null,
+      bestAccuracyPassId: src.bestAccuracyPassId != null ? Number(src.bestAccuracyPassId) : null,
       worstAccuracy: m.worstAccuracy != null ? Number(m.worstAccuracy) : null,
+      worstAccuracyPassId: src.worstAccuracyPassId != null ? Number(src.worstAccuracyPassId) : null,
       topSpeed: m.topSpeed != null ? Number(m.topSpeed) : null,
+      topSpeedPassId: src.topSpeedPassId != null ? Number(src.topSpeedPassId) : null,
       highestTilecountCleared:
         m.highestTilecountCleared != null ? Number(m.highestTilecountCleared) : null,
+      highestTilecountClearedPassId:
+        src.highestTilecountClearedPassId != null ? Number(src.highestTilecountClearedPassId) : null,
       longestLevelMs: m.longestLevelMs != null ? Number(m.longestLevelMs) : null,
+      longestLevelMsPassId: src.longestLevelMsPassId != null ? Number(src.longestLevelMsPassId) : null,
       highestBpmCleared: m.highestBpmCleared != null ? Number(m.highestBpmCleared) : null,
+      highestBpmClearedPassId: src.highestBpmClearedPassId != null ? Number(src.highestBpmClearedPassId) : null,
     },
     activity: {
       accountAgeDays,
