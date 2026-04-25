@@ -19,6 +19,7 @@ import { PlayerStatsService } from '@/server/services/core/PlayerStatsService.js
 import { computePlayerFunFacts } from '@/server/services/stats/playerFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { PaginationQuery } from '@/server/interfaces/models/index.js';
+import Player from '@/models/players/Player.js';
 
 /**
  * v3 players routes — Elasticsearch-backed.
@@ -288,10 +289,11 @@ router.get(
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
 
-      const [ranks, enriched, funFacts] = await Promise.all([
+      const [ranks, enriched, funFacts, playerRow] = await Promise.all([
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
         computePlayerFunFacts(id, {includeHidden: isOwnProfile}),
+        Player.findByPk(id, { attributes: ['bannerPreset', 'customBannerId', 'customBannerUrl'] }),
       ]);
 
       // `passes` is intentionally not forwarded here — the list is huge
@@ -306,8 +308,17 @@ router.get(
           }
         : { topScores: [], potentialTopScores: [] };
 
+      const bannerPatch = playerRow
+        ? {
+            bannerPreset: playerRow.bannerPreset ?? null,
+            customBannerId: playerRow.customBannerId ?? null,
+            customBannerUrl: playerRow.customBannerUrl ?? null,
+          }
+        : {};
+
       return res.json({
         ...doc,
+        ...bannerPatch,
         ...ranks,
         ...plainEnriched,
         funFacts,

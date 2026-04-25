@@ -538,6 +538,9 @@ export const playerMapping = {
       isBanned: { type: 'boolean' as const },
       isSubmissionsPaused: { type: 'boolean' as const },
       pfp: { type: 'keyword' as const },
+      bannerPreset: { type: 'keyword' as const },
+      customBannerId: { type: 'keyword' as const },
+      customBannerUrl: { type: 'text' as const },
       createdAt: { type: 'date' as const },
       updatedAt: { type: 'date' as const },
       user: {
@@ -660,6 +663,9 @@ export const creatorMapping = {
         },
       },
       verificationStatus: { type: 'keyword' as const },
+      bannerPreset: { type: 'keyword' as const },
+      customBannerId: { type: 'keyword' as const },
+      customBannerUrl: { type: 'text' as const },
       aliases: {
         type: 'nested' as const,
         properties: {
@@ -694,6 +700,7 @@ export const creatorMapping = {
           },
           avatarUrl: { type: 'keyword' as const },
           playerId: { type: 'integer' as const },
+          permissionFlags: { type: 'long' as const },
         },
       },
       // Aggregated stats (per-role chart counts + denormalized totals)
@@ -762,11 +769,12 @@ const passMappingHashPayload = {
  *       and produced wrong top diffs on denormalized docs).
  *   3 — 2026-04-19: denormalize `user.creator` when `users.creatorId` is set
  *       (mapping + indexer; clients read `playerData.user.creator`).
+ *   4 — 2026-04-25: profile banner preset + custom CDN fields on player documents.
  */
 const playerMappingHashPayload = {
   settings: playerMapping.settings,
   mappings: playerMapping.mappings,
-  indexerVersion: 3,
+  indexerVersion: 4,
 };
 
 /**
@@ -779,11 +787,12 @@ const playerMappingHashPayload = {
  * History:
  *   1 — initial release
  *   2 — creator index mapping / document field set
+ *   3 — 2026-04-25: profile banners + `user.permissionFlags` for custom-banner gating on clients.
  */
 const creatorMappingHashPayload = {
   settings: creatorMapping.settings,
   mappings: creatorMapping.mappings,
-  indexerVersion: 2,
+  indexerVersion: 3,
 };
 
 const levelMappingHashPath = path.join(process.cwd(), 'mapping-hash-levels.json');

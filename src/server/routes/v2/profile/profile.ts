@@ -14,7 +14,8 @@ import cdnService from '@/server/services/core/CdnService.js';
 import { CdnError } from '@/server/services/core/CdnService.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
-import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
+import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
+import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
 import { permissionFlags } from '@/config/constants.js';
 import { Cache, CacheInvalidation } from '@/server/middleware/cache.js';
 import { AccountDeletionService } from '@/server/services/accounts/AccountDeletionService.js';
@@ -542,6 +543,224 @@ router.delete(
         return res.status(500).json({error: 'Failed to remove avatar'});
     }
   }
+);
+
+function canUsePlayerCustomBanner(user: PermissionInput): boolean {
+  return (
+    hasFlag(user, permissionFlags.CUSTOM_PROFILE_BANNER) ||
+    hasFlag(user, permissionFlags.SUPER_ADMIN)
+  );
+}
+
+// --- Profile banner (preset + custom CDN) ---
+
+router.patch(
+  '/player/banner-preset',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'patchProfilePlayerBannerPreset',
+    summary: 'Update player profile banner preset',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Updated' },
+      400: { description: 'Invalid preset', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      const body = req.body as { preset?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'preset')) {
+        return res.status(400).json({ error: 'Request body must include preset (string or null)' });
+      }
+      let preset: string | null;
+      try {
+        preset = parseBannerPresetForStorage(body?.preset);
+      } catch {
+        return res.status(400).json({ error: 'Invalid banner preset' });
+      }
+
+      await Player.update({ bannerPreset: preset }, { where: { id: user.playerId } });
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ bannerPreset: preset });
+    } catch (error) {
+      logger.error('Error updating player banner preset:', error);
+      return res.status(500).json({ error: 'Failed to update banner preset' });
+    }
+  },
+);
+
+router.delete(
+  '/player/banner-preset',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteProfilePlayerBannerPreset',
+    summary: 'Clear player profile banner preset',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Cleared' },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+
+      await Player.update({ bannerPreset: null }, { where: { id: user.playerId } });
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ bannerPreset: null });
+    } catch (error) {
+      logger.error('Error clearing player banner preset:', error);
+      return res.status(500).json({ error: 'Failed to clear banner preset' });
+    }
+  },
+);
+
+router.post(
+  '/player/banner-custom',
+  Auth.user(),
+  upload.single('banner'),
+  ApiDoc({
+    operationId: 'postProfilePlayerBannerCustom',
+    summary: 'Upload custom player profile banner',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Uploaded' },
+      400: { description: 'No file or CDN error', schema: errorResponseSchema },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!canUsePlayerCustomBanner(user as PermissionInput)) {
+        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
+      }
+
+      const player = await Player.findByPk(user.playerId);
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
+      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
+      if (!displayUrl) {
+        return res.status(500).json({ error: 'CDN did not return banner URLs' });
+      }
+
+      const oldId = player.customBannerId;
+      await Player.update(
+        { customBannerId: result.fileId, customBannerUrl: displayUrl },
+        { where: { id: user.playerId } },
+      );
+
+      if (oldId && oldId !== result.fileId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('Error deleting previous player banner from CDN:', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({
+        customBannerId: result.fileId,
+        customBannerUrl: displayUrl,
+      });
+    } catch (error) {
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      logger.error('Error uploading player banner:', error);
+      return res.status(500).json({ error: 'Failed to upload banner' });
+    }
+  },
+);
+
+router.delete(
+  '/player/banner-custom',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'deleteProfilePlayerBannerCustom',
+    summary: 'Remove custom player profile banner',
+    tags: ['Profile'],
+    security: ['bearerAuth'],
+    responses: {
+      200: { description: 'Removed' },
+      401: { description: 'Unauthorized', schema: errorResponseSchema },
+      403: { description: 'Forbidden', schema: errorResponseSchema },
+      500: { description: 'Server error', schema: errorResponseSchema },
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.playerId) {
+        return res.status(400).json({ error: 'No player profile linked to this account' });
+      }
+      if (!canUsePlayerCustomBanner(user as PermissionInput)) {
+        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
+      }
+
+      const player = await Player.findByPk(user.playerId);
+      if (!player) {
+        return res.status(404).json({ error: 'Player not found' });
+      }
+
+      const oldId = player.customBannerId;
+      await Player.update({ customBannerId: null, customBannerUrl: null }, { where: { id: user.playerId } });
+
+      if (oldId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('Error deleting player banner from CDN:', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexPlayers([user.playerId]);
+      await CacheInvalidation.invalidateUser(user.id);
+
+      return res.json({ customBannerId: null, customBannerUrl: null });
+    } catch (error) {
+      logger.error('Error removing player banner:', error);
+      return res.status(500).json({ error: 'Failed to remove custom banner' });
+    }
+  },
 );
 
 // Schedule account deletion (3-day grace period)

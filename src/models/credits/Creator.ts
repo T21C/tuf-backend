@@ -16,6 +16,9 @@ class Creator extends Model implements ICreator {
   declare userId: string | null;
   /** Up to 5 curation type ids to show on the creator profile header (JSON array in DB). */
   declare displayCurationTypeIds: number[] | null;
+  declare bannerPreset: string | null;
+  declare customBannerId: string | null;
+  declare customBannerUrl: string | null;
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -60,6 +63,18 @@ Creator.init(
       type: DataTypes.JSON,
       allowNull: true,
       defaultValue: null,
+    },
+    bannerPreset: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    customBannerId: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+    },
+    customBannerUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {

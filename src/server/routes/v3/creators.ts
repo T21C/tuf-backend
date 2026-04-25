@@ -32,6 +32,12 @@ import {
 } from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';
+import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
+import cdnService from '@/server/services/core/CdnService.js';
+import { CdnError } from '@/server/services/core/CdnService.js';
+import { parseBannerPresetForStorage } from '@/misc/utils/profileBannerPreset.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
+import User from '@/models/auth/User.js';
 
 /**
  * v3 creators routes — Elasticsearch-backed.
@@ -415,7 +421,9 @@ router.get(
         creatorStatsService.getEnrichedCreator(id),
         computeCreatorFunFacts(id),
         computeCreatorCurationTypeCounts(id),
-        Creator.findByPk(id, {attributes: ['id', 'displayCurationTypeIds']}),
+        Creator.findByPk(id, {
+          attributes: ['id', 'displayCurationTypeIds', 'bannerPreset', 'customBannerId', 'customBannerUrl'],
+        }),
       ]);
 
       if (!doc && !enriched) return res.status(404).json({ error: 'Creator not found' });
@@ -438,8 +446,12 @@ router.get(
                     nickname: enriched.user.nickname ?? null,
                     avatarUrl: enriched.user.avatarUrl ?? null,
                     playerId: enriched.user.playerId ?? null,
+                    permissionFlags: enriched.user.permissionFlags ?? 0,
                   }
                 : null,
+              bannerPreset: enriched.creator?.bannerPreset ?? null,
+              customBannerId: enriched.creator?.customBannerId ?? null,
+              customBannerUrl: enriched.creator?.customBannerUrl ?? null,
               chartsCharted: enriched.stats.chartsCharted,
               chartsVfxed: enriched.stats.chartsVfxed,
               chartsTeamed: enriched.stats.chartsTeamed,
@@ -471,6 +483,7 @@ router.get(
                 nickname: enriched.user.nickname ?? null,
                 avatarUrl: enriched.user.avatarUrl ?? null,
                 playerId: enriched.user.playerId ?? null,
+                permissionFlags: enriched.user.permissionFlags ?? 0,
               }
             : ((doc as { user?: unknown }).user ?? null),
         };
@@ -486,8 +499,17 @@ router.get(
             .slice(0, 5)
         : [];
 
+      const bannerFromRow = creatorRow
+        ? {
+            bannerPreset: creatorRow.bannerPreset ?? null,
+            customBannerId: creatorRow.customBannerId ?? null,
+            customBannerUrl: creatorRow.customBannerUrl ?? null,
+          }
+        : {};
+
       return res.json({
         ...(responseDoc as Record<string, unknown>),
+        ...bannerFromRow,
         recentLevelIds,
         funFacts,
         curationTypeCounts,
@@ -584,6 +606,276 @@ router.patch(
       logger.error('[v3 PATCH /creators/:id/display-curation-types] failure', error);
       return res.status(500).json({
         error: 'Failed to update display curation types',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+function isCreatorBannerActor(user: PermissionInput, creatorId: number): boolean {
+  const u = user as { creatorId?: number | string | null };
+  const isOwner = u.creatorId != null && Number(u.creatorId) === creatorId;
+  return (
+    isOwner ||
+    hasFlag(user, permissionFlags.SUPER_ADMIN) ||
+    hasFlag(user, permissionFlags.HEAD_CURATOR)
+  );
+}
+
+function canUploadCreatorCustomBanner(user: PermissionInput): boolean {
+  return (
+    hasFlag(user, permissionFlags.CUSTOM_PROFILE_BANNER) ||
+    hasFlag(user, permissionFlags.SUPER_ADMIN) ||
+    hasFlag(user, permissionFlags.HEAD_CURATOR)
+  );
+}
+
+async function invalidateLinkedUserForCreator(creatorId: number): Promise<void> {
+  const row = await User.findOne({ where: { creatorId }, attributes: ['id'] });
+  if (row?.id) {
+    await CacheInvalidation.invalidateUser(row.id);
+  }
+}
+
+router.patch(
+  '/:id([0-9]{1,20})/banner-preset',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorBannerPreset',
+    summary: 'Update creator profile banner preset',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Updated banner preset' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const body = req.body as { preset?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'preset')) {
+        return res.status(400).json({ error: 'Request body must include preset (string or null)' });
+      }
+      let preset: string | null;
+      try {
+        preset = parseBannerPresetForStorage(body?.preset);
+      } catch {
+        return res.status(400).json({ error: 'Invalid banner preset' });
+      }
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) return res.status(404).json({ error: 'Creator not found' });
+
+      await Creator.update({ bannerPreset: preset }, { where: { id } });
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ bannerPreset: preset });
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/:id/banner-preset] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update creator banner preset',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.delete(
+  '/:id([0-9]{1,20})/banner-preset',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3DeleteCreatorBannerPreset',
+    summary: 'Clear creator profile banner preset',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Cleared banner preset' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) return res.status(404).json({ error: 'Creator not found' });
+
+      await Creator.update({ bannerPreset: null }, { where: { id } });
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ bannerPreset: null });
+    } catch (error) {
+      logger.error('[v3 DELETE /creators/:id/banner-preset] failure', error);
+      return res.status(500).json({
+        error: 'Failed to clear creator banner preset',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.post(
+  '/:id([0-9]{1,20})/banner-custom',
+  Auth.addUserToRequest(),
+  bannerUpload.single('banner'),
+  ApiDoc({
+    operationId: 'v3PostCreatorBannerCustom',
+    summary: 'Upload creator custom profile banner',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Uploaded custom banner' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (!canUploadCreatorCustomBanner(permUser)) {
+        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded', code: 'NO_FILE' });
+      }
+
+      const creator = await Creator.findByPk(id);
+      if (!creator) return res.status(404).json({ error: 'Creator not found' });
+
+      const result = await cdnService.uploadImage(req.file.buffer, req.file.originalname, 'BANNER');
+      const displayUrl = result.urls?.large ?? result.urls?.original ?? null;
+      if (!displayUrl) {
+        return res.status(500).json({ error: 'CDN did not return banner URLs' });
+      }
+
+      const oldId = creator.customBannerId;
+      await Creator.update(
+        { customBannerId: result.fileId, customBannerUrl: displayUrl },
+        { where: { id } },
+      );
+
+      if (oldId && oldId !== result.fileId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('[v3 POST /creators/:id/banner-custom] failed deleting previous banner file', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({
+        customBannerId: result.fileId,
+        customBannerUrl: displayUrl,
+      });
+    } catch (error) {
+      if (error instanceof CdnError) {
+        return res.status(400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      logger.error('[v3 POST /creators/:id/banner-custom] failure', error);
+      return res.status(500).json({
+        error: 'Failed to upload creator banner',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.delete(
+  '/:id([0-9]{1,20})/banner-custom',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3DeleteCreatorBannerCustom',
+    summary: 'Remove creator custom profile banner',
+    tags: ['Database', 'Creators', 'v3'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Removed custom banner' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) return res.status(401).json({ error: 'Unauthorized' });
+      const permUser = user as PermissionInput;
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+      if (!isCreatorBannerActor(permUser, id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (!canUploadCreatorCustomBanner(permUser)) {
+        return res.status(403).json({ error: 'Custom profile banners are not enabled for this account' });
+      }
+
+      const creator = await Creator.findByPk(id);
+      if (!creator) return res.status(404).json({ error: 'Creator not found' });
+
+      const oldId = creator.customBannerId;
+      await Creator.update({ customBannerId: null, customBannerUrl: null }, { where: { id } });
+
+      if (oldId) {
+        try {
+          if (await cdnService.checkFileExists(oldId)) {
+            await cdnService.deleteFile(oldId);
+          }
+        } catch (delErr) {
+          logger.error('[v3 DELETE /creators/:id/banner-custom] failed deleting CDN file', delErr);
+        }
+      }
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ customBannerId: null, customBannerUrl: null });
+    } catch (error) {
+      logger.error('[v3 DELETE /creators/:id/banner-custom] failure', error);
+      return res.status(500).json({
+        error: 'Failed to remove creator custom banner',
         details: error instanceof Error ? error.message : String(error),
       });
     }

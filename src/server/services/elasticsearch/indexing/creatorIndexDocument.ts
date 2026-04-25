@@ -38,6 +38,16 @@ function serializeAliases(aliases: CreatorAlias[] | null | undefined): Array<{ i
     }));
 }
 
+function permissionFlagsToLong(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  if (typeof value === 'number') return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function serializeUser(user: User | null | undefined): any | null {
   if (!user) return null;
   const u = plain(user) as any;
@@ -47,6 +57,7 @@ function serializeUser(user: User | null | undefined): any | null {
     nickname: u.nickname ?? null,
     avatarUrl: u.avatarUrl ?? null,
     playerId: coerceNumber(u.playerId, 0),
+    permissionFlags: permissionFlagsToLong(u.permissionFlags),
   };
 }
 
@@ -72,6 +83,9 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     id: coerceNumber(c.id, 0),
     name: c.name ?? '',
     verificationStatus,
+    bannerPreset: typeof c.bannerPreset === 'string' && c.bannerPreset.length ? c.bannerPreset : null,
+    customBannerId: typeof c.customBannerId === 'string' && c.customBannerId.length ? c.customBannerId : null,
+    customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,
     aliases: serializeAliases(input.aliases ?? creator.creatorAliases ?? null),
     user: serializeUser(input.user ?? null),
 

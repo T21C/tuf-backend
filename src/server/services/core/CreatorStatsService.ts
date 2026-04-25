@@ -21,7 +21,10 @@ const ZERO_STATS: Omit<CreatorStatsRow, 'id'> = {
 
 export interface EnrichedCreator {
   creator: Creator | null;
-  user: Pick<User, 'id' | 'username' | 'nickname' | 'avatarUrl' | 'playerId' | 'creatorId'> | null;
+  user: Pick<
+    User,
+    'id' | 'username' | 'nickname' | 'avatarUrl' | 'playerId' | 'creatorId' | 'permissionFlags'
+  > | null;
   aliases: Array<Pick<CreatorAlias, 'id' | 'name' | 'creatorId'>>;
   stats: Omit<CreatorStatsRow, 'id'>;
   recentLevelIds: number[];
@@ -120,6 +123,12 @@ export class CreatorStatsService {
             avatarUrl: user.avatarUrl ?? null,
             playerId: user.playerId as number,
             creatorId: user.creatorId ?? null,
+            permissionFlags:
+              user.permissionFlags == null
+                ? 0
+                : typeof user.permissionFlags === 'bigint'
+                  ? Number(user.permissionFlags)
+                  : Number(user.permissionFlags),
           }
         : null;
 
