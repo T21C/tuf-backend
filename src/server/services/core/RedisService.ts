@@ -1,5 +1,7 @@
-import { createClient } from 'redis';
+import { createClient as redisClient } from 'redis';
 import { logger } from './LoggerService.js';
+
+const createClient = redisClient as any;
 
 /**
  * Redis Service - Singleton for managing Redis connection
