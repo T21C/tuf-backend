@@ -663,6 +663,7 @@ export const creatorMapping = {
         },
       },
       verificationStatus: { type: 'keyword' as const },
+      uploadConditions: { type: 'text' as const },
       bannerPreset: { type: 'keyword' as const },
       customBannerId: { type: 'keyword' as const },
       customBannerUrl: { type: 'text' as const },

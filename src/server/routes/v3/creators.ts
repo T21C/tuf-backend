@@ -6,7 +6,12 @@ import {
   standardErrorResponses404500,
   standardErrorResponses500,
 } from '@/server/schemas/common.js';
-import { validCreatorSortOptions } from '@/config/constants.js';
+import {
+  validCreatorSortOptions,
+  validCreatorVerificationStatuses,
+  permissionFlags,
+  type CreatorVerificationStatus,
+} from '@/config/constants.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
 import {
   getCreatorMaxFields,
@@ -31,7 +36,6 @@ import {
   validateCreatorAliasListForSelf,
 } from '@/server/services/creators/creatorSelfAliases.js';
 import { hasFlag, type PermissionInput } from '@/misc/utils/auth/permissionUtils.js';
-import { permissionFlags } from '@/config/constants.js';
 import { CUSTOM_PROFILE_BANNERS_ENABLED } from '@/config/env.js';
 import { multerMemoryCdnImage10Mb as bannerUpload } from '@/config/multerMemoryUploads.js';
 import cdnService from '@/server/services/core/CdnService.js';
@@ -55,6 +59,11 @@ const creditsSequelize = getSequelizeForModelGroup('credits');
 
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
+const MAX_UPLOAD_CONDITIONS_CHARS = 2000;
+
+const creatorSelfVerificationStatuses = validCreatorVerificationStatuses.filter(
+  (s): s is Exclude<CreatorVerificationStatus, 'pending'> => s !== 'pending',
+);
 
 function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
   const n = parseInt(String(raw ?? ''), 10);
@@ -438,6 +447,164 @@ router.patch(
   },
 );
 
+router.patch(
+  '/me/upload-conditions',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeUploadConditions',
+    summary: 'Update my creator chart upload conditions (v3)',
+    description:
+      'Requires an authenticated user with `creatorId` set. Free-text policy for when/how charts may be uploaded.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      description: 'uploadConditions (string or null). Empty string clears.',
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          uploadConditions: { type: 'string', nullable: true },
+        },
+        required: ['uploadConditions'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated upload conditions' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'No creator profile linked to this account' });
+      }
+
+      const body = req.body as { uploadConditions?: unknown };
+      if (!Object.prototype.hasOwnProperty.call(body, 'uploadConditions')) {
+        return res
+          .status(400)
+          .json({ error: 'Request body must include uploadConditions (string or null)' });
+      }
+
+      let next: string | null;
+      if (body.uploadConditions == null) {
+        next = null;
+      } else if (typeof body.uploadConditions === 'string') {
+        const trimmed = body.uploadConditions.trim();
+        if (trimmed.length > MAX_UPLOAD_CONDITIONS_CHARS) {
+          return res.status(400).json({
+            error: `Upload conditions must be at most ${MAX_UPLOAD_CONDITIONS_CHARS} characters`,
+          });
+        }
+        next = trimmed.length ? trimmed : null;
+      } else {
+        return res.status(400).json({ error: 'uploadConditions must be a string or null' });
+      }
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) {
+        return res.status(404).json({ error: 'Creator not found' });
+      }
+
+      await Creator.update({ uploadConditions: next }, { where: { id } });
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ uploadConditions: next });
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/upload-conditions] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update upload conditions',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+router.patch(
+  '/me/verification-status',
+  Auth.user(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorMeVerificationStatus',
+    summary: 'Update my creator verification status (v3)',
+    description:
+      'Linked creator only. Allowed values: `declined`, `conditional`, `allowed`. `pending` is not allowed (use staff workflows).',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    requestBody: {
+      required: true,
+      schema: {
+        type: 'object',
+        properties: {
+          verificationStatus: {
+            type: 'string',
+            enum: ['declined', 'conditional', 'allowed'],
+          },
+        },
+        required: ['verificationStatus'],
+      },
+    },
+    responses: {
+      200: { description: 'Updated verification status' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const id = Number(user.creatorId);
+      if (!Number.isFinite(id) || id <= 0) {
+        return res.status(400).json({ error: 'No creator profile linked to this account' });
+      }
+
+      const body = req.body as { verificationStatus?: unknown };
+      const raw = body.verificationStatus;
+      if (typeof raw !== 'string' || !raw.trim()) {
+        return res.status(400).json({ error: 'verificationStatus is required' });
+      }
+      const nextStatus = raw.trim() as CreatorVerificationStatus;
+      if (nextStatus === 'pending') {
+        return res.status(400).json({ error: 'Creators cannot set verification status to pending' });
+      }
+      if (!(creatorSelfVerificationStatuses as readonly string[]).includes(nextStatus)) {
+        return res.status(400).json({
+          error: `Invalid verificationStatus. Must be one of: ${creatorSelfVerificationStatuses.join(', ')}`,
+        });
+      }
+
+      const exists = await Creator.findByPk(id, { attributes: ['id'] });
+      if (!exists) {
+        return res.status(404).json({ error: 'Creator not found' });
+      }
+
+      await Creator.update(
+        { verificationStatus: nextStatus },
+        { where: { id } },
+      );
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      return res.json({ verificationStatus: nextStatus });
+    } catch (error) {
+      logger.error('[v3 PATCH /creators/me/verification-status] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update verification status',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
 router.get(
   '/:id([0-9]{1,20})',
   ApiDoc({
@@ -499,7 +666,15 @@ router.get(
         computeCreatorFunFacts(id),
         computeCreatorCurationTypeCounts(id),
         Creator.findByPk(id, {
-          attributes: ['id', 'bio', 'displayCurationTypeIds', 'bannerPreset', 'customBannerId', 'customBannerUrl'],
+          attributes: [
+            'id',
+            'bio',
+            'uploadConditions',
+            'displayCurationTypeIds',
+            'bannerPreset',
+            'customBannerId',
+            'customBannerUrl',
+          ],
         }),
       ]);
 
@@ -592,6 +767,11 @@ router.get(
       const bannerFromRow = creatorRow
         ? {
             bio: typeof creatorRow.bio === 'string' && creatorRow.bio.trim().length ? creatorRow.bio : null,
+            uploadConditions:
+              typeof creatorRow.uploadConditions === 'string' &&
+              creatorRow.uploadConditions.trim().length
+                ? creatorRow.uploadConditions.trim()
+                : null,
             bannerPreset: creatorRow.bannerPreset ?? null,
             customBannerId: creatorRow.customBannerId ?? null,
             customBannerUrl: creatorRow.customBannerUrl ?? null,
@@ -729,6 +909,211 @@ async function invalidateLinkedUserForCreator(creatorId: number): Promise<void> 
     await CacheInvalidation.invalidateUser(row.id);
   }
 }
+
+router.patch(
+  '/:id([0-9]{1,20})/managed-update',
+  Auth.addUserToRequest(),
+  ApiDoc({
+    operationId: 'v3PatchCreatorManagedUpdate',
+    summary: 'Update creator fields (curator/admin) (v3)',
+    description:
+      'HEAD_CURATOR or SUPER_ADMIN. Partial body: `name`, `aliases` (full replacement), `verificationStatus` (including `pending`), `uploadConditions`. At least one field required.',
+    tags: ['Database', 'Creators', 'v3'],
+    security: ['bearerAuth'],
+    params: { id: idParamSpec },
+    responses: {
+      200: { description: 'Updated creator' },
+      ...standardErrorResponses404500,
+    },
+  }),
+  async (req: Request, res: Response) => {
+    const transaction = await creditsSequelize.transaction();
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        await transaction.rollback();
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const permUser = user as PermissionInput;
+      const isElevated =
+        hasFlag(permUser, permissionFlags.SUPER_ADMIN) ||
+        hasFlag(permUser, permissionFlags.HEAD_CURATOR);
+      if (!isElevated) {
+        await transaction.rollback();
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Invalid creator id' });
+      }
+
+      const body = req.body as {
+        name?: unknown;
+        aliases?: unknown;
+        verificationStatus?: unknown;
+        uploadConditions?: unknown;
+      };
+
+      const hasName = Object.prototype.hasOwnProperty.call(body, 'name');
+      const hasAliases = Object.prototype.hasOwnProperty.call(body, 'aliases');
+      const hasVerification = Object.prototype.hasOwnProperty.call(body, 'verificationStatus');
+      const hasUploadConditions = Object.prototype.hasOwnProperty.call(body, 'uploadConditions');
+
+      if (!hasName && !hasAliases && !hasVerification && !hasUploadConditions) {
+        await transaction.rollback();
+        return res.status(400).json({
+          error: 'Request body must include at least one of: name, aliases, verificationStatus, uploadConditions',
+        });
+      }
+
+      const creatorRow = await Creator.findByPk(id, {
+        attributes: ['id', 'name'],
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!creatorRow) {
+        await transaction.rollback();
+        return res.status(404).json({ error: 'Creator not found' });
+      }
+
+      const currentName = String(creatorRow.get('name') ?? creatorRow.name ?? '');
+      const seq = Creator.sequelize!;
+
+      const updatePayload: Record<string, unknown> = {};
+      let nextName = currentName;
+
+      if (hasName) {
+        if (typeof body.name !== 'string') {
+          await transaction.rollback();
+          return res.status(400).json({ error: 'name must be a string' });
+        }
+        const rawName = body.name.trim();
+        if (rawName.length < 2) {
+          await transaction.rollback();
+          return res.status(400).json({ error: 'Name must be at least 2 characters' });
+        }
+        if (rawName.length > 100) {
+          await transaction.rollback();
+          return res.status(400).json({ error: 'Name must be at most 100 characters' });
+        }
+        if (rawName !== currentName) {
+          if (await creatorDisplayNameTakenByOther(seq, id, rawName)) {
+            await transaction.rollback();
+            return res.status(400).json({ error: 'Creator name already taken' });
+          }
+          if (await creatorAliasStringExistsGlobally(seq, rawName)) {
+            await transaction.rollback();
+            return res.status(400).json({
+              error:
+                'That name matches an existing creator alias. Change or remove the conflicting alias first.',
+            });
+          }
+        }
+        updatePayload.name = rawName;
+        nextName = rawName;
+      }
+
+      if (hasVerification) {
+        if (typeof body.verificationStatus !== 'string') {
+          await transaction.rollback();
+          return res.status(400).json({ error: 'verificationStatus must be a string' });
+        }
+        const vs = body.verificationStatus.trim() as CreatorVerificationStatus;
+        if (!(validCreatorVerificationStatuses as readonly string[]).includes(vs)) {
+          await transaction.rollback();
+          return res.status(400).json({
+            error: `Invalid verificationStatus. Must be one of: ${validCreatorVerificationStatuses.join(', ')}`,
+          });
+        }
+        updatePayload.verificationStatus = vs;
+      }
+
+      if (hasUploadConditions) {
+        if (body.uploadConditions != null && typeof body.uploadConditions !== 'string') {
+          await transaction.rollback();
+          return res.status(400).json({ error: 'uploadConditions must be a string or null' });
+        }
+        let nextUpload: string | null;
+        if (body.uploadConditions == null) {
+          nextUpload = null;
+        } else {
+          const trimmed = body.uploadConditions.trim();
+          if (trimmed.length > MAX_UPLOAD_CONDITIONS_CHARS) {
+            await transaction.rollback();
+            return res.status(400).json({
+              error: `uploadConditions must be at most ${MAX_UPLOAD_CONDITIONS_CHARS} characters`,
+            });
+          }
+          nextUpload = trimmed.length ? trimmed : null;
+        }
+        updatePayload.uploadConditions = nextUpload;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        await Creator.update(updatePayload, { where: { id }, transaction });
+      }
+
+      let aliasRows: { id: number; name: string }[] = [];
+      if (hasAliases) {
+        const validated = await validateCreatorAliasListForSelf(
+          seq,
+          id,
+          nextName,
+          body.aliases,
+        );
+        if (!validated.ok) {
+          await transaction.rollback();
+          return res.status(400).json({ error: validated.error });
+        }
+        await replaceCreatorAliasesForCreator(id, validated.names, transaction);
+        aliasRows = await CreatorAlias.findAll({
+          where: { creatorId: id },
+          attributes: ['id', 'name'],
+          order: [['id', 'ASC']],
+          transaction,
+        });
+      }
+
+      await transaction.commit();
+
+      await elasticsearchService.reindexCreators([id]);
+      await invalidateLinkedUserForCreator(id);
+
+      if (!hasAliases) {
+        aliasRows = await CreatorAlias.findAll({
+          where: { creatorId: id },
+          attributes: ['id', 'name'],
+          order: [['id', 'ASC']],
+        });
+      }
+
+      const fresh = await Creator.findByPk(id, {
+        attributes: ['id', 'name', 'verificationStatus', 'uploadConditions'],
+      });
+
+      return res.json({
+        id,
+        name: fresh?.name ?? nextName,
+        verificationStatus: (fresh?.verificationStatus ?? 'allowed') as CreatorVerificationStatus,
+        uploadConditions:
+          typeof fresh?.uploadConditions === 'string' && fresh.uploadConditions.trim().length
+            ? fresh.uploadConditions.trim()
+            : null,
+        aliases: aliasRows.map((a) => ({ id: a.id, name: a.name })),
+        creatorAliases: aliasRows.map((a) => ({ name: a.name })),
+      });
+    } catch (error) {
+      await transaction.rollback();
+      logger.error('[v3 PATCH /creators/:id/managed-update] failure', error);
+      return res.status(500).json({
+        error: 'Failed to update creator',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
 
 router.patch(
   '/:id([0-9]{1,20})/banner-preset',

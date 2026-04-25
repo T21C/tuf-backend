@@ -20,6 +20,8 @@ class Creator extends Model implements ICreator {
   declare bannerPreset: string | null;
   declare customBannerId: string | null;
   declare customBannerUrl: string | null;
+  /** Free-text policy for when/how charts may be uploaded for this creator. */
+  declare uploadConditions: string | null;
 
   declare user: User;
   declare credits?: LevelCredit[];
@@ -78,6 +80,10 @@ Creator.init(
       allowNull: true,
     },
     customBannerUrl: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    uploadConditions: {
       type: DataTypes.TEXT,
       allowNull: true,
     },

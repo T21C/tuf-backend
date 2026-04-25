@@ -84,6 +84,10 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     name: c.name ?? '',
     verificationStatus,
     bio: typeof c.bio === 'string' && c.bio.trim().length ? c.bio : null,
+    uploadConditions:
+      typeof c.uploadConditions === 'string' && c.uploadConditions.trim().length
+        ? c.uploadConditions.trim()
+        : null,
     bannerPreset: typeof c.bannerPreset === 'string' && c.bannerPreset.length ? c.bannerPreset : null,
     customBannerId: typeof c.customBannerId === 'string' && c.customBannerId.length ? c.customBannerId : null,
     customBannerUrl: typeof c.customBannerUrl === 'string' && c.customBannerUrl.length ? c.customBannerUrl : null,

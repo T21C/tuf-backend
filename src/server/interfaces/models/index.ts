@@ -39,6 +39,8 @@ export interface ICreator extends IBaseModel {
   bannerPreset?: string | null;
   customBannerId?: string | null;
   customBannerUrl?: string | null;
+  /** Free-text policy for chart uploads (shown to visitors when set). */
+  uploadConditions?: string | null;
   creatorAliases: CreatorAlias[];
   creatorTeams?: ITeam[];
   teamMemberships?: any[];
