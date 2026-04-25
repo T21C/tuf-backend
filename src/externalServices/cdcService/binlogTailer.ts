@@ -6,12 +6,19 @@ import type {
   UpdateRowsEvent,
   DeleteRowsEvent,
 } from '@vlasky/zongji';
-import { createClient, type RedisClientType } from 'redis';
+import { createClient as redisCreateClient } from 'redis';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDC_WATCHED_TABLES } from './constants.js';
 import { loadBinlogCheckpointFrom, saveBinlogCheckpointTo } from './binlogCheckpoint.js';
 import { publishCdcRow } from './publisher.js';
 import type { CdcOp } from '@/server/services/eventBus/types.js';
+
+// Aliased to `any` to prevent the deep `redis` client generics from being
+// instantiated across this file. See server/src/server/services/core/RedisService.ts
+// for the same pattern; instantiating RedisClientType here was a major
+// contributor to the tsc check phase blowing past the heap limit.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const createClient: any = redisCreateClient;
 
 export interface StartBinlogTailerOptions {
   /** Unique MySQL replication server_id for this CDC client (must not collide with primary or replicas). */
@@ -30,7 +37,8 @@ function buildIncludeSchema(dbName: string): Record<string, string[] | true> {
 
 function attachBinlogHandler(
   zongji: ZongJi,
-  redisClient: RedisClientType,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  redisClient: any,
   binlogState: { currentFile: string },
 ): void {
   zongji.on('binlog', async (evt: AnyBinlogEvent) => {
@@ -142,8 +150,9 @@ export async function startBinlogTailer(options: StartBinlogTailerOptions): Prom
 
   const includeSchema = buildIncludeSchema(dbName);
 
-  const redisClient: RedisClientType = createClient({ url: options.redisUrl });
-  redisClient.on('error', (err) => logger.error('[cdc] Redis client error:', err));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const redisClient: any = createClient({ url: options.redisUrl });
+  redisClient.on('error', (err: Error) => logger.error('[cdc] Redis client error:', err));
   await redisClient.connect();
 
   const zongjiConn = {

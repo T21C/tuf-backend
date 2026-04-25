@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build-clear": "rimraf dist.tmp tsconfig.tsbuildinfo",
-    "build-tsc": "tsc --project tsconfig.json --noEmit false --outDir dist.tmp",
+    "build-tsc": "cross-env NODE_OPTIONS='--max-old-space-size=2048' tsc --project tsconfig.json --noEmit false --outDir dist.tmp --generateTrace ts-traces",
     "build-alias": "tsc-alias -p tsconfig.json --dir dist.tmp",
     "build-copy-html": "cross-env COPY_HTML_SRC=src COPY_HTML_DEST=dist.tmp node dist.tmp/misc/scripts/copyHtml.js",
     "build-swap": "node scripts/swap-dist.mjs",
@@ -48,6 +48,7 @@
     "@types/multer": "^1.4.12",
     "@types/socket.io": "^3.0.2",
     "@types/uuid": "^10.0.0",
+    "@typescript/analyze-trace": "^0.10.1",
     "@vlasky/zongji": "^0.6.1",
     "adofai-lib": "^1.2.8",
     "aws-sdk": "^2.1693.0",

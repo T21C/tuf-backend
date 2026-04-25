@@ -147,6 +147,7 @@ temp/
 cache/
 backups/
 profiles/
+ts-traces/
 generate_meta_inserts.bat
 meta_inserts.sql
 *.sh
