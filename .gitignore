@@ -155,6 +155,7 @@ __pycache__/
 docs
 *.md
 *.exe
+bannerPresetManifest.json
 
 # ts builds
 build/
