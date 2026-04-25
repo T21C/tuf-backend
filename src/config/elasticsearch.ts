@@ -3,6 +3,7 @@ import { logger } from '../server/services/core/LoggerService.js';
 import fs from 'fs';
 import hash from 'object-hash';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { writeFileAtomic } from '@/misc/utils/fs/fsSafeWrite.js';
 
 // Read the CA certificate only in production
@@ -796,10 +797,13 @@ const creatorMappingHashPayload = {
   indexerVersion: 3,
 };
 
-const levelMappingHashPath = path.join(process.cwd(), 'mapping-hash-levels.json');
-const passMappingHashPath = path.join(process.cwd(), 'mapping-hash-passes.json');
-const playerMappingHashPath = path.join(process.cwd(), 'mapping-hash-players.json');
-const creatorMappingHashPath = path.join(process.cwd(), 'mapping-hash-creators.json');
+// Store mapping hash files next to the `server/` package, not `process.cwd()`.
+// Dev servers can be launched from repo root or `server/`, so `cwd` is not stable.
+const serverPackageRoot = path.resolve(fileURLToPath(new URL('../../', import.meta.url)));
+const levelMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-levels.json');
+const passMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-passes.json');
+const playerMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-players.json');
+const creatorMappingHashPath = path.join(serverPackageRoot, 'mapping-hash-creators.json');
 
 // Function to generate hash of mappings
 export function generateMappingHash(mappings: any): string {
