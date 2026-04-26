@@ -22,6 +22,8 @@ import Team from '@/models/credits/Team.js';
 import { roleSyncService } from '../accounts/RoleSyncService.js';
 import dotenv from 'dotenv';
 import { playerStatsQuery } from '@/server/services/elasticsearch/misc/playerStatsQuery.js';
+import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import { getRankedScoreRanksForHits } from '@/server/services/elasticsearch/search/players/playerSearch.js';
 
 dotenv.config();
 
@@ -504,8 +506,26 @@ export class PlayerStatsService {
 
     const impact = (currentStats?.rankedScore || 0) - (previousStats?.rankedScore || 0);
 
-    // Get player stats for rank
-    const playerStats = await this.getPlayerStats(pass.player?.id || 0).then(stats => stats?.[0]);
+    const playerId = pass.player?.id;
+    /** Same global rank as v3 leaderboard (`getRankedScoreRanksForHits`), not MySQL `player_stats.rankedScoreRank`. */
+    let rankedScoreRank: number | undefined;
+    if (playerId) {
+      try {
+        const esDoc = await ElasticsearchService.getInstance().getPlayerDocumentById(playerId);
+        if (esDoc) {
+          const [r] = await getRankedScoreRanksForHits([
+            { isBanned: esDoc.isBanned, rankedScore: esDoc.rankedScore },
+          ]);
+          rankedScoreRank = r;
+        }
+      } catch (error) {
+        logger.warn('[PlayerStatsService] getPassDetails: ES rankedScoreRank failed', error);
+      }
+      if (rankedScoreRank === undefined) {
+        const playerStats = await this.getPlayerStats(playerId).then((stats) => stats?.[0]);
+        rankedScoreRank = playerStats?.rankedScoreRank;
+      }
+    }
 
     const response = {
       ...pass.toJSON(),
@@ -522,7 +542,7 @@ export class PlayerStatsService {
         impactRank: topScores.findIndex(score => score.id === passId) + 1
       },
       ranks: {
-        rankedScoreRank: playerStats?.rankedScoreRank,
+        rankedScoreRank,
       },
     };
 
