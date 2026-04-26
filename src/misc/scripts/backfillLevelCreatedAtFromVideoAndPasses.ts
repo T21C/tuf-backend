@@ -20,6 +20,7 @@ import {parseArgs} from 'node:util';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import path from 'node:path';
+import {homedir} from 'node:os';
 import dotenv from 'dotenv';
 import {QueryTypes} from 'sequelize';
 
@@ -395,6 +396,18 @@ function defaultYtDlpPath(): string {
   return 'yt-dlp';
 }
 
+/** `child_process.execFile` does not expand shell `~` — resolve it here. */
+function resolveYtDlpPath(p: string): string {
+  const t = p.trim();
+  if (t.startsWith('~/')) {
+    return path.join(homedir(), t.slice(2));
+  }
+  if (t === '~') {
+    return homedir();
+  }
+  return t;
+}
+
 async function main() {
   const {values} = parseArgs({
     options: {
@@ -430,7 +443,7 @@ async function main() {
         : 4,
     matchCreatedDate: values['match-created-date']?.trim() || undefined,
     allowAnyCreatedAt: Boolean(values['allow-any-created-at']),
-    ytdlpPath: values['ytdlp-path']?.trim() || defaultYtDlpPath(),
+    ytdlpPath: resolveYtDlpPath(values['ytdlp-path']?.trim() || defaultYtDlpPath()),
     ytdlpTimeoutMs:
       values['ytdlp-timeout-ms'] != null && values['ytdlp-timeout-ms'] !== ''
         ? Math.max(5000, parseInt(String(values['ytdlp-timeout-ms']), 10))
