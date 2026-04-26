@@ -714,6 +714,15 @@ export const creatorMapping = {
       totalChartLikes: { type: 'integer' as const },
       // Placeholder for the C/O/V/H "highest role" icon (filled by a follow-up)
       topRole: { type: 'keyword' as const },
+      /** Profile-header curation badges (leaderboard + profile use the same denormalized shape). */
+      curationTypeCountPairs: {
+        type: 'nested' as const,
+        properties: {
+          typeId: { type: 'integer' as const },
+          count: { type: 'integer' as const },
+        },
+      },
+      displayCurationTypeIds: { type: 'integer' as const },
       createdAt: { type: 'date' as const },
       updatedAt: { type: 'date' as const },
       statsUpdatedAt: { type: 'date' as const },

@@ -7,6 +7,7 @@ import {
   CreatorStatsRow,
 } from '@/server/services/elasticsearch/misc/creatorStatsQuery.js';
 import { buildCreatorIndexDocument } from '@/server/services/elasticsearch/indexing/creatorIndexDocument.js';
+import { fetchCreatorCurationTypeCountsBulk } from '@/server/services/stats/creatorFunFacts.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 
 export interface PreparedCreatorDocument {
@@ -53,18 +54,22 @@ export async function fetchCreatorsForBulkIndex(creatorIds: number[]): Promise<P
     statsById.set(Number(row.id), row);
   }
 
+  const curationCountsByCreatorId = await fetchCreatorCurationTypeCountsBulk(ids);
+
   const out: PreparedCreatorDocument[] = [];
   for (const creator of creators) {
     try {
       const user = userByCreatorId.get(creator.id) ?? null;
       const creatorAliases = aliasesByCreatorId.get(creator.id) ?? [];
       const stats = statsById.get(creator.id) ?? null;
+      const curationTypeCounts = curationCountsByCreatorId.get(creator.id) ?? {};
 
       const doc = buildCreatorIndexDocument({
         creator,
         user,
         aliases: creatorAliases,
         stats,
+        curationTypeCounts,
       });
       out.push({ id: creator.id, document: doc });
     } catch (error) {

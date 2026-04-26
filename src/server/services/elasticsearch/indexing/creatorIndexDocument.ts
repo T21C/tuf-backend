@@ -9,6 +9,8 @@ export interface CreatorIndexDocumentInput {
   user?: User | null;
   aliases?: CreatorAlias[] | null;
   stats?: Partial<CreatorStatsRow> | null;
+  /** Distinct credited levels per curation type id (string keys), same shape as profile `curationTypeCounts`. */
+  curationTypeCounts?: Record<string, number> | null;
 }
 
 function plain<T extends object | null | undefined>(m: T): Record<string, unknown> | null {
@@ -48,6 +50,28 @@ function permissionFlagsToLong(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function serializeDisplayCurationTypeIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const out: number[] = [];
+  const seen = new Set<number>();
+  for (const x of raw) {
+    const n = Number(x);
+    if (!Number.isFinite(n) || n <= 0 || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+function curationCountsToPairs(counts: Record<string, number> | null | undefined): Array<{ typeId: number; count: number }> {
+  if (!counts || typeof counts !== 'object') return [];
+  return Object.entries(counts)
+    .map(([k, v]) => ({ typeId: Number(k), count: Number(v) || 0 }))
+    .filter((x) => Number.isFinite(x.typeId) && x.typeId > 0 && x.count > 0)
+    .sort((a, b) => a.typeId - b.typeId);
+}
+
 function serializeUser(user: User | null | undefined): any | null {
   if (!user) return null;
   const u = plain(user) as any;
@@ -71,6 +95,7 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
   const { creator } = input;
   const c = plain(creator) as any;
   const stats = input.stats ?? null;
+  const curationCounts = input.curationTypeCounts ?? {};
 
   const rawStatus = c.verificationStatus;
   const verificationStatus: CreatorVerificationStatus =
@@ -102,6 +127,10 @@ export function buildCreatorIndexDocument(input: CreatorIndexDocumentInput): Rec
     totalChartLikes: coerceNumber(stats?.totalChartLikes, 0),
     // Placeholder for the C/O/V/H "highest role" icon (computed by a follow-up).
     topRole: null,
+
+    /** Nested pairs avoid ES dynamic field explosion from arbitrary curation type id keys. */
+    curationTypeCountPairs: curationCountsToPairs(curationCounts),
+    displayCurationTypeIds: serializeDisplayCurationTypeIds(c.displayCurationTypeIds),
 
     createdAt: c.createdAt ?? null,
     updatedAt: c.updatedAt ?? null,

@@ -324,3 +324,76 @@ export async function computeCreatorCurationTypeCounts(
   }
   return out;
 }
+
+/** Same eligibility rules as {@link computeCreatorCurationTypeCounts}, batched for ES indexing. */
+const creatorCurationTypeCountsBulkSql = `
+SELECT lc_outer.creatorId AS creatorId, cct.typeId AS typeId, COUNT(DISTINCT c.levelId) AS cnt
+FROM curations c
+INNER JOIN curation_curation_types cct ON c.id = cct.curationId
+INNER JOIN levels l ON l.id = c.levelId AND IFNULL(l.isDeleted, 0) = 0
+INNER JOIN curation_types ct ON ct.id = cct.typeId
+INNER JOIN level_credits lc_outer ON lc_outer.levelId = c.levelId
+  AND lc_outer.creatorId IN (:creatorIds)
+  AND lc_outer.role IN ('charter', 'vfxer')
+WHERE c.levelId IN (
+  SELECT lc.levelId FROM level_credits lc
+  WHERE lc.creatorId = lc_outer.creatorId
+    AND lc.role IN ('charter', 'vfxer')
+)
+AND (
+  (
+    TRIM(ct.name) REGEXP '^[CcOo][0-9]*$'
+    AND EXISTS (
+      SELECT 1 FROM level_credits lc2
+      WHERE lc2.levelId = c.levelId
+        AND lc2.creatorId = lc_outer.creatorId
+        AND lc2.role = 'charter'
+    )
+  )
+  OR (
+    TRIM(ct.name) REGEXP '^[Vv][0-9]*$'
+    AND EXISTS (
+      SELECT 1 FROM level_credits lc2
+      WHERE lc2.levelId = c.levelId
+        AND lc2.creatorId = lc_outer.creatorId
+        AND lc2.role = 'vfxer'
+    )
+  )
+  OR TRIM(ct.name) REGEXP '^[Hh][0-9]*$'
+  OR (
+    TRIM(ct.name) NOT REGEXP '^[CcOo][0-9]*$'
+    AND TRIM(ct.name) NOT REGEXP '^[Vv][0-9]*$'
+    AND TRIM(ct.name) NOT REGEXP '^[Hh][0-9]*$'
+  )
+)
+GROUP BY lc_outer.creatorId, cct.typeId
+`;
+
+/**
+ * Distinct levels per curation type for many creators in one query (creator leaderboard ES denorm).
+ */
+export async function fetchCreatorCurationTypeCountsBulk(
+  creatorIds: number[],
+): Promise<Map<number, Record<string, number>>> {
+  const map = new Map<number, Record<string, number>>();
+  const ids = [...new Set(creatorIds)].filter((id) => Number.isFinite(id) && id > 0);
+  for (const id of ids) {
+    map.set(id, {});
+  }
+  if (ids.length === 0) return map;
+
+  const rows = (await sequelize.query(creatorCurationTypeCountsBulkSql, {
+    replacements: {creatorIds: ids},
+    type: QueryTypes.SELECT,
+  })) as Array<{creatorId: unknown; typeId: unknown; cnt: unknown}>;
+
+  for (const row of rows) {
+    const cid = Number(row.creatorId);
+    const tid = Number(row.typeId);
+    const cnt = Number(row.cnt) || 0;
+    if (!Number.isFinite(cid) || !Number.isFinite(tid)) continue;
+    const bucket = map.get(cid);
+    if (bucket) bucket[String(tid)] = cnt;
+  }
+  return map;
+}
