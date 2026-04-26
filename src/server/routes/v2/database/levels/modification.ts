@@ -691,24 +691,21 @@ const handleFlagChanges = (level: Level, req: Request) => {
     isHidden = req.body.isHidden;
   }
 
-  if (req.body.isAnnounced !== undefined) {
-    isAnnounced = req.body.isAnnounced;
-  } 
-  else {
-    if (req.body.toRate === true && level.toRate === false) {
-      isAnnounced = true;
-    } 
-    else if (req.body.toRate === false && level.toRate === true) {
-      const hasRunningChanges =
-        level.diffId !== (req.body.diffId || level.diffId || 0) ||
-        level.baseScore !== (req.body.baseScore || level.baseScore || 0);
-      const hasFrozenChanges = 
-        level.diffId !== level.previousDiffId ||
-        level.baseScore !== level.previousBaseScore;
+  // `isAnnounced` must only change from toRate transitions (rerate workflow). Do not read
+  // `req.body.isAnnounced`: clients (e.g. edit popup) often send a stale default `false` on
+  // every save, which would clear the flag after Discord announcements.
+  if (req.body.toRate === true && level.toRate === false) {
+    isAnnounced = true;
+  } else if (req.body.toRate === false && level.toRate === true) {
+    const hasRunningChanges =
+      level.diffId !== (req.body.diffId ?? level.diffId ?? 0) ||
+      level.baseScore !== (req.body.baseScore ?? level.baseScore ?? 0);
+    const hasFrozenChanges =
+      level.diffId !== level.previousDiffId ||
+      level.baseScore !== level.previousBaseScore;
 
-      const hasChanges = hasRunningChanges || hasFrozenChanges;
-      isAnnounced = !hasChanges;
-    }
+    const hasChanges = hasRunningChanges || hasFrozenChanges;
+    isAnnounced = !hasChanges;
   }
 
   return {isDeleted, isHidden, isAnnounced};
