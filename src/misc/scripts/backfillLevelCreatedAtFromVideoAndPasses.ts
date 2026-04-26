@@ -14,6 +14,9 @@
  *   npx tsx src/misc/scripts/backfillLevelCreatedAtFromVideoAndPasses.ts --dry-run --match-created-date 2025-01-15 --limit 20
  *   npx tsx src/misc/scripts/backfillLevelCreatedAtFromVideoAndPasses.ts --level-id 12345 --dry-run
  *   npx tsx src/misc/scripts/backfillLevelCreatedAtFromVideoAndPasses.ts --match-created-date 2025-01-15 --ytdlp-path "C:\\path\\yt-dlp.exe" --concurrency 4
+ *
+ * YouTube cookies (Netscape `cookies.txt`): optional `--ytdlp-cookies` or env `YTDLP_COOKIES`.
+ * If omitted and `<dirname(ytdlp-binary)>/cookies.txt` exists, that file is used (e.g. ~/ytdlp/yt-dlp_linux → ~/ytdlp/cookies.txt). Do not commit cookie files.
  */
 
 import {parseArgs} from 'node:util';
@@ -21,6 +24,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import path from 'node:path';
 import {homedir} from 'node:os';
+import {existsSync} from 'node:fs';
 import dotenv from 'dotenv';
 import {QueryTypes} from 'sequelize';
 
@@ -88,12 +92,19 @@ async function runYtDlpUploadDate(
   videoUrl: string,
   ytdlpBinary: string,
   timeoutMs: number,
+  cookiesFile: string | undefined,
 ): Promise<Date | null> {
+  const cookieArgs = cookiesFile ? ['--cookies', cookiesFile] : [];
   const args = [
     '--no-playlist',
     '--skip-download',
+    // Metadata-only: YouTube may expose only images/storyboards without a JS runtime; still emit JSON.
+    '--ignore-no-formats-error',
     '--no-warnings',
     '--quiet',
+    '-f',
+    'bestaudio/ba/best/bestimage/worst/sb',
+    ...cookieArgs,
     '--dump-json',
     '--',
     videoUrl,
@@ -121,11 +132,7 @@ async function runYtDlpUploadDate(
   }
 }
 
-async function videoUploadDate(
-  videoLink: string,
-  ytdlpBinary: string,
-  ytdlpTimeoutMs: number,
-): Promise<Date | null> {
+async function videoUploadDate(videoLink: string, opts: CliOptions): Promise<Date | null> {
   const url = videoLink.trim();
   if (!url) return null;
 
@@ -137,11 +144,11 @@ async function videoUploadDate(
   }
 
   if (isYoutubeUrl(url)) {
-    return runYtDlpUploadDate(url, ytdlpBinary, ytdlpTimeoutMs);
+    return runYtDlpUploadDate(url, opts.ytdlpPath, opts.ytdlpTimeoutMs, opts.ytdlpCookiesFile);
   }
 
   // Other hosts: try yt-dlp (many extractors); avoids coupling to site-specific APIs here.
-  return runYtDlpUploadDate(url, ytdlpBinary, ytdlpTimeoutMs);
+  return runYtDlpUploadDate(url, opts.ytdlpPath, opts.ytdlpTimeoutMs, opts.ytdlpCookiesFile);
 }
 
 async function mapWithConcurrency<T>(
@@ -172,6 +179,8 @@ interface CliOptions {
   allowAnyCreatedAt: boolean;
   ytdlpPath: string;
   ytdlpTimeoutMs: number;
+  /** Netscape-format cookies.txt passed to `--cookies` (explicit, env, or default next to binary). */
+  ytdlpCookiesFile?: string;
   onlyIfEarlierThanCurrent: boolean;
 }
 
@@ -264,7 +273,7 @@ async function processOne(row: LevelRow, opts: CliOptions): Promise<'updated' | 
 
   let videoAt: Date | null;
   try {
-    videoAt = await videoUploadDate(row.videoLink, opts.ytdlpPath, opts.ytdlpTimeoutMs);
+    videoAt = await videoUploadDate(row.videoLink, opts);
   } catch (e) {
     logger.error(`Level ${row.id}: video fetch threw`, {
       error: e instanceof Error ? e.message : String(e),
@@ -324,6 +333,7 @@ async function run(opts: CliOptions): Promise<void> {
     dryRun: opts.dryRun,
     ytdlpPath: opts.ytdlpPath,
     concurrency: opts.concurrency,
+    ytdlpCookies: opts.ytdlpCookiesFile ? path.basename(opts.ytdlpCookiesFile) : 'none',
   });
 
   if (
@@ -408,6 +418,13 @@ function resolveYtDlpPath(p: string): string {
   return t;
 }
 
+/** `<dirname(resolvedYtdlpBinary)>/cookies.txt` when that file exists. */
+function defaultCookiesFileNextToYtDlp(resolvedYtdlpBinary: string): string | undefined {
+  const dir = path.dirname(resolvedYtdlpBinary);
+  const candidate = path.join(dir, 'cookies.txt');
+  return existsSync(candidate) ? candidate : undefined;
+}
+
 async function main() {
   const {values} = parseArgs({
     options: {
@@ -420,6 +437,7 @@ async function main() {
       'allow-any-created-at': {type: 'boolean', default: false},
       'ytdlp-path': {type: 'string'},
       'ytdlp-timeout-ms': {type: 'string'},
+      'ytdlp-cookies': {type: 'string'},
       'only-if-earlier': {type: 'boolean', default: false},
     },
     allowPositionals: false,
@@ -428,6 +446,13 @@ async function main() {
   const levelIdRaw = values['level-id'];
   const levelId =
     levelIdRaw != null && levelIdRaw !== '' ? parseInt(String(levelIdRaw), 10) : undefined;
+
+  const ytdlpPathResolved = resolveYtDlpPath(values['ytdlp-path']?.trim() || defaultYtDlpPath());
+  const explicitCookies =
+    values['ytdlp-cookies']?.trim() || process.env.YTDLP_COOKIES?.trim() || '';
+  const ytdlpCookiesFile = explicitCookies
+    ? resolveYtDlpPath(explicitCookies)
+    : defaultCookiesFileNextToYtDlp(ytdlpPathResolved);
 
   const opts: CliOptions = {
     dryRun: Boolean(values['dry-run']),
@@ -443,11 +468,12 @@ async function main() {
         : 4,
     matchCreatedDate: values['match-created-date']?.trim() || undefined,
     allowAnyCreatedAt: Boolean(values['allow-any-created-at']),
-    ytdlpPath: resolveYtDlpPath(values['ytdlp-path']?.trim() || defaultYtDlpPath()),
+    ytdlpPath: ytdlpPathResolved,
     ytdlpTimeoutMs:
       values['ytdlp-timeout-ms'] != null && values['ytdlp-timeout-ms'] !== ''
         ? Math.max(5000, parseInt(String(values['ytdlp-timeout-ms']), 10))
         : 120_000,
+    ytdlpCookiesFile,
     onlyIfEarlierThanCurrent: Boolean(values['only-if-earlier']),
   };
 
