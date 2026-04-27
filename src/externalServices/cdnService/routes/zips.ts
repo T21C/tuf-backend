@@ -1505,9 +1505,10 @@ async function sendLevelUploadProgress(
         return;
     }
 
+    // Do not send `kind` here — the main server already set the job kind (`level_upload`,
+    // `level_submission_upload`, etc.); overwriting would break submission progress UX.
     await ingestJobProgress({
         jobId: uploadId,
-        kind: 'level_upload',
         phase: status,
         percent: progressPercent,
         message: currentStep,
@@ -1543,97 +1544,43 @@ router.post('/', (req: Request, res: Response) => {
             path: req.file.path
         });
 
-        // Get upload ID from header
         const uploadId = req.headers['x-upload-id'] as string | undefined;
-
-        try {
-            // Generate a UUID for the database entry
-            const fileId = crypto.randomUUID();
-            logger.debug('Generated UUID for database entry:', { fileId });
-
-            // Send initial progress
-            await sendLevelUploadProgress(uploadId, 'uploading', 0, 'Uploading file to server');
-
-            // Process archive file first to validate contents
-            logger.debug('Starting archive file processing');
-
-            // Create progress callback
-            const onProgress = async (
-                status: 'uploading' | 'processing' | 'caching' | 'failed',
-                progressPercent: number,
-                currentStep?: string
-            ) => {
-                await sendLevelUploadProgress(uploadId, status, progressPercent, currentStep);
-            };
-
-            await processArchiveFile(req.file.path, fileId, req.file.originalname, onProgress);
-            logger.debug('Successfully processed archive file');
-
-            // Clean up the original archive file since we've extracted what we need
-            logger.debug('Cleaning up original archive file');
+        if (!uploadId || typeof uploadId !== 'string' || uploadId.trim().length === 0) {
             cdnLocalTemp.cleanupFiles(req.file.path);
-            logger.debug('Original archive file cleaned up');
+            return res.status(400).json({ error: 'X-Upload-Id header is required' });
+        }
+        const fileId = crypto.randomUUID();
+        logger.debug('Generated UUID for database entry:', { fileId });
 
-            // Populate cache for the uploaded level
-            await sendLevelUploadProgress(uploadId, 'caching', 95, 'Populating cache');
-            logger.debug('Populating cache for uploaded level:', { fileId });
-            try {
-                await levelCacheService.ensureCachePopulated(fileId);
-                logger.debug('Cache populated successfully for uploaded level:', { fileId });
-            } catch (cacheError) {
-                // Log error but don't fail the upload
-                logger.warn('Failed to populate cache for uploaded level (non-critical):', {
-                    fileId,
-                    error: cacheError instanceof Error ? cacheError.message : String(cacheError)
-                });
-            }
-
-            // CDN ingest finished; do not use phase "completed" here — the main API sets that with meta.newFileId / newFileId after DB update.
-            if (uploadId) {
-                await ingestJobProgress({
-                    jobId: uploadId,
-                    kind: 'level_upload',
-                    phase: 'cdn_ingest_done',
-                    percent: 100,
-                    message: 'CDN ingest complete',
-                    meta: {cdnFileId: fileId},
-                    error: null
-                });
-            }
-
-            const response = {
-                success: true,
-                fileId: fileId,
-                url: `${CDN_CONFIG.baseUrl}/${fileId}`,
-            };
-            logger.debug('Zip upload completed successfully:', response);
-
-            res.json(response);
-        } catch (error) {
+        const buildClientFacingError = (error: unknown): {
+            clientMessage: string;
+            clientDetails: Record<string, unknown>;
+            isClientFacing: boolean;
+        } => {
             const fullMessage = error instanceof Error ? error.message : String(error);
             const errWithZ = error instanceof Error
                 ? (error as Error & {
-                    exitCode?: number;
-                    sevenZSummary?: string;
-                    sevenZBinary?: string;
-                    clientFacing?: boolean;
-                    archiveErrorKind?: string;
-                    userMessage?: string;
-                })
+                      exitCode?: number;
+                      sevenZSummary?: string;
+                      sevenZBinary?: string;
+                      clientFacing?: boolean;
+                      archiveErrorKind?: string;
+                      userMessage?: string;
+                  })
                 : null;
 
-            const uploadId = req.headers['x-upload-id'] as string | undefined;
             const isClientFacing = !!errWithZ?.clientFacing;
 
             if (isClientFacing) {
-                // User-supplied archive is bad — log a concise warn line, no stack / no 7z transcript.
                 logger.warn('Zip upload rejected (user error):', {
                     archiveErrorKind: errWithZ?.archiveErrorKind,
                     userMessage: errWithZ?.userMessage,
-                    file: req.file ? {
-                        originalname: req.file.originalname,
-                        size: req.file.size
-                    } : null
+                    file: req.file
+                        ? {
+                              originalname: req.file.originalname,
+                              size: req.file.size
+                          }
+                        : null
                 });
             } else {
                 logger.error('Error during zip upload process:', {
@@ -1642,16 +1589,16 @@ router.post('/', (req: Request, res: Response) => {
                     ...(typeof errWithZ?.exitCode === 'number' ? { sevenZExitCode: errWithZ.exitCode } : {}),
                     ...(typeof errWithZ?.sevenZBinary === 'string' ? { sevenZBinary: errWithZ.sevenZBinary } : {}),
                     ...(typeof errWithZ?.sevenZSummary === 'string' ? { sevenZSummary: errWithZ.sevenZSummary } : {}),
-                    file: req.file ? {
-                        originalname: req.file.originalname,
-                        size: req.file.size,
-                        path: req.file.path
-                    } : null
+                    file: req.file
+                        ? {
+                              originalname: req.file.originalname,
+                              size: req.file.size,
+                              path: req.file.path
+                          }
+                        : null
                 });
             }
 
-            // Build the user-facing message: prefer the tagged `userMessage` for client-facing
-            // errors, otherwise fall back to the legacy parse / truncate behaviour.
             let clientMessage: string;
             let clientDetails: Record<string, unknown>;
             if (isClientFacing && errWithZ?.userMessage) {
@@ -1675,25 +1622,78 @@ router.post('/', (req: Request, res: Response) => {
                 }
             }
 
-            await sendLevelUploadProgress(
-                uploadId,
-                'failed',
-                0,
-                'Upload failed',
-                clientMessage
-            );
+            return { clientMessage, clientDetails, isClientFacing };
+        };
 
-            cdnLocalTemp.cleanupFiles(req.file.path);
+        const runZipIngest = async (): Promise<void> => {
+            await sendLevelUploadProgress(uploadId, 'uploading', 0, 'Uploading file to server');
 
-            res.status(400).json({
-                error: clientMessage,
-                // Keep `VALIDATION_ERROR` so upstream `CdnService.handleCdnError` continues to
-                // skip its noisy `logger.error` (it lives in `IGNORED_ERROR_CODES`). The specific
-                // archive-error kind travels in `details.archiveErrorKind` for client UX.
-                code: 'VALIDATION_ERROR',
-                details: clientDetails
-            });
-        }
+            logger.debug('Starting archive file processing');
+
+            const onProgress = async (
+                status: 'uploading' | 'processing' | 'caching' | 'failed',
+                progressPercent: number,
+                currentStep?: string
+            ) => {
+                await sendLevelUploadProgress(uploadId, status, progressPercent, currentStep);
+            };
+
+            await processArchiveFile(req.file!.path, fileId, req.file!.originalname, onProgress);
+            logger.debug('Successfully processed archive file');
+
+            logger.debug('Cleaning up original archive file');
+            cdnLocalTemp.cleanupFiles(req.file!.path);
+            logger.debug('Original archive file cleaned up');
+
+            await sendLevelUploadProgress(uploadId, 'caching', 95, 'Populating cache');
+            logger.debug('Populating cache for uploaded level:', { fileId });
+            try {
+                await levelCacheService.ensureCachePopulated(fileId);
+                logger.debug('Cache populated successfully for uploaded level:', { fileId });
+            } catch (cacheError) {
+                logger.warn('Failed to populate cache for uploaded level (non-critical):', {
+                    fileId,
+                    error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+                });
+            }
+
+            if (uploadId) {
+                await ingestJobProgress({
+                    jobId: uploadId,
+                    phase: 'cdn_ingest_done',
+                    percent: 100,
+                    message: 'CDN ingest complete',
+                    meta: {cdnFileId: fileId},
+                    error: null
+                });
+            }
+        };
+
+        const handleFailure = async (error: unknown, options: { writeHttp: boolean }): Promise<void> => {
+            const { clientMessage, clientDetails } = buildClientFacingError(error);
+            await sendLevelUploadProgress(uploadId, 'failed', 0, 'Upload failed', clientMessage);
+            cdnLocalTemp.cleanupFiles(req.file!.path);
+
+            if (options.writeHttp && !res.headersSent && !res.writableEnded) {
+                res.status(400).json({
+                    error: clientMessage,
+                    code: 'VALIDATION_ERROR',
+                    details: clientDetails
+                });
+            }
+        };
+
+        // Always async: return immediately after receiving the upload.
+        res.status(202).json({
+            success: true,
+            fileId,
+            url: `${CDN_CONFIG.baseUrl}/${fileId}`,
+            async: true
+        });
+
+        void runZipIngest().catch(async (e) => {
+            await handleFailure(e, { writeHttp: false });
+        });
         return;
     });
     return;

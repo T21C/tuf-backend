@@ -33,6 +33,7 @@ import {CDN_CONFIG} from '@/externalServices/cdnService/config.js';
 import { jobProgressService, isUuidJobId } from '@/server/services/core/JobProgressService.js';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import {cleanupUserUploads} from '@/server/routes/v2/misc/chunkedUpload.js';
 import UploadSession from '@/models/upload/UploadSession.js';
 import { cancelSession as cancelUploadSession } from '@/server/services/upload/UploadSessionService.js';
@@ -261,7 +262,7 @@ async function finalizeLevelZipUploadFromBuffer(params: {
     const uploadResult = await cdnService.uploadLevelZip(
       fileBuffer,
       encodedZipFileName,
-      uploadJobId
+      uploadJobId || randomUUID()
     );
 
     // Validate that chart gameplay hasn't changed by comparing durations

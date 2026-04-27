@@ -6,6 +6,7 @@ import sequelize from '@/config/db.js';
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
+import { randomUUID } from 'crypto';
 
 import cdnService from '@/server/services/core/CdnService.js';
 import { CDN_CONFIG } from '@/externalServices/cdnService/config.js';
@@ -159,7 +160,7 @@ export async function createLevelSubmission(
       const uploadResult = await cdnService.uploadLevelZip(
         fileBuffer,
         resolvedSession.originalName,
-        uploadJobId ?? undefined,
+        uploadJobId ?? randomUUID(),
       );
       uploadedFileId = uploadResult.fileId;
       directDLFromCdn = `${CDN_CONFIG.baseUrl}/${uploadResult.fileId}`;
