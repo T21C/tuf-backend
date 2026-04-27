@@ -632,13 +632,20 @@ class CdnService {
         trimFolderNames?: boolean; // When true, shortens folder names for path length compatibility
     }): Promise<{
         downloadId: string;
-        url: string;
-        expiresAt: string;
-        zipName: string;
+        url?: string;
+        zipName?: string;
+        cacheKey?: string;
+        started?: boolean;
+        /** Approximate time after which the pack object may be removed by bucket lifecycle (display only). */
+        expiresAt?: string;
     }> {
         try {
-            // Increased timeout to 30 minutes - progress is tracked via SSE, so long waits are acceptable
-            const response = await this.client.post('/zips/packs/generate', request, {timeout: MAX_PACK_GENERATION_TIMEOUT_MS}); // 60 hours timeout
+            // Pack generation is async; the CDN should return quickly with either:
+            // - 200 (cache hit): { downloadId, url, zipName, cacheKey }
+            // - 202 (started):  { downloadId, started: true, zipName, cacheKey }
+            const response = await this.client.post('/zips/packs/generate', request, {
+                timeout: 15000,
+            });
             return response.data;
         } catch (error: any) {
             if (error.error?.includes('timeout') || error.message?.includes('timeout')) {

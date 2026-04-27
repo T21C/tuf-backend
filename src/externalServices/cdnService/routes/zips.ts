@@ -94,6 +94,63 @@ type PackDownloadResponse = {
  */
 const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
 
+function envInt(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (!raw) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+class Semaphore {
+    private current = 0;
+    private readonly queue: Array<() => void> = [];
+
+    constructor(private readonly max: number) {}
+
+    async acquire(): Promise<() => void> {
+        if (this.current < this.max) {
+            this.current += 1;
+            return () => this.release();
+        }
+        return new Promise((resolve) => {
+            this.queue.push(() => {
+                this.current += 1;
+                resolve(() => this.release());
+            });
+        });
+    }
+
+    private release(): void {
+        this.current = Math.max(0, this.current - 1);
+        const next = this.queue.shift();
+        if (next) next();
+    }
+}
+
+// Global resource caps:
+// - concurrent pack generations: protects CPU/disk/7z + network streaming
+// - per-pack child processing concurrency: avoids unbounded Promise.all on large trees
+const PACK_GENERATION_MAX_CONCURRENT = envInt('PACK_DOWNLOAD_MAX_CONCURRENT', 1);
+const PACK_NODE_MAX_CONCURRENT = envInt('PACK_DOWNLOAD_NODE_CONCURRENCY', 6);
+const packGenerationSemaphore = new Semaphore(PACK_GENERATION_MAX_CONCURRENT);
+
+async function mapWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T) => Promise<void>
+): Promise<void> {
+    const cap = Math.max(1, concurrency);
+    let idx = 0;
+    const workers = new Array(Math.min(cap, items.length)).fill(null).map(async () => {
+        while (idx < items.length) {
+            const i = idx;
+            idx += 1;
+            await fn(items[i]);
+        }
+    });
+    await Promise.all(workers);
+}
+
 // Get main server URL for job progress ingest
 function getMainServerUrl(): string {
     if (process.env.NODE_ENV === 'production') {
@@ -112,6 +169,39 @@ type PackProgressStatus =
     | 'uploading'
     | 'completed'
     | 'failed';
+
+/**
+ * Pack download URLs are public CDN URLs (not query-signed). Object lifetime is governed by
+ * bucket lifecycle. We expose an approximate "link may be rotated/expired after" time for UI.
+ * Configure with PACK_DOWNLOAD_URL_EXPIRES_DAYS (default 7).
+ */
+function packDownloadDisplayExpiresAtIso(): string {
+    const days = envInt('PACK_DOWNLOAD_URL_EXPIRES_DAYS', 7);
+    const safe = Math.max(1, days);
+    return new Date(Date.now() + safe * 86400000).toISOString();
+}
+
+function packStatusUserMessage(status: PackProgressStatus, currentLevel?: string, error?: string): string {
+    if (status === 'failed') {
+        return error && error.length > 0 ? error : 'Pack generation failed';
+    }
+    if (status === 'pending') {
+        return 'Starting pack download…';
+    }
+    if (status === 'processing') {
+        return currentLevel ? `Adding level: ${currentLevel}` : 'Downloading levels…';
+    }
+    if (status === 'zipping') {
+        return 'Creating pack zip…';
+    }
+    if (status === 'uploading') {
+        return 'Uploading pack…';
+    }
+    if (status === 'completed') {
+        return 'Pack ready — use Download when you are ready.';
+    }
+    return 'Working…';
+}
 
 async function ingestJobProgress(body: {
     jobId: string;
@@ -155,9 +245,11 @@ async function emitPackJobProgress(input: {
     processedLevels: number;
     status: PackProgressStatus;
     currentLevel?: string;
+    url?: string;
+    zipName?: string;
     error?: string;
 }): Promise<void> {
-    const { downloadId, cacheKey, plannedTotalLevels, processedLevels, status, currentLevel, error } =
+    const { downloadId, cacheKey, plannedTotalLevels, processedLevels, status, currentLevel, url, zipName, error } =
         input;
 
     const percent: number | null =
@@ -167,12 +259,26 @@ async function emitPackJobProgress(input: {
                 ? null
                 : packPercentFromCounts(processedLevels, plannedTotalLevels);
 
-    const message =
-        status === 'failed' && error
-            ? error
-            : currentLevel
-                ? `Processing: ${currentLevel}`
-                : undefined;
+    const message = packStatusUserMessage(status, currentLevel, error);
+    const expiresAt = status === 'completed' ? packDownloadDisplayExpiresAtIso() : undefined;
+
+    // Always send `message` and explicit meta fields: JobProgress merges patches, so omitted
+    // fields would otherwise keep stale values (e.g. last "Processing: …" through zipping).
+    const meta: Record<string, unknown> = {
+        cacheKey,
+        totalLevels: plannedTotalLevels,
+        processedLevels,
+        currentLevel: status === 'processing' && currentLevel ? currentLevel : null
+    };
+    if (typeof url === 'string' && url.length > 0) {
+        meta.url = url;
+    }
+    if (typeof zipName === 'string' && zipName.length > 0) {
+        meta.zipName = zipName;
+    }
+    if (expiresAt) {
+        meta.expiresAt = expiresAt;
+    }
 
     await ingestJobProgress({
         jobId: downloadId,
@@ -180,12 +286,7 @@ async function emitPackJobProgress(input: {
         phase: status,
         percent,
         message,
-        meta: {
-            cacheKey,
-            totalLevels: plannedTotalLevels,
-            processedLevels,
-            ...(currentLevel ? { currentLevel } : {})
-        },
+        meta,
         error: status === 'failed' ? (error ?? 'Pack generation failed') : null
     });
 }
@@ -822,8 +923,11 @@ async function processPackNode(node: PackDownloadNode, parentPath: string, conte
 
         if (Array.isArray(node.children) && node.children.length > 0) {
             const children = node.children as PackDownloadNode[];
-            // Process concurrently since we're streaming to disk (no memory pressure)
-            await Promise.all(children.map(child => processPackNode(child, folderPath, context)));
+            // Bounded concurrency: protects CPU/disk/network and avoids event loop starvation
+            // for huge pack trees.
+            await mapWithConcurrency(children, PACK_NODE_MAX_CONCURRENT, (child) =>
+                processPackNode(child, folderPath, context)
+            );
         }
         return;
     }
@@ -872,6 +976,7 @@ async function generatePackDownloadZip(
     });
 
     try {
+        const release = await packGenerationSemaphore.acquire();
         const response = await withWorkspace('pack-download', async (ws) => {
             // Extracted source files live next to the final zip inside the workspace; both are
             // removed automatically when the workspace lease ends, regardless of outcome.
@@ -943,6 +1048,8 @@ async function generatePackDownloadZip(
                 successCount: context.successCount,
                 totalLevels: context.totalLevels
             };
+        }).finally(() => {
+            release();
         });
 
         await emitPackJobProgress({
@@ -950,7 +1057,9 @@ async function generatePackDownloadZip(
             cacheKey,
             plannedTotalLevels: totalLevels,
             processedLevels: response.successCount,
-            status: 'completed'
+            status: 'completed',
+            url: response.url,
+            zipName: response.zipName,
         });
 
         logger.debug('Generated pack download zip', {
@@ -1270,18 +1379,23 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             if (await spacesStorage.fileExists(cachedSpacesKey)) {
                 const url = await spacesStorage.getPresignedUrl(cachedSpacesKey);
                 const reusedDownloadId = clientDownloadId || crypto.randomUUID();
+                const expiresAt = packDownloadDisplayExpiresAtIso();
 
                 ingestJobProgress({
                     jobId: reusedDownloadId,
                     kind: 'pack_download',
                     phase: 'completed',
                     percent: 100,
-                    message: 'Cached pack ready',
+                    message: 'Pack ready (cached).',
                     meta: {
                         cacheKey: normalizedCacheKey,
                         totalLevels: 0,
                         processedLevels: 0,
-                        reused: true
+                        url,
+                        zipName: finalZipName,
+                        reused: true,
+                        currentLevel: null,
+                        expiresAt
                     },
                     error: null
                 }).catch(error => {
@@ -1295,7 +1409,8 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                     downloadId: reusedDownloadId,
                     url,
                     zipName: finalZipName,
-                    cacheKey: normalizedCacheKey
+                    cacheKey: normalizedCacheKey,
+                    expiresAt
                 });
             }
         } catch (error) {
@@ -1305,13 +1420,22 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             });
         }
 
-        // In-process coalescing: if another request is already building this same pack, await it
+        const downloadId = clientDownloadId || crypto.randomUUID();
+
+        // In-process coalescing: if another request is already building this same pack, reuse it
         // instead of kicking off a duplicate workspace + 7z run.
         let generationPromise = packGenerationPromises.get(normalizedCacheKey);
-        if (!generationPromise) {
+        const startedNew = !generationPromise;
+        if (startedNew) {
             generationPromise = (async () => {
                 try {
-                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId, trimFolderNames !== false);
+                    return await generatePackDownloadZip(
+                        sanitizedZipName,
+                        tree,
+                        normalizedCacheKey,
+                        downloadId,
+                        trimFolderNames !== false
+                    );
                 } finally {
                     packGenerationPromises.delete(normalizedCacheKey);
                 }
@@ -1319,8 +1443,38 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             packGenerationPromises.set(normalizedCacheKey, generationPromise);
         }
 
-        const responsePayload = await generationPromise;
-        return res.json(responsePayload);
+        // Ensure the job exists immediately so subscribers get an early snapshot.
+        // (Any later updates are also fine; this just avoids long "waiting" states.)
+        if (startedNew) {
+            emitPackJobProgress({
+                downloadId,
+                cacheKey: normalizedCacheKey,
+                plannedTotalLevels: countTotalLevels(tree),
+                processedLevels: 0,
+                status: 'processing',
+                zipName: finalZipName,
+            }).catch(() => {
+                /* ignore - background job progress is best-effort */
+            });
+        }
+
+        // Fire-and-forget: the generator will emit progress and terminal state to the main server.
+        if (!generationPromise) {
+            // Defensive: should be impossible because we always set the promise above.
+            throw new Error('Pack generation promise is missing');
+        }
+
+        generationPromise.catch(() => {
+            /* terminal failure progress is emitted inside generatePackDownloadZip */
+        });
+
+        // Always return immediately to avoid request timeouts.
+        return res.status(202).json({
+            downloadId,
+            started: true,
+            zipName: finalZipName,
+            cacheKey: normalizedCacheKey
+        });
     } catch (error) {
         logger.error('Failed to generate pack download zip', {
             ...execErrorDetails(error)

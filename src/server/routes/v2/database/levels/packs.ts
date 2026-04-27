@@ -1016,7 +1016,12 @@ router.post(
       trimFolderNames: trimFolderNames !== false
     });
 
-    return res.json(cdnResponse);
+    // CDN responds immediately with either a cache-hit URL, or a 202 "started" ack.
+    // The client should monitor /v2/jobs/:downloadId/stream for completion and final URL.
+    return res.json({
+      ...cdnResponse,
+      downloadId: jobId,
+    });
   } catch (error) {
     if (error instanceof CdnError) {
       if (error.code === 'PACK_SIZE_LIMIT_EXCEEDED') {
