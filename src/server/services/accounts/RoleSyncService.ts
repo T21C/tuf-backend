@@ -76,6 +76,7 @@ class RoleSyncService {
           userId,
           provider: 'discord',
         },
+        attributes: ['providerId'],
       });
 
       const discordId = provider?.providerId || null;
@@ -100,6 +101,7 @@ class RoleSyncService {
           as: 'providers',
           where: { provider: 'discord' },
           required: false,
+          attributes: ['providerId'],
         }],
       });
 

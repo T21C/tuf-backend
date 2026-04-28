@@ -8,10 +8,6 @@ interface OAuthProviderAttributes {
   userId: string;
   provider: string;
   providerId: string;
-  accessToken?: string;
-  refreshToken?: string;
-  tokenExpiry?: Date;
-  profile: object;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,10 +22,6 @@ class OAuthProvider
   declare userId: string;
   declare provider: string;
   declare providerId: string;
-  declare accessToken?: string;
-  declare refreshToken?: string;
-  declare tokenExpiry?: Date;
-  declare profile: object;
   declare createdAt: Date;
   declare updatedAt: Date;
 
@@ -59,23 +51,6 @@ OAuthProvider.init(
     providerId: {
       type: DataTypes.STRING,
       allowNull: false,
-    },
-    accessToken: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    refreshToken: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    tokenExpiry: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    profile: {
-      type: DataTypes.JSON,
-      allowNull: false,
-      defaultValue: {},
     },
     createdAt: {
       type: DataTypes.DATE,

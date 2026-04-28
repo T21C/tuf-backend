@@ -164,15 +164,6 @@ export const OAuthController = {
             email: profile.email || undefined,
           });
 
-          // Update OAuth tokens
-          await OAuthService.updateTokens(
-            'discord',
-            profile.id,
-            tokens.tokens.access_token,
-            tokens.tokens.refresh_token,
-            new Date(Date.now() + tokens.tokens.expires_in * 1000),
-          );
-
           // Invalidate user-specific cache
           await CacheInvalidation.invalidateUser(req.user.id);
 
@@ -193,15 +184,6 @@ export const OAuthController = {
           email: profile.email || undefined,
         });
 
-        // Update OAuth tokens
-        await OAuthService.updateTokens(
-          'discord',
-          profile.id,
-          tokens.tokens.access_token,
-          tokens.tokens.refresh_token,
-          new Date(Date.now() + tokens.tokens.expires_in * 1000),
-        );
-
         // Invalidate user-specific cache (for new users, this is a no-op but harmless)
         await CacheInvalidation.invalidateUser(user.id);
 
@@ -220,6 +202,8 @@ export const OAuthController = {
             nickname: user.nickname,
             email: user.email,
             avatarUrl: user.avatarUrl,
+            playerId: user.playerId,
+            creatorId: user.creatorId,
             isRater: hasFlag(user, permissionFlags.RATER),
             isSuperAdmin: hasFlag(user, permissionFlags.SUPER_ADMIN),
             isEmailVerified: hasFlag(user, permissionFlags.EMAIL_VERIFIED),
@@ -294,7 +278,7 @@ export const OAuthController = {
         if (!result) {
           return res.status(400).json({error: 'Failed to exchange code for tokens'});
         }
-        const {tokens, profile} = result;
+        const {profile} = result;
 
         // Check if this provider is already linked to another user
         const existingProvider = await OAuthProvider.findOne({
@@ -317,15 +301,6 @@ export const OAuthController = {
           username: profile.username,
           email: profile.email || undefined,
         });
-
-        // Update OAuth tokens
-        await OAuthService.updateTokens(
-          'discord',
-          profile.id,
-          tokens.access_token,
-          tokens.refresh_token,
-          new Date(Date.now() + tokens.expires_in * 1000),
-        );
 
         // Invalidate user-specific cache
         await CacheInvalidation.invalidateUser(req.user!.id);
@@ -364,62 +339,6 @@ export const OAuthController = {
     } catch (error) {
       logger.error('Provider unlinking error:', error);
       return res.status(500).json({error: 'Failed to unlink provider'});
-    }
-  },
-
-  /**
-   * Refresh OAuth token
-   */
-  async refreshToken(req: Request, res: Response) {
-    const {provider} = req.params;
-
-    try {
-      const providers = await OAuthService.getUserProviders(req.user!.id);
-      const oauthProvider = providers.find(
-        (p: OAuthProvider) => p.provider === provider,
-      );
-
-      if (!oauthProvider?.refreshToken) {
-        return res.status(400).json({error: 'No refresh token available'});
-      }
-
-      if (provider === 'discord') {
-        const tokenResponse = await axios.post(
-          'https://discord.com/api/oauth2/token',
-          new URLSearchParams({
-            client_id: process.env.DISCORD_CLIENT_ID!,
-            client_secret: process.env.DISCORD_CLIENT_SECRET!,
-            refresh_token: oauthProvider.refreshToken,
-            grant_type: 'refresh_token',
-          }),
-          {
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          },
-        );
-
-        const tokens: RESTPostOAuth2AccessTokenResult = tokenResponse.data;
-
-        // Update tokens in database
-        await OAuthService.updateTokens(
-          'discord',
-          oauthProvider.providerId,
-          tokens.access_token,
-          tokens.refresh_token,
-          new Date(Date.now() + tokens.expires_in * 1000),
-        );
-
-        return res.json({
-          accessToken: tokens.access_token,
-          expiresIn: tokens.expires_in,
-        });
-      }
-
-      return res
-        .status(400)
-        .json({error: 'Provider not supported for token refresh'});
-    } catch (error) {
-      logger.error('Token refresh error:', error);
-      return res.status(500).json({error: 'Failed to refresh token'});
     }
   },
 };

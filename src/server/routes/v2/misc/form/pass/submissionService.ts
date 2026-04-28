@@ -125,6 +125,7 @@ export async function createPassSubmission(
               as: 'providers',
               required: false,
               where: { provider: 'discord' },
+              attributes: ['id', 'userId', 'provider', 'providerId'],
             },
           ],
         },

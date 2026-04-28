@@ -48,13 +48,16 @@ function serializeDifficulty(diff: Difficulty | null | undefined): any | null {
   };
 }
 
-function serializeDiscord(provider: OAuthProvider | null | undefined): any | null {
+function serializeDiscord(
+  provider: OAuthProvider | null | undefined,
+  user: User | null | undefined,
+): any | null {
   if (!provider) return null;
   const p = plain(provider) as any;
-  const profile = (p?.profile ?? {}) as any;
+  const u = plain(user) as any;
   return {
     providerId: p.providerId ? String(p.providerId) : null,
-    username: profile?.username ?? null,
+    username: typeof u?.username === 'string' ? u.username : null,
   };
 }
 
@@ -128,7 +131,7 @@ export function buildPlayerIndexDocument(input: PlayerIndexDocumentInput): Recor
     updatedAt: p.updatedAt ?? null,
 
     user: serializeUser(input.user ?? null),
-    discord: serializeDiscord(input.discordProvider ?? null),
+    discord: serializeDiscord(input.discordProvider ?? null, input.user ?? null),
 
     rankedScore: coerceNumber(stats?.rankedScore, 0),
     generalScore: coerceNumber(stats?.generalScore, 0),

@@ -71,19 +71,4 @@ router.post(
   OAuthController.unlinkProvider
 );
 
-router.post(
-  '/refresh/:provider',
-  Auth.user(),
-  ApiDoc({
-    operationId: 'postOAuthRefresh',
-    summary: 'Refresh OAuth token',
-    description: 'Refresh the stored token for an OAuth provider',
-    tags: ['Auth'],
-    security: ['bearerAuth'],
-    params: { provider: { schema: { type: 'string' } } },
-    responses: { 200: { schema: successMessageSchema }, 401: { schema: errorResponseSchema }, 500: { schema: errorResponseSchema } },
-  }),
-  OAuthController.refreshToken
-);
-
 export default router;

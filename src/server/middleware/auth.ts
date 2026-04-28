@@ -2,7 +2,6 @@ import {Request, Response, NextFunction} from 'express';
 import {User, OAuthProvider} from '@/models/index.js';
 import {tokenUtils, cookieUtils, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC} from '@/misc/utils/auth/auth.js';
 import type {UserAttributes} from '@/models/auth/User.js';
-import axios from 'axios';
 import Player from '@/models/players/Player.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { AuditLogService } from '@/server/services/core/AuditLogService.js';
@@ -17,6 +16,7 @@ const getUser = async (id: string): Promise<User | null> => {
       {
         model: OAuthProvider,
         as: 'providers',
+        attributes: ['id', 'userId', 'provider', 'providerId'],
       },
       {
         model: Player,
@@ -97,37 +97,6 @@ const baseAuth: MiddlewareFunction = async (req: Request, res: Response, next: N
       const newAccessToken = tokenUtils.generateAccessToken(user);
       cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
       res.setHeader('X-Permission-Changed', 'true');
-    }
-
-    // Check if any OAuth tokens need refresh (e.g. Discord)
-    const discordProvider = user.providers?.find(p => p.provider === 'discord');
-    if (discordProvider?.tokenExpiry && new Date(discordProvider.tokenExpiry) <= new Date()) {
-      try {
-        const response = await axios.post(
-          'https://discord.com/api/oauth2/token',
-          new URLSearchParams({
-            client_id: process.env.DISCORD_CLIENT_ID!,
-            client_secret: process.env.DISCORD_CLIENT_SECRET!,
-            grant_type: 'refresh_token',
-            refresh_token: discordProvider.refreshToken!,
-          }),
-          {
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-          },
-        );
-
-        const {access_token, refresh_token, expires_in} = response.data;
-        await discordProvider.update({
-          accessToken: access_token,
-          refreshToken: refresh_token,
-          tokenExpiry: new Date(Date.now() + expires_in * 1000),
-        });
-
-        const newAccessToken = tokenUtils.generateAccessToken(user);
-        cookieUtils.setAuthCookies(res, newAccessToken, null, ACCESS_COOKIE_MAX_AGE_SEC, REFRESH_COOKIE_MAX_AGE_SEC);
-      } catch (error) {
-        // Continue with request even if refresh fails
-      }
     }
 
     const fullUser = await getUser(decoded.id);

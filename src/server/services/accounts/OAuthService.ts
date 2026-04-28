@@ -69,7 +69,6 @@ class OAuthService {
           userId: user.id,
           provider: profile.provider,
           providerId: profile.id,
-          profile: profile,
           createdAt: now,
           updatedAt: now,
         });
@@ -160,7 +159,6 @@ class OAuthService {
           userId: user.id,
           provider: profile.provider,
           providerId: profile.id,
-          profile: profile,
           createdAt: now,
           updatedAt: now,
         });
@@ -219,7 +217,6 @@ class OAuthService {
         userId,
         provider: profile.provider,
         providerId: profile.id,
-        profile: profile,
         createdAt: now,
         updatedAt: now,
       });
@@ -231,31 +228,6 @@ class OAuthService {
       logger.error('[OAuthService] Error linking provider:', error);
       throw error;
     }
-  }
-
-  /**
-   * Update OAuth tokens
-   */
-  async updateTokens(
-    provider: string,
-    providerId: string,
-    accessToken: string,
-    refreshToken?: string,
-    tokenExpiry?: Date,
-  ): Promise<void> {
-    await OAuthProvider.update(
-      {
-        accessToken,
-        refreshToken,
-        tokenExpiry,
-      },
-      {
-        where: {
-          provider,
-          providerId,
-        },
-      },
-    );
   }
 
   /**

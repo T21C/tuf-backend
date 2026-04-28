@@ -219,6 +219,7 @@ export async function createLevelSubmission(
               as: 'providers',
               required: false,
               where: { provider: 'discord' },
+              attributes: ['id', 'userId', 'provider', 'providerId'],
             },
           ],
         },

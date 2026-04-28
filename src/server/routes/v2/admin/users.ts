@@ -381,6 +381,7 @@ router.post(
             as: 'providers',
             where: {provider: 'discord'},
             required: true,
+            attributes: ['providerId'],
           },
         ],
       });

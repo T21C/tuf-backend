@@ -381,9 +381,8 @@ router.put('/:userId/discord', Auth.superAdmin(), async (req: Request, res: Resp
 
         const discordProvider = player.user.providers?.[0];
         const providerData = {
-          provider: 'discord',
+          provider: 'discord' as const,
           providerId: profile.id,
-          profile: profile,
         };
 
         // Remove any duplicate for this provider/providerId/userId
@@ -610,9 +609,8 @@ router.put('/:id([0-9]+)/discord/:discordId', Auth.superAdmin(), async (req: Req
 
         const discordProvider = player.user.providers?.[0];
         const providerData = {
-          provider: 'discord',
+          provider: 'discord' as const,
           providerId: discordId,
-          profile: profile, // Store the complete Discord profile
         };
 
         // Remove any duplicate for this provider/providerId/userId
@@ -989,6 +987,7 @@ router.post(
               {
                 model: OAuthProvider,
                 as: 'providers',
+                attributes: ['id', 'userId', 'provider', 'providerId'],
               },
             ],
           },
@@ -1005,6 +1004,7 @@ router.post(
               {
                 model: OAuthProvider,
                 as: 'providers',
+                attributes: ['id', 'userId', 'provider', 'providerId'],
               },
             ],
           },
@@ -1389,6 +1389,7 @@ router.get(
         providerId: discordId,
         provider: 'discord',
       },
+      attributes: ['id', 'userId', 'provider', 'providerId'],
       include: [{
         model: User,
         as: 'oauthUser',

@@ -619,7 +619,7 @@ export class PlayerStatsService {
           model: OAuthProvider,
           as: 'providers',
           where: {provider: 'discord'},
-          attributes: ['profile'],
+          attributes: ['providerId'],
           required: false,
         },
         {
@@ -652,14 +652,10 @@ export class PlayerStatsService {
         const passes = passesMap.get(player.id) || [];
         const userData = userDataMap.get(player.id) as any;
 
-        // Process Discord data
-        let discordProvider: any;
-        if (userData?.dataValues?.providers?.length > 0) {
-          discordProvider = userData.dataValues.providers[0].dataValues;
-          discordProvider.profile.avatarUrl = discordProvider.profile.avatar
-            ? `https://cdn.discordapp.com/avatars/${discordProvider.profile.id}/${discordProvider.profile.avatar}.png`
+        const discordProvider =
+          userData?.dataValues?.providers?.length > 0
+            ? (userData.dataValues.providers[0].dataValues as {providerId: string})
             : null;
-        }
 
         // Get player stats from service
         const stats = await playerStatsService.getPlayerStats(player.id).then(stats => stats?.[0]);
@@ -706,10 +702,10 @@ export class PlayerStatsService {
           pfp: playerData.pfp,
           avatarUrl: userData?.avatarUrl,
           username: userData?.username, // Changed from discordUsername to username
-          discordUsername: discordProvider?.profile.username, // This is the actual Discord username
-          discordAvatar: discordProvider?.profile.avatarUrl,
-          discordAvatarId: discordProvider?.profile.avatar,
-          discordId: discordProvider?.profile.id,
+          discordUsername: userData?.username ?? null,
+          discordAvatar: userData?.avatarUrl ?? null,
+          discordAvatarId: null,
+          discordId: discordProvider?.providerId ?? null,
           user: userData ? {
             id: userData.id,
             username: userData.username,

@@ -45,6 +45,7 @@ export async function fetchPlayersForBulkIndex(playerIds: number[]): Promise<Pre
           userId: { [Op.in]: userIds },
           provider: 'discord',
         },
+        attributes: ['userId', 'providerId'],
       })
     : [];
   const discordByUserId = new Map<string, OAuthProvider>();

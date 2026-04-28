@@ -74,10 +74,9 @@ router.get(
       return res.status(401).json({error: 'User not authenticated'});
     }
 
-    // Fetch providers with profile data
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
-      attributes: ['provider', 'profile'],
+      attributes: ['provider', 'providerId'],
     });
 
     const player = await Player.findByPk(user.playerId);
@@ -104,7 +103,7 @@ router.get(
         deletionExecuteAt: user.deletionExecuteAt ?? null,
         providers: providers.map((p: OAuthProvider) => ({
           name: p.provider,
-          profile: p.profile,
+          providerId: p.providerId,
         })),
       },
     });
@@ -288,7 +287,7 @@ router.put(
     const updatedUser = await User.findByPk(user.id, { transaction });
     const providers = await OAuthProvider.findAll({
       where: {userId: user.id},
-      attributes: ['provider', 'profile'],
+      attributes: ['provider', 'providerId'],
       transaction
     });
 
@@ -325,7 +324,10 @@ router.put(
         playerId: updatedUser.playerId,
         lastUsernameChange: updatedUser.lastUsernameChange,
         previousUsername: updatedUser.previousUsername,
-        providers: providers.map((p: OAuthProvider) => p.provider),
+        providers: providers.map((p: OAuthProvider) => ({
+          name: p.provider,
+          providerId: p.providerId,
+        })),
       },
     });
   } catch (error: any) {

@@ -235,7 +235,8 @@ export async function createClearEmbed(
         userId: pass.player?.user?.id,
         provider: 'discord',
       },
-    }).then(data => data?.profile);
+      attributes: ['providerId'],
+    }).then(data => (data ? {id: data.providerId} : null));
   }
   const passDetails = await playerStatsService.getPassDetails(pass.id);
 
@@ -276,7 +277,7 @@ export async function createClearEmbed(
     .addField('', '', false)
     .addField(
       'Player',
-      `**${discordProfile ? `<@${(discordProfile as any)?.id}>` : pass.player?.name || 'Unknown Player'}**`,
+      `**${discordProfile ? `<@${(discordProfile as {id: string}).id}>` : pass.player?.name || 'Unknown Player'}**`,
       true,
     )
     .addField(
