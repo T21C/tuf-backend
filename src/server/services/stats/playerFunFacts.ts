@@ -20,6 +20,14 @@ function toIso(d: unknown): string | null {
   return Number.isNaN(t.getTime()) ? null : t.toISOString();
 }
 
+/**
+ * Aggregates pass-derived fun-facts for a player.
+ *
+ * @param options.includeHidden — When true, hidden passes are included in all
+ *   aggregates (counts, judgements, extremes, difficulty breakdowns). Must only
+ *   be set when the caller has explicitly opted in (e.g. `showHidden=true` on
+ *   the profile API); otherwise hidden passes are excluded entirely.
+ */
 export async function computePlayerFunFacts(
   playerId: number,
   options: {includeHidden: boolean},
@@ -79,7 +87,8 @@ export async function computePlayerFunFacts(
 
   if (!Number.isFinite(playerId) || playerId <= 0) return empty;
 
-  const includeHidden = options.includeHidden ? 1 : 0;
+  const includeHiddenPassesInAggregates = Boolean(options.includeHidden);
+  const includeHidden = includeHiddenPassesInAggregates ? 1 : 0;
 
   const mainSql = `
     SELECT
@@ -90,7 +99,7 @@ export async function computePlayerFunFacts(
       COALESCE(SUM(CASE WHEN p.is16K = 1 THEN 1 ELSE 0 END), 0) AS clears16K,
       COALESCE(SUM(CASE WHEN p.isNoHoldTap = 1 THEN 1 ELSE 0 END), 0) AS clearsNoHoldTap,
       COALESCE(SUM(CASE WHEN p.isDuplicate = 1 THEN 1 ELSE 0 END), 0) AS duplicatePasses,
-      COALESCE(SUM(CASE WHEN IFNULL(p.isHidden, 0) = 1 THEN 1 ELSE 0 END), 0) AS hiddenPasses,
+      COALESCE(SUM(CASE WHEN :includeHidden = 1 AND IFNULL(p.isHidden, 0) = 1 THEN 1 ELSE 0 END), 0) AS hiddenPasses,
       COALESCE(SUM(j.earlyDouble), 0) AS earlyDouble,
       COALESCE(SUM(j.earlySingle), 0) AS earlySingle,
       COALESCE(SUM(j.ePerfect), 0) AS ePerfect,
@@ -342,7 +351,7 @@ export async function computePlayerFunFacts(
       clears16K: Number(m.clears16K) || 0,
       clearsNoHoldTap: Number(m.clearsNoHoldTap) || 0,
       duplicatePasses: Number(m.duplicatePasses) || 0,
-      hiddenPasses: Number(m.hiddenPasses) || 0,
+      hiddenPasses: includeHiddenPassesInAggregates ? Number(m.hiddenPasses) || 0 : 0,
     },
     judgements: {
       totalTilesHit,

@@ -259,7 +259,8 @@ router.get(
 
 /**
  * Full profile view: ES stats + ranks + DB-enriched passes/topScores/potentialTopScores.
- * Honours "own profile" semantics (shows hidden passes when caller owns the profile).
+ * Fun-facts aggregates include hidden passes only when the caller owns the profile
+ * and passes `showHidden=true` (same rule as GET .../passes).
  */
 router.get(
   '/:id([0-9]{1,20})/profile',
@@ -268,10 +269,13 @@ router.get(
     operationId: 'v3GetPlayerProfile',
     summary: 'Get player profile (v3)',
     description:
-      'Player profile page payload: ES document + on-demand ranks + DB-sourced passes, topScores, and potentialTopScores. Hidden passes are revealed when the caller owns the profile.',
+      'Player profile page payload: ES document + on-demand ranks + DB-sourced passes, topScores, and potentialTopScores. `funFacts` includes hidden passes in totals only when the caller owns the profile and `showHidden=true`.',
     tags: ['Database', 'Players', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
+    query: {
+      showHidden: { schema: { type: 'string' } },
+    },
     responses: {
       200: { description: 'Player profile' },
       ...standardErrorResponses404500,
@@ -286,6 +290,8 @@ router.get(
 
       const user = req.user;
       const isOwnProfile = Boolean(user && user.playerId && user.playerId === id);
+      const showHidden = String(req.query.showHidden || '').toLowerCase() === 'true';
+      const includeHiddenInFunFacts = isOwnProfile && showHidden;
 
       const doc = await elasticsearchService.getPlayerDocumentById(id);
       if (!doc) return res.status(404).json({ error: 'Player not found' });
@@ -293,7 +299,7 @@ router.get(
       const [ranks, enriched, funFacts, playerRow] = await Promise.all([
         getPlayerRanks(doc),
         playerStatsService.getEnrichedPlayer(id, isOwnProfile ? user : undefined),
-        computePlayerFunFacts(id, {includeHidden: isOwnProfile}),
+        computePlayerFunFacts(id, {includeHidden: includeHiddenInFunFacts}),
         Player.findByPk(id, { attributes: ['bio', 'bannerPreset', 'customBannerId', 'customBannerUrl'] }),
       ]);
 
