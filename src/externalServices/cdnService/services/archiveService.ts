@@ -166,6 +166,10 @@ interface RunSevenZOptions {
     signal?: AbortSignal;
     /** Captured stdout buffer cap. Defaults to 16MiB. */
     maxStdoutBytes?: number;
+    /** Stream stderr as it arrives (e.g. parse 7-Zip % progress). Full stderr is still captured for errors. */
+    onStderrChunk?: (chunk: Buffer) => void;
+    /** Stream stdout as it arrives (some 7-Zip builds emit progress there). Full stdout is still captured. */
+    onStdoutChunk?: (chunk: Buffer) => void;
 }
 
 interface RunSevenZResult {
@@ -218,7 +222,7 @@ function formatSevenZFailureSummary(result: RunSevenZResult, maxLen = 6000): str
  * pack-download behaviour).
  */
 async function runSevenZ(args: string[], opts: RunSevenZOptions = {}): Promise<RunSevenZResult> {
-    const { cwd, signal, maxStdoutBytes = 16 * 1024 * 1024 } = opts;
+    const { cwd, signal, maxStdoutBytes = 16 * 1024 * 1024, onStderrChunk, onStdoutChunk } = opts;
 
     return new Promise<RunSevenZResult>((resolve, reject) => {
         const env = isWindows
@@ -251,10 +255,12 @@ async function runSevenZ(args: string[], opts: RunSevenZOptions = {}): Promise<R
         }
 
         child.stdout.on('data', (chunk: Buffer) => {
+            onStdoutChunk?.(chunk);
             stdoutBytes += chunk.length;
             if (stdoutBytes <= maxStdoutBytes) stdoutChunks.push(chunk);
         });
         child.stderr.on('data', (chunk: Buffer) => {
+            onStderrChunk?.(chunk);
             stderrBytes += chunk.length;
             if (stderrBytes <= maxStdoutBytes) stderrChunks.push(chunk);
         });
@@ -788,14 +794,57 @@ export async function extractEntry(
     }
 }
 
+/** Optional settings for {@link createZip}. */
+export interface CreateZipOptions {
+    signal?: AbortSignal;
+    /** Best-effort 0–100 from 7-Zip stderr (`%` tokens); may not fire on all versions/locales. */
+    onZipProgress?: (percent: number) => void;
+}
+
+const ZIP_PROGRESS_STREAM_WINDOW = 16_000;
+
+/**
+ * Feeds combined stdout/stderr from `7z` into a rolling buffer and reports the latest `%` value.
+ * Some builds/locales omit `\b` boundaries or print `50 %` with a space; progress may appear on stdout.
+ */
+function createSevenZipPercentFeed(onZipProgress: (percent: number) => void): {
+    push: (chunk: Buffer) => void;
+    getSawProgress: () => boolean;
+} {
+    let carry = '';
+    let sawProgress = false;
+    const re = /(\d{1,3})\s*%/g;
+    const push = (chunk: Buffer) => {
+        carry = (carry + chunk.toString('utf8')).slice(-ZIP_PROGRESS_STREAM_WINDOW);
+        let best = -1;
+        re.lastIndex = 0;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(carry)) !== null) {
+            const v = Math.min(100, Math.max(0, parseInt(m[1], 10)));
+            if (v > best) best = v;
+        }
+        if (best >= 0) {
+            sawProgress = true;
+            onZipProgress(best);
+        }
+    };
+    return { push, getSawProgress: () => sawProgress };
+}
+
 /**
  * Recursively zip everything inside `sourceDir` into `targetZipPath`.
  *
  * Output is always a `.zip` (Store / no compression) so downstream consumers
  * — game clients, browsers, the existing transform-download flow — keep working
  * unchanged.
+ *
+ * When `onZipProgress` is set, stderr is parsed for `%` progress (7-Zip without `-bd`).
  */
-export async function createZip(sourceDir: string, targetZipPath: string, signal?: AbortSignal): Promise<void> {
+export async function createZip(
+    sourceDir: string,
+    targetZipPath: string,
+    options?: CreateZipOptions
+): Promise<void> {
     if (!fs.existsSync(sourceDir)) {
         throw new Error(`Source directory not found: ${sourceDir}`);
     }
@@ -803,15 +852,34 @@ export async function createZip(sourceDir: string, targetZipPath: string, signal
     // Pre-delete: 7z `a` appends to existing archives, which would silently corrupt repeats.
     try { await fs.promises.rm(targetZipPath, { force: true }); } catch { /* best effort */ }
 
+    const onZipProgress = options?.onZipProgress;
     const args = [
         'a', '-tzip',
         '-mx=0', '-mm=Copy',
         '-mcu=on', '-r',
-        '-y', '-bd', '-bb0',
+        // Omit `-bd` so 7-Zip can emit `%` progress; `-bb1` lists added files (helps some builds emit usable output).
+        '-y', '-bb1',
         targetZipPath,
         '*'
     ];
-    const result = await runSevenZ(args, { cwd: sourceDir, signal });
+    const progressFeed = onZipProgress ? createSevenZipPercentFeed(onZipProgress) : null;
+    const result = await runSevenZ(args, {
+        cwd: sourceDir,
+        signal: options?.signal,
+        onStderrChunk: progressFeed ? progressFeed.push : undefined,
+        onStdoutChunk: progressFeed ? progressFeed.push : undefined
+    });
+    if (progressFeed && !progressFeed.getSawProgress()) {
+        logger.debug(
+            'archiveService.createZip: no 7-Zip % lines parsed for progress (JOB_PROGRESS_INGEST / UI may stay at 0 until upload). Check: `SEVEN_ZIP_PATH`, run the same argv locally, non-English 7z UI, or `-bb`/`-bsp` behavior for your 7-Zip version.',
+            {
+                sevenZipBinary: SEVEN_ZIP_BIN,
+                stderrTail: trimForLog(result.stderr?.slice(-2500)),
+                stdoutTail: trimForLog(result.stdout?.slice(-2500)),
+                exitCode: result.code
+            }
+        );
+    }
     if (result.code !== 0 && result.code !== 1) {
         throw buildSevenZError('createZip', args, result);
     }
@@ -898,7 +966,7 @@ export async function createZipFromFiles(
             await fs.promises.copyFile(file.path, stagedPath);
         }
 
-        await createZip(stagingDir, targetZipPath, signal);
+        await createZip(stagingDir, targetZipPath, { signal });
     } finally {
         try {
             await fs.promises.rm(stagingDir, { recursive: true, force: true });

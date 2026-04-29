@@ -172,10 +172,12 @@ async function processArchiveFileInWorkspace(
             const tempPath = path.join(extractRoot, normalizedRelativePath);
 
             if (!fs.existsSync(tempPath)) {
-                throw new Error(
-                    `Level file missing after archive extraction: ${normalizedRelativePath} (expected at ${tempPath}). ` +
-                        'The archive listing included this path but it was not extracted.'
-                );
+                logger.warn('Level file missing after archive extraction; skipping (encoding or partial extract)', {
+                    normalizedRelativePath,
+                    tempPath,
+                    archiveFileId
+                });
+                continue;
             }
 
             try {
@@ -274,6 +276,13 @@ async function processArchiveFileInWorkspace(
             }
         }
 
+        if (allLevelFiles.length === 0) {
+            throw new Error(
+                'No usable .adofai files found after extraction (all missing or failed to parse). ' +
+                    'The archive may be corrupt, use unsupported paths, or contain no valid levels.'
+            );
+        }
+
         // Second pass: collect all song files
         await sendProgress('processing', 40, 'Processing song files');
         let totalSongSize = 0;
@@ -298,16 +307,26 @@ async function processArchiveFileInWorkspace(
                 continue;
             }
 
-            const songFilename = path.basename(entry.relativePath);
-            if (songFiles[songFilename]) {
-                logger.debug('Duplicate song basename in archive (metadata keeps last wins)', {
-                    basename: songFilename,
-                    earlierPath: songFiles[songFilename].path
+            const songBasename = path.basename(entry.relativePath);
+            if (songFiles[normalizedSongPath]) {
+                logger.debug('Duplicate song relative path in archive (overwriting)', {
+                    relativePath: normalizedSongPath
                 });
+            } else {
+                const sameBasenameKey = Object.keys(songFiles).find(
+                    (k) => path.posix.basename(k.replace(/\\/g, '/')) === songBasename
+                );
+                if (sameBasenameKey) {
+                    logger.warn('Song files share basename but live under different paths (metadata keys by relative path)', {
+                        basename: songBasename,
+                        earlierRelativePath: sameBasenameKey,
+                        relativePath: normalizedSongPath
+                    });
+                }
             }
 
-            songFiles[songFilename] = {
-                name: songFilename,
+            songFiles[normalizedSongPath] = {
+                name: songBasename,
                 path: songTempPath, // Keep temp path for now, will be uploaded later
                 size: entry.size,
                 type: path.extname(entry.relativePath).toLowerCase().slice(1)

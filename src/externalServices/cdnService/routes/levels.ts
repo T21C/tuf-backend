@@ -37,6 +37,61 @@ function encodeContentDisposition(filename: string): string {
   return `attachment; filename*=UTF-8''${encoded}`;
 }
 
+function posixNorm(p: string): string {
+    return p.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+/**
+ * Resolve a chart's `songFilename` to stored CDN song metadata. Keys may be basename-only (legacy)
+ * or archive-relative paths (disambiguates duplicate basenames in nested folders).
+ */
+function resolveSongFileForTransform(
+    songFiles: Record<string, { name: string; path: string; size: number; type: string }>,
+    songFilename: string | undefined,
+    targetLevelRelativePath: string | undefined
+): { name: string; path: string; size: number; type: string } | undefined {
+    if (!songFiles || songFilename === undefined || songFilename === '') {
+        return undefined;
+    }
+    const normSong = posixNorm(songFilename);
+    const hitExact = songFiles[normSong] ?? songFiles[songFilename];
+    if (hitExact) {
+        return hitExact;
+    }
+
+    const tgt = targetLevelRelativePath ? posixNorm(targetLevelRelativePath) : '';
+    const levelDir = tgt ? path.posix.dirname(tgt) : '';
+
+    if (normSong.includes('/') && !normSong.startsWith('..')) {
+        const hit = songFiles[normSong];
+        if (hit) {
+            return hit;
+        }
+    } else if (levelDir && levelDir !== '.' && levelDir !== '') {
+        const nextToLevel = `${levelDir}/${path.posix.basename(normSong)}`;
+        const hit2 = songFiles[nextToLevel];
+        if (hit2) {
+            return hit2;
+        }
+    }
+
+    const wantBase = path.posix.basename(normSong);
+    let fallback: { name: string; path: string; size: number; type: string } | undefined;
+    for (const [key, song] of Object.entries(songFiles)) {
+        const keyNorm = posixNorm(key);
+        if (path.posix.basename(keyNorm) !== wantBase) {
+            continue;
+        }
+        if (levelDir && path.posix.dirname(keyNorm) === levelDir) {
+            return song;
+        }
+        if (!fallback) {
+            fallback = song;
+        }
+    }
+    return fallback;
+}
+
 function extractLevelMetadata(metadata: any) {
     return {
         songFiles: Object.values(metadata.songFiles).map((songFile: any) => {
@@ -138,6 +193,7 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                         type: string;
                     }>;
                     targetLevel?: string | null;
+                    targetLevelRelativePath?: string | null;
                     targetLevelOversized?: boolean;
                     originalZip?: {
                         name: string;
@@ -278,10 +334,13 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                     let selectedSongFile: { name: string; path: string; size: number; type: string } | undefined;
 
                     if (!requiresYSMod) {
-                        // First, try to find the song file specified in the level
-                        if (songFilename && metadata.songFiles[songFilename]) {
-                            selectedSongFile = metadata.songFiles[songFilename];
-                        } else {
+                        selectedSongFile = resolveSongFileForTransform(
+                            metadata.songFiles,
+                            songFilename ?? undefined,
+                            metadata.targetLevelRelativePath ?? undefined
+                        );
+
+                        if (!selectedSongFile) {
                             // If not found, search for any .ogg or .wav file
                             logger.debug('Song file not found by name, searching for .ogg or .wav files', {
                                 fileId,
@@ -289,10 +348,8 @@ router.get('/:fileId/transform', async (req: Request, res: Response) => {
                                 availableSongFiles: Object.keys(metadata.songFiles)
                             });
 
-                            // Search through all song files for .ogg or .wav extensions
                             const audioExtensions = ['.ogg', '.wav'];
-                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                            for (const [_, songFile] of Object.entries(metadata.songFiles)) {
+                            for (const [, songFile] of Object.entries(metadata.songFiles)) {
                                 const fileExtension = path.extname(songFile.name).toLowerCase();
                                 if (audioExtensions.includes(fileExtension)) {
                                     selectedSongFile = songFile;

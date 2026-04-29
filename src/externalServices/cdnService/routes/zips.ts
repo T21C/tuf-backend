@@ -70,6 +70,8 @@ const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pa
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
 /** Max path length for extraction (e.g. Windows MAX_PATH 260; extract folder + sep + path inside zip). */
 const MAX_PATH_LENGTH = 140;
+/** Minimum folder basename / file stem length when trimming (keeps `#5125 …` readable; room for ~100k level ids). */
+const PACK_TRIM_MIN_SEGMENT_CHARS = 7;
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -726,25 +728,29 @@ function countTotalLevels(node: PackDownloadNode): number {
 
 const PATH_SEP = path.win32.sep;
 
-/** Compute path length with trimmable segments (folders) capped at maxSegLen; files are included as-is. */
-function pathLengthWithCap(relPath: string, trimmableSet: Set<string>, maxSegLen: number): number {
-    const norm = path.win32.normalize(relPath);
-    const segments = norm.split(PATH_SEP);
-    let acc = '';
-    let len = 0;
-    for (const seg of segments) {
-        acc = acc ? `${acc}${PATH_SEP}${seg}` : seg;
-        const segLen = trimmableSet.has(acc) ? Math.min(seg.length, maxSegLen) : seg.length;
-        len += (len > 0 ? 1 : 0) + segLen;
+/**
+ * Pack path trimming walks the extract tree; unreadable dirs (encoding / FS quirks) must not abort the job.
+ * Returns an empty list for that branch so trimming uses partial data or becomes a no-op.
+ */
+async function packSafeReadDir(dir: string): Promise<fs.Dirent[]> {
+    try {
+        return await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        logger.warn('Pack path trim: skipping unreadable directory', {
+            dir,
+            code: e.code,
+            message: e.message
+        });
+        return [];
     }
-    return len;
 }
 
 /** Returns max relative path length over all paths, and the path that achieved it. */
 async function getMaxRelativePathAndLength(dir: string, root: string): Promise<{ maxLen: number; maxPath: string }> {
     let maxLen = 0;
     let maxPath = '';
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const entries = await packSafeReadDir(dir);
     for (const e of entries) {
         const fullPath = path.join(dir, e.name);
         const rel = path.relative(root, fullPath);
@@ -764,166 +770,303 @@ async function getMaxRelativePathAndLength(dir: string, root: string): Promise<{
     return { maxLen, maxPath };
 }
 
-/** Returns max path length when all folder-only segment lengths are capped at maxSegLen. */
-async function getMaxPathLengthWithCap(
-    dir: string,
-    root: string,
-    folderOnlySet: Set<string>,
-    maxSegLen: number
-): Promise<number> {
-    let maxLen = 0;
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    for (const e of entries) {
-        const fullPath = path.join(dir, e.name);
-        const rel = path.relative(root, fullPath);
-        const relNorm = path.win32.normalize(rel);
-        const len = pathLengthWithCap(relNorm, folderOnlySet, maxSegLen);
-        if (len > maxLen) maxLen = len;
-        if (e.isDirectory()) {
-            const subMax = await getMaxPathLengthWithCap(fullPath, root, folderOnlySet, maxSegLen);
-            if (subMax > maxLen) maxLen = subMax;
-        }
-    }
-    return maxLen;
+function splitWorstRelativePath(maxPath: string): string[] {
+    const norm = path.win32.normalize(maxPath).replace(/\//g, PATH_SEP);
+    return norm.split(PATH_SEP).filter((s) => s.length > 0);
 }
 
-interface FolderInfo {
-    relativePath: string;
-    name: string;
-    isPureFolderOfFolders: boolean;
+/** Level charts and loose audio in level folders — safe to shorten for path budget (game can re-pick song). */
+const TRIMMABLE_PACK_AUDIO_EXT = new Set([
+    '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac',
+    '.aiff', '.aif', '.caf', '.wma', '.webm', '.mka', '.ac3', '.eac3',
+    '.mp2', '.amr', '.ape', '.wv', '.tta'
+]);
+
+function isTrimmablePackFileBasename(basename: string): boolean {
+    const ext = path.extname(basename).toLowerCase();
+    return ext === '.adofai' || TRIMMABLE_PACK_AUDIO_EXT.has(ext);
 }
 
-/** Recursively collect all folders; marks which are pure folders-of-folders (no files). */
-async function collectFolders(dir: string, root: string): Promise<FolderInfo[]> {
-    const result: FolderInfo[] = [];
-    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-    const rel = path.relative(root, dir);
-    const isPureFolderOfFolders = entries.length > 0 && entries.every((e) => e.isDirectory());
+type TrimPathCandidate =
+    | { kind: 'folder'; fullPath: string; parentDir: string; currentName: string }
+    | { kind: 'file'; fullPath: string; parentDir: string; currentName: string };
 
-    if (rel && rel !== '.') {
-        result.push({
-            relativePath: rel,
-            name: path.basename(dir),
-            isPureFolderOfFolders: isPureFolderOfFolders
-        });
-    }
-
+/** All `.adofai` + trimmable audio files in a level folder (same pass as chart/song trimming). */
+async function listTrimmablePackFileSiblingsInDir(parentDir: string): Promise<TrimPathCandidate[]> {
+    const entries = await packSafeReadDir(parentDir);
+    const out: TrimPathCandidate[] = [];
     for (const e of entries) {
-        if (e.isDirectory()) {
-            const sub = await collectFolders(path.join(dir, e.name), root);
-            result.push(...sub);
+        if (!e.isFile() || !isTrimmablePackFileBasename(e.name)) {
+            continue;
         }
+        const fullPath = path.join(parentDir, e.name);
+        try {
+            const st = await fs.promises.stat(fullPath);
+            if (!st.isFile()) {
+                continue;
+            }
+        } catch {
+            continue;
+        }
+        out.push({ kind: 'file', fullPath, parentDir, currentName: e.name });
     }
-    return result;
+    return out;
 }
 
 /**
- * After unpack: find the deepest path (to files), identify pure folders-of-folders in it, and apply
- * a uniform ceiling to minimize the total path length (including files) so extractFolderName + sep +
- * pathInsideZip stays under MAX_PATH_LENGTH. Uses pure folders-of-folders first; if still
- * over budget, also trims level folders (containing files).
+ * Folders on the worst relative path, plus every `.adofai` / trimmable-audio file inside **each**
+ * directory on that path (all ancestors of the leaf). Deduplicated, then sorted by **basename
+ * length descending** so long parent folder names compete with songs/charts — one rename per
+ * outer iteration trims the single longest name still above the floor, spreading cuts across
+ * entries instead of over-shortening children while a long parent stays untouched.
  */
-async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string): Promise<void> {
-    const allFolders = await collectFolders(extractRoot, extractRoot);
-    if (allFolders.length === 0) {
-        return;
+async function listTrimCandidatesOnWorstPathByNameLength(
+    extractRoot: string,
+    maxPath: string
+): Promise<TrimPathCandidate[]> {
+    const segments = splitWorstRelativePath(maxPath);
+    if (segments.length === 0) {
+        return [];
     }
 
+    const out: TrimPathCandidate[] = [];
+    const seenPath = new Set<string>();
+
+    const pushUnique = (c: TrimPathCandidate) => {
+        if (seenPath.has(c.fullPath)) {
+            return;
+        }
+        seenPath.add(c.fullPath);
+        out.push(c);
+    };
+
+    for (let i = 0; i < segments.length; i++) {
+        const fullPath = path.join(extractRoot, ...segments.slice(0, i + 1));
+        let st: fs.Stats;
+        try {
+            st = await fs.promises.stat(fullPath);
+        } catch {
+            break;
+        }
+
+        const currentName = segments[i];
+        const parentDir = i === 0 ? extractRoot : path.join(extractRoot, ...segments.slice(0, i));
+
+        if (st.isDirectory()) {
+            pushUnique({ kind: 'folder', fullPath, parentDir, currentName });
+            const filesInDir = await listTrimmablePackFileSiblingsInDir(fullPath);
+            for (const f of filesInDir) {
+                pushUnique(f);
+            }
+            continue;
+        }
+
+        if (st.isFile()) {
+            if (isTrimmablePackFileBasename(currentName)) {
+                pushUnique({ kind: 'file', fullPath, parentDir, currentName });
+            }
+            break;
+        }
+
+        break;
+    }
+
+    out.sort((a, b) => {
+        const d = b.currentName.length - a.currentName.length;
+        if (d !== 0) {
+            return d;
+        }
+        if (a.kind !== b.kind) {
+            return a.kind === 'folder' ? -1 : 1;
+        }
+        return a.fullPath.localeCompare(b.fullPath);
+    });
+    return out;
+}
+
+/** Pick `base` or `base_2`, `base_3`, ... so the name is not used by another entry under `parentDir`. */
+async function allocateSiblingFolderName(parentDir: string, base: string): Promise<string> {
+    const entries = await packSafeReadDir(parentDir);
+    const taken = new Set(entries.map((e) => e.name));
+    if (!taken.has(base)) {
+        return base;
+    }
+    for (let i = 2; i < 1_000_000; i++) {
+        const candidate = `${base}_${i}`;
+        if (!taken.has(candidate)) {
+            return candidate;
+        }
+    }
+    return `${base}_${Date.now()}`;
+}
+
+/** Unique `stem + ext` or `stem_N + ext` under `parentDir` (for greedy file renames). */
+async function allocateSiblingStemName(parentDir: string, stem: string, ext: string): Promise<string> {
+    const entries = await packSafeReadDir(parentDir);
+    const taken = new Set(entries.map((e) => e.name));
+    const full = (s: string) => `${s}${ext}`;
+    if (!taken.has(full(stem))) {
+        return full(stem);
+    }
+    for (let i = 2; i < 1_000_000; i++) {
+        const candidate = `${stem}_${i}${ext}`;
+        if (!taken.has(candidate)) {
+            return candidate;
+        }
+    }
+    return `${stem}_${Date.now()}${ext}`;
+}
+
+/**
+ * After unpack, shorten **individual** path segments (folders, `.adofai`, or common audio files) on
+ * the longest offending path until the worst-case relative path fits under the Windows-oriented
+ * budget (extract folder name + path inside zip). Greedy: each step renames **one** entry — the
+ * longest basename among folders on the worst path and all `.adofai`/audio files under every
+ * directory on that path — so long parent folder names are trimmed before over-cutting children.
+ * Stem-only for files (extension kept). Names are never shortened below {@link PACK_TRIM_MIN_SEGMENT_CHARS}
+ * characters when the original was longer (keeps `#5125 …` style prefixes readable).
+ *
+ * Directory walks use {@link packSafeReadDir}: unreadable subtrees are skipped when measuring.
+ */
+async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string): Promise<void> {
     const extractFolderName = path.parse(zipName).name || 'pack';
     const pathBudget = Math.max(1, MAX_PATH_LENGTH - 1 - extractFolderName.length);
 
-    const { maxLen } = await getMaxRelativePathAndLength(extractRoot, extractRoot);
-    if (maxLen <= pathBudget) {
-        return;
-    }
-
-    const pureFolderList = allFolders.filter((f) => f.isPureFolderOfFolders);
-    const trimmableList =
-        pureFolderList.length > 0 ? pureFolderList : allFolders;
-    const trimmableSet = new Set(trimmableList.map((f) => path.win32.normalize(f.relativePath)));
-    const maxNameLen = Math.max(...trimmableList.map((f) => f.name.length), 1);
-
-    let low = 1;
-    let high = maxNameLen;
-    let bestCap = 1;
-    while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        const simulatedMax = await getMaxPathLengthWithCap(extractRoot, extractRoot, trimmableSet, mid);
-        if (simulatedMax <= pathBudget) {
-            bestCap = mid;
-            low = mid + 1;
-        } else {
-            high = mid - 1;
+    const MAX_ITERS = 5000;
+    for (let iter = 0; iter < MAX_ITERS; iter++) {
+        const { maxLen, maxPath } = await getMaxRelativePathAndLength(extractRoot, extractRoot);
+        if (maxLen <= pathBudget) {
+            return;
         }
-    }
 
-    let finalList = trimmableList;
-    if (pureFolderList.length > 0) {
-        const pureSet = new Set(pureFolderList.map((f) => path.win32.normalize(f.relativePath)));
-        const afterPure = await getMaxPathLengthWithCap(extractRoot, extractRoot, pureSet, bestCap);
-        if (afterPure > pathBudget && allFolders.length > pureFolderList.length) {
-            const combinedSet = new Set(allFolders.map((f) => path.win32.normalize(f.relativePath)));
-            let low2 = 1;
-            let high2 = Math.max(...allFolders.map((f) => f.name.length), 1);
-            let bestCap2 = 1;
-            while (low2 <= high2) {
-                const mid = Math.floor((low2 + high2) / 2);
-                const sim = await getMaxPathLengthWithCap(extractRoot, extractRoot, combinedSet, mid);
-                if (sim <= pathBudget) {
-                    bestCap2 = mid;
-                    low2 = mid + 1;
-                } else {
-                    high2 = mid - 1;
+        const candidates = await listTrimCandidatesOnWorstPathByNameLength(extractRoot, maxPath);
+        if (candidates.length === 0) {
+            logger.warn('Pack path trim: over budget but no trimmable segments on worst path', {
+                maxLen,
+                pathBudget,
+                maxPath
+            });
+            return;
+        }
+
+        const excess = maxLen - pathBudget;
+        let renamedThisRound = false;
+
+        for (const pick of candidates) {
+            if (!fs.existsSync(pick.fullPath)) {
+                continue;
+            }
+
+            if (pick.kind === 'file') {
+                const { fullPath: fileFullPath, parentDir, currentName } = pick;
+                const ext = path.extname(currentName);
+                const stem = ext ? currentName.slice(0, -ext.length) : currentName;
+                if (!stem || stem.length < 1) {
+                    continue;
+                }
+
+                const stemFloor = Math.min(PACK_TRIM_MIN_SEGMENT_CHARS, stem.length);
+                const shortenStemBy = Math.min(excess, Math.max(0, stem.length - stemFloor));
+                if (shortenStemBy <= 0) {
+                    continue;
+                }
+
+                const maxStemLen = Math.max(stemFloor, stem.length - shortenStemBy);
+
+                for (let targetStemLen = maxStemLen; targetStemLen >= stemFloor; targetStemLen--) {
+                    let newStem = stem.slice(0, targetStemLen).trim();
+                    if (!newStem || newStem.length < stemFloor) {
+                        newStem = stem.slice(0, stemFloor);
+                    }
+                    if (!newStem) {
+                        newStem = ext === '.adofai' ? 'level' : 'track';
+                    }
+
+                    const newName = await allocateSiblingStemName(parentDir, newStem, ext);
+                    const newFullPath = path.join(parentDir, newName);
+
+                    if (newFullPath === fileFullPath || newName === currentName) {
+                        continue;
+                    }
+
+                    if (newName.length > currentName.length) {
+                        continue;
+                    }
+
+                    await fs.promises.rename(fileFullPath, newFullPath);
+                    logger.debug('Pack path trim: greedy file shorten', {
+                        from: fileFullPath,
+                        to: newFullPath,
+                        maxLenBefore: maxLen,
+                        pathBudget,
+                        iter
+                    });
+                    renamedThisRound = true;
+                    break;
+                }
+            } else {
+                const { fullPath: folderFullPath, parentDir, currentName } = pick;
+                const floorLen = Math.min(PACK_TRIM_MIN_SEGMENT_CHARS, currentName.length);
+                const shortenBy = Math.min(excess, Math.max(0, currentName.length - floorLen));
+                if (shortenBy <= 0) {
+                    continue;
+                }
+
+                const maxTargetLen = Math.max(floorLen, currentName.length - shortenBy);
+
+                for (let targetLen = maxTargetLen; targetLen >= floorLen; targetLen--) {
+                    let base = currentName.slice(0, targetLen).trim();
+                    if (!base || base.length < floorLen) {
+                        base = currentName.slice(0, floorLen);
+                    }
+                    if (!base) {
+                        continue;
+                    }
+
+                    const newName = await allocateSiblingFolderName(parentDir, base);
+                    const newFullPath = path.join(parentDir, newName);
+
+                    if (newFullPath === folderFullPath || newName === currentName) {
+                        continue;
+                    }
+
+                    if (newName.length > currentName.length) {
+                        continue;
+                    }
+
+                    await fs.promises.rename(folderFullPath, newFullPath);
+                    logger.debug('Pack path trim: greedy folder shorten', {
+                        from: folderFullPath,
+                        to: newFullPath,
+                        maxLenBefore: maxLen,
+                        pathBudget,
+                        iter
+                    });
+                    renamedThisRound = true;
+                    break;
                 }
             }
-            bestCap = bestCap2;
-            finalList = allFolders;
+
+            if (renamedThisRound) {
+                break;
+            }
+        }
+
+        if (!renamedThisRound) {
+            logger.warn('Pack path trim: over budget but no segment could be shortened', {
+                maxLen,
+                pathBudget,
+                maxPath,
+                iter
+            });
+            return;
         }
     }
 
-    const cappedNames = finalList.map((f) => {
-        const capped = f.name.length > bestCap ? f.name.slice(0, bestCap) : f.name;
-        return capped || 'pack';
+    logger.warn('Pack path trim: stopped after max iterations', {
+        extractRoot,
+        maxIters: MAX_ITERS
     });
-
-    const parentToChildren = new Map<string, { index: number; newName: string }[]>();
-    for (let i = 0; i < finalList.length; i++) {
-        const f = finalList[i];
-        const parent = path.dirname(f.relativePath) || '';
-        const arr = parentToChildren.get(parent) ?? [];
-        arr.push({ index: i, newName: cappedNames[i] });
-        parentToChildren.set(parent, arr);
-    }
-
-    const uniqueNewNames: string[] = [];
-    for (let i = 0; i < finalList.length; i++) {
-        const f = finalList[i];
-        const parent = path.dirname(f.relativePath) || '';
-        const siblings = parentToChildren.get(parent) ?? [];
-        const sameCapped = siblings.filter((s) => s.newName === cappedNames[i]);
-        const idx = sameCapped.findIndex((s) => s.index === i) + 1;
-        uniqueNewNames.push(idx > 1 ? `${cappedNames[i]}_${idx}` : cappedNames[i]);
-    }
-
-    const renames: { oldPath: string; newPath: string }[] = [];
-    for (let i = 0; i < finalList.length; i++) {
-        const f = finalList[i];
-        const newName = uniqueNewNames[i];
-        if (f.name === newName) {
-            continue;
-        }
-        const parentRel = path.dirname(f.relativePath);
-        const newRel = parentRel ? path.join(parentRel, newName) : newName;
-        renames.push({
-            oldPath: path.join(extractRoot, f.relativePath),
-            newPath: path.join(extractRoot, newRel)
-        });
-    }
-
-    renames.sort((a, b) => b.oldPath.length - a.oldPath.length);
-    for (const { oldPath, newPath } of renames) {
-        await fs.promises.rename(oldPath, newPath);
-    }
 }
 
 async function processPackNode(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<void> {
@@ -1022,19 +1165,43 @@ async function generatePackDownloadZip(
                 await trimRootFoldersForPathLimit(extractRoot, zipName);
             }
 
+            let lastZipProgressEmit = 0;
+            let lastZipProgressPercent = -1;
+            const onZipProgress = (rawPct: number) => {
+                const pct = Math.min(99, Math.max(0, Math.round(rawPct)));
+                const now = Date.now();
+                if (now - lastZipProgressEmit < 500 && pct - lastZipProgressPercent < 1) {
+                    return;
+                }
+                lastZipProgressEmit = now;
+                lastZipProgressPercent = pct;
+                void emitPackJobProgress({
+                    downloadId,
+                    cacheKey,
+                    plannedTotalLevels: totalLevels,
+                    processedLevels: context.successCount,
+                    status: 'zipping',
+                    overridePercent: pct
+                });
+            };
+
             await emitPackJobProgress({
                 downloadId,
                 cacheKey,
                 plannedTotalLevels: totalLevels,
                 processedLevels: context.successCount,
-                status: 'zipping'
+                status: 'zipping',
+                overridePercent: 0
             });
 
             // archiveService runs 7z with -tzip -mx=0 -mm=Copy -r -mcu=on for store-only zip
             // creation; ws.signal kills the child on SIGINT/SIGTERM so shutdown isn't blocked
-            // waiting for a multi-GB archive to finish.
+            // waiting for a multi-GB archive to finish. Stderr `%` lines drive zipping progress.
             try {
-                await archiveCreateZip(extractRoot, targetPath, ws.signal);
+                await archiveCreateZip(extractRoot, targetPath, {
+                    signal: ws.signal,
+                    onZipProgress
+                });
             } catch (error) {
                 logger.error('Failed to create pack zip via archiveService', {
                     ...execErrorDetails(error),
@@ -1043,6 +1210,15 @@ async function generatePackDownloadZip(
                 });
                 throw error;
             }
+
+            await emitPackJobProgress({
+                downloadId,
+                cacheKey,
+                plannedTotalLevels: totalLevels,
+                processedLevels: context.successCount,
+                status: 'zipping',
+                overridePercent: 100
+            });
 
             const zipStat = await fs.promises.stat(targetPath);
             let lastPackUploadEmit = 0;
