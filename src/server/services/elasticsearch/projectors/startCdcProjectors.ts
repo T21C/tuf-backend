@@ -11,6 +11,23 @@ import User from '@/models/auth/User.js';
 
 const CDC_PREFIX = 'cdc:';
 
+const cdcProjectorStoppers: Array<() => Promise<void>> = [];
+
+function cdcProjectorsDisabledByEnv(): boolean {
+  return process.env.CDC_PROJECTORS_DISABLED === '1' || process.env.CDC_PROJECTORS_DISABLED === 'true';
+}
+
+/** Close all CDC Redis stream blocking readers (used during MySQL restore). */
+export async function stopCdcProjectors(): Promise<void> {
+  if (cdcProjectorStoppers.length === 0) {
+    return;
+  }
+  logger.info('[cdc-projectors] Stopping CDC stream readers...');
+  await Promise.all(cdcProjectorStoppers.map((stop) => stop()));
+  cdcProjectorStoppers.length = 0;
+  logger.info('[cdc-projectors] CDC stream readers stopped');
+}
+
 function tableEnabled(table: string): boolean {
   const raw = process.env.CDC_PROJECTOR_TABLES;
   if (!raw || raw.trim() === '' || raw.trim() === '*') return true;
@@ -44,8 +61,13 @@ function num(v: unknown): number | null {
 }
 
 export function startCdcProjectors(): void {
-  if (process.env.CDC_PROJECTORS_DISABLED === '1' || process.env.CDC_PROJECTORS_DISABLED === 'true') {
+  if (cdcProjectorsDisabledByEnv()) {
     logger.info('[cdc-projectors] Disabled via CDC_PROJECTORS_DISABLED');
+    return;
+  }
+
+  if (cdcProjectorStoppers.length > 0) {
+    logger.warn('[cdc-projectors] Already running; duplicate start ignored');
     return;
   }
 
@@ -55,7 +77,7 @@ export function startCdcProjectors(): void {
     if (!tableEnabled(table)) continue;
 
     const stream = `${CDC_PREFIX}${table}`;
-    subscribeStream({
+    const { stop } = subscribeStream({
       stream,
       consumerGroup: 'cdc-projectors',
       partitionKey: (fields) => {
@@ -272,7 +294,7 @@ export function startCdcProjectors(): void {
         }
       },
     });
-
+    cdcProjectorStoppers.push(stop);
   }
-  logger.info(`[cdc-projectors] Subscribed ${CDC_WATCHED_TABLES.length} streams`);
+  logger.info(`[cdc-projectors] Subscribed ${cdcProjectorStoppers.length} CDC streams`);
 }

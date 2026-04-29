@@ -27,4 +27,7 @@ export const CDC_WATCHED_TABLES: readonly string[] = [
 
 export const CDC_CHECKPOINT_REDIS_KEY = 'cdc:binlog_checkpoint';
 
+/** When set (see cdcRestoreCoordination), binlog tailer skips XADD but still advances checkpoint. */
+export const CDC_INGEST_PAUSED_KEY = 'cdc:ingest_paused';
+
 export const CDC_STREAM_PREFIX = 'cdc:';

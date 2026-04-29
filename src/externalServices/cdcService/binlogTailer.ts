@@ -10,6 +10,7 @@ import { createClient as redisCreateClient } from 'redis';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { CDC_WATCHED_TABLES } from './constants.js';
 import { loadBinlogCheckpointFrom, saveBinlogCheckpointTo } from './binlogCheckpoint.js';
+import { isCdcIngestPaused } from './cdcRestoreCoordination.js';
 import { publishCdcRow } from './publisher.js';
 import type { CdcOp } from '@/server/services/eventBus/types.js';
 
@@ -63,17 +64,20 @@ function attachBinlogHandler(
           if (!map) break;
           const table = map.tableName;
           const schema = map.parentSchema;
-          for (const row of e.rows) {
-            await publishCdcRow({
-              client: redisClient,
-              table,
-              schema,
-              op: 'c' as CdcOp,
-              before: null,
-              after: row as Record<string, unknown>,
-              binlogFilename,
-              binlogPosition,
-            });
+          const ingestPaused = await isCdcIngestPaused(redisClient);
+          if (!ingestPaused) {
+            for (const row of e.rows) {
+              await publishCdcRow({
+                client: redisClient,
+                table,
+                schema,
+                op: 'c' as CdcOp,
+                before: null,
+                after: row as Record<string, unknown>,
+                binlogFilename,
+                binlogPosition,
+              });
+            }
           }
           await saveBinlogCheckpointTo(redisClient, {
             filename: binlogFilename,
@@ -89,17 +93,20 @@ function attachBinlogHandler(
           if (!map) break;
           const table = map.tableName;
           const schema = map.parentSchema;
-          for (const pair of e.rows) {
-            await publishCdcRow({
-              client: redisClient,
-              table,
-              schema,
-              op: 'u' as CdcOp,
-              before: pair.before as Record<string, unknown>,
-              after: pair.after as Record<string, unknown>,
-              binlogFilename,
-              binlogPosition,
-            });
+          const ingestPaused = await isCdcIngestPaused(redisClient);
+          if (!ingestPaused) {
+            for (const pair of e.rows) {
+              await publishCdcRow({
+                client: redisClient,
+                table,
+                schema,
+                op: 'u' as CdcOp,
+                before: pair.before as Record<string, unknown>,
+                after: pair.after as Record<string, unknown>,
+                binlogFilename,
+                binlogPosition,
+              });
+            }
           }
           await saveBinlogCheckpointTo(redisClient, {
             filename: binlogFilename,
@@ -115,17 +122,20 @@ function attachBinlogHandler(
           if (!map) break;
           const table = map.tableName;
           const schema = map.parentSchema;
-          for (const row of e.rows) {
-            await publishCdcRow({
-              client: redisClient,
-              table,
-              schema,
-              op: 'd' as CdcOp,
-              before: row as Record<string, unknown>,
-              after: null,
-              binlogFilename,
-              binlogPosition,
-            });
+          const ingestPaused = await isCdcIngestPaused(redisClient);
+          if (!ingestPaused) {
+            for (const row of e.rows) {
+              await publishCdcRow({
+                client: redisClient,
+                table,
+                schema,
+                op: 'd' as CdcOp,
+                before: row as Record<string, unknown>,
+                after: null,
+                binlogFilename,
+                binlogPosition,
+              });
+            }
           }
           await saveBinlogCheckpointTo(redisClient, {
             filename: binlogFilename,

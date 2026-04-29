@@ -22,6 +22,35 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function streamReadErrorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return String(err);
+}
+
+function isRecoverableStreamGroupError(err: unknown): boolean {
+  const msg = streamReadErrorText(err).toLowerCase();
+  return msg.includes('nogroup') || msg.includes('no such key');
+}
+
+/** Use the shared Redis client so group creation is not tied to the blocking duplicate socket. */
+async function ensureConsumerGroup(stream: string, consumerGroup: string): Promise<void> {
+  const client = await redis.getClient();
+  if (!client) {
+    throw new Error('Redis unavailable for XGROUP CREATE');
+  }
+  try {
+    await client.xGroupCreate(stream, consumerGroup, '0', { MKSTREAM: true });
+  } catch (e: unknown) {
+    const m = streamReadErrorText(e);
+    if (!m.includes('BUSYGROUP')) {
+      throw e;
+    }
+  }
+}
+
 export interface SubscribeStreamOptions {
   /** Redis stream key (e.g. `cdc:levels`, `outbox:events`). */
   stream: string;
@@ -99,13 +128,10 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
     }
 
     try {
-      await blockingClient.xGroupCreate(options.stream, options.consumerGroup, '0', { MKSTREAM: true });
+      await ensureConsumerGroup(options.stream, options.consumerGroup);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!msg.includes('BUSYGROUP')) {
-        logger.error(`[eventBus] xGroupCreate failed for ${options.stream}:`, e);
-        throw e;
-      }
+      logger.error(`[eventBus] xGroupCreate failed for ${options.stream}:`, e);
+      throw e;
     }
 
     while (!aborted) {
@@ -178,7 +204,20 @@ export function subscribeStream(options: SubscribeStreamOptions): { stop: () => 
         }
       } catch (loopErr) {
         if (aborted) break;
-        logger.error(`[eventBus] read loop error ${options.stream}:`, loopErr);
+        const recoverable = isRecoverableStreamGroupError(loopErr);
+        if (recoverable) {
+          logger.debug(
+            `[eventBus] read loop ${options.stream} (recoverable NOGROUP / missing stream): ${streamReadErrorText(loopErr)}`,
+          );
+          try {
+            await ensureConsumerGroup(options.stream, options.consumerGroup);
+            logger.debug(`[eventBus] Ensured consumer group for ${options.stream}`);
+          } catch (recErr) {
+            logger.error(`[eventBus] xGroupCreate recovery failed for ${options.stream}:`, recErr);
+          }
+        } else {
+          logger.error(`[eventBus] read loop error ${options.stream}:`, loopErr);
+        }
         await sleep(2000);
       }
     }

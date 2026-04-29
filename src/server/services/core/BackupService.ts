@@ -1,4 +1,5 @@
 import {exec} from 'child_process';
+import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 import fsSync from 'fs';
@@ -7,11 +8,25 @@ import os from 'os';
 import { pipeline } from 'stream/promises';
 import { CronJob } from 'cron';
 import config from '@/config/backup.config.js';
+import { updateMappingHash } from '@/config/elasticsearch.js';
 import dotenv from 'dotenv';
+import {
+  setCdcIngestPaused,
+  resetCdcStreams,
+  clearCdcBinlogCheckpoint,
+} from '@/externalServices/cdcService/cdcRestoreCoordination.js';
 import { logger } from '@/server/services/core/LoggerService.js';
+import { CacheInvalidation } from '@/server/middleware/cache.js';
+import { redis } from '@/server/services/core/RedisService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
+import {
+  startCdcProjectors,
+  stopCdcProjectors,
+} from '@/server/services/elasticsearch/projectors/startCdcProjectors.js';
 import { requireBackupR2Config } from '@/externalServices/cdnService/services/r2Client.js';
 dotenv.config();
+
+const execAsync = promisify(exec);
 
 const DATABASE_NAME =
   process.env.NODE_ENV === 'staging'
@@ -264,39 +279,96 @@ export class BackupService {
       const inputPath = resolvedBackup.path.replace(/\\/g, '/');
       cmd = `"${mysqlPath}" -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${inputPath}"`;
     } else {
-      // Linux command
       cmd = `mysql -h ${process.env.DB_HOST} -u ${process.env.DB_USER} ${process.env.DB_PASSWORD ? `-p${process.env.DB_PASSWORD}` : ''} ${DATABASE_NAME} < "${resolvedBackup.path}"`;
     }
 
-    return new Promise((resolve, reject) => {
-      logger.info(`Restoring MySQL backup from: ${resolvedBackup.path}`);
-      exec(
-        cmd,
-        {shell: this.isWindows ? 'cmd.exe' : '/bin/bash'},
-        async error => {
-          if (error) reject(error);
-          else {
-            try {
-              logger.info(
-                `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
-              );
-              await Promise.all([
-                ElasticsearchService.getInstance().reindexLevels(),
-                ElasticsearchService.getInstance().reindexPasses(),
-              ]);
-              logger.info('Elasticsearch reindexed successfully');
-              resolve(true);
-            } catch (syncError) {
-              reject(syncError);
-            }
-          }
-        },
-      );
-    }).finally(async () => {
-      if (resolvedBackup.isTemp) {
-        await fs.rm(resolvedBackup.path);
+    const shell = this.isWindows ? 'cmd.exe' : '/bin/bash';
+
+    let stoppedCdcReaders = false;
+    const cdcReadersEnabled =
+      process.env.CDC_PROJECTORS_DISABLED !== '1' &&
+      process.env.CDC_PROJECTORS_DISABLED !== 'true';
+
+    try {
+      const redisClient = await redis.getClient();
+      if (!redisClient) {
+        throw new Error('Redis is required for MySQL restore (CDC ingest coordination)');
       }
-    });
+
+      if (cdcReadersEnabled) {
+        await stopCdcProjectors();
+        stoppedCdcReaders = true;
+      }
+
+      await setCdcIngestPaused(redisClient, true);
+      await resetCdcStreams(redisClient);
+
+      logger.info(`Restoring MySQL backup from: ${resolvedBackup.path}`);
+      await execAsync(cmd, { shell });
+
+      logger.info(
+        `MySQL backup restored successfully from: ${path.basename(backupPath)}`,
+      );
+
+      const es = ElasticsearchService.getInstance();
+      await Promise.all([
+        es.reindexLevels(),
+        es.reindexPasses(),
+        es.reindexAllPlayers(),
+        es.reindexAllCreators(),
+      ]);
+      logger.info('Elasticsearch reindexed (levels, passes, players, creators)');
+
+      await updateMappingHash({
+        reindexedLevels: true,
+        reindexedPasses: true,
+        reindexedPlayers: true,
+        reindexedCreators: true,
+      });
+
+      await CacheInvalidation.invalidatePattern('cache:*');
+      logger.info('Invalidated Redis response cache (cache:*)');
+
+      await clearCdcBinlogCheckpoint(redisClient);
+
+      return true;
+    } catch (err) {
+      throw err;
+    } finally {
+      // Re-attach CDC readers while ingest is still paused, then unpause. If we unpause first,
+      // the tailer can XADD the whole stream backlog and XGROUP CREATE ... '0' makes projectors
+      // read every existing entry on first XREADGROUP (huge ES/cache replay after restore).
+      try {
+        const redisClient = await redis.getClient();
+        if (redisClient) {
+          await resetCdcStreams(redisClient);
+        }
+      } catch {
+        /* ignore */
+      }
+      if (stoppedCdcReaders) {
+        try {
+          startCdcProjectors();
+        } catch (restartErr) {
+          logger.error('[backup-restore] Failed to restart CDC projectors:', restartErr);
+        }
+      }
+      try {
+        const redisClient = await redis.getClient();
+        if (redisClient) {
+          await setCdcIngestPaused(redisClient, false);
+        }
+      } catch {
+        /* ignore */
+      }
+      if (resolvedBackup.isTemp) {
+        try {
+          await fs.rm(resolvedBackup.path, { force: true });
+        } catch (rmErr) {
+          logger.warn('Failed to remove temp restore file:', rmErr);
+        }
+      }
+    }
   }
 
   async cleanOldBackups(type: keyof typeof config.mysql.retention) {
