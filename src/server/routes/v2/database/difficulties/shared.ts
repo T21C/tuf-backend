@@ -119,14 +119,12 @@ export async function cleanupOldDifficultyIcon(
 export function sendCdnErrorResponse(res: Response, uploadError: unknown, logPrefix: string): Response {
   if (uploadError instanceof CdnError) {
     const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
-    const errorResponse: any = {
+    const errorResponse: { error: string; code: string; details?: unknown } = {
       error: uploadError.message,
       code: uploadError.code,
     };
     if (uploadError.details) {
-      if (uploadError.details.errors) errorResponse.errors = uploadError.details.errors;
-      if (uploadError.details.warnings) errorResponse.warnings = uploadError.details.warnings;
-      if (uploadError.details.metadata) errorResponse.metadata = uploadError.details.metadata;
+      errorResponse.details = uploadError.details;
     }
     logger.debug(`${logPrefix}:`, uploadError);
     return res.status(statusCode).json(errorResponse);

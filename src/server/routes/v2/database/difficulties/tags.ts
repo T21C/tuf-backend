@@ -16,9 +16,9 @@ import sequelize from '@/config/db.js';
 import { getIO } from '@/misc/utils/server/socket.js';
 import { sseManager } from '@/misc/utils/server/sse.js';
 import { safeTransactionRollback, getFileIdFromCdnUrl, isCdnUrl } from '@/misc/utils/Utility.js';
-import cdnService, { CdnError } from '@/server/services/core/CdnService.js';
+import cdnService from '@/server/services/core/CdnService.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { tagIconUpload, updateDifficultiesHash } from './shared.js';
+import { sendCdnErrorResponse, tagIconUpload, updateDifficultiesHash } from './shared.js';
 
 /**
  * Level tag CRUD + sort-order management + level→tag assignments.
@@ -247,35 +247,7 @@ router.post(
           finalIconUrl = uploadResult.urls.original;
         } catch (uploadError) {
           await safeTransactionRollback(transaction);
-
-          if (uploadError instanceof CdnError) {
-            const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
-            const errorResponse: any = {
-              error: uploadError.message,
-              code: uploadError.code,
-            };
-
-            if (uploadError.details) {
-              if (uploadError.details.errors) {
-                errorResponse.errors = uploadError.details.errors;
-              }
-              if (uploadError.details.warnings) {
-                errorResponse.warnings = uploadError.details.warnings;
-              }
-              if (uploadError.details.metadata) {
-                errorResponse.metadata = uploadError.details.metadata;
-              }
-            }
-
-            logger.debug('Error uploading tag icon to CDN:', uploadError);
-            return res.status(statusCode).json(errorResponse);
-          }
-
-          logger.error('Error uploading tag icon to CDN:', uploadError);
-          return res.status(500).json({
-            error: 'Failed to upload icon to CDN',
-            details: uploadError instanceof Error ? uploadError.message : String(uploadError),
-          });
+          return sendCdnErrorResponse(res, uploadError, 'Error uploading tag icon to CDN');
         }
       } else if (icon === 'null' || icon === null) {
         finalIconUrl = null;
@@ -397,35 +369,7 @@ router.put(
           finalIconUrl = uploadResult.urls.original;
         } catch (uploadError) {
           await safeTransactionRollback(transaction);
-
-          if (uploadError instanceof CdnError) {
-            const statusCode = uploadError.code === 'VALIDATION_ERROR' ? 400 : 500;
-            const errorResponse: any = {
-              error: uploadError.message,
-              code: uploadError.code,
-            };
-
-            if (uploadError.details) {
-              if (uploadError.details.errors) {
-                errorResponse.errors = uploadError.details.errors;
-              }
-              if (uploadError.details.warnings) {
-                errorResponse.warnings = uploadError.details.warnings;
-              }
-              if (uploadError.details.metadata) {
-                errorResponse.metadata = uploadError.details.metadata;
-              }
-            }
-
-            logger.error('Error uploading tag icon to CDN:', uploadError);
-            return res.status(statusCode).json(errorResponse);
-          }
-
-          logger.error('Error uploading tag icon to CDN:', uploadError);
-          return res.status(500).json({
-            error: 'Failed to upload icon to CDN',
-            details: uploadError instanceof Error ? uploadError.message : String(uploadError),
-          });
+          return sendCdnErrorResponse(res, uploadError, 'Error uploading tag icon to CDN');
         }
       } else if (icon === 'null' || icon === null) {
         if (tag.icon && isCdnUrl(tag.icon)) {

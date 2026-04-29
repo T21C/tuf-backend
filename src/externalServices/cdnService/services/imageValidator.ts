@@ -286,7 +286,6 @@ export function getValidationOptionsForType(imageType: ImageType): ValidationOpt
             maxHeight: sizes.height * 8,
             maxSize: typeConfig.maxSize,
             allowedFormats: [...typeConfig.formats],
-            requireSquare: true,
             maxAspectRatio: 1.1,
             minAspectRatio: 0.9
         };

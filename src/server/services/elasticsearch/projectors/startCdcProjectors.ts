@@ -1,4 +1,5 @@
 import { subscribeStream } from '@/server/services/eventBus/index.js';
+import type { CdcOp } from '@/server/services/eventBus/types.js';
 import { CDC_WATCHED_TABLES } from '@/externalServices/cdcService/constants.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import ElasticsearchService from '@/server/services/elasticsearch/ElasticsearchService.js';
@@ -58,6 +59,27 @@ function num(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (typeof v === 'string' && v !== '' && !Number.isNaN(Number(v))) return Number(v);
   return null;
+}
+
+/**
+ * Level ES documents embed tag id/name/icon/color/group only (see levelIndexDocument).
+ * `sortOrder` / `groupSortOrder` / timestamps affect admin UI ordering only — do not fan out to levels.
+ * Inserts: no level references the tag until `level_tag_assignments` rows exist (handled there).
+ */
+function levelTagCdcChangeRequiresLevelReindex(
+  op: CdcOp,
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown> | null,
+): boolean {
+  if (op === 'd') return true;
+  if (op === 'c') return false;
+  if (op !== 'u' || !before || !after) return true;
+  const norm = (v: unknown) => (v == null ? '' : String(v));
+  const keys = ['name', 'icon', 'color', 'group'] as const;
+  for (const k of keys) {
+    if (norm(before[k]) !== norm(after[k])) return true;
+  }
+  return false;
 }
 
 export function startCdcProjectors(): void {
@@ -211,6 +233,9 @@ export function startCdcProjectors(): void {
             break;
           }
           case 'level_tags': {
+            if (!levelTagCdcChangeRequiresLevelReindex(op, before, after)) {
+              break;
+            }
             const tagId = rowId(before, after);
             if (tagId == null) return;
             const assigns = await LevelTagAssignment.findAll({
