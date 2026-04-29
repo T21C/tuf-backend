@@ -21,6 +21,7 @@ import { safeTransactionRollback } from '@/misc/utils/Utility.js';
 import { levelCacheService } from '../services/levelCacheService.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
+import { packDownloadDisplayExpiresAtIso } from '@/misc/utils/packDownloadUrlExpiry.js';
 
 const router = Router();
 
@@ -63,7 +64,7 @@ function execErrorDetails(error: unknown): Record<string, unknown> {
  * Pack downloads live entirely on R2/Spaces; nothing touches local disk beyond the short-lived
  * workspace dir used to assemble the zip. The R2 key is deterministic per (cacheKey, zipName),
  * so repeat requests for the same pack are served by a `fileExists` check rather than any
- * in-memory map + TTL. R2 lifecycle rules expire stale packs on the bucket side.
+ * in-memory map + TTL. Stale objects are removed by R2 bucket object lifecycle rules.
  */
 const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pack-downloads-dev' : 'pack-downloads';
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
@@ -172,14 +173,9 @@ type PackProgressStatus =
 
 /**
  * Pack download URLs are public CDN URLs (not query-signed). Object lifetime is governed by
- * bucket lifecycle. We expose an approximate "link may be rotated/expired after" time for UI.
- * Configure with PACK_DOWNLOAD_URL_EXPIRES_DAYS (default 7).
+ * bucket lifecycle. We expose an approximate "link may be rotated/expired after" time for UI
+ * (`packDownloadDisplayExpiresAtIso` in `@/misc/utils/packDownloadUrlExpiry.js`).
  */
-function packDownloadDisplayExpiresAtIso(): string {
-    const days = envInt('PACK_DOWNLOAD_URL_EXPIRES_DAYS', 7);
-    const safe = Math.max(1, days);
-    return new Date(Date.now() + safe * 86400000).toISOString();
-}
 
 function packStatusUserMessage(status: PackProgressStatus, currentLevel?: string, error?: string): string {
     if (status === 'failed') {
@@ -248,16 +244,34 @@ async function emitPackJobProgress(input: {
     url?: string;
     zipName?: string;
     error?: string;
+    /** When set (e.g. R2 upload phase), replaces level-count-based percent. */
+    overridePercent?: number | null;
+    uploadedBytes?: number;
+    totalBytes?: number;
 }): Promise<void> {
-    const { downloadId, cacheKey, plannedTotalLevels, processedLevels, status, currentLevel, url, zipName, error } =
-        input;
+    const {
+        downloadId,
+        cacheKey,
+        plannedTotalLevels,
+        processedLevels,
+        status,
+        currentLevel,
+        url,
+        zipName,
+        error,
+        overridePercent,
+        uploadedBytes,
+        totalBytes
+    } = input;
 
     const percent: number | null =
         status === 'completed'
             ? 100
             : status === 'failed'
                 ? null
-                : packPercentFromCounts(processedLevels, plannedTotalLevels);
+                : typeof overridePercent === 'number'
+                    ? Math.min(100, Math.max(0, Math.round(overridePercent)))
+                    : packPercentFromCounts(processedLevels, plannedTotalLevels);
 
     const message = packStatusUserMessage(status, currentLevel, error);
     const expiresAt = status === 'completed' ? packDownloadDisplayExpiresAtIso() : undefined;
@@ -278,6 +292,13 @@ async function emitPackJobProgress(input: {
     }
     if (expiresAt) {
         meta.expiresAt = expiresAt;
+    }
+    if (status === 'completed' || status === 'failed') {
+        meta.uploadedBytes = null;
+        meta.totalBytes = null;
+    } else if (typeof uploadedBytes === 'number' || typeof totalBytes === 'number') {
+        meta.uploadedBytes = uploadedBytes ?? null;
+        meta.totalBytes = totalBytes ?? null;
     }
 
     await ingestJobProgress({
@@ -962,7 +983,7 @@ async function generatePackDownloadZip(
     trimFolderNames = true // When true, shortens folder names for path length compatibility
 ): Promise<PackDownloadResponse> {
     logger.debug('Generating pack download zip', { zipName, cacheKey, clientDownloadId });
-
+    logger.debug('Tree', { tree });
     const downloadId = clientDownloadId || crypto.randomUUID();
     const totalLevels = countTotalLevels(tree);
     const spacesKey = buildPackSpacesKey(cacheKey, zipName);
@@ -1023,20 +1044,53 @@ async function generatePackDownloadZip(
                 throw error;
             }
 
+            const zipStat = await fs.promises.stat(targetPath);
+            let lastPackUploadEmit = 0;
+            let lastPackUploadPercent = -1;
+            const onPackUploadProgress = (loaded: number, total: number) => {
+                const pct = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
+                const now = Date.now();
+                if (now - lastPackUploadEmit < 500 && pct - lastPackUploadPercent < 1) {
+                    return;
+                }
+                lastPackUploadEmit = now;
+                lastPackUploadPercent = pct;
+                void emitPackJobProgress({
+                    downloadId,
+                    cacheKey,
+                    plannedTotalLevels: totalLevels,
+                    processedLevels: context.successCount,
+                    status: 'uploading',
+                    overridePercent: pct,
+                    uploadedBytes: loaded,
+                    totalBytes: total
+                });
+            };
+
             await emitPackJobProgress({
                 downloadId,
                 cacheKey,
                 plannedTotalLevels: totalLevels,
                 processedLevels: context.successCount,
-                status: 'uploading'
+                status: 'uploading',
+                overridePercent: 0,
+                uploadedBytes: 0,
+                totalBytes: zipStat.size
             });
 
-            await spacesStorage.uploadFile(targetPath, spacesKey, 'application/zip', {
-                cacheKey,
-                generatedAt: new Date().toISOString(),
-                successLevels: context.successCount.toString(),
-                totalLevels: context.totalLevels.toString()
-            });
+            await spacesStorage.uploadFile(
+                targetPath,
+                spacesKey,
+                'application/zip',
+                {
+                    cacheKey,
+                    generatedAt: new Date().toISOString(),
+                    successLevels: context.successCount.toString(),
+                    totalLevels: context.totalLevels.toString()
+                },
+                undefined,
+                onPackUploadProgress
+            );
 
             const responseUrl = await spacesStorage.getPresignedUrl(spacesKey);
 

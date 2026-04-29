@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ApiDoc } from '@/server/middleware/apiDoc.js';
 import { errorResponseSchema, standardErrorResponses500 } from '@/server/schemas/v2/misc/index.js';
 import { jobProgressService, type JobProgressPatch } from '@/server/services/core/JobProgressService.js';
+import { packDownloadJobProgressTtlSeconds } from '@/misc/utils/packDownloadUrlExpiry.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { incrementLevelDownloadCountsForFileIds } from '@/misc/utils/data/levelDownloadCount.js';
 
@@ -90,7 +91,8 @@ router.post(
       }
 
       const { jobId, ...patch } = body;
-      const updated = await jobProgressService.patchFromIngest(jobId, patch);
+      const ttlSeconds = patch.kind === 'pack_download' ? packDownloadJobProgressTtlSeconds() : undefined;
+      const updated = await jobProgressService.patchFromIngest(jobId, patch, ttlSeconds);
       if (!updated) {
         return res.status(500).json({ error: 'Failed to persist job progress' });
       }

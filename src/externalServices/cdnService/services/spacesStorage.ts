@@ -51,21 +51,45 @@ export class CdnSpacesStorage {
         return CdnSpacesStorage.instance;
     }
 
-    private async putObject(
-        params: Omit<AWS.S3.PutObjectRequest, 'Bucket' | 'ACL'>
+    /**
+     * Multipart upload with optional byte progress (httpUploadProgress).
+     * Set `ContentLength` so `total` is populated reliably on R2.
+     */
+    private async managedUpload(
+        params: Omit<AWS.S3.PutObjectRequest, 'Bucket' | 'ACL'>,
+        options?: {
+            onProgress?: (loaded: number, total: number) => void;
+            /** When the SDK omits `total` on progress events */
+            totalBytesFallback?: number;
+        }
     ): Promise<AWS.S3.ManagedUpload.SendData> {
-        return this.s3.upload({ ...params, Bucket: this.bucket }).promise();
+        const managed = this.s3.upload({
+            ...params,
+            Bucket: this.bucket
+        });
+        const fallback =
+            options?.totalBytesFallback ??
+            (typeof params.ContentLength === 'number' ? params.ContentLength : 0);
+        if (options?.onProgress) {
+            const onProgress = options.onProgress;
+            managed.on('httpUploadProgress', (e: AWS.S3.ManagedUpload.Progress) => {
+                onProgress(e.loaded ?? 0, e.total ?? fallback);
+            });
+        }
+        return managed.promise();
     }
 
     /**
      * Upload a file to R2 (streaming).
+     * @param onProgress Optional `(loaded, total)` bytes for multipart upload progress.
      */
     public async uploadFile(
         filePath: string,
         key: string,
         contentType?: string,
         metadata?: Record<string, string>,
-        cacheControl: string = CDN_IMMUTABLE_CACHE_CONTROL
+        cacheControl: string = CDN_IMMUTABLE_CACHE_CONTROL,
+        onProgress?: (loaded: number, total: number) => void
     ): Promise<UploadResult> {
         try {
             const fileStats = await fs.promises.stat(filePath);
@@ -83,13 +107,20 @@ export class CdnSpacesStorage {
             });
 
             const fileStream = fs.createReadStream(filePath);
-            const result = await this.putObject({
-                Key: key,
-                Body: fileStream,
-                ContentType: resolvedContentType,
-                CacheControl: cacheControl,
-                Metadata: meta
-            });
+            const result = await this.managedUpload(
+                {
+                    Key: key,
+                    Body: fileStream,
+                    ContentType: resolvedContentType,
+                    CacheControl: cacheControl,
+                    Metadata: meta,
+                    ContentLength: fileStats.size
+                },
+                {
+                    onProgress,
+                    totalBytesFallback: fileStats.size
+                }
+            );
 
             logger.debug('File uploaded successfully', {
                 key,
@@ -134,12 +165,13 @@ export class CdnSpacesStorage {
                 contentType: resolvedContentType
             });
 
-            const result = await this.putObject({
+            const result = await this.managedUpload({
                 Key: key,
                 Body: buffer,
                 ContentType: resolvedContentType,
                 CacheControl: cacheControl,
-                Metadata: meta
+                Metadata: meta,
+                ContentLength: buffer.length
             });
 
             logger.debug('Buffer uploaded successfully', {
