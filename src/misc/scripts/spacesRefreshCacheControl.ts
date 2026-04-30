@@ -17,7 +17,7 @@ import dotenv from 'dotenv';
 import {
     createR2S3,
     loadR2CredentialsAndEndpoint
-} from '@/externalServices/cdnService/services/r2Client.js';
+} from '@/externalServices/cdnService/infra/storage/r2Client.js';
 
 dotenv.config();
 

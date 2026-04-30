@@ -1,5 +1,5 @@
 import axios, {type AxiosRequestConfig} from 'axios';
-import {validateArchiveBuffer} from '@/externalServices/cdnService/services/archiveService.js';
+import {validateArchiveBuffer} from '@/externalServices/cdnService/infra/archive/archiveService.js';
 
 const MAX_ZIP_BYTES = 1000 * 1024 * 1024; // 1GB, aligned with chunked upload cap in migrator
 const DOWNLOAD_TIMEOUT_MS = 120_000;

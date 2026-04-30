@@ -38,7 +38,7 @@ async function populateCacheForFile(file: CdnFile, stats: ScriptStats): Promise<
         }
 
         // Try to populate cache
-        const cacheData = await levelCacheService.ensureCachePopulated(file.id);
+        const cacheData = await levelCacheService.refreshCache(file.id);
 
         if (cacheData) {
             stats.successful++;

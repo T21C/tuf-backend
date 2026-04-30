@@ -1,7 +1,7 @@
 import { UploadError, type UploadKind } from '@/server/services/upload/UploadSessionService.js';
 import Level from '@/models/levels/Level.js';
 import sequelize from '@/config/db.js';
-import { checkLevelOwnership } from '@/server/routes/v2/database/levels/modification.js';
+import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { permissionFlags } from '@/config/constants.js';

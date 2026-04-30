@@ -18,9 +18,12 @@ function envTimeoutMs(name: string, fallback: number): number {
     return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** Main → CDN: wait for full body + 202 after multer (async ingest path). */
+/**
+ * Main → CDN POST /zips: time to stream the multipart body + receive 202 ack only.
+ * CDN processing runs after 202; completion is observed via {@link waitForCdnZipIngestDone}.
+ */
 const CDN_LEVEL_ZIP_POST_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_POST_TIMEOUT_MS', 15 * 60 * 1000);
-/** Poll Redis for CDN `cdn_ingest_done` after 202. */
+/** Poll main-API job progress for `cdn_ingest_done` after CDN returns 202. */
 const CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS', 45 * 60 * 1000);
 
 async function waitForCdnZipIngestDone(jobId: string, expectedFileId: string): Promise<void> {
@@ -384,27 +387,31 @@ class CdnService {
                 maxContentLength: Infinity,
             });
 
-            if (response.status === 202) {
-                const fileId = response.data?.fileId;
-                if (!fileId || typeof fileId !== 'string') {
-                    throw new CdnError('Invalid CDN async zip response (missing fileId)', 'UPLOAD_ERROR');
-                }
-                await waitForCdnZipIngestDone(uploadId, fileId);
-                logger.debug('Level zip CDN ingest completed (async path):', {
-                    fileId,
-                    filename,
-                    timestamp: new Date().toISOString(),
-                });
-                return {
-                    success: true,
-                    fileId,
-                    metadata: response.data?.metadata ?? null,
-                };
+            // CDN must return 202 immediately after the upload is staged; zip work runs in the background
+            // and reports completion via job-progress ingest (`cdn_ingest_done`).
+            if (response.status !== 202) {
+                throw new CdnError(
+                    `CDN level zip uploads must be asynchronous (expected 202, got ${response.status})`,
+                    'UPLOAD_ERROR',
+                    { status: response.status },
+                );
             }
 
-            throw new CdnError('CDN level zip uploads must be async (expected 202)', 'UPLOAD_ERROR', {
-                status: response.status,
+            const fileId = response.data?.fileId;
+            if (!fileId || typeof fileId !== 'string') {
+                throw new CdnError('Invalid CDN async zip response (missing fileId)', 'UPLOAD_ERROR');
+            }
+            await waitForCdnZipIngestDone(uploadId, fileId);
+            logger.debug('Level zip CDN ingest completed (async):', {
+                fileId,
+                filename,
+                timestamp: new Date().toISOString(),
             });
+            return {
+                success: true,
+                fileId,
+                metadata: response.data?.metadata ?? null,
+            };
 
         } catch (error) {
             this.handleCdnError(

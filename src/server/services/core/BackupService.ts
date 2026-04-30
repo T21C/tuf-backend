@@ -23,7 +23,7 @@ import {
   startCdcProjectors,
   stopCdcProjectors,
 } from '@/server/services/elasticsearch/projectors/startCdcProjectors.js';
-import { requireBackupR2Config } from '@/externalServices/cdnService/services/r2Client.js';
+import { requireBackupR2Config } from '@/externalServices/cdnService/infra/storage/r2Client.js';
 dotenv.config();
 
 const execAsync = promisify(exec);

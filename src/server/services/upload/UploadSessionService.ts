@@ -131,6 +131,16 @@ function assembledPath(workspaceDir: string): string {
   return joinUnder(workspaceDir, 'assembled.bin');
 }
 
+async function assembledFileReadable(absolutePath: string | null): Promise<boolean> {
+  if (!absolutePath) return false;
+  try {
+    await fs.promises.access(absolutePath, fs.constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** NFC-normalise the user-supplied file name. Strip control chars + trim length. */
 function normaliseOriginalName(raw: string): string {
   const nfc = raw.normalize('NFC');
@@ -159,6 +169,8 @@ export interface CreateSessionArgs {
   declaredHash: string;
   chunkSize: number;
   meta?: unknown;
+  /** When true, discard any in-flight session for this user/kind/hash/size and always create a new one. */
+  forceNew?: boolean;
 }
 
 export interface CreateSessionResult {
@@ -213,19 +225,51 @@ export async function createOrResumeSession(args: CreateSessionArgs): Promise<Cr
     meta: args.meta,
   });
 
-  const existing = await UploadSession.findOne({
-    where: {
-      kind: kind.id,
-      userId,
-      declaredHash: declaredHash.toLowerCase(),
-      declaredSize,
-      status: { [Op.in]: ['uploading', 'assembling', 'assembled'] as UploadSessionStatus[] },
-    },
-  });
+  const declaredHashLower = declaredHash.toLowerCase();
+
+  if (args.forceNew) {
+    const doomed = await UploadSession.findAll({
+      where: {
+        kind: kind.id,
+        userId,
+        declaredHash: declaredHashLower,
+        declaredSize,
+        status: { [Op.in]: ['uploading', 'assembling', 'assembled'] as UploadSessionStatus[] },
+      },
+    });
+    for (const row of doomed) {
+      try {
+        await destroySession(row);
+      } catch (err) {
+        logger.warn(`forceNew: failed to destroy upload session ${row.id}:`, err);
+      }
+    }
+  }
+
+  const existing = args.forceNew
+    ? null
+    : await UploadSession.findOne({
+        where: {
+          kind: kind.id,
+          userId,
+          declaredHash: declaredHashLower,
+          declaredSize,
+          status: { [Op.in]: ['uploading', 'assembling', 'assembled'] as UploadSessionStatus[] },
+        },
+      });
   if (existing) {
     const now = new Date();
     if (existing.expiresAt.getTime() < now.getTime()) {
       // Stale — nuke and fall through to create a fresh one.
+      await destroySession(existing);
+    } else if (
+      existing.status === 'assembled' &&
+      !(await assembledFileReadable(existing.assembledPath))
+    ) {
+      logger.warn(
+        `Upload session ${existing.id}: status assembled but assembled file missing; invalidating`,
+        { path: existing.assembledPath },
+      );
       await destroySession(existing);
     } else {
       existing.expiresAt = buildExpiresAt(kind);
@@ -251,7 +295,7 @@ export async function createOrResumeSession(args: CreateSessionArgs): Promise<Cr
     originalName,
     mimeType,
     declaredSize,
-    declaredHash: declaredHash.toLowerCase(),
+    declaredHash: declaredHashLower,
     chunkSize,
     totalChunks,
     receivedChunks: [],
@@ -338,8 +382,14 @@ export async function writeChunk(args: {
  */
 export async function completeSession(session: UploadSession): Promise<UploadSession> {
   if (session.status === 'assembled') {
-    // Idempotent re-complete.
-    return session;
+    if (await assembledFileReadable(session.assembledPath)) {
+      return session;
+    }
+    logger.warn(`completeSession: session ${session.id} assembled but file missing; invalidating row`, {
+      path: session.assembledPath,
+    });
+    await destroySession(session);
+    throw new UploadError(409, 'Assembled file missing; call /init again to start a fresh upload.');
   }
   if (session.status !== 'uploading') {
     throw new UploadError(409, `Cannot complete in status ${session.status}`);

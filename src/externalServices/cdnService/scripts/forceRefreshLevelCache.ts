@@ -148,10 +148,10 @@ async function processLevel(
         if (rebuild) {
             logger.info(`${label} Rebuilding CDN cache for level ${levelId} (file ${fileId})`);
             await levelCacheService.clearCache(file);
-            const cacheData = await levelCacheService.ensureCachePopulated(file.id);
+            const cacheData = await levelCacheService.refreshCache(file.id);
             if (!cacheData) {
                 stats.failed++;
-                stats.errors.push({ levelId, fileId, error: 'ensureCachePopulated returned null' });
+                stats.errors.push({ levelId, fileId, error: 'refreshCache returned null' });
                 logger.error(`${label} Level ${levelId}: cache repopulate failed (${fileId})`);
                 stats.processed++;
                 return;

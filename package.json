@@ -36,7 +36,7 @@
     "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
     "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts",
     "test:duration": "tsx src/misc/utils/data/searchHelpers.duration.selftest.ts",
-    "test:oversized-cache": "tsx src/externalServices/cdnService/services/oversizedCache.selftest.ts"
+    "test:oversized-cache": "tsx src/externalServices/cdnService/domain/level/oversizedCache.selftest.ts"
   },
   "keywords": [],
   "author": "",
@@ -51,6 +51,7 @@
     "@types/uuid": "^10.0.0",
     "@typescript/analyze-trace": "^0.10.1",
     "@vlasky/zongji": "^0.6.1",
+    "adm-zip": "^0.5.17",
     "adofai-lib": "^1.2.8",
     "aws-sdk": "^2.1693.0",
     "axios": "^1.7.7",
@@ -89,6 +90,7 @@
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

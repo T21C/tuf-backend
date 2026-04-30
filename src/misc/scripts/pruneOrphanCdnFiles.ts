@@ -17,7 +17,7 @@ dotenv.config();
 
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
-import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
+import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 

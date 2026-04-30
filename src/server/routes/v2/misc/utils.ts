@@ -12,7 +12,7 @@ import {
     createZip as archiveCreateZip,
     detectArchiveFormat,
     getArchiveExtension
-} from '@/externalServices/cdnService/services/archiveService.js';
+} from '@/externalServices/cdnService/infra/archive/archiveService.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),

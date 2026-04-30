@@ -7,7 +7,7 @@ import router from './routes/index.js';
 import dotenv from 'dotenv';
 import { registerGlobalProcessHandlers } from '@/server/bootstrap/processHandlers.js';
 import { sweepWorkspaceRootOnBoot } from '@/server/services/core/WorkspaceService.js';
-import { cdnLocalTemp } from './services/cdnLocalTempManager.js';
+import { cdnLocalTemp } from './infra/workspaces/cdnLocalTempManager.js';
 dotenv.config();
 
 registerGlobalProcessHandlers();

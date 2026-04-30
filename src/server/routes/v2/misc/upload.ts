@@ -83,6 +83,11 @@ router.post(
           declaredHash: { type: 'string', description: 'hex sha256' },
           chunkSize: { type: 'integer' },
           meta: { type: 'object', nullable: true },
+          forceNew: {
+            type: 'boolean',
+            description:
+              'If true, discard any existing session for this user/kind/hash/size and create a new one (recovery when disk was cleared).',
+          },
         },
       },
     },
@@ -104,6 +109,7 @@ router.post(
         declaredHash: String(body.declaredHash ?? ''),
         chunkSize: Number(body.chunkSize),
         meta: body.meta,
+        forceNew: Boolean(body.forceNew),
       });
       res.json({
         session: serialiseSession(result.session),

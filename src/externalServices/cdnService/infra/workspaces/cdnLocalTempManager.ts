@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
-import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../config.js';
+import { CDN_CONFIG, IMAGE_TYPES, ImageType } from '../../config.js';
 import { logger } from '@/server/services/core/LoggerService.js';
 import { withUtf8Filenames, decodeMultipartFilename } from '@/misc/utils/multipartFilename.js';
 import dotenv from 'dotenv';

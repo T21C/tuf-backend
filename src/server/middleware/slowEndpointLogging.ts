@@ -10,6 +10,7 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/database/levels',
   '/v2/database/levels/*/cdnData',
   '/v2/database/levels/*/upload',
+  '/v3/levels/*/upload',
   '/v2/database/levels/packs/*/download-link',
   '/v2/form/*/submit',
   '/v2/form/*/select-level',
@@ -22,6 +23,7 @@ const SLOW_LOG_EXCLUDED_ROUTES = [
   '/v2/media/video-details/*',
   '/v2/auth/profile/avatar',
   '/v2/database/levels/*/upload-from-url',
+  '/v3/levels/*/upload-from-url',
   '/v2/jobs/*/stream',
   '/v2/auth/oauth/callback/discord'
 ];

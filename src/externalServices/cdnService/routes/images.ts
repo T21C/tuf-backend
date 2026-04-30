@@ -5,8 +5,8 @@ import { Request, Response, Router } from 'express';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import fs from 'fs';
 import path from 'path';
-import { cdnLocalTemp } from '@/externalServices/cdnService/services/cdnLocalTempManager.js';
-import { spacesStorage } from '@/externalServices/cdnService/services/spacesStorage.js';
+import { cdnLocalTemp } from '@/externalServices/cdnService/infra/workspaces/cdnLocalTempManager.js';
+import { spacesStorage } from '@/externalServices/cdnService/infra/storage/spacesStorage.js';
 
 const router = Router();
 

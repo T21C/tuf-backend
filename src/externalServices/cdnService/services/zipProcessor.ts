@@ -2,26 +2,27 @@ import fs from 'fs';
 import path from 'path';
 import CdnFile from '@/models/cdn/CdnFile.js';
 import { logger } from '@/server/services/core/LoggerService.js';
-import { cdnLocalTemp } from './cdnLocalTempManager.js';
-import { spacesStorage } from './spacesStorage.js';
+import { cdnLocalTemp } from '../infra/workspaces/cdnLocalTempManager.js';
+import { spacesStorage } from '../infra/storage/spacesStorage.js';
 import LevelDict from 'adofai-lib';
 import { levelCacheService, SAFE_TO_PARSE_VERSION } from './levelCacheService.js';
-import { computeLevelCacheMetadataSignature } from './levelCacheService.js';
+import { computeLevelCacheMetadataSignature } from '../domain/level/levelCacheSignature.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
-import { scanOversizedLevelFile } from './oversizedLevelScanner.js';
-import { resolveAudioRelativePath } from './oversizedSongResolver.js';
-import { readAudioDurationMs } from './audioDuration.js';
+import { scanOversizedLevelFile } from '../domain/level/oversizedHandling/oversizedLevelScan.js';
+import { resolveAudioRelativePath } from '../domain/level/oversizedHandling/oversizedSongPick.js';
+import { readAudioDurationMs } from '../domain/level/oversizedHandling/audioDuration.js';
 import {
-    listEntries as archiveListEntries,
     extractLevelPackPayload as archiveExtractLevelPackPayload,
     createZipFromFiles as archiveCreateZipFromFiles,
     detectArchiveFormat,
     getArchiveExtension,
     getArchiveMimeType,
     type ArchiveEntry as ServiceArchiveEntry
-} from './archiveService.js';
+} from '../infra/archive/archiveService.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
+import { normalizeRelativePath, toCopyRelativePath } from '../domain/archive/ingestPaths.js';
+import { listArchiveEntriesForIngest } from '../domain/archive/ingestArchiveEntries.js';
 
 const cdnSequelize = getSequelizeForModelGroup('cdn');
 import { safeTransactionRollback } from '@/misc/utils/Utility.js';
@@ -31,30 +32,8 @@ const MAX_LEVEL_FILE_SIZE_FOR_PARSE = 50 * 1024 * 1024;
 
 type ZipEntry = ServiceArchiveEntry;
 
-function normalizeRelativePath(relativePath: string): string {
-    return relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
-}
-
-function toCopyRelativePath(relativePath: string): string {
-    const normalized = normalizeRelativePath(relativePath);
-    const parsed = path.posix.parse(normalized);
-    return path.posix.join(parsed.dir, `${parsed.name}.copy`);
-}
-
 async function extractArchiveEntries(archiveFilePath: string, signal?: AbortSignal): Promise<ZipEntry[]> {
-    const entries = await archiveListEntries(archiveFilePath, signal);
-
-    logger.debug('Listed archive entries:', {
-        archiveFilePath,
-        entryCount: entries.length,
-        entries: entries.map(entry => ({
-            name: entry.name,
-            size: entry.size,
-            isDirectory: entry.isDirectory
-        }))
-    });
-
-    return entries;
+    return listArchiveEntriesForIngest(archiveFilePath, signal);
 }
 
 type ProgressCallback = (status: 'uploading' | 'processing' | 'caching' | 'failed', progressPercent: number, currentStep?: string) => void | Promise<void>;
@@ -376,8 +355,13 @@ async function processArchiveFileInWorkspace(
         );
         await sendProgress('uploading', 65, 'Level files uploaded');
 
-        const sourceCopyResults: Array<{ path: string; storageType: string }> = [];
+        /** Byte-for-byte copy beside canonical level JSON — only needed when LevelDict may rewrite the uploaded level. */
+        const sourceCopyResults: Array<{ path: string; storageType: string } | null> = [];
         for (const file of allLevelFiles) {
+            if (file.oversizedUnparsed) {
+                sourceCopyResults.push(null);
+                continue;
+            }
             const sourceCopyRelativePath = file.sourceCopyRelativePath || toCopyRelativePath(file.relativePath);
             const sourceCopyKey = `levels/${archiveFileId}/${sourceCopyRelativePath}`;
             await spacesStorage.uploadFile(file.path, sourceCopyKey, 'application/octet-stream', {
@@ -397,8 +381,14 @@ async function processArchiveFileInWorkspace(
             const uploadedFile = levelUploadResult.files[index];
             const uploadedSourceCopy = sourceCopyResults[index];
             file.path = uploadedFile.path;
-            file.sourceCopyPath = uploadedSourceCopy.path;
-            file.sourceCopyStorageType = uploadedSourceCopy.storageType;
+            if (uploadedSourceCopy) {
+                file.sourceCopyPath = uploadedSourceCopy.path;
+                file.sourceCopyStorageType = uploadedSourceCopy.storageType;
+            } else {
+                delete file.sourceCopyPath;
+                delete file.sourceCopyStorageType;
+                delete file.sourceCopyRelativePath;
+            }
         });
 
         // Upload song files using hybrid storage manager
@@ -584,7 +574,7 @@ async function processArchiveFileInWorkspace(
         }
 
         // Populate cache immediately using the extracted/parsed target LevelDict, when available.
-        // This avoids the redundant download/parse roundtrip in `ensureCachePopulated`.
+        // This avoids the redundant download/parse roundtrip in a later `refreshCache` call.
         if (targetLevel && !targetLevelOversized && selectedPreloadedTargetLevelData) {
             try {
                 await sendProgress('caching', 96, 'Populating cache from extracted level');
