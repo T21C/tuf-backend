@@ -11,6 +11,10 @@ import {
     listEntries as archiveListEntries,
     extractEntry as archiveExtractEntry
 } from './archiveService.js';
+import { scanOversizedLevelFile } from './oversizedLevelScanner.js';
+import { resolveAudioRelativePath } from './oversizedSongResolver.js';
+import { readAudioDurationMs } from './audioDuration.js';
+import { parseChartStatsFromCache } from '@/misc/utils/data/chartCacheParse.js';
 
 dotenv.config();
 
@@ -48,6 +52,20 @@ const REQUIRED_ANALYSIS_KEYS = [
     'decoEventCounts',
     'requiredMods'
 ] as const;
+
+/**
+ * Stable signature for metadata fields that affect level cache semantics.
+ * Extend the picked object when new metadata drives parse/cache behavior.
+ */
+export function computeLevelCacheMetadataSignature(metadata: any): string {
+    const relevant = {
+        targetLevel: metadata?.targetLevel ?? null,
+        targetLevelOversized: metadata?.targetLevelOversized ?? false,
+        targetSafeToParse: metadata?.targetSafeToParse ?? false,
+        targetSafeToParseVersion: metadata?.targetSafeToParseVersion
+    };
+    return JSON.stringify(relevant, Object.keys(relevant).sort());
+}
 
 // Analysis data structure
 export interface AnalysisCacheData {
@@ -101,19 +119,8 @@ class LevelCacheService {
     }
 
     /**
-     * Stable signature for metadata fields that affect level cache semantics.
-     * Extend the picked object when new metadata drives parse/cache behavior.
+     * Validate analysis cache has expected shape/version.
      */
-    private computeCacheMetadataSignature(metadata: any): string {
-        const relevant = {
-            targetLevel: metadata?.targetLevel ?? null,
-            targetLevelOversized: metadata?.targetLevelOversized ?? false,
-            targetSafeToParse: metadata?.targetSafeToParse ?? false,
-            targetSafeToParseVersion: metadata?.targetSafeToParseVersion
-        };
-        return JSON.stringify(relevant, Object.keys(relevant).sort());
-    }
-
     private analysisHasExpectedShape(analysis: AnalysisCacheData | undefined): boolean {
         if (!analysis || analysis._version !== ANALYSIS_FORMAT_VERSION) {
             return false;
@@ -137,7 +144,7 @@ class LevelCacheService {
         if (!this.isVersionCurrent(metadata)) {
             return false;
         }
-        if (cacheData._metadataSignature !== this.computeCacheMetadataSignature(metadata)) {
+        if (cacheData._metadataSignature !== computeLevelCacheMetadataSignature(metadata)) {
             return false;
         }
         if (cacheData.tilecount === undefined || cacheData.settings === undefined) {
@@ -152,6 +159,48 @@ class LevelCacheService {
             return false;
         }
         return this.analysisHasExpectedShape(cacheData.analysis);
+    }
+
+    /**
+     * Oversized levels persist a minimal cache written at ingest time.
+     * If it is already present and matches metadata signature, skip rebuilding
+     * (avoids downloading `originalZip` from R2 again right after upload).
+     */
+    private tryParseOversizedBasicCache(cacheDataString: string | null, metadata: any): LevelCacheData | null {
+        if (!cacheDataString) return null;
+        try {
+            return JSON.parse(cacheDataString) as LevelCacheData;
+        } catch {
+            return null;
+        }
+    }
+
+    private isOversizedBasicCacheComplete(cacheData: LevelCacheData, metadata: any): boolean {
+        if (cacheData._metadataSignature !== computeLevelCacheMetadataSignature(metadata)) {
+            return false;
+        }
+        if (typeof cacheData.tilecount !== 'number' || !Number.isFinite(cacheData.tilecount)) {
+            return false;
+        }
+        if (!cacheData.settings || typeof cacheData.settings !== 'object') {
+            return false;
+        }
+        const stats = parseChartStatsFromCache(JSON.stringify(cacheData));
+        if (stats.bpm === null) {
+            return false;
+        }
+        if (stats.levelLengthInMs === null) {
+            return false;
+        }
+        if (
+            !cacheData.transformOptions ||
+            !Array.isArray(cacheData.transformOptions.eventTypes) ||
+            !Array.isArray(cacheData.transformOptions.filterTypes) ||
+            !Array.isArray(cacheData.transformOptions.advancedFilterTypes)
+        ) {
+            return false;
+        }
+        return true;
     }
 
     private getTargetLevelMetadataEntry(metadata: any, targetLevelPath: string): any | null {
@@ -460,7 +509,7 @@ class LevelCacheService {
         parsedLevelData: LevelDict
     ): Promise<LevelCacheData> {
         const cacheData: LevelCacheData = {
-            _metadataSignature: this.computeCacheMetadataSignature(metadata),
+            _metadataSignature: computeLevelCacheMetadataSignature(metadata),
             tilecount: parsedLevelData.getAngles().length,
             settings: parsedLevelData.getSettings(),
             analysis: this.buildFullAnalysis(parsedLevelData),
@@ -584,18 +633,17 @@ class LevelCacheService {
                     name: string;
                     path: string;
                     size: number;
+                    relativePath?: string;
                 }>;
                 targetLevel?: string | null;
+                targetLevelRelativePath?: string | null;
                 targetLevelOversized?: boolean;
+                songFiles?: Record<string, { name: string; path: string; size: number; type: string }>;
+                originalZip?: { path?: string };
             };
 
             if (!metadata.allLevelFiles || metadata.allLevelFiles.length === 0) {
                 logger.debug('ensureCachePopulated: no level files in metadata', { fileId });
-                return null;
-            }
-
-            if (metadata.targetLevelOversized) {
-                logger.debug('Skipping cache population for oversized level (not parsed)', { fileId });
                 return null;
             }
 
@@ -606,6 +654,107 @@ class LevelCacheService {
             if (!levelCheck) {
                 logger.debug('ensureCachePopulated: target level not in storage', { fileId, targetLevel });
                 return null;
+            }
+
+            // Oversized levels: populate a minimal cache (tilecount/settings.bpm + song duration),
+            // without parsing full LevelDict or building full analysis.
+            if (metadata.targetLevelOversized) {
+                const existing = this.tryParseOversizedBasicCache(file.cacheData, metadata);
+                if (existing && this.isOversizedBasicCacheComplete(existing, metadata)) {
+                    logger.debug('ensureCachePopulated: oversized target already has basic cache; skipping rebuild', {
+                        fileId
+                    });
+                    return existing;
+                }
+
+                logger.debug('ensureCachePopulated: oversized target, building basic cache', { fileId });
+
+                const originalZipPath = metadata.originalZip?.path;
+                if (!originalZipPath) {
+                    logger.warn('ensureCachePopulated: no originalZip.path for oversized target', { fileId });
+                    return existing;
+                }
+
+                return await withCdnFileDomainWorkspace(
+                    CdnSpacesTempDomain.LevelCache,
+                    file.id,
+                    async ({ join }) => {
+                        const tempZipPath = join(`original_${Date.now()}.zip`);
+                        await spacesStorage.downloadFileToPathStreaming(originalZipPath, tempZipPath);
+
+                        const entries = await archiveListEntries(tempZipPath);
+
+                        const wantedRel =
+                            (metadata.targetLevelRelativePath && String(metadata.targetLevelRelativePath)) ||
+                            (metadata.allLevelFiles || []).find(f => f.path === targetLevel)?.relativePath ||
+                            null;
+
+                        const wantedBase = wantedRel ? path.posix.basename(String(wantedRel).replace(/\\/g, '/')) : path.basename(targetLevel);
+
+                        const levelEntry =
+                            (wantedRel
+                                ? entries.find(e => !e.isDirectory && e.relativePath === String(wantedRel).replace(/\\/g, '/'))
+                                : null) ||
+                            entries.find(e => !e.isDirectory && (e.name === wantedBase || e.relativePath.endsWith(`/${wantedBase}`))) ||
+                            null;
+
+                        if (!levelEntry) {
+                            logger.warn('ensureCachePopulated: cannot find target level entry in archive', {
+                                fileId,
+                                wantedRel,
+                                wantedBase
+                            });
+                            return null;
+                        }
+
+                        const extractedLevelPath = join(`oversized_${Date.now()}.adofai`);
+                        await archiveExtractEntry(tempZipPath, levelEntry, extractedLevelPath);
+
+                        const basics = await scanOversizedLevelFile(extractedLevelPath);
+
+                        // Resolve audio entry from archive entries (don’t trust songFilename encoding).
+                        const audioExts = new Set([
+                            '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac',
+                            '.aiff', '.aif', '.caf', '.wma', '.webm', '.mka', '.ac3', '.eac3',
+                            '.mp2', '.amr', '.ape', '.wv', '.tta'
+                        ]);
+                        const audioCandidates = entries
+                            .filter(e => !e.isDirectory && audioExts.has(path.extname(e.relativePath).toLowerCase()))
+                            .map(e => ({ relativePath: e.relativePath }));
+
+                        const chosenAudioRel = resolveAudioRelativePath({
+                            candidates: audioCandidates,
+                            levelRelativePath: wantedRel ?? levelEntry.relativePath,
+                            settingsSongFilename: basics.settings.songFilename
+                        });
+
+                        let levelLengthInMs: number | null = null;
+                        if (chosenAudioRel) {
+                            const audioEntry = entries.find(e => !e.isDirectory && e.relativePath === chosenAudioRel) || null;
+                            if (audioEntry) {
+                                const extractedAudioPath = join(`audio_${Date.now()}${path.extname(audioEntry.relativePath)}`);
+                                await archiveExtractEntry(tempZipPath, audioEntry, extractedAudioPath);
+                                levelLengthInMs = await readAudioDurationMs(extractedAudioPath);
+                            }
+                        }
+
+                        const metaForSignature = file.metadata as any;
+                        const cacheData: LevelCacheData = {
+                            _metadataSignature: computeLevelCacheMetadataSignature(metaForSignature),
+                            tilecount: basics.tilecount,
+                            settings: {
+                                bpm: basics.settings.bpm,
+                                offset: basics.settings.offset,
+                                songFilename: basics.settings.songFilename
+                            },
+                            analysis: levelLengthInMs !== null ? ({ levelLengthInMs } as any) : undefined,
+                            transformOptions: { eventTypes: [], filterTypes: [], advancedFilterTypes: [] }
+                        };
+
+                        await file.update({ cacheData: JSON.stringify(cacheData) });
+                        return cacheData;
+                    }
+                );
             }
 
             const { cacheData } = await this.getLevelCache(file, targetLevel, metadata);

@@ -6,8 +6,12 @@ import { cdnLocalTemp } from './cdnLocalTempManager.js';
 import { spacesStorage } from './spacesStorage.js';
 import LevelDict from 'adofai-lib';
 import { levelCacheService, SAFE_TO_PARSE_VERSION } from './levelCacheService.js';
+import { computeLevelCacheMetadataSignature } from './levelCacheService.js';
 import { getSequelizeForModelGroup } from '@/config/db.js';
 import { Transaction } from 'sequelize';
+import { scanOversizedLevelFile } from './oversizedLevelScanner.js';
+import { resolveAudioRelativePath } from './oversizedSongResolver.js';
+import { readAudioDurationMs } from './audioDuration.js';
 import {
     listEntries as archiveListEntries,
     extractLevelPackPayload as archiveExtractLevelPackPayload,
@@ -209,6 +213,17 @@ async function processArchiveFileInWorkspace(
                         size: entry.size,
                         maxParseSize: MAX_LEVEL_FILE_SIZE_FOR_PARSE
                     });
+
+                    // Still extract a few basic settings for metadata without parsing the full file.
+                    let scanned: { settings: { bpm?: unknown; songFilename?: unknown } } | null = null;
+                    try {
+                        scanned = await scanOversizedLevelFile(tempPath);
+                    } catch (e) {
+                        logger.debug('Oversized scanner failed (non-fatal); leaving minimal metadata', {
+                            name: levelFilename,
+                            error: e instanceof Error ? e.message : String(e)
+                        });
+                    }
                     levelFile = {
                         name: levelFilename,
                         relativePath: normalizedRelativePath,
@@ -216,8 +231,9 @@ async function processArchiveFileInWorkspace(
                         sourceCopyRelativePath,
                         size: entry.size,
                         hasYouTubeStream: false,
-                        songFilename: undefined,
-                        oversizedUnparsed: true
+                        songFilename: scanned?.settings?.songFilename as any,
+                        bpm: scanned?.settings?.bpm as any,
+                        oversizedUnparsed: true,
                     };
                 } else {
                     const levelDict = new LevelDict(tempPath);
@@ -504,6 +520,68 @@ async function processArchiveFileInWorkspace(
         // Commit the transaction
         await transaction.commit();
         await sendProgress('processing', 95, 'Database entry created');
+
+        // Oversized target: populate minimal cacheData (tilecount/bpm/song duration) without LevelDict.
+        if (targetLevel && targetLevelOversized) {
+            try {
+                await sendProgress('caching', 96, 'Populating basic cache for oversized level');
+
+                const localTargetPath = targetLevelRelativePath
+                    ? path.join(extractRoot, normalizeRelativePath(targetLevelRelativePath))
+                    : null;
+
+                if (localTargetPath && fs.existsSync(localTargetPath)) {
+                    const basics = await scanOversizedLevelFile(localTargetPath);
+
+                    const audioCandidates = Object.keys(songFiles).map((relativePath) => ({
+                        relativePath
+                    }));
+                    const chosenAudioRel = resolveAudioRelativePath({
+                        candidates: audioCandidates,
+                        levelRelativePath: targetLevelRelativePath,
+                        settingsSongFilename: basics.settings.songFilename
+                    });
+
+                    const chosenAudioLocalPath =
+                        chosenAudioRel && songFiles[normalizeRelativePath(chosenAudioRel)]
+                            ? songFiles[normalizeRelativePath(chosenAudioRel)].path
+                            : chosenAudioRel && songFiles[chosenAudioRel]
+                                ? songFiles[chosenAudioRel].path
+                                : null;
+
+                    const levelLengthInMs =
+                        chosenAudioLocalPath ? await readAudioDurationMs(chosenAudioLocalPath) : null;
+
+                    const metaForSignature = cdnFile.metadata as any;
+                    const minimalCache = {
+                        _metadataSignature: computeLevelCacheMetadataSignature(metaForSignature),
+                        tilecount: basics.tilecount,
+                        settings: {
+                            bpm: basics.settings.bpm,
+                            offset: basics.settings.offset,
+                            songFilename: basics.settings.songFilename
+                        },
+                        analysis: levelLengthInMs !== null ? { levelLengthInMs } : {},
+                        transformOptions: { eventTypes: [], filterTypes: [], advancedFilterTypes: [] }
+                    };
+
+                    await cdnFile.update({
+                        cacheData: JSON.stringify(minimalCache)
+                    });
+                } else {
+                    logger.warn('Oversized target local file missing; cannot build basic cache', {
+                        fileId: archiveFileId,
+                        targetLevelRelativePath,
+                        extractRoot
+                    });
+                }
+            } catch (cacheError) {
+                logger.warn('Failed to populate basic cache for oversized target (non-critical):', {
+                    fileId: archiveFileId,
+                    error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+                });
+            }
+        }
 
         // Populate cache immediately using the extracted/parsed target LevelDict, when available.
         // This avoids the redundant download/parse roundtrip in `ensureCachePopulated`.

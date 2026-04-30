@@ -22,6 +22,7 @@ import { levelCacheService } from '../services/levelCacheService.js';
 import { spacesStorage } from '../services/spacesStorage.js';
 import { withWorkspace } from '@/server/services/core/WorkspaceService.js';
 import { packDownloadDisplayExpiresAtIso } from '@/misc/utils/packDownloadUrlExpiry.js';
+import { parseChartStatsFromCache } from '@/misc/utils/data/chartCacheParse.js';
 
 const router = Router();
 
@@ -1470,6 +1471,8 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
                 size: number;
                 hasYouTubeStream?: boolean;
                 songFilename?: string;
+                oversizedUnparsed?: boolean;
+                bpm?: unknown;
             }>;
         };
 
@@ -1478,9 +1481,32 @@ router.get('/:fileId/levels', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'No level files found' });
         }
 
-        // Get fresh analysis for each level file
+        const cacheStats = parseChartStatsFromCache(levelEntry.cacheData ?? null);
+        const metaAny = levelEntry.metadata as any;
+        const targetRel: string | null | undefined = metaAny?.targetLevelRelativePath;
+
+        // Get fresh analysis for each level file (but never attempt LevelDict for oversized)
         const levelFiles = await Promise.all(allLevelFiles.map(async (file) => {
             try {
+                if (file.oversizedUnparsed) {
+                    const isTarget =
+                        (targetRel && file.relativePath && file.relativePath.replace(/\\/g, '/') === String(targetRel).replace(/\\/g, '/')) ||
+                        (!targetRel && metaAny?.targetLevel && file.path === metaAny.targetLevel);
+                    return {
+                        name: file.name,
+                        relativePath: file.relativePath,
+                        fullPath: file.relativePath || file.path,
+                        storagePath: file.path,
+                        size: file.size,
+                        oversizedUnparsed: true,
+                        hasYouTubeStream: false,
+                        songFilename: file.songFilename ?? null,
+                        bpm: file.bpm ?? null,
+                        // Only the target has a meaningful cached duration; others are unknown.
+                        levelLengthInMs: isTarget ? cacheStats.levelLengthInMs : null
+                    };
+                }
+
                 const levelExists = await spacesStorage.fileExists(file.path);
                 if (!levelExists) {
                     throw new Error('Level file not found in storage');

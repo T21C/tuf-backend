@@ -35,7 +35,8 @@
     "cdc:prod": "cross-env NODE_ENV=production tsx src/externalServices/cdcService/app.ts",
     "reconcile:es": "cross-env tsx src/misc/scripts/reconcileElasticsearch.ts",
     "test:facet": "tsx src/misc/utils/search/facetQuery.selftest.ts",
-    "test:duration": "tsx src/misc/utils/data/searchHelpers.duration.selftest.ts"
+    "test:duration": "tsx src/misc/utils/data/searchHelpers.duration.selftest.ts",
+    "test:oversized-cache": "tsx src/externalServices/cdnService/services/oversizedCache.selftest.ts"
   },
   "keywords": [],
   "author": "",
@@ -66,6 +67,7 @@
     "jsonwebtoken": "^9.0.2",
     "mailersend": "^2.3.0",
     "multer": "1.4.5-lts.1",
+    "music-metadata": "^11.12.3",
     "mysql2": "^3.11.5",
     "node-fetch": "^3.3.2",
     "nodemon": "^3.1.9",
@@ -78,6 +80,8 @@
     "sharp": "^0.33.5",
     "socket": "^0.14.27",
     "socket.io": "^4.8.1",
+    "stream-chain": "^3.6.1",
+    "stream-json": "^2.1.0",
     "swagger-ui-express": "^5.0.0",
     "twemoji": "^14.0.2",
     "uuid": "^11.0.3",
