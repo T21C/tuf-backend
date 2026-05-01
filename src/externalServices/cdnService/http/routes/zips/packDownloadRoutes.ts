@@ -55,6 +55,10 @@ interface PackDownloadEntry {
 const packDownloadEntries = new Map<string, PackDownloadEntry>();
 const packCacheIndex = new Map<string, string>();
 const packGenerationPromises = new Map<string, Promise<PackDownloadResponse>>();
+/** Main-API job ids that share one in-flight build for this cache key (fan-out + mid-flight join replay). */
+const packGenerationJobSubscribers = new Map<string, Set<string>>();
+/** `packDownloadProgress` map key for the worker (first request’s downloadId). */
+const inFlightPackPrimaryJobId = new Map<string, string>();
 
 // Progress tracking
 interface PackDownloadProgress {
@@ -67,6 +71,10 @@ interface PackDownloadProgress {
     startedAt: number;
     lastUpdated: number;
     error?: string;
+    /** Set when status is completed — merged into main API job `meta` for the client download step. */
+    packUrl?: string;
+    packZipName?: string;
+    packExpiresAt?: string;
 }
 
 const packDownloadProgress = new Map<string, PackDownloadProgress>();
@@ -222,39 +230,107 @@ async function updateProgress(
 
     packDownloadProgress.set(downloadId, updated);
 
-    // Send update to main server
-    await sendProgressUpdate(updated);
+    await broadcastPackJobProgress(updated);
 }
 
-// Send progress update to main server
-async function sendProgressUpdate(progress: PackDownloadProgress): Promise<void> {
-    const mainServerUrl = getMainServerUrl();
-    const progressPercent = progress.totalLevels > 0
-        ? Math.round((progress.processedLevels / progress.totalLevels) * 100)
-        : 0;
+/** Maps CDN pack worker state → main API {@link JobProgressRecord.phase} (SSE / jobs UI). */
+function packProgressToPhase(status: PackDownloadProgress['status']): string {
+    switch (status) {
+        case 'completed':
+            return 'completed';
+        case 'failed':
+            return 'failed';
+        default:
+            return status;
+    }
+}
 
-    const payload = {
-        downloadId: progress.downloadId,
+function packProgressToPercent(progress: PackDownloadProgress): number | null {
+    if (progress.status === 'failed') {
+        return null;
+    }
+    if (progress.status === 'completed') {
+        return 100;
+    }
+    if (progress.totalLevels > 0) {
+        return Math.round((progress.processedLevels / progress.totalLevels) * 100);
+    }
+    return 0;
+}
+
+/**
+ * Single job ingest: POST /v2/cdn/job-progress with a specific `jobId` (may differ from `progress.downloadId`,
+ * which is always the primary worker id used in `packDownloadProgress`).
+ */
+async function sendJobProgressIngest(targetJobId: string, progress: PackDownloadProgress): Promise<void> {
+    const secret = process.env.JOB_PROGRESS_INGEST_SECRET;
+    if (!secret) {
+        logger.debug('JOB_PROGRESS_INGEST_SECRET not set; skipping pack job progress ingest', {
+            downloadId: targetJobId,
+        });
+        return;
+    }
+
+    const mainServerUrl = getMainServerUrl();
+    const phase = packProgressToPhase(progress.status);
+    const percent = packProgressToPercent(progress);
+
+    const meta: Record<string, unknown> = {
         cacheKey: progress.cacheKey,
-        status: progress.status,
         totalLevels: progress.totalLevels,
         processedLevels: progress.processedLevels,
-        currentLevel: progress.currentLevel,
-        progressPercent,
-        error: progress.error
+        ingestStatus: progress.status,
+    };
+    if (progress.currentLevel) {
+        meta.currentLevel = progress.currentLevel;
+    }
+    if (progress.packUrl) {
+        meta.url = progress.packUrl;
+    }
+    if (progress.packZipName) {
+        meta.zipName = progress.packZipName;
+    }
+    if (progress.packExpiresAt) {
+        meta.expiresAt = progress.packExpiresAt;
+    }
+
+    const payload = {
+        jobId: targetJobId,
+        kind: 'pack_download',
+        phase,
+        percent,
+        message:
+            progress.currentLevel ??
+            (progress.status === 'completed'
+                ? 'Pack ready'
+                : progress.status === 'failed'
+                  ? 'Pack generation failed'
+                  : undefined),
+        error: progress.status === 'failed' ? (progress.error ?? 'Pack generation failed') : null,
+        meta,
     };
 
     try {
-        await axios.post(`${mainServerUrl}/v2/cdn/pack-progress`, payload, {
-            timeout: 5000 // 5 second timeout for progress updates
+        await axios.post(`${mainServerUrl}/v2/cdn/job-progress`, payload, {
+            headers: { 'X-Job-Ingest-Key': secret },
+            timeout: 8000,
         });
     } catch (error) {
-        // Log error but don't fail the generation - progress is best-effort
-        logger.debug('Failed to send progress update to main server', {
-            downloadId: progress.downloadId,
-            error: error instanceof Error ? error.message : String(error)
+        logger.debug('Failed to send pack job progress to main server', {
+            downloadId: targetJobId,
+            error: error instanceof Error ? error.message : String(error),
         });
     }
+}
+
+/**
+ * Replay the same progress snapshot to every subscriber job for this in-flight cache key.
+ * When no subscriber set exists (e.g. cache-only path), sends once using `progress.downloadId`.
+ */
+async function broadcastPackJobProgress(progress: PackDownloadProgress): Promise<void> {
+    const subs = packGenerationJobSubscribers.get(progress.cacheKey);
+    const targets = subs && subs.size > 0 ? [...subs] : [progress.downloadId];
+    await Promise.all(targets.map((jobId) => sendJobProgressIngest(jobId, progress)));
 }
 
 function sanitizePathSegment(name: string): string {
@@ -1061,7 +1137,7 @@ async function generatePackDownloadZip(
         lastUpdated: Date.now()
     };
     packDownloadProgress.set(downloadId, initialProgress);
-    await sendProgressUpdate(initialProgress);
+    await broadcastPackJobProgress(initialProgress);
 
     let targetPath: string | null = null;
 
@@ -1183,10 +1259,13 @@ async function generatePackDownloadZip(
         });
         packCacheIndex.set(cacheKey, downloadId);
 
-        // Update progress: completed
+        // Update progress: completed (URL lives in job meta for SSE clients)
         await updateProgress(downloadId, cacheKey, {
             status: 'completed',
-            processedLevels: context.successCount
+            processedLevels: context.successCount,
+            packUrl: responseUrl,
+            packZipName: zipName,
+            packExpiresAt: response.expiresAt,
         });
 
         logger.debug('Generated pack download zip', {
@@ -1440,19 +1519,25 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
                     }
 
                     if (url) {
-                        // Send completed progress event for cached download
-                        // This ensures frontend receives the completion status via WebSocket
+                        // Notify the **caller's** job id (main API seeds Redis with `downloadId`); optional for legacy callers.
+                        const progressJobId =
+                            typeof clientDownloadId === 'string' && clientDownloadId.trim().length > 0
+                                ? clientDownloadId.trim()
+                                : existingDownloadId;
                         const cachedProgress: PackDownloadProgress = {
-                            downloadId: existingDownloadId,
+                            downloadId: progressJobId,
                             cacheKey: entry.cacheKey,
                             status: 'completed',
-                            totalLevels: 0, // Unknown for cached, but status is what matters
+                            totalLevels: 0,
                             processedLevels: 0,
-                            startedAt: Date.now() - (entry.expiresAt - Date.now()), // Approximate
-                            lastUpdated: Date.now()
+                            startedAt: Date.now() - (entry.expiresAt - Date.now()),
+                            lastUpdated: Date.now(),
+                            packUrl: url,
+                            packZipName: entry.zipName,
+                            packExpiresAt: new Date(entry.expiresAt).toISOString(),
                         };
                         // Send progress update asynchronously (don't wait)
-                        sendProgressUpdate(cachedProgress).catch(error => {
+                        broadcastPackJobProgress(cachedProgress).catch(error => {
                             logger.debug('Failed to send cached download progress update', {
                                 downloadId: existingDownloadId,
                                 error: error instanceof Error ? error.message : String(error)
@@ -1494,30 +1579,74 @@ router.post('/packs/generate', async (req: Request, res: Response) => {
             packDownloadEntries.delete(existingDownloadId);
         }
 
+        if (
+            !clientDownloadId ||
+            typeof clientDownloadId !== 'string' ||
+            clientDownloadId.trim().length === 0
+        ) {
+            return res.status(400).json({
+                error: 'downloadId is required',
+                code: 'MISSING_DOWNLOAD_ID',
+            });
+        }
+
+        const trimmedDownloadId = clientDownloadId.trim();
+        const sanitizedZipName = sanitizePathSegment(finalZipName);
+
         if (!packGenerationPromises.has(normalizedCacheKey)) {
-            // Wait for space in the queue system before starting generation
-            // This will register the generation if space is available, or queue it if not
             await waitForSpace(sizeEstimate.totalSize, normalizedCacheKey);
 
-            const sanitizedZipName = sanitizePathSegment(finalZipName);
+            inFlightPackPrimaryJobId.set(normalizedCacheKey, trimmedDownloadId);
+            packGenerationJobSubscribers.set(normalizedCacheKey, new Set([trimmedDownloadId]));
+
             const generationPromise = (async () => {
                 try {
-                    return await generatePackDownloadZip(sanitizedZipName, tree, normalizedCacheKey, clientDownloadId, trimFolderNames !== false);
+                    return await generatePackDownloadZip(
+                        sanitizedZipName,
+                        tree,
+                        normalizedCacheKey,
+                        trimmedDownloadId,
+                        trimFolderNames !== false,
+                    );
                 } finally {
-                    // Unregister from active generations and process queue
                     unregisterGeneration(normalizedCacheKey);
                     packGenerationPromises.delete(normalizedCacheKey);
+                    packGenerationJobSubscribers.delete(normalizedCacheKey);
+                    inFlightPackPrimaryJobId.delete(normalizedCacheKey);
                 }
             })();
 
             packGenerationPromises.set(normalizedCacheKey, generationPromise);
+            generationPromise.catch((err) => {
+                logger.error('Pack generation failed (background)', {
+                    cacheKey: normalizedCacheKey,
+                    downloadId: trimmedDownloadId,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            });
         } else {
-            // Generation already in progress for this cacheKey
-            // It's already registered, so we just await the existing promise
+            let subs = packGenerationJobSubscribers.get(normalizedCacheKey);
+            if (!subs) {
+                subs = new Set<string>();
+                packGenerationJobSubscribers.set(normalizedCacheKey, subs);
+            }
+            subs.add(trimmedDownloadId);
+
+            const primaryId = inFlightPackPrimaryJobId.get(normalizedCacheKey);
+            if (primaryId && primaryId !== trimmedDownloadId) {
+                const snap = packDownloadProgress.get(primaryId);
+                if (snap) {
+                    void sendJobProgressIngest(trimmedDownloadId, snap);
+                }
+            }
         }
 
-        const responsePayload = await packGenerationPromises.get(normalizedCacheKey)!;
-        return res.json(responsePayload);
+        return res.status(202).json({
+            downloadId: trimmedDownloadId,
+            started: true,
+            zipName: sanitizedZipName,
+            cacheKey: normalizedCacheKey,
+        });
     } catch (error) {
         logger.error('Failed to generate pack download zip', {
             error: error instanceof Error ? error.message : String(error)

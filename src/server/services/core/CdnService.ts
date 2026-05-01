@@ -25,6 +25,8 @@ function envTimeoutMs(name: string, fallback: number): number {
 const CDN_LEVEL_ZIP_POST_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_POST_TIMEOUT_MS', 15 * 60 * 1000);
 /** Poll main-API job progress for `cdn_ingest_done` after CDN returns 202. */
 const CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS = envTimeoutMs('CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS', 45 * 60 * 1000);
+/** Main → CDN POST /zips/packs/generate: ack only (202 or cache-hit 200); must survive queue waits. */
+const CDN_PACK_GENERATE_ACK_TIMEOUT_MS = envTimeoutMs('CDN_PACK_GENERATE_ACK_TIMEOUT_MS', 120 * 1000);
 
 async function waitForCdnZipIngestDone(jobId: string, expectedFileId: string): Promise<void> {
     const deadline = Date.now() + CDN_LEVEL_ZIP_INGEST_POLL_TIMEOUT_MS;
@@ -702,17 +704,34 @@ class CdnService {
         expiresAt?: string;
     }> {
         try {
-            // Pack generation is async; the CDN should return quickly with either:
-            // - 200 (cache hit): { downloadId, url, zipName, cacheKey }
-            // - 202 (started):  { downloadId, started: true, zipName, cacheKey }
             const response = await this.client.post('/zips/packs/generate', request, {
-                timeout: 15000,
+                timeout: CDN_PACK_GENERATE_ACK_TIMEOUT_MS,
+                validateStatus: (status) => status >= 200 && status < 300,
             });
-            return response.data;
-        } catch (error: any) {
-            if (error.error?.includes('timeout') || error.message?.includes('timeout')) {
-                //just ignore idc
+            const d = response.data as Record<string, unknown>;
+            const downloadId =
+                typeof d.downloadId === 'string' && d.downloadId.length > 0
+                    ? d.downloadId
+                    : request.downloadId ?? '';
+
+            if (response.status === 202) {
+                return {
+                    downloadId,
+                    started: true,
+                    zipName: typeof d.zipName === 'string' ? d.zipName : undefined,
+                    cacheKey: typeof d.cacheKey === 'string' ? d.cacheKey : request.cacheKey,
+                    expiresAt: typeof d.expiresAt === 'string' ? d.expiresAt : undefined,
+                };
             }
+
+            return {
+                downloadId,
+                url: typeof d.url === 'string' ? d.url : undefined,
+                zipName: typeof d.zipName === 'string' ? d.zipName : undefined,
+                cacheKey: typeof d.cacheKey === 'string' ? d.cacheKey : request.cacheKey,
+                expiresAt: typeof d.expiresAt === 'string' ? d.expiresAt : undefined,
+            };
+        } catch (error: unknown) {
             this.handleCdnError(
                 error,
                 'generate pack download from CDN',
