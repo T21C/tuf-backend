@@ -90,15 +90,15 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
     }
 
     if (field === 'legacydllink') {
-      return maybeNot(isNot, wildcardCi('legacyDllink', wildcardValue));
+      return maybeNot(isNot, wildcardCi('legacyDllink.keyword', wildcardValue));
     }
 
     if (field === 'dllink') {
-      return maybeNot(isNot, wildcardCi('dlLink', wildcardValue));
+      return maybeNot(isNot, wildcardCi('dlLink.keyword', wildcardValue));
     }
 
     if (field === 'videolink') {
-      return maybeNot(isNot, wildcardCi('videoLink', wildcardValue));
+      return maybeNot(isNot, wildcardCi('videoLink.keyword', wildcardValue));
     }
 
     if (field === 'song') {

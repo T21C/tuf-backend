@@ -449,7 +449,13 @@ export const passMapping = {
       speed: { type: 'float' as const },
       feelingRating: { type: 'text' as const },
       vidTitle: { type: 'text' as const },
-      videoLink: { type: 'text' as const },
+      videoLink: {
+        type: 'text' as const,
+        analyzer: 'custom_text_analyzer',
+        fields: {
+          keyword: { type: 'keyword' as const },
+        },
+      },
       is12K: { type: 'boolean' as const },
       is16K: { type: 'boolean' as const },
       isNoHoldTap: { type: 'boolean' as const },
@@ -472,6 +478,13 @@ export const passMapping = {
         properties: {
           song: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
           artist: { type: 'text' as const, analyzer: 'custom_text_analyzer' },
+          dlLink: {
+            type: 'text' as const,
+            analyzer: 'custom_text_analyzer',
+            fields: {
+              keyword: { type: 'keyword' as const },
+            },
+          },
           baseScore: { type: 'float' as const },
           diffId: { type: 'integer' as const },
           difficulty: {

@@ -41,7 +41,7 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
     }
 
     if (field === 'video') {
-      return maybeNot(isNot, wildcardCi('videoLink', wildcardValue));
+      return maybeNot(isNot, wildcardCi('videoLink.keyword', wildcardValue));
     }
 
     if (field === 'vidtitle') {
@@ -57,7 +57,7 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
     }
 
     if (field === 'level.dlLink') {
-      return maybeNot(isNot, wildcardCi('level.dlLink', wildcardValue));
+      return maybeNot(isNot, wildcardCi('level.dlLink.keyword', wildcardValue));
     }
 
     return maybeNot(isNot, wildcardCi(field, wildcardValue));
@@ -69,9 +69,9 @@ export function buildPassFieldSearchQuery(fieldSearch: FieldSearch): any {
     .should(wildcardCi('player.username', wildcardValue))
     .should(wildcardCi('level.song', wildcardValue))
     .should(wildcardCi('level.artist', wildcardValue))
-    .should(wildcardCi('videoLink', wildcardValue))
+    .should(wildcardCi('videoLink.keyword', wildcardValue))
     .should(wildcardCi('vidTitle', wildcardValue))
-    .should(wildcardCi('level.dlLink', wildcardValue))
+    .should(wildcardCi('level.dlLink.keyword', wildcardValue))
     .should(nestedQuery('level.aliases', wildcardCi('level.aliases.alias', wildcardValue)))
     .build();
   return maybeNot(isNot, query);
