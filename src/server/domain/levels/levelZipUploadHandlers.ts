@@ -304,7 +304,7 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
           meta: {
             levelId,
             source: 'upload_from_url',
-            stage: workshopPublishedFileId ? 'steamcmd' : 'download',
+            stage: workshopPublishedFileId ? 'agent' : 'download',
           },
         })
         .catch(() => undefined);
@@ -348,48 +348,20 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
         .catch(() => undefined);
     };
 
-    let lastPackProgressAt = 0;
-    let lastPackPercent = -1;
-
     let fileBuffer: Buffer;
     try {
       if (workshopPublishedFileId) {
         fileBuffer = await downloadSteamWorkshopItemToZipBuffer(workshopPublishedFileId, {
-          onPhase: async (phase, detail) => {
+          onPhase: async () => {
             if (!uploadJobId || !req.user?.id) {
               return;
             }
-            if (phase === 'steamcmd') {
-              await jobProgressService
-                .patchTrusted(uploadJobId, {
-                  phase: 'downloading_remote',
-                  percent: 5,
-                  message: 'Downloading from Steam Workshop…',
-                  meta: { levelId, source: 'upload_from_url', stage: 'steamcmd' },
-                })
-                .catch(() => undefined);
-              return;
-            }
-            const zp = detail?.zipPercent;
-            const now = Date.now();
-            const pct =
-              typeof zp === 'number' ? Math.min(95, 12 + Math.round((zp / 100) * 83)) : 40;
-            if (typeof zp === 'number' && now - lastPackProgressAt < 400 && Math.abs(zp - lastPackPercent) < 3) {
-              return;
-            }
-            lastPackProgressAt = now;
-            lastPackPercent = typeof zp === 'number' ? zp : lastPackPercent;
             await jobProgressService
               .patchTrusted(uploadJobId, {
                 phase: 'downloading_remote',
-                percent: pct,
-                message: 'Packing zip…',
-                meta: {
-                  levelId,
-                  source: 'upload_from_url',
-                  stage: 'pack',
-                  zipPercent: typeof zp === 'number' ? zp : null,
-                },
+                percent: 5,
+                message: 'Downloading from Steam Workshop (agent)…',
+                meta: { levelId, source: 'upload_from_url', stage: 'agent' },
               })
               .catch(() => undefined);
           },

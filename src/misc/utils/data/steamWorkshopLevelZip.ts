@@ -1,24 +1,18 @@
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { spawn } from 'child_process';
-import { logger } from '@/server/services/core/LoggerService.js';
-import { createZip } from '@/externalServices/cdnService/infra/archive/archiveService.js';
+import axios from 'axios';
 import {
   assertValidArchiveBuffer,
   LEVEL_ZIP_IMPORT_MAX_BYTES,
+  normalizeZipUrlDownloadError,
 } from '@/misc/utils/data/levelZipFromUrl.js';
 
 /**
  * Steam Workshop → level zip import for upload-from-url.
  *
- * Ops: install SteamCMD on the host, set `STEAMCMD_PATH` to `steamcmd.exe` / `steamcmd.sh`.
- * Optional: `STEAMCMD_CWD`, `STEAM_WORKSHOP_APP_ID` (default ADOFAI `977950`),
- * `STEAM_USERNAME` + `STEAM_PASSWORD` (if unset, uses `+login anonymous`).
- * `STEAMCMD_TIMEOUT_MS` — default 45 minutes.
+ * Main API delegates SteamCMD + packing to `steam-workshop-agent` over HTTP (e.g. Tailscale).
+ * Configure `STEAM_WORKSHOP_AGENT_URL`, `STEAM_WORKSHOP_AGENT_SECRET`, optional
+ * `STEAM_WORKSHOP_AGENT_TIMEOUT_MS` (default 45 min), optional `STEAM_WORKSHOP_APP_ID`
+ * passed through to the agent in the JSON body.
  */
-
-const LOG_TAIL = 2048;
 
 /** Published file id as decimal string (may exceed JS safe integer). */
 export function parseSteamWorkshopPublishedFileId(input: string): string | null {
@@ -55,15 +49,15 @@ export function parseSteamWorkshopPublishedFileId(input: string): string | null 
   return null;
 }
 
-export type SteamWorkshopDownloadPhase = 'steamcmd' | 'pack';
+export type SteamWorkshopDownloadPhase = 'agent';
 
 export type DownloadSteamWorkshopItemToZipBufferOptions = {
   signal?: AbortSignal;
-  onPhase?: (phase: SteamWorkshopDownloadPhase, detail?: { zipPercent?: number }) => void | Promise<void>;
+  onPhase?: (phase: SteamWorkshopDownloadPhase) => void | Promise<void>;
 };
 
-function steamCmdTimeoutMs(): number {
-  const raw = process.env.STEAMCMD_TIMEOUT_MS?.trim();
+function agentTimeoutMs(): number {
+  const raw = process.env.STEAM_WORKSHOP_AGENT_TIMEOUT_MS?.trim();
   if (raw) {
     const n = parseInt(raw, 10);
     if (Number.isFinite(n) && n > 0) {
@@ -73,118 +67,29 @@ function steamCmdTimeoutMs(): number {
   return 45 * 60 * 1000;
 }
 
-function workshopAppId(): string {
-  const id = (process.env.STEAM_WORKSHOP_APP_ID ?? '977950').trim();
-  if (!/^\d+$/.test(id)) {
-    throw { error: 'STEAM_WORKSHOP_APP_ID must be a numeric Steam app id', code: 500 };
-  }
-  return id;
+function agentBaseUrl(): string | null {
+  const u = process.env.STEAM_WORKSHOP_AGENT_URL?.trim().replace(/\/+$/, '');
+  return u || null;
 }
 
-function trimForLog(s: string, max = LOG_TAIL): string {
-  const t = s.trim();
-  if (t.length <= max) {
-    return t;
-  }
-  return `…${t.slice(-max)}`;
-}
-
-async function runSteamCmd(
-  executable: string,
-  args: string[],
-  opts: { cwd?: string; timeoutMs: number; signal?: AbortSignal },
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
-      cwd: opts.cwd,
-      windowsHide: true,
-      env: process.env,
-    });
-
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    child.stdout?.on('data', (d: Buffer) => out.push(Buffer.from(d)));
-    child.stderr?.on('data', (d: Buffer) => err.push(Buffer.from(d)));
-
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let settled = false;
-
-    const finish = (fn: () => void) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      fn();
-    };
-
-    const killTree = () => {
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        /* ignore */
-      }
-      setTimeout(() => {
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          /* ignore */
-        }
-      }, 5000);
-    };
-
-    const onAbort = () => {
-      killTree();
-    };
-
-    if (opts.signal) {
-      if (opts.signal.aborted) {
-        onAbort();
-      } else {
-        opts.signal.addEventListener('abort', onAbort, { once: true });
-      }
+function parseAgentErrorBody(data: ArrayBuffer): { error: string; code: number } | null {
+  try {
+    const txt = Buffer.from(data).toString('utf8').trim();
+    if (!txt || txt.startsWith('PK')) {
+      return null;
     }
-
-    timeoutId = setTimeout(() => {
-      logger.warn('steamcmd: timeout, killing process', { timeoutMs: opts.timeoutMs });
-      killTree();
-    }, opts.timeoutMs);
-
-    child.on('error', (e) => {
-      finish(() => {
-        if (opts.signal) {
-          opts.signal.removeEventListener('abort', onAbort);
-        }
-        reject(e);
-      });
-    });
-
-    child.on('close', (code) => {
-      finish(() => {
-        if (opts.signal) {
-          opts.signal.removeEventListener('abort', onAbort);
-        }
-        resolve({
-          code,
-          stdout: Buffer.concat(out).toString('utf8'),
-          stderr: Buffer.concat(err).toString('utf8'),
-        });
-      });
-    });
-  });
-}
-
-async function assertNonEmptyDir(dir: string): Promise<void> {
-  const entries = await fs.promises.readdir(dir);
-  if (entries.length === 0) {
-    throw { error: 'Steam Workshop download produced an empty folder', code: 502 };
+    const j = JSON.parse(txt) as { error?: unknown; code?: unknown };
+    if (typeof j.error === 'string' && typeof j.code === 'number') {
+      return { error: j.error, code: j.code };
+    }
+  } catch {
+    /* not JSON */
   }
+  return null;
 }
 
 /**
- * Download a workshop item via SteamCMD, pack its content folder into a store-mode zip, validate.
+ * Ask steam-workshop-agent for a store-mode zip of the workshop item; validate like a remote archive.
  */
 export async function downloadSteamWorkshopItemToZipBuffer(
   publishedFileId: string,
@@ -194,112 +99,85 @@ export async function downloadSteamWorkshopItemToZipBuffer(
     throw { error: 'Invalid Steam Workshop item id', code: 400 };
   }
 
-  const steamcmdPath = process.env.STEAMCMD_PATH?.trim();
-  if (!steamcmdPath) {
+  const base = agentBaseUrl();
+  const secret = process.env.STEAM_WORKSHOP_AGENT_SECRET?.trim();
+  if (!base || !secret) {
     throw {
-      error: 'Steam Workshop import is not configured (set STEAMCMD_PATH on the server).',
+      error:
+        'Steam Workshop import is not configured (set STEAM_WORKSHOP_AGENT_URL and STEAM_WORKSHOP_AGENT_SECRET on the API server).',
       code: 503,
     };
   }
 
-  const appId = workshopAppId();
-  const workspaceDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'tuf-steam-workshop-'));
-  const zipPath = path.join(workspaceDir, `workshop-${publishedFileId}.zip`);
-  const itemDir = path.join(workspaceDir, 'steamapps', 'workshop', 'content', appId, publishedFileId);
+  const appIdEnv = process.env.STEAM_WORKSHOP_APP_ID?.trim();
+  const body: { publishedFileId: string; appId?: string } = { publishedFileId };
+  if (appIdEnv && /^\d+$/.test(appIdEnv)) {
+    body.appId = appIdEnv;
+  }
 
-  const user = process.env.STEAM_USERNAME?.trim();
-  const pass = process.env.STEAM_PASSWORD?.trim();
-  const loginArgs = user && pass ? (['+login', user, pass] as const) : (['+login', 'anonymous'] as const);
+  await options?.onPhase?.('agent');
 
-  const args = [
-    '+force_install_dir',
-    workspaceDir,
-    ...loginArgs,
-    '+workshop_download_item',
-    appId,
-    publishedFileId,
-    '+quit',
-  ];
-
-  const cwd = process.env.STEAMCMD_CWD?.trim() || undefined;
-  const timeoutMs = steamCmdTimeoutMs();
+  const url = `${base}/v1/workshop/item.zip`;
 
   try {
-    await options?.onPhase?.('steamcmd');
-
-    let result;
-    try {
-      result = await runSteamCmd(steamcmdPath, args, {
-        cwd,
-        timeoutMs,
-        signal: options?.signal,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
-        throw {
-          error: `SteamCMD executable not found at STEAMCMD_PATH: ${steamcmdPath}`,
-          code: 503,
-        };
-      }
-      throw { error: `SteamCMD failed to start: ${msg}`, code: 502 };
-    }
-
-    const combined = `${result.stdout}\n${result.stderr}`;
-    const folderReady = fs.existsSync(itemDir);
-    if (result.code !== 0 && result.code !== null) {
-      logger.warn('steamcmd: non-zero exit', {
-        exitCode: result.code,
-        folderReady,
-        stderrTail: trimForLog(result.stderr),
-        stdoutTail: trimForLog(result.stdout),
-      });
-    }
-
-    if (!folderReady) {
-      logger.warn('steamcmd: workshop content folder missing', {
-        exitCode: result.code,
-        itemDir,
-        stderrTail: trimForLog(result.stderr),
-        stdoutTail: trimForLog(result.stdout),
-      });
-      throw {
-        error: `Steam Workshop download failed (exit ${result.code ?? 'unknown'}). ${trimForLog(combined, 400)}`,
-        code: 502,
-      };
-    }
-
-    await assertNonEmptyDir(itemDir);
-
-    if (result.code !== 0 && result.code !== null && !/Success\.\s*Downloaded item/i.test(combined)) {
-      throw {
-        error: `Steam Workshop download may be incomplete (exit ${result.code}). ${trimForLog(combined, 400)}`,
-        code: 502,
-      };
-    }
-
-    await options?.onPhase?.('pack');
-    await createZip(itemDir, zipPath, {
+    const res = await axios.post<ArrayBuffer>(url, body, {
+      responseType: 'arraybuffer',
+      timeout: agentTimeoutMs(),
+      maxContentLength: LEVEL_ZIP_IMPORT_MAX_BYTES + 256,
+      maxBodyLength: 65536,
       signal: options?.signal,
-      onZipProgress: (pct) => void options?.onPhase?.('pack', { zipPercent: pct }),
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/json',
+      },
+      validateStatus: () => true,
     });
 
-    const stat = await fs.promises.stat(zipPath);
-    if (stat.size > LEVEL_ZIP_IMPORT_MAX_BYTES) {
-      throw { error: 'Packed workshop zip exceeds maximum allowed size', code: 400 };
+    if (res.status !== 200) {
+      const parsed = parseAgentErrorBody(res.data as ArrayBuffer);
+      if (parsed) {
+        throw { error: parsed.error, code: parsed.code };
+      }
+      throw {
+        error: `Steam Workshop agent returned HTTP ${res.status}`,
+        code: res.status >= 400 && res.status < 600 ? res.status : 502,
+      };
     }
 
-    const buf = await fs.promises.readFile(zipPath);
+    const buf = Buffer.from(res.data as ArrayBuffer);
+    if (buf.length === 0) {
+      throw { error: 'Steam Workshop agent returned an empty zip', code: 502 };
+    }
+    if (buf.length > LEVEL_ZIP_IMPORT_MAX_BYTES) {
+      throw { error: 'Downloaded workshop zip exceeds maximum allowed size', code: 400 };
+    }
+
     await assertValidArchiveBuffer(buf, `workshop-${publishedFileId}.zip`);
     return buf;
-  } finally {
-    try {
-      await fs.promises.rm(workspaceDir, { recursive: true, force: true });
-    } catch (e) {
-      logger.debug('steam workshop import: failed to remove temp dir', {
-        workspaceDir,
-        error: e instanceof Error ? e.message : String(e),
-      });
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err)) {
+      if (err.code === 'ERR_CANCELED') {
+        throw { error: 'Steam Workshop download was cancelled', code: 499 };
+      }
+      if (err.code === 'ECONNABORTED') {
+        throw { error: 'Steam Workshop agent request timed out', code: 504 };
+      }
+      if (err.response?.data instanceof ArrayBuffer) {
+        const parsed = parseAgentErrorBody(err.response.data);
+        if (parsed) {
+          throw { error: parsed.error, code: parsed.code };
+        }
+      }
+      const msg = err.message || 'Steam Workshop agent request failed';
+      throw { error: msg, code: 502 };
     }
+    if (typeof err === 'object' && err !== null && 'error' in err && 'code' in err) {
+      const o = err as { error?: unknown; code?: unknown };
+      if (typeof o.error === 'string' && typeof o.code === 'number') {
+        throw err;
+      }
+    }
+    const fail = normalizeZipUrlDownloadError(err);
+    throw { error: fail.error, code: fail.code >= 400 && fail.code < 600 ? fail.code : 502 };
   }
 }

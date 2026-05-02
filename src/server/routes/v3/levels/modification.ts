@@ -62,7 +62,7 @@ router.post(
     operationId: 'v3PostLevelUploadFromUrl',
     summary: 'Upload level zip from URL or Steam Workshop',
     description:
-      'Super admin only. Accepts a direct http(s) archive URL (including Google Drive view links), or a Steam Workshop item URL / steam://url/CommunityFilePage/{id}. Workshop imports require SteamCMD on the server (STEAMCMD_PATH). Validates the archive, uploads to CDN, and updates the level like POST /upload.',
+      'Super admin only. Accepts a direct http(s) archive URL (including Google Drive view links), or a Steam Workshop item URL / steam://url/CommunityFilePage/{id}. Workshop imports call steam-workshop-agent over HTTP (STEAM_WORKSHOP_AGENT_URL + STEAM_WORKSHOP_AGENT_SECRET; optional STEAM_WORKSHOP_AGENT_TIMEOUT_MS, STEAM_WORKSHOP_APP_ID). Validates the archive, uploads to CDN, and updates the level like POST /upload.',
     tags: ['Database', 'Levels', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
