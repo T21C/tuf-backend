@@ -112,6 +112,7 @@ export function buildLevelIndexDocument(level: Level): any {
     videoLink: puaOrNull(l.videoLink),
     dlLink: puaOrNull(l.dlLink),
     legacyDllink: puaOrNull(l.legacyDllink),
+    workshopLink: puaOrNull(l.workshopLink),
     aliases: arr<any>(l.aliases).map((a) => {
       const row = plainRow(a as object);
       return {

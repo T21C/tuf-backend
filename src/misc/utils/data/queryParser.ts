@@ -166,6 +166,7 @@ export const queryParserConfigs = {
       'vfxer',
       'creator',
       'dlLink',
+      'workshopLink',
       'legacyDllink',
       'videolink',
       'artists',

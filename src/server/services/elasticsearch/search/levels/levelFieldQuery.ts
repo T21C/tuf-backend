@@ -97,6 +97,10 @@ export function buildFieldSearchQuery(fieldSearch: FieldSearch, excludeAliases =
       return maybeNot(isNot, wildcardCi('dlLink.keyword', wildcardValue));
     }
 
+    if (field === 'workshoplink') {
+      return maybeNot(isNot, wildcardCi('workshopLink.keyword', wildcardValue));
+    }
+
     if (field === 'videolink') {
       return maybeNot(isNot, wildcardCi('videoLink.keyword', wildcardValue));
     }

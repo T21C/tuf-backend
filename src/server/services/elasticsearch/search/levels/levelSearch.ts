@@ -486,6 +486,7 @@ function convertLevelSearchHit(source: Record<string, any>, diffs: Difficulty[])
     team: convertFromPUA(source.team as string),
     videoLink: convertFromPUA(source.videoLink as string),
     dlLink: convertFromPUA(source.dlLink as string),
+    workshopLink: source.workshopLink != null ? convertFromPUA(source.workshopLink as string) : null,
     legacyDllink: convertFromPUA(source.legacyDllink as string),
     aliases: source.aliases?.map((alias: Record<string, any>) => ({
       ...alias,
