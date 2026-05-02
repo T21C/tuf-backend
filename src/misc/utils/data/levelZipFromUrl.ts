@@ -1,7 +1,9 @@
 import axios, {type AxiosRequestConfig} from 'axios';
 import {validateArchiveBuffer} from '@/externalServices/cdnService/infra/archive/archiveService.js';
 
-const MAX_ZIP_BYTES = 1000 * 1024 * 1024; // 1GB, aligned with chunked upload cap in migrator
+/** 1GB — same cap as chunked level zip uploads and Steam Workshop repack import. */
+export const LEVEL_ZIP_IMPORT_MAX_BYTES = 1000 * 1024 * 1024;
+const MAX_ZIP_BYTES = LEVEL_ZIP_IMPORT_MAX_BYTES;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 const DOWNLOAD_HEADERS = {

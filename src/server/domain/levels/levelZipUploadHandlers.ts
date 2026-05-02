@@ -15,7 +15,15 @@ import {
 import { permissionFlags } from '@/config/constants.js';
 import { hasFlag } from '@/misc/utils/auth/permissionUtils.js';
 import { logLevelTargetUpdateHook, logLevelFileDeleteHook } from '@/server/routes/v2/webhooks/misc.js';
-import { asZipUrlDownloadFailure, downloadZipFromUrl, isValidHttpUrl } from '@/misc/utils/data/levelZipFromUrl.js';
+import {
+  asZipUrlDownloadFailure,
+  downloadZipFromUrl,
+  isValidHttpUrl,
+} from '@/misc/utils/data/levelZipFromUrl.js';
+import {
+  downloadSteamWorkshopItemToZipBuffer,
+  parseSteamWorkshopPublishedFileId,
+} from '@/misc/utils/data/steamWorkshopLevelZip.js';
 import { applyLevelChartStatsFromCdn } from '@/misc/utils/data/levelChartStatsSync.js';
 import { checkLevelOwnership } from '@/server/domain/levels/levelOwnership.js';
 import { normalizeLevelDlLinkSnapshot } from '@/server/domain/levels/levelDlLinkSnapshot.js';
@@ -254,10 +262,11 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
     if (!trimmed) {
       throw { error: 'Missing url', code: 400 };
     }
-    if (!isValidHttpUrl(trimmed)) {
+    const workshopPublishedFileId = parseSteamWorkshopPublishedFileId(trimmed);
+    if (!workshopPublishedFileId && !isValidHttpUrl(trimmed)) {
       throw { error: 'Invalid download URL', code: 400 };
     }
-    if (isCdnUrl(trimmed)) {
+    if (isValidHttpUrl(trimmed) && isCdnUrl(trimmed)) {
       throw { error: 'URL must not point to the site CDN', code: 400 };
     }
 
@@ -291,8 +300,12 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
           kind: 'level_upload',
           phase: 'downloading_remote',
           percent: 0,
-          message: 'Starting download',
-          meta: { levelId, source: 'upload_from_url', stage: 'download' },
+          message: workshopPublishedFileId ? 'Starting Steam Workshop download' : 'Starting download',
+          meta: {
+            levelId,
+            source: 'upload_from_url',
+            stage: workshopPublishedFileId ? 'steamcmd' : 'download',
+          },
         })
         .catch(() => undefined);
     }
@@ -335,11 +348,57 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
         .catch(() => undefined);
     };
 
+    let lastPackProgressAt = 0;
+    let lastPackPercent = -1;
+
     let fileBuffer: Buffer;
     try {
-      fileBuffer = await downloadZipFromUrl(trimmed, {
-        onProgress: ({ loaded, total, percent }) => emitDownloadProgress(loaded, total, percent),
-      });
+      if (workshopPublishedFileId) {
+        fileBuffer = await downloadSteamWorkshopItemToZipBuffer(workshopPublishedFileId, {
+          onPhase: async (phase, detail) => {
+            if (!uploadJobId || !req.user?.id) {
+              return;
+            }
+            if (phase === 'steamcmd') {
+              await jobProgressService
+                .patchTrusted(uploadJobId, {
+                  phase: 'downloading_remote',
+                  percent: 5,
+                  message: 'Downloading from Steam Workshop…',
+                  meta: { levelId, source: 'upload_from_url', stage: 'steamcmd' },
+                })
+                .catch(() => undefined);
+              return;
+            }
+            const zp = detail?.zipPercent;
+            const now = Date.now();
+            const pct =
+              typeof zp === 'number' ? Math.min(95, 12 + Math.round((zp / 100) * 83)) : 40;
+            if (typeof zp === 'number' && now - lastPackProgressAt < 400 && Math.abs(zp - lastPackPercent) < 3) {
+              return;
+            }
+            lastPackProgressAt = now;
+            lastPackPercent = typeof zp === 'number' ? zp : lastPackPercent;
+            await jobProgressService
+              .patchTrusted(uploadJobId, {
+                phase: 'downloading_remote',
+                percent: pct,
+                message: 'Packing zip…',
+                meta: {
+                  levelId,
+                  source: 'upload_from_url',
+                  stage: 'pack',
+                  zipPercent: typeof zp === 'number' ? zp : null,
+                },
+              })
+              .catch(() => undefined);
+          },
+        });
+      } else {
+        fileBuffer = await downloadZipFromUrl(trimmed, {
+          onProgress: ({ loaded, total, percent }) => emitDownloadProgress(loaded, total, percent),
+        });
+      }
     } catch (downloadErr: unknown) {
       const fail = asZipUrlDownloadFailure(downloadErr);
       if (fail.code >= 400 && fail.code < 600) {

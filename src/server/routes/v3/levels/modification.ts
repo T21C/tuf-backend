@@ -60,14 +60,15 @@ router.post(
   Auth.verified(),
   ApiDoc({
     operationId: 'v3PostLevelUploadFromUrl',
-    summary: 'Upload level zip from URL',
+    summary: 'Upload level zip from URL or Steam Workshop',
     description:
-      'Super admin only. Downloads a remote .zip over http(s), validates it, uploads to CDN, and updates the level like POST /upload.',
+      'Super admin only. Accepts a direct http(s) archive URL (including Google Drive view links), or a Steam Workshop item URL / steam://url/CommunityFilePage/{id}. Workshop imports require SteamCMD on the server (STEAMCMD_PATH). Validates the archive, uploads to CDN, and updates the level like POST /upload.',
     tags: ['Database', 'Levels', 'v3'],
     security: ['bearerAuth'],
     params: { id: idParamSpec },
     requestBody: {
-      description: 'Direct download URL for a zip file',
+      description:
+        'Direct download URL for an archive, or a Steam Workshop filedetails / steam:// CommunityFilePage link',
       schema: {
         type: 'object',
         properties: {
