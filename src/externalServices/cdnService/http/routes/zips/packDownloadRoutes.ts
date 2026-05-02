@@ -25,6 +25,12 @@ const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
 const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
 /** Max path length for extraction (e.g. Windows MAX_PATH 260; extract folder + sep + path inside zip). */
 const MAX_PATH_LENGTH = 200;
+/** Minimum characters kept when trimming a folder name or file stem (avoids single-character segments). */
+const MIN_TRIMMED_SEGMENT_LEN = 7;
+/** Audio extensions eligible for path trimming (same set as zip payload extraction). */
+const TRIMMABLE_AUDIO_EXTENSIONS = new Set([
+    '.mp3', '.wav', '.ogg', '.oga', '.opus', '.flac', '.m4a', '.aac'
+]);
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -854,15 +860,26 @@ function countTotalLevels(node: PackDownloadNode): number {
 
 const PATH_SEP = path.win32.sep;
 
-/** Compute path length with trimmable segments (folders) capped at maxSegLen; files are included as-is. */
-function pathLengthWithCap(relPath: string, trimmableSet: Set<string>, maxSegLen: number): number {
+type TrimmableSegmentKind = 'folder' | 'file';
+
+/** Compute path length with trimmable segments capped at maxSegLen (folders: full basename; files: stem only, ext preserved). */
+function pathLengthWithCap(relPath: string, trimmableKinds: Map<string, TrimmableSegmentKind>, maxSegLen: number): number {
     const norm = path.win32.normalize(relPath);
     const segments = norm.split(PATH_SEP);
     let acc = '';
     let len = 0;
     for (const seg of segments) {
         acc = acc ? `${acc}${PATH_SEP}${seg}` : seg;
-        const segLen = trimmableSet.has(acc) ? Math.min(seg.length, maxSegLen) : seg.length;
+        const kind = trimmableKinds.get(acc);
+        let segLen: number;
+        if (kind === 'folder') {
+            segLen = Math.min(seg.length, maxSegLen);
+        } else if (kind === 'file') {
+            const parsed = path.parse(seg);
+            segLen = Math.min(parsed.name.length, maxSegLen) + parsed.ext.length;
+        } else {
+            segLen = seg.length;
+        }
         len += (len > 0 ? 1 : 0) + segLen;
     }
     return len;
@@ -892,11 +909,11 @@ async function getMaxRelativePathAndLength(dir: string, root: string): Promise<{
     return { maxLen, maxPath };
 }
 
-/** Returns max path length when all folder-only segment lengths are capped at maxSegLen. */
+/** Returns max path length when all marked trimmable segments are capped at maxSegLen. */
 async function getMaxPathLengthWithCap(
     dir: string,
     root: string,
-    folderOnlySet: Set<string>,
+    trimmableKinds: Map<string, TrimmableSegmentKind>,
     maxSegLen: number
 ): Promise<number> {
     let maxLen = 0;
@@ -905,10 +922,10 @@ async function getMaxPathLengthWithCap(
         const fullPath = path.join(dir, e.name);
         const rel = path.relative(root, fullPath);
         const relNorm = path.win32.normalize(rel);
-        const len = pathLengthWithCap(relNorm, folderOnlySet, maxSegLen);
+        const len = pathLengthWithCap(relNorm, trimmableKinds, maxSegLen);
         if (len > maxLen) maxLen = len;
         if (e.isDirectory()) {
-            const subMax = await getMaxPathLengthWithCap(fullPath, root, folderOnlySet, maxSegLen);
+            const subMax = await getMaxPathLengthWithCap(fullPath, root, trimmableKinds, maxSegLen);
             if (subMax > maxLen) maxLen = subMax;
         }
     }
@@ -919,6 +936,74 @@ interface FolderInfo {
     relativePath: string;
     name: string;
     isPureFolderOfFolders: boolean;
+}
+
+interface TrimmablePayloadFile {
+    relativePath: string;
+    name: string;
+    stem: string;
+    ext: string;
+}
+
+function buildTrimmableKindsMap(folders: FolderInfo[], files: TrimmablePayloadFile[]): Map<string, TrimmableSegmentKind> {
+    const m = new Map<string, TrimmableSegmentKind>();
+    for (const f of folders) {
+        m.set(path.win32.normalize(f.relativePath), 'folder');
+    }
+    for (const f of files) {
+        m.set(path.win32.normalize(f.relativePath), 'file');
+    }
+    return m;
+}
+
+async function findBestSegmentCap(
+    extractRoot: string,
+    trimmableKinds: Map<string, TrimmableSegmentKind>,
+    pathBudget: number,
+    maxSegCandidate: number
+): Promise<number> {
+    let low = MIN_TRIMMED_SEGMENT_LEN;
+    let high = Math.max(maxSegCandidate, MIN_TRIMMED_SEGMENT_LEN);
+    let bestCap = MIN_TRIMMED_SEGMENT_LEN;
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const simulatedMax = await getMaxPathLengthWithCap(extractRoot, extractRoot, trimmableKinds, mid);
+        if (simulatedMax <= pathBudget) {
+            bestCap = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return Math.max(bestCap, MIN_TRIMMED_SEGMENT_LEN);
+}
+
+/** `.adofai` and known audio files — safe to shorten stems for path limits (user can re-pick audio in editor). */
+async function collectTrimmablePayloadFiles(dir: string, root: string): Promise<TrimmablePayloadFile[]> {
+    const result: TrimmablePayloadFile[] = [];
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+        const fullPath = path.join(dir, e.name);
+        if (e.isDirectory()) {
+            result.push(...(await collectTrimmablePayloadFiles(fullPath, root)));
+            continue;
+        }
+        const extLower = path.extname(e.name).toLowerCase();
+        const isAdofai = extLower === '.adofai';
+        const isAudio = TRIMMABLE_AUDIO_EXTENSIONS.has(extLower);
+        if (!isAdofai && !isAudio) {
+            continue;
+        }
+        const rel = path.relative(root, fullPath);
+        const parsed = path.parse(e.name);
+        result.push({
+            relativePath: rel,
+            name: e.name,
+            stem: parsed.name,
+            ext: parsed.ext
+        });
+    }
+    return result;
 }
 
 /** Recursively collect all folders; marks which are pure folders-of-folders (no files). */
@@ -945,17 +1030,88 @@ async function collectFolders(dir: string, root: string): Promise<FolderInfo[]> 
     return result;
 }
 
+async function applyPackPathRenames(
+    extractRoot: string,
+    folderRenameList: FolderInfo[],
+    trimmableFiles: TrimmablePayloadFile[],
+    bestCap: number
+): Promise<void> {
+    type RenameEntry =
+        | { kind: 'folder'; relativePath: string; name: string }
+        | { kind: 'file'; relativePath: string; name: string; stem: string; ext: string };
+
+    const renameEntries: RenameEntry[] = [
+        ...folderRenameList.map((f) => ({
+            kind: 'folder' as const,
+            relativePath: f.relativePath,
+            name: f.name
+        })),
+        ...trimmableFiles.map((f) => ({
+            kind: 'file' as const,
+            relativePath: f.relativePath,
+            name: f.name,
+            stem: f.stem,
+            ext: f.ext
+        }))
+    ];
+
+    const cappedNames = renameEntries.map((e) => {
+        if (e.kind === 'folder') {
+            const capped = e.name.length > bestCap ? e.name.slice(0, bestCap) : e.name;
+            return capped || 'pack';
+        }
+        const newStem = e.stem.length > bestCap ? e.stem.slice(0, bestCap) : e.stem;
+        return newStem + e.ext;
+    });
+
+    const parentToChildren = new Map<string, { index: number; newName: string }[]>();
+    for (let i = 0; i < renameEntries.length; i++) {
+        const e = renameEntries[i];
+        const parentRaw = path.win32.dirname(e.relativePath);
+        const parentKey = parentRaw === '.' ? '' : parentRaw;
+        const arr = parentToChildren.get(parentKey) ?? [];
+        arr.push({ index: i, newName: cappedNames[i] });
+        parentToChildren.set(parentKey, arr);
+    }
+
+    const uniqueNewNames: string[] = [];
+    for (let i = 0; i < renameEntries.length; i++) {
+        const e = renameEntries[i];
+        const parentRaw = path.win32.dirname(e.relativePath);
+        const parentKey = parentRaw === '.' ? '' : parentRaw;
+        const siblings = parentToChildren.get(parentKey) ?? [];
+        const sameCapped = siblings.filter((s) => s.newName === cappedNames[i]);
+        const idx = sameCapped.findIndex((s) => s.index === i) + 1;
+        uniqueNewNames.push(idx > 1 ? `${cappedNames[i]}_${idx}` : cappedNames[i]);
+    }
+
+    const renames: { oldPath: string; newPath: string }[] = [];
+    for (let i = 0; i < renameEntries.length; i++) {
+        const e = renameEntries[i];
+        const newName = uniqueNewNames[i];
+        if (e.name === newName) {
+            continue;
+        }
+        const parentRel = path.win32.dirname(e.relativePath);
+        const newRel = parentRel && parentRel !== '.' ? path.join(parentRel, newName) : newName;
+        renames.push({
+            oldPath: path.join(extractRoot, e.relativePath),
+            newPath: path.join(extractRoot, newRel)
+        });
+    }
+
+    renames.sort((a, b) => b.oldPath.length - a.oldPath.length);
+    for (const { oldPath, newPath } of renames) {
+        await fs.promises.rename(oldPath, newPath);
+    }
+}
+
 /**
- * After unpack: find the deepest path (to files), identify pure folders-of-folders in it, and apply
- * a uniform ceiling to minimize the total path length (including files) so extractFolderName + sep +
- * pathInsideZip stays under MAX_PATH_LENGTH. Uses pure folders-of-folders first; if still
- * over budget, also trims level folders (containing files).
+ * After unpack: trim longest path segments so extractFolderName + sep + pathInsideZip stays under
+ * MAX_PATH_LENGTH. Prefers pure folders-of-folders, then all folders, then `.adofai` + audio stems.
  */
 async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string): Promise<void> {
     const allFolders = await collectFolders(extractRoot, extractRoot);
-    if (allFolders.length === 0) {
-        return;
-    }
 
     const extractFolderName = path.parse(zipName).name || 'pack';
     const pathBudget = Math.max(7, MAX_PATH_LENGTH - 1 - extractFolderName.length);
@@ -965,93 +1121,88 @@ async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string)
         return;
     }
 
+    if (allFolders.length === 0) {
+        const payloadOnly = await collectTrimmablePayloadFiles(extractRoot, extractRoot);
+        if (payloadOnly.length === 0) {
+            return;
+        }
+        const mapFiles = buildTrimmableKindsMap([], payloadOnly);
+        const maxSeg = Math.max(
+            ...payloadOnly.map((f) => f.stem.length),
+            MIN_TRIMMED_SEGMENT_LEN
+        );
+        const bestCap = await findBestSegmentCap(extractRoot, mapFiles, pathBudget, maxSeg);
+        const simOnly = await getMaxPathLengthWithCap(extractRoot, extractRoot, mapFiles, bestCap);
+        if (simOnly > pathBudget) {
+            logger.warn('Pack path trim: max path may still exceed budget after payload file trim only', {
+                pathBudget,
+                simulatedMax: simOnly,
+                extractFolderName
+            });
+        }
+        await applyPackPathRenames(extractRoot, [], payloadOnly, bestCap);
+        return;
+    }
+
     const pureFolderList = allFolders.filter((f) => f.isPureFolderOfFolders);
-    const trimmableList =
+    const trimmableFoldersPhase1 =
         pureFolderList.length > 0 ? pureFolderList : allFolders;
-    const trimmableSet = new Set(trimmableList.map((f) => path.win32.normalize(f.relativePath)));
-    const maxNameLen = Math.max(...trimmableList.map((f) => f.name.length), 1);
+    const mapPhase1 = buildTrimmableKindsMap(trimmableFoldersPhase1, []);
+    const maxSegPhase1 = Math.max(
+        ...trimmableFoldersPhase1.map((f) => f.name.length),
+        MIN_TRIMMED_SEGMENT_LEN
+    );
 
-    let low = 1;
-    let high = maxNameLen;
-    let bestCap = 1;
-    while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        const simulatedMax = await getMaxPathLengthWithCap(extractRoot, extractRoot, trimmableSet, mid);
-        if (simulatedMax <= pathBudget) {
-            bestCap = mid;
-            low = mid + 1;
-        } else {
-            high = mid - 1;
-        }
-    }
+    let bestCap = await findBestSegmentCap(extractRoot, mapPhase1, pathBudget, maxSegPhase1);
+    let folderRenameList: FolderInfo[] = trimmableFoldersPhase1;
+    let trimmableFiles: TrimmablePayloadFile[] = [];
 
-    let finalList = trimmableList;
     if (pureFolderList.length > 0) {
-        const pureSet = new Set(pureFolderList.map((f) => path.win32.normalize(f.relativePath)));
-        const afterPure = await getMaxPathLengthWithCap(extractRoot, extractRoot, pureSet, bestCap);
+        const pureMap = buildTrimmableKindsMap(pureFolderList, []);
+        const afterPure = await getMaxPathLengthWithCap(extractRoot, extractRoot, pureMap, bestCap);
         if (afterPure > pathBudget && allFolders.length > pureFolderList.length) {
-            const combinedSet = new Set(allFolders.map((f) => path.win32.normalize(f.relativePath)));
-            let low2 = 1;
-            let high2 = Math.max(...allFolders.map((f) => f.name.length), 1);
-            let bestCap2 = 1;
-            while (low2 <= high2) {
-                const mid = Math.floor((low2 + high2) / 2);
-                const sim = await getMaxPathLengthWithCap(extractRoot, extractRoot, combinedSet, mid);
-                if (sim <= pathBudget) {
-                    bestCap2 = mid;
-                    low2 = mid + 1;
-                } else {
-                    high2 = mid - 1;
-                }
+            const mapPhase2 = buildTrimmableKindsMap(allFolders, []);
+            const maxSegPhase2 = Math.max(
+                ...allFolders.map((f) => f.name.length),
+                MIN_TRIMMED_SEGMENT_LEN
+            );
+            bestCap = await findBestSegmentCap(extractRoot, mapPhase2, pathBudget, maxSegPhase2);
+            folderRenameList = allFolders;
+        }
+    }
+
+    const mapAfterPh12 = buildTrimmableKindsMap(folderRenameList, []);
+    let simAfter = await getMaxPathLengthWithCap(extractRoot, extractRoot, mapAfterPh12, bestCap);
+    if (simAfter > pathBudget) {
+        const payloadFiles = await collectTrimmablePayloadFiles(extractRoot, extractRoot);
+        if (payloadFiles.length > 0) {
+            const mapPhase3 = buildTrimmableKindsMap(allFolders, payloadFiles);
+            const maxSegPhase3 = Math.max(
+                ...allFolders.map((f) => f.name.length),
+                ...payloadFiles.map((f) => f.stem.length),
+                MIN_TRIMMED_SEGMENT_LEN
+            );
+            bestCap = await findBestSegmentCap(extractRoot, mapPhase3, pathBudget, maxSegPhase3);
+            simAfter = await getMaxPathLengthWithCap(extractRoot, extractRoot, mapPhase3, bestCap);
+            if (simAfter > pathBudget) {
+                logger.warn('Pack path trim: max path may still exceed budget after folder and payload file trim', {
+                    pathBudget,
+                    simulatedMax: simAfter,
+                    extractFolderName
+                });
             }
-            bestCap = bestCap2;
-            finalList = allFolders;
+            folderRenameList = allFolders;
+            trimmableFiles = payloadFiles;
+        } else {
+            logger.warn('Pack path trim: over budget but no .adofai/audio entries to shorten', {
+                pathBudget,
+                simulatedMax: simAfter,
+                extractFolderName
+            });
         }
     }
 
-    const cappedNames = finalList.map((f) => {
-        const capped = f.name.length > bestCap ? f.name.slice(0, bestCap) : f.name;
-        return capped || 'pack';
-    });
-
-    const parentToChildren = new Map<string, { index: number; newName: string }[]>();
-    for (let i = 0; i < finalList.length; i++) {
-        const f = finalList[i];
-        const parent = path.dirname(f.relativePath) || '';
-        const arr = parentToChildren.get(parent) ?? [];
-        arr.push({ index: i, newName: cappedNames[i] });
-        parentToChildren.set(parent, arr);
-    }
-
-    const uniqueNewNames: string[] = [];
-    for (let i = 0; i < finalList.length; i++) {
-        const f = finalList[i];
-        const parent = path.dirname(f.relativePath) || '';
-        const siblings = parentToChildren.get(parent) ?? [];
-        const sameCapped = siblings.filter((s) => s.newName === cappedNames[i]);
-        const idx = sameCapped.findIndex((s) => s.index === i) + 1;
-        uniqueNewNames.push(idx > 1 ? `${cappedNames[i]}_${idx}` : cappedNames[i]);
-    }
-
-    const renames: { oldPath: string; newPath: string }[] = [];
-    for (let i = 0; i < finalList.length; i++) {
-        const f = finalList[i];
-        const newName = uniqueNewNames[i];
-        if (f.name === newName) {
-            continue;
-        }
-        const parentRel = path.dirname(f.relativePath);
-        const newRel = parentRel ? path.join(parentRel, newName) : newName;
-        renames.push({
-            oldPath: path.join(extractRoot, f.relativePath),
-            newPath: path.join(extractRoot, newRel)
-        });
-    }
-
-    renames.sort((a, b) => b.oldPath.length - a.oldPath.length);
-    for (const { oldPath, newPath } of renames) {
-        await fs.promises.rename(oldPath, newPath);
-    }
+    await applyPackPathRenames(extractRoot, folderRenameList, trimmableFiles, bestCap);
 }
 
 async function processPackNode(node: PackDownloadNode, parentPath: string, context: PackGenerationContext): Promise<void> {
