@@ -12,7 +12,6 @@ export interface HealthCheckResponse {
   };
   system: {
     uptime: number;
-    memory: { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number };
     nodeVersion: string;
     platform: string;
     env: string;
@@ -38,10 +37,6 @@ export const healthCheckResponseSchema: JsonSchema = {
       type: 'object',
       properties: {
         uptime: { type: 'number' },
-        memory: {
-          type: 'object',
-          properties: { rss: { type: 'number' }, heapTotal: { type: 'number' }, heapUsed: { type: 'number' }, external: { type: 'number' }, arrayBuffers: { type: 'number' } },
-        },
         nodeVersion: { type: 'string' },
         platform: { type: 'string' },
         env: { type: 'string' },

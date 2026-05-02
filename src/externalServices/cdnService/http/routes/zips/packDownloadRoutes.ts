@@ -24,7 +24,7 @@ const PACK_DOWNLOAD_SPACES_PREFIX = process.env.NODE_ENV === 'development' ? 'pa
 const PACK_DOWNLOAD_MAX_SIZE_BYTES = 15 * 1024 * 1024 * 1024; // 15GB hard limit
 const PACK_DOWNLOAD_MAX_CONCURRENT_SIZE_BYTES = 20 * 1024 * 1024 * 1024; // 20GB total concurrent limit
 /** Max path length for extraction (e.g. Windows MAX_PATH 260; extract folder + sep + path inside zip). */
-const MAX_PATH_LENGTH = 140;
+const MAX_PATH_LENGTH = 200;
 
 type PackDownloadNode = {
     type: 'folder' | 'level';
@@ -958,7 +958,7 @@ async function trimRootFoldersForPathLimit(extractRoot: string, zipName: string)
     }
 
     const extractFolderName = path.parse(zipName).name || 'pack';
-    const pathBudget = Math.max(1, MAX_PATH_LENGTH - 1 - extractFolderName.length);
+    const pathBudget = Math.max(7, MAX_PATH_LENGTH - 1 - extractFolderName.length);
 
     const { maxLen } = await getMaxRelativePathAndLength(extractRoot, extractRoot);
     if (maxLen <= pathBudget) {

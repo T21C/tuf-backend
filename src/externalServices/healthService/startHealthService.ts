@@ -1,25 +1,27 @@
+import { logger } from '@/server/services/core/LoggerService.js';
 import { HealthService } from './HealthService.js';
+import { HEALTH_CONFIG } from './config.js';
 
-// Inform users about running the health service independently
-console.log('Starting health service in standalone mode...');
-console.log('Health service will listen on port 3883 and monitor the main server.');
+logger.info(`[health] starting standalone health service on port ${HEALTH_CONFIG.port}`);
 
-// Start the health service
 const healthService = HealthService.getInstance();
-healthService.start().catch(error => {
-  console.error('Failed to start health service:', error);
+healthService.start().catch((error) => {
+  logger.error('[health] failed to start', {
+    error: error instanceof Error ? error.message : String(error),
+  });
   process.exit(1);
 });
 
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('Shutting down health service...');
+async function shutdown(signal: string): Promise<void> {
+  logger.info(`[health] received ${signal}, shutting down`);
   await healthService.stop();
   process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
 });
 
-process.on('SIGTERM', async () => {
-  console.log('Shutting down health service...');
-  await healthService.stop();
-  process.exit(0);
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
 });

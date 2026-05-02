@@ -37,6 +37,13 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Cheap liveness probe target for the standalone health service. Mounted
+// before the main router so it can't be blocked by heavy upload/parse routes
+// or any future middleware that touches the DB.
+app.get('/health', (_req, res) => {
+    res.json({ ok: true, service: 'cdn' });
+});
+
 // Global error handling middleware
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

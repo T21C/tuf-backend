@@ -16,7 +16,7 @@ router.get(
   ApiDoc({
     operationId: 'getHealth',
     summary: 'Health check',
-    description: 'Returns status of database, socket server, and system info',
+    description: 'Returns status of database, socket server, and basic system info',
     tags: ['Health'],
     responses: {
       200: { description: 'Service status and checks', schema: healthCheckResponseSchema },
@@ -34,7 +34,6 @@ router.get(
     // Get system information
     const systemInfo = {
       uptime: process.uptime(),
-      memory: process.memoryUsage(),
       nodeVersion: process.version,
       platform: process.platform,
       env: process.env.NODE_ENV || 'development'
