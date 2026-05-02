@@ -418,7 +418,7 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
         } catch (err) {
           logger.error('Async upload-from-url finalise failed', {
             levelId,
-            error: err instanceof Error ? err.message : String(err),
+            err
           });
         } finally {
           activeLevelZipFinalizeByLevelId.delete(levelId);
