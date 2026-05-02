@@ -304,7 +304,7 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
           meta: {
             levelId,
             source: 'upload_from_url',
-            stage: workshopPublishedFileId ? 'agent' : 'download',
+            stage: 'download',
           },
         })
         .catch(() => undefined);
@@ -352,19 +352,8 @@ export async function handlePostLevelZipUploadFromUrl(req: Request, res: Respons
     try {
       if (workshopPublishedFileId) {
         fileBuffer = await downloadSteamWorkshopItemToZipBuffer(workshopPublishedFileId, {
-          onPhase: async () => {
-            if (!uploadJobId || !req.user?.id) {
-              return;
-            }
-            await jobProgressService
-              .patchTrusted(uploadJobId, {
-                phase: 'downloading_remote',
-                percent: 5,
-                message: 'Downloading from Steam Workshop (agent)…',
-                meta: { levelId, source: 'upload_from_url', stage: 'agent' },
-              })
-              .catch(() => undefined);
-          },
+          onProgress: ({ loaded, total, percent }) =>
+            emitDownloadProgress(loaded, total, percent),
         });
       } else {
         fileBuffer = await downloadZipFromUrl(trimmed, {

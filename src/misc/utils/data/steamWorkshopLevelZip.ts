@@ -1,8 +1,10 @@
 import axios from 'axios';
+import type { Readable } from 'stream';
 import {
   assertValidArchiveBuffer,
   LEVEL_ZIP_IMPORT_MAX_BYTES,
   normalizeZipUrlDownloadError,
+  type ZipUrlDownloadProgress,
 } from '@/misc/utils/data/levelZipFromUrl.js';
 
 /**
@@ -12,6 +14,9 @@ import {
  * Configure `STEAM_WORKSHOP_AGENT_URL`, `STEAM_WORKSHOP_AGENT_SECRET`, optional
  * `STEAM_WORKSHOP_AGENT_TIMEOUT_MS` (default 45 min), optional `STEAM_WORKSHOP_APP_ID`
  * passed through to the agent in the JSON body.
+ *
+ * The zip body is read as a stream so `onDownloadProgress` reflects Tailscale/HTTP transfer
+ * (0–100 when `Content-Length` is present), matching direct cloud URL downloads.
  */
 
 /** Published file id as decimal string (may exceed JS safe integer). */
@@ -53,7 +58,10 @@ export type SteamWorkshopDownloadPhase = 'agent';
 
 export type DownloadSteamWorkshopItemToZipBufferOptions = {
   signal?: AbortSignal;
+  /** Fires once before the HTTP request is sent (e.g. “waiting for agent”). */
   onPhase?: (phase: SteamWorkshopDownloadPhase) => void | Promise<void>;
+  /** Bytes received while reading the agent’s zip response (same shape as direct URL import). */
+  onProgress?: (p: ZipUrlDownloadProgress) => void | Promise<void>;
 };
 
 function agentTimeoutMs(): number {
@@ -72,9 +80,19 @@ function agentBaseUrl(): string | null {
   return u || null;
 }
 
-function parseAgentErrorBody(data: ArrayBuffer): { error: string; code: number } | null {
+function parseContentLength(headers: Record<string, unknown>): number {
+  const raw = headers['content-length'];
+  const s = Array.isArray(raw) ? raw[0] : raw;
+  if (s == null || s === '') {
+    return 0;
+  }
+  const n = parseInt(String(s), 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function parseAgentErrorBody(data: Buffer): { error: string; code: number } | null {
   try {
-    const txt = Buffer.from(data).toString('utf8').trim();
+    const txt = data.toString('utf8').trim();
     if (!txt || txt.startsWith('PK')) {
       return null;
     }
@@ -86,6 +104,74 @@ function parseAgentErrorBody(data: ArrayBuffer): { error: string; code: number }
     /* not JSON */
   }
   return null;
+}
+
+async function readStreamToBufferLimit(stream: Readable, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let loaded = 0;
+  for await (const chunk of stream) {
+    const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+    loaded += b.length;
+    chunks.push(b);
+    if (loaded >= maxBytes) {
+      break;
+    }
+  }
+  return Buffer.concat(chunks);
+}
+
+async function readZipStreamWithProgress(
+  stream: Readable,
+  options: {
+    totalHint: number;
+    maxBytes: number;
+    signal?: AbortSignal;
+    onProgress?: (p: ZipUrlDownloadProgress) => void | Promise<void>;
+  },
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let loaded = 0;
+  let total = options.totalHint;
+
+  const onAbort = () => {
+    stream.destroy();
+  };
+  if (options.signal) {
+    if (options.signal.aborted) {
+      onAbort();
+      throw { error: 'Steam Workshop download was cancelled', code: 499 };
+    }
+    options.signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  try {
+    for await (const chunk of stream) {
+      if (options.signal?.aborted) {
+        throw { error: 'Steam Workshop download was cancelled', code: 499 };
+      }
+      const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      loaded += b.length;
+      if (loaded > options.maxBytes) {
+        throw { error: 'Downloaded workshop zip exceeds maximum allowed size', code: 400 };
+      }
+      chunks.push(b);
+      const percent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+      await options.onProgress?.({ loaded, total, percent });
+    }
+  } finally {
+    if (options.signal) {
+      options.signal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  const buf = Buffer.concat(chunks);
+  if (total === 0 && buf.length > 0) {
+    await options.onProgress?.({ loaded: buf.length, total: buf.length, percent: 100 });
+  } else if (total > 0 && loaded >= total) {
+    await options.onProgress?.({ loaded, total, percent: 100 });
+  }
+
+  return buf;
 }
 
 /**
@@ -120,8 +206,8 @@ export async function downloadSteamWorkshopItemToZipBuffer(
   const url = `${base}/v1/workshop/item.zip`;
 
   try {
-    const res = await axios.post<ArrayBuffer>(url, body, {
-      responseType: 'arraybuffer',
+    const res = await axios.post<Readable>(url, body, {
+      responseType: 'stream',
       timeout: agentTimeoutMs(),
       maxContentLength: LEVEL_ZIP_IMPORT_MAX_BYTES + 256,
       maxBodyLength: 65536,
@@ -134,7 +220,8 @@ export async function downloadSteamWorkshopItemToZipBuffer(
     });
 
     if (res.status !== 200) {
-      const parsed = parseAgentErrorBody(res.data as ArrayBuffer);
+      const errBuf = await readStreamToBufferLimit(res.data, 65536);
+      const parsed = parseAgentErrorBody(errBuf);
       if (parsed) {
         throw { error: parsed.error, code: parsed.code };
       }
@@ -144,7 +231,16 @@ export async function downloadSteamWorkshopItemToZipBuffer(
       };
     }
 
-    const buf = Buffer.from(res.data as ArrayBuffer);
+    const totalFromHeader = parseContentLength(res.headers as Record<string, unknown>);
+    await options?.onProgress?.({ loaded: 0, total: totalFromHeader, percent: 0 });
+
+    const buf = await readZipStreamWithProgress(res.data, {
+      totalHint: totalFromHeader,
+      maxBytes: LEVEL_ZIP_IMPORT_MAX_BYTES,
+      signal: options?.signal,
+      onProgress: options?.onProgress,
+    });
+
     if (buf.length === 0) {
       throw { error: 'Steam Workshop agent returned an empty zip', code: 502 };
     }
@@ -162,10 +258,17 @@ export async function downloadSteamWorkshopItemToZipBuffer(
       if (err.code === 'ECONNABORTED') {
         throw { error: 'Steam Workshop agent request timed out', code: 504 };
       }
-      if (err.response?.data instanceof ArrayBuffer) {
-        const parsed = parseAgentErrorBody(err.response.data);
-        if (parsed) {
-          throw { error: parsed.error, code: parsed.code };
+      if (err.response?.data && typeof (err.response.data as Readable).read === 'function') {
+        try {
+          const errBuf = await readStreamToBufferLimit(err.response.data as Readable, 65536);
+          const parsed = parseAgentErrorBody(errBuf);
+          if (parsed) {
+            throw { error: parsed.error, code: parsed.code };
+          }
+        } catch (inner) {
+          if (typeof inner === 'object' && inner !== null && 'error' in inner && 'code' in inner) {
+            throw inner;
+          }
         }
       }
       const msg = err.message || 'Steam Workshop agent request failed';
